@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import 'user_service.dart';
@@ -194,63 +195,134 @@ class AiRecommendationService {
     return results;
   }
 
+  /// modelRecs 비어있을 때 users 컬렉션에서 폴백 프로필 로드
+  Future<List<AiRecommendedProfile>> _fetchFallbackFromUsers(
+    String currentUserId,
+    int limit,
+  ) async {
+    final uuid = const Uuid();
+    final todayKey = _generateKstDateKey(DateTime.now());
+    final snapshot = await _firestore
+        .collection('users')
+        .limit(30) // 본인 제외·필터 후 limit 채우기 위해 여유
+        .get();
+
+    final results = <AiRecommendedProfile>[];
+    for (final doc in snapshot.docs) {
+      if (doc.id == currentUserId) continue;
+      if (results.length >= limit) break;
+
+      final data = doc.data();
+      if (data['isStudentVerified'] != true) continue;
+
+      final onboarding = data['onboarding'];
+      if (onboarding is! Map) continue;
+
+      final photoUrls = onboarding['photoUrls'];
+      final images = photoUrls is List && photoUrls.isNotEmpty
+          ? List<String>.from(photoUrls)
+          : <String>[];
+      if (images.isEmpty) continue; // 사진 있는 유저만
+
+      final nickname = onboarding['nickname'] as String? ?? '익명';
+      int age = 20;
+      final birthYear = onboarding['birthYear'];
+      if (birthYear != null) {
+        final y = int.tryParse(birthYear.toString());
+        if (y != null) age = DateTime.now().year - y;
+      }
+      final major = onboarding['major'] as String? ?? '전공 미상';
+
+      results.add(
+        AiRecommendedProfile(
+          candidateUid: doc.id,
+          name: nickname,
+          age: age,
+          major: major,
+          bio: '',
+          university: '',
+          imageUrls: images,
+          tags: [],
+          rank: 999,
+          primaryAlgo: 'fallback',
+          dateKey: todayKey,
+          exposureId: uuid.v4(),
+        ),
+      );
+    }
+    return results;
+  }
+
   /// Profile Card (일반 스와이프 추천) 피드를 불러옵니다.
-  /// (현재는 SVD 모델의 결과를 메인 피드로 사용한다고 가정)
-  Future<List<AiRecommendedProfile>> fetchProfileFeed({int limit = 10}) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return [];
+  /// modelRecs 없으면 users 폴백 사용.
+  Future<List<AiRecommendedProfile>> fetchProfileFeed({
+    int limit = 10,
+    String? userId,
+  }) async {
+    final uid = userId ?? FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) return [];
 
     try {
-      final result = await _fetchRawRecs(user.uid, 'svd');
-      if (result == null) return [];
-
-      final data = result['data'] as Map<String, dynamic>;
-      final dateKey = result['dateKey'] as String;
-      final items = data['items'] as List<dynamic>? ?? [];
-
-      return await _hydrateProfiles(
-        rawItems: items,
-        algo: 'svd',
-        dateKey: dateKey,
-        limit: limit,
-      );
+      var result = await _fetchRawRecs(uid, 'svd');
+      if (result != null) {
+        final data = result['data'] as Map<String, dynamic>;
+        final dateKey = result['dateKey'] as String;
+        final items = data['items'] as List<dynamic>? ?? [];
+        return await _hydrateProfiles(
+          rawItems: items,
+          algo: 'svd',
+          dateKey: dateKey,
+          limit: limit,
+        );
+      }
+      if (kDebugMode) debugPrint('[AI] fetchProfileFeed: modelRecs empty, using users fallback');
+      return await _fetchFallbackFromUsers(uid, limit);
     } catch (e) {
-      print('fetchProfileFeed Error: \$e');
-      return []; // 에러 시 빈 리스트
+      print('fetchProfileFeed Error: $e');
+      if (kDebugMode) debugPrint('[AI] fetchProfileFeed: error, trying users fallback');
+      return await _fetchFallbackFromUsers(uid, limit);
     }
   }
 
-  /// Mystery Card (클립 기반/취향 저격) 피드를 불러옵니다.
-  /// (CLIP 모델 결과를 미스터리 카드로 사용한다고 가정)
-  Future<List<AiRecommendedProfile>> fetchMysteryFeed({int limit = 3}) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return [];
+  /// Mystery Card (RRF 통합 / CLIP / SVD) 피드를 불러옵니다.
+  /// modelRecs 없으면 users 폴백 사용.
+  Future<List<AiRecommendedProfile>> fetchMysteryFeed({
+    int limit = 3,
+    String? userId,
+  }) async {
+    final uid = userId ?? FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) return [];
 
     try {
-      var result = await _fetchRawRecs(user.uid, 'clip');
-      String algoUsed = 'clip';
-      
-      // 클립 결과가 없으면 SVD를 폴백으로 사용
+      var result = await _fetchRawRecs(uid, 'rrf');
+      String algoUsed = 'rrf';
+
       if (result == null) {
-        result = await _fetchRawRecs(user.uid, 'svd');
+        result = await _fetchRawRecs(uid, 'clip');
+        algoUsed = 'clip';
+      }
+      if (result == null) {
+        result = await _fetchRawRecs(uid, 'svd');
         algoUsed = 'svd';
       }
-      
-      if (result == null) return [];
 
-      final data = result['data'] as Map<String, dynamic>;
-      final dateKey = result['dateKey'] as String;
-      final items = data['items'] as List<dynamic>? ?? [];
-
-      return await _hydrateProfiles(
-        rawItems: items,
-        algo: algoUsed,
-        dateKey: dateKey,
-        limit: limit,
-      );
+      if (result != null) {
+        final data = result['data'] as Map<String, dynamic>;
+        final dateKey = result['dateKey'] as String;
+        final items = data['items'] as List<dynamic>? ?? [];
+        return await _hydrateProfiles(
+          rawItems: items,
+          algo: algoUsed,
+          dateKey: dateKey,
+          limit: limit,
+        );
+      }
+      if (kDebugMode) debugPrint('[AI] fetchMysteryFeed: modelRecs empty, using users fallback');
+      return await _fetchFallbackFromUsers(uid, limit);
     } catch (e) {
       print('fetchMysteryFeed Error: $e');
-      return []; // 에러 시 빈 리스트
+      if (kDebugMode) debugPrint('[AI] fetchMysteryFeed: error, trying users fallback');
+      return await _fetchFallbackFromUsers(uid, limit);
     }
   }
 }

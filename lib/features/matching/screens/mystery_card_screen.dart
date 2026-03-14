@@ -9,12 +9,12 @@
 
 import 'dart:math';
 import 'dart:ui';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import '../../../router/route_names.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/ai_recommendation_service.dart';
+import '../../../services/storage_service.dart';
 
 // =============================================================================
 // 색상 상수
@@ -304,6 +304,8 @@ class _MainContentState extends State<_MainContent> {
   int _currentIndex = 0;
   List<AiRecommendedProfile> _profiles = [];
   bool _isLoading = true;
+  String? _kakaoUserId;
+  final _storageService = StorageService();
 
   @override
   void initState() {
@@ -315,8 +317,11 @@ class _MainContentState extends State<_MainContent> {
   }
 
   Future<void> _loadRecommendations() async {
+    final kakaoUserId = await _storageService.getKakaoUserId();
+    if (mounted) setState(() => _kakaoUserId = kakaoUserId);
+
     final aiService = AiRecommendationService();
-    final feed = await aiService.fetchMysteryFeed(limit: 3);
+    final feed = await aiService.fetchMysteryFeed(limit: 3, userId: kakaoUserId);
 
     if (!mounted) return;
     setState(() {
@@ -333,7 +338,7 @@ class _MainContentState extends State<_MainContent> {
 
   void _recordImpression(int index) {
     if (index >= _profiles.length) return;
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = _kakaoUserId;
     if (uid == null) return;
 
     final profile = _profiles[index];
@@ -359,7 +364,7 @@ class _MainContentState extends State<_MainContent> {
       cardVariant: 'real_profile',
       exposureId: profile.exposureId,
       context: contextMetadata,
-    );
+    ).catchError((e) => debugPrint('[RecEvent] mystery_card impression failed: $e'));
   }
 
   @override
@@ -485,6 +490,7 @@ class _MainContentState extends State<_MainContent> {
                               key: ValueKey(_profiles[index].candidateUid),
                               profile: _profiles[index],
                               isActive: isActive,
+                              kakaoUserId: _kakaoUserId,
                             ),
                           ),
                         ),
@@ -528,11 +534,13 @@ class _MainContentState extends State<_MainContent> {
 class _MysteryCard extends StatefulWidget {
   final AiRecommendedProfile profile;
   final bool isActive;
+  final String? kakaoUserId;
 
   const _MysteryCard({
     super.key,
     required this.profile,
     required this.isActive,
+    this.kakaoUserId,
   });
 
   @override
@@ -583,7 +591,7 @@ class _MysteryCardState extends State<_MysteryCard>
     } else {
       // 1차 탭: 플립 애니메이션으로 프로필 공개 + recEvents open 기록
       HapticFeedback.mediumImpact();
-      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final uid = widget.kakaoUserId;
       if (uid != null) {
         final Map<String, dynamic> contextMetadata = {
           'screen': 'mystery_card_screen',
@@ -606,7 +614,7 @@ class _MysteryCardState extends State<_MysteryCard>
           cardVariant: 'real_profile',
           exposureId: widget.profile.exposureId,
           context: contextMetadata,
-        );
+        ).catchError((e) => debugPrint('[RecEvent] mystery_card open failed: $e'));
       }
       _controller.forward().then((_) {
         if (mounted) setState(() => _isRevealed = true);

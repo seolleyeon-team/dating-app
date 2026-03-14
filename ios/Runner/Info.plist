@@ -61,6 +61,7 @@
 <array>
 	<string>kakaokompassauth</string>
 	<string>kakaolink</string>
+	<string>googlegmail</string>
 </array>
 <key>FlutterDeepLinkingEnabled</key>
 <false/>

@@ -216,7 +216,6 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                     _Header(
                       currentStep: widget.currentStep,
                       totalSteps: widget.totalSteps,
-                      onBack: _handleBack,
                     ),
                     // 메인 콘텐츠
                   Expanded(
@@ -429,14 +428,26 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                         color: Color(0xFF9CA3AF),
                                         size: 20,
                                       ),
-                                      onPressed: () {
+                                      onPressed: () async {
                                         HapticFeedback.selectionClick();
-                                        Navigator.of(
+                                        final currentHeight =
+                                            int.tryParse(_heightController.text) ??
+                                                175;
+                                        final result = await Navigator.of(
                                           context,
                                           rootNavigator: true,
-                                        ).pushNamed(
+                                        ).pushNamed<int>(
                                           RouteNames.onboardingHeightSelection,
+                                          arguments: {
+                                            'initialHeight': currentHeight
+                                                .clamp(140, 200),
+                                          },
                                         );
+                                        if (result != null && mounted) {
+                                          setState(() =>
+                                              _heightController.text =
+                                                  result.toString());
+                                        }
                                       },
                                     ),
                                     prefixIconConstraints: const BoxConstraints(
@@ -797,12 +808,10 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
 class _Header extends StatelessWidget {
   final int currentStep;
   final int totalSteps;
-  final VoidCallback? onBack;
 
   const _Header({
     required this.currentStep,
     required this.totalSteps,
-    this.onBack,
   });
 
   @override
@@ -811,27 +820,8 @@ class _Header extends StatelessWidget {
       color: _AppColors.backgroundLight.withValues(alpha: 0.8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          IconButton(
-            onPressed: () {
-              HapticFeedback.lightImpact();
-              if (onBack != null) {
-                onBack!.call();
-              } else {
-                Navigator.of(context).pop();
-              }
-            },
-            icon: const Icon(
-              Icons.arrow_back_rounded,
-              color: _AppColors.textMain,
-              size: 24,
-            ),
-            style: IconButton.styleFrom(
-              padding: const EdgeInsets.all(8),
-              backgroundColor: Colors.transparent,
-            ),
-          ),
           // 커스텀 프로그레스 인디케이터
           Row(
             children: List.generate(totalSteps, (index) {
@@ -848,7 +838,6 @@ class _Header extends StatelessWidget {
               );
             }),
           ),
-          const SizedBox(width: 40),
         ],
       ),
     );

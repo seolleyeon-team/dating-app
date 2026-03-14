@@ -5,7 +5,10 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
+import 'package:uuid/uuid.dart';
+
 import '../../../router/route_names.dart';
+import '../../../services/rec_event_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/widgets/seol_swipe_deck.dart';
@@ -29,6 +32,10 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
 
   final _storageService = StorageService();
   final _userService = UserService();
+  final _recEventService = RecEventService();
+  final _uuid = const Uuid();
+
+  String? _kakaoUserId;
 
   final Map<String, String> _urlCacheByPath = {};
   final Map<int, String?> _heightTagCacheById = {};
@@ -60,6 +67,8 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     setState(() => _loading = true);
 
     final kakaoUserId = await _storageService.getKakaoUserId();
+    _kakaoUserId = kakaoUserId;
+    debugPrint('[AI_PREF] kakaoUserId=$kakaoUserId');
 
     String? gender;
     if (kakaoUserId != null && kakaoUserId.isNotEmpty) {
@@ -79,6 +88,10 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
 
     if (!mounted) return;
     setState(() => _loading = false);
+
+    if (_cards.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _recordImpression(0));
+    }
   }
 
   String? _extractGender(Map<String, dynamic>? profile) {
@@ -183,12 +196,28 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
 
   String _storagePathFor(String folder, int id) => 'ai_profiles/$folder/$id.png';
 
+  /// Storage에 없을 때 사용할 플레이스홀더 (404 시)
+  static const String _placeholderUrl =
+      'https://placehold.co/400x600/e2e8f0/64748b?text=No+Image';
+
   Future<String> _getDownloadUrl(String storagePath) async {
     final cached = _urlCacheByPath[storagePath];
     if (cached != null) return cached;
-    final url = await _storage.ref(storagePath).getDownloadURL();
-    _urlCacheByPath[storagePath] = url;
-    return url;
+    try {
+      final url = await _storage.ref(storagePath).getDownloadURL();
+      _urlCacheByPath[storagePath] = url;
+      return url;
+    } on FirebaseException catch (e) {
+      if (e.code == 'object-not-found' ||
+          e.code == 'storage/object-not-found' ||
+          (e.message?.contains('404') ?? false) ||
+          (e.message?.toLowerCase().contains('not found') ?? false)) {
+        debugPrint('[AI_PREF] Storage 404: $storagePath (파일 없음)');
+        _urlCacheByPath[storagePath] = _placeholderUrl;
+        return _placeholderUrl;
+      }
+      rethrow;
+    }
   }
 
   Future<_HeightFetchResult> _fetchHeightForProfileId(int id) async {
@@ -338,18 +367,76 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
   }
 
   void _onSwiped(int index, SwipeDirection direction) {
+    final uid = _kakaoUserId;
+    if (uid != null && index < _cards.length) {
+      final card = _cards[index];
+      final eventType = direction == SwipeDirection.right ? 'like' : 'nope';
+      _logRecEvent(
+        uid: uid,
+        eventType: eventType,
+        card: card,
+        position: index,
+        label: 'swipe',
+      );
+    }
+
     final shouldTrim = index >= 20 && _cards.length > 40;
 
-    // 카드는 무한히 늘릴 수 있지만, 메모리 보호를 위해 주기적으로 앞부분을 잘라냄
     if (shouldTrim) {
       _cards.removeRange(0, index + 1);
-      _deckResetSeed++; // 덱 내부 인덱스 리셋
+      _deckResetSeed++;
       setState(() {});
     }
 
     _ensureBufferAfterSwipe(shouldTrim ? -1 : index).then((_) {
       if (mounted) setState(() {});
     });
+
+    final nextIndex = shouldTrim ? 0 : index + 1;
+    if (nextIndex < _cards.length) {
+      _recordImpression(nextIndex);
+    }
+  }
+
+  Future<void> _logRecEvent({
+    required String uid,
+    required String eventType,
+    required _AiCardData card,
+    required int position,
+    required String label,
+  }) async {
+    try {
+      await _recEventService.logEvent(
+        userId: uid,
+        targetType: 'ai_profile',
+        targetId: '${card.folder}_${card.id}',
+        eventType: eventType,
+        surface: 'ai_preference',
+        cardVariant: 'ai_profile',
+        exposureId: _uuid.v4(),
+        context: <String, dynamic>{
+          'screen': 'ai_preference_screen',
+          'position': position,
+          'profileId': card.id,
+          'folder': card.folder,
+          if (card.heightTag != null) 'heightTag': card.heightTag,
+        },
+      );
+    } catch (e) {
+      debugPrint('[AI_PREF] ❌ recEvent $label 실패: $e');
+    }
+  }
+
+  void _recordImpression(int index) {
+    final uid = _kakaoUserId;
+    if (uid == null || index >= _cards.length) return;
+    _logRecEvent(
+      uid: uid,
+      eventType: 'impression',
+      card: _cards[index],
+      position: index,
+      label: 'impression',
+    );
   }
 
   void _onLike() {
