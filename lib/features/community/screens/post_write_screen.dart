@@ -6,6 +6,7 @@
 // Firestore 게시글 등록 기능 연결
 // =============================================================================
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui';
@@ -87,6 +88,8 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
       if (kakaoUserId == null || kakaoUserId.isEmpty) {
         throw Exception('로그인 정보가 없습니다.');
       }
+
+      debugPrint('[PostWrite] 글 등록 authorId="$kakaoUserId"');
 
       final provider = context.read<CommunityProvider>();
 

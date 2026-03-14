@@ -89,6 +89,129 @@ service cloud.firestore {
               'updatedAt'
             ])
           );
+                match /deviceTokens/{token} {
+        allow get, list: if true;
+
+        allow create, update: if
+          request.resource.data.userId is string &&
+          request.resource.data.userId == kakaoUserId &&
+          request.resource.data.token is string &&
+          request.resource.data.token == token;
+
+        allow delete: if true;
+      }
+    }
+    match /chat_rooms/{roomId} {
+      allow read, create, update: if true;
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read, create: if true;
+        allow update, delete: if false;
+      }
+    }
+        // -----------------------------------------------------------------------
+    // Bamboo Forest (Community)
+    // -----------------------------------------------------------------------
+    match /bamboo_posts/{postId} {
+      // 게시글 읽기
+      allow get, list: if true;
+
+      // 게시글 생성
+      allow create: if
+        request.resource.data.postId is string &&
+        request.resource.data.authorId is string &&
+        request.resource.data.authorId.size() > 0 &&
+        request.resource.data.content is string &&
+        request.resource.data.content.size() > 0 &&
+        request.resource.data.content.size() <= 500 &&
+        request.resource.data.category is string &&
+        request.resource.data.category.size() > 0 &&
+        request.resource.data.tags is list &&
+        request.resource.data.likeCount == 0 &&
+        request.resource.data.commentCount == 0 &&
+        request.resource.data.score7d == 0 &&
+        request.resource.data.isDeleted == false;
+
+      // 게시글 수정
+      // 1) 작성자 soft delete 허용
+      // 2) 좋아요/댓글 수 업데이트 허용
+      allow update: if
+        (
+          resource.data.authorId == request.resource.data.authorId &&
+          request.resource.data.isDeleted == true
+        )
+        ||
+        (
+          request.resource.data.authorId == resource.data.authorId &&
+          request.resource.data.content == resource.data.content &&
+          request.resource.data.category == resource.data.category &&
+          request.resource.data.tags == resource.data.tags
+        );
+
+      allow delete: if false;
+
+      // ---------------------------------------------------------------------
+      // 게시글 좋아요
+      // bamboo_posts/{postId}/likes/{userId}
+      // ---------------------------------------------------------------------
+      match /likes/{userId} {
+        allow get, list: if true;
+
+        allow create: if
+          request.resource.data.userId is string &&
+          request.resource.data.userId == userId;
+
+        allow delete: if true;
+        allow update: if false;
+      }
+
+      // ---------------------------------------------------------------------
+      // 댓글 / 답글
+      // bamboo_posts/{postId}/comments/{commentId}
+      // ---------------------------------------------------------------------
+      match /comments/{commentId} {
+        allow get, list: if true;
+
+        allow create: if
+          request.resource.data.commentId is string &&
+          request.resource.data.authorId is string &&
+          request.resource.data.authorId.size() > 0 &&
+          request.resource.data.content is string &&
+          request.resource.data.content.size() > 0 &&
+          request.resource.data.content.size() <= 500 &&
+          request.resource.data.likeCount == 0 &&
+          request.resource.data.isDeleted == false;
+
+        allow update: if
+          (
+            resource.data.authorId == request.resource.data.authorId &&
+            request.resource.data.isDeleted == true
+          )
+          ||
+          (
+            request.resource.data.authorId == resource.data.authorId &&
+            request.resource.data.content == resource.data.content &&
+            request.resource.data.parentCommentId == resource.data.parentCommentId
+          );
+
+        allow delete: if false;
+
+        // -------------------------------------------------------------------
+        // 댓글 좋아요
+        // bamboo_posts/{postId}/comments/{commentId}/likes/{userId}
+        // -------------------------------------------------------------------
+        match /likes/{userId} {
+          allow get, list: if true;
+
+          allow create: if
+            request.resource.data.userId is string &&
+            request.resource.data.userId == userId;
+
+          allow delete: if true;
+          allow update: if false;
+        }
+      }
     }
 
     // -----------------------------------------------------------------------
@@ -103,15 +226,6 @@ service cloud.firestore {
     match /reports/{reportId} {
       // 누구나(인증된 경우) 신고 생성 허용.
       allow create: if request.auth != null;
-    }
-
-    // -----------------------------------------------------------------------
-    // recEvents — 추천 학습용 이벤트 (KNN/SVD 등)
-    // recEvents/{userId}/events/{eventId} — 본인만 자신의 이벤트 문서 생성
-    // -----------------------------------------------------------------------
-    match /recEvents/{userId}/events/{eventId} {
-      allow create: if request.auth != null && request.auth.uid == userId;
-      allow read, update, delete: if false;
     }
 
     // 기본 차단 (명시된 것만 허용)

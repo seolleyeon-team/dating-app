@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 import '../models/community/post_model.dart';
 import 'community_repository.dart';
@@ -37,10 +38,13 @@ class FirestoreCommunityRepository implements CommunityRepository {
     }
 
     final docRef = _posts.doc();
+    // authorId는 항상 문자열로 저장 (Firestore 숫자 vs 문자열 불일치 방지)
+    final authorIdStr = authorId.trim().toString();
+    debugPrint('[FirestoreCommunity] createPost authorId="$authorIdStr"');
 
     await docRef.set({
       'postId': docRef.id,
-      'authorId': authorId,
+      'authorId': authorIdStr,
       'content': trimmedContent,
       'category': category,
       'tags': normalizedTags,
@@ -57,6 +61,7 @@ class FirestoreCommunityRepository implements CommunityRepository {
 
   Query<Map<String, dynamic>> _buildListQuery({
     required String tab,
+    required String? currentUserId,
     int limit = 5,
   }) {
     final normalizedTab = tab.trim();
@@ -81,6 +86,20 @@ class FirestoreCommunityRepository implements CommunityRepository {
           .limit(limit);
     }
 
+    if (normalizedTab == '내가 쓴 글') {
+      // currentUserId와 Firestore authorId 형식 일치: 항상 문자열로 정규화
+      final uid = (currentUserId ?? '').trim().toString();
+      if (uid.isEmpty) {
+        return _posts.where('authorId', isEqualTo: '__none__').limit(limit);
+      }
+
+      return _posts
+          .where('isDeleted', isEqualTo: false)
+          .where('authorId', isEqualTo: uid)
+          .orderBy('createdAt', descending: true)
+          .limit(limit);
+    }
+
     return _posts
         .where('isDeleted', isEqualTo: false)
         .where('category', isEqualTo: normalizedTab)
@@ -91,10 +110,15 @@ class FirestoreCommunityRepository implements CommunityRepository {
   @override
   Future<List<PostModel>> fetchPosts({
     required String tab,
+    required String? currentUserId,
     int limit = 5,
     Object? lastItem,
   }) async {
-    Query<Map<String, dynamic>> query = _buildListQuery(tab: tab, limit: limit);
+    Query<Map<String, dynamic>> query = _buildListQuery(
+      tab: tab,
+      currentUserId: currentUserId,
+      limit: limit,
+    );
 
     if (lastItem != null) {
       if (lastItem is! DocumentSnapshot<Map<String, dynamic>>) {
@@ -111,16 +135,39 @@ class FirestoreCommunityRepository implements CommunityRepository {
 
   Future<QuerySnapshot<Map<String, dynamic>>> fetchPostsSnapshot({
     required String tab,
+    required String? currentUserId,
     int limit = 5,
     DocumentSnapshot<Map<String, dynamic>>? lastDocument,
   }) async {
-    Query<Map<String, dynamic>> query = _buildListQuery(tab: tab, limit: limit);
+    if (tab.trim() == '내가 쓴 글') {
+      debugPrint(
+        '[FirestoreCommunity] 내가 쓴 글 쿼리 currentUserId="$currentUserId"',
+      );
+    }
+
+    Query<Map<String, dynamic>> query = _buildListQuery(
+      tab: tab,
+      currentUserId: currentUserId,
+      limit: limit,
+    );
 
     if (lastDocument != null) {
       query = query.startAfterDocument(lastDocument);
     }
 
-    return query.get();
+    final snapshot = await query.get();
+    if (tab.trim() == '내가 쓴 글') {
+      debugPrint(
+        '[FirestoreCommunity] 내가 쓴 글 결과 ${snapshot.docs.length}건',
+      );
+      if (snapshot.docs.isNotEmpty) {
+        final first = snapshot.docs.first.data();
+        debugPrint(
+          '[FirestoreCommunity] 첫글 authorId="${first['authorId']}"',
+        );
+      }
+    }
+    return snapshot;
   }
 
   @override
