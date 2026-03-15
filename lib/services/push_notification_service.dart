@@ -27,6 +27,9 @@ class PushNotificationService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final StorageService _storage = StorageService();
 
+  String? _openedChatRoomId;
+  bool _isChatRoomVisible = false;
+
   static const AndroidNotificationChannel _chatChannel =
       AndroidNotificationChannel(
         'seolleyeon_high_importance',
@@ -38,7 +41,7 @@ class PushNotificationService {
   Future<void> initialize() async {
     await _requestPermission();
     await _initLocalNotifications();
-    await _syncFcmToken();
+    await syncFcmToken();
 
     FirebaseMessaging.onMessage.listen(_onForegroundMessage);
     FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageTap);
@@ -49,8 +52,22 @@ class PushNotificationService {
     }
 
     _messaging.onTokenRefresh.listen((_) async {
-      await _syncFcmToken();
+      await syncFcmToken();
     });
+  }
+
+  void setOpenedChatRoom(String roomId) {
+    _openedChatRoomId = roomId;
+    _isChatRoomVisible = true;
+    debugPrint('[PUSH] opened chat room = $roomId');
+  }
+
+  void clearOpenedChatRoom(String roomId) {
+    if (_openedChatRoomId == roomId) {
+      debugPrint('[PUSH] cleared opened chat room = $roomId');
+      _openedChatRoomId = null;
+      _isChatRoomVisible = false;
+    }
   }
 
   Future<void> _requestPermission() async {
@@ -61,10 +78,12 @@ class PushNotificationService {
       provisional: false,
     );
 
+    // iOS foreground 시스템 배너는 끄고,
+    // 필요한 경우에만 _onForegroundMessage()에서 직접 local notification 표시
     await _messaging.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
+      alert: false,
+      badge: false,
+      sound: false,
     );
   }
 
@@ -89,29 +108,67 @@ class PushNotificationService {
         ?.createNotificationChannel(_chatChannel);
   }
 
-  Future<void> _syncFcmToken() async {
-    final userId = await _storage.getKakaoUserId();
-    if (userId == null || userId.isEmpty) return;
+  Future<void> syncFcmToken() async {
+    try {
+      final userId = await _storage.getKakaoUserId();
+      debugPrint('[PUSH] stored kakaoUserId = $userId');
 
-    final token = await _messaging.getToken();
-    if (token == null || token.isEmpty) return;
+      final settings = await _messaging.getNotificationSettings();
+      debugPrint('[PUSH] permission = ${settings.authorizationStatus}');
 
-    await _firestore
-        .collection('users')
-        .doc(userId)
-        .collection('deviceTokens')
-        .doc(token)
-        .set({
-          'userId': userId,
-          'token': token,
-          'platform': defaultTargetPlatform.name,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+      final apnsToken = await _messaging.getAPNSToken();
+      debugPrint('[PUSH] apnsToken = $apnsToken');
+
+      final token = await _messaging.getToken();
+      debugPrint('[PUSH] fcmToken = $token');
+
+      if (userId == null || userId.isEmpty) {
+        debugPrint('[PUSH] no userId, skip');
+        return;
+      }
+      if (token == null || token.isEmpty) {
+        debugPrint('[PUSH] no fcm token, skip');
+        return;
+      }
+
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('deviceTokens')
+          .doc(token)
+          .set({
+            'userId': userId,
+            'token': token,
+            'platform': defaultTargetPlatform.name,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+      debugPrint('[PUSH] token saved to firestore');
+    } catch (e, st) {
+      debugPrint('[PUSH] syncFcmToken error: $e');
+      debugPrint('$st');
+    }
   }
 
   Future<void> _onForegroundMessage(RemoteMessage message) async {
     final notification = message.notification;
     if (notification == null) return;
+
+    final type = message.data['type']?.toString() ?? '';
+    final roomId = message.data['roomId']?.toString() ?? '';
+
+    final isSameOpenedChat =
+        type == 'chat' &&
+        _isChatRoomVisible &&
+        _openedChatRoomId != null &&
+        _openedChatRoomId == roomId;
+
+    if (isSameOpenedChat) {
+      debugPrint(
+        '[PUSH] suppress foreground chat notification for room=$roomId',
+      );
+      return;
+    }
 
     await _local.show(
       notification.hashCode,

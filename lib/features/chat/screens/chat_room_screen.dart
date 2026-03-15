@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../services/chat_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../services/push_notification_service.dart';
 
 class _AppColors {
   static const Color primary = Color(0xFF3B5443);
@@ -151,9 +152,20 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   @override
   void dispose() {
+    if (_roomId.isNotEmpty) {
+      PushNotificationService.instance.clearOpenedChatRoom(_roomId);
+    }
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  @override
+  void deactivate() {
+    if (_roomId.isNotEmpty) {
+      PushNotificationService.instance.clearOpenedChatRoom(_roomId);
+    }
+    super.deactivate();
   }
 
   void _scrollToBottom() {
@@ -163,6 +175,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         _scrollController.position.maxScrollExtent,
         duration: const Duration(milliseconds: 250),
         curve: Curves.easeOut,
+      );
+    });
+  }
+
+  void _markCurrentRoomAsRead() {
+    if (_currentUserId == null || _roomId.isEmpty) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _chatService.markMessagesAsRead(
+        roomId: _roomId,
+        userId: _currentUserId!,
       );
     });
   }
@@ -212,6 +235,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         currentUserAvatarUrl: _currentUserAvatarUrl,
         partnerAvatarUrl: widget.partnerAvatarUrl,
       );
+
+      PushNotificationService.instance.setOpenedChatRoom(_roomId);
 
       if (!mounted) return;
       setState(() {
@@ -281,6 +306,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       await _chatService.updatePromise(
         roomId: _roomId,
         promiseId: editingPromiseId,
+        editedBy: _currentUserId!,
         dateTime: result.dateTime,
         place: result.place,
         placeCategory: result.placeCategory,
@@ -511,8 +537,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     return a.isAfter(b) ? a : b;
   }
 
+  void _ensureOpenedChatRoomRegistered() {
+    if (_roomId.isEmpty) return;
+    PushNotificationService.instance.setOpenedChatRoom(_roomId);
+  }
+
   @override
   Widget build(BuildContext context) {
+    _ensureOpenedChatRoomRegistered();
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return CupertinoPageScaffold(
@@ -564,10 +596,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                           final messageDocs =
                               messageSnapshot.data?.docs ?? const [];
 
+                          _markCurrentRoomAsRead();
+
                           final mappedMessages = messageDocs
                               .map((doc) => _mapMessage(doc.data()))
                               .toList();
-
                           final allMessages = _mergeMessages(mappedMessages);
 
                           if (allMessages.isEmpty) {

@@ -58,6 +58,36 @@ class _ChatItem {
     this.sortOrder = 0,
     this.isFakeAccountRoom = false,
   });
+
+  _ChatItem copyWith({
+    String? id,
+    String? name,
+    String? avatarUrl,
+    String? lastMessage,
+    String? time,
+    String? chatRoomId,
+    bool? isOnline,
+    bool? hasUnread,
+    bool? hasGradientBorder,
+    bool? isGrayscale,
+    int? sortOrder,
+    bool? isFakeAccountRoom,
+  }) {
+    return _ChatItem(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
+      lastMessage: lastMessage ?? this.lastMessage,
+      time: time ?? this.time,
+      chatRoomId: chatRoomId ?? this.chatRoomId,
+      isOnline: isOnline ?? this.isOnline,
+      hasUnread: hasUnread ?? this.hasUnread,
+      hasGradientBorder: hasGradientBorder ?? this.hasGradientBorder,
+      isGrayscale: isGrayscale ?? this.isGrayscale,
+      sortOrder: sortOrder ?? this.sortOrder,
+      isFakeAccountRoom: isFakeAccountRoom ?? this.isFakeAccountRoom,
+    );
+  }
 }
 
 // =============================================================================
@@ -104,7 +134,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       id: '2',
       name: '박민준',
       avatarUrl:
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuDT0RK8vCMZ1fdHvltVWDurwmelCqxdies0jRqVZ_i25_eXkBCWJSMVbt1RHAXD45KRadkUNxR_I2QrUqowUVd6LAmnoRziNg9prWLp5-enwv4B2WnmBUopjrYkYLJ8Cfg4V19xvQCLCy3YiL3OWgiSdunOve4HFVg5cw_LyBCbsjMVnDX5loPDI6HE6DZspiFsBGHimsJGffCUK-K7s0tzpMe7fprq9qO_3oB0dJd_PqSGgr3Iu-txc3QGpFn_AS4QNEI9m3BKCzum',
+          'https://lh3.googleusercontent.com/aida-public/AB6AXuDT0RK8vCMZ1fdHvltVWDurwmelCqxdies0jRqVZ_i25_eXkBCWJSMVbt1RHAXD45KRadkUNxR_I2QrUqowUVd6LAmnoRziNg9prWLp5-enwv4B2WnmBUopjrYkYLJ8Cfg4V19xvQCLCy3YiL3OWgiSdunOve4HFVg5cw_LyBCbsjMVnDX5loPDI6HE6DZspiFsBGHimsJGffCUK-K7s0tzpMe7fprq9qO_3oB0jD_PqSGgr3Iu-txc3QGpFn_AS4QNEI9m3BKCzum',
       lastMessage: '반가워요! 프로필 사진 분위기가 정말 좋으시네요 ㅎㅎ',
       time: '10분 전',
       hasUnread: true,
@@ -199,8 +229,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final data = doc.data();
 
     final participantIds = List<String>.from(data['participantIds'] ?? []);
-
-    // 현재 유저 본인을 제외한 상대방 id 찾기
     final otherParticipants = participantIds
         .where((id) => id != currentUserId)
         .toList();
@@ -499,27 +527,72 @@ class _ChatListScreenState extends State<ChatListScreen> {
                         delegate: SliverChildBuilderDelegate((context, index) {
                           final chat = firestoreChats[index];
 
-                          return _ChatListItem(
-                            chat: chat,
-                            onTap: () {
-                              if (widget.onChatTap != null) {
-                                widget.onChatTap!(chat.chatRoomId ?? chat.id);
-                              } else {
-                                Navigator.of(
-                                  context,
-                                  rootNavigator: true,
-                                ).pushNamed(
-                                  RouteNames.chatRoom,
-                                  arguments: ChatRoomData(
-                                    chatRoomId: chat.chatRoomId ?? '',
-                                    partnerId: chat.id,
-                                    partnerName: chat.name,
-                                    partnerAvatarUrl: chat.avatarUrl,
-                                    lastMessage: chat.lastMessage,
-                                    lastMessageTime: chat.time,
-                                  ),
-                                );
-                              }
+                          if (chat.chatRoomId == null ||
+                              chat.chatRoomId!.isEmpty) {
+                            return _ChatListItem(
+                              chat: chat,
+                              onTap: () {
+                                if (widget.onChatTap != null) {
+                                  widget.onChatTap!(chat.chatRoomId ?? chat.id);
+                                } else {
+                                  Navigator.of(
+                                    context,
+                                    rootNavigator: true,
+                                  ).pushNamed(
+                                    RouteNames.chatRoom,
+                                    arguments: ChatRoomData(
+                                      chatRoomId: chat.chatRoomId ?? '',
+                                      partnerId: chat.id,
+                                      partnerName: chat.name,
+                                      partnerAvatarUrl: chat.avatarUrl,
+                                      lastMessage: chat.lastMessage,
+                                      lastMessageTime: chat.time,
+                                    ),
+                                  );
+                                }
+                              },
+                            );
+                          }
+
+                          return StreamBuilder<int>(
+                            stream: _chatService.unreadCountStream(
+                              roomId: chat.chatRoomId!,
+                              userId: currentUserId,
+                            ),
+                            builder: (context, unreadSnapshot) {
+                              final unreadCount = unreadSnapshot.data ?? 0;
+                              final chatWithUnread = chat.copyWith(
+                                hasUnread: unreadCount > 0,
+                              );
+
+                              return _ChatListItem(
+                                chat: chatWithUnread,
+                                onTap: () {
+                                  if (widget.onChatTap != null) {
+                                    widget.onChatTap!(
+                                      chatWithUnread.chatRoomId ??
+                                          chatWithUnread.id,
+                                    );
+                                  } else {
+                                    Navigator.of(
+                                      context,
+                                      rootNavigator: true,
+                                    ).pushNamed(
+                                      RouteNames.chatRoom,
+                                      arguments: ChatRoomData(
+                                        chatRoomId:
+                                            chatWithUnread.chatRoomId ?? '',
+                                        partnerId: chatWithUnread.id,
+                                        partnerName: chatWithUnread.name,
+                                        partnerAvatarUrl:
+                                            chatWithUnread.avatarUrl,
+                                        lastMessage: chatWithUnread.lastMessage,
+                                        lastMessageTime: chatWithUnread.time,
+                                      ),
+                                    );
+                                  }
+                                },
+                              );
                             },
                           );
                         }, childCount: firestoreChats.length),
@@ -553,7 +626,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
             left: 24,
             right: 24,
             bottom: bottomPadding + 32,
-            child: _BottomNavBar(onTap: widget.onNavTap),
+            child: currentUserId.isEmpty
+                ? _BottomNavBar(onTap: widget.onNavTap)
+                : StreamBuilder<bool>(
+                    stream: _chatService.hasAnyUnreadChats(currentUserId),
+                    builder: (context, snapshot) {
+                      final hasUnread = snapshot.data ?? false;
+                      return _BottomNavBar(
+                        onTap: widget.onNavTap,
+                        showChatBadge: hasUnread,
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -781,7 +865,7 @@ class _ChatListItem extends StatelessWidget {
                       if (chat.time.isNotEmpty)
                         Text(
                           chat.time,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontFamily: 'Noto Sans KR',
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
@@ -817,11 +901,11 @@ class _ChatListItem extends StatelessWidget {
                           width: 8,
                           height: 8,
                           decoration: BoxDecoration(
-                            color: _AppColors.primary,
+                            color: _AppColors.onlineGreen,
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: _AppColors.primary.withValues(
+                                color: _AppColors.onlineGreen.withValues(
                                   alpha: 0.3,
                                 ),
                                 blurRadius: 4,
@@ -961,8 +1045,9 @@ class _Avatar extends StatelessWidget {
 // =============================================================================
 class _BottomNavBar extends StatelessWidget {
   final Function(int index)? onTap;
+  final bool showChatBadge;
 
-  const _BottomNavBar({this.onTap});
+  const _BottomNavBar({this.onTap, this.showChatBadge = false});
 
   @override
   Widget build(BuildContext context) {
@@ -998,6 +1083,7 @@ class _BottomNavBar extends StatelessWidget {
                 icon: CupertinoIcons.chat_bubble_fill,
                 label: '채팅',
                 isActive: true,
+                showBadge: showChatBadge,
                 onTap: () => onTap?.call(1),
               ),
               _NavItem(
@@ -1027,12 +1113,14 @@ class _NavItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool isActive;
+  final bool showBadge;
   final VoidCallback? onTap;
 
   const _NavItem({
     required this.icon,
     required this.label,
     this.isActive = false,
+    this.showBadge = false,
     this.onTap,
   });
 
@@ -1044,10 +1132,28 @@ class _NavItem extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            size: 24,
-            color: isActive ? _AppColors.primary : _AppColors.gray400,
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(
+                icon,
+                size: 24,
+                color: isActive ? _AppColors.primary : _AppColors.gray400,
+              ),
+              if (showBadge)
+                Positioned(
+                  right: -2,
+                  top: -2,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: _AppColors.onlineGreen,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 4),
           Text(

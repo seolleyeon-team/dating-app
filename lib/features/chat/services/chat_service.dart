@@ -38,6 +38,83 @@ class ChatService {
     return _firestore.collection('chat_rooms').doc(roomId).snapshots();
   }
 
+  Stream<int> unreadCountStream({
+    required String roomId,
+    required String userId,
+  }) {
+    return _firestore
+        .collection('chat_rooms')
+        .doc(roomId)
+        .collection('messages')
+        .snapshots()
+        .map((snap) {
+          int count = 0;
+
+          for (final doc in snap.docs) {
+            final data = doc.data();
+            final senderId = data['senderId']?.toString() ?? '';
+            final readBy = List<String>.from(data['readBy'] ?? const []);
+
+            if (senderId == userId) continue;
+            if (!readBy.contains(userId)) count++;
+          }
+
+          return count;
+        });
+  }
+
+  Stream<bool> hasAnyUnreadChats(String userId) {
+    return chatRoomsStream(userId).asyncMap((roomSnap) async {
+      for (final room in roomSnap.docs) {
+        final msgSnap = await room.reference.collection('messages').get();
+
+        for (final msg in msgSnap.docs) {
+          final data = msg.data();
+          final senderId = data['senderId']?.toString() ?? '';
+          final readBy = List<String>.from(data['readBy'] ?? const []);
+
+          if (senderId != userId && !readBy.contains(userId)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    });
+  }
+
+  Future<void> markMessagesAsRead({
+    required String roomId,
+    required String userId,
+  }) async {
+    final snap = await _firestore
+        .collection('chat_rooms')
+        .doc(roomId)
+        .collection('messages')
+        .get();
+
+    final batch = _firestore.batch();
+    bool hasUpdate = false;
+
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final senderId = data['senderId']?.toString() ?? '';
+      final readBy = List<String>.from(data['readBy'] ?? const []);
+
+      if (senderId == userId) continue;
+      if (readBy.contains(userId)) continue;
+
+      batch.update(doc.reference, {
+        'readBy': [...readBy, userId],
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      hasUpdate = true;
+    }
+
+    if (hasUpdate) {
+      await batch.commit();
+    }
+  }
+
   Future<void> ensureDirectRoom({
     String? roomId,
     required String currentUserId,
@@ -99,6 +176,7 @@ class ChatService {
       'senderId': senderId,
       'text': text,
       'type': 'text',
+      'readBy': [senderId],
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
@@ -153,6 +231,7 @@ class ChatService {
       'status': 'requested',
       'isEdited': false,
       'editedAt': null,
+      'readBy': [requestedBy],
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
@@ -170,6 +249,7 @@ class ChatService {
   Future<void> updatePromise({
     required String roomId,
     required String promiseId,
+    required String editedBy,
     required DateTime dateTime,
     required String place,
     required String placeCategory,
@@ -189,7 +269,21 @@ class ChatService {
           ? roomRef.collection('messages').doc(messageId)
           : null;
 
+      final oldRequestedBy = oldData['requestedBy']?.toString() ?? '';
+      final oldRequestedTo = oldData['requestedTo']?.toString() ?? '';
+
+      String newRequestedTo;
+      if (editedBy == oldRequestedBy) {
+        newRequestedTo = oldRequestedTo;
+      } else if (editedBy == oldRequestedTo) {
+        newRequestedTo = oldRequestedBy;
+      } else {
+        throw Exception('수정 권한이 없는 사용자입니다.');
+      }
+
       tx.update(promiseRef, {
+        'requestedBy': editedBy,
+        'requestedTo': newRequestedTo,
         'dateTime': Timestamp.fromDate(dateTime),
         'place': place,
         'placeCategory': placeCategory,
@@ -202,12 +296,14 @@ class ChatService {
 
       if (messageRef != null) {
         tx.update(messageRef, {
+          'senderId': editedBy,
           'type': 'promise_request',
           'text': '약속 요청',
           'dateTime': Timestamp.fromDate(dateTime),
           'place': place,
           'placeCategory': placeCategory,
           'status': 'requested',
+          'readBy': [editedBy],
           'updatedAt': FieldValue.serverTimestamp(),
           'isEdited': true,
           'editedAt': FieldValue.serverTimestamp(),
@@ -366,6 +462,7 @@ class ChatService {
         'place': promisePlace,
         'placeCategory': promiseCategory,
         'status': 'cancelled',
+        'readBy': [requestedBy],
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });

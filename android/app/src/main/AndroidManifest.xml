@@ -4,6 +4,9 @@
         android:label="seolleyeon"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <meta-data
+    android:name="com.google.firebase.messaging.default_notification_channel_id"
+    android:value="seolleyeon_high_importance" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
