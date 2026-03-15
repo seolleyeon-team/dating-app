@@ -3,50 +3,70 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
+import 'services/navigation_service.dart';
+import 'services/push_notification_service.dart';
 import 'router/app_router.dart';
 import 'router/route_names.dart';
+import 'providers/auth_provider.dart';
 import 'features/community/providers/community_provider.dart';
 
 /// 설레연 앱 (MaterialApp 루트 + Provider 등록)
-class SeolleyeonApp extends StatelessWidget {
+class SeolleyeonApp extends StatefulWidget {
   const SeolleyeonApp({super.key});
 
   static const Color primaryColor = Color(0xFFFF6B8A);
   static const Color backgroundColor = Color(0xFFFAFAFA);
 
   @override
+  State<SeolleyeonApp> createState() => _SeolleyeonAppState();
+}
+
+class _SeolleyeonAppState extends State<SeolleyeonApp> {
+  @override
+  void initState() {
+    super.initState();
+    PushNotificationService.instance.initialize();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider<AuthProvider>(
+          create: (_) => AuthProvider(),
+        ),
         ChangeNotifierProvider<CommunityProvider>(
-          create: (_) => CommunityProvider(),
+          create: (ctx) => CommunityProvider(
+            authProvider: ctx.read<AuthProvider>(),
+          ),
         ),
       ],
       child: MaterialApp(
+        navigatorKey: NavigationService.navigatorKey,
         title: '설레연',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           useMaterial3: true,
-          primaryColor: primaryColor,
+          primaryColor: SeolleyeonApp.primaryColor,
           fontFamily: GoogleFonts.notoSansKr().fontFamily ?? 'Noto Sans KR',
           textTheme: _textThemeWithoutUnderline(
             GoogleFonts.notoSansKrTextTheme(ThemeData.light().textTheme),
           ),
           colorScheme: const ColorScheme.light(
-            primary: primaryColor,
-            secondary: primaryColor,
-            surface: backgroundColor,
+            primary: SeolleyeonApp.primaryColor,
+            secondary: SeolleyeonApp.primaryColor,
+            surface: SeolleyeonApp.backgroundColor,
           ),
-          scaffoldBackgroundColor: backgroundColor,
+          scaffoldBackgroundColor: SeolleyeonApp.backgroundColor,
           appBarTheme: const AppBarTheme(
-            backgroundColor: backgroundColor,
+            backgroundColor: SeolleyeonApp.backgroundColor,
             foregroundColor: Color(0xFF0F172A),
             elevation: 0,
           ),
           cupertinoOverrideTheme: const CupertinoThemeData(
-            primaryColor: primaryColor,
+            primaryColor: SeolleyeonApp.primaryColor,
             brightness: Brightness.light,
-            scaffoldBackgroundColor: backgroundColor,
+            scaffoldBackgroundColor: SeolleyeonApp.backgroundColor,
           ),
           pageTransitionsTheme: const PageTransitionsTheme(
             builders: {

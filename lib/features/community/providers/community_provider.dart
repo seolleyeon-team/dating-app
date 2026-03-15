@@ -3,14 +3,33 @@ import 'package:flutter/foundation.dart';
 
 import '../../../data/models/community/post_model.dart';
 import '../../../data/repositories/firestore_community_repository.dart';
+import '../../../providers/auth_provider.dart';
+import '../../../services/storage_service.dart';
 
 class CommunityProvider extends ChangeNotifier {
-  CommunityProvider({FirestoreCommunityRepository? repository})
-    : _repository = repository ?? FirestoreCommunityRepository();
+  CommunityProvider({
+    FirestoreCommunityRepository? repository,
+    AuthProvider? authProvider,
+  })  : _repository = repository ?? FirestoreCommunityRepository(),
+        _authProvider = authProvider;
 
   final FirestoreCommunityRepository _repository;
+  final StorageService _storageService = StorageService();
+  final AuthProvider? _authProvider;
 
-  static const List<String> tabs = ['전체', '인기', '설렘', '고민', '일상', '질문'];
+  String? _currentUserId;
+  String _selectedTab = '전체';
+  bool _isInitialized = false;
+
+  static const List<String> tabs = [
+    '전체',
+    '인기',
+    '설렘',
+    '고민',
+    '일상',
+    '질문',
+    '내가 쓴 글',
+  ];
 
   final Map<String, List<PostModel>> _postsByTab = {
     for (final tab in tabs) tab: <PostModel>[],
@@ -30,11 +49,9 @@ class CommunityProvider extends ChangeNotifier {
 
   final Map<String, bool> _hasMoreByTab = {for (final tab in tabs) tab: true};
 
-  String _selectedTab = '전체';
-  bool _isInitialized = false;
-
   String get selectedTab => _selectedTab;
   bool get isInitialized => _isInitialized;
+  String? get currentUserId => _currentUserId;
 
   List<PostModel> get posts => _postsByTab[_selectedTab] ?? const [];
   bool get isLoading => _isLoadingByTab[_selectedTab] ?? false;
@@ -49,7 +66,21 @@ class CommunityProvider extends ChangeNotifier {
   Future<void> initialize() async {
     if (_isInitialized) return;
     _isInitialized = true;
+
+    _currentUserId = await _storageService.getKakaoUserId();
+    debugPrint('CommunityProvider initialize currentUserId: $_currentUserId');
+
     await loadPosts(tab: _selectedTab, forceRefresh: true);
+  }
+
+  Future<void> _ensureCurrentUserId() async {
+    if ((_currentUserId ?? '').trim().isNotEmpty) return;
+    _currentUserId = await _storageService.getKakaoUserId();
+    if ((_currentUserId ?? '').trim().isEmpty) {
+      final fromAuth = _authProvider?.kakaoUserId;
+      if ((fromAuth ?? '').trim().isNotEmpty) _currentUserId = fromAuth;
+    }
+    debugPrint('CommunityProvider ensured currentUserId: $_currentUserId');
   }
 
   Future<void> changeTab(String tab) async {
@@ -57,6 +88,10 @@ class CommunityProvider extends ChangeNotifier {
 
     _selectedTab = tab;
     notifyListeners();
+
+    if (tab == '내가 쓴 글') {
+      await _ensureCurrentUserId();
+    }
 
     final hasLoaded = (_postsByTab[tab] ?? []).isNotEmpty;
     if (!hasLoaded) {
@@ -71,6 +106,10 @@ class CommunityProvider extends ChangeNotifier {
     if (!tabs.contains(tab)) return;
     if ((_isLoadingByTab[tab] ?? false) && !forceRefresh) return;
 
+    if (tab == '내가 쓴 글') {
+      await _ensureCurrentUserId();
+    }
+
     _isLoadingByTab[tab] = true;
 
     if (forceRefresh) {
@@ -82,8 +121,13 @@ class CommunityProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      debugPrint(
+        'CommunityProvider loadPosts tab=$tab currentUserId=$_currentUserId',
+      );
+
       final snapshot = await _repository.fetchPostsSnapshot(
         tab: tab,
+        currentUserId: _currentUserId,
         limit: 5,
         lastDocument: null,
       );
@@ -107,6 +151,10 @@ class CommunityProvider extends ChangeNotifier {
     final targetTab = tab ?? _selectedTab;
     if (!tabs.contains(targetTab)) return;
 
+    if (targetTab == '내가 쓴 글') {
+      await _ensureCurrentUserId();
+    }
+
     if (_isLoadingMoreByTab[targetTab] == true) return;
     if (_hasMoreByTab[targetTab] != true) return;
 
@@ -119,6 +167,7 @@ class CommunityProvider extends ChangeNotifier {
     try {
       final snapshot = await _repository.fetchPostsSnapshot(
         tab: targetTab,
+        currentUserId: _currentUserId,
         limit: 5,
         lastDocument: lastDoc,
       );
@@ -155,7 +204,8 @@ class CommunityProvider extends ChangeNotifier {
         tags: tags,
       );
 
-      // 글 작성 후 전체 / 해당 카테고리 / 인기 탭은 새로고침
+      _currentUserId ??= authorId;
+
       await refreshAfterPostCreated(category: category);
       return postId;
     } catch (e, st) {
@@ -173,6 +223,7 @@ class CommunityProvider extends ChangeNotifier {
     }
 
     await loadPosts(tab: '인기', forceRefresh: true);
+    await loadPosts(tab: '내가 쓴 글', forceRefresh: true);
   }
 
   Future<void> refreshCurrentTab() async {
@@ -185,8 +236,6 @@ class CommunityProvider extends ChangeNotifier {
   }) async {
     try {
       await _repository.togglePostLike(postId: postId, userId: userId);
-
-      // 좋아요 수 즉시 반영하려면 현재 탭만 새로고침
       await refreshCurrentTab();
     } catch (e, st) {
       debugPrint('CommunityProvider togglePostLike error: $e');
@@ -211,7 +260,6 @@ class CommunityProvider extends ChangeNotifier {
     try {
       await _repository.softDeletePost(postId: postId, authorId: authorId);
 
-      // 삭제 후 모든 탭 중 현재 로드된 탭만 새로고침
       for (final tab in tabs) {
         if ((_postsByTab[tab] ?? []).isNotEmpty || tab == _selectedTab) {
           await loadPosts(tab: tab, forceRefresh: true);

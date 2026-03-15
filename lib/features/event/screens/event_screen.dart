@@ -11,7 +11,9 @@
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import '../../chat/services/chat_service.dart';
 import '../../../router/route_names.dart';
+import '../../../services/storage_service.dart';
 
 // =============================================================================
 // 색상 상수
@@ -40,6 +42,21 @@ class EventScreen extends StatefulWidget {
 
 class _EventScreenState extends State<EventScreen> {
   int _selectedTabIndex = 0;
+  final StorageService _storageService = StorageService();
+  final ChatService _chatService = ChatService();
+  String? _currentUserId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentUser();
+  }
+
+  Future<void> _loadCurrentUser() async {
+    final kakaoUserId = await _storageService.getKakaoUserId();
+    if (!mounted) return;
+    setState(() => _currentUserId = kakaoUserId);
+  }
 
   void _onTabChanged(int index) {
     setState(() => _selectedTabIndex = index);
@@ -103,7 +120,18 @@ class _EventScreenState extends State<EventScreen> {
             left: 24,
             right: 24,
             bottom: bottomPadding + 32,
-            child: _BottomNavBar(onTap: widget.onNavTap),
+            child: (_currentUserId == null || _currentUserId!.isEmpty)
+                ? _BottomNavBar(onTap: widget.onNavTap, showChatBadge: false)
+                : StreamBuilder<bool>(
+                    stream: _chatService.hasAnyUnreadChats(_currentUserId!),
+                    builder: (context, snapshot) {
+                      final hasUnread = snapshot.data == true;
+                      return _BottomNavBar(
+                        onTap: widget.onNavTap,
+                        showChatBadge: hasUnread,
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -971,8 +999,9 @@ class _RandomMatchingContent extends StatelessWidget {
 // =============================================================================
 class _BottomNavBar extends StatelessWidget {
   final Function(int index)? onTap;
+  final bool showChatBadge;
 
-  const _BottomNavBar({this.onTap});
+  const _BottomNavBar({this.onTap, this.showChatBadge = false});
 
   @override
   Widget build(BuildContext context) {
@@ -1007,6 +1036,7 @@ class _BottomNavBar extends StatelessWidget {
               _NavItem(
                 icon: CupertinoIcons.chat_bubble_fill,
                 label: '채팅',
+                showBadge: showChatBadge,
                 onTap: () => onTap?.call(1),
               ),
               _NavItem(
@@ -1037,12 +1067,14 @@ class _NavItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool isActive;
+  final bool showBadge;
   final VoidCallback? onTap;
 
   const _NavItem({
     required this.icon,
     required this.label,
     this.isActive = false,
+    this.showBadge = false,
     this.onTap,
   });
 
@@ -1054,10 +1086,29 @@ class _NavItem extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            size: 24,
-            color: isActive ? _AppColors.primary : const Color(0xFF9CA3AF),
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(
+                icon,
+                size: 24,
+                color:
+                    isActive ? _AppColors.primary : const Color(0xFF9CA3AF),
+              ),
+              if (showBadge)
+                Positioned(
+                  right: -2,
+                  top: -2,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF10B981),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 4),
           Text(

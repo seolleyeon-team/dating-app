@@ -22,12 +22,38 @@
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>kakaocb08e2aea50a58b7d0c5e610e0c5a644</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>kakaokompassauth</string>
+		<string>kakaolink</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>프로필 사진 업로드를 위해 사진 접근 권한이 필요합니다.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>프로필 사진을 등록하기 위해 사진 보관함 접근 권한이 필요합니다.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
@@ -45,29 +71,5 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>CFBundleURLTypes</key>
-<array>
-	<dict>
-		<key>CFBundleTypeRole</key>
-		<string>Editor</string>
-		<key>CFBundleURLSchemes</key>
-		<array>
-			<string>kakaocb08e2aea50a58b7d0c5e610e0c5a644</string>
-		</array>
-	</dict>
-</array>
-
-<key>LSApplicationQueriesSchemes</key>
-<array>
-	<string>kakaokompassauth</string>
-	<string>kakaolink</string>
-	<string>googlegmail</string>
-</array>
-<key>FlutterDeepLinkingEnabled</key>
-<false/>
-<key>NSPhotoLibraryUsageDescription</key>
-<string>프로필 사진을 등록하기 위해 사진 보관함 접근 권한이 필요합니다.</string>
-<key>NSPhotoLibraryAddUsageDescription</key>
-<string>프로필 사진 업로드를 위해 사진 접근 권한이 필요합니다.</string>
 </dict>
 </plist>

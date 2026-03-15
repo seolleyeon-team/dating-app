@@ -6,6 +6,7 @@ import 'package:app_links/app_links.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/storage_service.dart';
+import '../services/push_notification_service.dart';
 
 class AuthProvider with ChangeNotifier {
   final AuthService _authService = AuthService();
@@ -181,6 +182,8 @@ class AuthProvider with ChangeNotifier {
 
     try {
       await _storageService.saveKakaoUserId(kakaoUserId);
+      await PushNotificationService.instance.syncFcmToken();
+
       _kakaoUserId = kakaoUserId;
       _isAuthenticated = true;
       _kakaoUserInfo = userInfo;

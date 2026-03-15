@@ -20,6 +20,7 @@ abstract class CommunityRepository {
   /// - 질문
   Future<List<PostModel>> fetchPosts({
     required String tab,
+    required String? currentUserId,
     int limit = 5,
     Object? lastItem,
   });

@@ -88,6 +88,8 @@ import '../features/event/screens/three_vs_three_match_screen.dart';
 // Meeting
 import '../features/meeting/screens/meeting_application_screen.dart';
 
+import '../shared/layouts/main_scaffold_args.dart';
+
 /// 앱 라우터 (CupertinoPageRoute, 흐름도 단일 소스)
 class AppRouter {
   static Route<dynamic> generateRoute(RouteSettings settings) {
@@ -183,7 +185,14 @@ class AppRouter {
 
       // Main
       case RouteNames.main:
-        return _cupertino(const MainScaffold());
+        final args = settings.arguments as MainScaffoldArgs?;
+        return _cupertino(
+          MainScaffold(
+            initialTabIndex: args?.initialTabIndex ?? 0,
+            pendingRouteName: args?.pendingRouteName,
+            pendingRouteArgs: args?.pendingRouteArgs,
+          ),
+        );
 
       // Matching
       case RouteNames.mysteryCard:

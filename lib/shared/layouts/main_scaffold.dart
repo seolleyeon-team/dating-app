@@ -4,17 +4,45 @@ import '../../features/chat/screens/premium_chat_list_screen.dart';
 import '../../features/event/screens/event_screen.dart';
 import '../../features/community/screens/community_screen.dart';
 import '../../features/profile/screens/my_page_screen.dart';
+import '../../router/route_names.dart';
+import 'main_scaffold_args.dart';
 
 /// 메인 화면 스캐폴드 (CupertinoTabScaffold, 5탭: 설레연/채팅/이벤트/대나무숲/내 페이지)
 class MainScaffold extends StatefulWidget {
-  const MainScaffold({super.key});
+  final int initialTabIndex;
+  final String? pendingRouteName;
+  final Object? pendingRouteArgs;
+
+  const MainScaffold({
+    super.key,
+    this.initialTabIndex = 0,
+    this.pendingRouteName,
+    this.pendingRouteArgs,
+  });
 
   @override
   State<MainScaffold> createState() => _MainScaffoldState();
 }
 
 class _MainScaffoldState extends State<MainScaffold> {
-  final CupertinoTabController _tabController = CupertinoTabController();
+  late final CupertinoTabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = CupertinoTabController(
+      initialIndex: widget.initialTabIndex,
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.pendingRouteName != null) {
+        Navigator.of(context, rootNavigator: true).pushNamed(
+          widget.pendingRouteName!,
+          arguments: widget.pendingRouteArgs,
+        );
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -26,7 +54,6 @@ class _MainScaffoldState extends State<MainScaffold> {
   Widget build(BuildContext context) {
     return CupertinoTabScaffold(
       controller: _tabController,
-      // 시스템 탭 바 숨김 — 각 화면의 커스텀 플로팅 네비게이션 사용
       tabBar: CupertinoTabBar(
         height: 0,
         backgroundColor: const Color(0x00000000),
