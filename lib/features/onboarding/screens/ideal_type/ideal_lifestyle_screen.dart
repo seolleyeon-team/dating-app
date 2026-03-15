@@ -334,7 +334,7 @@ class _IdealLifestyleScreenState extends State<IdealLifestyleScreen> {
                       _religion,
                     );
                   } else {
-                    Navigator.of(context)
+                    Navigator.of(context, rootNavigator: true)
                         .pushReplacementNamed(RouteNames.welcomeTutorial);
                   }
                 },

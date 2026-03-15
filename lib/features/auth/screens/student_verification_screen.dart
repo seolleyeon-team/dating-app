@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -17,7 +20,8 @@ class StudentVerificationScreen extends StatefulWidget {
       _StudentVerificationScreenState();
 }
 
-class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
+class _StudentVerificationScreenState extends State<StudentVerificationScreen>
+    with WidgetsBindingObserver {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _authService = AuthService();
@@ -26,6 +30,8 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
   bool _isSending = false;
   bool _isVerifying = false;
   String? _statusMessage;
+  StreamSubscription<Uri>? _linkSubscription;
+  int _resumeKey = 0; // 앱 복귀 시 위젯 강제 재생성용
 
   static const String _yonseiDomain = '@yonsei.ac.kr';
 
@@ -55,10 +61,40 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _prefillSavedEmail();
       _checkForEmailLink();
+      _listenForEmailLink();
     });
+  }
+
+  /// 딥링크로 앱이 열렸을 때 이메일 링크 처리 (getInitialLink + uriLinkStream)
+  void _listenForEmailLink() {
+    AppLinks().getInitialLink().then((uri) {
+      if (uri != null && _authService.isSignInWithEmailLink(uri.toString())) {
+        _handleEmailLink(uri.toString());
+      }
+    });
+    _linkSubscription = AppLinks().uriLinkStream.listen((uri) {
+      if (_authService.isSignInWithEmailLink(uri.toString())) {
+        _handleEmailLink(uri.toString());
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      // 브라우저/메일 앱 복귀 시 흰 화면 방지: 지연 후 위젯 트리 완전 재생성
+      Future.delayed(const Duration(milliseconds: 150), () {
+        if (!mounted) return;
+        WidgetsBinding.instance.scheduleFrame();
+        setState(() => _resumeKey++);
+        _checkVerificationOnResume();
+      });
+    }
   }
 
   Future<void> _prefillSavedEmail() async {
@@ -77,15 +113,37 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _linkSubscription?.cancel();
     _emailController.dispose();
     super.dispose();
   }
 
-  // Web에서 이메일 링크로 들어온 경우에만 동작 (native는 보통 브라우저에서 처리)
+  /// 앱 복귀 시 인증 완료 여부 확인 (웹에서 인증 후 돌아온 경우)
+  Future<void> _checkVerificationOnResume() async {
+    if (_isVerifying || _isSending) return;
+    final kakaoUserId = await _storageService.getKakaoUserId();
+    if (kakaoUserId == null) return;
+
+    try {
+      final isVerified = await _authService.isStudentVerified(kakaoUserId);
+      if (isVerified && mounted) {
+        Navigator.of(context).pushReplacementNamed(RouteNames.onboardingBasicInfo);
+      }
+    } catch (_) {}
+  }
+
+  // Web에서 이메일 링크로 들어온 경우에만 동작 (native는 app_links로 처리)
   Future<void> _checkForEmailLink() async {
     final link = Uri.base.toString();
     if (!_authService.isSignInWithEmailLink(link)) return;
+    await _handleEmailLink(link);
+  }
 
+  Future<void> _handleEmailLink(String link) async {
+    if (_isVerifying) return;
+
+    if (!mounted) return;
     setState(() {
       _isVerifying = true;
       _statusMessage = '이메일 링크 인증을 완료하는 중...';
@@ -149,23 +207,37 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
       final token = const Uuid().v4();
 
       // 1) 토큰 문서 저장 (웹이 이걸 읽어서 email/kakaoUserId를 알아냄)
-      await FirebaseFirestore.instance
-          .collection('emailLinkTokens')
-          .doc(token)
-          .set({
-        'email': email,
-        'kakaoUserId': kakaoUserId,
-        'createdAt': FieldValue.serverTimestamp(),
-        'expiresAt': Timestamp.fromDate(
-          DateTime.now().add(const Duration(minutes: 30)),
-        ),
-      });
+      debugPrint('📧 STEP 1: Firestore emailLinkTokens 문서 생성 시작 (token=$token, email=$email)');
+      try {
+        await FirebaseFirestore.instance
+            .collection('emailLinkTokens')
+            .doc(token)
+            .set({
+          'email': email,
+          'kakaoUserId': kakaoUserId,
+          'createdAt': FieldValue.serverTimestamp(),
+          'expiresAt': Timestamp.fromDate(
+            DateTime.now().add(const Duration(minutes: 30)),
+          ),
+        });
+        debugPrint('✅ STEP 1 성공: Firestore 문서 생성 완료');
+      } catch (e) {
+        debugPrint('❌ STEP 1 실패: Firestore 문서 생성 오류 → $e');
+        rethrow;
+      }
 
       // 2) continueUrl에 토큰 붙이기 (핵심)
       final continueUrl = 'https://seolleyeon.web.app/auth/email-link?t=$token';
 
       // 3) Firebase 이메일 링크 전송
-      await _authService.sendStudentEmailLink(email: email, continueUrl: continueUrl);
+      debugPrint('📧 STEP 2: sendSignInLinkToEmail 시작 (email=$email)');
+      try {
+        await _authService.sendStudentEmailLink(email: email, continueUrl: continueUrl);
+        debugPrint('✅ STEP 2 성공: 이메일 링크 전송 완료');
+      } catch (e) {
+        debugPrint('❌ STEP 2 실패: sendSignInLinkToEmail 오류 → $e');
+        rethrow;
+      }
 
       // 4) 로컬에 이메일 저장 (웹 인증 후 앱에서 확인용)
       await _storageService.saveStudentEmail(kakaoUserId, email);
@@ -250,18 +322,21 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return CupertinoPageScaffold(
+      key: ValueKey('student_verification_$_resumeKey'),
       backgroundColor: _AppColors.backgroundLight,
       navigationBar: const CupertinoNavigationBar(
         middle: Text('연세 이메일 인증'),
       ),
       child: SafeArea(
-        child: Stack(
+        child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                   const SizedBox(height: 8),
                   const Text(
                     '연세대학교 이메일\n인증이 필요해요',
@@ -346,17 +421,12 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
                     ),
                     const SizedBox(height: 8),
                   ],
-                  const Spacer(),
-                  SizedBox(height: bottomPadding + 110), // 하단 버튼 영역 확보
                 ],
+                ),
               ),
             ),
-            // Bottom actions
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Container(
+            // Bottom actions (스크롤 영역 아래에 배치 → 키보드 시 가려지지 않음)
+            Container(
                 padding: EdgeInsets.fromLTRB(24, 14, 24, bottomPadding + 16),
                 decoration: BoxDecoration(
                   color: _AppColors.backgroundLight.withValues(alpha: 0.96),
@@ -447,7 +517,6 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
                   ],
                 ),
               ),
-            ),
           ],
         ),
       ),

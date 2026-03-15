@@ -152,8 +152,8 @@ def load_events_from_firestore(
         for doc in q.stream():
             d = doc.to_dict() or {}
             user_id = d.get("userId")
-            item_id = d.get("targetUserId")
-            event = d.get("eventType")
+            item_id = d.get("targetUserId") or d.get("targetId") or d.get("candidateUserId")
+            event = d.get("eventType") or d.get("type")
             ts = d.get("createdAt")
 
             if user_id is None or item_id is None or event is None:

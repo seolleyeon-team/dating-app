@@ -12,7 +12,7 @@
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import '../../../services/storage_service.dart';
 import '../../../services/interaction_service.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/ai_recommendation_service.dart';
@@ -50,9 +50,11 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
     with TickerProviderStateMixin {
   late AnimationController _pulseController;
   final _deckController = SeolSwipeDeckController();
+  final _storageService = StorageService();
 
   List<AiRecommendedProfile> _profiles = [];
   bool _isLoading = true;
+  String? _kakaoUserId;
 
   @override
   void initState() {
@@ -61,22 +63,38 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
       duration: const Duration(seconds: 1),
       vsync: this,
     )..repeat(reverse: true);
-    
     _loadRecommendations();
   }
 
   Future<void> _loadRecommendations() async {
-    final aiService = AiRecommendationService();
-    final feed = await aiService.fetchProfileFeed(limit: 10);
-    
-    if (!mounted) return;
-    setState(() {
-      _profiles = feed;
-      _isLoading = false;
-    });
+    try {
+      final kakaoUserId = await _storageService.getKakaoUserId();
+      debugPrint('[ProfileCard] kakaoUserId from storage: $kakaoUserId');
+      if (mounted) setState(() => _kakaoUserId = kakaoUserId);
 
-    if (_profiles.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _recordImpressionAndOpenForTopCard(0));
+      if (kakaoUserId == null || kakaoUserId.isEmpty) {
+        debugPrint('[ProfileCard] ⚠️ kakaoUserId is null/empty — recEvents 기록 불가');
+      }
+
+      final aiService = AiRecommendationService();
+      final feed = await aiService.fetchProfileFeed(limit: 10, userId: kakaoUserId);
+      debugPrint('[ProfileCard] 프로필 ${feed.length}개 로드 완료');
+
+      if (!mounted) return;
+      setState(() {
+        _profiles = feed;
+        _isLoading = false;
+      });
+
+      if (_profiles.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _recordImpressionAndOpenForTopCard(0));
+      }
+    } catch (e, st) {
+      debugPrint('[ProfileCard] ❌ _loadRecommendations 실패: $e');
+      debugPrint('[ProfileCard] stack: $st');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -88,7 +106,12 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
   }
 
   void _onSwiped(int index, SwipeDirection direction) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = _kakaoUserId;
+    debugPrint('[ProfileCard] _onSwiped: index=$index, dir=$direction, uid=$uid, profiles=${_profiles.length}');
+
+    if (uid == null) {
+      debugPrint('[ProfileCard] ⚠️ _kakaoUserId가 null — recEvent 기록 건너뜀');
+    }
     if (uid != null && index < _profiles.length) {
       final profile = _profiles[index];
       final eventType = direction == SwipeDirection.right ? 'like' : 'nope';
@@ -103,19 +126,14 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
       if (profile.finalScore != null) contextMetadata['finalScore'] = profile.finalScore!;
       contextMetadata['algorithmVersion'] = profile.primaryAlgo;
 
-      RecEventService().logEvent(
-        userId: uid,
-        targetType: 'user_profile',
-        targetId: profile.candidateUid,
-        candidateUserId: profile.candidateUid,
+      _logRecEvent(
+        uid: uid,
         eventType: eventType,
-        surface: 'profile_card',
-        cardVariant: 'ai_profile',
-        exposureId: profile.exposureId,
-        context: contextMetadata,
+        profile: profile,
+        contextMetadata: contextMetadata,
+        label: 'swipe',
       );
 
-      // 다음 카드가 있으면 해당 카드 노출 기록
       final nextIndex = index + 1;
       if (nextIndex < _profiles.length) {
         _recordImpressionAndOpenForTopCard(nextIndex);
@@ -128,8 +146,32 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
     }
   }
 
+  Future<void> _logRecEvent({
+    required String uid,
+    required String eventType,
+    required AiRecommendedProfile profile,
+    required Map<String, dynamic> contextMetadata,
+    required String label,
+  }) async {
+    try {
+      await RecEventService().logEvent(
+        userId: uid,
+        targetType: 'user_profile',
+        targetId: profile.candidateUid,
+        candidateUserId: profile.candidateUid,
+        eventType: eventType,
+        surface: 'profile_card',
+        cardVariant: 'ai_profile',
+        exposureId: profile.exposureId,
+        context: contextMetadata,
+      );
+    } catch (e) {
+      debugPrint('[ProfileCard] ❌ recEvent $label 실패: $e');
+    }
+  }
+
   void _recordImpressionAndOpenForTopCard(int cardIndex) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = _kakaoUserId;
     if (uid == null || cardIndex >= _profiles.length) return;
     
     final profile = _profiles[cardIndex];
@@ -143,31 +185,8 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
     if (profile.finalScore != null) contextMetadata['finalScore'] = profile.finalScore!;
     contextMetadata['algorithmVersion'] = profile.primaryAlgo;
 
-    // Impression
-    RecEventService().logEvent(
-      userId: uid,
-      targetType: 'user_profile',
-      targetId: profile.candidateUid,
-      candidateUserId: profile.candidateUid,
-      eventType: 'impression',
-      surface: 'profile_card',
-      cardVariant: 'ai_profile',
-      exposureId: profile.exposureId,
-      context: contextMetadata,
-    );
-
-    // Open (카드 전면 뷰 렌더링 시점에 바로 발생한다고 가정)
-    RecEventService().logEvent(
-      userId: uid,
-      targetType: 'user_profile',
-      targetId: profile.candidateUid,
-      candidateUserId: profile.candidateUid,
-      eventType: 'open',
-      surface: 'profile_card',
-      cardVariant: 'ai_profile',
-      exposureId: profile.exposureId,
-      context: contextMetadata,
-    );
+    _logRecEvent(uid: uid, eventType: 'impression', profile: profile, contextMetadata: contextMetadata, label: 'impression');
+    _logRecEvent(uid: uid, eventType: 'open', profile: profile, contextMetadata: contextMetadata, label: 'open');
   }
 
   void _onLike() {
@@ -264,7 +283,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
   }
   void _showMoreOptions(BuildContext context, AiRecommendedProfile profile) {
     // 상세 프로필 팝업 / 옵션 클릭 시 detail_open 기록
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = _kakaoUserId;
     if (uid != null) {
       final Map<String, dynamic> contextMetadata = {
         'screen': 'profile_card_screen',
@@ -274,17 +293,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
       if (profile.finalScore != null) contextMetadata['finalScore'] = profile.finalScore!;
       contextMetadata['algorithmVersion'] = profile.primaryAlgo;
 
-      RecEventService().logEvent(
-        userId: uid,
-        targetType: 'user_profile',
-        targetId: profile.candidateUid,
-        candidateUserId: profile.candidateUid,
-        eventType: 'detail_open',
-        surface: 'profile_card',
-        cardVariant: 'ai_profile',
-        exposureId: profile.exposureId,
-        context: contextMetadata,
-      );
+      _logRecEvent(uid: uid, eventType: 'detail_open', profile: profile, contextMetadata: contextMetadata, label: 'detail_open');
     }
 
     showCupertinoModalPopup(
@@ -349,7 +358,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                           if (reasonController.text.isEmpty) return;
                           setState(() => isSubmitting = true);
                           try {
-                            final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+                            final currentUserId = _kakaoUserId;
                             if (currentUserId == null) {
                               if (ctx.mounted) Navigator.pop(ctx);
                               return;

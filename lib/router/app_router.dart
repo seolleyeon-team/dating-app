@@ -133,8 +133,13 @@ class AppRouter {
         return _cupertino(const KeywordScreen());
       case RouteNames.onboardingIdealType:
         return _cupertino(const IdealTypeScreen());
-      case RouteNames.onboardingHeightSelection:
-        return _cupertino(const HeightSelectionScreen());
+      case RouteNames.onboardingHeightSelection: {
+        final args = settings.arguments as Map<String, dynamic>?;
+        final initialHeight = args?['initialHeight'] as int? ?? 175;
+        return _cupertino(
+          HeightSelectionScreen(initialHeight: initialHeight.clamp(140, 200)),
+        );
+      }
       case RouteNames.onboardingIdealHeightRange:
         return _cupertino(const IdealHeightRangeScreen());
       case RouteNames.onboardingIdealAge:

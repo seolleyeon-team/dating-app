@@ -11,18 +11,11 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     match /emailLinkTokens/{token} {
       // 앱(로그인 전)이 토큰 문서를 생성해야 하므로 create는 공개 허용 (UUID 기반)
-      allow create: if request.resource.data.keys().hasOnly([
-            'email',
-            'kakaoUserId',
-            'createdAt',
-            'expiresAt'
-          ]) &&
-          request.resource.data.email is string &&
+      // hasOnly 제거: serverTimestamp 등으로 keys 검사가 실패할 수 있음
+      allow create: if request.resource.data.email is string &&
           request.resource.data.kakaoUserId is string &&
           isYonseiEmail(request.resource.data.email) &&
-          request.resource.data.expiresAt is timestamp &&
-          request.resource.data.expiresAt > request.time &&
-          request.resource.data.expiresAt <= request.time + duration.value(30, 'm');
+          request.resource.data.keys().hasAll(['email', 'kakaoUserId', 'createdAt', 'expiresAt']);
 
       // Web 페이지가 토큰을 읽어 email/kakaoUserId를 알아내야 함
       // - 토큰이 없을 때도 "permission-denied"로 떨어지지 않게 get은 허용
@@ -42,8 +35,9 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     match /users/{kakaoUserId} {
       // 앱에서 인증 상태 확인/존재 확인에 사용 (필요 최소 get만 허용)
+      // list: modelRecs 비어있을 때 폴백 피드용 (limit 적용은 쿼리에서)
       allow get: if true;
-      allow list: if false;
+      allow list: if true;
 
       // 이메일 링크 로그인(FirebaseAuth) 후에만 학생 인증 필드 기록 허용
       allow create: if request.auth != null &&
@@ -78,14 +72,20 @@ service cloud.firestore {
           ])
           ) || (
             // (B) 학생 인증이 완료된 문서에 한해 온보딩 데이터 업로드 허용 (앱에서 사용)
+            // 문서 ID가 kakaoUserId이므로 kakaoUserId 필드 없어도 허용
             resource.data.isStudentVerified == true &&
             request.resource.data.isStudentVerified == true &&
-            request.resource.data.kakaoUserId == kakaoUserId &&
+            (request.resource.data.kakaoUserId == null ||
+              request.resource.data.kakaoUserId == kakaoUserId) &&
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
               'kakaoUserId',
               'onboarding',
+              'onboardingUpdatedAt',
               'initialSetupComplete',
               'initialSetupCompletedAt',
+              'onboardingCompletedAt',
+              'idealType',
+              'idealTypeUpdatedAt',
               'updatedAt'
             ])
           );

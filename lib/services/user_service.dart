@@ -61,19 +61,8 @@ class UserService {
     final data = doc.data();
     final v = data?['initialSetupComplete'];
     if (v == true || v == 'true' || (v is num && v != 0)) return true;
-    // 이미 onboarding + 연세 인증이 있으면 완료로 간주 (initialSetupComplete 필드 없이 저장된 기존 사용자)
-    final verified = data?['isStudentVerified'];
-    final isVerified =
-        verified == true ||
-        verified == 'true' ||
-        (verified is num && verified != 0);
-    if (!isVerified) return false;
-    final onboarding = data?['onboarding'];
-    if (onboarding is! Map || onboarding.isEmpty) return false;
-    final hasContent =
-        (onboarding['nickname']?.toString().trim().isNotEmpty == true) ||
-        (onboarding['gender']?.toString().trim().isNotEmpty == true);
-    return hasContent;
+    // initialSetupComplete가 명시적으로 true일 때만 완료. 온보딩 중간에 나갔다 들어와도 온보딩으로 복귀
+    return false;
   }
 
   Future<bool> hasSeenTutorial(String kakaoUserId) async {
@@ -154,7 +143,6 @@ class UserService {
     await docRef.set({
       'onboarding': mergedOnboarding,
       'onboardingUpdatedAt': FieldValue.serverTimestamp(),
-      'initialSetupComplete': true,
     }, SetOptions(merge: true));
   }
 

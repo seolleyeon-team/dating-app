@@ -1,0 +1,65 @@
+﻿Analyzing semisemifinal...                                      
+
+   info - Don't use 'BuildContext's across async gaps - lib\features\auth\screens\kakao_auth_screen.dart:116:24 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\features\auth\screens\kakao_auth_screen.dart:185:24 - use_build_context_synchronously
+   info - Use of 'return' in a 'finally' clause - lib\features\chat\screens\chat_room_screen.dart:209:21 - control_flow_in_finally
+warning - The declaration '_formatTime' isn't referenced - lib\features\chat\screens\chat_room_screen.dart:216:10 - unused_element
+   info - The import of 'package:flutter/foundation.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/cupertino.dart' - lib\features\chat\screens\premium_chat_list_screen.dart:10:8 - unnecessary_import
+warning - The declaration '_sortedChats' isn't referenced - lib\features\chat\screens\premium_chat_list_screen.dart:261:23 - unused_element
+   info - The import of 'dart:ui' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/cupertino.dart' - lib\features\community\screens\post_detail_screen.dart:8:8 - unnecessary_import
+   info - Don't use 'BuildContext's across async gaps - lib\features\community\screens\post_detail_screen.dart:178:9 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\features\community\screens\post_detail_screen.dart:220:9 - use_build_context_synchronously
+   info - Use of 'return' in a 'finally' clause - lib\features\community\screens\post_detail_screen.dart:223:21 - control_flow_in_finally
+   info - Don't use 'BuildContext's across async gaps - lib\features\community\screens\post_detail_screen.dart:242:9 - use_build_context_synchronously
+   info - 'minSize' is deprecated and shouldn't be used. Use minimumSize instead. This feature was deprecated after v3.28.0-3.0.pre - lib\features\community\screens\post_detail_screen.dart:526:13 - deprecated_member_use
+warning - Unused import: 'dart:math' - lib\features\community\screens\post_write_screen.dart:12:8 - unused_import
+   info - Don't use 'BuildContext's across async gaps - lib\features\community\screens\post_write_screen.dart:91:24 - use_build_context_synchronously
+   info - Use of 'return' in a 'finally' clause - lib\features\community\screens\post_write_screen.dart:110:21 - control_flow_in_finally
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\matching\screens\mystery_card_screen.dart:120:46 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\matching\screens\mystery_card_screen.dart:136:46 - deprecated_member_use
+   info - Statements in an if should be enclosed in a block - lib\features\matching\screens\mystery_card_screen.dart:347:7 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\matching\screens\mystery_card_screen.dart:349:7 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\matching\screens\mystery_card_screen.dart:592:11 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\matching\screens\mystery_card_screen.dart:594:11 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\matching\screens\mystery_card_screen.dart:596:11 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\onboarding\screens\basic_info_screen.dart:129:30 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\onboarding\screens\basic_info_screen.dart:130:37 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\onboarding\screens\basic_info_screen.dart:131:36 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\onboarding\screens\basic_info_screen.dart:133:30 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\onboarding\screens\basic_info_screen.dart:133:76 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\onboarding\screens\basic_info_screen.dart:134:56 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\onboarding\screens\basic_info_screen.dart:134:102 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\onboarding\screens\basic_info_screen.dart:135:56 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\onboarding\screens\basic_info_screen.dart:135:102 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\onboarding\screens\basic_info_screen.dart:136:56 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\onboarding\screens\basic_info_screen.dart:136:102 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\onboarding\screens\basic_info_screen.dart:143:39 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\onboarding\screens\basic_info_screen.dart:144:43 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\features\onboarding\screens\basic_info_screen.dart:145:41 - curly_braces_in_flow_control_structures
+   info - Don't use 'BuildContext's across async gaps, guarded by an unrelated 'mounted' check - lib\features\onboarding\screens\ideal_type\ideal_lifestyle_screen.dart:337:34 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps, guarded by an unrelated 'mounted' check - lib\features\onboarding\screens\interests_selection_screen.dart:440:36 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps, guarded by an unrelated 'mounted' check - lib\features\onboarding\screens\lifestyle_screen.dart:354:34 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps, guarded by an unrelated 'mounted' check - lib\features\onboarding\screens\major_selection_screen.dart:230:32 - use_build_context_synchronously
+   info - The import of 'package:flutter/cupertino.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart' - lib\features\onboarding\screens\photo_upload_screen.dart:4:8 - unnecessary_import
+   info - Don't use 'BuildContext's across async gaps, guarded by an unrelated 'mounted' check - lib\features\onboarding\screens\profile_qa_screen.dart:264:38 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps, guarded by an unrelated 'mounted' check - lib\features\onboarding\screens\self_introduction_screen.dart:223:27 - use_build_context_synchronously
+warning - Unused import: 'package:flutter/material.dart' - lib\features\profile\screens\my_page_screen.dart:10:8 - unused_import
+warning - The library 'package:flutter/material.dart' doesn't export a member with the shown name 'showCupertinoDialog' - lib\features\profile\screens\my_page_screen.dart:10:45 - undefined_shown_name
+   info - Don't use 'BuildContext's across async gaps - lib\features\splash\splash_screen.dart:49:20 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\features\splash\splash_screen.dart:55:20 - use_build_context_synchronously
+   info - Don't invoke 'print' in production code - lib\main.dart:33:7 - avoid_print
+   info - Don't invoke 'print' in production code - lib\services\ai_recommendation_service.dart:218:7 - avoid_print
+   info - Don't invoke 'print' in production code - lib\services\ai_recommendation_service.dart:252:7 - avoid_print
+   info - Statements in an if should be enclosed in a block - lib\services\user_service.dart:307:7 - curly_braces_in_flow_control_structures
+
+flutter : 51 issues found. (ran in 8.5s)
+위치 줄:1 문자:1
++ flutter analyze --no-pub 2>&1 | Out-File 
+-FilePath C:\Users\samsung\S ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified 
+   : (51 issues found. (ran in 8.5s):Stri  
+  ng) [], RemoteException
+    + FullyQualifiedErrorId : NativeComman 
+   dError
+ 

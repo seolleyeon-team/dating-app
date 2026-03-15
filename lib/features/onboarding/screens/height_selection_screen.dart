@@ -12,7 +12,6 @@
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
-import '../../../router/route_names.dart';
 import '../../../services/onboarding_save_helper.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
@@ -112,7 +111,7 @@ class _HeightSelectionScreenState extends State<HeightSelectionScreen> {
     if (widget.onBack != null) {
       widget.onBack!();
     } else {
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(_selectedHeight);
     }
   }
 
@@ -123,7 +122,7 @@ class _HeightSelectionScreenState extends State<HeightSelectionScreen> {
     if (widget.onComplete != null) {
       widget.onComplete!.call(_selectedHeight);
     } else {
-      Navigator.of(context).pushNamed(RouteNames.onboardingBasicInfo);
+      Navigator.of(context).pop(_selectedHeight);
     }
   }
 
