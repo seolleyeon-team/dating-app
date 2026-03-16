@@ -12,6 +12,8 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
+import '../../../../router/route_names.dart';
+
 // =============================================================================
 // 색상 상수
 // =============================================================================
@@ -245,7 +247,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: CupertinoIcons.doc_text,
                         title: '이용 약관',
                         hasChevron: true,
-                        onTap: () {},
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          Navigator.of(context).pushNamed(RouteNames.termsWebview);
+                        },
                       ),
                     ],
                   ),

@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>설레연 이용 약관</title>
+  <meta name="description" content="설레연 서비스 이용 약관" />
+  <style>
+    :root {
+      --bg: #fff9fc;
+      --surface: #ffffff;
+      --surface-2: #fff3f7;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --line: #ecdfe7;
+      --heading: #1f5b78;
+      --accent: #ef3976;
+      --accent-soft: #ffe6ef;
+      --shadow: 0 10px 30px rgba(24, 39, 75, 0.08);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top, rgba(239, 57, 118, 0.08), transparent 28%),
+        linear-gradient(180deg, #fffafc 0%, #fffdfd 100%);
+      font-family:
+        "Apple SD Gothic Neo",
+        "Noto Sans KR",
+        "Malgun Gothic",
+        "Segoe UI",
+        system-ui,
+        -apple-system,
+        sans-serif;
+      line-height: 1.8;
+      word-break: keep-all;
+    }
+
+    a { color: inherit; }
+
+    .page {
+      width: min(100%, 960px);
+      margin: 0 auto;
+      padding: 32px 20px 72px;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, rgba(239,57,118,0.07), rgba(31,91,120,0.05));
+      border: 1px solid rgba(236, 223, 231, 0.9);
+      border-radius: 28px;
+      padding: 28px 24px 24px;
+      box-shadow: var(--shadow);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.88);
+      border: 1px solid rgba(236, 223, 231, 0.95);
+      color: var(--accent);
+      font-size: 0.92rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    h1 {
+      margin: 16px 0 8px;
+      font-size: clamp(2rem, 4vw, 2.8rem);
+      line-height: 1.2;
+      letter-spacing: -0.03em;
+      color: var(--text);
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 1rem;
+    }
+
+    .toc {
+      margin-top: 18px;
+      padding: 18px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.74);
+      border: 1px solid rgba(236, 223, 231, 0.92);
+      backdrop-filter: blur(8px);
+    }
+
+    .toc-title {
+      margin: 0 0 12px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--muted);
+    }
+
+    .toc-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .toc-grid a {
+      display: block;
+      padding: 12px 14px;
+      border-radius: 14px;
+      text-decoration: none;
+      background: #fff;
+      border: 1px solid var(--line);
+      font-weight: 600;
+      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .toc-grid a:hover,
+    .toc-grid a:focus-visible {
+      transform: translateY(-1px);
+      border-color: rgba(239, 57, 118, 0.45);
+      box-shadow: 0 8px 20px rgba(239, 57, 118, 0.08);
+      outline: none;
+    }
+
+    .content {
+      display: grid;
+      gap: 20px;
+      margin-top: 24px;
+    }
+
+    .section-card {
+      background: var(--surface);
+      border: 1px solid rgba(236, 223, 231, 0.95);
+      border-radius: var(--radius);
+      padding: 28px 24px;
+      box-shadow: var(--shadow);
+    }
+
+    h2 {
+      margin: 0 0 18px;
+      font-size: clamp(1.42rem, 2.2vw, 1.85rem);
+      line-height: 1.35;
+      letter-spacing: -0.02em;
+      color: var(--heading);
+    }
+
+    h3 {
+      margin: 18px 0 8px;
+      font-size: 1.06rem;
+      line-height: 1.45;
+      color: var(--text);
+    }
+
+    p {
+      margin: 0;
+      font-size: 1rem;
+      color: var(--text);
+    }
+
+    p + p,
+    p + ul,
+    ul + p,
+    h3 + p,
+    h3 + ul {
+      margin-top: 12px;
+    }
+
+    .summary {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+      padding: 18px;
+      border-radius: 18px;
+      background: var(--surface-2);
+      border: 1px solid rgba(239, 57, 118, 0.12);
+    }
+
+    .summary strong {
+      color: var(--accent);
+    }
+
+    .rule-list {
+      margin: 14px 0 0;
+      padding-left: 22px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .rule-list li {
+      padding-left: 4px;
+    }
+
+    .rule-list strong,
+    p strong {
+      font-weight: 800;
+    }
+
+    .final-note {
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(135deg, rgba(31,91,120,0.05), rgba(239,57,118,0.07));
+    }
+
+    .final-note::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 6px;
+      background: linear-gradient(180deg, var(--accent), #ff94b8);
+    }
+
+    .final-note-inner {
+      padding-left: 10px;
+    }
+
+    .footer-line {
+      height: 1px;
+      margin: 18px 0 16px;
+      background: linear-gradient(90deg, rgba(239,57,118,0.45), rgba(31,91,120,0.18));
+    }
+
+    .contact {
+      font-weight: 800;
+    }
+
+    .top-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 18px;
+      padding: 11px 15px;
+      border-radius: 999px;
+      background: #fff;
+      border: 1px solid var(--line);
+      text-decoration: none;
+      font-weight: 700;
+      color: var(--muted);
+    }
+
+    .top-link:hover,
+    .top-link:focus-visible {
+      border-color: rgba(239, 57, 118, 0.4);
+      color: var(--accent);
+      outline: none;
+    }
+
+    @media (max-width: 640px) {
+      .page {
+        padding: 18px 14px 52px;
+      }
+
+      .hero,
+      .section-card {
+        padding: 22px 18px;
+        border-radius: 20px;
+      }
+
+      .toc {
+        padding: 14px;
+      }
+
+      .toc-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .rule-list {
+        padding-left: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page" id="top">
+    <header class="hero">
+      <div class="eyebrow">설레연 • 서비스 이용약관</div>
+      <h1>설레연 이용 약관</h1>
+      <p class="subtitle">설레연 서비스 이용 시 회원이 준수해야 할 기본적인 이용 기준과 정책을 안내합니다.</p>
+
+      <nav class="toc" aria-label="목차">
+        <p class="toc-title">목차</p>
+        <ul class="toc-grid">
+          <li><a href="#eligibility">이용 자격 및 회원 가입</a></li>
+          <li><a href="#ai-service">AI 추천 서비스</a></li>
+          <li><a href="#location-safety">위치정보 수집 및 안전 도장 기능</a></li>
+          <li><a href="#rules">이용자 행동 수칙 및 금지 행위</a></li>
+          <li><a href="#sanctions">위반 사항에 대한 조치</a></li>
+          <li><a href="#privacy-content">개인정보 보호 및 콘텐츠 관리</a></li>
+          <li><a href="#closing">마무리 안내</a></li>
+        </ul>
+      </nav>
+    </header>
+
+    <div class="content">
+      <section class="section-card" id="eligibility">
+        <h2>이용 자격 및 회원 가입</h2>
+
+        <p><strong>만 18세 이상 대학생만 사용 가능:</strong> 설레연 서비스(이하 "서비스")는 만 18세 이상의 성인으로 국내 대학에 재학 중인 자만 회원으로 가입하고 이용할 수 있습니다. 미성년자나 대학생 신분이 아닌 경우 서비스 이용이 제한됩니다. 회원은 가입 시 실제 자신의 신분과 정보를 제공해야 하며, 타인의 정보를 도용하거나 허위 정보를 제공해서는 안 됩니다.</p>
+
+        <p><strong>학교 이메일 인증:</strong> 서비스는 회원의 대학생 여부를 확인하기 위해 학교 이메일 인증 절차를 요구합니다. 사용자는 본인의 유효한 학교 웹메일로 인증을 진행하여 재학생 신분을 증명해야 합니다. 필요한 경우 회사는 학생증, 재학/졸업 증명서 등의 추가 서류를 요구할 수 있으며, 인증되지 않은 경우 서비스 이용이 제한됩니다. 회원이 고의로 허위 정보로 가입하거나 부정한 방법으로 인증을 시도할 경우 발생하는 문제에 대해 회사는 책임을 지지 않으며, 해당 회원에 대한 서비스 이용을 거부하거나 계정을 삭제할 권리를 가집니다. 또한 하나의 회원은 하나의 계정만 개설할 수 있으며, 본인 계정을 타인과 공유하거나 양도할 수 없습니다.</p>
+      </section>
+
+      <section class="section-card" id="ai-service">
+        <h2>AI 추천 서비스</h2>
+
+        <p>서비스는 인공지능(AI) 기술을 활용하여 회원에게 맞춤형 매칭 상대를 추천하거나 콘텐츠를 제공하는 등의 기능을 제공합니다. AI 알고리즘은 회원이 제공한 프로필 정보, 활동 내역 등을 분석하여 적합한 상대를 찾아 주거나 서비스 경험을 향상시키는 데 활용됩니다. 회원은 이러한 AI 기반 추천 기능의 제공에 동의하며, AI가 제안하는 결과나 추천은 법적인 효력을 지니지 않고 참고 자료로만 제공됨을 이해합니다. 회사는 AI의 추천 결과에 대해서 정확성이나 만족도를 보장하지 않으며, 최종적인 만남 및 의사결정에 따른 책임은 사용자 본인에게 있습니다. 다만, 회사는 AI 기능의 향상을 위해 지속적으로 노력하고 있으며, AI 관련 오류나 오작동을 발견할 경우 신속히 개선 조치를 취합니다. (예: AI가 부적절한 프로필을 추천한 경우 회사에 신고할 수 있는 절차를 제공).</p>
+
+        <p><strong>홍보 활용 동의:</strong> 회사는 서비스의 품질 향상 및 마케팅을 위해 AI 추천 기능의 존재를 대외적으로 홍보할 수 있습니다. 이 경우 회원의 개별적인 개인정보나 프로필을 드러내지 않는 범위에서만 진행하며, 구체적인 사례 공유 등이 필요한 경우 사전에 회원의 별도 동의를 구합니다.</p>
+      </section>
+
+      <section class="section-card" id="location-safety">
+        <h2>위치정보 수집 및 안전 도장 기능</h2>
+
+        <p>서비스는 회원의 안전을 위해 위치 기반 서비스("안전도장" 기능)를 제공할 수 있습니다. 안전도장이란 오프라인 만남 시 회원의 실시간 위치 정보를 활용하여 안전 여부를 확인하거나, 지정된 상대방에게 사용자의 안심 도착/귀가를 인증할 수 있는 기능입니다.</p>
+
+        <p><strong>위치 정보 수집 동의:</strong> 회원이 안전도장 기능을 활성화하는 경우, 서비스는 GPS, 블루투스, Wi-Fi 등을 이용해 회원의 실시간 위치정보를 수집하게 됩니다. 이러한 위치 정보 수집은 해당 기능 활성화 시에만 이루어지며, 법령상 필요한 경우를 제외하고 회원의 사전 동의 없이 수집하거나 이용하지 않습니다. 회원이 명시적으로 동의한 경우에 한해 백그라운드에서 위치를 수집하며, 동의를 철회하거나 기능을 비활성화하면 추가적인 위치 수집을 중단합니다.</p>
+
+        <p><strong>위치 정보 이용 및 보호:</strong> 수집된 위치정보는 회원의 안전 확보를 위한 목적으로만 사용됩니다. 예를 들어, 약속 장소 도착 또는 귀가 시 안전도장을 찍으면 해당 시점의 위치가 기록되어 본인과 필요한 경우 지정한 보호자에게 알려집니다. 회사는 회원의 개인 위치정보를 다른 회원에게 직접 공개하거나 제공하지 않으며, 오직 매칭 알고리즘이나 안전 기능 구현을 위한 내부 용도로만 활용합니다. 위치정보 및 관련 데이터는 관련 법령에 따라 보유 기간을 엄격히 준수하며, 회원이 서비스 탈퇴 시 해당 정보를 지체 없이 파기합니다. 회원은 언제든지 위치 정보 수집에 대한 동의를 철회할 수 있으며, 철회 시 회사는 해당 정보를 즉시 삭제합니다.</p>
+      </section>
+
+      <section class="section-card" id="rules">
+        <h2>이용자 행동 수칙 및 금지 행위</h2>
+
+        <div class="summary">
+          <p>설레연은 모든 회원들이 <strong>안전하고 쾌적한 커뮤니티</strong>를 이용할 수 있도록 아래와 같은 행동 수칙을 정하고 있습니다. 회원은 서비스를 이용함에 있어 건전한 에티켓을 지켜야 하며, 아래 금지된 행위를 해서는 안 됩니다. 만약 다음에 열거된 행위를 할 경우 사전 경고 없이 이용 제한 또는 계정 영구 정지 등의 제재가 이루어질 수 있습니다.</p>
+        </div>
+
+        <ul class="rule-list">
+          <li><strong>부적절한 프로필 사진 게시:</strong> 회원은 본인의 프로필에 나체 사진, 성기 등 중요 부위 노출 사진이나 성적 행위를 묘사한 사진 등 외설적이고 부적절한 이미지를 게시해서는 안 됩니다. 모든 프로필 사진은 일반적인 사회 기준에서 용인되는 수준의 복장을 갖춘 사진이어야 하며, 미성년자가 등장하는 사진도 절대 등록할 수 없습니다.</li>
+
+          <li><strong>욕설 및 음란·모욕 발언:</strong> 채팅, 무물(Q&amp;A), 댓글 등 서비스 내 소통 공간에서 욕설, 비속어를 사용하거나 음란하고 저속한 표현을 일삼는 행위, 상대방에게 성적 불쾌감을 주는 성희롱 발언을 하는 행위는 금지됩니다. 또한 인종차별, 혐오 표현 등 타인의 인격을 침해하는 언행을 포함하여, 상대방을 모욕하거나 위협하는 행위도 허용되지 않습니다. 회원 간에는 언제나 예의와 존중을 바탕으로 대화해야 합니다.</li>
+
+          <li><strong>불법·부적절한 콘텐츠 공유:</strong> 서비스 내에서 불법적이거나 사회 질서에 반하는 모든 콘텐츠의 업로드 및 공유를 금지합니다. 예를 들어, 마약류, 불법 촬영물, 도박, 테러 등 불법 행위를 조장하거나 미화하는 내용, 타인의 권리를 침해하는 내용, 타인에 대한 허위사실 유포나 명예훼손성 발언은 엄격히 금지됩니다. 또한 음란물이나 과도한 폭력성을 띤 콘텐츠를 게시하거나 공유해서는 안 됩니다. 이러한 금지 콘텐츠를 올릴 경우 해당 게시물은 통보 없이 삭제되며 계정이 정지될 수 있습니다.</li>
+
+          <li><strong>상업적 광고 및 사기 행위:</strong> 서비스는 개인 간 만남과 교류를 위한 공간이지 영리 목적의 광고나 홍보를 위한 공간이 아닙니다. 회원이 채팅이나 게시판을 통해 상업적인 광고, 불법 사이트 홍보, 피라미드식 다단계 권유 등을 하는 행위는 금지됩니다. 또한 서비스 내에서 금전적인 이득을 위한 사기 행위(예: 돈을 빌리거나 보내달라는 요청, 투자 권유 등)를 해서는 안 됩니다. 다른 회원에게 금품을 요구하거나 거래를 제안하는 경우 발견 즉시 이용이 제한됩니다.</li>
+
+          <li><strong>외부 연락처 공유 또는 유도:</strong> 회원 간의 모든 초기 소통은 가급적 서비스 내에서 이루어져야 하며, 카카오톡 아이디, 전화번호, 이메일 등 외부 연락처를 직접적으로 요구하거나 공유하도록 유도하는 행위를 금합니다. 공개 프로필이나 대나무숲 글 등에 개인 연락처를 게시하는 것도 허용되지 않습니다. 이는 회원 보호와 사기 예방을 위한 조치이므로 협조 부탁드립니다. 필요한 경우 매칭이 성사된 후 안전한 절차를 거쳐 연락처를 교환하시기 바랍니다.</li>
+
+          <li><strong>대나무숲 부적절 사용:</strong> 서비스 내 익명 게시판 기능인 "대나무숲"에서는 대학 생활 공유와 소통을 장려하지만, 음담패설, 욕설, 성희롱 등의 부적절한 게시글을 올리거나 댓글을 다는 행위를 금지합니다. 특정 개인을 암시하거나 지목하여 비방하는 내용, 타인에게 불쾌감을 줄 수 있는 폭력적·선정적 내용 역시 허용되지 않습니다. 대나무숲은 모두가 보는 공개 공간이므로 품위 있는 표현을 사용해주시기 바랍니다.</li>
+
+          <li><strong>3:3 슬롯머신 미팅 규칙 위반:</strong> 서비스의 특징적인 만남 기능 중 하나인 "3:3 슬롯 머신 미팅"에 참여할 경우, 본인이 직접 약속 장소에 나가야 하며 사전에 양해 없이 다른 사람(대타)을 대신 보내는 행위는 엄격히 금지됩니다. 약속된 3:3 미팅에 불참하거나 무단으로 대타를 구해 대신 참석시키는 경우, 신뢰도에 큰 손상을 입히며 다른 참가자들에게 피해를 줍니다. 이러한 행위가 확인되면 해당 회원의 서비스 이용이 제한될 수 있습니다.</li>
+
+          <li><strong>기타 금지 행동:</strong> 이 외에도 다른 사용자를 괴롭히거나 위협하는 행위, 스토킹이나 사생활 침해 행위, 당사의 시스템이나 서비스 운영을 방해하는 행위는 모두 금지됩니다. 타인의 계정을 도용하거나 하나의 계정을 여러 명이 공동 사용하려는 시도, 서비스의 버그나 허점을 악용하는 행위 등도 엄격히 금지됩니다. 회원은 항상 관련 법령을 준수하며 서비스를 이용해야 하며, 서비스 내에서 어떠한 형태의 불법 행위도 용인되지 않습니다.</li>
+        </ul>
+      </section>
+
+      <section class="section-card" id="sanctions">
+        <h2>위반 사항에 대한 조치</h2>
+
+        <p>위에 명시된 금지 행위를 포함하여 이용 약관이나 운영정책을 위반한 경우, 회사는 단독 재량으로 필요한 조치를 취할 수 있습니다. 조치에는 위반 콘텐츠의 삭제, 경고 메시지 발송, 일시적 이용정지(기간 제한) 또는 영구 계정 정지(서비스 탈퇴 처리) 등이 포함됩니다. 중대한 법령 위반이나 다른 이용자에게 심각한 피해를 준 경우 사전 통보 없이 즉시 영구 이용정지 될 수 있으며, 필요 시 수사기관에 신고 조치도 이루어질 수 있습니다. 서비스 이용 제한 조치에 대해서 회원은 공식 고객센터를 통해 이의신청을 할 수 있으나, 정당한 사유가 인정되지 않으면 제재는 유지됩니다. 또한 약관 위반으로 이용이 제한된 회원은 추후 재가입이 제한될 수 있습니다.</p>
+
+        <p>회원이 서비스 이용 중 다른 회원의 위반 행위를 인지한 경우, 신고 기능을 통해 회사에 알려주시기 바랍니다. 회사는 신고 내용을 비밀로 유지하며 신속히 검토하여 필요한 조치를 취하겠습니다.</p>
+      </section>
+
+      <section class="section-card" id="privacy-content">
+        <h2>개인정보 보호 및 콘텐츠 관리</h2>
+
+        <p><strong>데이터의 저장 및 이용:</strong> 회원이 서비스 이용을 위해 제공한 프로필 정보, 사진 및 후기(만남 후 작성하는 리뷰 등)는 서비스 운영 목적 범위 내에서만 사용되며, 외부로 공개되거나 제공되지 않습니다. 회사는 회원의 이러한 개인정보 및 콘텐츠를 당사 서버 내에 안전하게 보관하며, 회원의 사전 동의 없이 제3자에게 공유하거나 유출하지 않습니다. 다만 법률상 요구되거나 회원이 별도로 동의한 경우에 한해 제한적으로 제공될 수 있습니다. 예를 들어, 이벤트 당첨 등으로 배송이 필요한 경우 회원 동의 하에 최소한의 정보가 배송업체에 제공될 수 있습니다.</p>
+
+        <p><strong>회원 콘텐츠의 사용:</strong> 회원이 서비스 내에 등록한 프로필 정보, 사진, 게시글, 후기는 서비스 화면 및 다른 회원과의 매칭, 소통을 위해 서비스 내부에서만 표시되고 활용됩니다. 회사는 회원 콘텐츠에 대해 서비스 운영 및 개선을 위한 범위에서만 이용 권한을 가지며, 홍보나 마케팅 등 외부 목적으로 사용할 경우 반드시 회원의 사전 동의를 얻겠습니다. 회원은 서비스에 콘텐츠를 게시함으로써 그 콘텐츠에 대한 비독점적 사용권을 회사에 부여하게 되나, 이는 서비스 제공 및 개선을 위한 범위 내에서만 활용됩니다. 회사는 회원의 개인정보보호를 최우선으로 고려하여, 필요한 범위 이상으로 회원 콘텐츠를 사용하거나 공개하지 않습니다.</p>
+
+        <p><strong>회원 간 정보 유출 금지:</strong> 모든 회원은 다른 회원의 개인정보 및 콘텐츠를 보호할 의무가 있습니다. 서비스에서 알게 된 타인의 프로필, 사진, 게시물, 채팅 내용 등을 본인의 동의 없이 외부로 유출하거나 공유하는 행위는 엄격히 금지됩니다. 예를 들어, 다른 회원의 프로필 사진을 무단으로 캡처하여 SNS에 게재하거나, 대화 내용을 제3자에게 공개하는 행위는 상대의 사생활을 침해하는 것입니다. 회사는 이러한 행위에 대해 엄중히 대응하며, 적발 시 해당 회원은 즉각적인 계정 정지와 함께 법적 책임을 부담할 수도 있습니다. 회원 각자는 상호 간의 프라이버시를 존중하고, 서비스 내에서 얻은 타인의 정보를 오로지 서비스 이용 목적에만 사용해야 합니다.</p>
+
+        <p><strong>개인정보 취급 방침 준수:</strong> 본 약관에서 명시하지 않은 상세한 개인정보의 수집·이용·보관에 관한 사항은 설레연 개인정보처리방침에 따릅니다. 회사는 관련 법령을 준수하여 회원의 개인정보를 보호하며, 개인정보 처리방침을 통해 구체적인 내용과 회원의 권리를 안내하고 있습니다. 회원은 서비스 이용 전에 개인정보처리방침을 숙지하시기 바라며, 궁금한 사항은 고객센터를 통해 문의할 수 있습니다.</p>
+      </section>
+
+      <section class="section-card final-note" id="closing">
+        <div class="final-note-inner">
+          <h2>마무리 안내</h2>
+
+          <p>이상의 약관은 회원이 준수해야 할 기본적인 이용 규칙을 담고 있으며, 약관에 동의하지 않을 경우 서비스 이용이 불가능합니다. 회사는 필요한 경우 관련 법령을 준수하는 범위에서 본 약관을 개정할 수 있으며, 개정 시 서비스 공지사항 등을 통해 사전 공지하겠습니다. 회원 여러분께서는 안전하고 즐거운 설레연 서비스를 위해 본 약관을 지켜 주시길 부탁드립니다. 위 사항을 숙지하고 동의함으로써 모두가 신뢰할 수 있는 건강한 데이팅 문화를 함께 만들어 나가길 기대합니다.</p>
+
+          <div class="footer-line" aria-hidden="true"></div>
+
+          <p>올바른 약속과 존중을 바탕으로, 설레연과 함께 즐거운 인연을 만들어가세요!</p>
+          <p class="contact">(본 약관에 대한 문의는 설레연 고객센터로 연락 주시기 바랍니다.)</p>
+        </div>
+      </section>
+
+      <a class="top-link" href="#top" aria-label="맨 위로 이동">↑ 맨 위로</a>
+    </div>
+  </main>
+</body>
+</html>

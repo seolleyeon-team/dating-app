@@ -12,6 +12,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import '../../../../router/route_names.dart';
 import '../../../../services/onboarding_save_helper.dart';
+import '../../../../services/storage_service.dart';
 
 // =============================================================================
 // 색상 상수
@@ -40,13 +41,95 @@ class IdealTypeScreen extends StatefulWidget {
 }
 
 class _IdealTypeScreenState extends State<IdealTypeScreen> {
-  // 선택된 값들 (실제로는 각 상세 화면에서 선택하고 setState로 업데이트)
-  final String _height = '170';
-  final String _age = '20 - 24';
-  final String _mbti = 'E, N, F, J';
-  final String _major = '예체능 계열';
+  String _height = '170';
+  String _age = '20 - 24';
+  String _mbti = 'E, N, F, J';
+  String _major = '예체능 계열';
 
   bool _isSkipping = false;
+
+  static const Map<String, String> _majorLabelMap = {
+    'liberalArts': '문과 계열',
+    'science': '이과 계열',
+    'medical': '메디컬 계열',
+    'artsSports': '예체능 계열',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedIdealType();
+  }
+
+  Future<void> _loadSavedIdealType() async {
+    final storage = StorageService();
+    final kakaoUserId = await storage.getKakaoUserId();
+    if (kakaoUserId == null || kakaoUserId.isEmpty) return;
+    final draft = await storage.getOnboardingDraft(kakaoUserId);
+    if (!mounted) return;
+
+    // idealHeight: {min: int, max: int}
+    final idealHeight = draft['idealHeight'];
+    if (idealHeight is Map) {
+      final min = idealHeight['min'];
+      final max = idealHeight['max'];
+      if (min != null && max != null) {
+        final mn = min is int ? min : int.tryParse(min.toString());
+        final mx = max is int ? max : int.tryParse(max.toString());
+        if (mn != null && mx != null) {
+          _height = mn == mx ? '$mn' : '$mn - $mx';
+        }
+      }
+    }
+
+    // idealAge: {min: int, max: int}
+    final idealAge = draft['idealAge'];
+    if (idealAge is Map) {
+      final min = idealAge['min'];
+      final max = idealAge['max'];
+      if (min != null && max != null) {
+        final mn = min is int ? min : int.tryParse(min.toString());
+        final mx = max is int ? max : int.tryParse(max.toString());
+        if (mn != null && mx != null) {
+          _age = mn == mx ? '$mn' : '$mn - $mx';
+        }
+      }
+    }
+
+    // idealMbti: {EI: 'E'|'I', NS: 'N'|'S', TF: 'T'|'F', JP: 'J'|'P'}
+    final idealMbti = draft['idealMbti'];
+    if (idealMbti is Map) {
+      final parts = <String>[];
+      for (final k in ['EI', 'NS', 'TF', 'JP']) {
+        final v = idealMbti[k];
+        if (v != null && v.toString().isNotEmpty) {
+          parts.add(v.toString());
+        }
+      }
+      if (parts.isNotEmpty) {
+        _mbti = parts.join(', ');
+      }
+    }
+
+    // idealDepartment: 단일 'artsSports' 또는 리스트 ['artsSports', 'liberalArts']
+    final idealDepartment = draft['idealDepartment'];
+    if (idealDepartment != null) {
+      if (idealDepartment is List) {
+        final labels = idealDepartment
+            .map((e) => _majorLabelMap[e.toString()] ?? e.toString())
+            .where((s) => s.isNotEmpty)
+            .toList();
+        _major = labels.join(', ');
+      } else {
+        final key = idealDepartment.toString();
+        if (key.isNotEmpty) {
+          _major = _majorLabelMap[key] ?? key;
+        }
+      }
+    }
+
+    setState(() {});
+  }
 
   void _onSkipPressed() {
     if (_isSkipping) return;
@@ -63,22 +146,30 @@ class _IdealTypeScreenState extends State<IdealTypeScreen> {
 
   void _onHeightTap() {
     HapticFeedback.selectionClick();
-    Navigator.of(context).pushNamed(RouteNames.onboardingIdealHeight);
+    Navigator.of(context)
+        .pushNamed(RouteNames.onboardingIdealHeight)
+        .then((_) => _loadSavedIdealType());
   }
 
   void _onAgeTap() {
     HapticFeedback.selectionClick();
-    Navigator.of(context).pushNamed(RouteNames.onboardingIdealAge);
+    Navigator.of(context)
+        .pushNamed(RouteNames.onboardingIdealAge)
+        .then((_) => _loadSavedIdealType());
   }
 
   void _onMbtiTap() {
     HapticFeedback.selectionClick();
-    Navigator.of(context).pushNamed(RouteNames.onboardingIdealMbti);
+    Navigator.of(context)
+        .pushNamed(RouteNames.onboardingIdealMbti)
+        .then((_) => _loadSavedIdealType());
   }
 
   void _onMajorTap() {
     HapticFeedback.selectionClick();
-    Navigator.of(context).pushNamed(RouteNames.onboardingIdealDepartment);
+    Navigator.of(context)
+        .pushNamed(RouteNames.onboardingIdealDepartment)
+        .then((_) => _loadSavedIdealType());
   }
 
   void _onNextPressed() {
