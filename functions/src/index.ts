@@ -2,15 +2,21 @@
  * 설레연 Cloud Functions
  *
  * 트리거 목록:
- *   1) onRecEventCreated        — recEvents 이벤트 로깅 + 매치 체크
- *   2) onInteractionCreated     — interactions like/super_like → 매치 생성 + 채팅방
- *   3) onChatMessageCreated     — 새 채팅 메시지 푸시 알림
- *   4) onBambooCommentCreated   — 대나무숲 댓글/답글 푸시 알림
- *   5) onMatchUpdated           — 매치 해제 시 채팅방 비활성화
+ *   1) onRecEventCreated         — recEvents 이벤트 로깅 + 매치 체크
+ *   2) onInteractionCreated      — interactions like/super_like → 프로필 좋아요 알림 + 매치 생성 + 채팅방
+ *   3) onChatMessageCreated      — 새 채팅 메시지 푸시 알림
+ *   4) onBambooCommentCreated    — 대나무숲 댓글/답글 푸시 + 인앱 알림
+ *   5) onBambooPostLikeCreated   — 대나무숲 글 좋아요 푸시 + 인앱 알림
+ *   6) onMatchUpdated            — 매치 해제 시 채팅방 비활성화
+ *   7) sendDailyUnreadChatDigests — 매일 오후 1시 unread chat digest 푸시 + 인앱 알림
  */
 
 import { setGlobalOptions } from "firebase-functions/v2";
-import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
+import {
+  onDocumentCreated,
+  onDocumentUpdated,
+} from "firebase-functions/v2/firestore";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as logger from "firebase-functions/logger";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
@@ -43,7 +49,6 @@ function asString(v: unknown, fallback = ""): string {
   if (typeof v === "string") return v;
   if (typeof v === "number" || typeof v === "boolean") return String(v);
   if (v == null) return fallback;
-  // Firestore Timestamp/objects/etc → 안전하게 기본값
   return fallback;
 }
 
@@ -55,6 +60,14 @@ function asStringOrNull(v: unknown): string | null {
 function buildDirectRoomId(userA: string, userB: string): string {
   const ids = [userA, userB].sort();
   return `dm_${ids[0]}_${ids[1]}`;
+}
+
+function getKstDateKey(now = new Date()): string {
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const y = kst.getUTCFullYear();
+  const m = String(kst.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(kst.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 async function getUserDisplayInfo(userId: string): Promise<{
@@ -92,6 +105,91 @@ async function fetchUserTokens(userId: string): Promise<string[]> {
     .get();
 
   return snap.docs.map((d) => d.id).filter((t) => t.length > 0);
+}
+
+type InAppNotificationPayload = {
+  type:
+    | "chat_digest"
+    | "community_post_like"
+    | "community_comment"
+    | "community_reply"
+    | "profile_like";
+  title: string;
+  body: string;
+  deeplinkType: "chat" | "community_post" | "received_like";
+  deeplinkId?: string;
+  actorId?: string;
+  actorName?: string;
+  postId?: string;
+  commentId?: string;
+  roomId?: string;
+  digestDate?: string;
+};
+
+async function createInAppNotification(
+  userId: string,
+  payload: InAppNotificationPayload
+): Promise<void> {
+  if (!userId) return;
+
+  await db
+    .collection("users")
+    .doc(userId)
+    .collection("notifications")
+    .add({
+      type: payload.type,
+      title: payload.title,
+      body: payload.body,
+      isRead: false,
+      createdAt: FieldValue.serverTimestamp(),
+
+      actorId: payload.actorId ?? null,
+      actorName: payload.actorName ?? null,
+      postId: payload.postId ?? null,
+      commentId: payload.commentId ?? null,
+      roomId: payload.roomId ?? null,
+      deeplinkType: payload.deeplinkType,
+      deeplinkId: payload.deeplinkId ?? null,
+      digestDate: payload.digestDate ?? null,
+    });
+
+  logger.info("In-app notification created", {
+    userId,
+    type: payload.type,
+    deeplinkType: payload.deeplinkType,
+    deeplinkId: payload.deeplinkId ?? null,
+  });
+}
+
+async function countPostLikeNotificationsForPost(
+  userId: string,
+  postId: string
+): Promise<number> {
+  const snap = await db
+    .collection("users")
+    .doc(userId)
+    .collection("notifications")
+    .where("type", "==", "community_post_like")
+    .where("postId", "==", postId)
+    .get();
+
+  return snap.size;
+}
+
+async function hasChatDigestForDate(
+  userId: string,
+  digestDate: string
+): Promise<boolean> {
+  const snap = await db
+    .collection("users")
+    .doc(userId)
+    .collection("notifications")
+    .where("type", "==", "chat_digest")
+    .where("digestDate", "==", digestDate)
+    .limit(1)
+    .get();
+
+  return !snap.empty;
 }
 
 async function sendPushToUsers(
@@ -163,6 +261,60 @@ async function sendPushToUsers(
   }
 }
 
+async function getUnreadChatDigestForUser(userId: string): Promise<{
+  unreadCount: number;
+  previewSenderName: string | null;
+}> {
+  const roomsSnap = await db
+    .collection("chat_rooms")
+    .where("participantIds", "array-contains", userId)
+    .where("status", "==", "active")
+    .get();
+
+  let unreadCount = 0;
+  let previewSenderName: string | null = null;
+
+  for (const roomDoc of roomsSnap.docs) {
+    const roomData = (roomDoc.data() ?? {}) as Record<string, unknown>;
+    const participantInfoRaw = roomData.participantInfo;
+    const participantInfo = isRecord(participantInfoRaw)
+      ? participantInfoRaw
+      : {};
+
+    const messagesSnap = await roomDoc.ref.collection("messages").get();
+
+    for (const msgDoc of messagesSnap.docs) {
+      const msg = (msgDoc.data() ?? {}) as Record<string, unknown>;
+      const senderId = asString(msg.senderId ?? "");
+      if (!senderId || senderId === "system" || senderId === userId) continue;
+
+      const readByRaw = msg.readBy;
+      const readBy = Array.isArray(readByRaw)
+        ? readByRaw.map((v) => asString(v)).filter((v) => v.length > 0)
+        : [];
+
+      if (!readBy.includes(userId)) {
+        unreadCount += 1;
+
+        if (!previewSenderName) {
+          const senderInfo = participantInfo[senderId];
+          previewSenderName = isRecord(senderInfo)
+            ? asString(senderInfo.nickname ?? "", "")
+            : "";
+          if (!previewSenderName) {
+            previewSenderName = "누군가";
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    unreadCount,
+    previewSenderName,
+  };
+}
+
 // =============================================================================
 // 1) recEvents onCreate 트리거
 //    rules 기준: recEvents/{userId}/events/{eventId}
@@ -199,7 +351,7 @@ export const onRecEventCreated = onDocumentCreated(
 );
 
 // =============================================================================
-// 2) interactions 기반 매치 판정 + 채팅방 생성
+// 2) interactions 기반 프로필 좋아요 알림 + 매치 판정 + 채팅방 생성
 // =============================================================================
 export const onInteractionCreated = onDocumentCreated(
   "interactions/{interactionId}",
@@ -215,7 +367,38 @@ export const onInteractionCreated = onDocumentCreated(
     if (!fromUserId || !toUserId) return;
     if (action !== "like" && action !== "super_like") return;
 
-    // 상대방도 나를 like/super_like 했는지 확인
+    // -----------------------------------------------------------------------
+    // 프로필 좋아요 알림: 상대방에게 푸시 + 인앱 알림
+    // -----------------------------------------------------------------------
+    if (fromUserId !== toUserId) {
+      await sendPushToUsers([toUserId], {
+        title: "새로운 관심이 도착했어요",
+        body: "누군가가 내 프로필에 좋아요를 눌렀습니다.",
+        data: {
+          type: "profile_like",
+          fromUserId,
+        },
+      });
+
+      await createInAppNotification(toUserId, {
+        type: "profile_like",
+        title: "새로운 관심이 도착했어요",
+        body: "누군가가 내 프로필에 좋아요를 눌렀습니다.",
+        deeplinkType: "received_like",
+        deeplinkId: fromUserId,
+        actorId: fromUserId,
+      });
+
+      logger.info("Profile like push + in-app notification sent", {
+        fromUserId,
+        toUserId,
+        action,
+      });
+    }
+
+    // -----------------------------------------------------------------------
+    // 기존 mutual like 체크 → 매치 생성
+    // -----------------------------------------------------------------------
     const reverseQuery = await db
       .collection("interactions")
       .where("fromUserId", "==", toUserId)
@@ -226,7 +409,6 @@ export const onInteractionCreated = onDocumentCreated(
 
     if (reverseQuery.empty) return;
 
-    // 이미 매치 존재 여부 확인
     const existingMatches = await db
       .collection("matches")
       .where("userIds", "array-contains", fromUserId)
@@ -270,18 +452,22 @@ export const onInteractionCreated = onDocumentCreated(
       chatRoomId: roomId,
     });
 
-    batch.set(roomRef, {
-      roomId,
-      type: "one_to_one",
-      status: "active",
-      participantIds: [fromUserId, toUserId],
-      participantInfo,
-      matchId: matchRef.id,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-      lastMessage: "매칭이 성사되었어요! 먼저 인사해보세요 💕",
-      lastMessageAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
+    batch.set(
+      roomRef,
+      {
+        roomId,
+        type: "one_to_one",
+        status: "active",
+        participantIds: [fromUserId, toUserId],
+        participantInfo,
+        matchId: matchRef.id,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        lastMessage: "매칭이 성사되었어요! 먼저 인사해보세요 💕",
+        lastMessageAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
 
     const msgRef = roomRef.collection("messages").doc();
     batch.set(msgRef, {
@@ -332,15 +518,18 @@ export const onChatMessageCreated = onDocumentCreated(
     if (targetUserIds.length === 0) return;
 
     const participantInfoRaw = room.participantInfo;
-    const participantInfo = isRecord(participantInfoRaw) ? participantInfoRaw : {};
+    const participantInfo = isRecord(participantInfoRaw)
+      ? participantInfoRaw
+      : {};
     const senderInfo = participantInfo[senderId];
     const senderName = asString(
       isRecord(senderInfo) ? senderInfo.nickname : undefined,
       "새 메시지"
     );
 
-    const body = asString(message.text ?? message.content ?? "메시지가 도착했어요.")
-      .trim();
+    const body = asString(
+      message.text ?? message.content ?? "메시지가 도착했어요."
+    ).trim();
 
     await sendPushToUsers(targetUserIds, {
       title: senderName,
@@ -360,7 +549,7 @@ export const onChatMessageCreated = onDocumentCreated(
 );
 
 // =============================================================================
-// 4) 대나무숲 댓글/답글 푸시 알림
+// 4) 대나무숲 댓글/답글 푸시 + 인앱 알림
 // =============================================================================
 export const onBambooCommentCreated = onDocumentCreated(
   "bamboo_posts/{postId}/comments/{commentId}",
@@ -369,6 +558,7 @@ export const onBambooCommentCreated = onDocumentCreated(
     if (!snap) return;
 
     const postId = event.params.postId;
+    const commentId = event.params.commentId;
     const comment = snap.data();
 
     const authorId = asString(comment.authorId ?? "");
@@ -377,13 +567,15 @@ export const onBambooCommentCreated = onDocumentCreated(
 
     if (!authorId) return;
 
+    const authorInfo = await getUserDisplayInfo(authorId);
+
     const postSnap = await db.collection("bamboo_posts").doc(postId).get();
     if (!postSnap.exists) return;
 
     const post = (postSnap.data() ?? {}) as Record<string, unknown>;
     const postAuthorId = asString(post.authorId ?? "");
 
-    // 일반 댓글: 글 작성자에게 알림
+    // 일반 댓글: 글 작성자에게 푸시 + 인앱 알림
     if (!parentCommentId) {
       if (postAuthorId && postAuthorId !== authorId) {
         await sendPushToUsers([postAuthorId], {
@@ -395,8 +587,21 @@ export const onBambooCommentCreated = onDocumentCreated(
           },
         });
 
-        logger.info("Community comment push sent", {
+        await createInAppNotification(postAuthorId, {
+          type: "community_comment",
+          title: "내 글에 새 댓글이 달렸어요",
+          body: content || "누군가가 회원님의 글에 댓글을 남겼습니다.",
+          deeplinkType: "community_post",
+          deeplinkId: postId,
+          actorId: authorId,
+          actorName: authorInfo.nickname,
           postId,
+          commentId,
+        });
+
+        logger.info("Community comment push + in-app notification sent", {
+          postId,
+          commentId,
           target: postAuthorId,
           authorId,
         });
@@ -404,7 +609,7 @@ export const onBambooCommentCreated = onDocumentCreated(
       return;
     }
 
-    // 답글: 부모 댓글 작성자에게 알림
+    // 답글: 부모 댓글 작성자에게 푸시 + 인앱 알림
     const parentSnap = await db
       .collection("bamboo_posts")
       .doc(postId)
@@ -429,8 +634,21 @@ export const onBambooCommentCreated = onDocumentCreated(
         },
       });
 
-      logger.info("Community reply push sent", {
+      await createInAppNotification(parentAuthorId, {
+        type: "community_reply",
+        title: "내 댓글에 답글이 달렸어요",
+        body: content || "누군가가 회원님의 댓글에 답글을 남겼습니다.",
+        deeplinkType: "community_post",
+        deeplinkId: postId,
+        actorId: authorId,
+        actorName: authorInfo.nickname,
         postId,
+        commentId,
+      });
+
+      logger.info("Community reply push + in-app notification sent", {
+        postId,
+        commentId,
         parentCommentId,
         targets,
         authorId,
@@ -440,7 +658,77 @@ export const onBambooCommentCreated = onDocumentCreated(
 );
 
 // =============================================================================
-// 5) 매치 해제 시 채팅방 비활성화
+// 5) 대나무숲 글 좋아요 푸시 + 인앱 알림
+// =============================================================================
+export const onBambooPostLikeCreated = onDocumentCreated(
+  "bamboo_posts/{postId}/likes/{userId}",
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+
+    const postId = event.params.postId;
+    const likerUserId = event.params.userId;
+
+    if (!postId || !likerUserId) return;
+
+    const postSnap = await db.collection("bamboo_posts").doc(postId).get();
+    if (!postSnap.exists) return;
+
+    const post = (postSnap.data() ?? {}) as Record<string, unknown>;
+    const postAuthorId = asString(post.authorId ?? "");
+
+    if (!postAuthorId || postAuthorId === likerUserId) {
+      return;
+    }
+
+    const existingCount = await countPostLikeNotificationsForPost(
+      postAuthorId,
+      postId
+    );
+
+    if (existingCount >= 5) {
+      logger.info("Skipped post like notification due to 5-notification limit", {
+        postId,
+        postAuthorId,
+        likerUserId,
+        existingCount,
+      });
+      return;
+    }
+
+    const likerInfo = await getUserDisplayInfo(likerUserId);
+
+    await sendPushToUsers([postAuthorId], {
+      title: "내 글에 좋아요가 눌렸어요",
+      body: "누군가가 회원님의 글을 좋아합니다.",
+      data: {
+        type: "community_post_like",
+        postId,
+      },
+    });
+
+    await createInAppNotification(postAuthorId, {
+      type: "community_post_like",
+      title: "내 글에 좋아요가 눌렸어요",
+      body: "누군가가 회원님의 글을 좋아합니다.",
+      deeplinkType: "community_post",
+      deeplinkId: postId,
+      actorId: likerUserId,
+      actorName: likerInfo.nickname,
+      postId,
+    });
+
+    logger.info("Community post like push + in-app notification sent", {
+      postId,
+      postAuthorId,
+      likerUserId,
+      existingCount: existingCount + 1,
+    });
+  }
+);
+
+// =============================================================================
+// 6) 매치 해제 시 채팅방 비활성화
 // =============================================================================
 export const onMatchUpdated = onDocumentUpdated(
   "matches/{matchId}",
@@ -451,14 +739,22 @@ export const onMatchUpdated = onDocumentUpdated(
     if (!before || !after) return;
 
     if (before.status === "active" && after.status === "unmatched") {
-      const chatRoomId = asString((after as Record<string, unknown>).chatRoomId ?? "");
+      const chatRoomId = asString(
+        (after as Record<string, unknown>).chatRoomId ?? ""
+      );
       if (!chatRoomId) return;
 
-      await db.collection("chat_rooms").doc(chatRoomId).set({
-        status: "closed",
-        closedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      }, { merge: true });
+      await db
+        .collection("chat_rooms")
+        .doc(chatRoomId)
+        .set(
+          {
+            status: "closed",
+            closedAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
 
       await db
         .collection("chat_rooms")
@@ -478,6 +774,80 @@ export const onMatchUpdated = onDocumentUpdated(
         chatRoomId,
       });
     }
+  }
+);
+
+// =============================================================================
+// 7) 매일 오후 1시 unread chat digest 푸시 + 인앱 알림
+// =============================================================================
+export const sendDailyUnreadChatDigests = onSchedule(
+  {
+    schedule: "0 13 * * *",
+    timeZone: "Asia/Seoul",
+  },
+  async () => {
+    const digestDate = getKstDateKey();
+
+    logger.info("sendDailyUnreadChatDigests started", { digestDate });
+
+    const usersSnap = await db.collection("users").get();
+
+    for (const userDoc of usersSnap.docs) {
+      const userId = userDoc.id;
+
+      try {
+        const alreadySent = await hasChatDigestForDate(userId, digestDate);
+        if (alreadySent) {
+          logger.info("Skipped chat digest: already sent today", {
+            userId,
+            digestDate,
+          });
+          continue;
+        }
+
+        const { unreadCount, previewSenderName } =
+          await getUnreadChatDigestForUser(userId);
+
+        if (unreadCount <= 0) {
+          continue;
+        }
+
+        const title = "읽지 않은 메시지가 있어요";
+        const body = previewSenderName
+          ? `${previewSenderName}님 외 읽지 않은 메시지가 ${unreadCount}개 있습니다.`
+          : `읽지 않은 메시지가 ${unreadCount}개 있습니다.`;
+
+        await sendPushToUsers([userId], {
+          title,
+          body,
+          data: {
+            type: "chat_digest",
+          },
+        });
+
+        await createInAppNotification(userId, {
+          type: "chat_digest",
+          title,
+          body,
+          deeplinkType: "chat",
+          digestDate,
+        });
+
+        logger.info("Daily unread chat digest sent", {
+          userId,
+          unreadCount,
+          digestDate,
+        });
+      } catch (error) {
+        logger.error("Failed to send daily unread chat digest", {
+          userId,
+          digestDate,
+          error,
+        });
+      }
+    }
+
+    logger.info("sendDailyUnreadChatDigests finished", { digestDate });
   }
 );
 

@@ -10,36 +10,26 @@ service cloud.firestore {
     // Email-link token exchange (앱 -> Firestore token 저장, Web -> token 조회)
     // -----------------------------------------------------------------------
     match /emailLinkTokens/{token} {
-      // 앱(로그인 전)이 토큰 문서를 생성해야 하므로 create는 공개 허용 (UUID 기반)
-      // hasOnly 제거: serverTimestamp 등으로 keys 검사가 실패할 수 있음
       allow create: if request.resource.data.email is string &&
           request.resource.data.kakaoUserId is string &&
           isYonseiEmail(request.resource.data.email) &&
           request.resource.data.keys().hasAll(['email', 'kakaoUserId', 'createdAt', 'expiresAt']);
 
-      // Web 페이지가 토큰을 읽어 email/kakaoUserId를 알아내야 함
-      // - 토큰이 없을 때도 "permission-denied"로 떨어지지 않게 get은 허용
-      //   (존재 여부는 앱/웹에서 tokenSnap.exists로 판단)
       allow get: if true;
 
-      // 나머지는 차단
       allow list: if false;
       allow update: if false;
 
-      // Web에서 이메일 링크 로그인 완료 후 토큰 재사용 방지 삭제 (로그인 후에만)
       allow delete: if request.auth != null;
     }
 
     // -----------------------------------------------------------------------
-    // Student verification writeback (Web or Flutter Web after email link sign-in)
+    // Users
     // -----------------------------------------------------------------------
     match /users/{kakaoUserId} {
-      // 앱에서 인증 상태 확인/존재 확인에 사용 (필요 최소 get만 허용)
-      // list: modelRecs 비어있을 때 폴백 피드용 (limit 적용은 쿼리에서)
       allow get: if true;
       allow list: if true;
 
-      // 이메일 링크 로그인(FirebaseAuth) 후에만 학생 인증 필드 기록 허용
       allow create: if request.auth != null &&
           isYonseiEmail(request.auth.token.email) &&
           request.resource.data.keys().hasOnly([
@@ -56,23 +46,19 @@ service cloud.firestore {
           request.resource.data.isStudentVerified == true;
 
       allow update: if (
-            // (A) 이메일 링크 로그인(FirebaseAuth) 후 학생 인증 업데이트
             request.auth != null &&
-          isYonseiEmail(request.auth.token.email) &&
-          request.resource.data.studentEmail is string &&
-          isYonseiEmail(request.resource.data.studentEmail) &&
-          request.resource.data.isStudentVerified == true &&
-          // 변경되는 키를 인증 관련 필드로 제한 (merge/set 모두 고려)
-          request.resource.data.diff(resource.data).changedKeys().hasOnly([
-            'kakaoUserId',
-            'isStudentVerified',
-            'studentEmail',
-            'studentVerifiedAt',
-            'verifiedAt'
-          ])
+            isYonseiEmail(request.auth.token.email) &&
+            request.resource.data.studentEmail is string &&
+            isYonseiEmail(request.resource.data.studentEmail) &&
+            request.resource.data.isStudentVerified == true &&
+            request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'kakaoUserId',
+              'isStudentVerified',
+              'studentEmail',
+              'studentVerifiedAt',
+              'verifiedAt'
+            ])
           ) || (
-            // (B) 학생 인증이 완료된 문서에 한해 온보딩 데이터 업로드 허용 (앱에서 사용)
-            // 문서 ID가 kakaoUserId이므로 kakaoUserId 필드 없어도 허용
             resource.data.isStudentVerified == true &&
             request.resource.data.isStudentVerified == true &&
             (request.resource.data.kakaoUserId == null ||
@@ -88,8 +74,24 @@ service cloud.firestore {
               'idealTypeUpdatedAt',
               'updatedAt'
             ])
+          ) || (
+            // 프로필 수정(온보딩 데이터 갱신) — 기존 규칙 유지 + 온보딩 편집 허용
+            (request.resource.data.kakaoUserId == null ||
+              request.resource.data.kakaoUserId == kakaoUserId) &&
+            request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'kakaoUserId',
+              'onboarding',
+              'onboardingUpdatedAt',
+              'idealType',
+              'idealTypeUpdatedAt',
+              'updatedAt'
+            ])
           );
-                match /deviceTokens/{token} {
+
+      // ---------------------------------------------------------------------
+      // Device tokens
+      // ---------------------------------------------------------------------
+      match /deviceTokens/{token} {
         allow get, list: if true;
 
         allow create, update: if
@@ -100,24 +102,56 @@ service cloud.firestore {
 
         allow delete: if true;
       }
+
+      // ---------------------------------------------------------------------
+      // In-app notifications
+      // users/{kakaoUserId}/notifications/{notificationId}
+      // ---------------------------------------------------------------------
+      match /notifications/{notificationId} {
+        allow get, list: if true;
+
+        allow create: if
+          request.resource.data.type is string &&
+          request.resource.data.title is string &&
+          request.resource.data.body is string &&
+          request.resource.data.isRead is bool;
+
+        allow update: if
+          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'isRead',
+            'readAt'
+          ]);
+
+        allow delete: if true;
+      }
     }
+
+    // -----------------------------------------------------------------------
+    // Chat
+    // -----------------------------------------------------------------------
     match /chat_rooms/{roomId} {
       allow read, create, update: if true;
       allow delete: if false;
 
       match /messages/{messageId} {
-        allow read, create: if true;
-        allow update, delete: if false;
-      }
+  allow read, create: if true;
+
+  allow update: if
+    request.resource.data.diff(resource.data).changedKeys().hasOnly([
+      'readBy',
+      'updatedAt'
+    ]);
+
+  allow delete: if false;
+}
     }
-        // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
     // Bamboo Forest (Community)
     // -----------------------------------------------------------------------
     match /bamboo_posts/{postId} {
-      // 게시글 읽기
       allow get, list: if true;
 
-      // 게시글 생성
       allow create: if
         request.resource.data.postId is string &&
         request.resource.data.authorId is string &&
@@ -133,9 +167,6 @@ service cloud.firestore {
         request.resource.data.score7d == 0 &&
         request.resource.data.isDeleted == false;
 
-      // 게시글 수정
-      // 1) 작성자 soft delete 허용
-      // 2) 좋아요/댓글 수 업데이트 허용
       allow update: if
         (
           resource.data.authorId == request.resource.data.authorId &&
@@ -152,8 +183,7 @@ service cloud.firestore {
       allow delete: if false;
 
       // ---------------------------------------------------------------------
-      // 게시글 좋아요
-      // bamboo_posts/{postId}/likes/{userId}
+      // Post likes
       // ---------------------------------------------------------------------
       match /likes/{userId} {
         allow get, list: if true;
@@ -167,8 +197,7 @@ service cloud.firestore {
       }
 
       // ---------------------------------------------------------------------
-      // 댓글 / 답글
-      // bamboo_posts/{postId}/comments/{commentId}
+      // Comments / Replies
       // ---------------------------------------------------------------------
       match /comments/{commentId} {
         allow get, list: if true;
@@ -198,8 +227,7 @@ service cloud.firestore {
         allow delete: if false;
 
         // -------------------------------------------------------------------
-        // 댓글 좋아요
-        // bamboo_posts/{postId}/comments/{commentId}/likes/{userId}
+        // Comment likes
         // -------------------------------------------------------------------
         match /likes/{userId} {
           allow get, list: if true;
@@ -215,23 +243,22 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
-    // Blocks and Reports (신고 및 차단)
+    // Blocks and Reports
     // -----------------------------------------------------------------------
     match /blocks/{viewerUid}/targets/{targetUid} {
-      // 본인의 차단 목록에만 생성 허용
       allow create: if request.auth != null && request.auth.uid == viewerUid;
       allow read: if request.auth != null && request.auth.uid == viewerUid;
     }
 
     match /reports/{reportId} {
-      // 누구나(인증된 경우) 신고 생성 허용.
       allow create: if request.auth != null;
     }
 
-    // 기본 차단 (명시된 것만 허용)
+    // -----------------------------------------------------------------------
+    // Default deny
+    // -----------------------------------------------------------------------
     match /{document=**} {
       allow read, write: if false;
     }
   }
 }
-
