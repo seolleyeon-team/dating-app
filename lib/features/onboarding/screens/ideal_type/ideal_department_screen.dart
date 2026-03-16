@@ -61,7 +61,7 @@ class IdealDepartmentScreen extends StatefulWidget {
   final int totalSteps;
   final VoidCallback? onBack;
   final VoidCallback? onSkip;
-  final Function(MajorType? major)? onNext;
+  final Function(List<MajorType> majors)? onNext;
 
   const IdealDepartmentScreen({
     super.key,
@@ -77,7 +77,43 @@ class IdealDepartmentScreen extends StatefulWidget {
 }
 
 class _IdealDepartmentScreenState extends State<IdealDepartmentScreen> {
-  MajorType? _selectedMajor;
+  final Set<MajorType> _selectedMajors = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedSelection();
+  }
+
+  MajorType? _majorFromName(String name) {
+    for (final t in MajorType.values) {
+      if (t.name == name) return t;
+    }
+    return null;
+  }
+
+  Future<void> _loadSavedSelection() async {
+    final storage = StorageService();
+    final kakaoUserId = await storage.getKakaoUserId();
+    if (kakaoUserId == null) return;
+    final draft = await storage.getOnboardingDraft(kakaoUserId);
+    final idealDept = draft['idealDepartment'];
+    if (!mounted) return;
+    if (idealDept is List) {
+      setState(() {
+        _selectedMajors.clear();
+        for (final e in idealDept) {
+          final type = _majorFromName(e.toString());
+          if (type != null) _selectedMajors.add(type);
+        }
+      });
+    } else if (idealDept != null && idealDept.toString().isNotEmpty) {
+      final type = _majorFromName(idealDept.toString());
+      if (type != null) {
+        setState(() => _selectedMajors.add(type));
+      }
+    }
+  }
 
   static const List<_MajorOption> _options = [
     _MajorOption(
@@ -143,10 +179,16 @@ class _IdealDepartmentScreenState extends State<IdealDepartmentScreen> {
                         // 옵션 그리드
                         _OptionsGrid(
                           options: _options,
-                          selectedMajor: _selectedMajor,
-                          onSelect: (major) {
+                          selectedMajors: _selectedMajors,
+                          onToggle: (major) {
                             HapticFeedback.selectionClick();
-                            setState(() => _selectedMajor = major);
+                            setState(() {
+                              if (_selectedMajors.contains(major)) {
+                                _selectedMajors.remove(major);
+                              } else {
+                                _selectedMajors.add(major);
+                              }
+                            });
                           },
                         ),
                       ],
@@ -164,23 +206,22 @@ class _IdealDepartmentScreenState extends State<IdealDepartmentScreen> {
             child: _BottomButtons(
               bottomPadding: bottomPadding,
               onSkip: widget.onSkip ?? () => Navigator.of(context).pop(),
-              onNext: () {
+              onNext: () async {
                 HapticFeedback.mediumImpact();
+                final list = _selectedMajors.toList();
                 if (widget.onNext != null) {
-                  widget.onNext!.call(_selectedMajor);
+                  widget.onNext!.call(list);
                 } else {
-                  () async {
-                    final storage = StorageService();
-                    final kakaoUserId = await storage.getKakaoUserId();
-                    if (kakaoUserId != null) {
-                      await storage.mergeOnboardingDraft(kakaoUserId, {
-                        'idealDepartment': _selectedMajor?.name,
-                      });
-                    }
+                  final storage = StorageService();
+                  final kakaoUserId = await storage.getKakaoUserId();
+                  if (kakaoUserId != null) {
+                    await storage.mergeOnboardingDraft(kakaoUserId, {
+                      'idealDepartment': list.map((m) => m.name).toList(),
+                    });
+                  }
 
-                    if (!context.mounted) return;
-                    Navigator.of(context).pop();
-                  }();
+                  if (!mounted) return;
+                  Navigator.of(context).pop();
                 }
               },
             ),
@@ -360,7 +401,8 @@ class _TitleSection extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          '비슷한 전공의 친구를 찾을 때 도움이 돼요',
+          '여러 개 선택할 수 있어요 · 비슷한 전공의 친구를 찾을 때 도움이 돼요',
+          textAlign: TextAlign.center,
           style: TextStyle(
             fontFamily: 'Noto Sans KR',
             fontSize: 14,
@@ -377,13 +419,13 @@ class _TitleSection extends StatelessWidget {
 // =============================================================================
 class _OptionsGrid extends StatelessWidget {
   final List<_MajorOption> options;
-  final MajorType? selectedMajor;
-  final Function(MajorType) onSelect;
+  final Set<MajorType> selectedMajors;
+  final Function(MajorType) onToggle;
 
   const _OptionsGrid({
     required this.options,
-    required this.selectedMajor,
-    required this.onSelect,
+    required this.selectedMajors,
+    required this.onToggle,
   });
 
   @override
@@ -400,11 +442,11 @@ class _OptionsGrid extends StatelessWidget {
       itemCount: options.length,
       itemBuilder: (context, index) {
         final option = options[index];
-        final isSelected = selectedMajor == option.type;
+        final isSelected = selectedMajors.contains(option.type);
         return _OptionCard(
           option: option,
           isSelected: isSelected,
-          onTap: () => onSelect(option.type),
+          onTap: () => onToggle(option.type),
         );
       },
     );
