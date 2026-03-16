@@ -90,6 +90,8 @@ class RouteNames {
   static const String sentHearts = '/profile/sent-hearts';
   static const String settings = '/profile/settings';
 
+  static const String notifications = '/notifications';
+
   // Event
   static const String teamSetup = '/event/team-setup';
   static const String seasonMeetingRoulette = '/event/season-meeting-roulette';

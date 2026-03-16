@@ -75,6 +75,9 @@ import '../features/profile/screens/received_hearts_screen.dart';
 import '../features/matching/screens/sent_hearts_screen.dart';
 import '../features/profile/screens/settings_screen.dart';
 
+// Notifications
+import '../features/notifications/screens/notification_list_screen.dart';
+
 // Event
 import '../features/event/screens/event_screen.dart';
 import '../features/event/screens/team_setup_screen.dart';
@@ -133,13 +136,14 @@ class AppRouter {
         return _cupertino(const KeywordScreen());
       case RouteNames.onboardingIdealType:
         return _cupertino(const IdealTypeScreen());
-      case RouteNames.onboardingHeightSelection: {
-        final args = settings.arguments as Map<String, dynamic>?;
-        final initialHeight = args?['initialHeight'] as int? ?? 175;
-        return _cupertino(
-          HeightSelectionScreen(initialHeight: initialHeight.clamp(140, 200)),
-        );
-      }
+      case RouteNames.onboardingHeightSelection:
+        {
+          final args = settings.arguments as Map<String, dynamic>?;
+          final initialHeight = args?['initialHeight'] as int? ?? 175;
+          return _cupertino(
+            HeightSelectionScreen(initialHeight: initialHeight.clamp(140, 200)),
+          );
+        }
       case RouteNames.onboardingIdealHeightRange:
         return _cupertino(const IdealHeightRangeScreen());
       case RouteNames.onboardingIdealAge:
@@ -252,6 +256,10 @@ class AppRouter {
         return _cupertino(const SentHeartsScreen());
       case RouteNames.settings:
         return _cupertino(const SettingsScreen());
+
+      // Notifications
+      case RouteNames.notifications:
+        return _cupertino(const NotificationListScreen());
 
       // Event
       case RouteNames.event:

@@ -167,13 +167,40 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
     HapticFeedback.lightImpact();
 
+    final previousPost = _post!;
+    final previousLiked = _isPostLiked;
+    final willLike = !_isPostLiked;
+
+    final nextLikeCount = willLike
+        ? previousPost.likeCount + 1
+        : (previousPost.likeCount > 0 ? previousPost.likeCount - 1 : 0);
+
+    final nextScore7d = willLike
+        ? previousPost.score7d + 1
+        : (previousPost.score7d > 0 ? previousPost.score7d - 1 : 0);
+
+    setState(() {
+      _isPostLiked = willLike;
+      _post = previousPost.copyWith(
+        likeCount: nextLikeCount,
+        score7d: nextScore7d,
+        updatedAt: DateTime.now(),
+      );
+    });
+
     try {
       await _repository.togglePostLike(
-        postId: _post!.postId,
+        postId: previousPost.postId,
         userId: _currentUserId!,
       );
-      await _refreshDetail();
     } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _isPostLiked = previousLiked;
+        _post = previousPost;
+      });
+
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('좋아요 처리에 실패했어요: $e')));
@@ -230,14 +257,45 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Future<void> _toggleCommentLike(String commentId) async {
     if (_currentUserId == null || _currentUserId!.isEmpty) return;
 
+    final previousLikedMap = Map<String, bool>.from(_likedComments);
+    final previousComments = List<CommunityCommentModel>.from(_comments);
+
+    final isCurrentlyLiked = _likedComments[commentId] ?? false;
+    final willLike = !isCurrentlyLiked;
+
+    final targetIndex = _comments.indexWhere((c) => c.commentId == commentId);
+    if (targetIndex == -1) return;
+
+    final targetComment = _comments[targetIndex];
+    final nextLikeCount = willLike
+        ? targetComment.likeCount + 1
+        : (targetComment.likeCount > 0 ? targetComment.likeCount - 1 : 0);
+
+    final nextComments = List<CommunityCommentModel>.from(_comments);
+    nextComments[targetIndex] = targetComment.copyWith(
+      likeCount: nextLikeCount,
+      updatedAt: DateTime.now(),
+    );
+
+    setState(() {
+      _likedComments[commentId] = willLike;
+      _comments = nextComments;
+    });
+
     try {
       await _repository.toggleCommentLike(
         postId: widget.postId,
         commentId: commentId,
         userId: _currentUserId!,
       );
-      await _refreshDetail();
     } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _likedComments = previousLikedMap;
+        _comments = previousComments;
+      });
+
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('댓글 좋아요 처리에 실패했어요: $e')));

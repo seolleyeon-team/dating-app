@@ -74,18 +74,12 @@ class FirestoreCommunityRepository implements CommunityRepository {
     }
 
     if (normalizedTab == '인기') {
-      final sevenDaysAgo = Timestamp.fromDate(
-        DateTime.now().subtract(const Duration(days: 7)),
-      );
-
       return _posts
           .where('isDeleted', isEqualTo: false)
-          .where('createdAt', isGreaterThanOrEqualTo: sevenDaysAgo)
-          .orderBy('createdAt', descending: true)
           .orderBy('score7d', descending: true)
+          .orderBy('createdAt', descending: true)
           .limit(limit);
     }
-
     if (normalizedTab == '내가 쓴 글') {
       // currentUserId와 Firestore authorId 형식 일치: 항상 문자열로 정규화
       final uid = (currentUserId ?? '').trim().toString();
@@ -157,14 +151,10 @@ class FirestoreCommunityRepository implements CommunityRepository {
 
     final snapshot = await query.get();
     if (tab.trim() == '내가 쓴 글') {
-      debugPrint(
-        '[FirestoreCommunity] 내가 쓴 글 결과 ${snapshot.docs.length}건',
-      );
+      debugPrint('[FirestoreCommunity] 내가 쓴 글 결과 ${snapshot.docs.length}건');
       if (snapshot.docs.isNotEmpty) {
         final first = snapshot.docs.first.data();
-        debugPrint(
-          '[FirestoreCommunity] 첫글 authorId="${first['authorId']}"',
-        );
+        debugPrint('[FirestoreCommunity] 첫글 authorId="${first['authorId']}"');
       }
     }
     return snapshot;

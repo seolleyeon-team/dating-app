@@ -10,8 +10,8 @@ class CommunityProvider extends ChangeNotifier {
   CommunityProvider({
     FirestoreCommunityRepository? repository,
     AuthProvider? authProvider,
-  })  : _repository = repository ?? FirestoreCommunityRepository(),
-        _authProvider = authProvider;
+  }) : _repository = repository ?? FirestoreCommunityRepository(),
+       _authProvider = authProvider;
 
   final FirestoreCommunityRepository _repository;
   final StorageService _storageService = StorageService();
@@ -230,14 +230,81 @@ class CommunityProvider extends ChangeNotifier {
     await loadPosts(tab: _selectedTab, forceRefresh: true);
   }
 
+  void _sortPostsForTab(String tab) {
+    final current = [...(_postsByTab[tab] ?? const <PostModel>[])];
+
+    if (tab == '인기') {
+      current.sort((a, b) {
+        final scoreCompare = b.score7d.compareTo(a.score7d);
+        if (scoreCompare != 0) return scoreCompare;
+
+        final aMs = a.createdAt?.millisecondsSinceEpoch ?? 0;
+        final bMs = b.createdAt?.millisecondsSinceEpoch ?? 0;
+        return bMs.compareTo(aMs);
+      });
+    } else {
+      current.sort((a, b) {
+        final aMs = a.createdAt?.millisecondsSinceEpoch ?? 0;
+        final bMs = b.createdAt?.millisecondsSinceEpoch ?? 0;
+        return bMs.compareTo(aMs);
+      });
+    }
+
+    _postsByTab[tab] = current;
+  }
+
+  void _applyOptimisticPostLike({
+    required String postId,
+    required bool willLike,
+  }) {
+    for (final tab in tabs) {
+      final current = _postsByTab[tab];
+      if (current == null || current.isEmpty) continue;
+
+      final index = current.indexWhere((post) => post.postId == postId);
+      if (index == -1) continue;
+
+      final target = current[index];
+      final nextLikeCount = willLike
+          ? target.likeCount + 1
+          : (target.likeCount > 0 ? target.likeCount - 1 : 0);
+      final nextScore7d = willLike
+          ? target.score7d + 1
+          : (target.score7d > 0 ? target.score7d - 1 : 0);
+
+      current[index] = target.copyWith(
+        likeCount: nextLikeCount,
+        score7d: nextScore7d,
+        updatedAt: DateTime.now(),
+      );
+
+      _sortPostsForTab(tab);
+    }
+  }
+
+  void _revertOptimisticPostLike({
+    required String postId,
+    required bool willLike,
+  }) {
+    _applyOptimisticPostLike(postId: postId, willLike: !willLike);
+  }
+
   Future<void> togglePostLike({
     required String postId,
     required String userId,
+    required bool isCurrentlyLiked,
   }) async {
+    final willLike = !isCurrentlyLiked;
+
+    _applyOptimisticPostLike(postId: postId, willLike: willLike);
+    notifyListeners();
+
     try {
       await _repository.togglePostLike(postId: postId, userId: userId);
-      await refreshCurrentTab();
     } catch (e, st) {
+      _revertOptimisticPostLike(postId: postId, willLike: willLike);
+      notifyListeners();
+
       debugPrint('CommunityProvider togglePostLike error: $e');
       debugPrintStack(stackTrace: st);
     }

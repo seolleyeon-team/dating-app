@@ -11,12 +11,13 @@ import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+
 import '../../chat/services/chat_service.dart';
+import '../../notifications/services/notification_service.dart';
 import '../../../router/route_names.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/ai_recommendation_service.dart';
-import '../../../services/storage_service.dart';
 
 // =============================================================================
 // 색상 상수
@@ -63,6 +64,8 @@ class MysteryCardScreen extends StatefulWidget {
 class _MysteryCardScreenState extends State<MysteryCardScreen> {
   final StorageService _storageService = StorageService();
   final ChatService _chatService = ChatService();
+  final NotificationService _notificationService = NotificationService();
+
   String? _currentUserId;
 
   @override
@@ -77,6 +80,18 @@ class _MysteryCardScreenState extends State<MysteryCardScreen> {
     setState(() => _currentUserId = kakaoUserId);
   }
 
+  void _handleNotificationTap() {
+    if (widget.onNotification != null) {
+      widget.onNotification!();
+      return;
+    }
+
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).pushNamed(RouteNames.notifications);
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
@@ -85,24 +100,41 @@ class _MysteryCardScreenState extends State<MysteryCardScreen> {
       backgroundColor: CupertinoColors.white,
       child: Stack(
         children: [
-          // 배경 그라데이션
           _BackgroundGradients(),
-          // 메인 콘텐츠
           SafeArea(
             child: Column(
               children: [
-                // 헤더
-                _Header(
-                  notificationCount: widget.notificationCount,
-                  onAiPreference:
-                      widget.onAiPreference ??
-                      () => Navigator.of(
-                        context,
-                        rootNavigator: true,
-                      ).pushNamed(RouteNames.aiPreference),
-                  onNotification: widget.onNotification,
-                ),
-                // 메인 콘텐츠 (StatefulWidget으로 인디케이터 관리)
+                if (_currentUserId == null || _currentUserId!.isEmpty)
+                  _Header(
+                    notificationCount: widget.notificationCount,
+                    onAiPreference:
+                        widget.onAiPreference ??
+                        () => Navigator.of(
+                          context,
+                          rootNavigator: true,
+                        ).pushNamed(RouteNames.aiPreference),
+                    onNotification: _handleNotificationTap,
+                  )
+                else
+                  StreamBuilder<int>(
+                    stream: _notificationService.unreadNotificationCountStream(
+                      _currentUserId!,
+                    ),
+                    builder: (context, snapshot) {
+                      final unreadCount = snapshot.data ?? 0;
+
+                      return _Header(
+                        notificationCount: unreadCount,
+                        onAiPreference:
+                            widget.onAiPreference ??
+                            () => Navigator.of(
+                              context,
+                              rootNavigator: true,
+                            ).pushNamed(RouteNames.aiPreference),
+                        onNotification: _handleNotificationTap,
+                      );
+                    },
+                  ),
                 Expanded(
                   child: _MainContent(
                     remainingMatches: widget.remainingMatches,
@@ -112,7 +144,6 @@ class _MysteryCardScreenState extends State<MysteryCardScreen> {
               ],
             ),
           ),
-          // 하단 네비게이션
           Positioned(
             left: 20,
             right: 20,
@@ -197,12 +228,13 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final displayCount = notificationCount > 9 ? '9+' : '$notificationCount';
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // 로고
           Row(
             children: [
               const Icon(
@@ -223,13 +255,11 @@ class _Header extends StatelessWidget {
               ),
             ],
           ),
-          // 버튼들
           Expanded(
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               mainAxisSize: MainAxisSize.min,
               children: [
-                // AI 취향 버튼
                 CupertinoButton(
                   padding: EdgeInsets.zero,
                   onPressed: onAiPreference,
@@ -268,7 +298,6 @@ class _Header extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // 알림 버튼
                 CupertinoButton(
                   padding: EdgeInsets.zero,
                   onPressed: onNotification,
@@ -283,13 +312,16 @@ class _Header extends StatelessWidget {
                       if (notificationCount > 0)
                         Positioned(
                           top: -4,
-                          right: -4,
+                          right: -6,
                           child: Container(
-                            width: 16,
-                            height: 16,
+                            constraints: const BoxConstraints(
+                              minWidth: 16,
+                              minHeight: 16,
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 3),
                             decoration: BoxDecoration(
                               color: _AppColors.primary,
-                              shape: BoxShape.circle,
+                              borderRadius: BorderRadius.circular(999),
                               border: Border.all(
                                 color: CupertinoColors.white,
                                 width: 2,
@@ -297,10 +329,10 @@ class _Header extends StatelessWidget {
                             ),
                             child: Center(
                               child: Text(
-                                '$notificationCount',
+                                displayCount,
                                 style: const TextStyle(
                                   fontFamily: 'Noto Sans KR',
-                                  fontSize: 10,
+                                  fontSize: 9,
                                   fontWeight: FontWeight.w700,
                                   color: CupertinoColors.white,
                                 ),
@@ -344,9 +376,7 @@ class _MainContentState extends State<_MainContent> {
   @override
   void initState() {
     super.initState();
-    // 뷰포트 대비 0.85 정도로 양옆 카드가 살짝 보이게
     _pageController = PageController(viewportFraction: 0.85);
-
     _loadRecommendations();
   }
 
@@ -355,7 +385,10 @@ class _MainContentState extends State<_MainContent> {
     if (mounted) setState(() => _kakaoUserId = kakaoUserId);
 
     final aiService = AiRecommendationService();
-    final feed = await aiService.fetchMysteryFeed(limit: 3, userId: kakaoUserId);
+    final feed = await aiService.fetchMysteryFeed(
+      limit: 3,
+      userId: kakaoUserId,
+    );
 
     if (!mounted) return;
     setState(() {
@@ -382,23 +415,29 @@ class _MainContentState extends State<_MainContent> {
       'position': index,
     };
     if (profile.rank != 999) contextMetadata['rank'] = profile.rank;
-    if (profile.sourceScores != null)
+    if (profile.sourceScores != null) {
       contextMetadata['score'] = profile.sourceScores!;
-    if (profile.finalScore != null)
+    }
+    if (profile.finalScore != null) {
       contextMetadata['finalScore'] = profile.finalScore!;
+    }
     contextMetadata['algorithmVersion'] = profile.primaryAlgo;
 
-    RecEventService().logEvent(
-      userId: uid,
-      targetType: 'user_profile',
-      targetId: profile.candidateUid,
-      candidateUserId: profile.candidateUid,
-      eventType: 'impression',
-      surface: 'mystery_card',
-      cardVariant: 'real_profile',
-      exposureId: profile.exposureId,
-      context: contextMetadata,
-    ).catchError((e) => debugPrint('[RecEvent] mystery_card impression failed: $e'));
+    RecEventService()
+        .logEvent(
+          userId: uid,
+          targetType: 'user_profile',
+          targetId: profile.candidateUid,
+          candidateUserId: profile.candidateUid,
+          eventType: 'impression',
+          surface: 'mystery_card',
+          cardVariant: 'real_profile',
+          exposureId: profile.exposureId,
+          context: contextMetadata,
+        )
+        .catchError(
+          (e) => debugPrint('[RecEvent] mystery_card impression failed: $e'),
+        );
   }
 
   @override
@@ -414,7 +453,6 @@ class _MainContentState extends State<_MainContent> {
       child: Column(
         children: [
           const SizedBox(height: 16),
-          // 타이틀 영역
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Row(
@@ -487,7 +525,6 @@ class _MainContentState extends State<_MainContent> {
             ),
           ),
           const SizedBox(height: 24),
-          // ─── PageView 기반 카드 캐러셀 ───
           Expanded(
             child: _isLoading
                 ? const Center(child: CupertinoActivityIndicator())
@@ -507,7 +544,7 @@ class _MainContentState extends State<_MainContent> {
                     physics: const BouncingScrollPhysics(),
                     onPageChanged: (idx) {
                       setState(() => _currentIndex = idx);
-                      _recordImpression(idx); // 새 카드 노출(impression)
+                      _recordImpression(idx);
                     },
                     itemBuilder: (context, index) {
                       final isActive = index == _currentIndex;
@@ -533,7 +570,6 @@ class _MainContentState extends State<_MainContent> {
                   ),
           ),
           const SizedBox(height: 24),
-          // ─── 동적 인디케이터 (profiles.length 기반) ───
           if (!_isLoading && _profiles.isNotEmpty)
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -559,11 +595,7 @@ class _MainContentState extends State<_MainContent> {
 }
 
 // =============================================================================
-// 미스터리 카드 (3D 플립 애니메이션)
-//
-// - AutomaticKeepAliveClientMixin으로 플립 상태 유지
-// - 1차 탭: 미스터리 → 프로필 플립
-// - 2차 탭: ai_match_card_screen 이동
+// 미스터리 카드
 // =============================================================================
 class _MysteryCard extends StatefulWidget {
   final AiRecommendedProfile profile;
@@ -587,7 +619,6 @@ class _MysteryCardState extends State<_MysteryCard>
   late Animation<double> _animation;
   bool _isRevealed = false;
 
-  // AutomaticKeepAliveClientMixin: 스와이프해도 플립 상태 유지
   @override
   bool get wantKeepAlive => true;
 
@@ -613,7 +644,6 @@ class _MysteryCardState extends State<_MysteryCard>
     if (!widget.isActive || _controller.isAnimating) return;
 
     if (_isRevealed) {
-      // 2차 탭: ai_match_card_screen으로 이동
       HapticFeedback.lightImpact();
       Future.delayed(const Duration(milliseconds: 150), () {
         if (!mounted) return;
@@ -623,32 +653,38 @@ class _MysteryCardState extends State<_MysteryCard>
         ).pushNamed(RouteNames.profileSpecificDetail);
       });
     } else {
-      // 1차 탭: 플립 애니메이션으로 프로필 공개 + recEvents open 기록
       HapticFeedback.mediumImpact();
       final uid = widget.kakaoUserId;
       if (uid != null) {
         final Map<String, dynamic> contextMetadata = {
           'screen': 'mystery_card_screen',
         };
-        if (widget.profile.rank != 999)
+        if (widget.profile.rank != 999) {
           contextMetadata['rank'] = widget.profile.rank;
-        if (widget.profile.sourceScores != null)
+        }
+        if (widget.profile.sourceScores != null) {
           contextMetadata['score'] = widget.profile.sourceScores!;
-        if (widget.profile.finalScore != null)
+        }
+        if (widget.profile.finalScore != null) {
           contextMetadata['finalScore'] = widget.profile.finalScore!;
+        }
         contextMetadata['algorithmVersion'] = widget.profile.primaryAlgo;
 
-        RecEventService().logEvent(
-          userId: uid,
-          targetType: 'user_profile',
-          targetId: widget.profile.candidateUid,
-          candidateUserId: widget.profile.candidateUid,
-          eventType: 'open',
-          surface: 'mystery_card',
-          cardVariant: 'real_profile',
-          exposureId: widget.profile.exposureId,
-          context: contextMetadata,
-        ).catchError((e) => debugPrint('[RecEvent] mystery_card open failed: $e'));
+        RecEventService()
+            .logEvent(
+              userId: uid,
+              targetType: 'user_profile',
+              targetId: widget.profile.candidateUid,
+              candidateUserId: widget.profile.candidateUid,
+              eventType: 'open',
+              surface: 'mystery_card',
+              cardVariant: 'real_profile',
+              exposureId: widget.profile.exposureId,
+              context: contextMetadata,
+            )
+            .catchError(
+              (e) => debugPrint('[RecEvent] mystery_card open failed: $e'),
+            );
       }
       _controller.forward().then((_) {
         if (mounted) setState(() => _isRevealed = true);
@@ -658,7 +694,7 @@ class _MysteryCardState extends State<_MysteryCard>
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // AutomaticKeepAliveClientMixin 필수 호출
+    super.build(context);
     final screenWidth = MediaQuery.of(context).size.width;
     final cardWidth = screenWidth * 0.75;
     final cardHeight = cardWidth * 1.33;
@@ -674,7 +710,7 @@ class _MysteryCardState extends State<_MysteryCard>
           return Transform(
             alignment: Alignment.center,
             transform: Matrix4.identity()
-              ..setEntry(3, 2, 0.001) // perspective
+              ..setEntry(3, 2, 0.001)
               ..rotateY(angle),
             child: isBackVisible
                 ? _buildBackFace(cardWidth, cardHeight)
@@ -685,7 +721,6 @@ class _MysteryCardState extends State<_MysteryCard>
     );
   }
 
-  /// 앞면: 미스터리 '?' 카드
   Widget _buildFrontFace(double cardWidth, double cardHeight) {
     return Container(
       width: cardWidth,
@@ -712,7 +747,6 @@ class _MysteryCardState extends State<_MysteryCard>
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // 배경 원
           Container(
             width: 160,
             height: 160,
@@ -727,7 +761,6 @@ class _MysteryCardState extends State<_MysteryCard>
               child: const SizedBox(),
             ),
           ),
-          // 물음표
           Text(
             '?',
             style: TextStyle(
@@ -739,7 +772,6 @@ class _MysteryCardState extends State<_MysteryCard>
                   : _AppColors.primary.withValues(alpha: 0.7),
             ),
           ),
-          // 탭 힌트 (활성 카드만)
           if (widget.isActive)
             Positioned(
               bottom: 24,
@@ -779,12 +811,11 @@ class _MysteryCardState extends State<_MysteryCard>
     );
   }
 
-  /// 뒷면: 프로필 카드 프리뷰 (좌우 반전 보정, 프로필 데이터 사용)
   Widget _buildBackFace(double cardWidth, double cardHeight) {
     final profile = widget.profile;
     return Transform(
       alignment: Alignment.center,
-      transform: Matrix4.identity()..rotateY(pi), // 거울 보정
+      transform: Matrix4.identity()..rotateY(pi),
       child: Container(
         width: cardWidth,
         height: cardHeight,
@@ -802,7 +833,6 @@ class _MysteryCardState extends State<_MysteryCard>
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // 프로필 이미지
             widget.profile.imageUrls.isNotEmpty
                 ? Image.network(
                     widget.profile.imageUrls.first,
@@ -811,7 +841,6 @@ class _MysteryCardState extends State<_MysteryCard>
                         Container(color: _AppColors.gray300),
                   )
                 : Container(color: _AppColors.gray300),
-            // 그라데이션 오버레이
             Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -826,7 +855,6 @@ class _MysteryCardState extends State<_MysteryCard>
                 ),
               ),
             ),
-            // 프로필 정보
             Positioned(
               left: 24,
               right: 24,
@@ -834,7 +862,6 @@ class _MysteryCardState extends State<_MysteryCard>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 이름 + 매치율
                   Row(
                     children: [
                       Flexible(
@@ -886,7 +913,6 @@ class _MysteryCardState extends State<_MysteryCard>
                     ],
                   ),
                   const SizedBox(height: 4),
-                  // 학과 + 학번
                   Text(
                     "${profile.major} • ${profile.age}",
                     style: TextStyle(
@@ -899,7 +925,6 @@ class _MysteryCardState extends State<_MysteryCard>
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 12),
-                  // 태그 칩
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
