@@ -8,11 +8,16 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'services/push_notification_service.dart';
 import 'firebase_options.dart';
 import 'app.dart';
+import 'webview_web_stub.dart'
+    if (dart.library.html) 'webview_web_impl.dart' as webview_web;
 
 void main() {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+
+      // ✅ WebView 웹 플랫폼 등록 (웹 빌드 시에만)
+      webview_web.registerWebViewWebPlatform();
 
       // ✅ Kakao init
       const kakaoNativeAppKey = 'cb08e2aea50a58b7d0c5e610e0c5a644';

@@ -4,6 +4,7 @@
 // =============================================================================
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
@@ -24,9 +25,17 @@ class _TermsWebViewScreenState extends State<TermsWebViewScreen> {
   @override
   void initState() {
     super.initState();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..loadFlutterAsset('public/legal/terms.html');
+    _controller = WebViewController();
+    if (!kIsWeb) {
+      _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+    }
+    if (kIsWeb) {
+      rootBundle.loadString('public/legal/terms.html').then((html) {
+        if (mounted) _controller.loadHtmlString(html);
+      });
+    } else {
+      _controller.loadFlutterAsset('public/legal/terms.html');
+    }
   }
 
   @override
