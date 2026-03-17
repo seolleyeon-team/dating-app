@@ -1,9 +1,9 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
 import '../../../services/ai_recommendation_service.dart';
 import '../../../services/interaction_service.dart';
+import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../models/profile_card_args.dart';
 
@@ -99,6 +99,7 @@ class AiMatchProfileScreen extends StatefulWidget {
 
 class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
   final UserService _userService = UserService();
+  final StorageService _storageService = StorageService();
 
   _ResolvedProfile? _profile;
   bool _isLoading = true;
@@ -419,12 +420,12 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
     );
   }
 
-  void _showReportDialog(BuildContext context, String targetUserId) {
+  void _showReportDialog(BuildContext parentContext, String targetUserId) {
     final TextEditingController reasonController = TextEditingController();
 
     showCupertinoDialog(
-      context: context,
-      builder: (ctx) {
+      context: parentContext,
+      builder: (dialogCtx) {
         bool isSubmitting = false;
 
         return StatefulBuilder(
@@ -445,7 +446,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
               actions: [
                 CupertinoDialogAction(
                   isDestructiveAction: true,
-                  onPressed: () => Navigator.pop(ctx),
+                  onPressed: () => Navigator.pop(dialogCtx),
                   child: const Text('취소'),
                 ),
                 CupertinoDialogAction(
@@ -453,31 +454,73 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                   onPressed: isSubmitting
                       ? null
                       : () async {
-                          if (reasonController.text.trim().isEmpty) return;
+                          final reason = reasonController.text.trim();
+                          if (reason.isEmpty) return;
 
                           setState(() => isSubmitting = true);
 
                           try {
-                            final currentUserId =
-                                FirebaseAuth.instance.currentUser?.uid;
-                            if (currentUserId == null) {
-                              if (ctx.mounted) Navigator.pop(ctx);
-                              return;
+                            final currentUserId = await _storageService
+                                .getKakaoUserId();
+
+                            if (currentUserId == null ||
+                                currentUserId.trim().isEmpty) {
+                              throw Exception('Kakao user id not found');
                             }
 
                             await InteractionService().blockAndReportUser(
                               fromUserId: currentUserId,
                               toUserId: targetUserId,
-                              reason: reasonController.text.trim(),
+                              reason: reason,
                             );
 
-                            if (ctx.mounted) {
-                              Navigator.pop(ctx);
-                              Navigator.of(context).pop();
+                            if (!mounted) return;
+
+                            if (dialogCtx.mounted) {
+                              Navigator.pop(dialogCtx);
                             }
+
+                            showCupertinoDialog(
+                              context: parentContext,
+                              builder: (successCtx) => CupertinoAlertDialog(
+                                title: const Text('신고 완료'),
+                                content: const Text('신고가 접수되었습니다.'),
+                                actions: [
+                                  CupertinoDialogAction(
+                                    isDefaultAction: true,
+                                    onPressed: () {
+                                      Navigator.pop(successCtx);
+                                      if (mounted) {
+                                        Navigator.of(parentContext).pop();
+                                      }
+                                    },
+                                    child: const Text('확인'),
+                                  ),
+                                ],
+                              ),
+                            );
                           } catch (e) {
-                            setState(() => isSubmitting = false);
                             debugPrint('Report error: $e');
+
+                            if (dialogCtx.mounted) {
+                              setState(() => isSubmitting = false);
+                            }
+
+                            showCupertinoDialog(
+                              context: parentContext,
+                              builder: (errorCtx) => CupertinoAlertDialog(
+                                title: const Text('신고 실패'),
+                                content: const Text(
+                                  '신고를 저장하지 못했어요. 다시 시도해주세요.',
+                                ),
+                                actions: [
+                                  CupertinoDialogAction(
+                                    onPressed: () => Navigator.pop(errorCtx),
+                                    child: const Text('확인'),
+                                  ),
+                                ],
+                              ),
+                            );
                           }
                         },
                   child: isSubmitting
@@ -685,7 +728,6 @@ class _ProfileCard extends StatelessWidget {
                     ],
                   ),
                 const SizedBox(height: 24),
-
                 if (profile.mbti.isNotEmpty ||
                     profile.heightText.isNotEmpty ||
                     profile.relationship.isNotEmpty ||
@@ -713,7 +755,6 @@ class _ProfileCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 18),
                 ],
-
                 if (profile.aboutMe.isNotEmpty) ...[
                   const _SectionTitle(text: '저는 이런 사람이에요!'),
                   const SizedBox(height: 10),
@@ -729,7 +770,6 @@ class _ProfileCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 18),
                 ],
-
                 if (profile.chips.isNotEmpty) ...[
                   const _SectionTitle(text: '요즘 관심 있는 것들!'),
                   const SizedBox(height: 10),
@@ -744,7 +784,6 @@ class _ProfileCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 18),
                 ],
-
                 if (profile.drinking.isNotEmpty ||
                     profile.smoking.isNotEmpty ||
                     profile.exercise.isNotEmpty) ...[
@@ -789,7 +828,6 @@ class _ProfileCard extends StatelessWidget {
                   ],
                   const SizedBox(height: 18),
                 ],
-
                 if (profile.loveLanguages.isNotEmpty) ...[
                   const _SectionTitle(text: '사랑의 언어'),
                   const SizedBox(height: 10),
@@ -804,7 +842,6 @@ class _ProfileCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 18),
                 ],
-
                 if (profile.imageUrls.isNotEmpty) ...[
                   const _SectionTitle(text: '나의 모습!'),
                   const SizedBox(height: 10),
@@ -895,7 +932,6 @@ class _HeroImage extends StatelessWidget {
               ),
             ),
           ),
-
           if (safeImages.length > 1)
             Positioned(
               left: 0,
