@@ -75,7 +75,6 @@ service cloud.firestore {
               'updatedAt'
             ])
           ) || (
-            // 프로필 수정(온보딩 데이터 갱신) — 기존 규칙 유지 + 온보딩 편집 허용
             (request.resource.data.kakaoUserId == null ||
               request.resource.data.kakaoUserId == kakaoUserId) &&
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -145,16 +144,16 @@ service cloud.firestore {
       allow delete: if false;
 
       match /messages/{messageId} {
-  allow read, create: if true;
+        allow read, create: if true;
 
-  allow update: if
-    request.resource.data.diff(resource.data).changedKeys().hasOnly([
-      'readBy',
-      'updatedAt'
-    ]);
+        allow update: if
+          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'readBy',
+            'updatedAt'
+          ]);
 
-  allow delete: if false;
-}
+        allow delete: if false;
+      }
     }
 
     // -----------------------------------------------------------------------
@@ -256,14 +255,30 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // Blocks and Reports
     // -----------------------------------------------------------------------
-    match /blocks/{viewerUid}/targets/{targetUid} {
-      allow create: if request.auth != null && request.auth.uid == viewerUid;
-      allow read: if request.auth != null && request.auth.uid == viewerUid;
-    }
+    match /blocks/{viewerUid} {
+  allow read: if true;
+  allow create, update: if true;
 
-    match /reports/{reportId} {
-      allow create: if request.auth != null;
-    }
+  match /targets/{targetUid} {
+    allow read: if true;
+    allow create, update: if
+      request.resource.data.fromUserId is string &&
+      request.resource.data.toUserId is string &&
+      request.resource.data.fromUserId == viewerUid &&
+      request.resource.data.toUserId == targetUid;
+    allow delete: if true;
+  }
+}
+
+match /reports/{reportId} {
+  allow create: if
+    request.resource.data.reporterId is string &&
+    request.resource.data.reportedId is string &&
+    request.resource.data.reason is string &&
+    request.resource.data.reason.size() > 0 &&
+    request.resource.data.status is string;
+  allow read: if true;
+}
 
     // -----------------------------------------------------------------------
     // Default deny

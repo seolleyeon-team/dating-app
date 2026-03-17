@@ -5,6 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// Firestore 컬렉션:
 ///   interactions/{auto-id}   — 개별 인터랙션
 ///   matches/{auto-id}        — 매치 성사 기록
+///   reports/{auto-id}        — 신고 기록
+///   blocks/{fromUserId}/targets/{toUserId} — 차단 기록
 class InteractionService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -13,6 +15,9 @@ class InteractionService {
 
   CollectionReference<Map<String, dynamic>> get _matchesRef =>
       _firestore.collection('matches');
+
+  CollectionReference<Map<String, dynamic>> get _reportsRef =>
+      _firestore.collection('reports');
 
   // ---------------------------------------------------------------------------
   // 인터랙션 기록
@@ -174,9 +179,7 @@ class InteractionService {
         .orderBy('createdAt', descending: true)
         .get();
 
-    return snap.docs
-        .map((doc) => {'id': doc.id, ...doc.data()})
-        .toList();
+    return snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
   }
 
   /// 내가 like한 유저 목록
@@ -187,9 +190,7 @@ class InteractionService {
         .orderBy('createdAt', descending: true)
         .get();
 
-    return snap.docs
-        .map((doc) => {'id': doc.id, ...doc.data()})
-        .toList();
+    return snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
   }
 
   /// 특정 유저에게 이미 like/nope 했는지 확인 (중복 카드 방지)
@@ -214,8 +215,10 @@ class InteractionService {
         .where('status', isEqualTo: 'active')
         .orderBy('matchedAt', descending: true)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+        .map(
+          (snap) =>
+              snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
+        );
   }
 
   /// 매치 해제
@@ -231,44 +234,71 @@ class InteractionService {
   // ---------------------------------------------------------------------------
 
   /// 유저 신고 및 차단
-  /// 1. blocks/{fromUserId}/targets/{toUserId} 에 차단 기록 생성 (추천에서 제외됨)
-  /// 2. reports/ 컬렉션에 신고 상세 내용 저장
+  ///
+  /// 순서:
+  /// 1. reports/ 컬렉션에 신고 상세 내용 저장
+  /// 2. blocks/{fromUserId}/targets/{toUserId} 에 차단 기록 생성
+  /// 3. 기존 매치가 있다면 해제 처리
+  ///
+  /// 핵심:
+  /// - 신고 기록은 최우선으로 저장
+  /// - 차단/매치해제가 실패해도 신고 자체는 남도록 분리
   Future<void> blockAndReportUser({
     required String fromUserId,
     required String toUserId,
     required String reason,
     String? details,
   }) async {
-    // 1. 차단 기록 (Python 모델에서 읽어 추천 제외)
-    await _firestore
-        .collection('blocks')
-        .doc(fromUserId)
-        .collection('targets')
-        .doc(toUserId)
-        .set({
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    if (fromUserId.trim().isEmpty) {
+      throw Exception('fromUserId is empty');
+    }
+    if (toUserId.trim().isEmpty) {
+      throw Exception('toUserId is empty');
+    }
+    if (reason.trim().isEmpty) {
+      throw Exception('reason is empty');
+    }
 
-    // 2. 신고 기록
-    await _firestore.collection('reports').add({
+    // 1. 신고 기록 먼저 저장
+    await _reportsRef.add({
       'reporterId': fromUserId,
       'reportedId': toUserId,
-      'reason': reason,
-      'details': details,
+      'reason': reason.trim(),
+      'details': details?.trim().isEmpty == true ? null : details?.trim(),
       'status': 'pending',
       'createdAt': FieldValue.serverTimestamp(),
     });
 
-    // 3. 기존 매치가 있다면 해제 처리
-    final existingMatch = await _matchesRef
-        .where('userIds', arrayContains: fromUserId)
-        .get();
+    // 2. 차단 기록 저장 (실패해도 신고는 이미 저장된 상태)
+    try {
+      await _firestore
+          .collection('blocks')
+          .doc(fromUserId)
+          .collection('targets')
+          .doc(toUserId)
+          .set({
+            'fromUserId': fromUserId,
+            'toUserId': toUserId,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+    } catch (_) {
+      // 신고 기록은 이미 저장되었으므로 여기서는 삼킴
+    }
 
-    for (final doc in existingMatch.docs) {
-      final ids = List<String>.from(doc.data()['userIds'] ?? []);
-      if (ids.contains(toUserId)) {
-        await unmatch(doc.id);
+    // 3. 기존 매치가 있다면 해제 처리 (실패해도 신고는 유지)
+    try {
+      final existingMatch = await _matchesRef
+          .where('userIds', arrayContains: fromUserId)
+          .get();
+
+      for (final doc in existingMatch.docs) {
+        final ids = List<String>.from(doc.data()['userIds'] ?? []);
+        if (ids.contains(toUserId)) {
+          await unmatch(doc.id);
+        }
       }
+    } catch (_) {
+      // 신고 기록은 이미 저장되었으므로 여기서는 삼킴
     }
   }
 }
