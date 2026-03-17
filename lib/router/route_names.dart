@@ -89,6 +89,7 @@ class RouteNames {
   static const String receivedHearts = '/profile/hearts';
   static const String sentHearts = '/profile/sent-hearts';
   static const String settings = '/profile/settings';
+  static const String termsWebview = '/profile/terms-webview';
 
   static const String notifications = '/notifications';
 

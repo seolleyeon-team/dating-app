@@ -76,6 +76,7 @@ import '../features/profile/screens/received_hearts_screen.dart';
 import '../features/matching/screens/sent_hearts_screen.dart';
 import '../features/profile/screens/settings_screen.dart';
 import '../features/matching/models/profile_card_args.dart';
+import '../features/profile/screens/terms_webview_screen.dart';
 
 // Notifications
 import '../features/notifications/screens/notification_list_screen.dart';
@@ -258,6 +259,8 @@ class AppRouter {
         return _cupertino(const SentHeartsScreen());
       case RouteNames.settings:
         return _cupertino(const SettingsScreen());
+      case RouteNames.termsWebview:
+        return _cupertino(const TermsWebViewScreen());
 
       // Notifications
       case RouteNames.notifications:
