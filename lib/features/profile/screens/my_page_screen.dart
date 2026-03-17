@@ -76,14 +76,34 @@ class _MyPageScreenState extends State<MyPageScreen> {
     final user = await _userService.getUserProfile(kakaoUserId);
     if (!mounted || user == null) return;
 
-    final onboarding = user['onboarding'];
+    final onboardingRaw = user['onboarding'];
+    final onboarding = onboardingRaw is Map
+        ? Map<String, dynamic>.from(onboardingRaw)
+        : <String, dynamic>{};
+
+    final photoUrlsRaw = onboarding['photoUrls'];
+    final onboardingPhotoUrls = photoUrlsRaw is List
+        ? photoUrlsRaw.whereType<String>().toList()
+        : <String>[];
+
+    final mainPhotoUrl = onboardingPhotoUrls.isNotEmpty
+        ? onboardingPhotoUrls.first
+        : null;
 
     setState(() {
-      nickname = (onboarding is Map && onboarding['nickname'] != null)
+      nickname = (onboarding['nickname']?.toString().isNotEmpty ?? false)
           ? onboarding['nickname'].toString()
           : '닉네임';
       userName = nickname;
-      avatarUrl = user['profileImageUrl']?.toString();
+
+      // 우선순위:
+      // 1) onboarding.photoUrls의 첫 번째 사진
+      // 2) 기존 profileImageUrl
+      // 3) null이면 defaultAvatarUrl 사용
+      avatarUrl = (mainPhotoUrl != null && mainPhotoUrl.isNotEmpty)
+          ? mainPhotoUrl
+          : user['profileImageUrl']?.toString();
+
       receivedHearts = (user['receivedHearts'] as num?)?.toInt() ?? 0;
       friendsCount = (user['friendsCount'] as num?)?.toInt() ?? 0;
     });
@@ -369,6 +389,7 @@ class _ProfileCard extends StatelessWidget {
                         clipBehavior: Clip.antiAlias,
                         child: Image.network(
                           avatarUrl,
+                          key: ValueKey(avatarUrl),
                           fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) => const Icon(
                             CupertinoIcons.person_fill,

@@ -54,6 +54,7 @@ import '../features/matching/screens/profile_card_screen.dart';
 import '../features/matching/screens/ai_preference_screen.dart';
 import '../features/matching/screens/ai_match_card_screen.dart';
 import '../features/matching/screens/profile_specific_detail_screen.dart';
+import '../services/ai_recommendation_service.dart';
 
 // Chat
 import '../features/chat/screens/premium_chat_list_screen.dart';
@@ -74,6 +75,7 @@ import '../features/profile/screens/profile_edit_screen.dart';
 import '../features/profile/screens/received_hearts_screen.dart';
 import '../features/matching/screens/sent_hearts_screen.dart';
 import '../features/profile/screens/settings_screen.dart';
+import '../features/matching/models/profile_card_args.dart';
 
 // Notifications
 import '../features/notifications/screens/notification_list_screen.dart';
@@ -210,8 +212,8 @@ class AppRouter {
       case RouteNames.aiMatchCard:
         return _cupertino(const AiMatchCardScreen());
       case RouteNames.profileSpecificDetail:
-        return _cupertino(const AiMatchProfileScreen());
-
+        final args = settings.arguments as ProfileCardArgs?;
+        return _cupertino(AiMatchProfileScreen(args: args));
       // Chat
       case RouteNames.premiumChatList:
         return _cupertino(const ChatListScreen());

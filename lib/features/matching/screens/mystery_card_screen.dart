@@ -18,6 +18,7 @@ import '../../../router/route_names.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/ai_recommendation_service.dart';
+import '../models/profile_card_args.dart';
 
 // =============================================================================
 // 색상 상수
@@ -647,10 +648,10 @@ class _MysteryCardState extends State<_MysteryCard>
       HapticFeedback.lightImpact();
       Future.delayed(const Duration(milliseconds: 150), () {
         if (!mounted) return;
-        Navigator.of(
-          context,
-          rootNavigator: true,
-        ).pushNamed(RouteNames.profileSpecificDetail);
+        Navigator.of(context, rootNavigator: true).pushNamed(
+          RouteNames.profileSpecificDetail,
+          arguments: ProfileCardArgs.fromAi(widget.profile),
+        );
       });
     } else {
       HapticFeedback.mediumImpact();
