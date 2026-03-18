@@ -90,6 +90,7 @@ class RouteNames {
   static const String sentHearts = '/profile/sent-hearts';
   static const String settings = '/profile/settings';
   static const String termsWebview = '/profile/terms-webview';
+  static const String inquiry = '/profile/inquiry';
 
   static const String notifications = '/notifications';
   static const String issueReport = '/profile/issue-report';

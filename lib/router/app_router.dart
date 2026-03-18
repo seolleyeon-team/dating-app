@@ -79,6 +79,8 @@ import '../features/matching/models/profile_card_args.dart';
 import '../features/profile/screens/terms_webview_screen.dart';
 import '../features/reports/issue_report_screen.dart';
 import '../services/issue_report_service.dart';
+import '../features/reports/inquiry_screen.dart';
+import '../services/inquiry_service.dart';
 
 // Notifications
 import '../features/notifications/screens/notification_list_screen.dart';
@@ -287,6 +289,29 @@ class AppRouter {
                     return true;
                   } catch (e) {
                     debugPrint('Issue report submit error: $e');
+                    return false;
+                  }
+                },
+          ),
+        );
+      case RouteNames.inquiry:
+        return _cupertino(
+          InquiryScreen(
+            onSubmit:
+                ({
+                  required String category,
+                  required String content,
+                  required bool allowContact,
+                }) async {
+                  try {
+                    await InquiryService().submitInquiry(
+                      category: category,
+                      content: content,
+                      allowContact: allowContact,
+                    );
+                    return true;
+                  } catch (e) {
+                    debugPrint('Inquiry submit error: $e');
                     return false;
                   }
                 },

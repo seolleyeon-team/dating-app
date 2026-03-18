@@ -302,6 +302,22 @@ service cloud.firestore {
       allow update: if true;
       allow delete: if true;
     }
+    match /app_inquiries/{inquiryId} {
+  allow create: if
+    request.resource.data.inquirerId is string &&
+    request.resource.data.category is string &&
+    request.resource.data.category.size() > 0 &&
+    request.resource.data.content is string &&
+    request.resource.data.content.size() > 0 &&
+    request.resource.data.allowContact is bool &&
+    request.resource.data.sourceScreen is string &&
+    request.resource.data.platform is string &&
+    request.resource.data.status is string;
+
+  allow read: if true;
+  allow update: if true;
+  allow delete: if true;
+}
 
     // -----------------------------------------------------------------------
     // AI Profiles (더미 프로필 메타데이터: height 등, AI 취향 화면용)
