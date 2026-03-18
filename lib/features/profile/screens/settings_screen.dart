@@ -227,7 +227,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: CupertinoIcons.chat_bubble,
                         title: '의견 보내기',
                         hasChevron: true,
-                        onTap: () {},
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          Navigator.of(context).pushNamed(RouteNames.inquiry);
+                        },
                       ),
                       const _Divider(),
                       _SettingsItem(
