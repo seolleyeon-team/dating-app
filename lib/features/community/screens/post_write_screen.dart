@@ -2,16 +2,17 @@
 // 대나무숲(커뮤니티) 게시글 작성 화면
 // 경로: lib/features/community/screens/post_write_screen.dart
 //
-// 디자인: 감정 선택 칩, Glassmorphism TextArea, 익명성 강조
-// Firestore 게시글 등록 기능 연결
+// 변경 사항:
+// - 글쓰기 카테고리를 메인 화면과 동일하게 통일
+// - 사용 카테고리: 설렘 / 고민 / 일상 / 질문
+// - 기존 감정 태그(#두근두근 등) 제거
 // =============================================================================
+
+import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'dart:ui';
-import 'dart:math' as math;
-
 import 'package:provider/provider.dart';
 
 import '../../../services/storage_service.dart';
@@ -27,6 +28,18 @@ class _AppColors {
   static const Color gradientEnd = Color(0xFFF8F6F7);
 
   static const Color textMain = Color(0xFF181114);
+
+  static const Color categoryRomanceBg = Color(0xFFFFEFF4);
+  static const Color categoryRomanceText = Color(0xFFE85D93);
+
+  static const Color categoryWorryBg = Color(0xFFFFF4E8);
+  static const Color categoryWorryText = Color(0xFFDC8B2F);
+
+  static const Color categoryDailyBg = Color(0xFFEFF7F0);
+  static const Color categoryDailyText = Color(0xFF4E9B63);
+
+  static const Color categoryQuestionBg = Color(0xFFEEF4FF);
+  static const Color categoryQuestionText = Color(0xFF5E86E5);
 }
 
 // =============================================================================
@@ -45,13 +58,11 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
 
   final int _maxLength = 300;
   String _currentText = '';
-
   bool _isSubmitting = false;
 
-  // 감정 태그 리스트
-  final List<String> _emotions = ['#두근두근', '#첫미팅', '#짝사랑', '#비밀', '#설렘', '#고민'];
-
-  String _selectedEmotion = '#두근두근';
+  // 메인 대나무숲과 동일한 카테고리
+  final List<String> _categories = const ['설렘', '고민', '일상', '질문'];
+  String _selectedCategory = '설렘';
 
   @override
   void initState() {
@@ -89,19 +100,20 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
         throw Exception('로그인 정보가 없습니다.');
       }
 
-      debugPrint('[PostWrite] 글 등록 authorId="$kakaoUserId"');
+      debugPrint(
+        '[PostWrite] 글 등록 authorId="$kakaoUserId", category="$_selectedCategory"',
+      );
 
       final provider = context.read<CommunityProvider>();
 
       await provider.createPost(
         authorId: kakaoUserId,
-        content: _currentText,
-        category: _emotionToCategory(_selectedEmotion),
-        tags: [_selectedEmotion],
+        content: _currentText.trim(),
+        category: _selectedCategory,
+        tags: [_selectedCategory],
       );
 
       if (!mounted) return;
-
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
@@ -118,11 +130,64 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
     }
   }
 
-  // 감정 태그 → 카테고리 변환
-  String _emotionToCategory(String emotion) {
-    if (emotion.contains('설렘') || emotion.contains('두근')) return '설렘';
-    if (emotion.contains('고민')) return '고민';
-    return '일상';
+  Color _getCategoryBackgroundColor(String category, bool isSelected) {
+    if (isSelected) {
+      switch (category) {
+        case '설렘':
+          return _AppColors.categoryRomanceText;
+        case '고민':
+          return _AppColors.categoryWorryText;
+        case '일상':
+          return _AppColors.categoryDailyText;
+        case '질문':
+          return _AppColors.categoryQuestionText;
+      }
+    }
+
+    switch (category) {
+      case '설렘':
+        return _AppColors.categoryRomanceBg;
+      case '고민':
+        return _AppColors.categoryWorryBg;
+      case '일상':
+        return _AppColors.categoryDailyBg;
+      case '질문':
+        return _AppColors.categoryQuestionBg;
+      default:
+        return Colors.white;
+    }
+  }
+
+  Color _getCategoryTextColor(String category, bool isSelected) {
+    if (isSelected) return Colors.white;
+
+    switch (category) {
+      case '설렘':
+        return _AppColors.categoryRomanceText;
+      case '고민':
+        return _AppColors.categoryWorryText;
+      case '일상':
+        return _AppColors.categoryDailyText;
+      case '질문':
+        return _AppColors.categoryQuestionText;
+      default:
+        return Colors.grey[700]!;
+    }
+  }
+
+  String _getHintText() {
+    switch (_selectedCategory) {
+      case '설렘':
+        return '설레는 순간이나 연애 이야기를 익명으로 남겨보세요...\n예: 요즘 자꾸 생각나는 사람이 있어요.';
+      case '고민':
+        return '혼자 고민하던 이야기를 편하게 남겨보세요...\n예: 상대가 나를 좋아하는 건지 헷갈려요.';
+      case '일상':
+        return '연애와 관련된 소소한 일상을 자유롭게 적어보세요...\n예: 오늘 캠퍼스에서 이런 일이 있었어요.';
+      case '질문':
+        return '다른 사람들의 의견이 궁금한 질문을 남겨보세요...\n예: 첫 연락은 어느 정도 텀으로 하는 게 좋나요?';
+      default:
+        return '솔직한 마음을 익명으로 남겨보세요...';
+    }
   }
 
   @override
@@ -132,17 +197,10 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
       body: Stack(
         children: [
           const _BackgroundDecoration(),
-
           SafeArea(
             child: Column(
               children: [
-                _Header(
-                  onClose: () => Navigator.of(context).pop(),
-                  onDraft: () {
-                    HapticFeedback.lightImpact();
-                  },
-                ),
-
+                _Header(onClose: () => Navigator.of(context).pop()),
                 Expanded(
                   child: SingleChildScrollView(
                     physics: const BouncingScrollPhysics(),
@@ -153,7 +211,7 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                         const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 24),
                           child: Text(
-                            '어떤 마음인가요?',
+                            '어떤 카테고리의 글인가요?',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
@@ -164,21 +222,23 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                         ),
                         const SizedBox(height: 16),
 
-                        // 감정 선택
+                        // 카테고리 선택
                         SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
                           physics: const BouncingScrollPhysics(),
                           padding: const EdgeInsets.symmetric(horizontal: 24),
                           child: Row(
-                            children: _emotions.map((emotion) {
-                              final isSelected = _selectedEmotion == emotion;
+                            children: _categories.map((category) {
+                              final isSelected = _selectedCategory == category;
 
                               return Padding(
                                 padding: const EdgeInsets.only(right: 12),
                                 child: GestureDetector(
                                   onTap: () {
                                     HapticFeedback.selectionClick();
-                                    setState(() => _selectedEmotion = emotion);
+                                    setState(() {
+                                      _selectedCategory = category;
+                                    });
                                   },
                                   child: AnimatedContainer(
                                     duration: const Duration(milliseconds: 200),
@@ -187,28 +247,31 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                                       vertical: 10,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: isSelected
-                                          ? _AppColors.primary
-                                          : Colors.white,
+                                      color: _getCategoryBackgroundColor(
+                                        category,
+                                        isSelected,
+                                      ),
                                       borderRadius: BorderRadius.circular(20),
                                       border: Border.all(
                                         color: isSelected
                                             ? Colors.transparent
-                                            : Colors.grey.withValues(
-                                                alpha: 0.2,
-                                              ),
+                                            : _getCategoryTextColor(
+                                                category,
+                                                false,
+                                              ).withValues(alpha: 0.18),
                                       ),
                                     ),
                                     child: Text(
-                                      emotion,
+                                      category,
                                       style: TextStyle(
                                         fontSize: 14,
                                         fontWeight: isSelected
                                             ? FontWeight.bold
-                                            : FontWeight.w500,
-                                        color: isSelected
-                                            ? Colors.white
-                                            : Colors.grey[600],
+                                            : FontWeight.w600,
+                                        color: _getCategoryTextColor(
+                                          category,
+                                          isSelected,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -243,10 +306,9 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                                       maxLines: null,
                                       minLines: 8,
                                       maxLength: _maxLength,
-                                      decoration: const InputDecoration(
-                                        hintText:
-                                            '솔직한 마음을 익명으로 남겨보세요...\n아무도 모를 거예요.',
-                                        hintStyle: TextStyle(
+                                      decoration: InputDecoration(
+                                        hintText: _getHintText(),
+                                        hintStyle: const TextStyle(
                                           color: Colors.grey,
                                           height: 1.6,
                                           fontSize: 16,
@@ -261,9 +323,7 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                                         fontWeight: FontWeight.w500,
                                       ),
                                     ),
-
                                     const SizedBox(height: 16),
-
                                     Row(
                                       mainAxisAlignment:
                                           MainAxisAlignment.spaceBetween,
@@ -312,7 +372,7 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                     width: double.infinity,
                     height: 56,
                     child: ElevatedButton(
-                      onPressed: _currentText.isEmpty || _isSubmitting
+                      onPressed: _currentText.trim().isEmpty || _isSubmitting
                           ? null
                           : _submitPost,
                       style: ElevatedButton.styleFrom(
@@ -327,7 +387,14 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                         ),
                       ),
                       child: _isSubmitting
-                          ? const CircularProgressIndicator(color: Colors.white)
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2.4,
+                              ),
+                            )
                           : Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: const [
@@ -379,9 +446,8 @@ class _BackgroundDecoration extends StatelessWidget {
 // =============================================================================
 class _Header extends StatelessWidget {
   final VoidCallback onClose;
-  final VoidCallback onDraft;
 
-  const _Header({required this.onClose, required this.onDraft});
+  const _Header({required this.onClose});
 
   @override
   Widget build(BuildContext context) {
@@ -402,7 +468,7 @@ class _Header extends StatelessWidget {
               color: _AppColors.textMain,
             ),
           ),
-          TextButton(onPressed: onDraft, child: const Text('임시저장')),
+          const SizedBox(width: 48),
         ],
       ),
     );

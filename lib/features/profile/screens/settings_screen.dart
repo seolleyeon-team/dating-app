@@ -234,7 +234,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: CupertinoIcons.exclamationmark_triangle,
                         title: '문제 신고',
                         hasChevron: true,
-                        onTap: () {},
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          Navigator.of(
+                            context,
+                          ).pushNamed(RouteNames.issueReport);
+                        },
                       ),
                     ],
                   ),
@@ -249,7 +254,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         hasChevron: true,
                         onTap: () {
                           HapticFeedback.selectionClick();
-                          Navigator.of(context).pushNamed(RouteNames.termsWebview);
+                          Navigator.of(
+                            context,
+                          ).pushNamed(RouteNames.termsWebview);
                         },
                       ),
                     ],

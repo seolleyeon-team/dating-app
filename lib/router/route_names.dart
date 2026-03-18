@@ -92,6 +92,7 @@ class RouteNames {
   static const String termsWebview = '/profile/terms-webview';
 
   static const String notifications = '/notifications';
+  static const String issueReport = '/profile/issue-report';
 
   // Event
   static const String teamSetup = '/event/team-setup';

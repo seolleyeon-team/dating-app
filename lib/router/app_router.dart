@@ -77,6 +77,8 @@ import '../features/matching/screens/sent_hearts_screen.dart';
 import '../features/profile/screens/settings_screen.dart';
 import '../features/matching/models/profile_card_args.dart';
 import '../features/profile/screens/terms_webview_screen.dart';
+import '../features/reports/issue_report_screen.dart';
+import '../services/issue_report_service.dart';
 
 // Notifications
 import '../features/notifications/screens/notification_list_screen.dart';
@@ -265,6 +267,31 @@ class AppRouter {
       // Notifications
       case RouteNames.notifications:
         return _cupertino(const NotificationListScreen());
+
+      // Reports
+      case RouteNames.issueReport:
+        return _cupertino(
+          IssueReportScreen(
+            onSubmit:
+                ({
+                  required String category,
+                  required String content,
+                  required bool allowContact,
+                }) async {
+                  try {
+                    await IssueReportService().submitIssueReport(
+                      category: category,
+                      content: content,
+                      allowContact: allowContact,
+                    );
+                    return true;
+                  } catch (e) {
+                    debugPrint('Issue report submit error: $e');
+                    return false;
+                  }
+                },
+          ),
+        );
 
       // Event
       case RouteNames.event:
