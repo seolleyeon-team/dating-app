@@ -243,8 +243,8 @@ def build_interaction_matrix(
     grp = pos_df.groupby(["user_id", "item_id"], as_index=False)["w"].sum()
     grp["w"] = grp["w"].clip(upper=max_weight_per_pair)
 
-    rows = grp["user_id"].map(user2idx).to_numpy()
-    cols = grp["item_id"].map(item2idx).to_numpy()
+    rows = grp["user_id"].map(user2idx).to_numpy(dtype=np.int32)
+    cols = grp["item_id"].map(item2idx).to_numpy(dtype=np.int32)
     data = grp["w"].to_numpy(dtype=np.float32)
 
     coo = sparse.coo_matrix((data, (rows, cols)), shape=(len(users), len(items)), dtype=np.float32)
@@ -256,6 +256,25 @@ def build_interaction_matrix(
 # -------------------------
 # Optional policy filtering via profileIndex
 # -------------------------
+
+def load_user_genders_from_firestore(
+    project_id: str,
+    *,
+    users_collection: str = "users",
+    database: Optional[str] = None,
+) -> Dict[str, str]:
+    """users/{uid} onboarding.gender 로드. uid -> gender (female|male 등)"""
+    db = firestore.Client(project=project_id, database=database)
+    result: Dict[str, str] = {}
+    for doc in db.collection(users_collection).stream():
+        d = doc.to_dict() or {}
+        onboarding = d.get("onboarding")
+        if isinstance(onboarding, dict):
+            g = onboarding.get("gender")
+            if g is not None:
+                result[doc.id] = str(g).strip().lower()
+    return result
+
 
 def load_profile_index_from_firestore(
     project_id: str,
@@ -291,6 +310,13 @@ def now_year_kst() -> int:
 
 def kst_age(birth_year: int, now_year: int) -> int:
     return now_year - birth_year + 1
+
+
+def is_ai_profile(item_id: str) -> bool:
+    """ai_preference 스와이프 타겟: female_123, male_456 형식 — 추천 출력에서 제외"""
+    if not item_id or not isinstance(item_id, str):
+        return False
+    return item_id.startswith("female_") or item_id.startswith("male_")
 
 
 def passes_policy(
@@ -384,22 +410,84 @@ class KNNConfig:
     bm25_b: float = 0.75
 
 
+def _train_cosine_knn_scipy(user_item: sparse.csr_matrix, K: int):
+    """Scipy-based item-item cosine KNN (fallback when implicit fails on Windows)."""
+    item_user = user_item.T.tocsr()  # (n_items, n_users)
+    n_items = item_user.shape[0]
+
+    # Row-normalize for cosine similarity
+    row_sumsq = np.zeros(n_items, dtype=np.float64)
+    for i in range(n_items):
+        s = item_user.indptr[i]
+        e = item_user.indptr[i + 1]
+        if e > s:
+            row_sumsq[i] = np.sum(item_user.data[s:e] ** 2)
+    norms = np.sqrt(row_sumsq)
+    norms = np.where(norms > 0, norms, 1.0)
+    nnz_per_row = np.diff(item_user.indptr)
+    norm_expanded = np.repeat(norms, nnz_per_row)
+    data_norm = np.divide(item_user.data, norm_expanded, out=np.zeros_like(item_user.data, dtype=np.float64), where=norm_expanded > 0)
+    item_user_norm = sparse.csr_matrix((data_norm, item_user.indices.copy(), item_user.indptr.copy()), shape=item_user.shape)
+
+    # Item-item similarity = X @ X.T
+    sim = (item_user_norm @ item_user_norm.T).toarray().astype(np.float32)
+    np.fill_diagonal(sim, -1e9)  # exclude self (avoid -inf overflow in matmul)
+    sim = np.nan_to_num(sim, nan=0.0, posinf=0.0)
+
+    # Top-K per item (for interface; recommend uses user aggregation)
+    class ScipyCosineKNN:
+        def __init__(self, sim_mat: np.ndarray, K: int):
+            self.similarity = sim_mat
+            self.K = K
+
+        def recommend(self, userid, user_items, N=10, filter_already_liked_items=True, filter_items=None):
+            row = user_items[userid]
+            if sparse.issparse(row):
+                row = np.asarray(row.toarray()).flatten()
+            else:
+                row = np.asarray(row).flatten()
+            scores = row @ self.similarity  # (n_items,)
+            if filter_already_liked_items:
+                liked = np.where(row != 0)[0]
+                scores[liked] = -1e9
+            if filter_items:
+                scores[list(filter_items)] = -1e9
+            top = np.argsort(-scores)[:N]
+            valid = scores[top] > -1e8
+            return top[valid], scores[top[valid]].astype(np.float32)
+
+    return ScipyCosineKNN(sim, K)
+
+
 def train_item_knn(user_item: sparse.csr_matrix, cfg: KNNConfig):
-    from implicit.nearest_neighbours import BM25Recommender, CosineRecommender, TFIDFRecommender
+    # Try implicit first; on Windows, Cython may raise "Buffer dtype mismatch" (int32 vs int64)
+    try:
+        from implicit.nearest_neighbours import BM25Recommender, CosineRecommender, TFIDFRecommender
 
-    if cfg.knn_type == "cosine":
-        model = CosineRecommender(K=cfg.K, num_threads=cfg.num_threads)
-    elif cfg.knn_type == "tfidf":
-        model = TFIDFRecommender(K=cfg.K, num_threads=cfg.num_threads)
-    elif cfg.knn_type == "bm25":
-        model = BM25Recommender(K=cfg.K, K1=cfg.bm25_k1, B=cfg.bm25_b, num_threads=cfg.num_threads)
-    else:
-        raise ValueError("knn_type must be one of: bm25, cosine, tfidf")
+        if cfg.knn_type == "cosine":
+            model = CosineRecommender(K=cfg.K, num_threads=cfg.num_threads)
+        elif cfg.knn_type == "tfidf":
+            model = TFIDFRecommender(K=cfg.K, num_threads=cfg.num_threads)
+        elif cfg.knn_type == "bm25":
+            model = BM25Recommender(K=cfg.K, K1=cfg.bm25_k1, B=cfg.bm25_b, num_threads=cfg.num_threads)
+        else:
+            raise ValueError("knn_type must be one of: bm25, cosine, tfidf")
 
-    # implicit의 KNN 모델은 item-user 전치 행렬을 기대
-    item_user = user_item.T.tocsr()
-    model.fit(item_user)
-    return model
+        item_user = user_item.T.tocsr()
+        item_user = sparse.csr_matrix(
+            (np.ascontiguousarray(item_user.data, dtype=np.float32),
+             np.ascontiguousarray(item_user.indices, dtype=np.int32),
+             np.ascontiguousarray(item_user.indptr, dtype=np.int32)),
+            shape=item_user.shape,
+        )
+        model.fit(item_user)
+        return model
+    except ValueError as e:
+        if "Buffer dtype mismatch" in str(e) or "expected 'long'" in str(e):
+            if cfg.knn_type != "cosine":
+                print(f"[warn] implicit failed ({e}); falling back to scipy cosine KNN")
+            return _train_cosine_knn_scipy(user_item, cfg.K)
+        raise
 
 
 # -------------------------
@@ -494,6 +582,19 @@ def main():
     # ---- Load events ----
     if args.events_csv:
         df = load_events_from_csv(args.events_csv)
+        # CSV 비어있으면 Firestore fallback (export 미실행/빈 파일 대비)
+        if df.empty and args.firestore_project:
+            print("[data] CSV empty, falling back to Firestore recEvents...")
+            start_day_utc, end_day_utc = parse_datekey_to_utc_range(args.date_key)
+            start_time = start_day_utc - timedelta(days=int(args.lookback_days))
+            end_time = end_day_utc
+            df = load_events_from_firestore(
+                args.firestore_project,
+                collection=args.events_collection,
+                start_time_utc=start_time,
+                end_time_utc=end_time,
+                database=args.firestore_database,
+            )
     elif args.firestore_events:
         if not args.firestore_project:
             raise ValueError("--firestore_project is required for --firestore_events")
@@ -513,7 +614,10 @@ def main():
         raise ValueError("Provide --events_csv or --firestore_events")
 
     if df.empty:
-        raise ValueError("No events loaded.")
+        raise ValueError(
+            "No events loaded. Run export first: python -m recsys.main --step export "
+            "--project seolleyeon --bucket seolleyeon-recs"
+        )
 
     # ---- Build matrix ----
     user_item, user2idx, idx2item, neg_by_useridx = build_interaction_matrix(
@@ -538,6 +642,16 @@ def main():
             database=args.firestore_database,
         )
         print(f"[meta] loaded profileIndex docs: {len(meta)}")
+
+    # ---- users/onboarding gender (동성 제외용) ----
+    gender_by_uid: Dict[str, str] = {}
+    if args.firestore_project:
+        gender_by_uid = load_user_genders_from_firestore(
+            args.firestore_project,
+            users_collection="users",
+            database=args.firestore_database,
+        )
+        print(f"[gender] loaded from users/onboarding: {len(gender_by_uid)} users")
 
     # ---- Train KNN ----
     knn_cfg = KNNConfig(
@@ -595,6 +709,16 @@ def main():
         rank = 1
         for ii, sc in zip(item_idx.tolist(), scores.tolist()):
             cand_uid = idx2item[ii]
+
+            # ai_preference 타겟(female_123, male_456)은 추천 제외 — 학습에는 포함됨
+            if is_ai_profile(cand_uid):
+                continue
+
+            # 동성 제외: users/onboarding.gender 기준
+            u_g = gender_by_uid.get(u)
+            v_g = gender_by_uid.get(cand_uid)
+            if u_g and v_g and u_g == v_g:
+                continue
 
             if meta is not None:
                 if not passes_policy(

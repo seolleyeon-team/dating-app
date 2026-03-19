@@ -1,0 +1,16 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // AI 취향 화면용 더미 프로필 사진 (public read)
+    match /ai_profiles/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // 기타 경로: 인증 필요 (users 프로필 사진 등)
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

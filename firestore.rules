@@ -266,6 +266,23 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
+    // AI Profiles (더미 프로필 메타데이터: height 등, AI 취향 화면용)
+    // -----------------------------------------------------------------------
+    match /ai_profiles/{profileId} {
+      allow get, list: if true;
+      allow create, update, delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Model Recs (AI 추천 결과: rrf, clip, svd, knn — 서버에서 저장, 앱에서 읽기)
+    // Kakao 로그인 시 request.auth가 null일 수 있어 read는 허용
+    // -----------------------------------------------------------------------
+    match /modelRecs/{userId}/daily/{dateKey}/sources/{algo} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // -----------------------------------------------------------------------
     // Default deny
     // -----------------------------------------------------------------------
     match /{document=**} {
