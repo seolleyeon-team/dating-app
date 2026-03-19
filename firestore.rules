@@ -13,13 +13,16 @@ service cloud.firestore {
       allow create: if request.resource.data.email is string &&
           request.resource.data.kakaoUserId is string &&
           isYonseiEmail(request.resource.data.email) &&
-          request.resource.data.keys().hasAll(['email', 'kakaoUserId', 'createdAt', 'expiresAt']);
+          request.resource.data.keys().hasAll([
+            'email',
+            'kakaoUserId',
+            'createdAt',
+            'expiresAt'
+          ]);
 
       allow get: if true;
-
       allow list: if false;
       allow update: if false;
-
       allow delete: if request.auth != null;
     }
 
@@ -75,7 +78,6 @@ service cloud.firestore {
               'updatedAt'
             ])
           ) || (
-            // 프로필 수정(온보딩 데이터 갱신) — 기존 규칙 유지 + 온보딩 편집 허용
             (request.resource.data.kakaoUserId == null ||
               request.resource.data.kakaoUserId == kakaoUserId) &&
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -145,16 +147,16 @@ service cloud.firestore {
       allow delete: if false;
 
       match /messages/{messageId} {
-  allow read, create: if true;
+        allow read, create: if true;
 
-  allow update: if
-    request.resource.data.diff(resource.data).changedKeys().hasOnly([
-      'readBy',
-      'updatedAt'
-    ]);
+        allow update: if
+          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'readBy',
+            'updatedAt'
+          ]);
 
-  allow delete: if false;
-}
+        allow delete: if false;
+      }
     }
 
     // -----------------------------------------------------------------------
@@ -256,13 +258,81 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // Blocks and Reports
     // -----------------------------------------------------------------------
-    match /blocks/{viewerUid}/targets/{targetUid} {
-      allow create: if request.auth != null && request.auth.uid == viewerUid;
-      allow read: if request.auth != null && request.auth.uid == viewerUid;
+    match /blocks/{viewerUid} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if true;
+
+      match /targets/{targetUid} {
+        allow read: if true;
+        allow create, update: if
+          request.resource.data.fromUserId is string &&
+          request.resource.data.toUserId is string &&
+          request.resource.data.fromUserId == viewerUid &&
+          request.resource.data.toUserId == targetUid;
+        allow delete: if true;
+      }
     }
 
     match /reports/{reportId} {
-      allow create: if request.auth != null;
+      allow create: if
+        request.resource.data.reporterId is string &&
+        request.resource.data.reportedId is string &&
+        request.resource.data.reason is string &&
+        request.resource.data.reason.size() > 0 &&
+        request.resource.data.status is string;
+      allow read: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
+
+    match /app_issue_reports/{reportId} {
+      allow create: if
+        request.resource.data.reporterId is string &&
+        request.resource.data.category is string &&
+        request.resource.data.category.size() > 0 &&
+        request.resource.data.content is string &&
+        request.resource.data.content.size() > 0 &&
+        request.resource.data.allowContact is bool &&
+        request.resource.data.sourceScreen is string &&
+        request.resource.data.platform is string &&
+        request.resource.data.status is string;
+
+      allow read: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
+    match /app_inquiries/{inquiryId} {
+  allow create: if
+    request.resource.data.inquirerId is string &&
+    request.resource.data.category is string &&
+    request.resource.data.category.size() > 0 &&
+    request.resource.data.content is string &&
+    request.resource.data.content.size() > 0 &&
+    request.resource.data.allowContact is bool &&
+    request.resource.data.sourceScreen is string &&
+    request.resource.data.platform is string &&
+    request.resource.data.status is string;
+
+  allow read: if true;
+  allow update: if true;
+  allow delete: if true;
+}
+
+    // -----------------------------------------------------------------------
+    // AI Profiles (더미 프로필 메타데이터: height 등, AI 취향 화면용)
+    // -----------------------------------------------------------------------
+    match /ai_profiles/{profileId} {
+      allow get, list: if true;
+      allow create, update, delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Model Recs (AI 추천 결과: rrf, clip, svd, knn — 서버에서 저장, 앱에서 읽기)
+    // -----------------------------------------------------------------------
+    match /modelRecs/{userId}/daily/{dateKey}/sources/{algo} {
+      allow read: if request.auth != null;
+      allow write: if false;
     }
 
     // -----------------------------------------------------------------------

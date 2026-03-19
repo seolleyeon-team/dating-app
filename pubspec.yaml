@@ -81,6 +81,11 @@ flutter:
     - public/legal/terms.html
   #   - images/a_dot_ham.jpeg
 
+  fonts:
+    - family: Noto Sans KR
+      fonts:
+        - asset: assets/fonts/NotoSansKR-Variable.ttf
+
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
 

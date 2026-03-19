@@ -286,7 +286,10 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                       minWidth: 44,
                                     ),
                                   ),
-                              style: const TextStyle(fontSize: 16),
+                              style: const TextStyle(
+                                fontFamily: 'Noto Sans KR',
+                                fontSize: 16,
+                              ),
                             ),
                           ),
 
@@ -460,7 +463,10 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                       bottom: 14,
                                     ),
                                   ),
-                                  style: const TextStyle(fontSize: 16),
+                                  style: const TextStyle(
+                                    fontFamily: 'Noto Sans KR',
+                                    fontSize: 16,
+                                  ),
                                 ),
                                 const Positioned(
                                   right: 16,
@@ -781,7 +787,10 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
   InputDecoration _inputDecoration(String hint) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: const TextStyle(color: Color(0xFF9CA3AF)),
+      hintStyle: const TextStyle(
+        fontFamily: 'Noto Sans KR',
+        color: Color(0xFF9CA3AF),
+      ),
       filled: true,
       fillColor: _AppColors.inputBg,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),

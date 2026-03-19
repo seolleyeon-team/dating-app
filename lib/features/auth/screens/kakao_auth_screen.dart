@@ -1,11 +1,14 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 
 import '../../../router/route_names.dart';
 import '../../../screens/auth/kakao_callback_screen.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/storage_service.dart';
+import '../../../utils/kakao_key_hash_util.dart';
 
 /// 카카오 인증 화면
 class KakaoAuthScreen extends StatefulWidget {
@@ -128,13 +131,90 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       debugPrint('[KAKAO] login failed: $e\n$st');
       final msg = e.toString().replaceFirst('Exception: ', '');
       if (!mounted) return;
+      final isKeyHashError = msg.toLowerCase().contains('keyhash') ||
+          msg.toLowerCase().contains('key hash');
+      if (isKeyHashError) {
+        final keyHash = await getAndroidKeyHash();
+        if (keyHash != null && keyHash.isNotEmpty && mounted) {
+          await _showKeyHashDialog(keyHash);
+        }
+      }
+      if (!mounted) return;
       setState(() {
         _errorMessage = msg;
-        _showWebLoginFallback = msg.contains('bundleId') || msg.contains('IOS bundleId');
+        _showWebLoginFallback = true;
       });
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _showKeyHashIfAndroid() async {
+    final keyHash = await getAndroidKeyHash();
+    if (keyHash != null && keyHash.isNotEmpty && mounted) {
+      await _showKeyHashDialog(keyHash);
+    }
+  }
+
+  Future<void> _showKeyHashDialog(String keyHash) async {
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (ctx) => CupertinoAlertDialog(
+        title: const Text('키 해시 등록 필요'),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '카카오 개발자 콘솔에 아래 키 해시를 등록해주세요.\n\n'
+                '1. developers.kakao.com 접속\n'
+                '2. 앱 선택 → 앱 설정 → 플랫폼 → Android\n'
+                '3. 키 해시에 아래 값을 추가 후 저장',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              GestureDetector(
+                onLongPress: () {
+                  Clipboard.setData(ClipboardData(text: keyHash));
+                  HapticFeedback.mediumImpact();
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: CupertinoColors.systemGrey6,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: SelectableText(
+                    keyHash,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '길게 눌러 복사',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: CupertinoColors.systemGrey,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// iOS 번들 ID 오류 등으로 카카오톡 앱 로그인이 안 될 때만 사용 (웹 로그인)
@@ -192,7 +272,17 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
     } catch (e, st) {
       debugPrint('[KAKAO] web login failed: $e\n$st');
       if (!mounted) return;
-      setState(() => _errorMessage = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      final isKeyHashError = msg.toLowerCase().contains('keyhash') ||
+          msg.toLowerCase().contains('key hash');
+      if (isKeyHashError) {
+        final keyHash = await getAndroidKeyHash();
+        if (keyHash != null && keyHash.isNotEmpty && mounted) {
+          await _showKeyHashDialog(keyHash);
+        }
+      }
+      if (!mounted) return;
+      setState(() => _errorMessage = msg);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -308,6 +398,19 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
                   ),
                 ),
               ),
+              if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) ...[
+                const SizedBox(height: 8),
+                Center(
+                  child: CupertinoButton(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    onPressed: _isLoading ? null : _showKeyHashIfAndroid,
+                    child: const Text(
+                      '키 해시 확인',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

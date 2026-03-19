@@ -37,7 +37,11 @@ class LoadingDialog extends StatelessWidget {
               const SizedBox(height: 16),
               Text(
                 message!,
-                style: const TextStyle(fontSize: 14, color: Color(0xFF181113)),
+                style: const TextStyle(
+                  fontFamily: 'Noto Sans KR',
+                  fontSize: 14,
+                  color: Color(0xFF181113),
+                ),
               ),
             ],
           ],

@@ -15,6 +15,8 @@ import 'package:flutter/material.dart' show Colors, Icons, Divider;
 // =============================================================================
 // 색상 정의
 // =============================================================================
+const String _kFontFamily = 'Noto Sans KR';
+
 class _AppColors {
   static const Color primary = Color(0xFFE9639B); // #e9639b
   static const Color backgroundLight = Color(0xFFF8F6F7); // #f8f6f7
@@ -156,6 +158,7 @@ class _HeadlineGroup extends StatelessWidget {
         Text(
           '설레는 새로운 인연,\n여기서 시작해보세요',
           style: TextStyle(
+            fontFamily: _kFontFamily,
             fontSize: 24,
             fontWeight: FontWeight.w700,
             color: _AppColors.textMain,
@@ -166,6 +169,7 @@ class _HeadlineGroup extends StatelessWidget {
         Text(
           '마음이 맞는 친구들과 함께 팀을 꾸려보세요.',
           style: TextStyle(
+            fontFamily: _kFontFamily,
             fontSize: 14,
             fontWeight: FontWeight.w400,
             color: _AppColors.textSub,
@@ -195,6 +199,7 @@ class _MyTeamSection extends StatelessWidget {
               Text(
                 '내 팀 구성',
                 style: TextStyle(
+                  fontFamily: _kFontFamily,
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                   color: _AppColors.textMain,
@@ -203,6 +208,7 @@ class _MyTeamSection extends StatelessWidget {
               Text(
                 '1/3명',
                 style: TextStyle(
+                  fontFamily: _kFontFamily,
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: _AppColors.primary,
@@ -311,6 +317,7 @@ class _MemberRow extends StatelessWidget {
                     child: const Text(
                       'LEADER',
                       style: TextStyle(
+                        fontFamily: _kFontFamily,
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
                         color: Colors.white,
@@ -333,6 +340,7 @@ class _MemberRow extends StatelessWidget {
                     child: Text(
                       name,
                       style: const TextStyle(
+                        fontFamily: _kFontFamily,
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
                         color: _AppColors.textMain,
@@ -353,7 +361,11 @@ class _MemberRow extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 subtitle,
-                style: const TextStyle(fontSize: 14, color: _AppColors.textSub),
+                style: const TextStyle(
+                  fontFamily: _kFontFamily,
+                  fontSize: 14,
+                  color: _AppColors.textSub,
+                ),
               ),
             ],
           ),
@@ -405,6 +417,7 @@ class _InviteRow extends StatelessWidget {
                 const Text(
                   '팀원 초대하기',
                   style: TextStyle(
+                    fontFamily: _kFontFamily,
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                     color: _AppColors.textMain,
@@ -414,6 +427,7 @@ class _InviteRow extends StatelessWidget {
                 Text(
                   subtitle,
                   style: const TextStyle(
+                    fontFamily: _kFontFamily,
                     fontSize: 14,
                     color: _AppColors.textSub,
                   ),
@@ -457,6 +471,7 @@ class _PreferencesSection extends StatelessWidget {
           child: Text(
             '미팅 선호 설정',
             style: TextStyle(
+              fontFamily: _kFontFamily,
               fontSize: 18,
               fontWeight: FontWeight.w700,
               color: _AppColors.textMain,
@@ -503,6 +518,7 @@ class _PreferencesSection extends StatelessWidget {
                       Text(
                         '선호 지역',
                         style: TextStyle(
+                          fontFamily: _kFontFamily,
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                           color: _AppColors.textSub,
@@ -512,6 +528,7 @@ class _PreferencesSection extends StatelessWidget {
                       Text(
                         '서울 강남/신논현',
                         style: TextStyle(
+                          fontFamily: _kFontFamily,
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
                           color: _AppColors.textMain,
@@ -559,6 +576,7 @@ class _PreferencesSection extends StatelessWidget {
                   Text(
                     '선호 시간대',
                     style: TextStyle(
+                      fontFamily: _kFontFamily,
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.textMain,
@@ -616,6 +634,7 @@ class _TimeChip extends StatelessWidget {
       child: Text(
         text,
         style: TextStyle(
+          fontFamily: _kFontFamily,
           fontSize: 14,
           fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
           color: isSelected ? _AppColors.primary : const Color(0xFF6B7280),
@@ -692,6 +711,7 @@ class _BottomCTA extends StatelessWidget {
               Text(
                 '신청하기',
                 style: TextStyle(
+                  fontFamily: _kFontFamily,
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                   color: Colors.white,

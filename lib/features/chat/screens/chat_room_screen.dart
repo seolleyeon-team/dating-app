@@ -7,6 +7,8 @@ import '../services/chat_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../services/push_notification_service.dart';
+import '../../../router/route_names.dart';
+import '../../matching/models/profile_card_args.dart';
 
 class _AppColors {
   static const Color primary = Color(0xFF3B5443);
@@ -143,6 +145,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   String? _initError;
   bool _isReady = false;
   bool _isSending = false;
+
+  void _openPartnerProfileCard() {
+    if (widget.partnerId.isEmpty) return;
+
+    Navigator.of(context, rootNavigator: true).pushNamed(
+      RouteNames.profileSpecificDetail,
+      arguments: ProfileCardArgs.fromChat(userId: widget.partnerId),
+    );
+  }
 
   @override
   void initState() {
@@ -482,9 +493,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         continue;
       }
 
-      // 삭제 메시지는 카드 병합하지 않고 일반 메시지처럼 남김
       if (message.promiseStatus == 'cancelled') {
-        // 기존 동일 promise 카드가 있으면 제거
         if (message.promiseId != null) {
           promiseMap.remove(message.promiseId);
         }
@@ -502,7 +511,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       final existing = promiseMap[key]!;
 
       final merged = existing.copyWith(
-        // 확정 메시지가 오면 확정 상태를 우선
         type: message.type == MessageType.promiseConfirmed
             ? MessageType.promiseConfirmed
             : existing.type,
@@ -514,7 +522,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         promiseCategory: message.promiseCategory ?? existing.promiseCategory,
         promiseStatus: message.promiseStatus ?? existing.promiseStatus,
         isMineRequest: existing.isMineRequest,
-        // 카드 위치는 최초 생성 시점 유지
         sortDateTime: existing.sortDateTime.isBefore(message.sortDateTime)
             ? existing.sortDateTime
             : message.sortDateTime,
@@ -645,6 +652,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                   initialPlace: message.promisePlace,
                                 ),
                                 onDeletePromise: () => _deletePromise(message),
+                                onOpenProfile: _openPartnerProfileCard,
                               );
                             }, childCount: allMessages.length),
                           );
@@ -675,6 +683,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       onBack: widget.onBack,
                       onMore: widget.onMore,
                       onPromiseTap: _openPromiseSheet,
+                      onProfileTap: _openPartnerProfileCard,
                     ),
                     if (activePromise != null)
                       _ActivePromiseBanner(activePromise: activePromise),
@@ -705,6 +714,7 @@ class _Header extends StatelessWidget {
   final VoidCallback? onBack;
   final VoidCallback? onMore;
   final VoidCallback? onPromiseTap;
+  final VoidCallback? onProfileTap;
 
   const _Header({
     required this.name,
@@ -712,6 +722,7 @@ class _Header extends StatelessWidget {
     this.onBack,
     this.onMore,
     this.onPromiseTap,
+    this.onProfileTap,
   });
 
   @override
@@ -719,118 +730,137 @@ class _Header extends StatelessWidget {
     return SafeArea(
       bottom: false,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
         decoration: BoxDecoration(
           color: _AppColors.backgroundLight.withValues(alpha: 0.92),
           border: Border(bottom: BorderSide(color: _AppColors.stone100)),
         ),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Row(
-              children: [
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: () {
-                    HapticFeedback.lightImpact();
-                    if (onBack != null) {
-                      onBack!();
-                    } else {
-                      Navigator.of(context).pop();
-                    }
-                  },
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _AppColors.stone100,
-                    ),
-                    child: const Icon(
-                      CupertinoIcons.back,
-                      size: 24,
-                      color: _AppColors.textMain,
-                    ),
-                  ),
-                ),
-                const Spacer(),
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: onPromiseTap,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _AppColors.primary.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: const Text(
-                      '약속잡기',
-                      style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: _AppColors.primary,
+        child: SizedBox(
+          height: 52,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      if (onBack != null) {
+                        onBack!();
+                      } else {
+                        Navigator.of(context).pop();
+                      }
+                    },
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _AppColors.stone100,
+                      ),
+                      child: const Icon(
+                        CupertinoIcons.back,
+                        size: 24,
+                        color: _AppColors.textMain,
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: onMore,
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _AppColors.stone100,
-                    ),
-                    child: const Icon(
-                      CupertinoIcons.ellipsis,
-                      size: 24,
-                      color: _AppColors.textMain,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            IgnorePointer(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontFamily: 'Noto Sans KR',
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.3,
-                      color: _AppColors.textMain,
+                  const Spacer(),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: onPromiseTap,
+                    child: Container(
+                      height: 40,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _AppColors.primary.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          '약속잡기',
+                          style: TextStyle(
+                            fontFamily: 'Noto Sans KR',
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: _AppColors.primary,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    university,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontFamily: 'Noto Sans KR',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: _AppColors.textSubtle,
+                  const SizedBox(width: 8),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: onMore,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _AppColors.stone100,
+                      ),
+                      child: const Icon(
+                        CupertinoIcons.ellipsis,
+                        size: 24,
+                        color: _AppColors.textMain,
+                      ),
                     ),
                   ),
                 ],
               ),
-            ),
-          ],
+              Positioned.fill(
+                child: Center(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: onProfileTap,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 108),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontFamily: 'Noto Sans KR',
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              height: 1.1,
+                              letterSpacing: -0.3,
+                              color: _AppColors.textMain,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            university,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontFamily: 'Noto Sans KR',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              height: 1.1,
+                              color: _AppColors.textSubtle,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -887,6 +917,7 @@ class _MessageItem extends StatelessWidget {
   final VoidCallback? onRejectPromise;
   final VoidCallback? onEditPromise;
   final VoidCallback? onDeletePromise;
+  final VoidCallback? onOpenProfile;
 
   const _MessageItem({
     required this.message,
@@ -895,6 +926,7 @@ class _MessageItem extends StatelessWidget {
     this.onRejectPromise,
     this.onEditPromise,
     this.onDeletePromise,
+    this.onOpenProfile,
   });
 
   @override
@@ -905,6 +937,7 @@ class _MessageItem extends StatelessWidget {
           text: message.text,
           time: message.time,
           avatarUrl: avatarUrl,
+          onAvatarTap: onOpenProfile,
         );
       case MessageType.sent:
         return _SentMessage(
@@ -934,11 +967,13 @@ class _ReceivedMessage extends StatelessWidget {
   final String text;
   final String time;
   final String avatarUrl;
+  final VoidCallback? onAvatarTap;
 
   const _ReceivedMessage({
     required this.text,
     required this.time,
     required this.avatarUrl,
+    this.onAvatarTap,
   });
 
   @override
@@ -951,21 +986,25 @@ class _ReceivedMessage extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _AppColors.stone200,
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Image.network(
-                  avatarUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const Icon(
-                    CupertinoIcons.person_fill,
-                    size: 20,
-                    color: _AppColors.stone400,
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onAvatarTap,
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _AppColors.stone200,
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.network(
+                    avatarUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      CupertinoIcons.person_fill,
+                      size: 20,
+                      color: _AppColors.stone400,
+                    ),
                   ),
                 ),
               ),

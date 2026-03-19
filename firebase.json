@@ -38,6 +38,16 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/auth/email-link",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/auth/email-link/**",
+        "destination": "/index.html"
+      }
     ]
   },
   "firestore": {

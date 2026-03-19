@@ -13,7 +13,6 @@
             "deviceId": "chrome",
             "args": [
                 "--web-port=57575",
-                "--web-renderer=html",
                 "--web-browser-flag=--disable-web-security"
             ],
             "toolArgs": [
