@@ -114,17 +114,29 @@ class _MyPageScreenState extends State<MyPageScreen> {
       context: context,
       useRootNavigator: true,
       builder: (dialogContext) => CupertinoAlertDialog(
-        title: const Text('로그아웃'),
-        content: const Text('정말 로그아웃 하시겠습니까?'),
+        title: const Text(
+          '로그아웃',
+          style: TextStyle(fontFamily: 'Noto Sans KR'),
+        ),
+        content: const Text(
+          '정말 로그아웃 하시겠습니까?',
+          style: TextStyle(fontFamily: 'Noto Sans KR'),
+        ),
         actions: [
           CupertinoDialogAction(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('취소'),
+            child: const Text(
+              '취소',
+              style: TextStyle(fontFamily: 'Noto Sans KR'),
+            ),
           ),
           CupertinoDialogAction(
             isDestructiveAction: true,
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('확인'),
+            child: const Text(
+              '확인',
+              style: TextStyle(fontFamily: 'Noto Sans KR'),
+            ),
           ),
         ],
       ),

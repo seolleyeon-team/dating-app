@@ -367,6 +367,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
                       child: TextFormField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
+                        style: const TextStyle(fontFamily: 'Noto Sans KR'),
                         decoration: InputDecoration(
                           labelText: '연세 메일 아이디',
                           hintText: 'example',

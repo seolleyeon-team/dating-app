@@ -7,6 +7,19 @@
         <meta-data
     android:name="com.google.firebase.messaging.default_notification_channel_id"
     android:value="seolleyeon_high_importance" />
+        <!-- 카카오 로그인: 웹/카카오톡 OAuth 리다이렉트 수신 -->
+        <activity
+            android:name="com.kakao.sdk.flutter.AuthCodeCustomTabsActivity"
+            android:exported="true">
+            <intent-filter android:label="flutter_web_auth">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="kakaocb08e2aea50a58b7d0c5e610e0c5a644"
+                    android:host="oauth" />
+            </intent-filter>
+        </activity>
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -47,6 +60,8 @@
         </intent>
         <!-- Gmail 앱 실행 (메일 앱 열기 버튼) -->
         <package android:name="com.google.android.gm"/>
+        <!-- 카카오톡 앱 설치 여부 확인 (isKakaoTalkInstalled) - Android 11+ -->
+        <package android:name="com.kakao.talk"/>
         <intent>
             <action android:name="android.intent.action.MAIN"/>
             <category android:name="android.intent.category.LAUNCHER"/>

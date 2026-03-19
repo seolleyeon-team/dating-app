@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -104,10 +102,9 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         throw Exception('사용자 정보를 찾을 수 없습니다. 다시 로그인해주세요.');
       }
 
-      final File file = File(pickedFile.path);
-      final String extension = pickedFile.path.split('.').last.isNotEmpty
-          ? pickedFile.path.split('.').last
-          : 'jpg';
+      final path = pickedFile.path;
+      final String extension =
+          path.isNotEmpty && path.contains('.') ? path.split('.').last : 'jpg';
 
       final String fileName =
           '${DateTime.now().millisecondsSinceEpoch}_slot$index.$extension';
@@ -120,7 +117,8 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         contentType: 'image/$extension',
       );
 
-      await ref.putFile(file, metadata);
+      final bytes = await pickedFile.readAsBytes();
+      await ref.putData(bytes, metadata);
       final String downloadUrl = await ref.getDownloadURL();
 
       if (!mounted) return;
@@ -256,7 +254,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
                   Expanded(
                     child: SingleChildScrollView(
                       physics: const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(24, 8, 24, 120),
+                      padding: const EdgeInsets.fromLTRB(24, 8, 24, 160),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [

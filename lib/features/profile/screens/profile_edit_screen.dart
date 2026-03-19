@@ -550,7 +550,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     await showCupertinoDialog(
       context: context,
       builder: (context) => CupertinoAlertDialog(
-        title: Text(title),
+        title: Text(
+          title,
+          style: const TextStyle(fontFamily: 'Noto Sans KR'),
+        ),
         content: Padding(
           padding: const EdgeInsets.only(top: 12),
           child: CupertinoTextField(
@@ -558,12 +561,20 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
             placeholder: placeholder,
             maxLines: multiline ? 4 : 1,
             keyboardType: keyboardType,
+            style: const TextStyle(fontFamily: 'Noto Sans KR'),
+            placeholderStyle: TextStyle(
+              fontFamily: 'Noto Sans KR',
+              color: CupertinoColors.placeholderText,
+            ),
           ),
         ),
         actions: [
           CupertinoDialogAction(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('취소'),
+            child: const Text(
+              '취소',
+              style: TextStyle(fontFamily: 'Noto Sans KR'),
+            ),
           ),
           CupertinoDialogAction(
             isDefaultAction: true,
@@ -571,7 +582,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
               onSaved(controller.text.trim());
               Navigator.of(context).pop();
             },
-            child: const Text('저장'),
+            child: const Text(
+              '저장',
+              style: TextStyle(fontFamily: 'Noto Sans KR'),
+            ),
           ),
         ],
       ),
@@ -874,6 +888,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                     placeholder: '답변을 입력하세요 (최대 100자)',
                     maxLength: 100,
                     maxLines: 2,
+                    style: const TextStyle(fontFamily: 'Noto Sans KR'),
+                    placeholderStyle: TextStyle(
+                      fontFamily: 'Noto Sans KR',
+                      color: CupertinoColors.placeholderText,
+                    ),
                   ),
                 ],
               ),

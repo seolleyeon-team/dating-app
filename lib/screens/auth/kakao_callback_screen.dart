@@ -142,9 +142,20 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('카카오 로그인 콜백')),
+      appBar: AppBar(
+        title: const Text(
+          '카카오 로그인 콜백',
+          style: TextStyle(fontFamily: 'Noto Sans KR'),
+        ),
+      ),
       body: Center(
-        child: Text(_statusMessage, style: const TextStyle(fontSize: 16)),
+        child: Text(
+          _statusMessage,
+          style: const TextStyle(
+            fontFamily: 'Noto Sans KR',
+            fontSize: 16,
+          ),
+        ),
       ),
     );
   }

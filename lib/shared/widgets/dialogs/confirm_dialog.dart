@@ -25,8 +25,14 @@ class ConfirmDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(title),
-      content: Text(message),
+      title: Text(
+        title,
+        style: const TextStyle(fontFamily: 'Noto Sans KR'),
+      ),
+      content: Text(
+        message,
+        style: const TextStyle(fontFamily: 'Noto Sans KR'),
+      ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       actions: [
         TextButton(
@@ -36,7 +42,10 @@ class ConfirmDialog extends StatelessWidget {
           },
           child: Text(
             cancelText,
-            style: const TextStyle(color: _textSecondary),
+            style: const TextStyle(
+              fontFamily: 'Noto Sans KR',
+              color: _textSecondary,
+            ),
           ),
         ),
         TextButton(
@@ -44,7 +53,13 @@ class ConfirmDialog extends StatelessWidget {
             Navigator.of(context).pop();
             onConfirm?.call();
           },
-          child: Text(confirmText, style: const TextStyle(color: _primary)),
+          child: Text(
+            confirmText,
+            style: const TextStyle(
+              fontFamily: 'Noto Sans KR',
+              color: _primary,
+            ),
+          ),
         ),
       ],
     );

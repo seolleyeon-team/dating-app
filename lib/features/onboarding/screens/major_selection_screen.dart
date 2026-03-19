@@ -26,7 +26,6 @@ class _AppColors {
   static const Color backgroundLight = Color(0xFFF8F6F6);
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color textMain = Color(0xFF181113);
-  static const Color gray100 = Color(0xFFF3F4F6);
   static const Color gray400 = Color(0xFF9CA3AF);
   static const Color gray500 = Color(0xFF6B7280);
   static const Color gray800 = Color(0xFF1F2937);
@@ -219,7 +218,6 @@ class _MajorSelectionScreenState extends State<MajorSelectionScreen> {
             bottom: 0,
             child: _BottomButtons(
               bottomPadding: bottomPadding,
-              onSkip: widget.onSkip,
               onNext: () async {
                 HapticFeedback.mediumImpact();
                 await _saveCurrentMajor();
@@ -545,12 +543,10 @@ class _OptionCard extends StatelessWidget {
 // =============================================================================
 class _BottomButtons extends StatelessWidget {
   final double bottomPadding;
-  final VoidCallback? onSkip;
   final VoidCallback onNext;
 
   const _BottomButtons({
     required this.bottomPadding,
-    this.onSkip,
     required this.onNext,
   });
 
@@ -569,95 +565,50 @@ class _BottomButtons extends StatelessWidget {
           ],
         ),
       ),
-      child: Row(
-        children: [
-          // 상관없어요 버튼
-          Expanded(
-            child: CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: () {
-                HapticFeedback.lightImpact();
-                onSkip?.call();
-              },
-              child: Container(
-                height: 56,
-                decoration: BoxDecoration(
-                  color: CupertinoColors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: _AppColors.gray100),
-                  boxShadow: [
-                    const BoxShadow(
-                      color: Color(0xFFE5E7EB),
-                      offset: Offset(0, 6),
-                    ),
-                    BoxShadow(
-                      color: CupertinoColors.black.withValues(alpha: 0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
+      child: SizedBox(
+        width: double.infinity,
+        child: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: onNext,
+          child: Container(
+            height: 56,
+            decoration: BoxDecoration(
+              color: _AppColors.primary,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                const BoxShadow(
+                  color: Color(0xFFD62660),
+                  offset: Offset(0, 6),
                 ),
-                child: const Center(
-                  child: Text(
-                    '상관없어요',
-                    style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      color: _AppColors.gray500,
-                    ),
+                BoxShadow(
+                  color: CupertinoColors.black.withValues(alpha: 0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '다음',
+                  style: TextStyle(
+                    fontFamily: 'Noto Sans KR',
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: CupertinoColors.white,
                   ),
                 ),
-              ),
+                SizedBox(width: 4),
+                Icon(
+                  CupertinoIcons.arrow_right,
+                  size: 20,
+                  color: CupertinoColors.white,
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 16),
-          // 다음 버튼
-          Expanded(
-            child: CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: onNext,
-              child: Container(
-                height: 56,
-                decoration: BoxDecoration(
-                  color: _AppColors.primary,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    const BoxShadow(
-                      color: Color(0xFFD62660),
-                      offset: Offset(0, 6),
-                    ),
-                    BoxShadow(
-                      color: CupertinoColors.black.withValues(alpha: 0.1),
-                      blurRadius: 10,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      '다음',
-                      style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        color: CupertinoColors.white,
-                      ),
-                    ),
-                    SizedBox(width: 4),
-                    Icon(
-                      CupertinoIcons.arrow_right,
-                      size: 20,
-                      color: CupertinoColors.white,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
