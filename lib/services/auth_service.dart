@@ -24,33 +24,37 @@ class AuthService {
         // Web: JS SDK 기반 카카오 계정 로그인
         await UserApi.instance.loginWithKakaoAccount();
       } else {
-        // Mobile: 카카오톡 설치되어 있으면 카톡 앱 로그인 우선
-        final installed = await isKakaoTalkInstalled();
-        debugPrint('[Kakao] isKakaoTalkInstalled=$installed');
-        if (installed) {
+        // Mobile: 카카오톡 설치되어 있으면 카톡 앱 로그인 우선, 실패/미설치/크래시 시 웹 로그인
+        bool tryKakaoTalk = false;
+        try {
+          final installed = await isKakaoTalkInstalled();
+          debugPrint('[Kakao] isKakaoTalkInstalled=$installed');
+          tryKakaoTalk = installed;
+        } catch (e) {
+          debugPrint('[Kakao] isKakaoTalkInstalled error (fallback to web): $e');
+        }
+
+        if (tryKakaoTalk) {
           try {
             await UserApi.instance.loginWithKakaoTalk();
           } on KakaoException catch (e) {
             final detail = e.message ?? e.toString();
             debugPrint('[Kakao] loginWithKakaoTalk failed: $detail');
-            // iOS 번들 ID 검증 실패 시 웹 로그인 자동 팝업 방지 (카카오톡 앱 로그인과 혼동 방지)
             if (detail.contains('bundleId') || detail.contains('IOS bundleId')) {
               rethrow;
             }
             debugPrint('[Kakao] fallback to loginWithKakaoAccount');
             await UserApi.instance.loginWithKakaoAccount();
           } catch (e, st) {
-            debugPrint('[Kakao] loginWithKakaoTalk unexpected error: $e');
+            debugPrint('[Kakao] loginWithKakaoTalk error (fallback to web): $e');
             debugPrint(st.toString());
             final detail = e.toString();
             if (detail.contains('bundleId') || detail.contains('IOS bundleId')) {
               rethrow;
             }
-            debugPrint('[Kakao] fallback to loginWithKakaoAccount');
             await UserApi.instance.loginWithKakaoAccount();
           }
         } else {
-          // 카톡 미설치 -> 계정 로그인
           await UserApi.instance.loginWithKakaoAccount();
         }
       }

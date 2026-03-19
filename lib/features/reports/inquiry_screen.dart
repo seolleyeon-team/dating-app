@@ -203,11 +203,13 @@ class _InquiryScreenState extends State<InquiryScreen> {
                   placeholder:
                       '예: 상대방이 보낸 하트는 어디에서 확인할 수 있나요?\n예: 매칭된 상대와 대화를 시작하려면 어떻게 하나요?\n예: 탈퇴하면 기존 채팅이나 정보는 어떻게 되나요?',
                   placeholderStyle: const TextStyle(
+                    fontFamily: 'Noto Sans KR',
                     color: _InquiryColors.textHint,
                     fontSize: 15,
                     height: 1.45,
                   ),
                   style: const TextStyle(
+                    fontFamily: 'Noto Sans KR',
                     color: _InquiryColors.textMain,
                     fontSize: 15,
                     height: 1.5,

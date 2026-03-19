@@ -34,6 +34,7 @@ class SecondaryButton extends StatelessWidget {
                 : Text(
                     text,
                     style: const TextStyle(
+                      fontFamily: 'Noto Sans KR',
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFFEF3976),

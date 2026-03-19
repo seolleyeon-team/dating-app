@@ -584,11 +584,15 @@ class _SearchBar extends StatelessWidget {
         ],
       ),
       child: TextField(
+        style: const TextStyle(fontFamily: 'Noto Sans KR'),
         decoration: InputDecoration(
           filled: true,
           fillColor: _AppColors.surfaceLight,
           hintText: '검색',
-          hintStyle: const TextStyle(color: _AppColors.textSub),
+          hintStyle: const TextStyle(
+            fontFamily: 'Noto Sans KR',
+            color: _AppColors.textSub,
+          ),
           prefixIcon: const Icon(
             Icons.search_rounded,
             color: _AppColors.textSub,

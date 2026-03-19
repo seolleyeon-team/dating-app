@@ -7,6 +7,8 @@ import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../models/profile_card_args.dart';
 
+const String _kFontFamily = 'Noto Sans KR';
+
 class _AppColors {
   static const Color primary = Color(0xFFFF5A7E);
   static const Color backgroundLight = Color(0xFFFFF7F9);
@@ -408,12 +410,18 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                 Navigator.pop(ctx);
                 _showReportDialog(context, targetUserId);
               },
-              child: const Text('신고 및 차단'),
+              child: const Text(
+                '신고 및 차단',
+                style: TextStyle(fontFamily: _kFontFamily),
+              ),
             ),
           ],
           cancelButton: CupertinoActionSheetAction(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('취소'),
+            child: const Text(
+              '취소',
+              style: TextStyle(fontFamily: _kFontFamily),
+            ),
           ),
         );
       },
@@ -431,15 +439,26 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
         return StatefulBuilder(
           builder: (context, setState) {
             return CupertinoAlertDialog(
-              title: const Text('신고 및 차단'),
+              title: const Text(
+                '신고 및 차단',
+                style: TextStyle(fontFamily: _kFontFamily),
+              ),
               content: Column(
                 children: [
                   const SizedBox(height: 10),
-                  const Text('이 사용자를 신고하고 추천에서 차단하시겠어요?\n사유를 간략히 적어주세요.'),
+                  const Text(
+                    '이 사용자를 신고하고 추천에서 차단하시겠어요?\n사유를 간략히 적어주세요.',
+                    style: TextStyle(fontFamily: _kFontFamily),
+                  ),
                   const SizedBox(height: 16),
                   CupertinoTextField(
                     controller: reasonController,
                     placeholder: '신고 사유 입력',
+                    style: const TextStyle(fontFamily: _kFontFamily),
+                    placeholderStyle: TextStyle(
+                      fontFamily: _kFontFamily,
+                      color: CupertinoColors.placeholderText,
+                    ),
                   ),
                 ],
               ),
@@ -447,7 +466,10 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                 CupertinoDialogAction(
                   isDestructiveAction: true,
                   onPressed: () => Navigator.pop(dialogCtx),
-                  child: const Text('취소'),
+                  child: const Text(
+                    '취소',
+                    style: TextStyle(fontFamily: _kFontFamily),
+                  ),
                 ),
                 CupertinoDialogAction(
                   isDefaultAction: true,
@@ -483,8 +505,14 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                             showCupertinoDialog(
                               context: parentContext,
                               builder: (successCtx) => CupertinoAlertDialog(
-                                title: const Text('신고 완료'),
-                                content: const Text('신고가 접수되었습니다.'),
+                                title: const Text(
+                                  '신고 완료',
+                                  style: TextStyle(fontFamily: _kFontFamily),
+                                ),
+                                content: const Text(
+                                  '신고가 접수되었습니다.',
+                                  style: TextStyle(fontFamily: _kFontFamily),
+                                ),
                                 actions: [
                                   CupertinoDialogAction(
                                     isDefaultAction: true,
@@ -494,7 +522,10 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                                         Navigator.of(parentContext).pop();
                                       }
                                     },
-                                    child: const Text('확인'),
+                                    child: const Text(
+                                      '확인',
+                                      style: TextStyle(fontFamily: _kFontFamily),
+                                    ),
                                   ),
                                 ],
                               ),
@@ -509,14 +540,21 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                             showCupertinoDialog(
                               context: parentContext,
                               builder: (errorCtx) => CupertinoAlertDialog(
-                                title: const Text('신고 실패'),
+                                title: const Text(
+                                  '신고 실패',
+                                  style: TextStyle(fontFamily: _kFontFamily),
+                                ),
                                 content: const Text(
                                   '신고를 저장하지 못했어요. 다시 시도해주세요.',
+                                  style: TextStyle(fontFamily: _kFontFamily),
                                 ),
                                 actions: [
                                   CupertinoDialogAction(
                                     onPressed: () => Navigator.pop(errorCtx),
-                                    child: const Text('확인'),
+                                    child: const Text(
+                                      '확인',
+                                      style: TextStyle(fontFamily: _kFontFamily),
+                                    ),
                                   ),
                                 ],
                               ),
@@ -525,7 +563,10 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                         },
                   child: isSubmitting
                       ? const CupertinoActivityIndicator()
-                      : const Text('확인'),
+                      : const Text(
+                          '확인',
+                          style: TextStyle(fontFamily: _kFontFamily),
+                        ),
                 ),
               ],
             );
@@ -574,6 +615,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
               ? '미리보기'
               : (widget.args?.aiProfile != null ? '프로필 상세' : '프로필'),
           style: TextStyle(
+            fontFamily: _kFontFamily,
             fontSize: 14,
             fontWeight: FontWeight.w700,
             letterSpacing: 1.2,
@@ -611,7 +653,11 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                 ? const Center(
                     child: Text(
                       '프로필을 불러올 수 없어요',
-                      style: TextStyle(fontSize: 16, color: _AppColors.textSub),
+                      style: TextStyle(
+                        fontFamily: _kFontFamily,
+                        fontSize: 16,
+                        color: _AppColors.textSub,
+                      ),
                     ),
                   )
                 : SingleChildScrollView(
@@ -699,6 +745,7 @@ class _ProfileCard extends StatelessWidget {
                 Text(
                   profile.name,
                   style: const TextStyle(
+                    fontFamily: _kFontFamily,
                     fontSize: 36,
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.5,
@@ -719,6 +766,7 @@ class _ProfileCard extends StatelessWidget {
                         child: Text(
                           identityParts.join(' • '),
                           style: const TextStyle(
+                            fontFamily: _kFontFamily,
                             fontSize: 16,
                             fontWeight: FontWeight.w500,
                             color: _AppColors.textSub,
@@ -762,6 +810,7 @@ class _ProfileCard extends StatelessWidget {
                     child: Text(
                       profile.aboutMe,
                       style: const TextStyle(
+                        fontFamily: _kFontFamily,
                         fontSize: 16,
                         height: 1.65,
                         color: _AppColors.textSub,
@@ -972,6 +1021,7 @@ class _SectionTitle extends StatelessWidget {
     return Text(
       text,
       style: const TextStyle(
+        fontFamily: _kFontFamily,
         fontSize: 16,
         fontWeight: FontWeight.w700,
         color: _AppColors.titleLight,
@@ -1038,6 +1088,7 @@ class _InfoChip extends StatelessWidget {
             TextSpan(
               text: '$label  ',
               style: const TextStyle(
+                fontFamily: _kFontFamily,
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.primary,
@@ -1046,6 +1097,7 @@ class _InfoChip extends StatelessWidget {
             TextSpan(
               text: value,
               style: const TextStyle(
+                fontFamily: _kFontFamily,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
                 color: _AppColors.textMain,
@@ -1084,6 +1136,7 @@ class _TagChip extends StatelessWidget {
       child: Text(
         text,
         style: const TextStyle(
+          fontFamily: _kFontFamily,
           fontSize: 14,
           fontWeight: FontWeight.w600,
           color: _AppColors.textMain,
@@ -1106,6 +1159,7 @@ class _LifestyleRow extends StatelessWidget {
         Text(
           label,
           style: const TextStyle(
+            fontFamily: _kFontFamily,
             fontSize: 14,
             fontWeight: FontWeight.w700,
             color: _AppColors.primary,
@@ -1116,6 +1170,7 @@ class _LifestyleRow extends StatelessWidget {
           child: Text(
             value,
             style: const TextStyle(
+              fontFamily: _kFontFamily,
               fontSize: 15,
               height: 1.4,
               color: _AppColors.textSub,
@@ -1158,6 +1213,7 @@ class _QaItem extends StatelessWidget {
           Text(
             question,
             style: const TextStyle(
+              fontFamily: _kFontFamily,
               fontSize: 13,
               fontWeight: FontWeight.w700,
               color: _AppColors.primary,
@@ -1167,6 +1223,7 @@ class _QaItem extends StatelessWidget {
           Text(
             answer.isNotEmpty ? answer : '아직 작성한 답변이 없어요.',
             style: const TextStyle(
+              fontFamily: _kFontFamily,
               fontSize: 14,
               height: 1.55,
               color: _AppColors.textMain,

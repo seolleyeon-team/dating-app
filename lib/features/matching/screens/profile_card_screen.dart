@@ -229,7 +229,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                                 '오늘의 추천이 모두 소진되었습니다.',
                                 style: TextStyle(
                                   color: _AppColors.gray500,
-                                  fontFamily: '.SF Pro Text',
+                                  fontFamily: 'Noto Sans KR',
                                 ),
                               ),
                             )
@@ -307,12 +307,12 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                 Navigator.pop(ctx);
                 _showReportDialog(context, profile.candidateUid);
               },
-              child: const Text('신고 및 차단', style: TextStyle(fontFamily: '.SF Pro Text')),
+              child: const Text('신고 및 차단', style: TextStyle(fontFamily: 'Noto Sans KR')),
             ),
           ],
           cancelButton: CupertinoActionSheetAction(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('취소', style: TextStyle(fontFamily: '.SF Pro Text')),
+            child: const Text('취소', style: TextStyle(fontFamily: 'Noto Sans KR')),
           ),
         );
       },
@@ -328,19 +328,23 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
         return StatefulBuilder(
           builder: (context, setState) {
             return CupertinoAlertDialog(
-              title: const Text('신고 및 차단', style: TextStyle(fontFamily: '.SF Pro Display')),
+              title: const Text('신고 및 차단', style: TextStyle(fontFamily: 'Noto Sans KR')),
               content: Column(
                 children: [
                   const SizedBox(height: 10),
                   const Text(
                     '이 사용자를 신고하고 추천에서 차단하시겠습니까?\n사유를 간략히 적어주세요.',
-                    style: TextStyle(fontFamily: '.SF Pro Text'),
+                    style: TextStyle(fontFamily: 'Noto Sans KR'),
                   ),
                   const SizedBox(height: 16),
                   CupertinoTextField(
                     controller: reasonController,
                     placeholder: '신고 사유 입력',
-                    style: const TextStyle(fontFamily: '.SF Pro Text'),
+                    style: const TextStyle(fontFamily: 'Noto Sans KR'),
+                    placeholderStyle: TextStyle(
+                      fontFamily: 'Noto Sans KR',
+                      color: CupertinoColors.placeholderText,
+                    ),
                   ),
                 ],
               ),
@@ -348,7 +352,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                 CupertinoDialogAction(
                   isDestructiveAction: true,
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text('취소', style: TextStyle(fontFamily: '.SF Pro Text')),
+                  child: const Text('취소', style: TextStyle(fontFamily: 'Noto Sans KR')),
                 ),
                 CupertinoDialogAction(
                   isDefaultAction: true,
@@ -380,7 +384,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                         },
                   child: isSubmitting
                       ? const CupertinoActivityIndicator()
-                      : const Text('확인', style: TextStyle(fontFamily: '.SF Pro Text')),
+                      : const Text('확인', style: TextStyle(fontFamily: 'Noto Sans KR')),
                 ),
               ],
             );
@@ -517,7 +521,7 @@ class _ProfileCard extends StatelessWidget {
                           Text(
                             profile.name,
                             style: const TextStyle(
-                              fontFamily: '.SF Pro Display',
+                              fontFamily: 'Noto Sans KR',
                               fontSize: 32,
                               fontWeight: FontWeight.w700,
                               color: CupertinoColors.white,
@@ -527,7 +531,7 @@ class _ProfileCard extends StatelessWidget {
                           Text(
                             '${profile.age}',
                             style: TextStyle(
-                              fontFamily: '.SF Pro Display',
+                              fontFamily: 'Noto Sans KR',
                               fontSize: 24,
                               fontWeight: FontWeight.w300,
                               color: CupertinoColors.white.withValues(
@@ -595,7 +599,7 @@ class _ProfileCard extends StatelessWidget {
                       Text(
                         '기본 정보 및 라이프스타일',
                         style: TextStyle(
-                          fontFamily: '.SF Pro Text',
+                          fontFamily: 'Noto Sans KR',
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                           letterSpacing: 0.5,
@@ -644,7 +648,7 @@ class _ProfileCard extends StatelessWidget {
                                 Text(
                                   tag,
                                   style: const TextStyle(
-                                    fontFamily: '.SF Pro Text',
+                                    fontFamily: 'Noto Sans KR',
                                     fontSize: 12,
                                     fontWeight: FontWeight.w500,
                                     color: CupertinoColors.white,
