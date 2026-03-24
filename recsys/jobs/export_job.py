@@ -16,6 +16,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from google.cloud import firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 from .common import KST, gcs_upload_string
 
@@ -75,8 +76,8 @@ def run_export(
     for user_doc_ref in user_doc_refs:
         users_scanned += 1
         q = user_doc_ref.collection("events")
-        q = q.where("createdAt", ">=", start_str)
-        q = q.where("createdAt", "<", end_str)
+        q = q.where(filter=FieldFilter("createdAt", ">=", start_str))
+        q = q.where(filter=FieldFilter("createdAt", "<", end_str))
 
         for doc in q.stream():
             d = doc.to_dict() or {}

@@ -29,6 +29,7 @@ import numpy as np
 from tqdm import tqdm
 
 from google.cloud import firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 # 스크립트 디렉터리를 path에 추가 (프로젝트 루트에서 실행 시)
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -129,6 +130,20 @@ def load_users_with_photos(
     return result
 
 
+def _rec_events_created_at_query_bounds(
+    start_time_utc: Optional[datetime], end_time_utc: Optional[datetime]
+) -> Tuple[Optional[str], Optional[str]]:
+    """Flutter rec_event_service는 createdAt을 UTC ISO 문자열로 저장함. datetime으로 쿼리하면 0건."""
+    def to_iso(dt: datetime) -> str:
+        u = dt.astimezone(timezone.utc)
+        return u.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+    return (
+        to_iso(start_time_utc) if start_time_utc is not None else None,
+        to_iso(end_time_utc) if end_time_utc is not None else None,
+    )
+
+
 def load_like_nope_from_firestore(
     project_id: str,
     *,
@@ -145,10 +160,11 @@ def load_like_nope_from_firestore(
     for user_doc_ref in db.collection(collection).list_documents():
         user_id = user_doc_ref.id
         q = user_doc_ref.collection("events")
-        if start_time_utc is not None:
-            q = q.where("createdAt", ">=", start_time_utc)
-        if end_time_utc is not None:
-            q = q.where("createdAt", "<", end_time_utc)
+        start_str, end_str = _rec_events_created_at_query_bounds(start_time_utc, end_time_utc)
+        if start_str is not None:
+            q = q.where(filter=FieldFilter("createdAt", ">=", start_str))
+        if end_str is not None:
+            q = q.where(filter=FieldFilter("createdAt", "<", end_str))
 
         for doc in q.stream():
             d = doc.to_dict() or {}
@@ -272,6 +288,9 @@ def main():
     topn = args.topn
 
     for user_id in tqdm(uid_to_vec.keys(), desc="recs"):
+        # AI 취향 카드 ID(male_*, female_*)는 임베딩·학습용으로만 쓰고 modelRecs 문서는 만들지 않음
+        if is_ai_profile(user_id):
+            continue
         if user_id not in uid_to_idx:
             continue
         user_idx = uid_to_idx[user_id]

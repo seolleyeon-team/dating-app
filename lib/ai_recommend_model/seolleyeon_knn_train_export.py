@@ -38,6 +38,21 @@ from scipy import sparse
 from tqdm import tqdm
 
 from google.cloud import firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
+
+
+def _rec_events_created_at_query_bounds(
+    start_time_utc: Optional[datetime], end_time_utc: Optional[datetime]
+) -> Tuple[Optional[str], Optional[str]]:
+    """앱은 createdAt을 UTC ISO 문자열로 저장 — Range 쿼리도 문자열로 맞춤."""
+    def to_iso(dt: datetime) -> str:
+        u = dt.astimezone(timezone.utc)
+        return u.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+    return (
+        to_iso(start_time_utc) if start_time_utc is not None else None,
+        to_iso(end_time_utc) if end_time_utc is not None else None,
+    )
 
 
 # -------------------------
@@ -144,10 +159,11 @@ def load_events_from_firestore(
     for user_doc_ref in user_docs:
         # 각 유저의 events 서브컬렉션 조회
         q = user_doc_ref.collection("events")
-        if start_time_utc is not None:
-            q = q.where("createdAt", ">=", start_time_utc)
-        if end_time_utc is not None:
-            q = q.where("createdAt", "<", end_time_utc)
+        start_str, end_str = _rec_events_created_at_query_bounds(start_time_utc, end_time_utc)
+        if start_str is not None:
+            q = q.where(filter=FieldFilter("createdAt", ">=", start_str))
+        if end_str is not None:
+            q = q.where(filter=FieldFilter("createdAt", "<", end_str))
 
         for doc in q.stream():
             d = doc.to_dict() or {}

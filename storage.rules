@@ -1,14 +1,42 @@
 rules_version = '2';
 
+// ⚠️ 반드시 배포: firebase deploy --only storage
+// 배포 전에는 ai_profiles 경로에서 code=unauthorized 가 납니다.
 service firebase.storage {
   match /b/{bucket}/o {
-    // AI 취향 화면용 더미 프로필 사진 (public read)
-    match /ai_profiles/{allPaths=**} {
+    // AI 취향 화면용 더미 프로필 (비로그인 포함 누구나 읽기)
+    // male/female 을 명시해 와일드카드 매칭 이슈 방지
+    match /ai_profiles/male/{file=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /ai_profiles/female/{file=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /ai_profiles/{rest=**} {
       allow read: if true;
       allow write: if false;
     }
 
-    // 기타 경로: 인증 필요 (users 프로필 사진 등)
+    // 온보딩/프로필 편집 사진 — 카카오만 써도 업로드 가능 (Firebase Auth 없음)
+    // 웹 업로드 시 contentType 이 비어 있을 수 있어 image 검사는 선택
+    match /users/{userId}/onboarding/photos/{fileName} {
+      allow read: if true;
+      allow create, update: if request.resource != null &&
+        request.resource.size < 12 * 1024 * 1024 &&
+        (request.resource.contentType == null ||
+          request.resource.contentType.matches('image/.*') ||
+          request.resource.contentType == 'application/octet-stream');
+      allow delete: if true;
+    }
+
+    // 기타 users/ 하위: 인증된 사용자만
+    match /users/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    // 그 외 경로
     match /{allPaths=**} {
       allow read, write: if request.auth != null;
       

@@ -32,7 +32,7 @@ from transformers import AutoModel, AutoProcessor
 # -----------------------------
 # Defaults (모델/다운로드 보안)
 # -----------------------------
-DEFAULT_MODEL_ID = os.getenv("CLIP_MODEL_ID", "openai/clip-vit-base-patch32")
+DEFAULT_MODEL_ID = os.getenv("CLIP_MODEL_ID", "openai/clip-vit-large-patch14")
 
 # 서버(Cloud Run)에서 URL을 받아 다운로드할 때 SSRF 위험을 줄이고 싶으면 allowlist 사용
 # 로컬에서만 쓰면 비워도 됨(빈 값이면 allowlist 체크 안 함)
