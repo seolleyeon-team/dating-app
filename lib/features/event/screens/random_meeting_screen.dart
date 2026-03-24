@@ -16,6 +16,8 @@ import 'dart:ui'; // for ImageFilter
 // =============================================================================
 // 색상 정의
 // =============================================================================
+const String _kFontFamily = 'Noto Sans KR';
+
 class _AppColors {
   static const Color primary = Color(0xFFEE2B7C); // #ee2b7c
   static const Color backgroundLight = Color(0xFFF8F6F7); // #f8f6f7
@@ -110,6 +112,7 @@ class _Header extends StatelessWidget {
           const Text(
             '설레연',
             style: TextStyle(
+              fontFamily: _kFontFamily,
               fontSize: 18,
               fontWeight: FontWeight.w700,
               color: _AppColors.textMain,
@@ -187,6 +190,7 @@ class _StatusVisualSection extends StatelessWidget {
         const Text(
           '매칭 진행 중',
           style: TextStyle(
+            fontFamily: _kFontFamily,
             fontSize: 24,
             fontWeight: FontWeight.w700,
             color: _AppColors.textMain,
@@ -198,6 +202,7 @@ class _StatusVisualSection extends StatelessWidget {
         const Text(
           '지금 3:3 미팅 상대를 찾고 있어요.\n매칭이 완료되면 알림을 보내드릴게요.',
           style: TextStyle(
+            fontFamily: _kFontFamily,
             fontSize: 14,
             fontWeight: FontWeight.w500,
             color: _AppColors.textSub,
@@ -300,6 +305,7 @@ class _InfoItem extends StatelessWidget {
               Text(
                 label,
                 style: const TextStyle(
+                  fontFamily: _kFontFamily,
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
                   color: _AppColors.textSub,
@@ -310,6 +316,7 @@ class _InfoItem extends StatelessWidget {
           Text(
             value,
             style: const TextStyle(
+              fontFamily: _kFontFamily,
               fontSize: 16,
               fontWeight: FontWeight.w600,
               color: _AppColors.textMain,
@@ -360,6 +367,7 @@ class _ActionFooter extends StatelessWidget {
               child: const Text(
                 '확인',
                 style: TextStyle(
+                  fontFamily: _kFontFamily,
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
                   color: Colors.white,
@@ -383,6 +391,7 @@ class _ActionFooter extends StatelessWidget {
               child: const Text(
                 '신청 취소',
                 style: TextStyle(
+                  fontFamily: _kFontFamily,
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
                   color: _AppColors.textMain,

@@ -54,6 +54,7 @@ import '../features/matching/screens/profile_card_screen.dart';
 import '../features/matching/screens/ai_preference_screen.dart';
 import '../features/matching/screens/ai_match_card_screen.dart';
 import '../features/matching/screens/profile_specific_detail_screen.dart';
+import '../services/ai_recommendation_service.dart';
 
 // Chat
 import '../features/chat/screens/premium_chat_list_screen.dart';
@@ -74,7 +75,12 @@ import '../features/profile/screens/profile_edit_screen.dart';
 import '../features/profile/screens/received_hearts_screen.dart';
 import '../features/matching/screens/sent_hearts_screen.dart';
 import '../features/profile/screens/settings_screen.dart';
+import '../features/matching/models/profile_card_args.dart';
 import '../features/profile/screens/terms_webview_screen.dart';
+import '../features/reports/issue_report_screen.dart';
+import '../services/issue_report_service.dart';
+import '../features/reports/inquiry_screen.dart';
+import '../services/inquiry_service.dart';
 
 // Notifications
 import '../features/notifications/screens/notification_list_screen.dart';
@@ -211,8 +217,8 @@ class AppRouter {
       case RouteNames.aiMatchCard:
         return _cupertino(const AiMatchCardScreen());
       case RouteNames.profileSpecificDetail:
-        return _cupertino(const AiMatchProfileScreen());
-
+        final args = settings.arguments as ProfileCardArgs?;
+        return _cupertino(AiMatchProfileScreen(args: args));
       // Chat
       case RouteNames.premiumChatList:
         return _cupertino(const ChatListScreen());
@@ -263,6 +269,54 @@ class AppRouter {
       // Notifications
       case RouteNames.notifications:
         return _cupertino(const NotificationListScreen());
+
+      // Reports
+      case RouteNames.issueReport:
+        return _cupertino(
+          IssueReportScreen(
+            onSubmit:
+                ({
+                  required String category,
+                  required String content,
+                  required bool allowContact,
+                }) async {
+                  try {
+                    await IssueReportService().submitIssueReport(
+                      category: category,
+                      content: content,
+                      allowContact: allowContact,
+                    );
+                    return true;
+                  } catch (e) {
+                    debugPrint('Issue report submit error: $e');
+                    return false;
+                  }
+                },
+          ),
+        );
+      case RouteNames.inquiry:
+        return _cupertino(
+          InquiryScreen(
+            onSubmit:
+                ({
+                  required String category,
+                  required String content,
+                  required bool allowContact,
+                }) async {
+                  try {
+                    await InquiryService().submitInquiry(
+                      category: category,
+                      content: content,
+                      allowContact: allowContact,
+                    );
+                    return true;
+                  } catch (e) {
+                    debugPrint('Inquiry submit error: $e');
+                    return false;
+                  }
+                },
+          ),
+        );
 
       // Event
       case RouteNames.event:

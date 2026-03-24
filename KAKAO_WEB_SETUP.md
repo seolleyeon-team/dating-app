@@ -18,19 +18,21 @@
 
 > ⚠️ Flutter 웹 실행 시 사용하는 포트를 확인하세요. (VS Code launch 설정: 57575, 기본: 8080 또는 터미널에 표시된 포트)
 
-## 2. HTML 렌더러로 실행 (권장)
+## 2. 웹 실행
 
-카카오 Flutter SDK가 CanvasKit/WASM과 호환성 이슈가 있을 수 있어, HTML 렌더러 사용을 권장합니다.
+Flutter 3.24+에서는 `--web-renderer` 옵션이 제거되었습니다. 기본 렌더러(CanvasKit)로 실행됩니다.
 
 ```bash
-flutter run -d chrome --web-renderer=html
+flutter run -d chrome
 ```
 
 또는 빌드 시:
 
 ```bash
-flutter build web --web-renderer=html
+flutter build web
 ```
+
+> 카카오 Flutter SDK가 CanvasKit과 호환성 이슈가 있다면, Flutter 및 kakao_flutter_sdk 최신 버전으로 업데이트해 보세요.
 
 ## 3. 포트 확인 방법
 

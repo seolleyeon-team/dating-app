@@ -235,6 +235,10 @@ class _FriendsListScreenState extends State<FriendsListScreen> {
                       CupertinoTextField(
                         controller: _searchController,
                         placeholder: '이름 또는 학과 검색',
+                        placeholderStyle: const TextStyle(
+                          fontFamily: 'Noto Sans KR',
+                          color: CupertinoColors.placeholderText,
+                        ),
                         prefix: Padding(
                           padding: const EdgeInsets.only(left: 12),
                           child: Icon(

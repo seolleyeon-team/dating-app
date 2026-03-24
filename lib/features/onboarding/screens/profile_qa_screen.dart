@@ -563,6 +563,7 @@ class _QuestionCard extends StatelessWidget {
                           decoration: InputDecoration(
                             hintText: '짧게라도 좋아요! 취미나 휴식 방법을 알려주세요.',
                             hintStyle: const TextStyle(
+                              fontFamily: 'Noto Sans KR',
                               color: _AppColors.textGray,
                               fontSize: 14,
                             ),

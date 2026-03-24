@@ -8,6 +8,8 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../router/route_names.dart';
+import '../../matching/models/profile_card_args.dart';
 
 class _AppColors {
   static const Color primary = Color(0xFFFF4B6E);
@@ -182,31 +184,12 @@ const List<_InterestCategory> _interestCategories = [
   _InterestCategory(
     emoji: '🎬',
     title: 'Movie/Drama',
-    items: [
-      '영화',
-      '드라마',
-      '로맨스',
-      '액션',
-      '스릴러',
-      '공포',
-      '코미디',
-      '다큐',
-      '애니메이션',
-    ],
+    items: ['영화', '드라마', '로맨스', '액션', '스릴러', '공포', '코미디', '다큐', '애니메이션'],
   ),
   _InterestCategory(
     emoji: '🧑‍🎨',
     title: 'Creative',
-    items: [
-      '그림',
-      '사진',
-      '영상',
-      '글쓰기',
-      '악기',
-      '작곡',
-      '공예',
-      '캘리그래피',
-    ],
+    items: ['그림', '사진', '영상', '글쓰기', '악기', '작곡', '공예', '캘리그래피'],
   ),
 ];
 
@@ -291,13 +274,18 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
 
+  String? _currentUserId;
+  int? _birthYear;
+
   final List<String?> _photoSlots = List<String?>.filled(6, null);
   final List<bool> _photoUploading = List<bool>.filled(6, false);
+
   String _selfIntroduction = '';
   List<Map<String, String>> _profileQa = [];
   List<String> _interests = [];
   List<String> _keywords = [];
   List<String> _idealPersonalityKeywords = [];
+
   int? _height;
   String _relationship = '';
   String _mbti = '';
@@ -307,6 +295,49 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   String _smoking = '';
   String _exercise = '';
   String _religion = '';
+
+  Future<void> _openPreview() async {
+    final kakaoUserId =
+        _currentUserId ?? await _storageService.getKakaoUserId();
+    if (kakaoUserId == null || kakaoUserId.isEmpty) return;
+
+    final previewOnboarding = <String, dynamic>{
+      'nickname': _nickname.trim(),
+      'selfIntroduction': _selfIntroduction.trim(),
+      'birthYear': _birthYear,
+      'height': _height,
+      'mbti': _mbti,
+      'major': _major,
+      'relationship': _relationship,
+      'interests': List<String>.from(_interests),
+      'keywords': List<String>.from(_keywords),
+      'loveLanguages': const <String>[],
+      'photoUrls': _photoSlots.whereType<String>().toList(),
+      'profileQa': _profileQa
+          .map(
+            (e) => {
+              'question': e['question']?.toString() ?? '',
+              'answer': e['answer']?.toString() ?? '',
+            },
+          )
+          .toList(),
+      'lifestyle': {
+        'drinking': _drinking,
+        'smoking': _smoking,
+        'exercise': _exercise,
+        'religion': _religion,
+      },
+    };
+
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pushNamed(
+      RouteNames.profileSpecificDetail,
+      arguments: ProfileCardArgs.preview(
+        userId: kakaoUserId,
+        onboardingOverride: previewOnboarding,
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -343,6 +374,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   Future<void> _loadProfile() async {
     final kakaoUserId = await _storageService.getKakaoUserId();
+    _currentUserId = kakaoUserId;
+
     if (kakaoUserId == null || kakaoUserId.isEmpty) {
       if (!mounted) return;
       setState(() => _isLoading = false);
@@ -351,6 +384,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
     final data = await _userService.getUserProfile(kakaoUserId);
     final idealType = await _userService.getIdealType(kakaoUserId);
+
     final onboardingRaw = data?['onboarding'];
     final onboarding = onboardingRaw is Map
         ? Map<String, dynamic>.from(onboardingRaw)
@@ -373,6 +407,16 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       }
 
       _selfIntroduction = onboarding['selfIntroduction']?.toString() ?? '';
+      _nickname = onboarding['nickname']?.toString() ?? '';
+
+      final birthYearRaw = onboarding['birthYear'] ?? data?['birthYear'];
+      if (birthYearRaw is num) {
+        _birthYear = birthYearRaw.toInt();
+      } else if (birthYearRaw != null) {
+        _birthYear = int.tryParse(birthYearRaw.toString());
+      } else {
+        _birthYear = null;
+      }
 
       _interests = interestsRaw is List
           ? interestsRaw.map((e) => e.toString()).toList()
@@ -400,7 +444,6 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       _relationship = onboarding['relationship']?.toString() ?? '';
       _mbti = onboarding['mbti']?.toString() ?? '';
       _major = onboarding['major']?.toString() ?? '';
-      _nickname = onboarding['nickname']?.toString() ?? '';
 
       if (lifestyleRaw is Map) {
         _drinking = lifestyleRaw['drinking']?.toString() ?? '';
@@ -424,7 +467,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     setState(() => _isSaving = true);
 
     try {
-      final kakaoUserId = await _storageService.getKakaoUserId();
+      final kakaoUserId =
+          _currentUserId ?? await _storageService.getKakaoUserId();
       if (kakaoUserId == null || kakaoUserId.isEmpty) {
         throw Exception('로그인 정보가 없습니다.');
       }
@@ -508,7 +552,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     await showCupertinoDialog(
       context: context,
       builder: (context) => CupertinoAlertDialog(
-        title: Text(title),
+        title: Text(
+          title,
+          style: const TextStyle(fontFamily: 'Noto Sans KR'),
+        ),
         content: Padding(
           padding: const EdgeInsets.only(top: 12),
           child: CupertinoTextField(
@@ -516,12 +563,20 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
             placeholder: placeholder,
             maxLines: multiline ? 4 : 1,
             keyboardType: keyboardType,
+            style: const TextStyle(fontFamily: 'Noto Sans KR'),
+            placeholderStyle: TextStyle(
+              fontFamily: 'Noto Sans KR',
+              color: CupertinoColors.placeholderText,
+            ),
           ),
         ),
         actions: [
           CupertinoDialogAction(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('취소'),
+            child: const Text(
+              '취소',
+              style: TextStyle(fontFamily: 'Noto Sans KR'),
+            ),
           ),
           CupertinoDialogAction(
             isDefaultAction: true,
@@ -529,7 +584,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
               onSaved(controller.text.trim());
               Navigator.of(context).pop();
             },
-            child: const Text('저장'),
+            child: const Text(
+              '저장',
+              style: TextStyle(fontFamily: 'Noto Sans KR'),
+            ),
           ),
         ],
       ),
@@ -832,6 +890,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                     placeholder: '답변을 입력하세요 (최대 100자)',
                     maxLength: 100,
                     maxLines: 2,
+                    style: const TextStyle(fontFamily: 'Noto Sans KR'),
+                    placeholderStyle: TextStyle(
+                      fontFamily: 'Noto Sans KR',
+                      color: CupertinoColors.placeholderText,
+                    ),
                   ),
                 ],
               ),
@@ -860,9 +923,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           scrollController: controller,
           itemExtent: 36,
           onSelectedItemChanged: (i) => selected = values[i],
-          children: values
-              .map((v) => Center(child: Text('$v cm')))
-              .toList(),
+          children: values.map((v) => Center(child: Text('$v cm'))).toList(),
         ),
       ),
     );
@@ -950,7 +1011,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     setState(() => _photoUploading[index] = true);
 
     try {
-      final kakaoUserId = await _storageService.getKakaoUserId();
+      final kakaoUserId =
+          _currentUserId ?? await _storageService.getKakaoUserId();
       if (kakaoUserId == null || kakaoUserId.isEmpty) {
         throw Exception('사용자 정보를 찾을 수 없습니다.');
       }
@@ -968,8 +1030,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       final fileName =
           '${DateTime.now().millisecondsSinceEpoch}_slot$index.$extension';
       final ref = FirebaseStorage.instance.ref().child(
-            'users/$kakaoUserId/onboarding/photos/$fileName',
-          );
+        'users/$kakaoUserId/onboarding/photos/$fileName',
+      );
 
       final metadata = SettableMetadata(
         contentType: _contentTypeForImageExtension(extension),
@@ -1012,7 +1074,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       } catch (_) {}
     }
 
-    final kakaoUserId = await _storageService.getKakaoUserId();
+    final kakaoUserId =
+        _currentUserId ?? await _storageService.getKakaoUserId();
     if (kakaoUserId == null || kakaoUserId.isEmpty) return;
     final photoUrls = _photoSlots.whereType<String>().toList();
     await _userService.saveOnboardingPhotos(
@@ -1090,15 +1153,19 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                           ),
                         ),
                         Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            alignment: Alignment.center,
-                            child: const Text(
-                              '미리보기',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: _AppColors.textSub,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: _openPreview,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              alignment: Alignment.center,
+                              child: const Text(
+                                '미리보기',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: _AppColors.textSub,
+                                ),
                               ),
                             ),
                           ),
@@ -1228,120 +1295,115 @@ class _PhotoSection extends StatelessWidget {
     final photos = List<String?>.from(photoUrls);
 
     return Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: _AppColors.surfaceLight,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 20,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: const [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '프로필 사진',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: _AppColors.textMain,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      '얼굴이 나온 사진 3장은 필수에요',
-                      style: TextStyle(fontSize: 14, color: _AppColors.textSub),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final width = constraints.maxWidth;
-                final gap = 8.0;
-                final itemWidth = (width - gap) / 2;
-
-                Widget buildCell(int index) {
-                  final isLoading =
-                      isUploading.isNotEmpty ? isUploading[index] : false;
-                  if (photos[index] != null) {
-                    return _PhotoItem(
-                      imageUrl: photos[index]!,
-                      onRemove: () => onRemovePhoto?.call(index),
-                      showMainLabel: index == 0,
-                    );
-                  }
-                  return _AddPhotoButton(
-                    isLoading: isLoading,
-                    onTap: () => onAddPhoto?.call(index),
-                  );
-                }
-
-                return Column(
-                  children: List.generate(3, (row) {
-                    final leftIndex = row * 2;
-                    final rightIndex = row * 2 + 1;
-                    return Padding(
-                      padding: EdgeInsets.only(bottom: row == 2 ? 0 : gap),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: AspectRatio(
-                              aspectRatio: 3 / 4,
-                              child: buildCell(leftIndex),
-                            ),
-                          ),
-                          SizedBox(width: gap),
-                          Expanded(
-                            child: AspectRatio(
-                              aspectRatio: 3 / 4,
-                              child: buildCell(rightIndex),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }),
-                );
-              },
-            ),
-            const SizedBox(height: 16),
-            GestureDetector(
-              onTap: () {},
-              child: Row(
-                children: const [
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: _AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: const [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    '사진 가이드 참고하기',
+                    '프로필 사진',
                     style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: _AppColors.primary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: _AppColors.textMain,
                     ),
                   ),
-                  Icon(
-                    Icons.chevron_right,
-                    size: 16,
-                    color: _AppColors.primary,
+                  SizedBox(height: 4),
+                  Text(
+                    '얼굴이 나온 사진 3장은 필수에요',
+                    style: TextStyle(fontSize: 14, color: _AppColors.textSub),
                   ),
                 ],
               ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final gap = 8.0;
+
+              Widget buildCell(int index) {
+                final isLoading = isUploading.isNotEmpty
+                    ? isUploading[index]
+                    : false;
+                if (photos[index] != null) {
+                  return _PhotoItem(
+                    imageUrl: photos[index]!,
+                    onRemove: () => onRemovePhoto?.call(index),
+                    showMainLabel: index == 0,
+                  );
+                }
+                return _AddPhotoButton(
+                  isLoading: isLoading,
+                  onTap: () => onAddPhoto?.call(index),
+                );
+              }
+
+              return Column(
+                children: List.generate(3, (row) {
+                  final leftIndex = row * 2;
+                  final rightIndex = row * 2 + 1;
+                  return Padding(
+                    padding: EdgeInsets.only(bottom: row == 2 ? 0 : gap),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: AspectRatio(
+                            aspectRatio: 3 / 4,
+                            child: buildCell(leftIndex),
+                          ),
+                        ),
+                        SizedBox(width: gap),
+                        Expanded(
+                          child: AspectRatio(
+                            aspectRatio: 3 / 4,
+                            child: buildCell(rightIndex),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: () {},
+            child: Row(
+              children: const [
+                Text(
+                  '사진 가이드 참고하기',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: _AppColors.primary,
+                  ),
+                ),
+                Icon(Icons.chevron_right, size: 16, color: _AppColors.primary),
+              ],
             ),
-          ],
-        ),
-      );
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -1349,6 +1411,7 @@ class _PhotoItem extends StatelessWidget {
   final String imageUrl;
   final VoidCallback? onRemove;
   final bool showMainLabel;
+
   const _PhotoItem({
     required this.imageUrl,
     this.onRemove,
@@ -1408,6 +1471,7 @@ class _PhotoItem extends StatelessWidget {
 class _AddPhotoButton extends StatelessWidget {
   final bool isLoading;
   final VoidCallback? onTap;
+
   const _AddPhotoButton({this.isLoading = false, this.onTap});
 
   @override
@@ -1422,11 +1486,7 @@ class _AddPhotoButton extends StatelessWidget {
         ),
         child: isLoading
             ? const Center(child: CupertinoActivityIndicator())
-            : const Icon(
-                Icons.add_rounded,
-                color: Color(0xFFD1D5DB),
-                size: 32,
-              ),
+            : const Icon(Icons.add_rounded, color: Color(0xFFD1D5DB), size: 32),
       ),
     );
   }
@@ -2143,8 +2203,11 @@ class _SimpleListSection extends StatelessWidget {
                     ),
                   ),
                   if (onTap != null)
-                    Icon(Icons.chevron_right,
-                        color: Colors.grey[400], size: 20),
+                    Icon(
+                      Icons.chevron_right,
+                      color: Colors.grey[400],
+                      size: 20,
+                    ),
                 ],
               ),
             ),
@@ -2173,17 +2236,14 @@ class _LifestyleSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     String labelFor(String value, List<_Option> options) {
-      final match =
-          options.where((o) => o.value == value).map((o) => o.label);
+      final match = options.where((o) => o.value == value).map((o) => o.label);
       return match.isNotEmpty ? match.first : value;
     }
 
     final text = [
-      if (drinking.isNotEmpty)
-        '음주: ${labelFor(drinking, _drinkingOptions)}',
+      if (drinking.isNotEmpty) '음주: ${labelFor(drinking, _drinkingOptions)}',
       if (smoking.isNotEmpty) '흡연: ${labelFor(smoking, _smokingOptions)}',
-      if (exercise.isNotEmpty)
-        '운동: ${labelFor(exercise, _exerciseOptions)}',
+      if (exercise.isNotEmpty) '운동: ${labelFor(exercise, _exerciseOptions)}',
       if (religion.isNotEmpty) '종교: ${labelFor(religion, _religionOptions)}',
     ].join(', ');
 
@@ -2236,8 +2296,11 @@ class _LifestyleSection extends StatelessWidget {
                     ),
                   ),
                   if (onEdit != null)
-                    Icon(Icons.chevron_right,
-                        color: Colors.grey[400], size: 20),
+                    Icon(
+                      Icons.chevron_right,
+                      color: Colors.grey[400],
+                      size: 20,
+                    ),
                 ],
               ),
             ),

@@ -1,6 +1,5 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import 'services/navigation_service.dart';
@@ -48,9 +47,13 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
         theme: ThemeData(
           useMaterial3: true,
           primaryColor: SeolleyeonApp.primaryColor,
-          fontFamily: GoogleFonts.notoSansKr().fontFamily ?? 'Noto Sans KR',
+          fontFamily: 'Noto Sans KR',
           textTheme: _textThemeWithoutUnderline(
-            GoogleFonts.notoSansKrTextTheme(ThemeData.light().textTheme),
+            _applyFontWeight(
+              ThemeData.light().textTheme.apply(
+                fontFamily: 'Noto Sans KR',
+              ),
+            ),
           ),
           colorScheme: const ColorScheme.light(
             primary: SeolleyeonApp.primaryColor,
@@ -63,10 +66,51 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
             foregroundColor: Color(0xFF0F172A),
             elevation: 0,
           ),
-          cupertinoOverrideTheme: const CupertinoThemeData(
+          inputDecorationTheme: InputDecorationTheme(
+            hintStyle: const TextStyle(fontFamily: 'Noto Sans KR'),
+            labelStyle: const TextStyle(fontFamily: 'Noto Sans KR'),
+            floatingLabelStyle: const TextStyle(fontFamily: 'Noto Sans KR'),
+          ),
+          elevatedButtonTheme: ElevatedButtonThemeData(
+            style: ElevatedButton.styleFrom(
+              textStyle: const TextStyle(fontFamily: 'Noto Sans KR'),
+            ),
+          ),
+          textButtonTheme: TextButtonThemeData(
+            style: TextButton.styleFrom(
+              textStyle: const TextStyle(fontFamily: 'Noto Sans KR'),
+            ),
+          ),
+          outlinedButtonTheme: OutlinedButtonThemeData(
+            style: OutlinedButton.styleFrom(
+              textStyle: const TextStyle(fontFamily: 'Noto Sans KR'),
+            ),
+          ),
+          cupertinoOverrideTheme: CupertinoThemeData(
             primaryColor: SeolleyeonApp.primaryColor,
             brightness: Brightness.light,
             scaffoldBackgroundColor: SeolleyeonApp.backgroundColor,
+            textTheme: CupertinoThemeData(brightness: Brightness.light)
+                .textTheme
+                .copyWith(
+              textStyle: CupertinoThemeData(brightness: Brightness.light)
+                  .textTheme
+                  .textStyle
+                  .copyWith(fontFamily: 'Noto Sans KR'),
+              navTitleTextStyle: CupertinoThemeData(brightness: Brightness.light)
+                  .textTheme
+                  .navTitleTextStyle
+                  .copyWith(
+                fontFamily: 'Noto Sans KR',
+                fontWeight: FontWeight.w600,
+              ),
+              navLargeTitleTextStyle: CupertinoThemeData(
+                brightness: Brightness.light,
+              ).textTheme.navLargeTitleTextStyle.copyWith(
+                fontFamily: 'Noto Sans KR',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
           pageTransitionsTheme: const PageTransitionsTheme(
             builders: {
@@ -91,6 +135,33 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
       ),
     );
   }
+}
+
+/// 폰트 두께를 두 단계씩 굵게 (w400→w600, w500→w700 등)
+TextTheme _applyFontWeight(TextTheme base) {
+  TextStyle bolder(TextStyle? s) {
+    if (s == null) return const TextStyle();
+    final w = s.fontWeight ?? FontWeight.w400;
+    final nextIndex = (w.index + 2).clamp(0, FontWeight.w900.index);
+    return s.copyWith(fontWeight: FontWeight.values[nextIndex]);
+  }
+  return TextTheme(
+    displayLarge: bolder(base.displayLarge),
+    displayMedium: bolder(base.displayMedium),
+    displaySmall: bolder(base.displaySmall),
+    headlineLarge: bolder(base.headlineLarge),
+    headlineMedium: bolder(base.headlineMedium),
+    headlineSmall: bolder(base.headlineSmall),
+    titleLarge: bolder(base.titleLarge),
+    titleMedium: bolder(base.titleMedium),
+    titleSmall: bolder(base.titleSmall),
+    bodyLarge: bolder(base.bodyLarge),
+    bodyMedium: bolder(base.bodyMedium),
+    bodySmall: bolder(base.bodySmall),
+    labelLarge: bolder(base.labelLarge),
+    labelMedium: bolder(base.labelMedium),
+    labelSmall: bolder(base.labelSmall),
+  );
 }
 
 /// 텍스트 테마 전체에 밑줄 제거 적용
