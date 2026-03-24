@@ -41,6 +41,21 @@ from tqdm import tqdm
 
 # --- Firestore ---
 from google.cloud import firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
+
+
+def _rec_events_created_at_query_bounds(
+    start_time_utc: Optional[datetime], end_time_utc: Optional[datetime]
+) -> Tuple[Optional[str], Optional[str]]:
+    """앱은 createdAt을 UTC ISO 문자열로 저장 — Range 쿼리도 문자열로 맞춤."""
+    def to_iso(dt: datetime) -> str:
+        u = dt.astimezone(timezone.utc)
+        return u.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+    return (
+        to_iso(start_time_utc) if start_time_utc is not None else None,
+        to_iso(end_time_utc) if end_time_utc is not None else None,
+    )
 
 
 # =========================
@@ -167,10 +182,11 @@ def load_events_from_firestore(
     for user_doc_ref in user_docs:
         # 각 유저의 events 서브컬렉션 조회
         q = user_doc_ref.collection("events")
-        if start_time_utc is not None:
-            q = q.where("createdAt", ">=", start_time_utc)
-        if end_time_utc is not None:
-            q = q.where("createdAt", "<", end_time_utc)
+        start_str, end_str = _rec_events_created_at_query_bounds(start_time_utc, end_time_utc)
+        if start_str is not None:
+            q = q.where(filter=FieldFilter("createdAt", ">=", start_str))
+        if end_str is not None:
+            q = q.where(filter=FieldFilter("createdAt", "<", end_str))
 
         for doc in q.stream():
             d = doc.to_dict() or {}
@@ -267,6 +283,11 @@ def is_ai_profile(item_id: str) -> bool:
     if not item_id or not isinstance(item_id, str):
         return False
     return item_id.startswith("female_") or item_id.startswith("male_")
+
+
+def ai_profile_item_indices(idx2item: Sequence[str]) -> set:
+    """행렬 item 컬럼 중 AI 더미 ID — 학습에는 남기되 추천 후보에서는 제외(순위 눌림 방지)."""
+    return {i for i, uid in enumerate(idx2item) if is_ai_profile(uid)}
 
 
 def passes_policy(
@@ -558,23 +579,35 @@ class SVDRecommender:
         scores = self.item_factors @ uvec   # (n_items,)
         scores = scores.astype(np.float32)
 
+        n_items = int(scores.shape[0])
+        if n_items == 0 or int(topn) <= 0:
+            return np.array([], dtype=np.int64), np.array([], dtype=np.float32)
+
+        # 제외: 이미 상호작용 / nope / 본인 — 점수는 유지하고 eligible 만으로 상위 k 선택.
+        # 구버전은 scores=-np.inf + argsort(-scores) 조합으로 -(-inf)=+inf 정렬 왜곡 및
+        # topn > 추천 가능 아이템 수 일 때 -inf 행이 결과에 섞이는 문제가 있었음.
+        eligible = np.ones(n_items, dtype=bool)
         if filter_already_interacted:
-            # user_items row nonzeros
             start, end = user_items.indptr[user_idx], user_items.indptr[user_idx + 1]
-            already = user_items.indices[start:end]
-            scores[already] = -np.inf
-
+            eligible[user_items.indices[start:end]] = False
         if filter_items is not None and len(filter_items) > 0:
-            scores[np.array(list(filter_items), dtype=np.int64)] = -np.inf
+            eligible[np.array(list(filter_items), dtype=np.int64)] = False
 
-        # topn
-        if topn >= scores.shape[0]:
-            idx = np.argsort(-scores)
-            return idx, scores[idx]
+        valid_idx = np.flatnonzero(eligible)
+        if valid_idx.size == 0:
+            return np.array([], dtype=np.int64), np.array([], dtype=np.float32)
 
-        idx_part = np.argpartition(-scores, topn)[:topn]
-        idx = idx_part[np.argsort(-scores[idx_part])]
-        return idx, scores[idx]
+        sub = scores[valid_idx]
+        k = int(min(int(topn), int(valid_idx.size)))
+
+        # 점수 **큰** 순 (내적값은 음수일 수 있음 — 정상)
+        if k >= sub.size:
+            order = np.argsort(-sub)
+        else:
+            part = np.argpartition(sub, -k)[-k:]
+            order = part[np.argsort(-sub[part])]
+        sel = valid_idx[order[:k]]
+        return sel.astype(np.int64, copy=False), scores[sel]
 
 
 # =========================
@@ -614,6 +647,120 @@ def export_to_firestore(
         bw.set(doc_ref, payload, merge=True)
 
     bw.close()
+
+
+# =========================
+# Debug: 필터 전 SVD 순위 덤프
+# =========================
+
+def dump_raw_user_svd_preview(
+    args: argparse.Namespace,
+    *,
+    user_item: sparse.csr_matrix,
+    model: SVDRecommender,
+    user2idx: Dict[str, int],
+    idx2item: List[str],
+    nope_by_useridx: Dict[int, set],
+    item2idx_map: Dict[str, int],
+    gender_by_uid: Dict[str, str],
+    meta: Optional[Dict[str, Dict[str, Any]]],
+    pos_counts: np.ndarray,
+) -> None:
+    """
+    recommend_for_user 직후 순위(동성/AI/정책 필터 적용 전)를 stdout 및 선택적 JSON 파일로 출력.
+    eligible이 아니어도 행렬에 유저가 있으면 덤프 시도.
+    """
+    uid = (args.dump_raw_user or "").strip()
+    if not uid:
+        return
+
+    dump_topk = max(1, int(args.dump_raw_topk))
+
+    print(f"\n[dump_raw] ========== SVD raw ranking (before gender/ai/policy) user={uid} ==========")
+
+    if uid not in user2idx:
+        print(f"[dump_raw] user not in training matrix (no rows as user_id in events): {uid}")
+        print("[dump_raw] ======================================================================\n")
+        return
+
+    ui = user2idx[uid]
+    pos_c = int(pos_counts[ui])
+    eligible = pos_c >= int(args.min_pos_interactions)
+    print(
+        f"[dump_raw] user_idx={ui} pos_item_count={pos_c} "
+        f"min_pos_interactions={args.min_pos_interactions} eligible={eligible}",
+    )
+
+    filter_items: set = set(nope_by_useridx.get(ui, set())) | ai_profile_item_indices(idx2item)
+    self_item_idx = item2idx_map.get(uid)
+    if self_item_idx is not None:
+        filter_items.add(self_item_idx)
+
+    internal_topn = max(dump_topk * 5, int(args.topn) * 5, 200)
+    internal_topn = min(internal_topn, len(idx2item))
+
+    item_idx, scores = model.recommend_for_user(
+        ui,
+        user_item,
+        topn=internal_topn,
+        filter_items=list(filter_items),
+        oversample=1,
+        filter_already_interacted=True,
+    )
+
+    reciprocal = not args.no_reciprocal
+    rows: List[Dict[str, Any]] = []
+    for k in range(min(len(item_idx), dump_topk)):
+        ii = int(item_idx[k])
+        sc = float(scores[k])
+        cand_uid = idx2item[ii]
+        skip_reasons: List[str] = []
+        if is_ai_profile(cand_uid):
+            skip_reasons.append("ai_profile")
+        u_g = gender_by_uid.get(uid)
+        v_g = gender_by_uid.get(cand_uid)
+        if u_g and v_g and u_g == v_g:
+            skip_reasons.append("same_gender")
+        if meta is not None:
+            if not passes_policy(
+                uid,
+                cand_uid,
+                meta,
+                manner_min=float(args.manner_min),
+                active_within_days=int(args.active_within_days),
+                require_same_university=bool(args.require_same_university),
+                reciprocal=reciprocal,
+            ):
+                skip_reasons.append("policy")
+
+        rows.append(
+            {
+                "model_rank": k + 1,
+                "uid": cand_uid,
+                "score": sc,
+                "would_be_skipped": len(skip_reasons) > 0,
+                "skip_reasons": skip_reasons,
+            }
+        )
+
+    payload = {
+        "userId": uid,
+        "user_idx": ui,
+        "pos_item_count": pos_c,
+        "eligible_for_export_loop": eligible,
+        "note": "recommend_for_user: nope/self/seen + AI male_*/female_* columns excluded; then gender/policy in skip_reasons",
+        "top": rows,
+    }
+
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    out_path = getattr(args, "dump_raw_out", None) or ""
+    if isinstance(out_path, str) and out_path.strip():
+        p = out_path.strip()
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        print(f"[dump_raw] also wrote: {p}")
+
+    print("[dump_raw] ======================================================================\n")
 
 
 # =========================
@@ -663,6 +810,23 @@ def main():
     # export
     p.add_argument("--export_firestore", action="store_true", default=True)
     p.add_argument("--algorithm_version", type=str, default=None, help="Override algorithm version string")
+
+    # debug: 특정 유저의 필터 전 SVD 순위 (stdout + 선택적 JSON 파일)
+    p.add_argument(
+        "--dump_raw_user",
+        type=str,
+        default=None,
+        metavar="USER_ID",
+        help="해당 userId에 대해 recommend_for_user 직후 순위를 출력 (동성/AI/정책 필터 전)",
+    )
+    p.add_argument("--dump_raw_topk", type=int, default=40, help="--dump_raw_user 시 상위 몇 줄까지 출력")
+    p.add_argument(
+        "--dump_raw_out",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="--dump_raw_user 결과를 이 경로에 JSON으로도 저장",
+    )
 
     args = p.parse_args()
 
@@ -773,6 +937,20 @@ def main():
 
     # item_id -> item_idx 사전 (O(1) 룩업용, list.index() 대체)
     item2idx_map = {it: j for j, it in enumerate(idx2item)}
+    ai_item_idx_set = ai_profile_item_indices(idx2item)
+
+    dump_raw_user_svd_preview(
+        args,
+        user_item=user_item,
+        model=model,
+        user2idx=user2idx,
+        idx2item=idx2item,
+        nope_by_useridx=nope_by_useridx,
+        item2idx_map=item2idx_map,
+        gender_by_uid=gender_by_uid,
+        meta=meta,
+        pos_counts=pos_counts,
+    )
 
     # ---- Generate recs ----
     algorithm_version = args.algorithm_version or f"svd_{cfg.algo}_f{cfg.factors}_i{cfg.iterations}_{args.date_key}"
@@ -787,12 +965,8 @@ def main():
         if u is None:
             continue
 
-        # base filter list: nope items + self
-        filter_items = set(nope_by_useridx.get(ui, set()))
-        # self exclusion if user id is also an item id in mapping
-        if u in user2idx and u in idx2item:
-            pass
-        # In this matrix, items are target user IDs; exclude self if present
+        # base filter: nope + 본인 + AI 더미 컬럼(학습엔 쓰이나 추천 순위에서는 제외 — 0점으로 상단 독점 방지)
+        filter_items = set(nope_by_useridx.get(ui, set())) | ai_item_idx_set
         self_item_idx = item2idx_map.get(u)
         if self_item_idx is not None:
             filter_items.add(self_item_idx)

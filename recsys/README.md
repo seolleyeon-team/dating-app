@@ -102,6 +102,27 @@ python -m recsys.main --step export --dry-run --project seolleyeon --bucket seol
 python -m recsys.main --step export --limit-users 10 --project seolleyeon --bucket seolleyeon-recs
 ```
 
+#### SVD: 특정 유저 필터 전(raw) 순위 보기
+
+`recsys`가 받은 `events.csv`로 스크립트를 직접 돌릴 때 `--dump_raw_user`를 쓰면, 동성/AI 더미/정책 필터 **적용 전** `recommend_for_user` 순위가 JSON으로 출력됩니다.
+
+(`python -m recsys.main --step svd`는 이 인자를 넘기지 않음 → CSV 준비 후 아래처럼 직접 실행.)
+
+**프로젝트 루트에서 붙여넣기 (PowerShell, 한 줄)** — `--events_csv`만 실제 CSV 경로로 바꿀 것:
+
+```powershell
+cd lib\ai_recommend_model; python seolleyeon_svd_train_export.py --events_csv "C:\경로\events_20260320.csv" --firestore_project seolleyeon --date_key 20260320 --dump_raw_user 4705828086 --dump_raw_topk 50 --dump_raw_out raw_svd.json
+```
+
+**CMD에서 붙여넣기 (한 줄):**
+
+```bat
+cd /d lib\ai_recommend_model && python seolleyeon_svd_train_export.py --events_csv "C:\경로\events_20260320.csv" --firestore_project seolleyeon --date_key 20260320 --dump_raw_user 4705828086 --dump_raw_topk 50 --dump_raw_out raw_svd.json
+```
+
+- `date_key`는 CSV/학습 기준 날짜(`YYYYMMDD`)와 맞출 것.
+- `raw_svd.json`은 위 `cd` 후 폴더(`lib\ai_recommend_model`)에 생성됨. 다른 위치에 두려면 `--dump_raw_out "D:\원하는\경로\raw_svd.json"` 처럼 전체 경로 지정.
+
 ### 4. 기존 스크립트 직접 실행 (변경 없음)
 
 ```bash
@@ -189,7 +210,7 @@ gcloud logging read 'resource.type=cloud_run_job' --limit=50 --project=seolleyeo
 | `GCS_BUCKET` | (none) | GCS 버킷 이름 |
 | `FIRESTORE_DATABASE` | (none) | Firestore DB ID (기본 DB면 생략) |
 | `AI_MODEL_DIR` | (auto) | ML 스크립트 경로 |
-| `CLIP_MODEL_ID` | `openai/clip-vit-base-patch32` | CLIP 모델 |
+| `CLIP_MODEL_ID` | `openai/clip-vit-large-patch14` | CLIP 모델 |
 | `ALLOWED_IMAGE_HOSTS` | `firebasestorage.googleapis.com,...` | SSRF 방지 |
 
 ## GPU 분리 판단

@@ -1,3 +1,5 @@
+import 'package:cross_file/cross_file.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors, Icons;
@@ -905,6 +907,38 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     );
   }
 
+  /// 웹은 path 가 비어 있을 수 있음 — XFile.name 우선
+  String _imageExtensionFromPicked(XFile picked) {
+    String raw = '';
+    if (picked.name.trim().isNotEmpty && picked.name.contains('.')) {
+      raw = picked.name.split('.').last;
+    } else if (picked.path.contains('.')) {
+      raw = picked.path.split('.').last;
+    }
+    raw = raw.toLowerCase().trim();
+    if (raw.isEmpty || raw.length > 8) return 'jpg';
+    return raw;
+  }
+
+  String _contentTypeForImageExtension(String ext) {
+    switch (ext.toLowerCase()) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      case 'webp':
+        return 'image/webp';
+      case 'heic':
+      case 'heif':
+        return 'image/heic';
+      default:
+        return 'image/jpeg';
+    }
+  }
+
   Future<void> _addPhoto(int index) async {
     HapticFeedback.lightImpact();
     final pickedFile = await _imagePicker.pickImage(
@@ -921,16 +955,25 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         throw Exception('사용자 정보를 찾을 수 없습니다.');
       }
 
-      final extension = pickedFile.path.split('.').last.isNotEmpty
-          ? pickedFile.path.split('.').last
-          : 'jpg';
+      // Storage 규칙이 아직 "인증 필요"만 허용하는 경우 대비 (배포 전·타 경로)
+      if (FirebaseAuth.instance.currentUser == null) {
+        try {
+          await FirebaseAuth.instance.signInAnonymously();
+        } catch (_) {
+          // 익명 로그인 비활성화 등 — 아래 공개 업로드 규칙에만 의존
+        }
+      }
+
+      final extension = _imageExtensionFromPicked(pickedFile);
       final fileName =
           '${DateTime.now().millisecondsSinceEpoch}_slot$index.$extension';
       final ref = FirebaseStorage.instance.ref().child(
             'users/$kakaoUserId/onboarding/photos/$fileName',
           );
 
-      final metadata = SettableMetadata(contentType: 'image/$extension');
+      final metadata = SettableMetadata(
+        contentType: _contentTypeForImageExtension(extension),
+      );
       final bytes = await pickedFile.readAsBytes();
       await ref.putData(bytes, metadata);
       final url = await ref.getDownloadURL();

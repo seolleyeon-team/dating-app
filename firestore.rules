@@ -26,10 +26,16 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // Users
     // -----------------------------------------------------------------------
+    // users 문서에 kakaoUserId 필드가 없으면 규칙에서 null 로 평가됨 → 프로필 수정 허용
+    function usersDocKakaoIdOk(data, docKakaoId) {
+      return data.kakaoUserId == null || data.kakaoUserId == docKakaoId;
+    }
+
     match /users/{kakaoUserId} {
       allow get: if true;
       allow list: if true;
 
+      // 연세 메일 학생 인증으로 최초 생성
       allow create: if request.auth != null &&
           isYonseiEmail(request.auth.token.email) &&
           request.resource.data.keys().hasOnly([
@@ -44,6 +50,32 @@ service cloud.firestore {
           request.resource.data.studentEmail is string &&
           isYonseiEmail(request.resource.data.studentEmail) &&
           request.resource.data.isStudentVerified == true;
+
+      // 카카오 로그인 후 users/{kakaoUserId} 최초 생성 (Firebase Auth 없음)
+      // saveOnboarding* 등은 문서 ID가 곧 kakaoUserId 이므로 필드 생략 가능
+      allow create: if usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
+          request.resource.data.keys().hasOnly([
+            'kakaoUserId',
+            'nickname',
+            'profileImageUrl',
+            'email',
+            'createdAt',
+            'lastLoginAt',
+            'onboarding',
+            'onboardingUpdatedAt',
+            'initialSetupComplete',
+            'initialSetupCompletedAt',
+            'onboardingCompletedAt',
+            'idealType',
+            'idealTypeUpdatedAt',
+            'updatedAt',
+            'hasSeenTutorial',
+            'isStudentVerified',
+            'studentEmail',
+            'studentVerifiedAt',
+            'verifiedAt',
+            'preferenceVector'
+          ]);
 
       allow update: if (
             request.auth != null &&
@@ -61,8 +93,7 @@ service cloud.firestore {
           ) || (
             resource.data.isStudentVerified == true &&
             request.resource.data.isStudentVerified == true &&
-            (request.resource.data.kakaoUserId == null ||
-              request.resource.data.kakaoUserId == kakaoUserId) &&
+            usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
               'kakaoUserId',
               'onboarding',
@@ -75,9 +106,8 @@ service cloud.firestore {
               'updatedAt'
             ])
           ) || (
-            // 프로필 수정(온보딩 데이터 갱신) — 기존 규칙 유지 + 온보딩 편집 허용
-            (request.resource.data.kakaoUserId == null ||
-              request.resource.data.kakaoUserId == kakaoUserId) &&
+            // 프로필 수정(온보딩 데이터 갱신) — 카카오만 로그인 시에도 onboarding/사진 URL 저장 가능
+            usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
               'kakaoUserId',
               'onboarding',
