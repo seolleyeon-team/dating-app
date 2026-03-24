@@ -1,0 +1,12 @@
+# Seolleyeon recommendation pipeline Docker build context filter
+# Build context = project root,  Dockerfile = recsys/Dockerfile
+
+# Exclude everything first
+*
+
+# Include pipeline code
+!recsys
+!recsys/**
+!lib
+!lib/ai_recommend_model
+!lib/ai_recommend_model/*.py

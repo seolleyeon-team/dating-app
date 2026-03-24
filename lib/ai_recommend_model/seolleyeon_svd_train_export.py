@@ -201,6 +201,25 @@ def load_events_from_firestore(
 # Metadata (optional policy filtering)
 # =========================
 
+def load_user_genders_from_firestore(
+    project_id: str,
+    *,
+    users_collection: str = "users",
+    database: Optional[str] = None,
+) -> Dict[str, str]:
+    """users/{uid} onboarding.gender 로드. uid -> gender (female|male 등)"""
+    db = firestore.Client(project=project_id, database=database)
+    result: Dict[str, str] = {}
+    for doc in db.collection(users_collection).stream():
+        d = doc.to_dict() or {}
+        onboarding = d.get("onboarding")
+        if isinstance(onboarding, dict):
+            g = onboarding.get("gender")
+            if g is not None:
+                result[doc.id] = str(g).strip().lower()
+    return result
+
+
 def load_profile_index_from_firestore(
     project_id: str,
     *,
@@ -241,6 +260,13 @@ def kst_age(birth_year: int, now_year_kst: int) -> int:
 def now_year_kst() -> int:
     kst = timezone(timedelta(hours=9))
     return datetime.now(tz=kst).year
+
+
+def is_ai_profile(item_id: str) -> bool:
+    """ai_preference 스와이프 타겟: female_123, male_456 형식 — 추천 출력에서 제외"""
+    if not item_id or not isinstance(item_id, str):
+        return False
+    return item_id.startswith("female_") or item_id.startswith("male_")
 
 
 def passes_policy(
@@ -367,6 +393,9 @@ def build_interaction_matrix(
         now = datetime.now(tz=timezone.utc)
         ages = []
         for ts in df["ts"].tolist():
+            if pd.isna(ts):
+                ages.append(0.0)
+                continue
             if isinstance(ts, pd.Timestamp):
                 ts = ts.to_pydatetime()
             if isinstance(ts, datetime):
@@ -463,11 +492,8 @@ class SVDRecommender:
                 f"Error: {e}"
             )
 
-        # implicit ALS expects a confidence matrix; typically scale by alpha
-        conf = user_item * float(self.cfg.alpha)
-
-        # implicit 라이브러리는 fit에 item-user matrix를 주는 관례가 많음
-        item_user = conf.T.tocsr()
+        # implicit ALS fit() expects (users x items); scale by alpha for confidence
+        conf = (user_item * float(self.cfg.alpha)).tocsr()
 
         model = AlternatingLeastSquares(
             factors=self.cfg.factors,
@@ -475,7 +501,7 @@ class SVDRecommender:
             iterations=self.cfg.iterations,
             random_state=self.cfg.random_state,
         )
-        model.fit(item_user)
+        model.fit(conf)
 
         # store factors
         # model.user_factors: (n_users, k), model.item_factors: (n_items, k)
@@ -526,24 +552,8 @@ class SVDRecommender:
         if self.user_factors is None or self.item_factors is None:
             raise RuntimeError("Model not trained.")
 
-        if self.cfg.algo == "als" and self._als_model is not None:
-            model = self._als_model
-            # implicit recommend: need user_items (users x items)
-            N = max(topn * oversample, topn)
-
-            # exclude items list
-            filter_items_list = list(filter_items) if filter_items else None
-
-            item_ids, scores = model.recommend(
-                userid=user_idx,
-                user_items=user_items,
-                N=N,
-                filter_already_liked_items=filter_already_interacted,
-                filter_items=filter_items_list,
-            )
-            return item_ids[:topn], scores[:topn]
-
-        # svds path: brute-force scoring (ok for medium scale)
+        # Use our own scoring for both ALS and svds (avoids implicit recommend
+        # matrix-orientation issues with single-user slices)
         uvec = self.user_factors[user_idx]  # (k,)
         scores = self.item_factors @ uvec   # (n_items,)
         scores = scores.astype(np.float32)
@@ -666,6 +676,19 @@ def main():
     # ---- Load events ----
     if args.events_csv:
         df = load_events_from_csv(args.events_csv)
+        # CSV 비어있으면 Firestore fallback (export 미실행/빈 파일 대비)
+        if df.empty and args.firestore_project:
+            print("[data] CSV empty, falling back to Firestore recEvents...")
+            start_day_utc, end_day_utc = parse_datekey_to_utc_range(args.date_key)
+            start_time = start_day_utc - timedelta(days=int(args.lookback_days))
+            end_time = end_day_utc
+            df = load_events_from_firestore(
+                args.firestore_project,
+                collection=args.events_collection,
+                start_time_utc=start_time,
+                end_time_utc=end_time,
+                database=args.firestore_database,
+            )
     elif args.firestore_events:
         if not args.firestore_project:
             raise ValueError("--firestore_project is required for --firestore_events")
@@ -686,7 +709,10 @@ def main():
         raise ValueError("Provide --events_csv or --firestore_events")
 
     if df.empty:
-        raise ValueError("No events loaded.")
+        raise ValueError(
+            "No events loaded. Run export first: python -m recsys.main --step export "
+            "--project seolleyeon --bucket seolleyeon-recs"
+        )
 
     # ---- Build matrix ----
     user_item, user2idx, idx2item, nope_by_useridx = build_interaction_matrix(
@@ -724,6 +750,16 @@ def main():
             database=args.firestore_database,
         )
         print(f"[meta] loaded profileIndex docs: {len(meta)}")
+
+    # ---- users/onboarding gender (동성 제외용) ----
+    gender_by_uid: Dict[str, str] = {}
+    if args.firestore_project:
+        gender_by_uid = load_user_genders_from_firestore(
+            args.firestore_project,
+            users_collection="users",
+            database=args.firestore_database,
+        )
+        print(f"[gender] loaded from users/onboarding: {len(gender_by_uid)} users")
 
     # ---- Count positive interactions per user ----
     pos_counts = np.diff(user_item.indptr)  # nnz per user row (positive only after aggregation)
@@ -776,6 +812,16 @@ def main():
 
         for ii, sc in zip(item_idx.tolist(), scores.tolist()):
             cand_uid = idx2item[ii]
+
+            # ai_preference 타겟(female_123, male_456)은 추천 제외 — 학습에는 포함됨
+            if is_ai_profile(cand_uid):
+                continue
+
+            # 동성 제외: users/onboarding.gender 기준
+            u_g = gender_by_uid.get(u)
+            v_g = gender_by_uid.get(cand_uid)
+            if u_g and v_g and u_g == v_g:
+                continue
 
             if meta is not None:
                 if not passes_policy(

@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 import numpy as np
 from tqdm import tqdm
@@ -40,6 +42,65 @@ def parse_datekey(date_key: str) -> str:
     if len(date_key) != 8:
         raise ValueError("dateKey must be YYYYMMDD")
     return date_key
+
+
+def is_ai_profile(target_id: str) -> bool:
+    """ai_preference 타겟: female_123, male_456"""
+    return bool(target_id and re.match(r"^(female|male)_\d+$", str(target_id)))
+
+
+def ai_profile_to_storage_url(
+    ai_profile_id: str,
+    *,
+    bucket: str = "seolleyeon.firebasestorage.app",
+) -> str:
+    """female_385 -> Firebase Storage download URL"""
+    m = re.match(r"^(female|male)_(\d+)$", str(ai_profile_id))
+    if not m:
+        raise ValueError(f"Invalid ai_profile_id: {ai_profile_id}")
+    folder, pid = m.group(1), m.group(2)
+    path = f"ai_profiles/{folder}/{pid}.png"
+    encoded = quote(path, safe="")
+    return f"https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{encoded}?alt=media"
+
+
+def add_ai_profiles_to_uid_urls(
+    uid_to_urls: Dict[str, List[str]],
+    likes: Dict[str, List[str]],
+    nopes: Dict[str, List[str]],
+    *,
+    bucket: str = "seolleyeon.firebasestorage.app",
+) -> None:
+    """likes/nopes에 있는 ai_profile 타겟을 uid_to_urls에 추가 (in-place)"""
+    seen: set[str] = set()
+    for targets in list(likes.values()) + list(nopes.values()):
+        for t in targets:
+            if is_ai_profile(t) and t not in seen:
+                seen.add(t)
+                try:
+                    url = ai_profile_to_storage_url(t, bucket=bucket)
+                    uid_to_urls[t] = [url]
+                except Exception:
+                    pass
+
+
+def load_user_genders_from_firestore(
+    project_id: str,
+    *,
+    users_collection: str = "users",
+    database: Optional[str] = None,
+) -> Dict[str, str]:
+    """users/{uid} onboarding.gender 로드. uid -> gender (female|male 등)"""
+    db = firestore.Client(project=project_id, database=database)
+    result: Dict[str, str] = {}
+    for doc in db.collection(users_collection).stream():
+        d = doc.to_dict() or {}
+        onboarding = d.get("onboarding")
+        if isinstance(onboarding, dict):
+            g = onboarding.get("gender")
+            if g is not None:
+                result[doc.id] = str(g).strip().lower()
+    return result
 
 
 def load_users_with_photos(
@@ -167,6 +228,10 @@ def main():
     )
     print(f"    Users with likes: {len(likes)}, with nopes: {len(nopes)}")
 
+    # ai_preference like/nope 타겟(ai_profiles)을 uid_to_urls에 추가
+    bucket = os.environ.get("FIREBASE_STORAGE_BUCKET", "seolleyeon.firebasestorage.app")
+    add_ai_profiles_to_uid_urls(uid_to_urls, likes, nopes, bucket=bucket)
+
     # 3) CLIP 임베딩 (uid -> vector)
     try:
         embedder = SeolleyeonCLIPEmbedder(device=args.device)
@@ -188,6 +253,14 @@ def main():
     if len(uid_to_vec) < 2:
         print("[!] Not enough embeddings. Skipping.")
         return 0
+
+    # users/onboarding gender (동성 제외용)
+    gender_by_uid = load_user_genders_from_firestore(
+        args.firestore_project,
+        users_collection=args.users_collection,
+        database=args.firestore_database,
+    )
+    print(f"[gender] loaded from users/onboarding: {len(gender_by_uid)} users")
 
     uids = list(uid_to_vec.keys())
     emb_matrix = np.array([uid_to_vec[u] for u in uids], dtype=np.float32)
@@ -244,6 +317,14 @@ def main():
             if scores[ii] <= -np.inf:
                 continue
             cand_uid = uids[ii]
+            # ai_preference 타겟은 추천 출력에서 제외
+            if is_ai_profile(cand_uid):
+                continue
+            # 동성 제외: users/onboarding.gender 기준
+            u_g = gender_by_uid.get(user_id)
+            v_g = gender_by_uid.get(cand_uid)
+            if u_g and v_g and u_g == v_g:
+                continue
             items_out.append({
                 "uid": cand_uid,
                 "rank": len(items_out) + 1,

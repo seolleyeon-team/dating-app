@@ -1,0 +1,232 @@
+# ==========================================================
+# Seolleyeon Recommendation Pipeline - Cloud Workflows
+#
+# Flow:
+#   1. export        (recEvents → GCS CSV)
+#   2. clip/svd/knn  (parallel, train + Firestore export)
+#   3. rrf           (merge all sources)
+#   4. verify        (health check)
+#
+# Trigger: Cloud Scheduler (daily 04:00 KST)
+# Input (optional):
+#   { "date_key": "20260309", "bucket": "seolleyeon-recs" }
+# ==========================================================
+
+main:
+  params: [input]
+  steps:
+    # --------------------------------------------------
+    # 0. Init variables
+    # --------------------------------------------------
+    - init:
+        assign:
+          - project_id: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
+          - region: "asia-northeast3"
+          - bucket: ${default(map.get(input, "bucket"), project_id + "-recs")}
+          - date_key: ${default(map.get(input, "date_key"), "")}
+
+    - log_start:
+        call: sys.log
+        args:
+          data: ${"Pipeline started — project=" + project_id + " date_key=" + date_key + " bucket=" + bucket}
+          severity: "INFO"
+
+    # --------------------------------------------------
+    # 1. Export recEvents → GCS CSV
+    # --------------------------------------------------
+    - run_export:
+        try:
+          call: googleapis.run.v2.projects.locations.jobs.run
+          args:
+            name: ${"projects/" + project_id + "/locations/" + region + "/jobs/recs-export"}
+            body:
+              overrides:
+                containerOverrides:
+                  - args:
+                      - "--step=export"
+                      - ${"--date-key=" + date_key}
+                      - ${"--project=" + project_id}
+                      - ${"--bucket=" + bucket}
+          result: export_result
+        except:
+          as: e
+          steps:
+            - log_export_fail:
+                call: sys.log
+                args:
+                  data: ${"Export failed: " + json.encode_to_string(e)}
+                  severity: "ERROR"
+            - raise_export:
+                raise: ${e}
+
+    - log_export_done:
+        call: sys.log
+        args:
+          data: "Export completed"
+          severity: "INFO"
+
+    # --------------------------------------------------
+    # 2. CLIP / SVD / KNN  (parallel)
+    # --------------------------------------------------
+    - run_models_parallel:
+        parallel:
+          shared: [project_id, region, date_key, bucket]
+          branches:
+            - clip_branch:
+                steps:
+                  - run_clip:
+                      try:
+                        call: googleapis.run.v2.projects.locations.jobs.run
+                        args:
+                          name: ${"projects/" + project_id + "/locations/" + region + "/jobs/recs-clip"}
+                          body:
+                            overrides:
+                              containerOverrides:
+                                - args:
+                                    - "--step=clip"
+                                    - ${"--date-key=" + date_key}
+                                    - ${"--project=" + project_id}
+                        result: clip_result
+                      except:
+                        as: e
+                        steps:
+                          - log_clip_fail:
+                              call: sys.log
+                              args:
+                                data: ${"CLIP failed: " + json.encode_to_string(e)}
+                                severity: "ERROR"
+                          - raise_clip:
+                              raise: ${e}
+
+            - svd_branch:
+                steps:
+                  - run_svd:
+                      try:
+                        call: googleapis.run.v2.projects.locations.jobs.run
+                        args:
+                          name: ${"projects/" + project_id + "/locations/" + region + "/jobs/recs-svd"}
+                          body:
+                            overrides:
+                              containerOverrides:
+                                - args:
+                                    - "--step=svd"
+                                    - ${"--date-key=" + date_key}
+                                    - ${"--project=" + project_id}
+                                    - ${"--bucket=" + bucket}
+                        result: svd_result
+                      except:
+                        as: e
+                        steps:
+                          - log_svd_fail:
+                              call: sys.log
+                              args:
+                                data: ${"SVD failed: " + json.encode_to_string(e)}
+                                severity: "ERROR"
+                          - raise_svd:
+                              raise: ${e}
+
+            - knn_branch:
+                steps:
+                  - run_knn:
+                      try:
+                        call: googleapis.run.v2.projects.locations.jobs.run
+                        args:
+                          name: ${"projects/" + project_id + "/locations/" + region + "/jobs/recs-knn"}
+                          body:
+                            overrides:
+                              containerOverrides:
+                                - args:
+                                    - "--step=knn"
+                                    - ${"--date-key=" + date_key}
+                                    - ${"--project=" + project_id}
+                                    - ${"--bucket=" + bucket}
+                        result: knn_result
+                      except:
+                        as: e
+                        steps:
+                          - log_knn_fail:
+                              call: sys.log
+                              args:
+                                data: ${"KNN failed: " + json.encode_to_string(e)}
+                                severity: "ERROR"
+                          - raise_knn:
+                              raise: ${e}
+
+    - log_models_done:
+        call: sys.log
+        args:
+          data: "All model jobs completed (clip, svd, knn)"
+          severity: "INFO"
+
+    # --------------------------------------------------
+    # 3. RRF merge
+    # --------------------------------------------------
+    - run_rrf:
+        try:
+          call: googleapis.run.v2.projects.locations.jobs.run
+          args:
+            name: ${"projects/" + project_id + "/locations/" + region + "/jobs/recs-rrf"}
+            body:
+              overrides:
+                containerOverrides:
+                  - args:
+                      - "--step=rrf"
+                      - ${"--date-key=" + date_key}
+                      - ${"--project=" + project_id}
+          result: rrf_result
+        except:
+          as: e
+          steps:
+            - log_rrf_fail:
+                call: sys.log
+                args:
+                  data: ${"RRF failed: " + json.encode_to_string(e)}
+                  severity: "ERROR"
+            - raise_rrf:
+                raise: ${e}
+
+    - log_rrf_done:
+        call: sys.log
+        args:
+          data: "RRF merge completed"
+          severity: "INFO"
+
+    # --------------------------------------------------
+    # 4. Verify
+    # --------------------------------------------------
+    - run_verify:
+        try:
+          call: googleapis.run.v2.projects.locations.jobs.run
+          args:
+            name: ${"projects/" + project_id + "/locations/" + region + "/jobs/recs-verify"}
+            body:
+              overrides:
+                containerOverrides:
+                  - args:
+                      - "--step=verify"
+                      - ${"--date-key=" + date_key}
+                      - ${"--project=" + project_id}
+          result: verify_result
+        except:
+          as: e
+          steps:
+            - log_verify_fail:
+                call: sys.log
+                args:
+                  data: ${"Verify failed (non-fatal): " + json.encode_to_string(e)}
+                  severity: "WARNING"
+
+    # --------------------------------------------------
+    # 5. Done
+    # --------------------------------------------------
+    - log_complete:
+        call: sys.log
+        args:
+          data: ${"Pipeline completed for date_key=" + date_key}
+          severity: "INFO"
+
+    - return_result:
+        return:
+          status: "completed"
+          date_key: ${date_key}
+          project: ${project_id}

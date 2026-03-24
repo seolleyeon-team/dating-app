@@ -285,6 +285,7 @@ class AiRecommendationService {
   }
 
   /// Mystery Card (RRF 통합 / CLIP / SVD) 피드를 불러옵니다.
+  /// modelRecs/{uid}/daily/{오늘}/sources/rrf 의 rank 1~3 순서대로 표시.
   /// modelRecs 없으면 users 폴백 사용.
   Future<List<AiRecommendedProfile>> fetchMysteryFeed({
     int limit = 3,
@@ -309,7 +310,23 @@ class AiRecommendationService {
       if (result != null) {
         final data = result['data'] as Map<String, dynamic>;
         final dateKey = result['dateKey'] as String;
-        final items = data['items'] as List<dynamic>? ?? [];
+        var items = data['items'] as List<dynamic>? ?? [];
+
+        // RRF인 경우 rank 1~3만 필터, 순서 보장
+        if (algoUsed == 'rrf') {
+          items = items
+              .where((item) {
+                final r = (item['rank'] as num?)?.toInt() ?? 999;
+                return r >= 1 && r <= 3;
+              })
+              .toList()
+            ..sort((a, b) {
+              final rankA = (a['rank'] as num?)?.toInt() ?? 999;
+              final rankB = (b['rank'] as num?)?.toInt() ?? 999;
+              return rankA.compareTo(rankB);
+            });
+        }
+
         return await _hydrateProfiles(
           rawItems: items,
           algo: algoUsed,
