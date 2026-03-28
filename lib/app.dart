@@ -13,6 +13,9 @@ import 'features/community/providers/community_provider.dart';
 class SeolleyeonApp extends StatefulWidget {
   const SeolleyeonApp({super.key});
 
+  /// [pubspec.yaml] `family: Pretendard` 와 동일해야 함
+  static const String fontFamily = 'Pretendard';
+
   static const Color primaryColor = Color(0xFFFF6B8A);
   static const Color backgroundColor = Color(0xFFFAFAFA);
 
@@ -47,11 +50,11 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
         theme: ThemeData(
           useMaterial3: true,
           primaryColor: SeolleyeonApp.primaryColor,
-          fontFamily: 'Noto Sans KR',
+          fontFamily: SeolleyeonApp.fontFamily,
           textTheme: _textThemeWithoutUnderline(
             _applyFontWeight(
               ThemeData.light().textTheme.apply(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: SeolleyeonApp.fontFamily,
               ),
             ),
           ),
@@ -61,29 +64,35 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
             surface: SeolleyeonApp.backgroundColor,
           ),
           scaffoldBackgroundColor: SeolleyeonApp.backgroundColor,
-          appBarTheme: const AppBarTheme(
+          appBarTheme: AppBarTheme(
             backgroundColor: SeolleyeonApp.backgroundColor,
-            foregroundColor: Color(0xFF0F172A),
+            foregroundColor: const Color(0xFF0F172A),
             elevation: 0,
+            titleTextStyle: TextStyle(
+              fontFamily: SeolleyeonApp.fontFamily,
+              fontWeight: FontWeight.w700,
+              fontSize: 18,
+              color: const Color(0xFF0F172A),
+            ),
           ),
           inputDecorationTheme: InputDecorationTheme(
-            hintStyle: const TextStyle(fontFamily: 'Noto Sans KR'),
-            labelStyle: const TextStyle(fontFamily: 'Noto Sans KR'),
-            floatingLabelStyle: const TextStyle(fontFamily: 'Noto Sans KR'),
+            hintStyle: TextStyle(fontFamily: SeolleyeonApp.fontFamily),
+            labelStyle: TextStyle(fontFamily: SeolleyeonApp.fontFamily),
+            floatingLabelStyle: TextStyle(fontFamily: SeolleyeonApp.fontFamily),
           ),
           elevatedButtonTheme: ElevatedButtonThemeData(
             style: ElevatedButton.styleFrom(
-              textStyle: const TextStyle(fontFamily: 'Noto Sans KR'),
+              textStyle: TextStyle(fontFamily: SeolleyeonApp.fontFamily),
             ),
           ),
           textButtonTheme: TextButtonThemeData(
             style: TextButton.styleFrom(
-              textStyle: const TextStyle(fontFamily: 'Noto Sans KR'),
+              textStyle: TextStyle(fontFamily: SeolleyeonApp.fontFamily),
             ),
           ),
           outlinedButtonTheme: OutlinedButtonThemeData(
             style: OutlinedButton.styleFrom(
-              textStyle: const TextStyle(fontFamily: 'Noto Sans KR'),
+              textStyle: TextStyle(fontFamily: SeolleyeonApp.fontFamily),
             ),
           ),
           cupertinoOverrideTheme: CupertinoThemeData(
@@ -96,18 +105,18 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
               textStyle: CupertinoThemeData(brightness: Brightness.light)
                   .textTheme
                   .textStyle
-                  .copyWith(fontFamily: 'Noto Sans KR'),
+                  .copyWith(fontFamily: SeolleyeonApp.fontFamily),
               navTitleTextStyle: CupertinoThemeData(brightness: Brightness.light)
                   .textTheme
                   .navTitleTextStyle
                   .copyWith(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: SeolleyeonApp.fontFamily,
                 fontWeight: FontWeight.w600,
               ),
               navLargeTitleTextStyle: CupertinoThemeData(
                 brightness: Brightness.light,
               ).textTheme.navLargeTitleTextStyle.copyWith(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: SeolleyeonApp.fontFamily,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -137,30 +146,31 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
   }
 }
 
-/// 폰트 두께를 두 단계씩 굵게 (w400→w600, w500→w700 등)
+/// 제목·헤드라인은 더 굵게, 본문·라벨은 한 단계만 (가독성)
 TextTheme _applyFontWeight(TextTheme base) {
-  TextStyle bolder(TextStyle? s) {
+  TextStyle bump(TextStyle? s, int steps) {
     if (s == null) return const TextStyle();
     final w = s.fontWeight ?? FontWeight.w400;
-    final nextIndex = (w.index + 2).clamp(0, FontWeight.w900.index);
+    final nextIndex = (w.index + steps).clamp(0, FontWeight.w900.index);
     return s.copyWith(fontWeight: FontWeight.values[nextIndex]);
   }
+
   return TextTheme(
-    displayLarge: bolder(base.displayLarge),
-    displayMedium: bolder(base.displayMedium),
-    displaySmall: bolder(base.displaySmall),
-    headlineLarge: bolder(base.headlineLarge),
-    headlineMedium: bolder(base.headlineMedium),
-    headlineSmall: bolder(base.headlineSmall),
-    titleLarge: bolder(base.titleLarge),
-    titleMedium: bolder(base.titleMedium),
-    titleSmall: bolder(base.titleSmall),
-    bodyLarge: bolder(base.bodyLarge),
-    bodyMedium: bolder(base.bodyMedium),
-    bodySmall: bolder(base.bodySmall),
-    labelLarge: bolder(base.labelLarge),
-    labelMedium: bolder(base.labelMedium),
-    labelSmall: bolder(base.labelSmall),
+    displayLarge: bump(base.displayLarge, 2),
+    displayMedium: bump(base.displayMedium, 2),
+    displaySmall: bump(base.displaySmall, 2),
+    headlineLarge: bump(base.headlineLarge, 2),
+    headlineMedium: bump(base.headlineMedium, 2),
+    headlineSmall: bump(base.headlineSmall, 2),
+    titleLarge: bump(base.titleLarge, 2),
+    titleMedium: bump(base.titleMedium, 2),
+    titleSmall: bump(base.titleSmall, 1),
+    bodyLarge: bump(base.bodyLarge, 1),
+    bodyMedium: bump(base.bodyMedium, 1),
+    bodySmall: bump(base.bodySmall, 1),
+    labelLarge: bump(base.labelLarge, 1),
+    labelMedium: bump(base.labelMedium, 1),
+    labelSmall: bump(base.labelSmall, 0),
   );
 }
 

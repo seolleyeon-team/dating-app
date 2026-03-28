@@ -188,7 +188,7 @@ class _Header extends StatelessWidget {
               Text(
                 '설레연',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 20,
                   fontWeight: FontWeight.w700,
                   letterSpacing: -0.5,
@@ -223,7 +223,7 @@ class _Header extends StatelessWidget {
                     Text(
                       'AI 취향',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                         color: _AppColors.textMain,
@@ -288,7 +288,7 @@ class _TitleSection extends StatelessWidget {
           child: const Text(
             'AI TRAINING',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 10,
               fontWeight: FontWeight.w700,
               letterSpacing: 1,
@@ -301,7 +301,7 @@ class _TitleSection extends StatelessWidget {
         const Text(
           '스와이프할수록\n추천이 더 정교해져요',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 24,
             fontWeight: FontWeight.w700,
             height: 1.3,
@@ -313,7 +313,7 @@ class _TitleSection extends StatelessWidget {
         const Text(
           'AI 이미지 스와이프로 당신의 취향을 학습합니다.',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 14,
             color: _AppColors.textSecondary,
           ),
@@ -404,7 +404,7 @@ class _CardStack extends StatelessWidget {
                   child: const Text(
                     'PASS',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 24,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 4,
@@ -520,7 +520,7 @@ class _ProfileCard extends StatelessWidget {
                     child: const Text(
                       'LIKE',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 24,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 4,
@@ -545,7 +545,7 @@ class _ProfileCard extends StatelessWidget {
                       Text(
                         profile.name,
                         style: const TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 28,
                           fontWeight: FontWeight.w700,
                           color: CupertinoColors.white,
@@ -567,7 +567,7 @@ class _ProfileCard extends StatelessWidget {
                         child: Text(
                           '${profile.matchPercent}% Match',
                           style: const TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
                             color: CupertinoColors.white,
@@ -581,7 +581,7 @@ class _ProfileCard extends StatelessWidget {
                   Text(
                     '${profile.major} • ${profile.year}',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                       color: CupertinoColors.white.withValues(alpha: 0.8),
@@ -607,7 +607,7 @@ class _ProfileCard extends StatelessWidget {
                         child: Text(
                           tag,
                           style: const TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                             letterSpacing: 0.5,
@@ -664,7 +664,7 @@ class _DailyLimitBadge extends StatelessWidget {
             Text(
               'Daily limit: ',
               style: const TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
                 color: _AppColors.textSecondary,
@@ -673,7 +673,7 @@ class _DailyLimitBadge extends StatelessWidget {
             Text(
               '$limit',
               style: const TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.primary,
@@ -763,7 +763,7 @@ class _NavItem extends StatelessWidget {
         Text(
           label,
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 10,
             fontWeight: FontWeight.w500,
             color: isActive ? _AppColors.primary : _AppColors.gray400,

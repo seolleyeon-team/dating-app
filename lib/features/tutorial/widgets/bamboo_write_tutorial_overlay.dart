@@ -166,7 +166,7 @@ class _WriteModal extends StatelessWidget {
               const Text(
                 '대나무숲 글쓰기',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                   color: _AppColors.textMain,
@@ -175,7 +175,7 @@ class _WriteModal extends StatelessWidget {
               Text(
                 '임시저장',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 14,
                   color: _AppColors.textSecondary,
                 ),
@@ -187,7 +187,7 @@ class _WriteModal extends StatelessWidget {
           const Text(
             '어떤 마음인가요?',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 18,
               fontWeight: FontWeight.w700,
               color: _AppColors.textMain,
@@ -218,7 +218,7 @@ class _WriteModal extends StatelessWidget {
                 const Text(
                   '솔직한 마음을 익명으로 남겨보세요...\n아무도 모를 거예요.',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 14,
                     color: _AppColors.gray400,
                   ),
@@ -241,7 +241,7 @@ class _WriteModal extends StatelessWidget {
                           const Text(
                             '익명 보장',
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 12,
                               color: _AppColors.gray400,
                             ),
@@ -251,7 +251,7 @@ class _WriteModal extends StatelessWidget {
                       const Text(
                         '0/300자',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 12,
                           color: _AppColors.gray400,
                         ),
@@ -284,7 +284,7 @@ class _WriteModal extends StatelessWidget {
                 Text(
                   '등록하기',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                     color: CupertinoColors.white,
@@ -335,7 +335,7 @@ class _TagChip extends StatelessWidget {
       child: Text(
         label,
         style: TextStyle(
-          fontFamily: 'Noto Sans KR',
+          fontFamily: 'Pretendard',
           fontSize: 14,
           fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
           color: isSelected ? CupertinoColors.white : _AppColors.textSecondary,
@@ -361,7 +361,7 @@ class _TutorialInfo extends StatelessWidget {
         const Text(
           '글쓰기',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 20,
             fontWeight: FontWeight.w700,
             color: CupertinoColors.white,
@@ -372,7 +372,7 @@ class _TutorialInfo extends StatelessWidget {
           '익명으로 글을 쓸 수 있어요.\n개인정보(연락처/실명)는 올리지 마세요.',
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 14,
             height: 1.5,
             color: CupertinoColors.white.withValues(alpha: 0.8),
@@ -388,7 +388,7 @@ class _TutorialInfo extends StatelessWidget {
           child: Text(
             '$currentStep / $totalSteps',
             style: const TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 12,
               fontWeight: FontWeight.w500,
               letterSpacing: 1,

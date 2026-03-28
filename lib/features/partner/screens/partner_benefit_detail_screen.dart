@@ -182,7 +182,7 @@ class _HeroSection extends StatelessWidget {
                       child: const Text(
                         'PARTNER BENEFIT',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
                           letterSpacing: 1.2,
@@ -202,7 +202,7 @@ class _HeroSection extends StatelessWidget {
                         const Text(
                           'OO 매장에서 설레연 이용자들을 기다립니다!',
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 26,
                             fontWeight: FontWeight.w700,
                             height: 1.2,
@@ -213,7 +213,7 @@ class _HeroSection extends StatelessWidget {
                         Text(
                           '낭만적인 분위기의 이탈리안 비스트로',
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 14,
                             fontWeight: FontWeight.w500,
                             color: CupertinoColors.white.withValues(alpha: 0.9),
@@ -308,7 +308,7 @@ class _BenefitDetails extends StatelessWidget {
               const Text(
                 'SPECIAL OFFER',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1,
@@ -322,7 +322,7 @@ class _BenefitDetails extends StatelessWidget {
           RichText(
             text: const TextSpan(
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 24,
                 fontWeight: FontWeight.w700,
                 height: 1.3,
@@ -343,7 +343,7 @@ class _BenefitDetails extends StatelessWidget {
           const Text(
             '매장에 방문하셔서 설레연 앱 내의 안전 도장을 직원에게 보여주세요. 테이블 당 1회 제공됩니다. 주문 시 미리 말씀해주시면 더욱 원활한 서비스가 가능합니다.',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 15,
               height: 1.6,
               color: _AppColors.textSecondary,
@@ -389,7 +389,7 @@ class _TagChips extends StatelessWidget {
                 Text(
                   tag.$2,
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
                     color: _AppColors.textMain,
@@ -443,7 +443,7 @@ class _LocationSection extends StatelessWidget {
               const Text(
                 '매장 위치',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                   color: _AppColors.textMain,
@@ -452,7 +452,7 @@ class _LocationSection extends StatelessWidget {
               Text(
                 '350m away',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 14,
                   color: _AppColors.gray500,
                 ),
@@ -560,7 +560,7 @@ class _LocationSection extends StatelessWidget {
                             const Text(
                               '길찾기',
                               style: TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700,
                                 color: _AppColors.textMain,
@@ -593,7 +593,7 @@ class _LocationSection extends StatelessWidget {
                     const Text(
                       '서울특별시 강남구 테헤란로 123',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 15,
                         fontWeight: FontWeight.w500,
                         color: _AppColors.textMain,
@@ -603,7 +603,7 @@ class _LocationSection extends StatelessWidget {
                     Text(
                       'OO빌딩 1층 이탈리안 비스트로',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 13,
                         color: _AppColors.gray500,
                       ),
@@ -666,7 +666,7 @@ class _BottomCTA extends StatelessWidget {
               Text(
                 '안전 도장 확인하기',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
                   color: CupertinoColors.white,

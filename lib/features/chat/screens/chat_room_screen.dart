@@ -576,7 +576,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                     '채팅방을 불러오지 못했어요\n$_initError',
                                     textAlign: TextAlign.center,
                                     style: const TextStyle(
-                                      fontFamily: 'Noto Sans KR',
+                                      fontFamily: 'Pretendard',
                                       fontSize: 14,
                                       color: _AppColors.textSubtle,
                                     ),
@@ -618,7 +618,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                   child: Text(
                                     '채팅을 시작해 보세요!',
                                     style: TextStyle(
-                                      fontFamily: 'Noto Sans KR',
+                                      fontFamily: 'Pretendard',
                                       fontSize: 15,
                                       color: _AppColors.textSubtle,
                                     ),
@@ -785,7 +785,7 @@ class _Header extends StatelessWidget {
                         child: Text(
                           '약속잡기',
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
                             color: _AppColors.primary,
@@ -831,7 +831,7 @@ class _Header extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.center,
                             style: const TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 18,
                               fontWeight: FontWeight.w700,
                               height: 1.1,
@@ -846,7 +846,7 @@ class _Header extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.center,
                             style: const TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                               height: 1.1,
@@ -900,7 +900,7 @@ class _ActivePromiseBanner extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(
-          fontFamily: 'Noto Sans KR',
+          fontFamily: 'Pretendard',
           fontSize: 12,
           fontWeight: FontWeight.w700,
           color: _AppColors.primary,
@@ -1027,7 +1027,7 @@ class _ReceivedMessage extends StatelessWidget {
                   child: Text(
                     text,
                     style: const TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 15,
                       height: 1.5,
                       color: _AppColors.textMain,
@@ -1042,7 +1042,7 @@ class _ReceivedMessage extends StatelessWidget {
             child: Text(
               time,
               style: const TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 10,
                 color: _AppColors.stone400,
               ),
@@ -1090,7 +1090,7 @@ class _SentMessage extends StatelessWidget {
             child: Text(
               text,
               style: const TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 15,
                 height: 1.5,
                 color: _AppColors.textMain,
@@ -1112,7 +1112,7 @@ class _SentMessage extends StatelessWidget {
                 Text(
                   time,
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 10,
                     color: _AppColors.stone400,
                   ),
@@ -1171,7 +1171,7 @@ class _PromiseRequestMessage extends StatelessWidget {
               const Text(
                 '약속 요청',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
                   color: _AppColors.textMain,
@@ -1182,7 +1182,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                 '${_formatTime(message.promiseDateTime)} · ${message.promiseCategory ?? ''} · ${message.promisePlace ?? ''}',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 14,
                   color: _AppColors.textSubtle,
                 ),
@@ -1193,7 +1193,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                   '약속이 수정되었어요 (${_formatTime(message.editedAt)})',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color: _AppColors.primary,
@@ -1205,7 +1205,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                 message.text,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 13,
                   color: _AppColors.textMain,
                 ),
@@ -1215,7 +1215,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                 const Text(
                   '삭제된 약속이에요.',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 13,
                     color: _AppColors.textSubtle,
                   ),
@@ -1237,7 +1237,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                           child: const Text(
                             '거절',
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontWeight: FontWeight.w700,
                               color: _AppColors.textMain,
                             ),
@@ -1260,7 +1260,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                           child: const Text(
                             '승인',
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontWeight: FontWeight.w700,
                               color: CupertinoColors.white,
                             ),
@@ -1277,7 +1277,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                     const Text(
                       '상대방의 응답을 기다리는 중...',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 13,
                         color: _AppColors.textSubtle,
                       ),
@@ -1289,7 +1289,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                       child: const Text(
                         '수정',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
                           color: _AppColors.primary,
@@ -1303,7 +1303,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                       child: const Text(
                         '삭제',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
                           color: CupertinoColors.systemRed,
@@ -1363,7 +1363,7 @@ class _PromiseConfirmedBanner extends StatelessWidget {
               const Text(
                 '약속 확정',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
                   color: _AppColors.primary,
@@ -1374,7 +1374,7 @@ class _PromiseConfirmedBanner extends StatelessWidget {
                 '${_formatTime(message.promiseDateTime)} · ${message.promiseCategory ?? ''} · ${message.promisePlace ?? ''}',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 14,
                   color: _AppColors.textMain,
                 ),
@@ -1385,7 +1385,7 @@ class _PromiseConfirmedBanner extends StatelessWidget {
                   '약속이 수정되었어요 (${_formatTime(message.editedAt)})',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color: _AppColors.primary,
@@ -1402,7 +1402,7 @@ class _PromiseConfirmedBanner extends StatelessWidget {
                     child: const Text(
                       '약속 수정',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: _AppColors.primary,
@@ -1415,7 +1415,7 @@ class _PromiseConfirmedBanner extends StatelessWidget {
                     child: const Text(
                       '삭제',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: CupertinoColors.systemRed,
@@ -1592,7 +1592,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
               const Text(
                 '약속 잡기',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 20,
                   fontWeight: FontWeight.w800,
                   color: _AppColors.textMain,
@@ -1608,7 +1608,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                       const Text(
                         '날짜 선택',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                           color: _AppColors.textMain,
@@ -1644,7 +1644,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                       const Text(
                         '약속 시각',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                           color: _AppColors.textMain,
@@ -1695,7 +1695,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                                     maxLength: 2,
                                     placeholder: '12',
                                     style: const TextStyle(
-                                      fontFamily: 'Noto Sans KR',
+                                      fontFamily: 'Pretendard',
                                       fontSize: 36,
                                       fontWeight: FontWeight.w800,
                                       color: _AppColors.textMain,
@@ -1735,7 +1735,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                                     maxLength: 2,
                                     placeholder: '00',
                                     style: const TextStyle(
-                                      fontFamily: 'Noto Sans KR',
+                                      fontFamily: 'Pretendard',
                                       fontSize: 36,
                                       fontWeight: FontWeight.w800,
                                       color: _AppColors.textMain,
@@ -1761,7 +1761,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                             const Text(
                               '시: 1~12 / 분: 0~59 로 입력',
                               style: TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 12,
                                 color: _AppColors.textSubtle,
                               ),
@@ -1773,7 +1773,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                       const Text(
                         '장소 카테고리',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                           color: _AppColors.textMain,
@@ -1817,7 +1817,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                                   child: Text(
                                     category,
                                     style: TextStyle(
-                                      fontFamily: 'Noto Sans KR',
+                                      fontFamily: 'Pretendard',
                                       fontSize: 13,
                                       fontWeight: FontWeight.w700,
                                       color: isSelected
@@ -1835,7 +1835,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                       const Text(
                         '장소 선택',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                           color: _AppColors.textMain,
@@ -1872,7 +1872,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                               child: Text(
                                 place,
                                 style: TextStyle(
-                                  fontFamily: 'Noto Sans KR',
+                                  fontFamily: 'Pretendard',
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
                                   color: selectedPlace == place
@@ -1898,7 +1898,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                           '$selectedPeriod ${previewHour.toString().padLeft(2, '0')} : ${previewMinute.toString().padLeft(2, '0')}\n'
                           '$selectedCategory · $selectedPlace',
                           style: const TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 13,
                             height: 1.5,
                             color: _AppColors.textMain,
@@ -1927,7 +1927,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                           child: const Text(
                             '취소',
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 15,
                               fontWeight: FontWeight.w700,
                               color: _AppColors.textMain,
@@ -1974,7 +1974,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                           child: const Text(
                             '약속 요청 보내기',
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 15,
                               fontWeight: FontWeight.w700,
                               color: CupertinoColors.white,
@@ -2024,7 +2024,7 @@ class _PeriodButton extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 13,
             fontWeight: FontWeight.w700,
             color: isSelected ? _AppColors.primary : _AppColors.textMain,
@@ -2087,12 +2087,12 @@ class _InputBar extends StatelessWidget {
                 controller: controller,
                 placeholder: 'Write a message...',
                 placeholderStyle: const TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 15,
                   color: _AppColors.stone400,
                 ),
                 style: const TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 15,
                   color: _AppColors.textMain,
                 ),

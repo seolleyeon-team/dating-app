@@ -50,12 +50,12 @@ class SeolTextField extends StatelessWidget {
             ),
           ),
           style: const TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 16,
             color: Color(0xFF181113),
           ),
           placeholderStyle: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 16,
             color: const Color(0xFF89616F).withValues(alpha: 0.6),
           ),
@@ -65,7 +65,7 @@ class SeolTextField extends StatelessWidget {
           Text(
             errorText!,
             style: const TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 12,
               color: CupertinoColors.destructiveRed,
             ),

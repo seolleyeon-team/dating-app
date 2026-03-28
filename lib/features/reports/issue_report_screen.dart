@@ -200,13 +200,13 @@ class _IssueReportScreenState extends State<IssueReportScreen> {
                   placeholder:
                       '어떤 화면에서 어떤 문제가 있었는지 적어주세요.\n예: 채팅방에 들어가면 메시지가 늦게 보여요.',
                   placeholderStyle: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     color: _IssueColors.textHint,
                     fontSize: 15,
                     height: 1.45,
                   ),
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     color: _IssueColors.textMain,
                     fontSize: 15,
                     height: 1.5,

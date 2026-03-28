@@ -266,7 +266,7 @@ class _TitleSection extends StatelessWidget {
           Text(
             'STEP 4 OF 6',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 13,
               fontWeight: FontWeight.w700,
               letterSpacing: 1.2,
@@ -277,7 +277,7 @@ class _TitleSection extends StatelessWidget {
           Text(
             '나의 이상형의\n성격은?',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 30,
               fontWeight: FontWeight.w700,
               height: 1.2,
@@ -289,7 +289,7 @@ class _TitleSection extends StatelessWidget {
           Text(
             '이상형의 성격을 가장 잘 나타내는 키워드를\n8개까지 선택해 주세요.',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 16,
               fontWeight: FontWeight.w400,
               height: 1.4,
@@ -341,7 +341,7 @@ class _KeywordChip extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
                 color: isSelected
@@ -423,7 +423,7 @@ class _BottomCTA extends StatelessWidget {
               Text(
                 selectedCount > 0 ? '저장 ($selectedCount/8)' : '저장',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
                   color: isEnabled

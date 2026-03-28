@@ -309,7 +309,7 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                                       decoration: InputDecoration(
                                         hintText: _getHintText(),
                                         hintStyle: const TextStyle(
-                                          fontFamily: 'Noto Sans KR',
+                                          fontFamily: 'Pretendard',
                                           color: Colors.grey,
                                           height: 1.6,
                                           fontSize: 16,
@@ -318,7 +318,7 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                                         counterText: '',
                                       ),
                                       style: const TextStyle(
-                                        fontFamily: 'Noto Sans KR',
+                                        fontFamily: 'Pretendard',
                                         fontSize: 16,
                                         height: 1.6,
                                         color: _AppColors.textMain,

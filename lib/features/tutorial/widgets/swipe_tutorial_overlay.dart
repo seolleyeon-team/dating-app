@@ -136,7 +136,7 @@ class _SwipeTutorialOverlayState extends State<SwipeTutorialOverlay>
                 '오른쪽은 좋아요, 왼쪽은 패스.\n간단하게 넘겨주세요.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                   height: 1.4,
@@ -163,7 +163,7 @@ class _SwipeTutorialOverlayState extends State<SwipeTutorialOverlay>
                     child: Text(
                       '건너뛰기',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                         color: CupertinoColors.white.withValues(alpha: 0.6),
@@ -176,7 +176,7 @@ class _SwipeTutorialOverlayState extends State<SwipeTutorialOverlay>
                     child: Text(
                       '다음',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                         color: CupertinoColors.white.withValues(alpha: 0.6),
@@ -227,7 +227,7 @@ class _SwipeDirection extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
                 letterSpacing: 2,
@@ -238,7 +238,7 @@ class _SwipeDirection extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
                 letterSpacing: 2,

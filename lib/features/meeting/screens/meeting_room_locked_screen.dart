@@ -149,7 +149,7 @@ class _Header extends StatelessWidget {
                   '미팅 방',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                     color: _AppColors.textMain,
@@ -197,7 +197,7 @@ class _TeamMatchDisplay extends StatelessWidget {
                 child: const Text(
                   'TEAM A',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     color: _AppColors.primary,
@@ -219,7 +219,7 @@ class _TeamMatchDisplay extends StatelessWidget {
                   child: Text(
                     'VS',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 2,
@@ -249,7 +249,7 @@ class _TeamMatchDisplay extends StatelessWidget {
                 child: const Text(
                   'TEAM B',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     color: _AppColors.indigo500,
@@ -366,7 +366,7 @@ class _DepositProgress extends StatelessWidget {
                       const TextSpan(
                         text: '약속 머니 모으는 중 ',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
                           color: _AppColors.textMain,
@@ -375,7 +375,7 @@ class _DepositProgress extends StatelessWidget {
                       TextSpan(
                         text: '($current/$total)',
                         style: const TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
                           color: _AppColors.primary,
@@ -402,7 +402,7 @@ class _DepositProgress extends StatelessWidget {
             const Text(
               '안전한 만남을 위해 전원이 예치금을\n입금해야 대화방이 열려요.',
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 14,
                 height: 1.5,
                 color: _AppColors.textSecondary,
@@ -434,7 +434,7 @@ class _DepositProgress extends StatelessWidget {
                 Text(
                   '$_percent%',
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color: _AppColors.primary,
@@ -443,7 +443,7 @@ class _DepositProgress extends StatelessWidget {
                 const Text(
                   '100%',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     color: _AppColors.gray400,
                   ),
@@ -525,7 +525,7 @@ class _LockedChatPlaceholder extends StatelessWidget {
                     const Text(
                       '대화방이 잠겨있습니다',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                         color: _AppColors.gray700,
@@ -535,7 +535,7 @@ class _LockedChatPlaceholder extends StatelessWidget {
                     const Text(
                       '예치금이 모두 모이면 열려요',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 12,
                         color: _AppColors.gray500,
                       ),
@@ -690,7 +690,7 @@ class _BottomActionSheet extends StatelessWidget {
                   Text(
                     '예치금 내기',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                       color: CupertinoColors.white,
@@ -723,7 +723,7 @@ class _BottomActionSheet extends StatelessWidget {
                 child: Text(
                   '대타 구하기',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 17,
                     fontWeight: FontWeight.w600,
                     color: _AppColors.gray700,
@@ -743,7 +743,7 @@ class _BottomActionSheet extends StatelessWidget {
                 Text(
                   '제휴 장소 추천 보기',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                     color: _AppColors.gray400,

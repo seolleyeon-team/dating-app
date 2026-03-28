@@ -123,7 +123,7 @@ class _BambooForestWriteTutorialScreenState
                   const Text(
                     '글쓰기',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
@@ -134,7 +134,7 @@ class _BambooForestWriteTutorialScreenState
                     '익명으로 글을 쓸 수 있어요.\n개인정보(연락처/실명)는 올리지 마세요.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 14,
                       color: Colors.white.withValues(alpha: 0.8),
                       height: 1.5,

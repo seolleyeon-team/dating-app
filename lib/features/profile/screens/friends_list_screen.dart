@@ -220,7 +220,7 @@ class _FriendsListScreenState extends State<FriendsListScreen> {
                               child: Text(
                                 '지인을 차단하면 추천 목록에서 영구적으로 제외돼요. 안심하고 새로운 인연을 찾아보세요.',
                                 style: TextStyle(
-                                  fontFamily: 'Noto Sans KR',
+                                  fontFamily: 'Pretendard',
                                   fontSize: 12,
                                   height: 1.5,
                                   color: _AppColors.textMuted,
@@ -236,7 +236,7 @@ class _FriendsListScreenState extends State<FriendsListScreen> {
                         controller: _searchController,
                         placeholder: '이름 또는 학과 검색',
                         placeholderStyle: const TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           color: CupertinoColors.placeholderText,
                         ),
                         prefix: Padding(
@@ -253,7 +253,7 @@ class _FriendsListScreenState extends State<FriendsListScreen> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         style: const TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 14,
                         ),
                       ),
@@ -300,7 +300,7 @@ class _FriendsListScreenState extends State<FriendsListScreen> {
                                   child: Text(
                                     _filters[index],
                                     style: TextStyle(
-                                      fontFamily: 'Noto Sans KR',
+                                      fontFamily: 'Pretendard',
                                       fontSize: 12,
                                       fontWeight: FontWeight.w500,
                                       color: isSelected
@@ -328,7 +328,7 @@ class _FriendsListScreenState extends State<FriendsListScreen> {
                           const Text(
                             '친구 목록',
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
                               color: _AppColors.textLight,
@@ -338,7 +338,7 @@ class _FriendsListScreenState extends State<FriendsListScreen> {
                           Text(
                             '${_friends.length}',
                             style: const TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
                               color: _AppColors.primary,
@@ -354,7 +354,7 @@ class _FriendsListScreenState extends State<FriendsListScreen> {
                             Text(
                               '정렬 기준 기본',
                               style: TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 12,
                                 color: _AppColors.textMuted,
                               ),
@@ -430,7 +430,7 @@ class _Header extends StatelessWidget {
               const Text(
                 '친구',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                   color: _AppColors.textLight,
@@ -511,7 +511,7 @@ class _TabBar extends StatelessWidget {
                   entry.value,
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 14,
                     fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                     color: isSelected
@@ -613,7 +613,7 @@ class _FriendItem extends StatelessWidget {
                 Text(
                   friend.username,
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                     color: _AppColors.textLight,
@@ -625,7 +625,7 @@ class _FriendItem extends StatelessWidget {
                       ? '${friend.displayName} · ${friend.detail}'
                       : friend.displayName,
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     color: _AppColors.textMuted,
                   ),
@@ -635,7 +635,7 @@ class _FriendItem extends StatelessWidget {
                   const Text(
                     '새 게시물 1개',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 10,
                       fontWeight: FontWeight.w500,
                       color: _AppColors.blue500,
@@ -663,7 +663,7 @@ class _FriendItem extends StatelessWidget {
               child: Text(
                 '메시지',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                   color: friend.hasNewPost

@@ -91,7 +91,7 @@ class KakaoAuthErrorScreen extends StatelessWidget {
                         child: Text(
                           '다시 시도',
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 0.5,
@@ -168,7 +168,7 @@ class _Header extends StatelessWidget {
                 'Seolleyeon',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                   letterSpacing: -0.3,
@@ -272,7 +272,7 @@ class _TextContent extends StatelessWidget {
         const Text(
           '인증에 실패했어요',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 28,
             fontWeight: FontWeight.w700,
             letterSpacing: -0.5,
@@ -284,7 +284,7 @@ class _TextContent extends StatelessWidget {
           '일시적인 오류일 수 있어요.\n잠시 후 다시 시도해 주세요.',
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 16,
             height: 1.5,
             color: _AppColors.textSecondary.withValues(alpha: 0.6),
@@ -344,7 +344,7 @@ class _TrustCard extends StatelessWidget {
                 const Text(
                   '안심하세요',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                     color: _AppColors.textMain,
@@ -354,7 +354,7 @@ class _TrustCard extends StatelessWidget {
                 Text(
                   '회원님의 카카오톡 타임라인에\n절대 기록을 남기지 않아요.',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     height: 1.5,
                     color: _AppColors.textSecondary.withValues(alpha: 0.6),
@@ -389,7 +389,7 @@ class _HelpLinks extends StatelessWidget {
           child: Text(
             '고객센터 문의',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 12,
               fontWeight: FontWeight.w500,
               color: _AppColors.textSecondary.withValues(alpha: 0.4),
@@ -408,7 +408,7 @@ class _HelpLinks extends StatelessWidget {
           child: Text(
             '다른 방법으로 로그인',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 12,
               fontWeight: FontWeight.w500,
               color: _AppColors.textSecondary.withValues(alpha: 0.4),

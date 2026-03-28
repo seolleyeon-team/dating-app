@@ -175,7 +175,7 @@ class _Header extends StatelessWidget {
               title,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 color: _SheetColors.textMain,
@@ -254,7 +254,7 @@ class _SectionBlock extends StatelessWidget {
         Text(
           section.title,
           style: const TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 14,
             fontWeight: FontWeight.w700,
             color: _SheetColors.textMain,
@@ -264,7 +264,7 @@ class _SectionBlock extends StatelessWidget {
         Text(
           section.content,
           style: const TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 15,
             fontWeight: FontWeight.w400,
             color: _SheetColors.textBody,
@@ -321,7 +321,7 @@ class _AgreeButton extends StatelessWidget {
             child: Text(
               text,
               style: const TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
                 color: CupertinoColors.white,

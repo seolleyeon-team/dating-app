@@ -295,7 +295,7 @@ class _Header extends StatelessWidget {
             const Text(
               '내가 보낸 호감',
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.textPrimary,
@@ -387,7 +387,7 @@ class _ProfileListItem extends StatelessWidget {
                           child: Text(
                             profile.name,
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
                               color: profile.isOld
@@ -406,7 +406,7 @@ class _ProfileListItem extends StatelessWidget {
                     Text(
                       '${profile.department} • ${profile.age}세',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 12,
                         color: profile.isOld
                             ? _AppColors.gray400
@@ -518,7 +518,7 @@ class _ProfileAvatar extends StatelessWidget {
                 child: const Text(
                   'NEW',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
                     color: CupertinoColors.white,
@@ -553,7 +553,7 @@ class _DateBadge extends StatelessWidget {
         child: Text(
           date,
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 12,
             fontWeight: FontWeight.w500,
             color: _AppColors.primary.withValues(alpha: 0.8),
@@ -564,7 +564,7 @@ class _DateBadge extends StatelessWidget {
     return Text(
       date,
       style: const TextStyle(
-        fontFamily: 'Noto Sans KR',
+        fontFamily: 'Pretendard',
         fontSize: 12,
         fontWeight: FontWeight.w500,
         color: _AppColors.gray400,
@@ -599,7 +599,7 @@ class _TagRow extends StatelessWidget {
           child: Text(
             tag,
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 10,
               fontWeight: FontWeight.w500,
               color: isOld ? _AppColors.gray400 : _AppColors.primary,
@@ -631,7 +631,7 @@ class _SectionDivider extends StatelessWidget {
             child: Text(
               text,
               style: const TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
                 color: _AppColors.gray400,
@@ -732,7 +732,7 @@ class _NavItem extends StatelessWidget {
           Text(
             label,
             style: const TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 10,
               fontWeight: FontWeight.w500,
               letterSpacing: -0.2,

@@ -152,7 +152,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
             child: Text(
               '로그인 정보가 없어요',
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 15,
                 color: _AppColors.textSub,
               ),
@@ -170,7 +170,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         border: const Border(
           bottom: BorderSide(color: _AppColors.gray200, width: 0.6),
         ),
-        middle: const Text('알림', style: TextStyle(fontFamily: 'Noto Sans KR')),
+        middle: const Text('알림', style: TextStyle(fontFamily: 'Pretendard')),
         leading: CupertinoButton(
           padding: EdgeInsets.zero,
           onPressed: () => Navigator.of(context).maybePop(),
@@ -182,7 +182,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
           child: const Text(
             '모두 읽음',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 13,
               fontWeight: FontWeight.w700,
               color: _AppColors.primary,
@@ -206,7 +206,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                   '알림을 불러오지 못했어요\n${snapshot.error}',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 14,
                     color: _AppColors.textSub,
                   ),
@@ -236,7 +236,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                           const Text(
                             '새 알림',
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
                               color: _AppColors.textSub,
@@ -248,7 +248,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                                 ? '읽지 않은 알림이 $unreadCount개 있어요'
                                 : '모든 알림을 확인했어요',
                             style: const TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 17,
                               fontWeight: FontWeight.w800,
                               color: _AppColors.textMain,
@@ -265,7 +265,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                     child: Text(
                       '최근 알림',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
                         color: _AppColors.textSub,
@@ -280,7 +280,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                       child: Text(
                         '아직 알림이 없어요',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 15,
                           color: _AppColors.textSub,
                         ),
@@ -337,7 +337,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                                             child: Text(
                                               notification.title,
                                               style: TextStyle(
-                                                fontFamily: 'Noto Sans KR',
+                                                fontFamily: 'Pretendard',
                                                 fontSize: 14,
                                                 fontWeight: notification.isRead
                                                     ? FontWeight.w600
@@ -350,7 +350,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                                           Text(
                                             _formatTime(notification.createdAt),
                                             style: const TextStyle(
-                                              fontFamily: 'Noto Sans KR',
+                                              fontFamily: 'Pretendard',
                                               fontSize: 11,
                                               color: _AppColors.textSub,
                                             ),
@@ -361,7 +361,7 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
                                       Text(
                                         notification.body,
                                         style: const TextStyle(
-                                          fontFamily: 'Noto Sans KR',
+                                          fontFamily: 'Pretendard',
                                           fontSize: 13,
                                           height: 1.45,
                                           color: _AppColors.textSub,

@@ -270,7 +270,7 @@ class _SwipeHintText extends StatelessWidget {
       child: const Text(
         'SWIPE LEFT OR RIGHT',
         style: TextStyle(
-          fontFamily: 'Noto Sans KR',
+          fontFamily: 'Pretendard',
           fontSize: 11,
           fontWeight: FontWeight.w300,
           letterSpacing: 3,

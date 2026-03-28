@@ -27,11 +27,11 @@ class ConfirmDialog extends StatelessWidget {
     return AlertDialog(
       title: Text(
         title,
-        style: const TextStyle(fontFamily: 'Noto Sans KR'),
+        style: const TextStyle(fontFamily: 'Pretendard'),
       ),
       content: Text(
         message,
-        style: const TextStyle(fontFamily: 'Noto Sans KR'),
+        style: const TextStyle(fontFamily: 'Pretendard'),
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       actions: [
@@ -43,7 +43,7 @@ class ConfirmDialog extends StatelessWidget {
           child: Text(
             cancelText,
             style: const TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               color: _textSecondary,
             ),
           ),
@@ -56,7 +56,7 @@ class ConfirmDialog extends StatelessWidget {
           child: Text(
             confirmText,
             style: const TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               color: _primary,
             ),
           ),

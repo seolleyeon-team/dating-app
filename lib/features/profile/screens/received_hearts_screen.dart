@@ -207,7 +207,7 @@ class _ReceivedHeartsScreenState extends State<ReceivedHeartsScreen> {
                       const Text(
                         "That's all for now!",
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 14,
                           color: _AppColors.gray400,
                         ),
@@ -219,7 +219,7 @@ class _ReceivedHeartsScreenState extends State<ReceivedHeartsScreen> {
                         child: const Text(
                           'Boost your profile',
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
                             color: _AppColors.primary,
@@ -361,7 +361,7 @@ class _StickyHeaderDelegate extends SliverPersistentHeaderDelegate {
                           'Received Hearts ($profileCount)',
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
                             letterSpacing: -0.3,
@@ -412,7 +412,7 @@ class _StickyHeaderDelegate extends SliverPersistentHeaderDelegate {
                             child: Text(
                               filters[index],
                               style: TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 14,
                                 fontWeight: isSelected
                                     ? FontWeight.w600
@@ -504,7 +504,7 @@ class _HeartCard extends StatelessWidget {
                 Text(
                   '${profile.occupation} • ${profile.location}',
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                     color: CupertinoColors.white,
@@ -514,7 +514,7 @@ class _HeartCard extends StatelessWidget {
                 Text(
                   '${profile.age} • ${profile.detail}',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                     color: CupertinoColors.white.withValues(alpha: 0.8),
@@ -546,7 +546,7 @@ class _HeartCard extends StatelessWidget {
                           Text(
                             '${profile.heartCount}',
                             style: const TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
                               color: CupertinoColors.white,
@@ -583,7 +583,7 @@ class _HeartCard extends StatelessWidget {
                             child: Text(
                               'Reveal',
                               style: TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 12,
                                 fontWeight: FontWeight.w700,
                                 color: CupertinoColors.white,

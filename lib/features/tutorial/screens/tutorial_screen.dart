@@ -107,7 +107,7 @@ class _TutorialScreenState extends State<TutorialScreen>
                             '어디로든 빠르게 이동해요',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 24,
                               fontWeight: FontWeight.bold,
                               color: Colors.white,
@@ -125,7 +125,7 @@ class _TutorialScreenState extends State<TutorialScreen>
                             '하단 탭을 눌러 원하는 메뉴로\n바로 이동해보세요.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 14,
                               height: 1.5,
                               color: Colors.white.withValues(alpha: 0.8),
@@ -565,7 +565,7 @@ class _TooltipItem extends StatelessWidget {
             label,
             style: TextStyle(
               // "Gowun Dodum" 폰트 대체용으로 기본 sans-serif 사용하되 스타일 매칭
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 12,
               fontWeight: FontWeight.bold,
               color: isHighlight ? Colors.white : Colors.black87,

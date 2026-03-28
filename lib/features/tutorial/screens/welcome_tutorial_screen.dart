@@ -128,7 +128,7 @@ class _WelcomeTutorialScreenState extends State<WelcomeTutorialScreen>
                       child: const Text(
                         'Skip',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                           color: _AppColors.textSecondary,
@@ -153,7 +153,7 @@ class _WelcomeTutorialScreenState extends State<WelcomeTutorialScreen>
                         textAlign: TextAlign.center,
                         text: const TextSpan(
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 28,
                             fontWeight: FontWeight.w800,
                             height: 1.3,
@@ -174,7 +174,7 @@ class _WelcomeTutorialScreenState extends State<WelcomeTutorialScreen>
                         '연애를 못 하는 이유는\n개인 문제가 아니라, 환경 문제.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 18,
                           height: 1.5,
                           color: _AppColors.textSecondary,
@@ -214,7 +214,7 @@ class _WelcomeTutorialScreenState extends State<WelcomeTutorialScreen>
                               Text(
                                 '다음',
                                 style: TextStyle(
-                                  fontFamily: 'Noto Sans KR',
+                                  fontFamily: 'Pretendard',
                                   fontSize: 18,
                                   fontWeight: FontWeight.w700,
                                   color: CupertinoColors.white,

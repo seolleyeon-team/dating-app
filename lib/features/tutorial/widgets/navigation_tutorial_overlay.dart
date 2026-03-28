@@ -144,7 +144,7 @@ class _NavigationTutorialOverlayState extends State<NavigationTutorialOverlay>
                       child: Text(
                         'Page ${widget.currentStep} of ${widget.totalSteps}',
                         style: const TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 10,
                           color: CupertinoColors.white,
                         ),
@@ -154,7 +154,7 @@ class _NavigationTutorialOverlayState extends State<NavigationTutorialOverlay>
                     const Text(
                       '어디로든 빠르게 이동해요',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 24,
                         fontWeight: FontWeight.w700,
                         color: CupertinoColors.white,
@@ -164,7 +164,7 @@ class _NavigationTutorialOverlayState extends State<NavigationTutorialOverlay>
                     Text(
                       '하단 탭을 눌러 원하는 메뉴로 바로 이동해보세요.',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 14,
                         color: CupertinoColors.white.withValues(alpha: 0.8),
                       ),
@@ -276,7 +276,7 @@ class _TabLabels extends StatelessWidget {
                     child: Text(
                       tab.label,
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 10,
                         fontWeight: FontWeight.w500,
                         color: tab.isActive
@@ -355,7 +355,7 @@ class _TabButton extends StatelessWidget {
         Text(
           label,
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 10,
             fontWeight: FontWeight.w500,
             color: isActive ? _AppColors.primary : _AppColors.gray500,

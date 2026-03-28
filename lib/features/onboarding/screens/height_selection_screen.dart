@@ -158,7 +158,7 @@ class _HeightSelectionScreenState extends State<HeightSelectionScreen> {
                       child: const Text(
                         '설레연',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 20,
                           fontWeight: FontWeight.w600,
                           letterSpacing: -0.3,
@@ -283,7 +283,7 @@ class _SelectionCard extends StatelessWidget {
             const Text(
               '키를 알려주세요',
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 26,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.5,
@@ -294,7 +294,7 @@ class _SelectionCard extends StatelessWidget {
             const Text(
               '솔직하게 입력해 주세요',
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
                 color: _AppColors.textSecondaryLight,
@@ -321,7 +321,7 @@ class _SelectionCard extends StatelessWidget {
               child: Text(
                 '${selectedHeight}cm',
                 style: const TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
                   color: _AppColors.textMainLight,
@@ -353,7 +353,7 @@ class _SelectionCard extends StatelessWidget {
                   child: Text(
                     '완료',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                       color: CupertinoColors.white,
@@ -439,7 +439,7 @@ class _HeightPicker extends StatelessWidget {
                     Text(
                       '$height',
                       style: const TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 32,
                         fontWeight: FontWeight.w700,
                         letterSpacing: -0.5,
@@ -450,7 +450,7 @@ class _HeightPicker extends StatelessWidget {
                     const Text(
                       'cm',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 18,
                         fontWeight: FontWeight.w500,
                         color: _AppColors.textSecondaryLight,

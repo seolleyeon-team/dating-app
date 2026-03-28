@@ -101,7 +101,7 @@ class SeasonMeetingIntroScreen extends StatelessWidget {
                           child: Text(
                             'Swipe left to see more upcoming events',
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 12,
                               color: _AppColors.textSecondary,
                             ),
@@ -156,7 +156,7 @@ class _Header extends StatelessWidget {
                   Text(
                     '설레연',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 24,
                       fontWeight: FontWeight.w900,
                       letterSpacing: -0.5,
@@ -191,7 +191,7 @@ class _Header extends StatelessWidget {
                         Text(
                           'AI 취향 분석',
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
                             color: _AppColors.textMain,
@@ -262,7 +262,7 @@ class _TitleSection extends StatelessWidget {
               child: const Text(
                 'PREMIUM EVENT',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1,
@@ -274,7 +274,7 @@ class _TitleSection extends StatelessWidget {
             const Text(
               '이달의 이벤트',
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 28,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.textMain,
@@ -380,7 +380,7 @@ class _EventCard extends StatelessWidget {
                     Text(
                       '1st Free (첫 참여 무료)',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 12,
                         fontWeight: FontWeight.w800,
                         color: _AppColors.primary,
@@ -415,7 +415,7 @@ class _EventCard extends StatelessWidget {
                         RichText(
                           text: const TextSpan(
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 24,
                               fontWeight: FontWeight.w700,
                               height: 1.3,
@@ -438,7 +438,7 @@ class _EventCard extends StatelessWidget {
                         Text(
                           '친구들과 팀을 이뤄 특별한 테마의 미팅에 참여하세요.\n와인, 서핑, 독서 등 취향이 맞는 상대를 만나요.',
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 14,
                             height: 1.5,
                             fontWeight: FontWeight.w300,
@@ -479,7 +479,7 @@ class _EventCard extends StatelessWidget {
                                 Text(
                                   '지금 신청하기',
                                   style: TextStyle(
-                                    fontFamily: 'Noto Sans KR',
+                                    fontFamily: 'Pretendard',
                                     fontSize: 16,
                                     fontWeight: FontWeight.w700,
                                     color: CupertinoColors.white,
@@ -623,7 +623,7 @@ class _NavItem extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 9,
               fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
               color: isActive ? _AppColors.primary : _AppColors.gray400,
@@ -670,7 +670,7 @@ class _CenterNavItem extends StatelessWidget {
           const Text(
             '이벤트',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 9,
               fontWeight: FontWeight.w700,
               color: _AppColors.primary,
