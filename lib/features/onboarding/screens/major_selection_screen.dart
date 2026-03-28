@@ -374,7 +374,7 @@ class _TitleSection extends StatelessWidget {
           '어느 학과/계열\n소속이신가요?',
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 24,
             fontWeight: FontWeight.w700,
             height: 1.3,
@@ -386,7 +386,7 @@ class _TitleSection extends StatelessWidget {
         const Text(
           '비슷한 전공의 친구를 찾을 때 도움이 돼요',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 14,
             color: _AppColors.gray500,
           ),
@@ -512,7 +512,7 @@ class _OptionCard extends StatelessWidget {
                 Text(
                   option.title,
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                     color: _AppColors.gray800,
@@ -523,7 +523,7 @@ class _OptionCard extends StatelessWidget {
                 Text(
                   option.subtitle,
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                     color: _AppColors.gray400,
@@ -593,7 +593,7 @@ class _BottomButtons extends StatelessWidget {
                 Text(
                   '다음',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 17,
                     fontWeight: FontWeight.w700,
                     color: CupertinoColors.white,

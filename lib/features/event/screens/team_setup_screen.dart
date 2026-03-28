@@ -128,7 +128,7 @@ class _Header extends StatelessWidget {
           const Text(
             '3명 팀으로 참여해요',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 18,
               fontWeight: FontWeight.w700,
               color: _AppColors.textMain,

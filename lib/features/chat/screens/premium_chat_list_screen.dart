@@ -389,7 +389,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                             child: Text(
                               '채팅 목록을 불러오지 못했어요',
                               style: TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 15,
                                 color: _AppColors.gray500,
                               ),
@@ -506,7 +506,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                   ? '아직 받은 채팅이 없어요'
                                   : '채팅을 시작해 보세요!',
                               style: const TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 15,
                                 color: _AppColors.gray500,
                               ),
@@ -665,7 +665,7 @@ class _Header extends StatelessWidget {
             const Text(
               '채팅',
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 28,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.5,
@@ -805,7 +805,7 @@ class _TabChip extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 13,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                 color: isSelected ? CupertinoColors.white : _AppColors.gray500,
@@ -853,7 +853,7 @@ class _ChatListItem extends StatelessWidget {
                       Text(
                         chat.name,
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 15,
                           fontWeight: chat.hasUnread
                               ? FontWeight.w700
@@ -866,7 +866,7 @@ class _ChatListItem extends StatelessWidget {
                         Text(
                           chat.time,
                           style: const TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
                             color: _AppColors.gray400,
@@ -883,7 +883,7 @@ class _ChatListItem extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 13,
                             fontWeight: chat.hasUnread
                                 ? FontWeight.w500
@@ -1159,7 +1159,7 @@ class _NavItem extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 10,
               fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
               letterSpacing: -0.2,

@@ -126,7 +126,7 @@ class KakaoAuthMainScreen extends StatelessWidget {
                         '안전한 캠퍼스 인증을\n시작할게요',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 26,
                           fontWeight: FontWeight.w700,
                           height: 1.3,
@@ -139,7 +139,7 @@ class KakaoAuthMainScreen extends StatelessWidget {
                         '철저한 신원 확인으로 믿을 수 있는\n만남을 약속해요.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 16,
                           height: 1.5,
                           color: _AppColors.gray500,
@@ -183,7 +183,7 @@ class KakaoAuthMainScreen extends StatelessWidget {
                               Text(
                                 '카카오로 계속하기',
                                 style: TextStyle(
-                                  fontFamily: 'Noto Sans KR',
+                                  fontFamily: 'Pretendard',
                                   fontSize: 16,
                                   fontWeight: FontWeight.w700,
                                   color: _AppColors.kakaoLabel,
@@ -253,7 +253,7 @@ class _Header extends StatelessWidget {
               '카카오톡 인증',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.3,
@@ -282,7 +282,7 @@ class _LegalText extends StatelessWidget {
     return Text.rich(
       TextSpan(
         style: const TextStyle(
-          fontFamily: 'Noto Sans KR',
+          fontFamily: 'Pretendard',
           fontSize: 12,
           height: 1.5,
           color: _AppColors.gray400,
@@ -345,7 +345,7 @@ class _InfoCard extends StatelessWidget {
               Text(
                 '카카오에서 제공받는 정보',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
                   color: _AppColors.textMain,
@@ -381,7 +381,7 @@ class _InfoCard extends StatelessWidget {
                   child: Text(
                     '이름, 전화번호',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                       color: _AppColors.gray700,
@@ -400,7 +400,7 @@ class _InfoCard extends StatelessWidget {
                   child: const Text(
                     '본인확인용',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.gray400,
@@ -438,7 +438,7 @@ class _InfoCard extends StatelessWidget {
                   child: Text(
                     '카카오톡 친구 목록',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                       color: _AppColors.gray700,
@@ -457,7 +457,7 @@ class _InfoCard extends StatelessWidget {
                   child: const Text(
                     '수집안함',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.primary,
@@ -495,7 +495,7 @@ class _SecureBadge extends StatelessWidget {
           Text(
             'SEOLLEYEON SECURE SYSTEM',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 11,
               fontWeight: FontWeight.w600,
               letterSpacing: 1,

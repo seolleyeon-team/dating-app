@@ -139,7 +139,7 @@ class PromiseAgreementModal extends StatelessWidget {
                   child: Text(
                     '동의하고 계속',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 0.5,
@@ -207,7 +207,7 @@ class _Header extends StatelessWidget {
         const Text(
           '우리 함께 약속해요 🤍',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 24,
             fontWeight: FontWeight.w700,
             color: _AppColors.textMain,
@@ -220,7 +220,7 @@ class _Header extends StatelessWidget {
           '즐겁고 안전한 만남을 위해\n서로를 배려하는 몇 가지 약속이 필요해요',
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 14,
             height: 1.5,
             color: _AppColors.textSecondary,
@@ -277,7 +277,7 @@ class _RuleCard extends StatelessWidget {
                 Text(
                   rule.title,
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
                     color: _AppColors.textMain,
@@ -287,7 +287,7 @@ class _RuleCard extends StatelessWidget {
                 Text(
                   rule.description,
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 13,
                     height: 1.4,
                     color: _AppColors.textSecondary,

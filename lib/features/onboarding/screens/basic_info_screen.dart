@@ -249,7 +249,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                 Text(
                                   '기본 정보',
                                   style: TextStyle(
-                                    fontFamily: 'Noto Sans KR',
+                                    fontFamily: 'Pretendard',
                                     fontSize: 24,
                                     fontWeight: FontWeight.bold,
                                     color: _AppColors.textMain,
@@ -259,7 +259,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                 Text(
                                   '매칭을 위해 기본 정보를 입력해주세요.',
                                   style: TextStyle(
-                                    fontFamily: 'Noto Sans KR',
+                                    fontFamily: 'Pretendard',
                                     fontSize: 14,
                                     color: _AppColors.textSub,
                                   ),
@@ -287,7 +287,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                     ),
                                   ),
                               style: const TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 16,
                               ),
                             ),
@@ -464,7 +464,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                     ),
                                   ),
                                   style: const TextStyle(
-                                    fontFamily: 'Noto Sans KR',
+                                    fontFamily: 'Pretendard',
                                     fontSize: 16,
                                   ),
                                 ),
@@ -516,7 +516,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                     Text(
                                       '${_age.round()}',
                                       style: const TextStyle(
-                                        fontFamily: 'Noto Sans KR',
+                                        fontFamily: 'Pretendard',
                                         fontSize: 24,
                                         fontWeight: FontWeight.bold,
                                         color: _AppColors.textMain,
@@ -788,7 +788,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
     return InputDecoration(
       hintText: hint,
       hintStyle: const TextStyle(
-        fontFamily: 'Noto Sans KR',
+        fontFamily: 'Pretendard',
         color: Color(0xFF9CA3AF),
       ),
       filled: true,
@@ -1193,7 +1193,7 @@ class _BottomButton extends StatelessWidget {
               Text(
                 '다음',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,

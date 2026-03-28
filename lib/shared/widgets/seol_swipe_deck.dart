@@ -354,7 +354,7 @@ class _SwipeBadge extends StatelessWidget {
       child: Text(
         text,
         style: TextStyle(
-          fontFamily: 'Noto Sans KR',
+          fontFamily: 'Pretendard',
           fontSize: 36,
           fontWeight: FontWeight.w900,
           color: color,
@@ -386,7 +386,7 @@ class _EmptyDeck extends StatelessWidget {
           const Text(
             '오늘의 추천이 끝났어요',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 18,
               fontWeight: FontWeight.w600,
               color: CupertinoColors.systemGrey,
@@ -396,7 +396,7 @@ class _EmptyDeck extends StatelessWidget {
           const Text(
             '내일 새로운 인연을 만나보세요 💕',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 14,
               color: CupertinoColors.systemGrey2,
             ),

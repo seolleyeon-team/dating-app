@@ -187,7 +187,7 @@ class _PromiseAgreementTutorialScreenState
                           Text(
                             '우리 함께 약속해요',
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 18,
                               fontWeight: FontWeight.w700,
                               color: CupertinoColors.white,
@@ -286,7 +286,7 @@ class _Header extends StatelessWidget {
             child: const Text(
               'Skip',
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
                 color: _AppColors.gray400,
@@ -348,7 +348,7 @@ class _TitleSection extends StatelessWidget {
         const Text(
           'SAFETY FIRST',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 12,
             fontWeight: FontWeight.w600,
             letterSpacing: 1.5,
@@ -361,7 +361,7 @@ class _TitleSection extends StatelessWidget {
           '감시가 아니라,\n서로를 배려하는 인증',
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 24,
             fontWeight: FontWeight.w700,
             height: 1.3,
@@ -374,7 +374,7 @@ class _TitleSection extends StatelessWidget {
           '안전한 만남을 위해\n우리가 함께하는 약속입니다.',
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 14,
             height: 1.5,
             color: _AppColors.textSecondary,
@@ -481,7 +481,7 @@ class _PromiseItem extends StatelessWidget {
               Text(
                 title,
                 style: const TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
                   color: _AppColors.textMain,
@@ -491,7 +491,7 @@ class _PromiseItem extends StatelessWidget {
               Text(
                 description,
                 style: const TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 12,
                   height: 1.5,
                   color: _AppColors.textSecondary,
@@ -543,7 +543,7 @@ class _SecurityNote extends StatelessWidget {
           Text(
             '모든 정보는 안전하게 암호화되어 관리됩니다.',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 12,
               color: _AppColors.gray400,
             ),

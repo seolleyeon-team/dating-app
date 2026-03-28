@@ -7,7 +7,7 @@ import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../models/profile_card_args.dart';
 
-const String _kFontFamily = 'Noto Sans KR';
+const String _kFontFamily = 'Pretendard';
 
 class _AppColors {
   static const Color primary = Color(0xFFFF5A7E);

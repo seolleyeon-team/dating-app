@@ -198,7 +198,7 @@ class _Header extends StatelessWidget {
           const Text(
             '3:3 시즌 미팅',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 18,
               fontWeight: FontWeight.w700,
               color: Color(0xFF1E293B),
@@ -232,7 +232,7 @@ class _Header extends StatelessWidget {
                     Text(
                       '$ticketCount',
                       style: const TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFF334155),
@@ -264,7 +264,7 @@ class _TitleSection extends StatelessWidget {
           Text(
             '3:3 시즌 미팅',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 30,
               fontWeight: FontWeight.w700,
               color: CupertinoColors.white,
@@ -281,7 +281,7 @@ class _TitleSection extends StatelessWidget {
           Text(
             '한 번뿐인 랜덤 매칭',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 14,
               fontWeight: FontWeight.w500,
               color: CupertinoColors.white.withValues(alpha: 0.8),
@@ -707,7 +707,7 @@ class _SpinButton extends StatelessWidget {
           child: Text(
             '이상형 룰렛 돌리기',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 18,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.5,

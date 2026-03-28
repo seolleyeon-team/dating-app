@@ -107,7 +107,7 @@ class _KakaoAuthLoadingScreenState extends State<KakaoAuthLoadingScreen>
                   const Text(
                     '인증 중...',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 20,
                       fontWeight: FontWeight.w700,
                       letterSpacing: -0.3,
@@ -118,7 +118,7 @@ class _KakaoAuthLoadingScreenState extends State<KakaoAuthLoadingScreen>
                   const Text(
                     '잠시만 기다려주세요',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                       color: _AppColors.textSecondary,
@@ -165,7 +165,7 @@ class _KakaoAuthLoadingScreenState extends State<KakaoAuthLoadingScreen>
                       Text(
                         '취소',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
                           color: _AppColors.textSecondary,
@@ -232,7 +232,7 @@ class _BlurredBackground extends StatelessWidget {
                 const Text(
                   'Seolleyeon',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 28,
                     fontWeight: FontWeight.w700,
                     letterSpacing: -0.5,
@@ -244,7 +244,7 @@ class _BlurredBackground extends StatelessWidget {
                   'Premium dating for authentic connections.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 14,
                     color: _AppColors.gray500,
                   ),
@@ -272,7 +272,7 @@ class _BlurredBackground extends StatelessWidget {
                         Text(
                           'Kakao로 시작하기',
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
                             color: _AppColors.kakaoLabel,
@@ -290,7 +290,7 @@ class _BlurredBackground extends StatelessWidget {
                     Text(
                       '이메일로 로그인',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 14,
                         color: _AppColors.gray400,
                       ),
@@ -304,7 +304,7 @@ class _BlurredBackground extends StatelessWidget {
                     Text(
                       '문의하기',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 14,
                         color: _AppColors.gray400,
                       ),

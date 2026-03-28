@@ -228,7 +228,7 @@ class _Header extends StatelessWidget {
               const Text(
                 '설레연',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 21,
                   fontWeight: FontWeight.w700,
                   letterSpacing: -0.3,
@@ -266,7 +266,7 @@ class _Header extends StatelessWidget {
                       const Text(
                         'AI에게 내 취향 더 잘 알려주기',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                           color: _AppColors.gray900,
@@ -308,7 +308,7 @@ class _Header extends StatelessWidget {
                             child: Text(
                               '$notificationCount',
                               style: const TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 10,
                                 fontWeight: FontWeight.w700,
                                 color: CupertinoColors.white,
@@ -375,7 +375,7 @@ class _MainContent extends StatelessWidget {
                         child: const Text(
                           'AI CURATED',
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
                             color: _AppColors.purple600,
@@ -386,7 +386,7 @@ class _MainContent extends StatelessWidget {
                       const Text(
                         'Nov 14',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 12,
                           color: _AppColors.gray400,
                         ),
@@ -397,7 +397,7 @@ class _MainContent extends StatelessWidget {
                   const Text(
                     '오늘의 설레연',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 30,
                       fontWeight: FontWeight.w500,
                       letterSpacing: -0.5,
@@ -481,7 +481,7 @@ class _MainContent extends StatelessWidget {
                       child: Text(
                         '프로필 상세',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: _AppColors.gray900,
@@ -524,7 +524,7 @@ class _MainContent extends StatelessWidget {
                         Text(
                           '호감 보내기',
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                             color: CupertinoColors.white,
@@ -542,7 +542,7 @@ class _MainContent extends StatelessWidget {
           Text(
             'You have $remainingMatches curated matches remaining today',
             style: const TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 12,
               fontWeight: FontWeight.w300,
               color: _AppColors.gray400,
@@ -674,7 +674,7 @@ class _ProfileCard extends StatelessWidget {
                     Text(
                       profile.name,
                       style: const TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 30,
                         fontWeight: FontWeight.w600,
                         color: CupertinoColors.white,
@@ -705,7 +705,7 @@ class _ProfileCard extends StatelessWidget {
                             child: Text(
                               '${profile.matchPercent}% Match',
                               style: const TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
                                 color: CupertinoColors.white,
@@ -722,7 +722,7 @@ class _ProfileCard extends StatelessWidget {
                 Text(
                   '${profile.major} • ${profile.year}',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 14,
                     fontWeight: FontWeight.w300,
                     color: CupertinoColors.white.withValues(alpha: 0.8),
@@ -758,7 +758,7 @@ class _ProfileCard extends StatelessWidget {
                             child: Text(
                               tag,
                               style: const TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
                                 color: CupertinoColors.white,
@@ -876,7 +876,7 @@ class _NavItem extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 10,
                 fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
                 color: isActive ? _AppColors.primary : _AppColors.gray400,

@@ -231,7 +231,7 @@ class _MenuItem extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 13,
               fontWeight: FontWeight.w500,
               color: textColor,
@@ -337,7 +337,7 @@ class _SafetyCard extends StatelessWidget {
                 child: Text(
                   '안전하고 깨끗한\n대나무숲 만들기',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
                     height: 1.3,
@@ -357,7 +357,7 @@ class _SafetyCard extends StatelessWidget {
                 child: Text(
                   '$currentStep/$totalSteps',
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color: _AppColors.textSecondary,
@@ -371,7 +371,7 @@ class _SafetyCard extends StatelessWidget {
           const Text(
             '불쾌한 글은 신고/숨김할 수 있어요.\n설레는 분위기를 해치는 글은 노출이 줄어들 수 있어요.',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 14,
               height: 1.6,
               color: _AppColors.textSecondary,
@@ -381,7 +381,7 @@ class _SafetyCard extends StatelessWidget {
           const Text(
             '✨ 서로 배려하는 따뜻한 공간을 만들어주세요.',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 12,
               fontWeight: FontWeight.w500,
               color: _AppColors.primary,
@@ -434,7 +434,7 @@ class _SafetyCard extends StatelessWidget {
                         Text(
                           '시작하기',
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
                             color: CupertinoColors.white,

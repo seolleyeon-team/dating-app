@@ -31,14 +31,14 @@ class SeolDropdown<T> extends StatelessWidget {
                 CupertinoButton(
                   child: const Text(
                     '취소',
-                    style: TextStyle(fontFamily: 'Noto Sans KR'),
+                    style: TextStyle(fontFamily: 'Pretendard'),
                   ),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
                 CupertinoButton(
                   child: const Text(
                     '완료',
-                    style: TextStyle(fontFamily: 'Noto Sans KR'),
+                    style: TextStyle(fontFamily: 'Pretendard'),
                   ),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
@@ -78,7 +78,7 @@ class SeolDropdown<T> extends StatelessWidget {
             Text(
               value != null ? labelBuilder(value as T) : (placeholder ?? '선택'),
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 16,
                 color: value != null
                     ? const Color(0xFF181113)

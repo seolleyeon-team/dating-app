@@ -186,7 +186,7 @@ class _BambooForestIntroTutorialScreenState
                               '대나무숲에 오신걸\n환영해요! 🎋',
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 24,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.white,
@@ -198,7 +198,7 @@ class _BambooForestIntroTutorialScreenState
                               textAlign: TextAlign.center,
                               text: TextSpan(
                                 style: TextStyle(
-                                  fontFamily: 'Noto Sans KR',
+                                  fontFamily: 'Pretendard',
                                   fontSize: 14,
                                   color: Colors.white.withValues(alpha: 0.8),
                                   height: 1.5,
@@ -277,7 +277,7 @@ class _BambooForestIntroTutorialScreenState
                               Text(
                                 '다음으로',
                                 style: TextStyle(
-                                  fontFamily: 'Noto Sans KR',
+                                  fontFamily: 'Pretendard',
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.white,
@@ -398,7 +398,7 @@ class _FakeBambooForestScreen extends StatelessWidget {
                   const Text(
                     '대나무숲',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                       color: _AppColors.textMain,

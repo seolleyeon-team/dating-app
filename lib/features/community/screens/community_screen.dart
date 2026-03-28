@@ -217,7 +217,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                         child: const Text(
                                           '더보기',
                                           style: TextStyle(
-                                            fontFamily: 'Noto Sans KR',
+                                            fontFamily: 'Pretendard',
                                             fontSize: 14,
                                             fontWeight: FontWeight.w700,
                                             color: _AppColors.textMain,
@@ -387,7 +387,7 @@ class _HeaderArea extends StatelessWidget {
                         '대나무숲',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 20,
                           fontWeight: FontWeight.w800,
                           color: _AppColors.textMain,
@@ -456,7 +456,7 @@ class _HeaderArea extends StatelessWidget {
                           child: Text(
                             category,
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 14,
                               fontWeight: isSelected
                                   ? FontWeight.w600
@@ -609,7 +609,7 @@ class _PostCard extends StatelessWidget {
                       child: Text(
                         post.category,
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                           color: categoryTextColor,
@@ -662,7 +662,7 @@ class _PostCard extends StatelessWidget {
                     child: Text(
                       tag,
                       style: const TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                         color: _AppColors.primary,
@@ -750,7 +750,7 @@ class _EmptyState extends StatelessWidget {
           Text(
             '아직 글이 없어요',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 18,
               fontWeight: FontWeight.w800,
               color: _AppColors.textMain,
@@ -760,7 +760,7 @@ class _EmptyState extends StatelessWidget {
           Text(
             '첫 번째 익명 글을 남겨보세요.',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 14,
               color: _AppColors.textSub,
             ),
@@ -889,7 +889,7 @@ class _NavItem extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 10,
               fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
               letterSpacing: -0.2,

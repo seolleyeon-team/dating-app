@@ -275,7 +275,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
       padding: const EdgeInsets.only(bottom: 16.0),
       child: TextFormField(
         controller: controller,
-        style: const TextStyle(fontFamily: 'Noto Sans KR'),
+        style: const TextStyle(fontFamily: 'Pretendard'),
         decoration: InputDecoration(
           labelText: label + (isOptional ? '' : ''),
           border: const OutlineInputBorder(),

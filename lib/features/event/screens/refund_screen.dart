@@ -56,7 +56,7 @@ class RefundScreen extends StatelessWidget {
                     Text(
                       '매칭이 취소되었어요',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 24,
                         fontWeight: FontWeight.w700,
                         color: _AppColors.textMain,
@@ -68,7 +68,7 @@ class RefundScreen extends StatelessWidget {
                     Text(
                       '아쉽게도 일부 참가자가\n참여하지 않아 매칭이 취소되었습니다.',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 14,
                         color: _AppColors.textSub,
                         height: 1.5,
@@ -189,7 +189,7 @@ class _RefundAmount extends StatelessWidget {
         Text(
           '3 하트',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 18,
             fontWeight: FontWeight.w700,
             color: _AppColors.primary,

@@ -295,7 +295,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
                                 child: Text(
                                   '본인이 나오지 않거나 불쾌감을 주는 사진은 통보 없이 삭제될 수 있습니다.',
                                   style: TextStyle(
-                                    fontFamily: 'Noto Sans KR',
+                                    fontFamily: 'Pretendard',
                                     fontSize: 12,
                                     color: _AppColors.textSub,
                                     height: 1.4,
@@ -400,7 +400,7 @@ class _TitleSection extends StatelessWidget {
         Text(
           '프로필 사진 등록',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 26,
             fontWeight: FontWeight.bold,
             color: _AppColors.textMain,
@@ -412,7 +412,7 @@ class _TitleSection extends StatelessWidget {
         Text(
           '매력을 보여줄 사진을 올려주세요',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 14,
             color: _AppColors.textSub,
           ),
@@ -421,7 +421,7 @@ class _TitleSection extends StatelessWidget {
         Text(
           '얼굴이 잘 나온 사진일수록 매칭 확률이 올라가요',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 14,
             color: _AppColors.textSub,
           ),
@@ -468,7 +468,7 @@ class _PhotoSlot extends StatelessWidget {
               Text(
                 '업로드 중...',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 13,
                   color: _AppColors.textSub,
                 ),
@@ -524,7 +524,7 @@ class _PhotoSlot extends StatelessWidget {
                   child: const Text(
                     '대표',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
@@ -603,7 +603,7 @@ class _PhotoSlot extends StatelessWidget {
                 const Text(
                   '추가',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
                     color: _AppColors.textSub,
@@ -705,7 +705,7 @@ class _BottomActionBar extends StatelessWidget {
                 Text(
                   '$photoCount / 6장',
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: _AppColors.textSub,
@@ -715,7 +715,7 @@ class _BottomActionBar extends StatelessWidget {
                 Text(
                   '최소 $minRequired장 필요',
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     color: _AppColors.textGray,
                   ),
@@ -741,7 +741,7 @@ class _BottomActionBar extends StatelessWidget {
                 child: Text(
                   isUploading ? '업로드 중...' : '다음',
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                   ),

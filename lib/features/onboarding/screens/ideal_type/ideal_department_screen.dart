@@ -336,7 +336,7 @@ class _Header extends StatelessWidget {
                   const Text(
                     '설레연',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 20,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.primary,
@@ -391,7 +391,7 @@ class _TitleSection extends StatelessWidget {
           '내가 선호하는 이상형의\n학과/계열은?',
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 24,
             fontWeight: FontWeight.w700,
             height: 1.3,
@@ -404,7 +404,7 @@ class _TitleSection extends StatelessWidget {
           '여러 개 선택할 수 있어요 · 비슷한 전공의 친구를 찾을 때 도움이 돼요',
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 14,
             color: _AppColors.gray500,
           ),
@@ -530,7 +530,7 @@ class _OptionCard extends StatelessWidget {
                 Text(
                   option.title,
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                     color: _AppColors.gray800,
@@ -541,7 +541,7 @@ class _OptionCard extends StatelessWidget {
                 Text(
                   option.subtitle,
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                     color: _AppColors.gray400,
@@ -617,7 +617,7 @@ class _BottomButtons extends StatelessWidget {
                   child: Text(
                     '상관없어요',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.gray500,
@@ -656,7 +656,7 @@ class _BottomButtons extends StatelessWidget {
                     Text(
                       '다음',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 17,
                         fontWeight: FontWeight.w700,
                         color: CupertinoColors.white,

@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 class AppTypography {
   AppTypography._();
 
-  /// iOS / Android / Web 공통 적용용 (google_fonts로 로드)
-  static const String fontFamily = 'Noto Sans KR';
+  /// 앱 기본 폰트 (assets/fonts/PretendardVariable.ttf)
+  static const String fontFamily = 'Pretendard';
 
   // Headings
   static const TextStyle h1 = TextStyle(

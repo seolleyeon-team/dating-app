@@ -258,7 +258,7 @@ class _SplashScreenState extends State<_SplashScreen>
                     '설레연',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 40,
                       fontWeight: FontWeight.w800,
                       color: Colors.white,
@@ -270,7 +270,7 @@ class _SplashScreenState extends State<_SplashScreen>
                     '만남이 시작되는 곳',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
                       color: Color(0xFFB7B7C2),

@@ -145,14 +145,14 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
       appBar: AppBar(
         title: const Text(
           '카카오 로그인 콜백',
-          style: TextStyle(fontFamily: 'Noto Sans KR'),
+          style: TextStyle(fontFamily: 'Pretendard'),
         ),
       ),
       body: Center(
         child: Text(
           _statusMessage,
           style: const TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 16,
           ),
         ),

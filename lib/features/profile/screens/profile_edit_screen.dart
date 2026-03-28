@@ -554,7 +554,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       builder: (context) => CupertinoAlertDialog(
         title: Text(
           title,
-          style: const TextStyle(fontFamily: 'Noto Sans KR'),
+          style: const TextStyle(fontFamily: 'Pretendard'),
         ),
         content: Padding(
           padding: const EdgeInsets.only(top: 12),
@@ -563,9 +563,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
             placeholder: placeholder,
             maxLines: multiline ? 4 : 1,
             keyboardType: keyboardType,
-            style: const TextStyle(fontFamily: 'Noto Sans KR'),
+            style: const TextStyle(fontFamily: 'Pretendard'),
             placeholderStyle: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               color: CupertinoColors.placeholderText,
             ),
           ),
@@ -575,7 +575,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
             onPressed: () => Navigator.of(context).pop(),
             child: const Text(
               '취소',
-              style: TextStyle(fontFamily: 'Noto Sans KR'),
+              style: TextStyle(fontFamily: 'Pretendard'),
             ),
           ),
           CupertinoDialogAction(
@@ -586,7 +586,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
             },
             child: const Text(
               '저장',
-              style: TextStyle(fontFamily: 'Noto Sans KR'),
+              style: TextStyle(fontFamily: 'Pretendard'),
             ),
           ),
         ],
@@ -890,9 +890,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                     placeholder: '답변을 입력하세요 (최대 100자)',
                     maxLength: 100,
                     maxLines: 2,
-                    style: const TextStyle(fontFamily: 'Noto Sans KR'),
+                    style: const TextStyle(fontFamily: 'Pretendard'),
                     placeholderStyle: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       color: CupertinoColors.placeholderText,
                     ),
                   ),

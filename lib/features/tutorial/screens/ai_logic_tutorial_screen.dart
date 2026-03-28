@@ -188,7 +188,7 @@ class _AiLogicTutorialScreenState extends State<AiLogicTutorialScreen>
                               Text(
                                 '다음으로',
                                 style: TextStyle(
-                                  fontFamily: 'Noto Sans KR',
+                                  fontFamily: 'Pretendard',
                                   fontSize: 18,
                                   fontWeight: FontWeight.w700,
                                   color: CupertinoColors.white,
@@ -243,7 +243,7 @@ class _Header extends StatelessWidget {
               Text(
                 '설레연',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 20,
                   fontWeight: FontWeight.w700,
                   color: _AppColors.secondary,
@@ -258,7 +258,7 @@ class _Header extends StatelessWidget {
             child: const Text(
               'Skip',
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
                 color: _AppColors.textSecondary,
@@ -303,7 +303,7 @@ class _TitleSection extends StatelessWidget {
                 Text(
                   'AI LOGIC',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 1,
@@ -323,7 +323,7 @@ class _TitleSection extends StatelessWidget {
               textAlign: TextAlign.center,
               text: const TextSpan(
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 28,
                   fontWeight: FontWeight.w700,
                   height: 1.3,
@@ -347,7 +347,7 @@ class _TitleSection extends StatelessWidget {
             '데이터가 쌓일수록\n내일의 추천은 더 정확해집니다.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 15,
               fontWeight: FontWeight.w500,
               height: 1.5,
@@ -603,7 +603,7 @@ class _SwipeCard extends StatelessWidget {
           child: const Text(
             'AI Swipe',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 14,
               fontWeight: FontWeight.w700,
               color: _AppColors.secondary,
@@ -681,7 +681,7 @@ class _MatchCard extends StatelessWidget {
                     'MATCH',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 2,
@@ -703,7 +703,7 @@ class _MatchCard extends StatelessWidget {
           child: const Text(
             '1:1 Recommendations',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 14,
               fontWeight: FontWeight.w700,
               color: _AppColors.secondary,

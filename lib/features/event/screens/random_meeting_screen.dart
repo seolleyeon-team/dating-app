@@ -16,7 +16,7 @@ import 'dart:ui'; // for ImageFilter
 // =============================================================================
 // 색상 정의
 // =============================================================================
-const String _kFontFamily = 'Noto Sans KR';
+const String _kFontFamily = 'Pretendard';
 
 class _AppColors {
   static const Color primary = Color(0xFFEE2B7C); // #ee2b7c
