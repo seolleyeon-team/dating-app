@@ -1,17 +1,21 @@
 // =============================================================================
 // 내가 보낸 호감 목록 화면
-// 경로: lib/features/profile/screens/sent_hearts_screen.dart
+// 경로: lib/features/matching/screens/sent_hearts_screen.dart
 //
-// 사용 예시:
-// Navigator.push(
-//   context,
-//   CupertinoPageRoute(builder: (_) => const SentHeartsScreen()),
-// );
+// interactions 컬렉션에서 action=='like' && fromUserId==currentUid 조회
 // =============================================================================
 
-import 'dart:ui';
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+
+import '../../../router/route_names.dart';
+import '../../../services/interaction_service.dart';
+import '../../../services/storage_service.dart';
+import '../../../services/user_service.dart';
+import '../models/profile_card_args.dart';
 
 // =============================================================================
 // 색상 상수
@@ -23,43 +27,41 @@ class _AppColors {
   static const Color textPrimary = Color(0xFF1B0E11);
   static const Color textSecondary = Color(0xFF994D60);
   static const Color gray100 = Color(0xFFF3F4F6);
-  static const Color gray200 = Color(0xFFE5E7EB);
-  static const Color gray300 = Color(0xFFD1D5DB);
   static const Color gray400 = Color(0xFF9CA3AF);
   static const Color gray500 = Color(0xFF6B7280);
 }
 
+const String _kFontFamily = 'Noto Sans KR';
+
 // =============================================================================
-// 프로필 모델
+// Hydrated heart profile view model
 // =============================================================================
-class _SentHeartProfile {
-  final String id;
+class _HeartItem {
+  final String interactionId;
+  final String otherUserId;
+  final DateTime? createdAt;
   final String name;
   final String imageUrl;
   final String department;
   final int age;
   final List<String> tags;
-  final String date;
-  final bool isNew;
-  final bool isOld;
 
-  const _SentHeartProfile({
-    required this.id,
+  const _HeartItem({
+    required this.interactionId,
+    required this.otherUserId,
+    this.createdAt,
     required this.name,
     required this.imageUrl,
     required this.department,
     required this.age,
-    required this.tags,
-    required this.date,
-    this.isNew = false,
-    this.isOld = false,
+    this.tags = const [],
   });
 }
 
 // =============================================================================
 // 메인 화면
 // =============================================================================
-class SentHeartsScreen extends StatelessWidget {
+class SentHeartsScreen extends StatefulWidget {
   final VoidCallback? onBack;
   final VoidCallback? onFilter;
   final Function(String profileId)? onProfileTap;
@@ -73,63 +75,124 @@ class SentHeartsScreen extends StatelessWidget {
     this.onNavTap,
   });
 
-  static const List<_SentHeartProfile> _profiles = [
-    _SentHeartProfile(
-      id: '1',
-      name: '민서',
-      imageUrl:
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuB01NVcGnmx0p3QRi4cO-sjcCeUVSZNcPH19qreL2uvpX83xhk97PvwUwJ5O7mBu-MYqs4gQrtdMETWXSrdT2a-6xF3LO5w3V7qPlNULCTmMuIUVK84Fd8VKDrqTDy4thMHcQXK0GRrpARXhCB2-62Wly4Q-IhF4RTbNj1hYME4A8lqGT-JuG0zTbyiGg33iIWhvSC1mbyrf9uSJrNfNozULNFXBcHj6DA2aGKIdTkG9glXL4oByppoGa0g_jWOPvSrHbprjgvww0dp',
-      department: '건축학과',
-      age: 24,
-      tags: ['#사진', '#와인', '#감성카페'],
-      date: '3월 5일',
-      isNew: true,
-    ),
-    _SentHeartProfile(
-      id: '2',
-      name: '지안',
-      imageUrl:
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuDjy7VJPvI6Ptr-agtqCxOopkqKQaDn6-NJ99y8AuhtGYNPbrSJ5eUHV--GKxiNX9biFpB77mk8WI6R0yoKi1wgCfGSbO_K6YDWAssAY9Anq8kCY81tdfQXS-6Acsoz01GpLxsNZGzfxgE96ChBM6L8dDJZRBRzesDa9Hr-H-LPWgaQHzhtAPn3YeANa65W_1AGQFqdaNJXgaQ05pVizF8BDK_yAcnO_KALK5JToW4FSK7EpbTHt3qRuzVl1fEfVQmAYFg1VUSvwm5U',
-      department: '시각디자인',
-      age: 23,
-      tags: ['#전시회', '#베이킹'],
-      date: '3월 4일',
-    ),
-    _SentHeartProfile(
-      id: '3',
-      name: '서준',
-      imageUrl:
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuAUM9BjJS9QZdQnaMZ3Anf4rblS81gVXBFYZ6U3RaTim6YmgF3rwfG8oxrMssqJ6X1cQQ80kw_GHVshY1nvU22E8eI2bglD1lvhdCAXUAkmYFz3JAjR4tqfCN9R3x6Mo-pi39A0khd_nwW_3qatnYI_5i-Yfpnlfh6Tce5RlXVZxN10DBEx1fAuLYZ8r8Jue_1oeMksJTwpvrVDgxbc8kLIlGA9tRo_Q3I5SzXxyLp97JeGkfRHAAM-NgY3AdZqDRel0hlLU1YLdYtF',
-      department: '컴퓨터공학',
-      age: 25,
-      tags: ['#코딩', '#게임', '#드라이브'],
-      date: '3월 3일',
-    ),
-    _SentHeartProfile(
-      id: '4',
-      name: '유진',
-      imageUrl:
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuBlmoYjM7uj_XwCaIm6QtFxjDlPA_FmXCq_1EHCS9w492RtWFGaBYCW5ZVKVQATnd05aK94qQwGopAg3BeElbneEA8yyB3hBSA4nwt56tvVuJj9yng4eIdcY0zJBVSOUFp3l6HWvJ00CNKMveLgxpQXZ801TAu0c5EMBDealyzsmszEWuElfeF9v7Uua9RTjpHFK61QWW6i2Qc6C-LdZWmy3b8il6eTbtpcTUXW4lQ5R3JB3nkJTEiQsZlq3ZKK5jQfphVTtnwylVG4',
-      department: '경영학과',
-      age: 22,
-      tags: ['#맛집탐방', '#여행'],
-      date: '2월 28일',
-      isOld: true,
-    ),
-    _SentHeartProfile(
-      id: '5',
-      name: '민호',
-      imageUrl:
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuCdsxCS0JD-Ib3HmjAuXSHms9qf3gtyvLYYlY7uA2VS6P4K6Ey0hDw2M5WDcVBiE6iv1EtbDZ-ic-EIUaXHg90mwp9eS4-czMajn2KPQfB7JzayMh1jL4MKPHz8kqr7pXFys4Hj4lbBJxDwa6JV7T6YV56dFpdSNm_1dm99Fp2z5OUjLKw_Uo5v6NjU1V48XXC0ESXC-ImXWVDfD5Z6UXkRsluH28kpyi6m4cKHigkm96mTOBAXn5BlMOPA-cdhbhNAIZ7s0sjls_V1',
-      department: '체육교육과',
-      age: 26,
-      tags: ['#운동', '#축구'],
-      date: '2월 15일',
-    ),
-  ];
+  @override
+  State<SentHeartsScreen> createState() => _SentHeartsScreenState();
+}
 
-  /// 이전 내역 구분선 앞에 있는 프로필 수 (유진까지)
-  static const int _recentCount = 4;
+class _SentHeartsScreenState extends State<SentHeartsScreen> {
+  final InteractionService _interactionService = InteractionService();
+  final StorageService _storageService = StorageService();
+  final UserService _userService = UserService();
+
+  String? _currentUserId;
+  Stream<List<Map<String, dynamic>>>? _likesStream;
+
+  // 프로필 캐시
+  final Map<String, Map<String, dynamic>?> _profileCache = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    final uid = await _storageService.getKakaoUserId();
+    if (!mounted || uid == null || uid.isEmpty) return;
+    setState(() {
+      _currentUserId = uid;
+      _likesStream = _interactionService.watchLikesSent(uid);
+    });
+  }
+
+  /// interactions 리스트를 dedupe + profile hydrate
+  Future<List<_HeartItem>> _hydrate(List<Map<String, dynamic>> interactions) async {
+    // dedupe: 같은 toUserId 중 최신 1개만
+    final Map<String, Map<String, dynamic>> deduped = {};
+    for (final doc in interactions) {
+      final otherId = doc['toUserId'] as String? ?? '';
+      if (otherId.isEmpty) continue;
+      if (!deduped.containsKey(otherId)) {
+        deduped[otherId] = doc;
+      }
+    }
+
+    final items = <_HeartItem>[];
+    for (final entry in deduped.entries) {
+      final otherId = entry.key;
+      final doc = entry.value;
+
+      // profile fetch with cache
+      if (!_profileCache.containsKey(otherId)) {
+        _profileCache[otherId] = await _userService.getUserProfile(otherId);
+      }
+      final profile = _profileCache[otherId];
+      final onboarding = profile?['onboarding'] as Map?;
+
+      final nickname = profile?['nickname'] as String? ??
+          (onboarding?['nickname'] as String?) ??
+          '익명';
+
+      final photoUrls = onboarding?['photoUrls'];
+      final imageUrl = (photoUrls is List && photoUrls.isNotEmpty)
+          ? photoUrls.first as String
+          : '';
+
+      int age = 0;
+      final birthYear = onboarding?['birthYear'];
+      if (birthYear != null) {
+        final y = int.tryParse(birthYear.toString());
+        if (y != null) age = DateTime.now().year - y;
+      }
+
+      final major = onboarding?['major'] as String? ?? '';
+
+      List<String> tags = [];
+      if (onboarding?['keywords'] is List) {
+        tags.addAll(List<String>.from(onboarding!['keywords']));
+      }
+      if (onboarding?['interests'] is List) {
+        tags.addAll(List<String>.from(onboarding!['interests']));
+      }
+
+      DateTime? createdAt;
+      final ts = doc['createdAt'];
+      if (ts is Timestamp) createdAt = ts.toDate();
+
+      items.add(_HeartItem(
+        interactionId: doc['id'] as String? ?? '',
+        otherUserId: otherId,
+        createdAt: createdAt,
+        name: nickname,
+        imageUrl: imageUrl,
+        department: major,
+        age: age,
+        tags: tags.take(3).toList(),
+      ));
+    }
+    return items;
+  }
+
+  String _formatDate(DateTime? dt) {
+    if (dt == null) return '';
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inMinutes < 60) return '${diff.inMinutes}분 전';
+    if (diff.inHours < 24) return '${diff.inHours}시간 전';
+    if (diff.inDays < 7) return '${diff.inDays}일 전';
+    return '${dt.month}월 ${dt.day}일';
+  }
+
+  void _onProfileTap(String otherId) {
+    if (widget.onProfileTap != null) {
+      widget.onProfileTap!(otherId);
+    } else {
+      Navigator.of(context, rootNavigator: true).pushNamed(
+        RouteNames.profileSpecificDetail,
+        arguments: ProfileCardArgs.fromChat(userId: otherId),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -160,77 +223,91 @@ class SentHeartsScreen extends StatelessWidget {
             ),
           ),
           // 메인 콘텐츠
-          CustomScrollView(
-            physics: const BouncingScrollPhysics(),
-            slivers: [
-              // 헤더
-              SliverToBoxAdapter(
-                child: _Header(onBack: onBack, onFilter: onFilter),
-              ),
-              // 리스트 아이템들 (이전 내역 구분선 전)
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _ProfileListItem(
-                        profile: _profiles[index],
-                        onTap: () => onProfileTap?.call(_profiles[index].id),
-                      ),
-                    ),
-                    childCount: _recentCount,
-                  ),
-                ),
-              ),
-              // 이전 내역 구분선
-              const SliverToBoxAdapter(child: _SectionDivider(text: '이전 내역')),
-              // 이전 내역 리스트 아이템들
-              SliverPadding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, bottomPadding + 120),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate((context, index) {
-                    final i = _recentCount + index;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _ProfileListItem(
-                        profile: _profiles[i],
-                        onTap: () => onProfileTap?.call(_profiles[i].id),
-                      ),
+          _currentUserId == null
+              ? const Center(child: CupertinoActivityIndicator())
+              : StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: _likesStream,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CupertinoActivityIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Text(
+                          '데이터를 불러올 수 없어요',
+                          style: TextStyle(
+                            fontFamily: _kFontFamily,
+                            fontSize: 14,
+                            color: _AppColors.gray500,
+                          ),
+                        ),
+                      );
+                    }
+                    final interactions = snapshot.data ?? [];
+                    return FutureBuilder<List<_HeartItem>>(
+                      future: _hydrate(interactions),
+                      builder: (context, hydSnap) {
+                        final items = hydSnap.data ?? [];
+                        return CustomScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          slivers: [
+                            SliverToBoxAdapter(
+                              child: _Header(
+                                onBack: widget.onBack,
+                                count: items.length,
+                              ),
+                            ),
+                            if (items.isEmpty && hydSnap.connectionState == ConnectionState.done)
+                              SliverFillRemaining(
+                                hasScrollBody: false,
+                                child: Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        CupertinoIcons.heart,
+                                        size: 48,
+                                        color: _AppColors.gray400.withValues(alpha: 0.5),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      const Text(
+                                        '보낸 좋아요가 아직 없어요',
+                                        style: TextStyle(
+                                          fontFamily: _kFontFamily,
+                                          fontSize: 15,
+                                          color: _AppColors.gray500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                            else
+                              SliverPadding(
+                                padding: EdgeInsets.fromLTRB(
+                                    16, 8, 16, bottomPadding + 24),
+                                sliver: SliverList(
+                                  delegate: SliverChildBuilderDelegate(
+                                    (context, index) => Padding(
+                                      padding: const EdgeInsets.only(bottom: 12),
+                                      child: _ProfileListItem(
+                                        item: items[index],
+                                        dateText:
+                                            _formatDate(items[index].createdAt),
+                                        onTap: () => _onProfileTap(
+                                            items[index].otherUserId),
+                                      ),
+                                    ),
+                                    childCount: items.length,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
                     );
-                  }, childCount: _profiles.length - _recentCount),
+                  },
                 ),
-              ),
-            ],
-          ),
-          // 하단 그라데이션
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: 96,
-            child: IgnorePointer(
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      _AppColors.backgroundLight.withValues(alpha: 0),
-                      _AppColors.backgroundLight,
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          // 하단 네비게이션
-          Positioned(
-            left: 24,
-            right: 24,
-            bottom: bottomPadding + 32,
-            child: _FloatingNavBar(onTap: onNavTap),
-          ),
         ],
       ),
     );
@@ -242,9 +319,9 @@ class SentHeartsScreen extends StatelessWidget {
 // =============================================================================
 class _Header extends StatelessWidget {
   final VoidCallback? onBack;
-  final VoidCallback? onFilter;
+  final int count;
 
-  const _Header({this.onBack, this.onFilter});
+  const _Header({this.onBack, this.count = 0});
 
   @override
   Widget build(BuildContext context) {
@@ -263,7 +340,6 @@ class _Header extends StatelessWidget {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // 뒤로가기
             Align(
               alignment: Alignment.centerLeft,
               child: CupertinoButton(
@@ -291,6 +367,10 @@ class _Header extends StatelessWidget {
                 ),
               ),
             ),
+            Text(
+              '내가 보낸 호감 ($count)',
+              style: const TextStyle(
+                fontFamily: _kFontFamily,
             // 타이틀
             const Text(
               '내가 보낸 호감',
@@ -301,30 +381,7 @@ class _Header extends StatelessWidget {
                 color: _AppColors.textPrimary,
               ),
             ),
-            // 필터
-            Align(
-              alignment: Alignment.centerRight,
-              child: CupertinoButton(
-                padding: EdgeInsets.zero,
-                onPressed: () {
-                  HapticFeedback.lightImpact();
-                  onFilter?.call();
-                },
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: CupertinoColors.black.withValues(alpha: 0.05),
-                  ),
-                  child: const Icon(
-                    CupertinoIcons.slider_horizontal_3,
-                    size: 20,
-                    color: _AppColors.textPrimary,
-                  ),
-                ),
-              ),
-            ),
+            const SizedBox(width: 40),
           ],
         ),
       ),
@@ -336,10 +393,15 @@ class _Header extends StatelessWidget {
 // 프로필 리스트 아이템
 // =============================================================================
 class _ProfileListItem extends StatelessWidget {
-  final _SentHeartProfile profile;
+  final _HeartItem item;
+  final String dateText;
   final VoidCallback? onTap;
 
-  const _ProfileListItem({required this.profile, this.onTap});
+  const _ProfileListItem({
+    required this.item,
+    required this.dateText,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -349,86 +411,85 @@ class _ProfileListItem extends StatelessWidget {
         HapticFeedback.selectionClick();
         onTap?.call();
       },
-      child: Opacity(
-        opacity: profile.isOld ? 0.7 : 1.0,
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: _AppColors.surfaceLight,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: CupertinoColors.black.withValues(alpha: 0.03),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              // 프로필 이미지
-              _ProfileAvatar(
-                imageUrl: profile.imageUrl,
-                isNew: profile.isNew,
-                isOld: profile.isOld,
-              ),
-              const SizedBox(width: 16),
-              // 콘텐츠
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // 이름 + 날짜
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            profile.name,
-                            style: TextStyle(
-                              fontFamily: 'Pretendard',
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: profile.isOld
-                                  ? _AppColors.gray500
-                                  : _AppColors.textPrimary,
-                            ),
-                            overflow: TextOverflow.ellipsis,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: _AppColors.surfaceLight,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: CupertinoColors.black.withValues(alpha: 0.03),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            // 프로필 이미지
+            _ProfileAvatar(imageUrl: item.imageUrl),
+            const SizedBox(width: 16),
+            // 콘텐츠
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          item.name,
+                          style: const TextStyle(
+                            fontFamily: 'Pretendard',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: _AppColors.textPrimary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      if (dateText.isNotEmpty)
+                        Text(
+                          dateText,
+                          style: const TextStyle(
+                            fontFamily: _kFontFamily,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: _AppColors.gray400,
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        _DateBadge(date: profile.date, isNew: profile.isNew),
-                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    [
+                      if (item.department.isNotEmpty) item.department,
+                      if (item.age > 0) '${item.age}세',
+                    ].join(' • '),
+                    style: const TextStyle(
+                      fontFamily: _kFontFamily,
+                      fontSize: 12,
+                      color: _AppColors.textSecondary,
                     ),
-                    const SizedBox(height: 4),
-                    // 학과 + 나이
-                    Text(
-                      '${profile.department} • ${profile.age}세',
-                      style: TextStyle(
-                        fontFamily: 'Pretendard',
-                        fontSize: 12,
-                        color: profile.isOld
-                            ? _AppColors.gray400
-                            : _AppColors.textSecondary,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (item.tags.isNotEmpty) ...[
                     const SizedBox(height: 8),
-                    // 태그
-                    _TagRow(tags: profile.tags, isOld: profile.isOld),
+                    _TagRow(tags: item.tags),
                   ],
-                ),
+                ],
               ),
-              const SizedBox(width: 4),
-              // 화살표
-              Icon(
-                CupertinoIcons.chevron_right,
-                size: 20,
-                color: profile.isOld ? _AppColors.gray200 : _AppColors.gray300,
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(
+              CupertinoIcons.chevron_right,
+              size: 20,
+              color: _AppColors.gray400,
+            ),
+          ],
         ),
       ),
     );
@@ -440,133 +501,38 @@ class _ProfileListItem extends StatelessWidget {
 // =============================================================================
 class _ProfileAvatar extends StatelessWidget {
   final String imageUrl;
-  final bool isNew;
-  final bool isOld;
 
-  const _ProfileAvatar({
-    required this.imageUrl,
-    this.isNew = false,
-    this.isOld = false,
-  });
+  const _ProfileAvatar({required this.imageUrl});
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 80,
-      height: 80,
-      child: Stack(
-        children: [
-          // 이미지
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: isOld
-                    ? _AppColors.gray200
-                    : _AppColors.primary.withValues(alpha: 0.1),
-                width: 2,
-              ),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: isOld
-                ? ColorFiltered(
-                    colorFilter: const ColorFilter.mode(
-                      CupertinoColors.systemGrey,
-                      BlendMode.saturation,
-                    ),
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: Image.network(imageUrl, fit: BoxFit.cover),
-                        ),
-                        // 읽음/이전 오버레이
-                        Positioned.fill(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: CupertinoColors.white.withValues(
-                                alpha: 0.3,
-                              ),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : Image.network(imageUrl, fit: BoxFit.cover),
-          ),
-          // NEW 배지
-          if (isNew)
-            Positioned(
-              bottom: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: _AppColors.primary,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: CupertinoColors.white, width: 1.5),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _AppColors.primary.withValues(alpha: 0.3),
-                      blurRadius: 4,
-                    ),
-                  ],
-                ),
-                child: const Text(
-                  'NEW',
-                  style: TextStyle(
-                    fontFamily: 'Pretendard',
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: CupertinoColors.white,
-                  ),
-                ),
-              ),
-            ),
-        ],
+    return Container(
+      width: 72,
+      height: 72,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: _AppColors.primary.withValues(alpha: 0.1),
+          width: 2,
+        ),
       ),
+      clipBehavior: Clip.antiAlias,
+      child: imageUrl.isNotEmpty
+          ? Image.network(
+              imageUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => _placeholder(),
+            )
+          : _placeholder(),
     );
   }
-}
 
-// =============================================================================
-// 날짜 배지
-// =============================================================================
-class _DateBadge extends StatelessWidget {
-  final String date;
-  final bool isNew;
-
-  const _DateBadge({required this.date, this.isNew = false});
-
-  @override
-  Widget build(BuildContext context) {
-    if (isNew) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: _AppColors.primary.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(
-          date,
-          style: TextStyle(
-            fontFamily: 'Pretendard',
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: _AppColors.primary.withValues(alpha: 0.8),
-          ),
-        ),
-      );
-    }
-    return Text(
-      date,
-      style: const TextStyle(
-        fontFamily: 'Pretendard',
-        fontSize: 12,
-        fontWeight: FontWeight.w500,
+  Widget _placeholder() {
+    return Container(
+      color: _AppColors.gray100,
+      child: const Icon(
+        CupertinoIcons.person_fill,
+        size: 32,
         color: _AppColors.gray400,
       ),
     );
@@ -578,9 +544,8 @@ class _DateBadge extends StatelessWidget {
 // =============================================================================
 class _TagRow extends StatelessWidget {
   final List<String> tags;
-  final bool isOld;
 
-  const _TagRow({required this.tags, this.isOld = false});
+  const _TagRow({required this.tags});
 
   @override
   Widget build(BuildContext context) {
@@ -588,12 +553,11 @@ class _TagRow extends StatelessWidget {
       spacing: 6,
       runSpacing: 4,
       children: tags.map((tag) {
+        final label = tag.startsWith('#') ? tag : '#$tag';
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(
-            color: isOld
-                ? _AppColors.gray100.withValues(alpha: 0.5)
-                : _AppColors.primary.withValues(alpha: 0.05),
+            color: _AppColors.primary.withValues(alpha: 0.05),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
@@ -735,12 +699,11 @@ class _NavItem extends StatelessWidget {
               fontFamily: 'Pretendard',
               fontSize: 10,
               fontWeight: FontWeight.w500,
-              letterSpacing: -0.2,
-              color: _AppColors.gray400,
+              color: _AppColors.primary,
             ),
           ),
-        ],
-      ),
+        );
+      }).toList(),
     );
   }
 }

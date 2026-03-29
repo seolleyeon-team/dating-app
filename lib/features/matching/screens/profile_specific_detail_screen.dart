@@ -1,10 +1,16 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart'
+    show showModalBottomSheet, RoundedRectangleBorder;
 import 'package:flutter/services.dart';
 
-import '../../../services/ai_recommendation_service.dart';
+import '../../../services/ask_service.dart';
 import '../../../services/interaction_service.dart';
+import '../../../services/rec_event_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../chat/models/chat_room_data.dart';
+import '../../chat/services/chat_service.dart';
+import '../../../router/route_names.dart';
 import '../models/profile_card_args.dart';
 
 const String _kFontFamily = 'Pretendard';
@@ -102,15 +108,470 @@ class AiMatchProfileScreen extends StatefulWidget {
 class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
   final UserService _userService = UserService();
   final StorageService _storageService = StorageService();
+  final InteractionService _interactionService = InteractionService();
+  final RecEventService _recEventService = RecEventService();
+  final AskService _askService = AskService();
+  final ChatService _chatService = ChatService();
 
   _ResolvedProfile? _profile;
   bool _isLoading = true;
   int _heroImageIndex = 0;
 
+  // --- 상태 ---
+  String? _currentUserId;
+  late final DateTime _entryTime;
+  bool _isLikeInFlight = false;
+  bool _isNopeInFlight = false;
+  bool _hasLiked = false;
+  bool _hasNoped = false;
+
   @override
   void initState() {
     super.initState();
+    _entryTime = DateTime.now();
     _loadProfile();
+    _loadCurrentUser();
+  }
+
+  Future<void> _loadCurrentUser() async {
+    final uid = await _storageService.getKakaoUserId();
+    if (!mounted) return;
+    setState(() => _currentUserId = uid);
+    // detail_open recEvent
+    if (uid != null && uid.isNotEmpty) {
+      final targetId =
+          widget.args?.userId ?? widget.args?.aiProfile?.candidateUid ?? '';
+      if (targetId.isNotEmpty) {
+        _recEventService
+            .logEvent(
+              userId: uid,
+              targetType: 'user_profile',
+              targetId: targetId,
+              candidateUserId: targetId,
+              eventType: 'open',
+              surface: 'profile_card',
+              cardVariant: 'real_profile',
+              exposureId: widget.args?.aiProfile?.exposureId,
+              dateKey: widget.args?.aiProfile?.dateKey,
+              context: _buildRecContext(button: 'detail_open'),
+            )
+            .catchError((e) => debugPrint('[RecEvent] detail_open failed: $e'));
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // recEvents context 빌더
+  // ---------------------------------------------------------------------------
+  Map<String, dynamic> _buildRecContext({required String button}) {
+    final ai = widget.args?.aiProfile;
+    return {
+      'screen': 'profile_specific_detail_screen',
+      'ui': {
+        'button': button,
+        'detailOpened': true,
+        'dwellMs': DateTime.now().difference(_entryTime).inMilliseconds,
+      },
+      if (ai != null) ...{
+        if (ai.primaryAlgo.isNotEmpty) 'algorithmVersion': ai.primaryAlgo,
+        if (ai.sourceScores != null) 'sourceRanks': ai.sourceScores,
+        if (ai.finalScore != null) 'scoreTotal': ai.finalScore,
+        if (ai.dateKey.isNotEmpty) 'recDateKey': ai.dateKey,
+        'position': ai.rank,
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Overlay 기반 Cupertino 스타일 토스트
+  // ---------------------------------------------------------------------------
+  void _showToast(String message, {bool isError = false}) {
+    if (!mounted) return;
+    final overlay = Overlay.of(context, rootOverlay: true);
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (ctx) => _ToastOverlay(
+        message: message,
+        isError: isError,
+        onDismiss: () => entry.remove(),
+      ),
+    );
+    overlay.insert(entry);
+  }
+
+  // ---------------------------------------------------------------------------
+  // [1] Like 핸들러
+  // ---------------------------------------------------------------------------
+  Future<void> _handleLike() async {
+    if (_isLikeInFlight || _hasLiked || _hasNoped) return;
+    setState(() => _isLikeInFlight = true);
+
+    HapticFeedback.mediumImpact();
+
+    final uid = _currentUserId;
+    final targetId = _profile?.id ?? '';
+    if (uid == null || uid.isEmpty || targetId.isEmpty) {
+      _showToast('로그인 정보를 확인할 수 없어요', isError: true);
+      setState(() => _isLikeInFlight = false);
+      return;
+    }
+
+    try {
+      // 1) 비즈니스 로직 — like + match check
+      final matchId = await _interactionService.recordLike(
+        fromUserId: uid,
+        toUserId: targetId,
+        source: 'profile_specific_detail_screen',
+      );
+
+      // 2) recEvents — AI 학습 로그
+      await _recEventService.logEvent(
+        userId: uid,
+        targetType: 'user_profile',
+        targetId: targetId,
+        candidateUserId: targetId,
+        eventType: 'like',
+        surface: 'profile_card',
+        cardVariant: 'real_profile',
+        exposureId: widget.args?.aiProfile?.exposureId,
+        dateKey: widget.args?.aiProfile?.dateKey,
+        context: _buildRecContext(button: 'like'),
+      );
+
+      if (!mounted) return;
+      HapticFeedback.heavyImpact();
+
+      // 매칭 성사 시 메시지 차별화
+      if (matchId != null) {
+        _showToast('서로 좋아요! 매칭되었어요 💕');
+      } else {
+        _showToast('좋아요를 보냈어요 💕');
+      }
+
+      // 콜백이 있으면 호출 (상위 화면 연동)
+      widget.onLike?.call();
+      if (mounted) setState(() => _hasLiked = true);
+    } catch (e) {
+      debugPrint('[Like] error: $e');
+      if (!mounted) return;
+      HapticFeedback.heavyImpact();
+      _showToast('좋아요를 보내지 못했어요. 다시 시도해주세요.', isError: true);
+    } finally {
+      if (mounted) setState(() => _isLikeInFlight = false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // [2] Nope 핸들러
+  // ---------------------------------------------------------------------------
+  Future<void> _handleNope() async {
+    if (_isNopeInFlight || _hasNoped || _hasLiked) return;
+    setState(() => _isNopeInFlight = true);
+
+    HapticFeedback.lightImpact();
+
+    final uid = _currentUserId;
+    final targetId = _profile?.id ?? '';
+    if (uid == null || uid.isEmpty || targetId.isEmpty) {
+      _showToast('로그인 정보를 확인할 수 없어요', isError: true);
+      setState(() => _isNopeInFlight = false);
+      return;
+    }
+
+    try {
+      await _interactionService.recordNope(
+        fromUserId: uid,
+        toUserId: targetId,
+        source: 'profile_specific_detail_screen',
+      );
+
+      await _recEventService.logEvent(
+        userId: uid,
+        targetType: 'user_profile',
+        targetId: targetId,
+        candidateUserId: targetId,
+        eventType: 'nope',
+        surface: 'profile_card',
+        cardVariant: 'real_profile',
+        exposureId: widget.args?.aiProfile?.exposureId,
+        dateKey: widget.args?.aiProfile?.dateKey,
+        context: _buildRecContext(button: 'nope'),
+      );
+
+      if (!mounted) return;
+      _showToast('이번 인연은 넘길게요');
+      widget.onPass?.call();
+      if (mounted) setState(() => _hasNoped = true);
+
+      // 이전 화면으로
+      await Future.delayed(const Duration(milliseconds: 350));
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+    } catch (e) {
+      debugPrint('[Nope] error: $e');
+      if (!mounted) return;
+      HapticFeedback.heavyImpact();
+      _showToast('처리하지 못했어요. 다시 시도해주세요.', isError: true);
+    } finally {
+      if (mounted) setState(() => _isNopeInFlight = false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // [3] 무물(Ask) 핸들러
+  // ---------------------------------------------------------------------------
+  void _handleAsk() {
+    HapticFeedback.selectionClick();
+    final uid = _currentUserId;
+    final targetId = _profile?.id ?? '';
+
+    if (uid == null || uid.isEmpty || targetId.isEmpty) {
+      _showToast('로그인 정보를 확인할 수 없어요', isError: true);
+      return;
+    }
+
+    _recEventService
+        .logEvent(
+          userId: uid,
+          targetType: 'user_profile',
+          targetId: targetId,
+          candidateUserId: targetId,
+          eventType: 'open',
+          surface: 'profile_card',
+          cardVariant: 'real_profile',
+          exposureId: widget.args?.aiProfile?.exposureId,
+          dateKey: widget.args?.aiProfile?.dateKey,
+          context: {
+            ..._buildRecContext(button: 'ask'),
+            'ui': {
+              ..._buildRecContext(button: 'ask')['ui'] as Map<String, dynamic>,
+              'action': 'ask_button_tap',
+            },
+          },
+        )
+        .catchError(
+          (e) => debugPrint('[RecEvent] ask_button_tap failed: $e'),
+        );
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: CupertinoColors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (sheetCtx) => _AskBottomSheet(
+        targetName: _profile?.name ?? '상대방',
+        onSend: (question) async {
+          final myProfile = await _userService.getUserProfile(uid);
+          final myOnboarding = myProfile?['onboarding'] is Map
+              ? Map<String, dynamic>.from(myProfile!['onboarding'] as Map)
+              : <String, dynamic>{};
+          final myPhotoUrls = myOnboarding['photoUrls'] is List
+              ? (myOnboarding['photoUrls'] as List)
+                  .whereType<String>()
+                  .toList()
+              : <String>[];
+
+          final fromSnapshot = _askService.buildProfileSnapshot(
+            uid: uid,
+            nickname: myOnboarding['nickname']?.toString(),
+            profileImageUrl:
+                myPhotoUrls.isNotEmpty ? myPhotoUrls.first : null,
+            universityName: myOnboarding['university']?.toString(),
+          );
+
+          final toSnapshot = _askService.buildProfileSnapshot(
+            uid: targetId,
+            nickname: _profile?.name,
+            profileImageUrl:
+                _profile?.imageUrls.isNotEmpty == true
+                    ? _profile!.imageUrls.first
+                    : null,
+            universityName: _profile?.university,
+          );
+
+          await _askService.sendAsk(
+            fromUserId: uid,
+            toUserId: targetId,
+            text: question,
+            fromUserSnapshot: fromSnapshot,
+            toUserSnapshot: toSnapshot,
+          );
+
+          _recEventService
+              .logEvent(
+                userId: uid,
+                targetType: 'user_profile',
+                targetId: targetId,
+                candidateUserId: targetId,
+                eventType: 'open',
+                surface: 'profile_card',
+                cardVariant: 'real_profile',
+                exposureId: widget.args?.aiProfile?.exposureId,
+                dateKey: widget.args?.aiProfile?.dateKey,
+                context: {
+                  ..._buildRecContext(button: 'ask'),
+                  'ui': {
+                    ..._buildRecContext(button: 'ask')['ui']
+                        as Map<String, dynamic>,
+                    'action': 'ask_submit',
+                  },
+                  'questionLength': question.length,
+                },
+              )
+              .catchError(
+                (e) => debugPrint('[RecEvent] ask_submit failed: $e'),
+              );
+
+          widget.onQna?.call();
+        },
+        onSuccess: () {
+          if (!mounted) return;
+          _showToast('질문을 보냈어요 💌');
+        },
+        onError: (e) {
+          debugPrint('[Ask] send failed: $e');
+          if (!mounted) return;
+          _showToast('질문을 보내지 못했어요', isError: true);
+        },
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // [4] 메시지 핸들러
+  // ---------------------------------------------------------------------------
+  void _handleMessage() {
+    HapticFeedback.selectionClick();
+    final uid = _currentUserId;
+    final targetId = _profile?.id ?? '';
+
+    if (uid == null || uid.isEmpty || targetId.isEmpty) {
+      _showToast('로그인 정보를 확인할 수 없어요', isError: true);
+      return;
+    }
+
+    _recEventService
+        .logEvent(
+          userId: uid,
+          targetType: 'user_profile',
+          targetId: targetId,
+          candidateUserId: targetId,
+          eventType: 'open',
+          surface: 'profile_card',
+          cardVariant: 'real_profile',
+          exposureId: widget.args?.aiProfile?.exposureId,
+          dateKey: widget.args?.aiProfile?.dateKey,
+          context: {
+            ..._buildRecContext(button: 'message'),
+            'ui': {
+              ..._buildRecContext(button: 'message')['ui']
+                  as Map<String, dynamic>,
+              'action': 'message_button_tap',
+            },
+          },
+        )
+        .catchError(
+          (e) => debugPrint('[RecEvent] message_button_tap failed: $e'),
+        );
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: CupertinoColors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (sheetCtx) => _MessageBottomSheet(
+        targetName: _profile?.name ?? '상대방',
+        onSend: (messageText) async {
+          final myProfile = await _userService.getUserProfile(uid);
+          final myOnboarding = myProfile?['onboarding'] is Map
+              ? Map<String, dynamic>.from(myProfile!['onboarding'] as Map)
+              : <String, dynamic>{};
+          final myPhotoUrls = myOnboarding['photoUrls'] is List
+              ? (myOnboarding['photoUrls'] as List)
+                  .whereType<String>()
+                  .toList()
+              : <String>[];
+
+          final roomId = _chatService.buildDirectRoomId(uid, targetId);
+
+          await _chatService.ensureDirectRoom(
+            roomId: roomId,
+            currentUserId: uid,
+            partnerId: targetId,
+            currentUserName: myOnboarding['nickname']?.toString() ?? '',
+            partnerName: _profile?.name ?? '',
+            currentUserAvatarUrl:
+                myPhotoUrls.isNotEmpty ? myPhotoUrls.first : null,
+            partnerAvatarUrl: _profile?.imageUrls.isNotEmpty == true
+                ? _profile!.imageUrls.first
+                : null,
+          );
+
+          await _chatService.sendTextMessage(
+            roomId: roomId,
+            senderId: uid,
+            text: messageText,
+          );
+
+          _recEventService
+              .logEvent(
+                userId: uid,
+                targetType: 'user_profile',
+                targetId: targetId,
+                candidateUserId: targetId,
+                eventType: 'open',
+                surface: 'profile_card',
+                cardVariant: 'real_profile',
+                exposureId: widget.args?.aiProfile?.exposureId,
+                dateKey: widget.args?.aiProfile?.dateKey,
+                context: {
+                  ..._buildRecContext(button: 'message'),
+                  'ui': {
+                    ..._buildRecContext(button: 'message')['ui']
+                        as Map<String, dynamic>,
+                    'action': 'message_sent',
+                  },
+                },
+              )
+              .catchError(
+                (e) => debugPrint('[RecEvent] message_sent failed: $e'),
+              );
+
+          widget.onMessage?.call();
+        },
+        onSuccess: () {
+          if (!mounted) return;
+          _showToast('메시지를 보냈어요 💬');
+          final tId = _profile?.id ?? '';
+          if (tId.isNotEmpty && _currentUserId != null) {
+            final roomId =
+                _chatService.buildDirectRoomId(_currentUserId!, tId);
+            Navigator.of(context, rootNavigator: true).pushNamed(
+              RouteNames.chatRoom,
+              arguments: ChatRoomData(
+                chatRoomId: roomId,
+                partnerId: tId,
+                partnerName: _profile?.name ?? '',
+                partnerUniversity: _profile?.university ?? '',
+                partnerAvatarUrl: _profile?.imageUrls.isNotEmpty == true
+                    ? _profile!.imageUrls.first
+                    : null,
+              ),
+            );
+          }
+        },
+        onError: (e) {
+          if (!mounted) return;
+          _showToast('메시지를 보내지 못했어요', isError: true);
+        },
+      ),
+    );
   }
 
   String _mapRelationship(String raw) {
@@ -418,10 +879,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
           ],
           cancelButton: CupertinoActionSheetAction(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text(
-              '취소',
-              style: TextStyle(fontFamily: _kFontFamily),
-            ),
+            child: const Text('취소', style: TextStyle(fontFamily: _kFontFamily)),
           ),
         );
       },
@@ -524,7 +982,9 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                                     },
                                     child: const Text(
                                       '확인',
-                                      style: TextStyle(fontFamily: _kFontFamily),
+                                      style: TextStyle(
+                                        fontFamily: _kFontFamily,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -553,7 +1013,9 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                                     onPressed: () => Navigator.pop(errorCtx),
                                     child: const Text(
                                       '확인',
-                                      style: TextStyle(fontFamily: _kFontFamily),
+                                      style: TextStyle(
+                                        fontFamily: _kFontFamily,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -687,10 +1149,12 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
               bottom: 0,
               child: _BottomActionBar(
                 bottomPadding: bottomPadding,
-                onQna: widget.onQna,
-                onPass: widget.onPass,
-                onLike: widget.onLike,
-                onMessage: widget.onMessage,
+                onQna: _handleAsk,
+                onPass: _handleNope,
+                onLike: _handleLike,
+                onMessage: _handleMessage,
+                isLikeInFlight: _isLikeInFlight,
+                isNopeInFlight: _isNopeInFlight,
               ),
             ),
         ],
@@ -1289,6 +1753,8 @@ class _BottomActionBar extends StatelessWidget {
   final VoidCallback? onPass;
   final VoidCallback? onLike;
   final VoidCallback? onMessage;
+  final bool isLikeInFlight;
+  final bool isNopeInFlight;
 
   const _BottomActionBar({
     required this.bottomPadding,
@@ -1296,6 +1762,8 @@ class _BottomActionBar extends StatelessWidget {
     this.onPass,
     this.onLike,
     this.onMessage,
+    this.isLikeInFlight = false,
+    this.isNopeInFlight = false,
   });
 
   @override
@@ -1328,6 +1796,7 @@ class _BottomActionBar extends StatelessWidget {
             size: 64,
             iconSize: 32,
             isSecondary: true,
+            isInFlight: isNopeInFlight,
             onPressed: onPass,
           ),
           _ActionButton(
@@ -1335,6 +1804,7 @@ class _BottomActionBar extends StatelessWidget {
             size: 80,
             iconSize: 40,
             isPrimary: true,
+            isInFlight: isLikeInFlight,
             onPressed: onLike,
           ),
           _ActionButton(
@@ -1350,12 +1820,13 @@ class _BottomActionBar extends StatelessWidget {
   }
 }
 
-class _ActionButton extends StatelessWidget {
+class _ActionButton extends StatefulWidget {
   final IconData icon;
   final double size;
   final double iconSize;
   final bool isPrimary;
   final bool isSecondary;
+  final bool isInFlight;
   final VoidCallback? onPressed;
 
   const _ActionButton({
@@ -1364,38 +1835,514 @@ class _ActionButton extends StatelessWidget {
     required this.iconSize,
     this.isPrimary = false,
     this.isSecondary = false,
+    this.isInFlight = false,
     this.onPressed,
   });
 
   @override
+  State<_ActionButton> createState() => _ActionButtonState();
+}
+
+class _ActionButtonState extends State<_ActionButton>
+    with SingleTickerProviderStateMixin {
+  double _scale = 1.0;
+
+  void _onTapDown(TapDownDetails _) {
+    setState(() => _scale = 0.92);
+  }
+
+  void _onTapUp(TapUpDetails _) {
+    setState(() => _scale = 1.0);
+    widget.onPressed?.call();
+  }
+
+  void _onTapCancel() {
+    setState(() => _scale = 1.0);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return CupertinoButton(
-      padding: EdgeInsets.zero,
-      onPressed: () {
-        HapticFeedback.mediumImpact();
-        onPressed?.call();
-      },
+    return GestureDetector(
+      onTapDown: _onTapDown,
+      onTapUp: _onTapUp,
+      onTapCancel: _onTapCancel,
+      child: AnimatedScale(
+        scale: _scale,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOutCubic,
+        child: AnimatedOpacity(
+          opacity: widget.isInFlight ? 0.5 : 1.0,
+          duration: const Duration(milliseconds: 200),
+          child: Container(
+            width: widget.size,
+            height: widget.size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: widget.isPrimary
+                  ? _AppColors.primary
+                  : CupertinoColors.white,
+              border: widget.isSecondary
+                  ? Border.all(color: _AppColors.gray200)
+                  : null,
+              boxShadow: [
+                BoxShadow(
+                  color: widget.isPrimary
+                      ? _AppColors.primary.withValues(alpha: 0.28)
+                      : CupertinoColors.black.withValues(alpha: 0.07),
+                  blurRadius: widget.isPrimary ? 20 : 12,
+                  offset: Offset(0, widget.isPrimary ? 8 : 4),
+                ),
+              ],
+            ),
+            child: widget.isInFlight
+                ? const CupertinoActivityIndicator()
+                : Icon(
+                    widget.icon,
+                    size: widget.iconSize,
+                    color: widget.isPrimary
+                        ? CupertinoColors.white
+                        : _AppColors.textSub,
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Overlay 기반 토스트 (쿠퍼티노 스타일)
+// =============================================================================
+class _ToastOverlay extends StatefulWidget {
+  final String message;
+  final bool isError;
+  final VoidCallback onDismiss;
+
+  const _ToastOverlay({
+    required this.message,
+    required this.isError,
+    required this.onDismiss,
+  });
+
+  @override
+  State<_ToastOverlay> createState() => _ToastOverlayState();
+}
+
+class _ToastOverlayState extends State<_ToastOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _opacity;
+  late final Animation<Offset> _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _opacity = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    _controller.forward();
+
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      _controller.reverse().then((_) {
+        if (mounted) widget.onDismiss();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
+    return Positioned(
+      left: 24,
+      right: 24,
+      bottom: bottomPadding + 140,
+      child: SlideTransition(
+        position: _slide,
+        child: FadeTransition(
+          opacity: _opacity,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            decoration: BoxDecoration(
+              color: widget.isError
+                  ? const Color(0xFF4A2020)
+                  : const Color(0xFF1E1A1C),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: CupertinoColors.black.withValues(alpha: 0.18),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  widget.isError
+                      ? CupertinoIcons.exclamationmark_circle_fill
+                      : CupertinoIcons.checkmark_circle_fill,
+                  color: widget.isError
+                      ? const Color(0xFFFF6B6B)
+                      : _AppColors.primary,
+                  size: 22,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    widget.message,
+                    style: const TextStyle(
+                      fontFamily: _kFontFamily,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: CupertinoColors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// 무물(Ask) 바텀시트
+// =============================================================================
+class _AskBottomSheet extends StatefulWidget {
+  final String targetName;
+  final Future<void> Function(String question) onSend;
+  final VoidCallback onSuccess;
+  final void Function(dynamic error) onError;
+
+  const _AskBottomSheet({
+    required this.targetName,
+    required this.onSend,
+    required this.onSuccess,
+    required this.onError,
+  });
+
+  @override
+  State<_AskBottomSheet> createState() => _AskBottomSheetState();
+}
+
+class _AskBottomSheetState extends State<_AskBottomSheet> {
+  final TextEditingController _controller = TextEditingController();
+  bool _isSending = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || _isSending) return;
+    setState(() => _isSending = true);
+
+    try {
+      await widget.onSend(text);
+      if (!mounted) return;
+      Navigator.pop(context);
+      widget.onSuccess();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSending = false);
+      widget.onError(e);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInsets = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInsets),
       child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: isPrimary ? _AppColors.primary : CupertinoColors.white,
-          border: isSecondary ? Border.all(color: _AppColors.gray200) : null,
-          boxShadow: [
-            BoxShadow(
-              color: isPrimary
-                  ? _AppColors.primary.withValues(alpha: 0.28)
-                  : CupertinoColors.black.withValues(alpha: 0.07),
-              blurRadius: isPrimary ? 20 : 12,
-              offset: Offset(0, isPrimary ? 8 : 4),
+        constraints: const BoxConstraints(maxHeight: 420),
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 드래그 핸들
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: _AppColors.softPink,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              '무물하기 💌',
+              style: const TextStyle(
+                fontFamily: _kFontFamily,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: _AppColors.textMain,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${widget.targetName}님에게 궁금한 것을 물어보세요',
+              style: const TextStyle(
+                fontFamily: _kFontFamily,
+                fontSize: 14,
+                color: _AppColors.textSub,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: CupertinoTextField(
+                controller: _controller,
+                placeholder: '예) 주말에 보통 뭐 하며 보내세요?',
+                maxLines: 5,
+                minLines: 3,
+                maxLength: 200,
+                style: const TextStyle(
+                  fontFamily: _kFontFamily,
+                  fontSize: 15,
+                  color: _AppColors.textMain,
+                ),
+                placeholderStyle: TextStyle(
+                  fontFamily: _kFontFamily,
+                  fontSize: 15,
+                  color: _AppColors.textSub.withValues(alpha: 0.5),
+                ),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: _AppColors.gray100,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: CupertinoButton(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    color: _AppColors.gray100,
+                    borderRadius: BorderRadius.circular(14),
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text(
+                      '취소',
+                      style: TextStyle(
+                        fontFamily: _kFontFamily,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: _AppColors.textSub,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: CupertinoButton(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    color: _AppColors.primary,
+                    borderRadius: BorderRadius.circular(14),
+                    onPressed: _isSending ? null : _submit,
+                    child: _isSending
+                        ? const CupertinoActivityIndicator(
+                            color: CupertinoColors.white,
+                          )
+                        : const Text(
+                            '보내기',
+                            style: TextStyle(
+                              fontFamily: _kFontFamily,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: CupertinoColors.white,
+                            ),
+                          ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
-        child: Icon(
-          icon,
-          size: iconSize,
-          color: isPrimary ? CupertinoColors.white : _AppColors.textSub,
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// 메시지 보내기 바텀시트
+// =============================================================================
+class _MessageBottomSheet extends StatefulWidget {
+  final String targetName;
+  final Future<void> Function(String message) onSend;
+  final VoidCallback onSuccess;
+  final void Function(dynamic error) onError;
+
+  const _MessageBottomSheet({
+    required this.targetName,
+    required this.onSend,
+    required this.onSuccess,
+    required this.onError,
+  });
+
+  @override
+  State<_MessageBottomSheet> createState() => _MessageBottomSheetState();
+}
+
+class _MessageBottomSheetState extends State<_MessageBottomSheet> {
+  final TextEditingController _controller = TextEditingController();
+  bool _isSending = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || _isSending) return;
+    setState(() => _isSending = true);
+
+    try {
+      await widget.onSend(text);
+      if (!mounted) return;
+      Navigator.pop(context);
+      widget.onSuccess();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSending = false);
+      widget.onError(e);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInsets = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInsets),
+      child: Container(
+        constraints: const BoxConstraints(maxHeight: 420),
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: _AppColors.softPink,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              '메시지 보내기',
+              style: TextStyle(
+                fontFamily: _kFontFamily,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: _AppColors.textMain,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${widget.targetName}님에게 첫 메시지를 보내보세요',
+              style: const TextStyle(
+                fontFamily: _kFontFamily,
+                fontSize: 14,
+                color: _AppColors.textSub,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: CupertinoTextField(
+                controller: _controller,
+                placeholder: '예) 안녕하세요! 프로필 보고 관심이 생겼어요 :)',
+                maxLines: 5,
+                minLines: 3,
+                maxLength: 500,
+                style: const TextStyle(
+                  fontFamily: _kFontFamily,
+                  fontSize: 15,
+                  color: _AppColors.textMain,
+                ),
+                placeholderStyle: TextStyle(
+                  fontFamily: _kFontFamily,
+                  fontSize: 15,
+                  color: _AppColors.textSub.withValues(alpha: 0.5),
+                ),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: _AppColors.gray100,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: CupertinoButton(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    color: _AppColors.gray100,
+                    borderRadius: BorderRadius.circular(14),
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text(
+                      '취소',
+                      style: TextStyle(
+                        fontFamily: _kFontFamily,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: _AppColors.textSub,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: CupertinoButton(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    color: _AppColors.primary,
+                    borderRadius: BorderRadius.circular(14),
+                    onPressed: _isSending ? null : _submit,
+                    child: _isSending
+                        ? const CupertinoActivityIndicator(
+                            color: CupertinoColors.white,
+                          )
+                        : const Text(
+                            '보내기',
+                            style: TextStyle(
+                              fontFamily: _kFontFamily,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: CupertinoColors.white,
+                            ),
+                          ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
