@@ -116,7 +116,7 @@ class _IdealHeightRangeScreenState extends State<IdealHeightRangeScreen> {
                         const Text(
                           '프로필에 표시될 키 정보를 입력해주세요.',
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 12,
                             color: _AppColors.gray400,
                           ),
@@ -218,7 +218,7 @@ class _Header extends StatelessWidget {
           const Text(
             '설레연',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 20,
               fontWeight: FontWeight.w700,
               letterSpacing: -0.3,
@@ -288,7 +288,7 @@ class _SelectionCard extends StatelessWidget {
                 '이상형 키 범위를 알려주세요',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 24,
                   fontWeight: FontWeight.w700,
                   letterSpacing: -0.5,
@@ -332,7 +332,7 @@ class _SelectionCard extends StatelessWidget {
                           child: Text(
                             '상관없어요',
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
                               color: _AppColors.gray500,
@@ -367,7 +367,7 @@ class _SelectionCard extends StatelessWidget {
                             Text(
                               '다음',
                               style: TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 16,
                                 fontWeight: FontWeight.w700,
                                 color: CupertinoColors.white,
@@ -418,7 +418,7 @@ class _RangeDisplay extends StatelessWidget {
           child: Text(
             '$selectedHeight',
             style: const TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 18,
               fontWeight: FontWeight.w600,
               color: _AppColors.gray600,
@@ -429,7 +429,7 @@ class _RangeDisplay extends StatelessWidget {
         const Text(
           '에서',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 18,
             color: _AppColors.gray600,
           ),
@@ -441,7 +441,7 @@ class _RangeDisplay extends StatelessWidget {
         const Text(
           '정도까지',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 18,
             color: _AppColors.gray600,
           ),
@@ -517,7 +517,7 @@ class _HeightPicker extends StatelessWidget {
                 child: Text(
                   '$height cm',
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 26,
                     fontWeight: FontWeight.w700,
                     letterSpacing: -0.5,

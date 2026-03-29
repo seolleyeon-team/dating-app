@@ -176,7 +176,7 @@ class _SafetyGuideModal extends StatelessWidget {
               const Text(
                 '안전하고 깨끗한\n대나무숲 만들기',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                   color: _AppColors.textMain,
@@ -207,7 +207,7 @@ class _SafetyGuideModal extends StatelessWidget {
           Text(
             '불쾌한 글은 신고/숨김할 수 있어요.\n설레는 분위기를 해치는 글은 노출이 줄어들 수 있어요.',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 14,
               color: _AppColors.textSub,
               height: 1.5,
@@ -264,7 +264,7 @@ class _SafetyGuideModal extends StatelessWidget {
                         Text(
                           '시작하기',
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
@@ -446,7 +446,7 @@ class _FakeBambooForestScreen extends StatelessWidget {
                   const Text(
                     '대나무숲',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                       color: _AppColors.textMain,

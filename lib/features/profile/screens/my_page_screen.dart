@@ -118,18 +118,18 @@ class _MyPageScreenState extends State<MyPageScreen> {
       builder: (dialogContext) => CupertinoAlertDialog(
         title: const Text(
           '로그아웃',
-          style: TextStyle(fontFamily: 'Noto Sans KR'),
+          style: TextStyle(fontFamily: 'Pretendard'),
         ),
         content: const Text(
           '정말 로그아웃 하시겠습니까?',
-          style: TextStyle(fontFamily: 'Noto Sans KR'),
+          style: TextStyle(fontFamily: 'Pretendard'),
         ),
         actions: [
           CupertinoDialogAction(
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text(
               '취소',
-              style: TextStyle(fontFamily: 'Noto Sans KR'),
+              style: TextStyle(fontFamily: 'Pretendard'),
             ),
           ),
           CupertinoDialogAction(
@@ -137,7 +137,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
             onPressed: () => Navigator.of(dialogContext).pop(true),
             child: const Text(
               '확인',
-              style: TextStyle(fontFamily: 'Noto Sans KR'),
+              style: TextStyle(fontFamily: 'Pretendard'),
             ),
           ),
         ],
@@ -314,7 +314,7 @@ class _Header extends StatelessWidget {
             const Text(
               '내 페이지',
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 21,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.3,
@@ -534,7 +534,7 @@ class _ProfileCard extends StatelessWidget {
               Text(
                 userName,
                 style: const TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 24,
                   fontWeight: FontWeight.w700,
                   color: _AppColors.textMain,
@@ -544,7 +544,7 @@ class _ProfileCard extends StatelessWidget {
               Text(
                 nickname,
                 style: const TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
                   color: _AppColors.textSub,
@@ -591,7 +591,7 @@ class _StatItem extends StatelessWidget {
         Text(
           '$value',
           style: const TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 18,
             fontWeight: FontWeight.w700,
             color: _AppColors.gray800,
@@ -601,7 +601,7 @@ class _StatItem extends StatelessWidget {
         Text(
           label,
           style: const TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 12,
             color: _AppColors.gray400,
           ),
@@ -713,7 +713,7 @@ class _MenuItem extends StatelessWidget {
               child: Text(
                 label,
                 style: const TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 15,
                   fontWeight: FontWeight.w500,
                   color: _AppColors.gray800,
@@ -748,7 +748,7 @@ class _LogoutButton extends StatelessWidget {
           child: const Text(
             '로그아웃',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 12,
               fontWeight: FontWeight.w500,
               color: _AppColors.gray400,
@@ -876,7 +876,7 @@ class _NavItem extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 10,
                 fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
                 color: isActive ? _AppColors.primary : _AppColors.gray400,

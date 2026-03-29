@@ -134,7 +134,7 @@ class _AiTasteTutorialOverlayState extends State<AiTasteTutorialOverlay>
                           child: Text(
                             '다음',
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
                               color: CupertinoColors.white,
@@ -193,7 +193,7 @@ class _HighlightedButton extends StatelessWidget {
           const Text(
             'AI에게 내 취향 알려주기',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 12,
               fontWeight: FontWeight.w700,
               color: _AppColors.textMain,
@@ -304,7 +304,7 @@ class _TutorialTooltip extends StatelessWidget {
             'AI에게 당신의 취향을\n학습시켜 보세요',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 18,
               fontWeight: FontWeight.w700,
               height: 1.3,
@@ -317,7 +317,7 @@ class _TutorialTooltip extends StatelessWidget {
             '추천이 더 정확해집니다.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 14,
               color: _AppColors.textSecondary,
             ),
@@ -345,7 +345,7 @@ class _StepIndicator extends StatelessWidget {
         Text(
           '$currentStep',
           style: const TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 14,
             fontWeight: FontWeight.w500,
             color: CupertinoColors.white,
@@ -354,7 +354,7 @@ class _StepIndicator extends StatelessWidget {
         Text(
           ' / $totalSteps',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 14,
             fontWeight: FontWeight.w500,
             color: CupertinoColors.white.withValues(alpha: 0.5),

@@ -247,7 +247,7 @@ class _Header extends StatelessWidget {
               const Text(
                 '설레연',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 21,
                   fontWeight: FontWeight.w700,
                   letterSpacing: -0.3,
@@ -287,7 +287,7 @@ class _Header extends StatelessWidget {
                           child: Text(
                             'AI에게 내 취향 알려주기',
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
                               color: _AppColors.gray900,
@@ -332,7 +332,7 @@ class _Header extends StatelessWidget {
                               child: Text(
                                 displayCount,
                                 style: const TextStyle(
-                                  fontFamily: 'Noto Sans KR',
+                                  fontFamily: 'Pretendard',
                                   fontSize: 9,
                                   fontWeight: FontWeight.w700,
                                   color: CupertinoColors.white,
@@ -477,7 +477,7 @@ class _MainContentState extends State<_MainContent> {
                           child: const Text(
                             'AI CURATED',
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
                               color: _AppColors.purple600,
@@ -488,7 +488,7 @@ class _MainContentState extends State<_MainContent> {
                         const Text(
                           'Nov 14',
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 12,
                             color: _AppColors.gray400,
                           ),
@@ -499,7 +499,7 @@ class _MainContentState extends State<_MainContent> {
                     const Text(
                       '오늘의 인연',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 30,
                         fontWeight: FontWeight.w500,
                         letterSpacing: -0.5,
@@ -535,7 +535,7 @@ class _MainContentState extends State<_MainContent> {
                       '오늘의 미스터리 카드가 모두 소진되었습니다.',
                       style: TextStyle(
                         color: _AppColors.gray500,
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                       ),
                     ),
                   )
@@ -765,7 +765,7 @@ class _MysteryCardState extends State<_MysteryCard>
           Text(
             '?',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 128,
               fontWeight: FontWeight.w700,
               color: widget.isActive
@@ -797,7 +797,7 @@ class _MysteryCardState extends State<_MysteryCard>
                     Text(
                       '탭하여 확인하기',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
                         color: _AppColors.primary,
@@ -869,7 +869,7 @@ class _MysteryCardState extends State<_MysteryCard>
                         child: Text(
                           profile.name,
                           style: const TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 28,
                             fontWeight: FontWeight.w600,
                             color: CupertinoColors.white,
@@ -902,7 +902,7 @@ class _MysteryCardState extends State<_MysteryCard>
                             child: Text(
                               '${profile.sourceScores != null ? (profile.sourceScores! * 100).toInt() : 85}% Match',
                               style: const TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
                                 color: CupertinoColors.white,
@@ -917,7 +917,7 @@ class _MysteryCardState extends State<_MysteryCard>
                   Text(
                     "${profile.major} • ${profile.age}",
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 14,
                       fontWeight: FontWeight.w300,
                       color: CupertinoColors.white.withValues(alpha: 0.8),
@@ -953,7 +953,7 @@ class _MysteryCardState extends State<_MysteryCard>
                             child: Text(
                               tag,
                               style: const TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 11,
                                 fontWeight: FontWeight.w500,
                                 color: CupertinoColors.white,
@@ -1093,7 +1093,7 @@ class _NavItem extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 10,
                 fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
                 color: isActive ? _AppColors.primary : _AppColors.gray400,

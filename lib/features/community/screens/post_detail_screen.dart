@@ -395,7 +395,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                           child: Text(
                             '게시글을 찾을 수 없어요',
                             style: TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
                               color: _AppColors.textMain,
@@ -605,7 +605,7 @@ class _Header extends StatelessWidget {
               '대나무숲',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
                 color: _AppColors.textMain,
@@ -672,7 +672,7 @@ class _DetailPostCard extends StatelessWidget {
                 child: Text(
                   post.category,
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: categoryTextColor,
@@ -692,7 +692,7 @@ class _DetailPostCard extends StatelessWidget {
               const Text(
                 '익명',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                   color: _AppColors.textMain,
@@ -729,7 +729,7 @@ class _DetailPostCard extends StatelessWidget {
                   child: Text(
                     tag,
                     style: const TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.primary,
@@ -807,7 +807,7 @@ class _CommentHeader extends StatelessWidget {
         const Text(
           '댓글',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 17,
             fontWeight: FontWeight.w800,
             color: _AppColors.textMain,
@@ -817,7 +817,7 @@ class _CommentHeader extends StatelessWidget {
         Text(
           '$count',
           style: const TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 15,
             fontWeight: FontWeight.w700,
             color: _AppColors.primary,
@@ -878,7 +878,7 @@ class _CommentCard extends StatelessWidget {
                 const Text(
                   '익명',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
                     color: _AppColors.textMain,
@@ -888,7 +888,7 @@ class _CommentCard extends StatelessWidget {
                 Text(
                   timeAgo,
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                     color: _AppColors.textSub,
@@ -900,7 +900,7 @@ class _CommentCard extends StatelessWidget {
             Text(
               comment.content,
               style: const TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 14,
                 height: 1.55,
                 color: _AppColors.textMain,
@@ -915,7 +915,7 @@ class _CommentCard extends StatelessWidget {
                   child: Text(
                     '답글',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                       color: Colors.grey[600],
@@ -938,7 +938,7 @@ class _CommentCard extends StatelessWidget {
                       Text(
                         '${comment.likeCount}',
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                           color: isLiked
@@ -972,7 +972,7 @@ class _EmptyCommentState extends StatelessWidget {
       child: const Text(
         '첫 댓글을 남겨보세요.',
         style: TextStyle(
-          fontFamily: 'Noto Sans KR',
+          fontFamily: 'Pretendard',
           fontSize: 14,
           fontWeight: FontWeight.w600,
           color: _AppColors.textSub,
@@ -1037,7 +1037,7 @@ class _CommentInputBar extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                         color: _AppColors.primary,
@@ -1077,12 +1077,12 @@ class _CommentInputBar extends StatelessWidget {
                     ),
                     placeholder: '댓글을 남겨보세요',
                     placeholderStyle: const TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 14,
                       color: _AppColors.textSub,
                     ),
                     style: const TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 14,
                       color: _AppColors.textMain,
                     ),

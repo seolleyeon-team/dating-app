@@ -144,7 +144,7 @@ class _TodaysMatchTutorialScreenState extends State<TodaysMatchTutorialScreen>
                         child: Text(
                           '설레연 시작하기',
                           style: TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
                             color: CupertinoColors.white,
@@ -184,7 +184,7 @@ class _Header extends StatelessWidget {
             child: const Text(
               'Skip',
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.5,
@@ -503,7 +503,7 @@ class _TitleSection extends StatelessWidget {
             textAlign: TextAlign.center,
             text: const TextSpan(
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 28,
                 fontWeight: FontWeight.w700,
                 height: 1.3,
@@ -529,7 +529,7 @@ class _TitleSection extends StatelessWidget {
             '매일 도착하는 3명의 인연을\n놓치지 마세요.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 16,
               height: 1.5,
               color: _AppColors.textSecondary,

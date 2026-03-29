@@ -155,7 +155,7 @@ class _AiMatchCardScreenState extends State<AiMatchCardScreen> {
         middle: const Text(
           "Today's AI Match",
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 18,
             fontWeight: FontWeight.w700,
             letterSpacing: -0.3,
@@ -281,7 +281,7 @@ class _MainCard extends StatelessWidget {
                         Text(
                           'AI Match ${profile.matchPercent}%',
                           style: const TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 0.3,
@@ -357,7 +357,7 @@ class _MainCard extends StatelessWidget {
                       Text(
                         profile.name,
                         style: const TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 24,
                           fontWeight: FontWeight.w800,
                           color: _AppColors.textMain,
@@ -367,7 +367,7 @@ class _MainCard extends StatelessWidget {
                       Text(
                         '${profile.age}',
                         style: const TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 18,
                           fontWeight: FontWeight.w500,
                           color: _AppColors.textSub,
@@ -388,7 +388,7 @@ class _MainCard extends StatelessWidget {
                       Text(
                         profile.university,
                         style: TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                           color: _AppColors.textMain.withValues(alpha: 0.8),
@@ -409,7 +409,7 @@ class _MainCard extends StatelessWidget {
                       Text(
                         profile.major,
                         style: const TextStyle(
-                          fontFamily: 'Noto Sans KR',
+                          fontFamily: 'Pretendard',
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                           color: _AppColors.textSub,
@@ -535,7 +535,7 @@ class _ActionButton extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 11,
               fontWeight: isPrimary ? FontWeight.w600 : FontWeight.w500,
               letterSpacing: -0.2,

@@ -371,6 +371,11 @@ class _Header extends StatelessWidget {
               '내가 보낸 호감 ($count)',
               style: const TextStyle(
                 fontFamily: _kFontFamily,
+            // 타이틀
+            const Text(
+              '내가 보낸 호감',
+              style: TextStyle(
+                fontFamily: 'Pretendard',
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.textPrimary,
@@ -437,7 +442,7 @@ class _ProfileListItem extends StatelessWidget {
                         child: Text(
                           item.name,
                           style: const TextStyle(
-                            fontFamily: _kFontFamily,
+                            fontFamily: 'Pretendard',
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
                             color: _AppColors.textPrimary,
@@ -556,9 +561,142 @@ class _TagRow extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
+            tag,
+            style: TextStyle(
+              fontFamily: 'Pretendard',
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: isOld ? _AppColors.gray400 : _AppColors.primary,
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+// =============================================================================
+// 섹션 구분선
+// =============================================================================
+class _SectionDivider extends StatelessWidget {
+  final String text;
+
+  const _SectionDivider({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      child: Row(
+        children: [
+          Expanded(child: Container(height: 1, color: _AppColors.gray200)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontFamily: 'Pretendard',
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: _AppColors.gray400,
+              ),
+            ),
+          ),
+          Expanded(child: Container(height: 1, color: _AppColors.gray200)),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// 하단 플로팅 네비게이션
+// =============================================================================
+class _FloatingNavBar extends StatelessWidget {
+  final Function(int index)? onTap;
+
+  const _FloatingNavBar({this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(32),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+          decoration: BoxDecoration(
+            color: CupertinoColors.white.withValues(alpha: 0.95),
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(color: _AppColors.gray100),
+            boxShadow: [
+              BoxShadow(
+                color: CupertinoColors.black.withValues(alpha: 0.05),
+                blurRadius: 20,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _NavItem(
+                icon: CupertinoIcons.heart,
+                label: '설레연',
+                onTap: () => onTap?.call(0),
+              ),
+              _NavItem(
+                icon: CupertinoIcons.chat_bubble,
+                label: '채팅',
+                onTap: () => onTap?.call(1),
+              ),
+              _NavItem(
+                icon: CupertinoIcons.calendar,
+                label: '이벤트',
+                onTap: () => onTap?.call(2),
+              ),
+              _NavItem(
+                icon: CupertinoIcons.tree,
+                label: '대나무숲',
+                onTap: () => onTap?.call(3),
+              ),
+              _NavItem(
+                icon: CupertinoIcons.person,
+                label: '내 페이지',
+                onTap: () => onTap?.call(4),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// 네비게이션 아이템
+// =============================================================================
+class _NavItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  const _NavItem({required this.icon, required this.label, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 24, color: _AppColors.gray400),
+          const SizedBox(height: 4),
+          Text(
             label,
             style: const TextStyle(
-              fontFamily: _kFontFamily,
+              fontFamily: 'Pretendard',
               fontSize: 10,
               fontWeight: FontWeight.w500,
               color: _AppColors.primary,

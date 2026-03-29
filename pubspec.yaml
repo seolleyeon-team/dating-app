@@ -82,6 +82,9 @@ flutter:
   #   - images/a_dot_ham.jpeg
 
   fonts:
+    - family: Pretendard
+      fonts:
+        - asset: assets/fonts/PretendardVariable.ttf
     - family: Noto Sans KR
       fonts:
         - asset: assets/fonts/NotoSansKR-Variable.ttf

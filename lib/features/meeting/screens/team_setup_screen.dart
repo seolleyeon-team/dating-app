@@ -176,7 +176,7 @@ class _Header extends StatelessWidget {
               '3명 팀으로 참여해요',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.3,
@@ -204,7 +204,7 @@ class _TitleSection extends StatelessWidget {
         Text(
           '팀 구성하기',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 24,
             fontWeight: FontWeight.w700,
             color: _AppColors.textMain,
@@ -214,7 +214,7 @@ class _TitleSection extends StatelessWidget {
         Text(
           '친구 2명을 초대해서 팀을 완성해보세요.',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 14,
             color: _AppColors.textSecondary,
           ),
@@ -326,7 +326,7 @@ class _FilledSlot extends StatelessWidget {
                 Text(
                   member.name,
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                     color: _AppColors.textMain,
@@ -337,7 +337,7 @@ class _FilledSlot extends StatelessWidget {
                 Text(
                   member.mbti,
                   style: const TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 10,
                     color: _AppColors.gray400,
                   ),
@@ -361,7 +361,7 @@ class _FilledSlot extends StatelessWidget {
                   child: const Text(
                     'ME',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
                       color: CupertinoColors.white,
@@ -426,7 +426,7 @@ class _EmptySlot extends StatelessWidget {
               const Text(
                 '친구 초대',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                   color: _AppColors.primary,
@@ -462,7 +462,7 @@ class _InfoChip extends StatelessWidget {
           Text(
             '3명이 모여야 매칭을 시작할 수 있어요',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 12,
               fontWeight: FontWeight.w500,
               color: _AppColors.textSecondary,
@@ -518,7 +518,7 @@ class _InviteButtons extends StatelessWidget {
                   Text(
                     '카카오로 초대',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.textMain,
@@ -561,7 +561,7 @@ class _InviteButtons extends StatelessWidget {
                   Text(
                     '링크 복사',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.textMain,
@@ -635,7 +635,7 @@ class _BottomCTA extends StatelessWidget {
               Text(
                 '슬롯머신 돌리기 (1회 무료)',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
                   color: isEnabled ? CupertinoColors.white : _AppColors.gray400,

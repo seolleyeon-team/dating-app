@@ -182,7 +182,7 @@ class _SlotMachineTutorialScreenState extends State<SlotMachineTutorialScreen>
                               Text(
                                 '시작하기',
                                 style: TextStyle(
-                                  fontFamily: 'Noto Sans KR',
+                                  fontFamily: 'Pretendard',
                                   fontSize: 18,
                                   fontWeight: FontWeight.w700,
                                   color: CupertinoColors.white,
@@ -237,7 +237,7 @@ class _Header extends StatelessWidget {
               Text(
                 '설레연',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 20,
                   fontWeight: FontWeight.w700,
                   color: _AppColors.textMain,
@@ -252,7 +252,7 @@ class _Header extends StatelessWidget {
             child: const Text(
               'Skip',
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
                 color: _AppColors.textSecondary,
@@ -385,7 +385,7 @@ class _SlotMachine extends StatelessWidget {
                     Text(
                       'Matching...',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                         color: _AppColors.primary,
@@ -550,7 +550,7 @@ class _TitleSection extends StatelessWidget {
             textAlign: TextAlign.center,
             text: const TextSpan(
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 24,
                 fontWeight: FontWeight.w700,
                 height: 1.3,
@@ -572,7 +572,7 @@ class _TitleSection extends StatelessWidget {
             '게임 같은 재미와 프리미엄한 신뢰를 동시에.\n검증된 회원들과 설레는 매칭을 시작해보세요.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 14,
               height: 1.6,
               fontWeight: FontWeight.w300,

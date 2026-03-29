@@ -99,7 +99,7 @@ class _ActionButtonsTutorialOverlayState
                   child: Text(
                     '${widget.currentStep} / ${widget.totalSteps}',
                     style: const TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                       color: CupertinoColors.white,
@@ -118,7 +118,7 @@ class _ActionButtonsTutorialOverlayState
                       '버튼으로도 선택할 수 있어요',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 20,
                         fontWeight: FontWeight.w700,
                         color: CupertinoColors.white,
@@ -129,7 +129,7 @@ class _ActionButtonsTutorialOverlayState
                       '판단이 빠를수록\n추천이 똑똑해져요.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                         height: 1.5,

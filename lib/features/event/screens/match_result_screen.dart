@@ -219,7 +219,7 @@ class _Header extends StatelessWidget {
               '매칭 결과',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.textMain,
@@ -265,7 +265,7 @@ class _TitleSection extends StatelessWidget {
                 const Text(
                   '매칭 결과 3 / 3',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     color: _AppColors.primary,
@@ -280,7 +280,7 @@ class _TitleSection extends StatelessWidget {
             '오늘의 3:3\n매칭 상대팀입니다',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 24,
               fontWeight: FontWeight.w700,
               height: 1.3,
@@ -293,7 +293,7 @@ class _TitleSection extends StatelessWidget {
             '설레는 만남을 위해 정성껏 매칭했어요',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 14,
               fontWeight: FontWeight.w400,
               color: _AppColors.textSecondary,
@@ -392,7 +392,7 @@ class _ProfileCard extends StatelessWidget {
                           child: Text(
                             profile.badge,
                             style: const TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
                               color: CupertinoColors.white,
@@ -417,7 +417,7 @@ class _ProfileCard extends StatelessWidget {
                         Text(
                           profile.name,
                           style: const TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 20,
                             fontWeight: FontWeight.w700,
                             color: _AppColors.textMain,
@@ -426,7 +426,7 @@ class _ProfileCard extends StatelessWidget {
                         Text(
                           profile.birthYear,
                           style: const TextStyle(
-                            fontFamily: 'Noto Sans KR',
+                            fontFamily: 'Pretendard',
                             fontSize: 14,
                             fontWeight: FontWeight.w400,
                             color: _AppColors.textSecondary,
@@ -438,7 +438,7 @@ class _ProfileCard extends StatelessWidget {
                     Text(
                       '${profile.job} · ${profile.company}',
                       style: TextStyle(
-                        fontFamily: 'Noto Sans KR',
+                        fontFamily: 'Pretendard',
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                         color: _AppColors.textMain.withValues(alpha: 0.8),
@@ -462,7 +462,7 @@ class _ProfileCard extends StatelessWidget {
                           child: Text(
                             tag,
                             style: const TextStyle(
-                              fontFamily: 'Noto Sans KR',
+                              fontFamily: 'Pretendard',
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
                               color: _AppColors.textSecondary,
@@ -551,7 +551,7 @@ class _SafetyChip extends StatelessWidget {
             Text(
               '안전 만남 보장 · 예치금/안전 안내',
               style: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
                 color: _AppColors.textMain.withValues(alpha: 0.7),
@@ -621,7 +621,7 @@ class _BottomCTA extends StatelessWidget {
                   Text(
                     '팀 전체에게 미팅 요청 보내기',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                       color: CupertinoColors.white,
@@ -656,7 +656,7 @@ class _BottomCTA extends StatelessWidget {
                 Text(
                   '다시 돌리기 ($remainingRefresh회 남음)',
                   style: TextStyle(
-                    fontFamily: 'Noto Sans KR',
+                    fontFamily: 'Pretendard',
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
                     color: remainingRefresh > 0

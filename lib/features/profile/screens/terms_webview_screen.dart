@@ -55,7 +55,7 @@ class _TermsWebViewScreenState extends State<TermsWebViewScreen> {
         middle: const Text(
           '이용 약관',
           style: TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             fontSize: 18,
             fontWeight: FontWeight.w700,
             color: _AppColors.textMain,

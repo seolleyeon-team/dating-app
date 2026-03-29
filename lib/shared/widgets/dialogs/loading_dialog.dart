@@ -38,7 +38,7 @@ class LoadingDialog extends StatelessWidget {
               Text(
                 message!,
                 style: const TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 14,
                   color: Color(0xFF181113),
                 ),

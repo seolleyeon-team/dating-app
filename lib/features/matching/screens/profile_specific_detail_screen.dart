@@ -13,7 +13,7 @@ import '../../chat/services/chat_service.dart';
 import '../../../router/route_names.dart';
 import '../models/profile_card_args.dart';
 
-const String _kFontFamily = 'Noto Sans KR';
+const String _kFontFamily = 'Pretendard';
 
 class _AppColors {
   static const Color primary = Color(0xFFFF5A7E);

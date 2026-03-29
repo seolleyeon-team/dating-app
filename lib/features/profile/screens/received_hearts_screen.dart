@@ -221,7 +221,7 @@ class _ReceivedHeartsScreenState extends State<ReceivedHeartsScreen> {
                         child: Text(
                           '데이터를 불러올 수 없어요',
                           style: TextStyle(
-                            fontFamily: _kFontFamily,
+                            fontFamily: 'Pretendard',
                             fontSize: 14,
                             color: _AppColors.gray500,
                           ),
@@ -442,10 +442,11 @@ class _ReceivedHeartCard extends StatelessWidget {
                         Text(
                           dateText,
                           style: const TextStyle(
-                            fontFamily: _kFontFamily,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: _AppColors.gray400,
+                            fontFamily: 'Pretendard',
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.3,
+                            color: _AppColors.textMain,
                           ),
                         ),
                     ],
@@ -458,7 +459,7 @@ class _ReceivedHeartCard extends StatelessWidget {
                       if (item.university.isNotEmpty) item.university,
                     ].join(' • '),
                     style: const TextStyle(
-                      fontFamily: _kFontFamily,
+                      fontFamily: 'Pretendard',
                       fontSize: 12,
                       color: _AppColors.textSub,
                     ),

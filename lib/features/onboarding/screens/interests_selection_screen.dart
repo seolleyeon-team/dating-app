@@ -372,7 +372,7 @@ class _InterestsSelectionScreenState extends State<InterestsSelectionScreen> {
                             const Text(
                               '관심사',
                               style: TextStyle(
-                                fontFamily: 'Noto Sans KR',
+                                fontFamily: 'Pretendard',
                                 fontSize: 28,
                                 fontWeight: FontWeight.bold,
                                 color: _AppColors.textMain,
@@ -384,7 +384,7 @@ class _InterestsSelectionScreenState extends State<InterestsSelectionScreen> {
                               child: Text(
                                 '${_selectedInterests.length}/${widget.maxSelection}',
                                 style: const TextStyle(
-                                  fontFamily: 'Noto Sans KR',
+                                  fontFamily: 'Pretendard',
                                   fontSize: 14,
                                   fontWeight: FontWeight.w500,
                                   color: _AppColors.textSub,
@@ -584,13 +584,13 @@ class _SearchBar extends StatelessWidget {
         ],
       ),
       child: TextField(
-        style: const TextStyle(fontFamily: 'Noto Sans KR'),
+        style: const TextStyle(fontFamily: 'Pretendard'),
         decoration: InputDecoration(
           filled: true,
           fillColor: _AppColors.surfaceLight,
           hintText: '검색',
           hintStyle: const TextStyle(
-            fontFamily: 'Noto Sans KR',
+            fontFamily: 'Pretendard',
             color: _AppColors.textSub,
           ),
           prefixIcon: const Icon(

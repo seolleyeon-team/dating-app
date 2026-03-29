@@ -180,7 +180,7 @@ class _TopNavigationBar extends StatelessWidget {
             child: Text(
               '$currentStep/$totalSteps',
               style: const TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.primary,
@@ -210,7 +210,7 @@ class _HeaderSection extends StatelessWidget {
           Text(
             '어떤 사람인지\n알려주세요',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 28,
               fontWeight: FontWeight.w700,
               height: 1.25,
@@ -222,7 +222,7 @@ class _HeaderSection extends StatelessWidget {
           Text(
             '상대방에게 매력을 어필할 수 있는 기회예요.\n솔직하고 담백하게 작성해보세요.',
             style: TextStyle(
-              fontFamily: 'Noto Sans KR',
+              fontFamily: 'Pretendard',
               fontSize: 15,
               fontWeight: FontWeight.w400,
               height: 1.5,
@@ -277,14 +277,14 @@ class _TextInputArea extends StatelessWidget {
               placeholder:
                   '커피 한 잔과 함께하는 조용한 대화를 좋아해요.\n주말에는 주로 한강에서 러닝을 즐겨요...',
               placeholderStyle: TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 16,
                 fontWeight: FontWeight.w400,
                 height: 1.5,
                 color: _AppColors.textMuted.withValues(alpha: 0.6),
               ),
               style: const TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 16,
                 fontWeight: FontWeight.w400,
                 height: 1.5,
@@ -310,7 +310,7 @@ class _TextInputArea extends StatelessWidget {
                 child: RichText(
                   text: TextSpan(
                     style: const TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                     ),
@@ -376,7 +376,7 @@ class _SuggestionSection extends StatelessWidget {
               const Text(
                 '무엇을 쓸지 고민되시나요?',
                 style: TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
                   color: _AppColors.textMain,
@@ -440,7 +440,7 @@ class _SuggestionChip extends StatelessWidget {
             Text(
               text,
               style: const TextStyle(
-                fontFamily: 'Noto Sans KR',
+                fontFamily: 'Pretendard',
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
                 color: _AppColors.textMuted,
@@ -512,7 +512,7 @@ class _BottomCTAButton extends StatelessWidget {
                   Text(
                     '다음',
                     style: TextStyle(
-                      fontFamily: 'Noto Sans KR',
+                      fontFamily: 'Pretendard',
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                       color: isEnabled

@@ -66,7 +66,7 @@ class BaseBottomSheet extends StatelessWidget {
               child: Text(
                 title!,
                 style: const TextStyle(
-                  fontFamily: 'Noto Sans KR',
+                  fontFamily: 'Pretendard',
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
                 ),
