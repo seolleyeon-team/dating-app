@@ -385,6 +385,70 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
+    // Asks (무물: 1:1 질문)
+    // -----------------------------------------------------------------------
+    match /asks/{askId} {
+      allow read: if true;
+
+      allow create: if
+        request.resource.data.fromUserId is string &&
+        request.resource.data.fromUserId.size() > 0 &&
+        request.resource.data.toUserId is string &&
+        request.resource.data.toUserId.size() > 0 &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() > 0 &&
+        request.resource.data.status is string;
+
+      allow update: if
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'status', 'readAt', 'updatedAt'
+        ]);
+
+      allow delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Interactions (like / nope / view / message)
+    // -----------------------------------------------------------------------
+    match /interactions/{interactionId} {
+      allow read: if true;
+      allow create: if
+        request.resource.data.fromUserId is string &&
+        request.resource.data.fromUserId.size() > 0 &&
+        request.resource.data.toUserId is string &&
+        request.resource.data.toUserId.size() > 0 &&
+        request.resource.data.action is string &&
+        request.resource.data.source is string &&
+        request.resource.data.keys().hasOnly([
+          'fromUserId', 'toUserId', 'action', 'source',
+          'metadata', 'createdAt'
+        ]);
+      allow update, delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Matches (매치 성사 기록)
+    // -----------------------------------------------------------------------
+    match /matches/{matchId} {
+      allow read: if true;
+      allow create: if
+        request.resource.data.userIds is list &&
+        request.resource.data.userIds.size() == 2 &&
+        request.resource.data.matchType is string &&
+        request.resource.data.status is string &&
+        request.resource.data.keys().hasOnly([
+          'userIds', 'matchType', 'matchedAt', 'status', 'chatRoomId'
+        ]);
+      allow update: if
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'status',
+          'unmatchedAt',
+          'chatRoomId'
+        ]);
+      allow delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
     // Default deny
     // -----------------------------------------------------------------------
     match /{document=**} {
