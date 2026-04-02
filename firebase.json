@@ -41,6 +41,14 @@
     ],
     "rewrites": [
       {
+        "source": "/invite/friend",
+        "destination": "/invite-friend.html"
+      },
+      {
+        "source": "/invite/friend/**",
+        "destination": "/invite-friend.html"
+      },
+      {
         "source": "/auth/email-link",
         "destination": "/index.html"
       },

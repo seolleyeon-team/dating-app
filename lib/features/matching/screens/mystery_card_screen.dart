@@ -15,6 +15,7 @@ import 'package:flutter/services.dart';
 import '../../chat/services/chat_service.dart';
 import '../../notifications/services/notification_service.dart';
 import '../../../router/route_names.dart';
+import '../../../services/ask_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/ai_recommendation_service.dart';
@@ -373,6 +374,7 @@ class _MainContentState extends State<_MainContent> {
   bool _isLoading = true;
   String? _kakaoUserId;
   final _storageService = StorageService();
+  final _askService = AskService();
 
   @override
   void initState() {
@@ -508,19 +510,90 @@ class _MainContentState extends State<_MainContent> {
                     ),
                   ],
                 ),
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: () {
-                    Navigator.of(
-                      context,
-                      rootNavigator: true,
-                    ).pushNamed(RouteNames.sentHearts);
-                  },
-                  child: const Icon(
-                    CupertinoIcons.heart,
-                    size: 24,
-                    color: _AppColors.gray400,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_kakaoUserId != null && _kakaoUserId!.isNotEmpty)
+                      StreamBuilder<int>(
+                        stream: _askService.unreadReceivedCount(_kakaoUserId!),
+                        builder: (context, askSnap) {
+                          final hasUnread = (askSnap.data ?? 0) > 0;
+                          return CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: () {
+                              HapticFeedback.lightImpact();
+                              Navigator.of(context, rootNavigator: true)
+                                  .pushNamed(RouteNames.asksInbox);
+                            },
+                            child: SizedBox(
+                              width: 40,
+                              height: 40,
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  const Center(
+                                    child: Icon(
+                                      CupertinoIcons.tray_fill,
+                                      size: 23,
+                                      color: _AppColors.gray400,
+                                    ),
+                                  ),
+                                  if (hasUnread)
+                                    Positioned(
+                                      right: 4,
+                                      top: 4,
+                                      child: Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: BoxDecoration(
+                                          color: _AppColors.primary,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: CupertinoColors.white,
+                                            width: 1.5,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      )
+                    else
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          Navigator.of(context, rootNavigator: true)
+                              .pushNamed(RouteNames.asksInbox);
+                        },
+                        child: const SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: Center(
+                            child: Icon(
+                              CupertinoIcons.tray_fill,
+                              size: 23,
+                              color: _AppColors.gray400,
+                            ),
+                          ),
+                        ),
+                      ),
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: () {
+                        Navigator.of(context, rootNavigator: true)
+                            .pushNamed(RouteNames.sentHearts);
+                      },
+                      child: const Icon(
+                        CupertinoIcons.heart,
+                        size: 24,
+                        color: _AppColors.gray400,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

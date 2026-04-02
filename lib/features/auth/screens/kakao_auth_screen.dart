@@ -7,7 +7,9 @@ import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import '../../../router/route_names.dart';
 import '../../../screens/auth/kakao_callback_screen.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/friend_invite_service.dart';
 import '../../../services/storage_service.dart';
+import '../../../shared/layouts/main_scaffold_args.dart';
 import '../../../utils/kakao_key_hash_util.dart';
 
 /// 카카오 인증 화면
@@ -22,6 +24,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
     with WidgetsBindingObserver {
   final _authService = AuthService();
   final _storageService = StorageService();
+  final _friendInviteService = FriendInviteService();
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -65,6 +68,46 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
     } catch (_) {}
   }
 
+  Future<bool> _handlePendingInviteAfterLogin() async {
+    final result = await _friendInviteService.processPendingInviteIfPossible();
+    if (!mounted || result == null) return false;
+
+    if (result.status == FriendInviteAcceptStatus.pendingLogin ||
+        result.status == FriendInviteAcceptStatus.pendingVerification) {
+      return false;
+    }
+
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('친구 초대'),
+        content: Text(result.displayMessage),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(result.isSuccessLike ? '친구 목록 보기' : '확인'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return false;
+
+    if (!result.isSuccessLike) {
+      return false;
+    }
+
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      RouteNames.main,
+      (route) => false,
+      arguments: const MainScaffoldArgs(
+        initialTabIndex: 4,
+        pendingRouteName: RouteNames.friendsList,
+      ),
+    );
+    return true;
+  }
+
   Future<void> _login() async {
     if (_isLoading) return;
 
@@ -82,6 +125,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       }
 
       await _storageService.saveKakaoUserId(kakaoUserId);
+      await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
 
       if (!mounted) return;
       // ✅ 이미 서버에 등록된 유저(재설치 후 약관→카카오 로그인 포함): 연세+초기설정 완료 시 홈으로
@@ -92,6 +136,8 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
             .isInitialSetupComplete(kakaoUserId);
 
         if (isVerified && isInitialSetupComplete) {
+          final handledInvite = await _handlePendingInviteAfterLogin();
+          if (handledInvite || !mounted) return;
           if (!mounted) return;
           Navigator.of(context)
               .pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
@@ -232,6 +278,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         throw Exception('카카오 사용자 ID를 가져오지 못했습니다.');
       }
       await _storageService.saveKakaoUserId(kakaoUserId);
+      await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
       if (!mounted) return;
       final exists = await _authService.kakaoUserExists(kakaoUserId);
       if (exists) {
@@ -239,6 +286,8 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         final isInitialSetupComplete =
             await _authService.isInitialSetupComplete(kakaoUserId);
         if (isVerified && isInitialSetupComplete) {
+          final handledInvite = await _handlePendingInviteAfterLogin();
+          if (handledInvite || !mounted) return;
           if (!mounted) return;
           Navigator.of(context)
               .pushNamedAndRemoveUntil(RouteNames.main, (route) => false);

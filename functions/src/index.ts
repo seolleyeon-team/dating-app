@@ -17,15 +17,21 @@ import {
   onDocumentCreated,
   onDocumentUpdated,
 } from "firebase-functions/v2/firestore";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as logger from "firebase-functions/logger";
 import { initializeApp } from "firebase-admin/app";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
+import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
+import { createHash, randomBytes } from "crypto";
 
 // Firebase Admin 초기화
 initializeApp();
 const db = getFirestore();
+const FRIEND_INVITE_HOST = "seolleyeon.web.app";
+const FRIEND_INVITE_PATH = "/invite/friend";
+const FRIEND_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 // 전역 옵션
 setGlobalOptions({
@@ -339,6 +345,535 @@ async function getUnreadChatDigestForUser(userId: string): Promise<{
     previewSenderName,
   };
 }
+
+type ResolvedAppUser = {
+  userId: string;
+  email: string;
+  data: Record<string, unknown>;
+  profileSnapshot: Record<string, unknown>;
+};
+
+function buildFriendPairId(userA: string, userB: string): string {
+  const ids = [userA, userB].sort();
+  return `${ids[0]}_${ids[1]}`;
+}
+
+function hashInviteToken(rawToken: string): string {
+  return createHash("sha256").update(rawToken).digest("hex");
+}
+
+function buildFriendInviteUrl(rawToken: string): string {
+  const url = new URL(`https://${FRIEND_INVITE_HOST}${FRIEND_INVITE_PATH}`);
+  url.searchParams.set("token", rawToken);
+  return url.toString();
+}
+
+function buildFriendProfileSnapshot(
+  userId: string,
+  data: Record<string, unknown>
+): Record<string, unknown> {
+  const onboardingRaw = data.onboarding;
+  const onboarding = isRecord(onboardingRaw) ? onboardingRaw : {};
+  const photoUrlsRaw = onboarding.photoUrls;
+  const photoUrls = Array.isArray(photoUrlsRaw)
+    ? photoUrlsRaw.map((value) => asString(value)).filter((value) => value)
+    : [];
+
+  const profileImageUrl = asStringOrNull(
+    onboarding.profileImageUrl ??
+      onboarding.representativeImageUrl ??
+      (photoUrls.length > 0 ? photoUrls[0] : null) ??
+      data.profileImageUrl
+  );
+  const universityName = asStringOrNull(
+    onboarding.university ?? data.universityName
+  );
+  const major = asStringOrNull(onboarding.major ?? data.major);
+  const nickname = asString(
+    onboarding.nickname ?? data.nickname ?? userId,
+    userId
+  );
+
+  return {
+    uid: userId,
+    nickname,
+    profileImageUrl,
+    universityName,
+    major,
+  };
+}
+
+async function verifyKakaoAccessToken(
+  accessToken: string
+): Promise<{ userId: string }> {
+  const response = await fetch("https://kapi.kakao.com/v2/user/me", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    logger.warn("Kakao access token verification failed", {
+      status: response.status,
+    });
+    throw new HttpsError(
+      "unauthenticated",
+      "카카오 로그인 세션을 확인할 수 없어요."
+    );
+  }
+
+  const data = (await response.json()) as Record<string, unknown>;
+  const userId = asString(data.id ?? "").trim();
+  if (!userId) {
+    throw new HttpsError(
+      "unauthenticated",
+      "카카오 사용자 정보를 확인할 수 없어요."
+    );
+  }
+
+  return { userId };
+}
+
+function emailFromAuthToken(
+  token: Record<string, unknown> | undefined
+): string | null {
+  if (!token) return null;
+  const raw = asNonEmptyString(token.email);
+  return raw ? raw.toLowerCase() : null;
+}
+
+/**
+ * Callable 인증 사용자 → Firestore users 문서.
+ * - 커스텀 토큰(UID = 카카오 ID): users/{uid} 직접 조회
+ * - 이메일 링크 로그인(UID ≠ 카카오 ID): JWT의 email로 studentEmail 일치 문서 조회
+ */
+async function resolveAuthedAppUser(
+  auth: { uid?: string; token?: Record<string, unknown> } | null | undefined
+): Promise<ResolvedAppUser> {
+  const authUid = asNonEmptyString(auth?.uid);
+  if (!authUid) {
+    throw new HttpsError("unauthenticated", "로그인이 필요해요.");
+  }
+
+  const token = auth?.token as Record<string, unknown> | undefined;
+
+  let doc = await db.collection("users").doc(authUid).get();
+
+  if (!doc.exists) {
+    const email = emailFromAuthToken(token);
+    if (email && email.endsWith("@yonsei.ac.kr")) {
+      const q = await db
+        .collection("users")
+        .where("studentEmail", "==", email)
+        .limit(1)
+        .get();
+      if (!q.empty) {
+        doc = q.docs[0];
+        logger.info(
+          "resolveAuthedAppUser: matched user by studentEmail (email-link auth uid differs from kakao doc id)",
+          { authUid, resolvedUserId: doc.id }
+        );
+      }
+    }
+  }
+
+  if (!doc.exists) {
+    throw new HttpsError(
+      "failed-precondition",
+      "가입 정보를 찾을 수 없어 친구 초대를 처리할 수 없어요."
+    );
+  }
+
+  const userId = doc.id;
+  const data = (doc.data() ?? {}) as Record<string, unknown>;
+  const studentEmail = asNonEmptyString(data.studentEmail)?.toLowerCase() ?? "";
+  const isStudentVerified = data.isStudentVerified === true;
+  if (!isStudentVerified || !studentEmail.endsWith("@yonsei.ac.kr")) {
+    throw new HttpsError(
+      "failed-precondition",
+      "학생 인증이 완료된 계정으로 다시 로그인해주세요."
+    );
+  }
+
+  return {
+    userId,
+    email: studentEmail,
+    data,
+    profileSnapshot: buildFriendProfileSnapshot(userId, data),
+  };
+}
+
+function getCallableData(request: {
+  data?: unknown;
+  rawRequest?: { body?: unknown } | null;
+}): Record<string, unknown> {
+  const direct = request.data;
+  if (isRecord(direct)) {
+    return direct;
+  }
+
+  const rawBody = request.rawRequest?.body;
+  if (isRecord(rawBody)) {
+    const nested = rawBody.data;
+    if (isRecord(nested)) {
+      return nested;
+    }
+    return rawBody;
+  }
+
+  return {};
+}
+
+/** Firebase Auth 없이 호출될 때: 클라이언트가 검증된 카카오 액세스 토큰을 넘김 */
+async function resolveVerifiedUserByKakaoId(
+  kakaoUserId: string
+): Promise<ResolvedAppUser> {
+  const doc = await db.collection("users").doc(kakaoUserId).get();
+  if (!doc.exists) {
+    throw new HttpsError(
+      "failed-precondition",
+      "가입 정보를 찾을 수 없어 친구 초대를 처리할 수 없어요."
+    );
+  }
+  const data = (doc.data() ?? {}) as Record<string, unknown>;
+  const studentEmail = asNonEmptyString(data.studentEmail)?.toLowerCase() ?? "";
+  const isStudentVerified = data.isStudentVerified === true;
+  if (!isStudentVerified || !studentEmail.endsWith("@yonsei.ac.kr")) {
+    throw new HttpsError(
+      "failed-precondition",
+      "학생 인증이 완료된 계정으로 다시 로그인해주세요."
+    );
+  }
+  return {
+    userId: kakaoUserId,
+    email: studentEmail,
+    data,
+    profileSnapshot: buildFriendProfileSnapshot(kakaoUserId, data),
+  };
+}
+
+/**
+ * 친구 초대 Callable: Firebase 세션(request.auth) 또는 카카오 액세스 토큰으로 본인 확인
+ */
+async function resolveUserForFriendCallable(request: {
+  auth?: { uid?: string; token?: Record<string, unknown> } | null;
+  data?: unknown;
+  rawRequest?: { body?: unknown } | null;
+}): Promise<ResolvedAppUser> {
+  if (request.auth?.uid) {
+    return await resolveAuthedAppUser(request.auth);
+  }
+  const data = getCallableData(request);
+  const accessToken = asNonEmptyString(data.kakaoAccessToken);
+  logger.info("resolveUserForFriendCallable fallback auth", {
+    hasAuthUid: !!request.auth?.uid,
+    dataKeys: Object.keys(data),
+    hasKakaoAccessToken: !!accessToken,
+  });
+  if (!accessToken) {
+    throw new HttpsError("unauthenticated", "로그인이 필요해요.");
+  }
+  const kakaoUser = await verifyKakaoAccessToken(accessToken);
+  return await resolveVerifiedUserByKakaoId(kakaoUser.userId);
+}
+
+function readFriendName(
+  snapshot: Record<string, unknown>,
+  fallback: string
+): string {
+  return asString(snapshot.nickname ?? fallback, fallback);
+}
+
+export const createFirebaseCustomToken = onCall(async (request) => {
+  const accessToken = asNonEmptyString(request.data?.accessToken);
+  if (!accessToken) {
+    throw new HttpsError("invalid-argument", "카카오 액세스 토큰이 필요해요.");
+  }
+
+  const kakaoUser = await verifyKakaoAccessToken(accessToken);
+  const userRef = db.collection("users").doc(kakaoUser.userId);
+  const userSnap = await userRef.get();
+
+  if (!userSnap.exists) {
+    throw new HttpsError(
+      "failed-precondition",
+      "가입 정보를 찾을 수 없어요. 다시 로그인해주세요."
+    );
+  }
+
+  const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
+  const customToken = await getAuth().createCustomToken(kakaoUser.userId, {
+    kakaoUserId: kakaoUser.userId,
+  });
+
+  return {
+    customToken,
+    userId: kakaoUser.userId,
+    isStudentVerified: userData.isStudentVerified === true,
+  };
+});
+
+export const createFriendInvite = onCall(async (request) => {
+  const requestData = getCallableData(request);
+  logger.info("createFriendInvite request", {
+    hasAuthUid: !!request.auth?.uid,
+    dataKeys: Object.keys(requestData),
+    hasKakaoAccessToken: !!asNonEmptyString(requestData.kakaoAccessToken),
+  });
+  const inviter = await resolveUserForFriendCallable(request);
+  const inviteRef = db.collection("friendInvites").doc();
+  const inviteToken = randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + FRIEND_INVITE_EXPIRY_MS);
+  const shareChannel = asStringOrNull(requestData.shareChannel) ?? "kakaotalk";
+
+  await inviteRef.set({
+    inviterUserId: inviter.userId,
+    inviterProfileSnapshot: inviter.profileSnapshot,
+    tokenHash: hashInviteToken(inviteToken),
+    status: "pending",
+    shareChannel,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+    expiresAt: Timestamp.fromDate(expiresAt),
+    acceptedByUserId: null,
+    acceptedAt: null,
+    friendshipPairId: null,
+    metadata: {
+      inviterEmail: inviter.email,
+    },
+  });
+
+  return {
+    inviteId: inviteRef.id,
+    inviteToken,
+    inviteUrl: buildFriendInviteUrl(inviteToken),
+    deepLinkPath: FRIEND_INVITE_PATH,
+    expiresAt: expiresAt.toISOString(),
+  };
+});
+
+export const acceptFriendInvite = onCall(async (request) => {
+  const data = getCallableData(request);
+  const rawToken = asNonEmptyString(data.token);
+  if (!rawToken) {
+    return {
+      status: "invalid",
+      message: "친구 초대 링크가 올바르지 않아요.",
+    };
+  }
+
+  const acceptor = await resolveUserForFriendCallable(request);
+  const tokenHash = hashInviteToken(rawToken);
+  const inviteQuery = await db
+    .collection("friendInvites")
+    .where("tokenHash", "==", tokenHash)
+    .limit(1)
+    .get();
+
+  if (inviteQuery.empty) {
+    return {
+      status: "invalid",
+      message: "유효하지 않은 친구 초대 링크예요.",
+    };
+  }
+
+  const inviteRef = inviteQuery.docs[0].ref;
+  const inviteId = inviteQuery.docs[0].id;
+  const inviteData = (inviteQuery.docs[0].data() ?? {}) as Record<string, unknown>;
+  const inviterUserId = asString(inviteData.inviterUserId ?? "");
+
+  if (!inviterUserId) {
+    return {
+      status: "invalid",
+      message: "친구 초대 정보가 올바르지 않아요.",
+    };
+  }
+
+  if (inviterUserId === acceptor.userId) {
+    return {
+      status: "self_invite",
+      message: "내가 만든 초대 링크로는 친구를 추가할 수 없어요.",
+    };
+  }
+
+  const inviterSnapshotRaw = inviteData.inviterProfileSnapshot;
+  const inviterSnapshot = isRecord(inviterSnapshotRaw)
+    ? inviterSnapshotRaw
+    : {};
+  const otherUserName = readFriendName(inviterSnapshot, inviterUserId);
+  const pairId = buildFriendPairId(inviterUserId, acceptor.userId);
+  const friendshipRef = db.collection("friendships").doc(pairId);
+  const inviterFriendRef = db
+    .collection("users")
+    .doc(inviterUserId)
+    .collection("friends")
+    .doc(acceptor.userId);
+  const acceptorFriendRef = db
+    .collection("users")
+    .doc(acceptor.userId)
+    .collection("friends")
+    .doc(inviterUserId);
+
+  const transactionResult = await db.runTransaction(async (transaction) => {
+    const freshInviteSnap = await transaction.get(inviteRef);
+    if (!freshInviteSnap.exists) {
+      return {
+        status: "invalid",
+        message: "유효하지 않은 친구 초대 링크예요.",
+      };
+    }
+
+    const freshInvite = (freshInviteSnap.data() ?? {}) as Record<string, unknown>;
+    const currentStatus = asString(freshInvite.status ?? "pending", "pending");
+    const acceptedByUserId = asStringOrNull(freshInvite.acceptedByUserId);
+    const expiresAtRaw = freshInvite.expiresAt;
+    const expiresAt =
+      expiresAtRaw instanceof Timestamp ? expiresAtRaw.toDate() : null;
+    const now = new Date();
+    const existingFriendshipSnap = await transaction.get(friendshipRef);
+
+    if (existingFriendshipSnap.exists) {
+      if (currentStatus === "pending") {
+        transaction.set(
+          inviteRef,
+          {
+            status: "accepted",
+            updatedAt: FieldValue.serverTimestamp(),
+            acceptedByUserId: acceptor.userId,
+            acceptedAt: FieldValue.serverTimestamp(),
+            friendshipPairId: pairId,
+          },
+          { merge: true }
+        );
+      }
+
+      return {
+        status: "already_friends",
+        pairId,
+        otherUserId: inviterUserId,
+        otherUserName,
+      };
+    }
+
+    if (expiresAt && expiresAt.getTime() <= now.getTime()) {
+      if (currentStatus === "pending") {
+        transaction.set(
+          inviteRef,
+          {
+            status: "expired",
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+      return {
+        status: "expired",
+        message: "친구 초대 링크가 만료되었어요.",
+      };
+    }
+
+    if (currentStatus !== "pending") {
+      if (currentStatus === "accepted" && acceptedByUserId === acceptor.userId) {
+        return {
+          status: "already_friends",
+          pairId,
+          otherUserId: inviterUserId,
+          otherUserName,
+        };
+      }
+
+      if (currentStatus === "expired") {
+        return {
+          status: "expired",
+          message: "친구 초대 링크가 만료되었어요.",
+        };
+      }
+
+      return {
+        status: "invalid",
+        message: "이미 사용된 친구 초대 링크예요.",
+      };
+    }
+
+    const sortedUserIds = [inviterUserId, acceptor.userId].sort();
+    const inviterUserRef = db.collection("users").doc(inviterUserId);
+    const acceptorUserRef = db.collection("users").doc(acceptor.userId);
+
+    transaction.set(friendshipRef, {
+      pairId,
+      userIds: sortedUserIds,
+      createdAt: FieldValue.serverTimestamp(),
+      createdFrom: "invite",
+      inviteId,
+      status: "active",
+      createdByUserId: acceptor.userId,
+    });
+
+    transaction.set(inviterFriendRef, {
+      friendUserId: acceptor.userId,
+      pairId,
+      createdAt: FieldValue.serverTimestamp(),
+      source: "invite",
+      friendProfileSnapshot: acceptor.profileSnapshot,
+      inviteId,
+    });
+
+    transaction.set(acceptorFriendRef, {
+      friendUserId: inviterUserId,
+      pairId,
+      createdAt: FieldValue.serverTimestamp(),
+      source: "invite",
+      friendProfileSnapshot: inviterSnapshot,
+      inviteId,
+    });
+
+    transaction.set(
+      inviteRef,
+      {
+        status: "accepted",
+        updatedAt: FieldValue.serverTimestamp(),
+        acceptedByUserId: acceptor.userId,
+        acceptedAt: FieldValue.serverTimestamp(),
+        friendshipPairId: pairId,
+      },
+      { merge: true }
+    );
+
+    transaction.set(
+      inviterUserRef,
+      {
+        friendsCount: FieldValue.increment(1),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    transaction.set(
+      acceptorUserRef,
+      {
+        friendsCount: FieldValue.increment(1),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    return {
+      status: "accepted",
+      pairId,
+      otherUserId: inviterUserId,
+      otherUserName,
+    };
+  });
+
+  logger.info("Friend invite processed", {
+    inviteId,
+    inviterUserId,
+    acceptorUserId: acceptor.userId,
+    pairId,
+    status: transactionResult.status,
+  });
+
+  return transactionResult;
+});
 
 // =============================================================================
 // 1) recEvents onCreate 트리거

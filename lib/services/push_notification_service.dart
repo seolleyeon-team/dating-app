@@ -39,6 +39,13 @@ class PushNotificationService {
       );
 
   Future<void> initialize() async {
+    if (kIsWeb) {
+      debugPrint(
+        '[PUSH] Web push service worker is not configured, skipping FCM init.',
+      );
+      return;
+    }
+
     await _requestPermission();
     await _initLocalNotifications();
     await syncFcmToken();
@@ -110,6 +117,13 @@ class PushNotificationService {
 
   Future<void> syncFcmToken() async {
     try {
+      if (kIsWeb) {
+        debugPrint(
+          '[PUSH] Web push service worker is not configured, skip token sync.',
+        );
+        return;
+      }
+
       final userId = await _storage.getKakaoUserId();
       debugPrint('[PUSH] stored kakaoUserId = $userId');
 

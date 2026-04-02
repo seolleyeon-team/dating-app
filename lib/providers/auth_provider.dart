@@ -1,16 +1,22 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:app_links/app_links.dart';
 
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
+import '../services/friend_invite_service.dart';
+import '../services/navigation_service.dart';
 import '../services/storage_service.dart';
 import '../services/push_notification_service.dart';
+import '../router/route_names.dart';
+import '../shared/layouts/main_scaffold_args.dart';
 
 class AuthProvider with ChangeNotifier {
   final AuthService _authService = AuthService();
   final StorageService _storageService = StorageService();
+  final FriendInviteService _friendInviteService = FriendInviteService();
 
   // ✅ 앱 초기화 완료 여부 (router에서 splash 고정에 사용)
   bool _isInitialized = false;
@@ -55,6 +61,8 @@ class AuthProvider with ChangeNotifier {
       '[Auth] status checked: init=$_isInitialized loading=$_isLoading authed=$_isAuthenticated',
     );
 
+    await _processPendingFriendInvite();
+
     _startEmailLinkListener();
 
     debugPrint('[Auth] deep link listener started');
@@ -70,6 +78,7 @@ class AuthProvider with ChangeNotifier {
       final kakaoUserId = await _storageService.getKakaoUserId();
       if (kakaoUserId != null &&
           await _authService.kakaoUserExists(kakaoUserId)) {
+        await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
         _kakaoUserId = kakaoUserId;
         _isAuthenticated = true;
 
@@ -120,6 +129,22 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> _handleIncomingUri(Uri uri) async {
+    if (_friendInviteService.isFriendInviteUri(uri)) {
+      final token = _friendInviteService.extractInviteToken(uri);
+      if (token == null || token.isEmpty) {
+        await _showFriendInviteResult(
+          const FriendInviteAcceptResult(
+            status: FriendInviteAcceptStatus.invalid,
+          ),
+        );
+        return;
+      }
+
+      await _friendInviteService.savePendingInviteToken(token);
+      await _processPendingFriendInvite();
+      return;
+    }
+
     final link = uri.toString();
 
     // Firebase 이메일 링크인지 확인
@@ -153,6 +178,9 @@ class AuthProvider with ChangeNotifier {
       // 학생 인증 완료 기록 + 상태 반영
       await setStudentVerified(email);
 
+      // 이메일 링크 UID ≠ 카카오 문서 ID. 가능하면 카카오 커스텀 토큰으로 통일(실패해도 이메일 세션 유지)
+      await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
+
       debugPrint('Email link verification complete for $email');
     } catch (e) {
       debugPrint('Email link sign-in failed: $e');
@@ -167,6 +195,70 @@ class AuthProvider with ChangeNotifier {
   void dispose() {
     _linkSub?.cancel();
     super.dispose();
+  }
+
+  Future<void> _processPendingFriendInvite() async {
+    final result = await _friendInviteService.processPendingInviteIfPossible();
+    if (result == null) return;
+    await _showFriendInviteResult(result);
+  }
+
+  Future<void> _showFriendInviteResult(
+    FriendInviteAcceptResult result,
+  ) async {
+    if (result.status == FriendInviteAcceptStatus.pendingLogin ||
+        result.status == FriendInviteAcceptStatus.pendingVerification) {
+      return;
+    }
+
+    final context = NavigationService.navigatorKey.currentContext;
+    final navigator = NavigationService.navigatorKey.currentState;
+    if (context == null || navigator == null) return;
+
+    final shouldNavigateToFriends =
+        result.isSuccessLike && _isStudentVerified && _isInitialSetupComplete;
+
+    final title = switch (result.status) {
+      FriendInviteAcceptStatus.accepted => '친구 추가 완료',
+      FriendInviteAcceptStatus.alreadyFriends => '이미 친구예요',
+      FriendInviteAcceptStatus.expired => '링크 만료',
+      FriendInviteAcceptStatus.invalid => '잘못된 링크',
+      FriendInviteAcceptStatus.selfInvite => '초대 링크 확인',
+      FriendInviteAcceptStatus.error => '처리 실패',
+      _ => '친구 초대',
+    };
+
+    await showCupertinoDialog<void>(
+      context: context,
+      useRootNavigator: true,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: Text(title),
+        content: Text(result.displayMessage),
+        actions: [
+          if (shouldNavigateToFriends)
+            CupertinoDialogAction(
+              onPressed: () {
+                Navigator.of(dialogContext, rootNavigator: true).pop();
+                navigator.pushNamedAndRemoveUntil(
+                  RouteNames.main,
+                  (route) => false,
+                  arguments: const MainScaffoldArgs(
+                    initialTabIndex: 4,
+                    pendingRouteName: RouteNames.friendsList,
+                  ),
+                );
+              },
+              child: const Text('친구 목록 보기'),
+            )
+          else
+            CupertinoDialogAction(
+              onPressed: () =>
+                  Navigator.of(dialogContext, rootNavigator: true).pop(),
+              child: const Text('확인'),
+            ),
+        ],
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------------

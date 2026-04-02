@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:uuid/uuid.dart';
@@ -11,6 +12,8 @@ class AuthService {
   final _uuid = const Uuid();
   final _userService = UserService();
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
+  final FirebaseFunctions _functions =
+      FirebaseFunctions.instanceFor(region: 'asia-northeast3');
 
   /// ✅ 카카오 로그인
   /// - Web: 카카오 계정 로그인
@@ -237,6 +240,62 @@ class AuthService {
     required String emailLink,
   }) async {
     await _firebaseAuth.signInWithEmailLink(email: email, emailLink: emailLink);
+  }
+
+  Future<bool> ensureFirebaseSessionForKakao(String kakaoUserId) async {
+    try {
+      final currentUser = _firebaseAuth.currentUser;
+      if (currentUser?.uid == kakaoUserId) {
+        await currentUser?.getIdToken(true);
+        debugPrint('[Auth] Firebase session already attached to $kakaoUserId');
+        return true;
+      }
+
+      await UserApi.instance.accessTokenInfo();
+      final kakaoToken = await TokenManagerProvider.instance.manager.getToken();
+      final accessToken = kakaoToken?.accessToken.trim() ?? '';
+
+      if (accessToken.isEmpty) {
+        debugPrint('[Auth] No Kakao access token available for Firebase auth bridge');
+        return false;
+      }
+
+      final callable = _functions.httpsCallable('createFirebaseCustomToken');
+      final result = await callable.call(<String, dynamic>{
+        'accessToken': accessToken,
+      });
+      final data = Map<String, dynamic>.from(
+        (result.data as Map?)?.cast<String, dynamic>() ?? const {},
+      );
+      final customToken = data['customToken']?.toString() ?? '';
+      if (customToken.isEmpty) {
+        debugPrint('[Auth] Firebase custom token response was empty');
+        return false;
+      }
+
+      final credential = await _firebaseAuth.signInWithCustomToken(customToken);
+      await credential.user?.getIdToken(true);
+      debugPrint('[Auth] Firebase custom auth attached to $kakaoUserId');
+      return true;
+    } catch (e, st) {
+      debugPrint('[Auth] ensureFirebaseSessionForKakao error: $e');
+      debugPrint(st.toString());
+      return false;
+    }
+  }
+
+  /// Firebase Auth 세션이 없을 때 Cloud Functions에서 카카오로 본인 확인할 때 사용
+  Future<String?> getKakaoAccessTokenForFunctions() async {
+    try {
+      await UserApi.instance.accessTokenInfo();
+      final kakaoToken = await TokenManagerProvider.instance.manager.getToken();
+      final accessToken = kakaoToken?.accessToken.trim() ?? '';
+      return accessToken.isEmpty ? null : accessToken;
+    } catch (e, st) {
+      debugPrint('[Auth] getKakaoAccessTokenForFunctions: $e');
+      debugPrint('$st');
+      return null;
+    }
   }
 
   Future<UserModel?> signUp({

@@ -3,6 +3,7 @@
 // 경로: lib/features/profile/screens/my_page_screen.dart
 // =============================================================================
 
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/cupertino.dart';
@@ -10,7 +11,10 @@ import 'package:flutter/services.dart';
 
 import '../../../router/route_names.dart';
 import '../../../services/ask_service.dart';
+import '../../../services/auth_service.dart';
 import '../../chat/services/chat_service.dart';
+import '../../../services/friend_invite_service.dart';
+import '../../../services/friend_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 
@@ -42,11 +46,17 @@ class MyPageScreen extends StatefulWidget {
 }
 
 class _MyPageScreenState extends State<MyPageScreen> {
+  final _authService = AuthService();
   final _userService = UserService();
+  final _friendInviteService = FriendInviteService();
+  final _friendService = FriendService();
   final _storageService = StorageService();
   final ChatService _chatService = ChatService();
   final AskService _askService = AskService();
   String? _currentUserId;
+  bool _isInvitingFriends = false;
+  OverlayEntry? _inviteToastEntry;
+  Timer? _inviteToastTimer;
 
   String userName = '사용자 이름';
   String nickname = '닉네임';
@@ -77,6 +87,14 @@ class _MyPageScreenState extends State<MyPageScreen> {
 
     final user = await _userService.getUserProfile(kakaoUserId);
     if (!mounted || user == null) return;
+    final canReadFriends = await _authService.ensureFirebaseSessionForKakao(
+      kakaoUserId,
+    );
+    final actualFriendsCount = canReadFriends
+        ? await _friendService.getFriendsCount(kakaoUserId).catchError(
+            (_) => (user['friendsCount'] as num?)?.toInt() ?? 0,
+          )
+        : (user['friendsCount'] as num?)?.toInt() ?? 0;
 
     final onboardingRaw = user['onboarding'];
     final onboarding = onboardingRaw is Map
@@ -107,8 +125,72 @@ class _MyPageScreenState extends State<MyPageScreen> {
           : user['profileImageUrl']?.toString();
 
       receivedHearts = (user['receivedHearts'] as num?)?.toInt() ?? 0;
-      friendsCount = (user['friendsCount'] as num?)?.toInt() ?? 0;
+      friendsCount = actualFriendsCount;
     });
+  }
+
+  Future<void> _inviteFriends() async {
+    if (_isInvitingFriends) return;
+
+    HapticFeedback.mediumImpact();
+    setState(() => _isInvitingFriends = true);
+
+    try {
+      final payload = await _friendInviteService.createFriendInvite();
+      await _friendInviteService.shareInviteViaKakao(
+        payload: payload,
+        inviterName: nickname,
+      );
+      _showInviteSnackBar('카카오톡으로 초대 링크를 보냈어요');
+    } catch (e) {
+      _showInviteSnackBar(
+        e.toString().replaceFirst('Exception: ', ''),
+        isError: true,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isInvitingFriends = false);
+      }
+    }
+  }
+
+  void _showInviteSnackBar(String message, {bool isError = false}) {
+    _inviteToastTimer?.cancel();
+    _inviteToastEntry?.remove();
+    _inviteToastEntry = null;
+
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
+
+    final bottomOffset = MediaQuery.of(context).padding.bottom + 32;
+    final entry = OverlayEntry(
+      builder: (_) => Positioned(
+        left: 20,
+        right: 20,
+        bottom: bottomOffset,
+        child: IgnorePointer(
+          child: _InviteToast(
+            message: message,
+            isError: isError,
+          ),
+        ),
+      ),
+    );
+
+    _inviteToastEntry = entry;
+    overlay.insert(entry);
+
+    _inviteToastTimer = Timer(const Duration(seconds: 2), () {
+      _inviteToastEntry?.remove();
+      _inviteToastEntry = null;
+    });
+  }
+
+  @override
+  void dispose() {
+    _inviteToastTimer?.cancel();
+    _inviteToastEntry?.remove();
+    super.dispose();
   }
 
   Future<void> _confirmLogout() async {
@@ -246,10 +328,8 @@ class _MyPageScreenState extends State<MyPageScreen> {
                     context,
                     rootNavigator: true,
                   ).pushNamed(RouteNames.heartCharge),
-                  onInviteFriends: () => Navigator.of(
-                    context,
-                    rootNavigator: true,
-                  ).pushNamed(RouteNames.friendsList),
+                  onInviteFriends: _inviteFriends,
+                  isInviteLoading: _isInvitingFriends,
                 ),
               ),
               SliverToBoxAdapter(
@@ -283,6 +363,46 @@ class _MyPageScreenState extends State<MyPageScreen> {
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _InviteToast extends StatelessWidget {
+  final String message;
+  final bool isError;
+
+  const _InviteToast({
+    required this.message,
+    required this.isError,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: isError
+            ? CupertinoColors.systemRed.withValues(alpha: 0.92)
+            : _AppColors.gray800.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: CupertinoColors.black.withValues(alpha: 0.14),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontFamily: 'Pretendard',
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: CupertinoColors.white,
+        ),
       ),
     );
   }
@@ -615,8 +735,14 @@ class _MenuList extends StatelessWidget {
   final VoidCallback? onEditProfile;
   final VoidCallback? onRecharge;
   final VoidCallback? onInviteFriends;
+  final bool isInviteLoading;
 
-  const _MenuList({this.onEditProfile, this.onRecharge, this.onInviteFriends});
+  const _MenuList({
+    this.onEditProfile,
+    this.onRecharge,
+    this.onInviteFriends,
+    this.isInviteLoading = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -664,6 +790,7 @@ class _MenuList extends StatelessWidget {
               iconColor: _AppColors.emerald500,
               label: '친구 초대',
               onTap: onInviteFriends,
+              isLoading: isInviteLoading,
             ),
           ],
         ),
@@ -678,6 +805,7 @@ class _MenuItem extends StatelessWidget {
   final Color iconColor;
   final String label;
   final VoidCallback? onTap;
+  final bool isLoading;
 
   const _MenuItem({
     required this.icon,
@@ -685,13 +813,14 @@ class _MenuItem extends StatelessWidget {
     required this.iconColor,
     required this.label,
     this.onTap,
+    this.isLoading = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return CupertinoButton(
       padding: EdgeInsets.zero,
-      onPressed: () {
+      onPressed: isLoading ? null : () {
         HapticFeedback.selectionClick();
         onTap?.call();
       },
@@ -720,11 +849,13 @@ class _MenuItem extends StatelessWidget {
                 ),
               ),
             ),
-            const Icon(
-              CupertinoIcons.chevron_right,
-              size: 20,
-              color: _AppColors.gray300,
-            ),
+            isLoading
+                ? const CupertinoActivityIndicator()
+                : const Icon(
+                    CupertinoIcons.chevron_right,
+                    size: 20,
+                    color: _AppColors.gray300,
+                  ),
           ],
         ),
       ),
