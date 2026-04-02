@@ -7,8 +7,9 @@
  *   3) onChatMessageCreated      — 새 채팅 메시지 푸시 알림
  *   4) onBambooCommentCreated    — 대나무숲 댓글/답글 푸시 + 인앱 알림
  *   5) onBambooPostLikeCreated   — 대나무숲 글 좋아요 푸시 + 인앱 알림
- *   6) onMatchUpdated            — 매치 해제 시 채팅방 비활성화
- *   7) sendDailyUnreadChatDigests — 매일 오후 1시 unread chat digest 푸시 + 인앱 알림
+ *   6) onAskCreated              — 무물(ask) 생성 시 알림 + 푸시
+ *   7) onMatchUpdated            — 매치 해제 시 채팅방 비활성화
+ *   8) sendDailyUnreadChatDigests — 매일 오후 1시 unread chat digest 푸시 + 인앱 알림
  */
 
 import { setGlobalOptions } from "firebase-functions/v2";
@@ -113,10 +114,11 @@ type InAppNotificationPayload = {
     | "community_post_like"
     | "community_comment"
     | "community_reply"
-    | "profile_like";
+    | "profile_like"
+    | "ask_received";
   title: string;
   body: string;
-  deeplinkType: "chat" | "community_post" | "received_like";
+  deeplinkType: "chat" | "community_post" | "received_like" | "asks_inbox";
   deeplinkId?: string;
   actorId?: string;
   actorName?: string;
@@ -128,37 +130,60 @@ type InAppNotificationPayload = {
 
 async function createInAppNotification(
   userId: string,
-  payload: InAppNotificationPayload
-): Promise<void> {
-  if (!userId) return;
+  payload: InAppNotificationPayload,
+  notificationId?: string
+): Promise<boolean> {
+  if (!userId) return false;
 
-  await db
-    .collection("users")
-    .doc(userId)
-    .collection("notifications")
-    .add({
-      type: payload.type,
-      title: payload.title,
-      body: payload.body,
-      isRead: false,
-      createdAt: FieldValue.serverTimestamp(),
+  const notifRef = notificationId
+    ? db
+        .collection("users")
+        .doc(userId)
+        .collection("notifications")
+        .doc(notificationId)
+    : db
+        .collection("users")
+        .doc(userId)
+        .collection("notifications")
+        .doc();
 
-      actorId: payload.actorId ?? null,
-      actorName: payload.actorName ?? null,
-      postId: payload.postId ?? null,
-      commentId: payload.commentId ?? null,
-      roomId: payload.roomId ?? null,
-      deeplinkType: payload.deeplinkType,
-      deeplinkId: payload.deeplinkId ?? null,
-      digestDate: payload.digestDate ?? null,
-    });
+  if (notificationId) {
+    const existing = await notifRef.get();
+    if (existing.exists) {
+      logger.info("Notification already exists, skipping (idempotent)", {
+        userId,
+        notificationId,
+      });
+      return false;
+    }
+  }
+
+  await notifRef.set({
+    type: payload.type,
+    title: payload.title,
+    body: payload.body,
+    isRead: false,
+    createdAt: FieldValue.serverTimestamp(),
+
+    actorId: payload.actorId ?? null,
+    actorName: payload.actorName ?? null,
+    postId: payload.postId ?? null,
+    commentId: payload.commentId ?? null,
+    roomId: payload.roomId ?? null,
+    deeplinkType: payload.deeplinkType,
+    deeplinkId: payload.deeplinkId ?? null,
+    digestDate: payload.digestDate ?? null,
+  });
 
   logger.info("In-app notification created", {
     userId,
+    notificationId: notifRef.id,
     type: payload.type,
     deeplinkType: payload.deeplinkType,
     deeplinkId: payload.deeplinkId ?? null,
   });
+
+  return true;
 }
 
 async function countPostLikeNotificationsForPost(
@@ -368,32 +393,50 @@ export const onInteractionCreated = onDocumentCreated(
     if (action !== "like" && action !== "super_like") return;
 
     // -----------------------------------------------------------------------
-    // 프로필 좋아요 알림: 상대방에게 푸시 + 인앱 알림
+    // 프로필 좋아요 알림: 상대방에게 인앱 알림(idempotent) + 푸시
     // -----------------------------------------------------------------------
     if (fromUserId !== toUserId) {
-      await sendPushToUsers([toUserId], {
-        title: "새로운 관심이 도착했어요",
-        body: "누군가가 내 프로필에 좋아요를 눌렀습니다.",
-        data: {
-          type: "profile_like",
-          fromUserId,
-        },
-      });
+      const interactionId = event.params.interactionId;
+      const notificationId = `like_${interactionId}`;
 
-      await createInAppNotification(toUserId, {
-        type: "profile_like",
-        title: "새로운 관심이 도착했어요",
-        body: "누군가가 내 프로필에 좋아요를 눌렀습니다.",
-        deeplinkType: "received_like",
-        deeplinkId: fromUserId,
-        actorId: fromUserId,
-      });
+      const actorInfo = await getUserDisplayInfo(fromUserId);
+      const title = "새로운 관심이 도착했어요";
+      const body = `${actorInfo.nickname}님이 좋아요를 보냈어요`;
 
-      logger.info("Profile like push + in-app notification sent", {
-        fromUserId,
+      const created = await createInAppNotification(
         toUserId,
-        action,
-      });
+        {
+          type: "profile_like",
+          title,
+          body,
+          deeplinkType: "received_like",
+          deeplinkId: fromUserId,
+          actorId: fromUserId,
+          actorName: actorInfo.nickname,
+        },
+        notificationId
+      );
+
+      if (created) {
+        await sendPushToUsers([toUserId], {
+          title,
+          body,
+          data: {
+            type: "profile_like",
+            notificationId,
+            deepLinkType: "received_like",
+            actorUserId: fromUserId,
+            sourceDocId: interactionId,
+          },
+        });
+
+        logger.info("Profile like push + in-app notification sent", {
+          fromUserId,
+          toUserId,
+          action,
+          notificationId,
+        });
+      }
     }
 
     // -----------------------------------------------------------------------
@@ -728,7 +771,65 @@ export const onBambooPostLikeCreated = onDocumentCreated(
 );
 
 // =============================================================================
-// 6) 매치 해제 시 채팅방 비활성화
+// 6) 무물(ask) 생성 시 알림 + 푸시
+// =============================================================================
+export const onAskCreated = onDocumentCreated(
+  "asks/{askId}",
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+
+    const askId = event.params.askId;
+    const data = snap.data();
+    const fromUserId = asString(data.fromUserId ?? "");
+    const toUserId = asString(data.toUserId ?? "");
+
+    if (!fromUserId || !toUserId || fromUserId === toUserId) return;
+
+    const notificationId = `ask_${askId}`;
+    const actorInfo = await getUserDisplayInfo(fromUserId);
+    const title = "새 무물이 도착했어요";
+    const body = `${actorInfo.nickname}님이 질문을 보냈어요`;
+
+    const created = await createInAppNotification(
+      toUserId,
+      {
+        type: "ask_received",
+        title,
+        body,
+        deeplinkType: "asks_inbox",
+        deeplinkId: askId,
+        actorId: fromUserId,
+        actorName: actorInfo.nickname,
+      },
+      notificationId
+    );
+
+    if (created) {
+      await sendPushToUsers([toUserId], {
+        title,
+        body,
+        data: {
+          type: "ask_received",
+          notificationId,
+          deepLinkType: "asks_inbox",
+          actorUserId: fromUserId,
+          sourceDocId: askId,
+        },
+      });
+
+      logger.info("Ask notification + push sent", {
+        askId,
+        fromUserId,
+        toUserId,
+        notificationId,
+      });
+    }
+  }
+);
+
+// =============================================================================
+// 7) 매치 해제 시 채팅방 비활성화 (onMatchUpdated)
 // =============================================================================
 export const onMatchUpdated = onDocumentUpdated(
   "matches/{matchId}",
@@ -778,7 +879,7 @@ export const onMatchUpdated = onDocumentUpdated(
 );
 
 // =============================================================================
-// 7) 매일 오후 1시 unread chat digest 푸시 + 인앱 알림
+// 8) 매일 오후 1시 unread chat digest 푸시 + 인앱 알림
 // =============================================================================
 export const sendDailyUnreadChatDigests = onSchedule(
   {

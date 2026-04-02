@@ -5,8 +5,6 @@
 // interactions 컬렉션에서 action=='like' && fromUserId==currentUid 조회
 // =============================================================================
 
-import 'dart:async';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
@@ -87,7 +85,6 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
   String? _currentUserId;
   Stream<List<Map<String, dynamic>>>? _likesStream;
 
-  // 프로필 캐시
   final Map<String, Map<String, dynamic>?> _profileCache = {};
 
   @override
@@ -105,9 +102,7 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
     });
   }
 
-  /// interactions 리스트를 dedupe + profile hydrate
   Future<List<_HeartItem>> _hydrate(List<Map<String, dynamic>> interactions) async {
-    // dedupe: 같은 toUserId 중 최신 1개만
     final Map<String, Map<String, dynamic>> deduped = {};
     for (final doc in interactions) {
       final otherId = doc['toUserId'] as String? ?? '';
@@ -122,7 +117,6 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
       final otherId = entry.key;
       final doc = entry.value;
 
-      // profile fetch with cache
       if (!_profileCache.containsKey(otherId)) {
         _profileCache[otherId] = await _userService.getUserProfile(otherId);
       }
@@ -202,7 +196,6 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
       backgroundColor: _AppColors.backgroundLight,
       child: Stack(
         children: [
-          // 배경 글로우
           Positioned(
             top: -60,
             left: 0,
@@ -222,7 +215,6 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
               ),
             ),
           ),
-          // 메인 콘텐츠
           _currentUserId == null
               ? const Center(child: CupertinoActivityIndicator())
               : StreamBuilder<List<Map<String, dynamic>>>(
@@ -257,7 +249,8 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
                                 count: items.length,
                               ),
                             ),
-                            if (items.isEmpty && hydSnap.connectionState == ConnectionState.done)
+                            if (items.isEmpty &&
+                                hydSnap.connectionState == ConnectionState.done)
                               SliverFillRemaining(
                                 hasScrollBody: false,
                                 child: Center(
@@ -267,7 +260,8 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
                                       Icon(
                                         CupertinoIcons.heart,
                                         size: 48,
-                                        color: _AppColors.gray400.withValues(alpha: 0.5),
+                                        color: _AppColors.gray400
+                                            .withValues(alpha: 0.5),
                                       ),
                                       const SizedBox(height: 16),
                                       const Text(
@@ -285,17 +279,24 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
                             else
                               SliverPadding(
                                 padding: EdgeInsets.fromLTRB(
-                                    16, 8, 16, bottomPadding + 24),
+                                  16,
+                                  8,
+                                  16,
+                                  bottomPadding + 24,
+                                ),
                                 sliver: SliverList(
                                   delegate: SliverChildBuilderDelegate(
                                     (context, index) => Padding(
-                                      padding: const EdgeInsets.only(bottom: 12),
+                                      padding:
+                                          const EdgeInsets.only(bottom: 12),
                                       child: _ProfileListItem(
                                         item: items[index],
-                                        dateText:
-                                            _formatDate(items[index].createdAt),
+                                        dateText: _formatDate(
+                                          items[index].createdAt,
+                                        ),
                                         onTap: () => _onProfileTap(
-                                            items[index].otherUserId),
+                                          items[index].otherUserId,
+                                        ),
                                       ),
                                     ),
                                     childCount: items.length,
@@ -371,17 +372,15 @@ class _Header extends StatelessWidget {
               '내가 보낸 호감 ($count)',
               style: const TextStyle(
                 fontFamily: _kFontFamily,
-            // 타이틀
-            const Text(
-              '내가 보낸 호감',
-              style: TextStyle(
-                fontFamily: 'Pretendard',
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.textPrimary,
               ),
             ),
-            const SizedBox(width: 40),
+            const Align(
+              alignment: Alignment.centerRight,
+              child: SizedBox(width: 40, height: 40),
+            ),
           ],
         ),
       ),
@@ -390,7 +389,7 @@ class _Header extends StatelessWidget {
 }
 
 // =============================================================================
-// 프로필 리스트 아이템
+// 프로필 리스트 아이템 (스크린샷과 동일: 단순 카드 + 우측 시간 + chevron)
 // =============================================================================
 class _ProfileListItem extends StatelessWidget {
   final _HeartItem item;
@@ -415,34 +414,32 @@ class _ProfileListItem extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: _AppColors.surfaceLight,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: CupertinoColors.black.withValues(alpha: 0.03),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
+              color: CupertinoColors.black.withValues(alpha: 0.06),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
         child: Row(
           children: [
-            // 프로필 이미지
             _ProfileAvatar(imageUrl: item.imageUrl),
             const SizedBox(width: 16),
-            // 콘텐츠
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Flexible(
+                      Expanded(
                         child: Text(
                           item.name,
                           style: const TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: _kFontFamily,
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
                             color: _AppColors.textPrimary,
@@ -450,8 +447,8 @@ class _ProfileListItem extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      if (dateText.isNotEmpty)
+                      if (dateText.isNotEmpty) ...[
+                        const SizedBox(width: 8),
                         Text(
                           dateText,
                           style: const TextStyle(
@@ -461,6 +458,7 @@ class _ProfileListItem extends StatelessWidget {
                             color: _AppColors.gray400,
                           ),
                         ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -561,142 +559,9 @@ class _TagRow extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
-            tag,
-            style: TextStyle(
-              fontFamily: 'Pretendard',
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              color: isOld ? _AppColors.gray400 : _AppColors.primary,
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
-// =============================================================================
-// 섹션 구분선
-// =============================================================================
-class _SectionDivider extends StatelessWidget {
-  final String text;
-
-  const _SectionDivider({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-      child: Row(
-        children: [
-          Expanded(child: Container(height: 1, color: _AppColors.gray200)),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              text,
-              style: const TextStyle(
-                fontFamily: 'Pretendard',
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: _AppColors.gray400,
-              ),
-            ),
-          ),
-          Expanded(child: Container(height: 1, color: _AppColors.gray200)),
-        ],
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// 하단 플로팅 네비게이션
-// =============================================================================
-class _FloatingNavBar extends StatelessWidget {
-  final Function(int index)? onTap;
-
-  const _FloatingNavBar({this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(32),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
-          decoration: BoxDecoration(
-            color: CupertinoColors.white.withValues(alpha: 0.95),
-            borderRadius: BorderRadius.circular(32),
-            border: Border.all(color: _AppColors.gray100),
-            boxShadow: [
-              BoxShadow(
-                color: CupertinoColors.black.withValues(alpha: 0.05),
-                blurRadius: 20,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _NavItem(
-                icon: CupertinoIcons.heart,
-                label: '설레연',
-                onTap: () => onTap?.call(0),
-              ),
-              _NavItem(
-                icon: CupertinoIcons.chat_bubble,
-                label: '채팅',
-                onTap: () => onTap?.call(1),
-              ),
-              _NavItem(
-                icon: CupertinoIcons.calendar,
-                label: '이벤트',
-                onTap: () => onTap?.call(2),
-              ),
-              _NavItem(
-                icon: CupertinoIcons.tree,
-                label: '대나무숲',
-                onTap: () => onTap?.call(3),
-              ),
-              _NavItem(
-                icon: CupertinoIcons.person,
-                label: '내 페이지',
-                onTap: () => onTap?.call(4),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// 네비게이션 아이템
-// =============================================================================
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-
-  const _NavItem({required this.icon, required this.label, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return CupertinoButton(
-      padding: EdgeInsets.zero,
-      onPressed: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 24, color: _AppColors.gray400),
-          const SizedBox(height: 4),
-          Text(
             label,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: _kFontFamily,
               fontSize: 10,
               fontWeight: FontWeight.w500,
               color: _AppColors.primary,

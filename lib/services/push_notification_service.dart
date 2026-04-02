@@ -199,7 +199,7 @@ class PushNotificationService {
 
     final type = data['type'] ?? '';
 
-    if (type == 'chat') {
+    if (type == 'chat' || type == 'chat_digest') {
       nav.pushNamedAndRemoveUntil(
         RouteNames.main,
         (route) => false,
@@ -219,6 +219,33 @@ class PushNotificationService {
           pendingRouteArgs: postId,
         ),
       );
+      return;
     }
+
+    if (type == 'profile_like' || type == 'community_post_like') {
+      nav.pushNamedAndRemoveUntil(
+        RouteNames.main,
+        (route) => false,
+        arguments: const MainScaffoldArgs(initialTabIndex: 4),
+      );
+      Future.delayed(const Duration(milliseconds: 300), () {
+        nav.pushNamed(RouteNames.receivedHearts);
+      });
+      return;
+    }
+
+    if (type == 'ask_received') {
+      nav.pushNamedAndRemoveUntil(
+        RouteNames.main,
+        (route) => false,
+        arguments: const MainScaffoldArgs(initialTabIndex: 4),
+      );
+      Future.delayed(const Duration(milliseconds: 300), () {
+        nav.pushNamed(RouteNames.asksInbox);
+      });
+      return;
+    }
+
+    nav.pushNamed(RouteNames.notifications);
   }
 }
