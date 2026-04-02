@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>설레연 친구 초대</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #fff8fb;
+        --card: #ffffff;
+        --line: #f2dbe6;
+        --text: #25181e;
+        --sub: #7b6470;
+        --accent: #f0428b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top right, rgba(240, 66, 139, 0.16), transparent 32%),
+          radial-gradient(circle at left center, rgba(255, 182, 193, 0.18), transparent 28%),
+          var(--bg);
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+
+      .card {
+        width: min(100%, 420px);
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        box-shadow: 0 18px 60px rgba(116, 57, 82, 0.12);
+        padding: 28px 24px;
+        text-align: center;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 26px;
+      }
+
+      p {
+        margin: 0;
+        line-height: 1.6;
+        color: var(--sub);
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        margin-top: 20px;
+        padding: 15px 18px;
+        border-radius: 16px;
+        background: var(--accent);
+        color: #fff;
+        text-decoration: none;
+        font-weight: 700;
+      }
+
+      .secondary {
+        background: #fff;
+        color: var(--accent);
+        border: 1px solid var(--line);
+      }
+
+      .hint {
+        margin-top: 16px;
+        font-size: 13px;
+      }
+
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>설레연 친구 초대</h1>
+      <p id="message">앱에서 친구 초대를 확인하는 중이에요.</p>
+      <a id="open-app" class="button hidden" href="#">설레연 앱에서 열기</a>
+      <a id="retry" class="button secondary hidden" href="#">다시 시도하기</a>
+      <p class="hint">
+        앱이 설치되어 있지 않다면 설레연을 먼저 설치한 뒤 같은 링크를 다시 열어주세요.
+      </p>
+    </main>
+
+    <script>
+      (function () {
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get("token");
+        const message = document.getElementById("message");
+        const openAppButton = document.getElementById("open-app");
+        const retryButton = document.getElementById("retry");
+
+        if (!token) {
+          message.textContent = "친구 초대 링크가 올바르지 않아요.";
+          retryButton.classList.add("hidden");
+          return;
+        }
+
+        const appUrl =
+          "seolleyeon://invite/friend?target=friend_invite&token=" +
+          encodeURIComponent(token);
+
+        openAppButton.href = appUrl;
+        retryButton.href = window.location.href;
+        openAppButton.classList.remove("hidden");
+
+        const tryOpenApp = function () {
+          window.location.href = appUrl;
+        };
+
+        window.setTimeout(tryOpenApp, 120);
+        window.setTimeout(function () {
+          message.textContent =
+            "앱이 자동으로 열리지 않았다면 아래 버튼을 눌러 설레연에서 이어서 진행해주세요.";
+          retryButton.classList.remove("hidden");
+        }, 1600);
+      })();
+    </script>
+  </body>
+</html>

@@ -10,6 +10,7 @@ class StorageService {
   static const String _studentEmailKeyPrefix = 'student_email_';
   static const String _studentVerifiedKeyPrefix = 'student_verified_';
   static const String _onboardingDraftKeyPrefix = 'onboarding_draft_';
+  static const String _pendingFriendInviteTokenKey = 'pending_friend_invite';
 
   Future<void> saveUserId(String userId) async {
     final prefs = await SharedPreferences.getInstance();
@@ -140,6 +141,21 @@ class StorageService {
   Future<void> clearOnboardingDraft(String kakaoUserId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('$_onboardingDraftKeyPrefix$kakaoUserId');
+  }
+
+  Future<void> savePendingFriendInviteToken(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_pendingFriendInviteTokenKey, token);
+  }
+
+  Future<String?> getPendingFriendInviteToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_pendingFriendInviteTokenKey);
+  }
+
+  Future<void> clearPendingFriendInviteToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_pendingFriendInviteTokenKey);
   }
 
   Future<void> clearAll() async {

@@ -9,7 +9,9 @@ import 'package:uuid/uuid.dart';
 
 import '../../../router/route_names.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/friend_invite_service.dart';
 import '../../../services/storage_service.dart';
+import '../../../shared/layouts/main_scaffold_args.dart';
 import '../../../utils/open_mail_app.dart';
 
 class StudentVerificationScreen extends StatefulWidget {
@@ -26,6 +28,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
   final _emailController = TextEditingController();
   final _authService = AuthService();
   final _storageService = StorageService();
+  final _friendInviteService = FriendInviteService();
 
   bool _isSending = false;
   bool _isVerifying = false;
@@ -56,6 +59,44 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         ],
       ),
     );
+  }
+
+  Future<bool> _handlePendingInviteAfterVerification() async {
+    final result = await _friendInviteService.processPendingInviteIfPossible();
+    if (!mounted || result == null) return false;
+
+    if (result.status == FriendInviteAcceptStatus.pendingLogin ||
+        result.status == FriendInviteAcceptStatus.pendingVerification) {
+      return false;
+    }
+
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('친구 초대'),
+        content: Text(result.displayMessage),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(result.isSuccessLike ? '친구 목록 보기' : '확인'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || !result.isSuccessLike) {
+      return false;
+    }
+
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      RouteNames.main,
+      (route) => false,
+      arguments: const MainScaffoldArgs(
+        initialTabIndex: 4,
+        pendingRouteName: RouteNames.friendsList,
+      ),
+    );
+    return true;
   }
 
   @override
@@ -128,6 +169,8 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     try {
       final isVerified = await _authService.isStudentVerified(kakaoUserId);
       if (isVerified && mounted) {
+        final handledInvite = await _handlePendingInviteAfterVerification();
+        if (handledInvite || !mounted) return;
         Navigator.of(context).pushReplacementNamed(RouteNames.onboardingBasicInfo);
       }
     } catch (_) {}
@@ -173,9 +216,12 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         kakaoUserId: kakaoUserId,
         studentEmail: email,
       );
+      await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
 
       if (!mounted) return;
       setState(() => _statusMessage = '학생 인증 완료!');
+      final handledInvite = await _handlePendingInviteAfterVerification();
+      if (handledInvite || !mounted) return;
       Navigator.of(context).pushReplacementNamed(RouteNames.onboardingBasicInfo);
     } catch (e) {
       if (!mounted) return;
@@ -298,10 +344,13 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
 
         // 로컬에도 verified 기록 (다음 실행에서 UX 개선)
         await _storageService.setStudentVerified(kakaoUserId, true);
+        await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
 
         if (!mounted) return;
         setState(() => _statusMessage = '학생 인증이 확인되었습니다!');
         HapticFeedback.mediumImpact();
+        final handledInvite = await _handlePendingInviteAfterVerification();
+        if (handledInvite || !mounted) return;
         Navigator.of(context).pushReplacementNamed(RouteNames.onboardingBasicInfo);
         return;
       }
@@ -535,4 +584,3 @@ class _AppColors {
   static const Color divider = Color(0xFFF0F0F0);
   static const Color gray700 = Color(0xFF374151);
 }
-

@@ -34,6 +34,11 @@ service cloud.firestore {
       return data.kakaoUserId == null || data.kakaoUserId == docKakaoId;
     }
 
+    function isVerifiedOwner(kakaoUserId) {
+      return request.auth != null &&
+          request.auth.uid == kakaoUserId;
+    }
+
     match /users/{kakaoUserId} {
       allow get: if true;
       allow list: if true;
@@ -158,6 +163,26 @@ service cloud.firestore {
 
         allow delete: if true;
       }
+
+      // ---------------------------------------------------------------------
+      // Friends mirror
+      // users/{kakaoUserId}/friends/{friendUid}
+      // ---------------------------------------------------------------------
+      match /friends/{friendUid} {
+        allow get, list: if isVerifiedOwner(kakaoUserId);
+        allow create, update, delete: if false;
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Friend invites / friendships
+    // -----------------------------------------------------------------------
+    match /friendInvites/{inviteId} {
+      allow get, list, create, update, delete: if false;
+    }
+
+    match /friendships/{pairId} {
+      allow get, list, create, update, delete: if false;
     }
 
     // -----------------------------------------------------------------------
