@@ -89,6 +89,25 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         (route) => false,
         arguments: const MainScaffoldArgs(initialTabIndex: 4),
       );
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (!mounted) return;
+        Navigator.of(context, rootNavigator: true)
+            .pushNamed(RouteNames.receivedHearts);
+      });
+      return;
+    }
+
+    if (deeplinkType == 'asks_inbox') {
+      Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
+        RouteNames.main,
+        (route) => false,
+        arguments: const MainScaffoldArgs(initialTabIndex: 4),
+      );
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (!mounted) return;
+        Navigator.of(context, rootNavigator: true)
+            .pushNamed(RouteNames.asksInbox);
+      });
       return;
     }
   }
@@ -123,6 +142,8 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         return CupertinoIcons.arrowshape_turn_up_left_fill;
       case 'profile_like':
         return CupertinoIcons.person_crop_circle;
+      case 'ask_received':
+        return CupertinoIcons.question_circle_fill;
       default:
         return CupertinoIcons.bell_fill;
     }
