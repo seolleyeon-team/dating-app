@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <application
         android:label="seolleyeon"
         android:name="${applicationName}"
@@ -62,6 +64,9 @@
         <package android:name="com.google.android.gm"/>
         <!-- 카카오톡 앱 설치 여부 확인 (isKakaoTalkInstalled) - Android 11+ -->
         <package android:name="com.kakao.talk"/>
+        <!-- 카카오맵 / 네이버지도 앱 (url_launcher · 지도 스킴) -->
+        <package android:name="net.daum.android.map"/>
+        <package android:name="com.nhn.android.nmap"/>
         <intent>
             <action android:name="android.intent.action.MAIN"/>
             <category android:name="android.intent.category.LAUNCHER"/>
@@ -69,6 +74,14 @@
         <intent>
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="intent"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="kakaomap"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="nmap"/>
         </intent>
     </queries>
 </manifest>

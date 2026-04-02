@@ -3,7 +3,10 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' as material;
 import 'package:flutter/services.dart';
 
+import '../models/promise_place.dart';
 import '../services/chat_service.dart';
+import '../services/promise_place_service.dart';
+import '../widgets/promise_place_picker_sheet.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../services/push_notification_service.dart';
@@ -11,8 +14,16 @@ import '../../../router/route_names.dart';
 import '../../matching/models/profile_card_args.dart';
 
 class _AppColors {
-  static const Color primary = Color(0xFF3B5443);
-  static const Color backgroundLight = Color(0xFFFAFAF9);
+  /// 라벤더 포인트 (#c6a9fe 계열) — 본문/선택 상태 (대비용으로 소프트보다 진함)
+  static const Color primary = Color(0xFF9B7FD8);
+  /// 사용자 지정 라벤더 #c6a9fe — 칩·배너·연한 배경
+  static const Color primarySoft = Color(0xFFC6A9FE);
+  /// 연한 보라 채우기용 알파 (버튼·칩 배경 — 약 30% 더 연하게 조정 시 배수)
+  static const double promiseFillAlpha = 0.29;
+  static const double promiseFillAlphaLight = 0.25;
+  static const double promiseBorderAlpha = 0.39;
+  static const double promiseBorderAlphaStrong = 0.43;
+  static const Color backgroundLight = Color(0xFFFAFAFC);
   static const Color bubbleUser = Color(0xFFF5F2EE);
   static const Color bubblePartner = Color(0xFFF0F3F5);
   static const Color textMain = Color(0xFF201F1D);
@@ -25,6 +36,27 @@ class _AppColors {
 
 enum MessageType { received, sent, promiseRequest, promiseConfirmed }
 
+double? _readFirestoreDouble(dynamic v) {
+  if (v is num) return v.toDouble();
+  return double.tryParse(v?.toString() ?? '');
+}
+
+String _promiseDetailSubtitle({
+  required DateTime? dateTime,
+  required String? category,
+  required String? place,
+  required String Function(DateTime? d) formatDt,
+}) {
+  final cat = PromisePlaceCategory.labelOrEmpty(category ?? '');
+  final pl = place ?? '';
+  final tm = formatDt(dateTime);
+  final parts = <String>[];
+  if (tm.isNotEmpty) parts.add(tm);
+  if (cat.isNotEmpty) parts.add(cat);
+  if (pl.isNotEmpty) parts.add(pl);
+  return parts.join(' · ');
+}
+
 class _ChatMessage {
   final MessageType type;
   final String text;
@@ -36,6 +68,10 @@ class _ChatMessage {
   final DateTime? promiseDateTime;
   final String? promisePlace;
   final String? promiseCategory;
+  final String? promisePlaceId;
+  final String? promisePlaceAddress;
+  final double? promisePlaceLat;
+  final double? promisePlaceLng;
   final bool isMineRequest;
   final String? promiseStatus;
 
@@ -52,6 +88,10 @@ class _ChatMessage {
     this.promiseDateTime,
     this.promisePlace,
     this.promiseCategory,
+    this.promisePlaceId,
+    this.promisePlaceAddress,
+    this.promisePlaceLat,
+    this.promisePlaceLng,
     this.isMineRequest = false,
     this.promiseStatus,
     this.isEdited = false,
@@ -77,6 +117,10 @@ class _ChatMessage {
     DateTime? promiseDateTime,
     String? promisePlace,
     String? promiseCategory,
+    String? promisePlaceId,
+    String? promisePlaceAddress,
+    double? promisePlaceLat,
+    double? promisePlaceLng,
     bool? isMineRequest,
     String? promiseStatus,
     bool? isEdited,
@@ -92,6 +136,10 @@ class _ChatMessage {
       promiseDateTime: promiseDateTime ?? this.promiseDateTime,
       promisePlace: promisePlace ?? this.promisePlace,
       promiseCategory: promiseCategory ?? this.promiseCategory,
+      promisePlaceId: promisePlaceId ?? this.promisePlaceId,
+      promisePlaceAddress: promisePlaceAddress ?? this.promisePlaceAddress,
+      promisePlaceLat: promisePlaceLat ?? this.promisePlaceLat,
+      promisePlaceLng: promisePlaceLng ?? this.promisePlaceLng,
       isMineRequest: isMineRequest ?? this.isMineRequest,
       promiseStatus: promiseStatus ?? this.promiseStatus,
       isEdited: isEdited ?? this.isEdited,
@@ -299,6 +347,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     DateTime? initialDateTime,
     String? initialCategory,
     String? initialPlace,
+    String? initialPlaceId,
   }) async {
     if (_currentUserId == null || _roomId.isEmpty) return;
 
@@ -308,6 +357,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         initialDateTime: initialDateTime,
         initialCategory: initialCategory,
         initialPlace: initialPlace,
+        initialPlaceId: initialPlaceId,
       ),
     );
 
@@ -321,6 +371,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         dateTime: result.dateTime,
         place: result.place,
         placeCategory: result.placeCategory,
+        placeId: result.placeId,
+        placeAddress: result.placeAddress,
+        placeLat: result.placeLat,
+        placeLng: result.placeLng,
       );
       return;
     }
@@ -332,6 +386,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       dateTime: result.dateTime,
       place: result.place,
       placeCategory: result.placeCategory,
+      placeId: result.placeId,
+      placeAddress: result.placeAddress,
+      placeLat: result.placeLat,
+      placeLng: result.placeLng,
     );
   }
 
@@ -425,6 +483,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         promiseDateTime: promiseDateTime,
         promisePlace: data['place']?.toString(),
         promiseCategory: data['placeCategory']?.toString(),
+        promisePlaceId: data['placeId']?.toString(),
+        promisePlaceAddress: data['placeAddress']?.toString(),
+        promisePlaceLat: _readFirestoreDouble(data['placeLat']),
+        promisePlaceLng: _readFirestoreDouble(data['placeLng']),
         isMineRequest: senderId == _currentUserId,
         promiseStatus: promiseStatus ?? 'requested',
         isEdited: isEdited,
@@ -442,6 +504,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         promiseDateTime: promiseDateTime,
         promisePlace: data['place']?.toString(),
         promiseCategory: data['placeCategory']?.toString(),
+        promisePlaceId: data['placeId']?.toString(),
+        promisePlaceAddress: data['placeAddress']?.toString(),
+        promisePlaceLat: _readFirestoreDouble(data['placeLat']),
+        promisePlaceLng: _readFirestoreDouble(data['placeLng']),
         isMineRequest: senderId == _currentUserId,
         promiseStatus: promiseStatus ?? 'confirmed',
         isEdited: isEdited,
@@ -459,6 +525,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         promiseDateTime: promiseDateTime,
         promisePlace: data['place']?.toString(),
         promiseCategory: data['placeCategory']?.toString(),
+        promisePlaceId: data['placeId']?.toString(),
+        promisePlaceAddress: data['placeAddress']?.toString(),
+        promisePlaceLat: _readFirestoreDouble(data['placeLat']),
+        promisePlaceLng: _readFirestoreDouble(data['placeLng']),
         isMineRequest: senderId == _currentUserId,
         promiseStatus: 'cancelled',
         isEdited: false,
@@ -520,6 +590,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         promiseDateTime: message.promiseDateTime ?? existing.promiseDateTime,
         promisePlace: message.promisePlace ?? existing.promisePlace,
         promiseCategory: message.promiseCategory ?? existing.promiseCategory,
+        promisePlaceId: message.promisePlaceId ?? existing.promisePlaceId,
+        promisePlaceAddress:
+            message.promisePlaceAddress ?? existing.promisePlaceAddress,
+        promisePlaceLat: message.promisePlaceLat ?? existing.promisePlaceLat,
+        promisePlaceLng: message.promisePlaceLng ?? existing.promisePlaceLng,
         promiseStatus: message.promiseStatus ?? existing.promiseStatus,
         isMineRequest: existing.isMineRequest,
         sortDateTime: existing.sortDateTime.isBefore(message.sortDateTime)
@@ -650,6 +725,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                   initialDateTime: message.promiseDateTime,
                                   initialCategory: message.promiseCategory,
                                   initialPlace: message.promisePlace,
+                                  initialPlaceId: message.promisePlaceId,
                                 ),
                                 onDeletePromise: () => _deletePromise(message),
                                 onOpenProfile: _openPartnerProfileCard,
@@ -682,7 +758,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       university: widget.partnerUniversity,
                       onBack: widget.onBack,
                       onMore: widget.onMore,
-                      onPromiseTap: _openPromiseSheet,
+                      onPromiseTap: () => _openPromiseSheet(),
                       onProfileTap: _openPartnerProfileCard,
                     ),
                     if (activePromise != null)
@@ -737,125 +813,131 @@ class _Header extends StatelessWidget {
         ),
         child: SizedBox(
           height: 52,
-          child: Stack(
-            alignment: Alignment.center,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: () {
-                      HapticFeedback.lightImpact();
-                      if (onBack != null) {
-                        onBack!();
-                      } else {
-                        Navigator.of(context).pop();
-                      }
-                    },
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _AppColors.stone100,
-                      ),
-                      child: const Icon(
-                        CupertinoIcons.back,
-                        size: 24,
-                        color: _AppColors.textMain,
-                      ),
-                    ),
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  if (onBack != null) {
+                    onBack!();
+                  } else {
+                    Navigator.of(context).pop();
+                  }
+                },
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _AppColors.stone100,
                   ),
-                  const Spacer(),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: onPromiseTap,
-                    child: Container(
-                      height: 40,
+                  child: const Icon(
+                    CupertinoIcons.back,
+                    size: 24,
+                    color: _AppColors.textMain,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.center,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.deferToChild,
+                    onTap: onProfileTap,
+                    child: Padding(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
+                        horizontal: 10,
+                        vertical: 6,
                       ),
-                      decoration: BoxDecoration(
-                        color: _AppColors.primary.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: const Center(
-                        child: Text(
-                          '약속잡기',
-                          style: TextStyle(
-                            fontFamily: 'Pretendard',
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: _AppColors.primary,
-                          ),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: MediaQuery.sizeOf(context).width * 0.42,
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontFamily: 'Pretendard',
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                height: 1.1,
+                                letterSpacing: -0.3,
+                                color: _AppColors.textMain,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              university,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontFamily: 'Pretendard',
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                height: 1.1,
+                                color: _AppColors.textSubtle,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: onMore,
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _AppColors.stone100,
-                      ),
-                      child: const Icon(
-                        CupertinoIcons.ellipsis,
-                        size: 24,
-                        color: _AppColors.textMain,
+                ),
+              ),
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                minimumSize: Size.zero,
+                onPressed: onPromiseTap,
+                child: Container(
+                  height: 40,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _AppColors.primarySoft.withValues(
+                      alpha: _AppColors.promiseFillAlpha,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Center(
+                    child: Text(
+                      '약속잡기',
+                      style: TextStyle(
+                        fontFamily: 'Pretendard',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: _AppColors.primary,
                       ),
                     ),
                   ),
-                ],
+                ),
               ),
-              Positioned.fill(
-                child: Center(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onTap: onProfileTap,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 108),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontFamily: 'Pretendard',
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              height: 1.1,
-                              letterSpacing: -0.3,
-                              color: _AppColors.textMain,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            university,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontFamily: 'Pretendard',
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              height: 1.1,
-                              color: _AppColors.textSubtle,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+              const SizedBox(width: 8),
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: onMore,
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _AppColors.stone100,
+                  ),
+                  child: const Icon(
+                    CupertinoIcons.ellipsis,
+                    size: 24,
+                    color: _AppColors.textMain,
                   ),
                 ),
               ),
@@ -885,18 +967,25 @@ class _ActivePromiseBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final ts = activePromise['dateTime'] as Timestamp?;
     final place = activePromise['place']?.toString() ?? '';
-    final category = activePromise['placeCategory']?.toString() ?? '';
+    final categoryRaw = activePromise['placeCategory']?.toString() ?? '';
+    final categoryLabel = PromisePlaceCategory.labelOrEmpty(categoryRaw);
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: _AppColors.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _AppColors.primary.withValues(alpha: 0.20)),
-      ),
+          decoration: BoxDecoration(
+            color: _AppColors.primarySoft.withValues(
+              alpha: _AppColors.promiseFillAlphaLight,
+            ),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: _AppColors.primarySoft.withValues(
+                alpha: _AppColors.promiseBorderAlpha,
+              ),
+            ),
+          ),
       child: Text(
-        '${_formatTime(ts)} · $category · $place 에 약속이 있어요',
+        '${_formatTime(ts)}${categoryLabel.isEmpty ? '' : ' · $categoryLabel'} · $place 에 약속이 있어요',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(
@@ -1179,7 +1268,12 @@ class _PromiseRequestMessage extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                '${_formatTime(message.promiseDateTime)} · ${message.promiseCategory ?? ''} · ${message.promisePlace ?? ''}',
+                _promiseDetailSubtitle(
+                  dateTime: message.promiseDateTime,
+                  category: message.promiseCategory,
+                  place: message.promisePlace,
+                  formatDt: _formatTime,
+                ),
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontFamily: 'Pretendard',
@@ -1352,10 +1446,14 @@ class _PromiseConfirmedBanner extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: _AppColors.primary.withValues(alpha: 0.10),
+            color: _AppColors.primarySoft.withValues(
+              alpha: _AppColors.promiseFillAlpha,
+            ),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: _AppColors.primary.withValues(alpha: 0.25),
+              color: _AppColors.primarySoft.withValues(
+                alpha: _AppColors.promiseBorderAlphaStrong,
+              ),
             ),
           ),
           child: Column(
@@ -1371,7 +1469,12 @@ class _PromiseConfirmedBanner extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                '${_formatTime(message.promiseDateTime)} · ${message.promiseCategory ?? ''} · ${message.promisePlace ?? ''}',
+                _promiseDetailSubtitle(
+                  dateTime: message.promiseDateTime,
+                  category: message.promiseCategory,
+                  place: message.promisePlace,
+                  formatDt: _formatTime,
+                ),
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontFamily: 'Pretendard',
@@ -1436,11 +1539,19 @@ class _PromiseFormResult {
   final DateTime dateTime;
   final String place;
   final String placeCategory;
+  final String? placeId;
+  final String? placeAddress;
+  final double? placeLat;
+  final double? placeLng;
 
   const _PromiseFormResult({
     required this.dateTime,
     required this.place,
     required this.placeCategory,
+    this.placeId,
+    this.placeAddress,
+    this.placeLat,
+    this.placeLng,
   });
 }
 
@@ -1448,11 +1559,13 @@ class _PromiseCreateBottomSheet extends StatefulWidget {
   final DateTime? initialDateTime;
   final String? initialCategory;
   final String? initialPlace;
+  final String? initialPlaceId;
 
   const _PromiseCreateBottomSheet({
     this.initialDateTime,
     this.initialCategory,
     this.initialPlace,
+    this.initialPlaceId,
   });
 
   @override
@@ -1466,20 +1579,9 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
   late TextEditingController hourController;
   late TextEditingController minuteController;
 
-  String selectedCategory = '카페';
-  String selectedPlace = '스타벅스 신촌점';
-
-  final Map<String, List<String>> placesByCategory = const {
-    '식당': ['연남 파스타집', '신촌 삼겹살집', '홍대 덮밥집', '이대 초밥집'],
-    '카페': ['스타벅스 신촌점', '투썸플레이스 연세로점', '블루보틀 성수점', '조용한 개인카페'],
-    '바': ['와인바 연남', '칵테일바 신촌', '하이볼바 성수', '루프탑 바'],
-    '야외': ['한강공원 여의도', '서울숲', '연트럴파크', '남산 산책로'],
-    '이색 장소': ['보드게임카페', '방탈출카페', '전시회', '소품샵 거리'],
-  };
-
-  List<String> get categories => placesByCategory.keys.toList();
-  List<String> get currentPlaces =>
-      placesByCategory[selectedCategory] ?? const [];
+  final PromisePlaceService _placeService = PromisePlaceService();
+  PromisePlace? _selectedPlace;
+  bool _placesLoading = true;
 
   @override
   void initState() {
@@ -1498,18 +1600,51 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
       text: initialDt.minute.toString().padLeft(2, '0'),
     );
 
-    if (widget.initialCategory != null &&
-        placesByCategory.containsKey(widget.initialCategory)) {
-      selectedCategory = widget.initialCategory!;
+    _bootstrapSelectedPlace();
+  }
+
+  Future<void> _bootstrapSelectedPlace() async {
+    final list = await _placeService.loadPlaces();
+    if (!mounted) return;
+
+    PromisePlace? selected;
+    final id = widget.initialPlaceId;
+    if (id != null && id.isNotEmpty) {
+      for (final p in list) {
+        if (p.placeId == id) {
+          selected = p;
+          break;
+        }
+      }
+    }
+    if (selected == null) {
+      final name = widget.initialPlace;
+      if (name != null && name.isNotEmpty) {
+        for (final p in list) {
+          if (p.name == name) {
+            selected = p;
+            break;
+          }
+        }
+      }
+    }
+    if (selected == null) {
+      final cat = widget.initialCategory;
+      final isLikelyEdit =
+          (widget.initialPlaceId != null &&
+              widget.initialPlaceId!.isNotEmpty) ||
+          (widget.initialPlace != null && widget.initialPlace!.isNotEmpty);
+      if (isLikelyEdit && cat != null && cat.isNotEmpty) {
+        final want = PromisePlaceCategory.normalize(cat);
+        final inCat = list.where((e) => e.category == want).toList();
+        if (inCat.isNotEmpty) selected = inCat.first;
+      }
     }
 
-    if (widget.initialPlace != null &&
-        (placesByCategory[selectedCategory]?.contains(widget.initialPlace) ??
-            false)) {
-      selectedPlace = widget.initialPlace!;
-    } else {
-      selectedPlace = placesByCategory[selectedCategory]!.first;
-    }
+    setState(() {
+      _selectedPlace = selected;
+      _placesLoading = false;
+    });
   }
 
   @override
@@ -1542,11 +1677,11 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
     );
   }
 
-  void _showValidationDialog(String message) {
+  void _showValidationDialog(String message, {String title = '시간 확인'}) {
     showCupertinoDialog(
       context: context,
       builder: (_) => CupertinoAlertDialog(
-        title: const Text('시간 확인'),
+        title: Text(title),
         content: Text(message),
         actions: [
           CupertinoDialogAction(
@@ -1625,17 +1760,53 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                           borderRadius: BorderRadius.circular(20),
                           child: material.Material(
                             type: material.MaterialType.transparency,
-                            child: material.CalendarDatePicker(
-                              initialDate: selectedDate,
-                              firstDate: DateTime.now(),
-                              lastDate: DateTime.now().add(
-                                const Duration(days: 180),
+                            child: material.Theme(
+                              data: material.ThemeData(
+                                useMaterial3: true,
+                                colorScheme: material.ColorScheme.light(
+                                  primary: _AppColors.primary,
+                                  onPrimary: const Color(0xFFFFFFFF),
+                                  surface: const Color(0xFFFFFFFF),
+                                ),
+                                datePickerTheme: material.DatePickerThemeData(
+                                  todayForegroundColor:
+                                      material.WidgetStateProperty.resolveWith(
+                                    (states) {
+                                      if (states.contains(
+                                        material.WidgetState.selected,
+                                      )) {
+                                        return const Color(0xFFFFFFFF);
+                                      }
+                                      return _AppColors.primary;
+                                    },
+                                  ),
+                                  todayBackgroundColor:
+                                      material.WidgetStateProperty.resolveWith(
+                                    (states) {
+                                      if (states.contains(
+                                        material.WidgetState.selected,
+                                      )) {
+                                        return _AppColors.primary;
+                                      }
+                                      return _AppColors.primarySoft.withValues(
+                                        alpha: 0.22,
+                                      );
+                                    },
+                                  ),
+                                ),
                               ),
-                              onDateChanged: (value) {
-                                setState(() {
-                                  selectedDate = value;
-                                });
-                              },
+                              child: material.CalendarDatePicker(
+                                initialDate: selectedDate,
+                                firstDate: DateTime.now(),
+                                lastDate: DateTime.now().add(
+                                  const Duration(days: 180),
+                                ),
+                                onDateChanged: (value) {
+                                  setState(() {
+                                    selectedDate = value;
+                                  });
+                                },
+                              ),
                             ),
                           ),
                         ),
@@ -1771,7 +1942,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                       ),
                       const SizedBox(height: 20),
                       const Text(
-                        '장소 카테고리',
+                        '만날 장소 (송도)',
                         style: TextStyle(
                           fontFamily: 'Pretendard',
                           fontSize: 15,
@@ -1780,108 +1951,88 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                         ),
                       ),
                       const SizedBox(height: 10),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: categories.map((category) {
-                            final isSelected = selectedCategory == category;
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: CupertinoButton(
-                                padding: EdgeInsets.zero,
-                                onPressed: () {
-                                  setState(() {
-                                    selectedCategory = category;
-                                    selectedPlace =
-                                        placesByCategory[category]!.first;
-                                  });
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                    vertical: 10,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: isSelected
-                                        ? _AppColors.primary.withValues(
-                                            alpha: 0.10,
-                                          )
-                                        : CupertinoColors.white,
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                      color: isSelected
-                                          ? _AppColors.primary
-                                          : _AppColors.stone100,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    category,
-                                    style: TextStyle(
-                                      fontFamily: 'Pretendard',
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: isSelected
-                                          ? _AppColors.primary
-                                          : _AppColors.textMain,
-                                    ),
-                                  ),
-                                ),
-                              ),
+                      if (_placesLoading)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24),
+                          child: Center(child: CupertinoActivityIndicator()),
+                        )
+                      else
+                        CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: () async {
+                            final picked = await PromisePlacePickerSheet.show(
+                              context,
+                              initialPlaceId: _selectedPlace?.placeId,
                             );
-                          }).toList(),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      const Text(
-                        '장소 선택',
-                        style: TextStyle(
-                          fontFamily: 'Pretendard',
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: _AppColors.textMain,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      ...currentPlaces.map(
-                        (place) => Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: CupertinoButton(
-                            padding: EdgeInsets.zero,
-                            onPressed: () {
-                              setState(() {
-                                selectedPlace = place;
-                              });
-                            },
-                            child: Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 16,
-                              ),
-                              decoration: BoxDecoration(
-                                color: selectedPlace == place
-                                    ? _AppColors.primary.withValues(alpha: 0.08)
-                                    : CupertinoColors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: selectedPlace == place
-                                      ? _AppColors.primary
-                                      : _AppColors.stone100,
-                                ),
-                              ),
-                              child: Text(
-                                place,
-                                style: TextStyle(
-                                  fontFamily: 'Pretendard',
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: selectedPlace == place
-                                      ? _AppColors.primary
-                                      : _AppColors.textMain,
-                                ),
+                            if (picked != null && mounted) {
+                              setState(() => _selectedPlace = picked);
+                            }
+                          },
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 16,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _selectedPlace != null
+                                  ? _AppColors.primarySoft.withValues(
+                                      alpha:
+                                          _AppColors.promiseFillAlphaLight,
+                                    )
+                                  : CupertinoColors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: _selectedPlace != null
+                                    ? _AppColors.primary
+                                    : _AppColors.stone100,
                               ),
                             ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _selectedPlace?.name ?? '장소를 선택하세요',
+                                    style: TextStyle(
+                                      fontFamily: 'Pretendard',
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: _selectedPlace != null
+                                          ? _AppColors.primary
+                                          : _AppColors.textSubtle,
+                                    ),
+                                  ),
+                                ),
+                                if (_selectedPlace != null) ...[
+                                  Text(
+                                    PromisePlaceCategory.label(
+                                      _selectedPlace!.category,
+                                    ),
+                                    style: const TextStyle(
+                                      fontFamily: 'Pretendard',
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: _AppColors.textSubtle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                ],
+                                const Icon(
+                                  CupertinoIcons.chevron_forward,
+                                  size: 18,
+                                  color: _AppColors.textSubtle,
+                                ),
+                              ],
+                            ),
                           ),
+                        ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        '칸을 누르면 상세가 펼쳐지고, 지도·이 장소 선택을 할 수 있어요',
+                        style: TextStyle(
+                          fontFamily: 'Pretendard',
+                          fontSize: 12,
+                          color: _AppColors.textSubtle,
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -1896,7 +2047,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                           '선택한 일정\n'
                           '${selectedDate.month}월 ${selectedDate.day}일 '
                           '$selectedPeriod ${previewHour.toString().padLeft(2, '0')} : ${previewMinute.toString().padLeft(2, '0')}\n'
-                          '$selectedCategory · $selectedPlace',
+                          '${_selectedPlace != null ? '${PromisePlaceCategory.label(_selectedPlace!.category)} · ${_selectedPlace!.name}' : '장소를 선택하세요'}',
                           style: const TextStyle(
                             fontFamily: 'Pretendard',
                             fontSize: 13,
@@ -1955,12 +2106,26 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                             return;
                           }
 
+                          final p = _selectedPlace;
+                          if (p == null) {
+                            _showValidationDialog(
+                              '장소를 선택해주세요.',
+                              title: '장소 선택',
+                            );
+                            return;
+                          }
+
                           Navigator.pop(
                             context,
                             _PromiseFormResult(
                               dateTime: selectedDateTime,
-                              place: selectedPlace,
-                              placeCategory: selectedCategory,
+                              place: p.name,
+                              placeCategory: p.category,
+                              placeId: p.placeId,
+                              placeAddress:
+                                  p.address.isNotEmpty ? p.address : null,
+                              placeLat: p.lat,
+                              placeLng: p.lng,
                             ),
                           );
                         },
@@ -2014,7 +2179,9 @@ class _PeriodButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
           color: isSelected
-              ? _AppColors.primary.withValues(alpha: 0.10)
+              ? _AppColors.primarySoft.withValues(
+                  alpha: _AppColors.promiseFillAlpha,
+                )
               : CupertinoColors.white,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(

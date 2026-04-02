@@ -3,6 +3,22 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class ChatService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  static Map<String, dynamic> _promisePlaceExtras({
+    String? placeId,
+    String? placeAddress,
+    double? placeLat,
+    double? placeLng,
+  }) {
+    final m = <String, dynamic>{};
+    if (placeId != null && placeId.isNotEmpty) m['placeId'] = placeId;
+    if (placeAddress != null && placeAddress.isNotEmpty) {
+      m['placeAddress'] = placeAddress;
+    }
+    if (placeLat != null) m['placeLat'] = placeLat;
+    if (placeLng != null) m['placeLng'] = placeLng;
+    return m;
+  }
+
   String buildDirectRoomId(String userA, String userB) {
     final ids = [userA, userB]..sort();
     return 'dm_${ids[0]}_${ids[1]}';
@@ -197,12 +213,23 @@ class ChatService {
     required DateTime dateTime,
     required String place,
     required String placeCategory,
+    String? placeId,
+    String? placeAddress,
+    double? placeLat,
+    double? placeLng,
   }) async {
     final roomRef = _firestore.collection('chat_rooms').doc(roomId);
     final promiseRef = roomRef.collection('promises').doc();
     final messageRef = roomRef.collection('messages').doc();
 
     final batch = _firestore.batch();
+
+    final extras = _promisePlaceExtras(
+      placeId: placeId,
+      placeAddress: placeAddress,
+      placeLat: placeLat,
+      placeLng: placeLng,
+    );
 
     batch.set(promiseRef, {
       'promiseId': promiseRef.id,
@@ -212,6 +239,7 @@ class ChatService {
       'dateTime': Timestamp.fromDate(dateTime),
       'place': place,
       'placeCategory': placeCategory,
+      ...extras,
       'status': 'requested',
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -228,6 +256,7 @@ class ChatService {
       'dateTime': Timestamp.fromDate(dateTime),
       'place': place,
       'placeCategory': placeCategory,
+      ...extras,
       'status': 'requested',
       'isEdited': false,
       'editedAt': null,
@@ -253,6 +282,10 @@ class ChatService {
     required DateTime dateTime,
     required String place,
     required String placeCategory,
+    String? placeId,
+    String? placeAddress,
+    double? placeLat,
+    double? placeLng,
   }) async {
     final roomRef = _firestore.collection('chat_rooms').doc(roomId);
     final promiseRef = roomRef.collection('promises').doc(promiseId);
@@ -281,12 +314,20 @@ class ChatService {
         throw Exception('수정 권한이 없는 사용자입니다.');
       }
 
+      final extras = _promisePlaceExtras(
+        placeId: placeId,
+        placeAddress: placeAddress,
+        placeLat: placeLat,
+        placeLng: placeLng,
+      );
+
       tx.update(promiseRef, {
         'requestedBy': editedBy,
         'requestedTo': newRequestedTo,
         'dateTime': Timestamp.fromDate(dateTime),
         'place': place,
         'placeCategory': placeCategory,
+        ...extras,
         'status': 'requested',
         'acceptedAt': null,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -302,6 +343,7 @@ class ChatService {
           'dateTime': Timestamp.fromDate(dateTime),
           'place': place,
           'placeCategory': placeCategory,
+          ...extras,
           'status': 'requested',
           'readBy': [editedBy],
           'updatedAt': FieldValue.serverTimestamp(),
@@ -355,14 +397,32 @@ class ChatService {
         });
       }
 
+      final apExtras = _promisePlaceExtras(
+        placeId: data['placeId']?.toString(),
+        placeAddress: data['placeAddress']?.toString(),
+        placeLat: (data['placeLat'] is num)
+            ? (data['placeLat'] as num).toDouble()
+            : double.tryParse(data['placeLat']?.toString() ?? ''),
+        placeLng: (data['placeLng'] is num)
+            ? (data['placeLng'] as num).toDouble()
+            : double.tryParse(data['placeLng']?.toString() ?? ''),
+      );
+
+      final activePromise = <String, dynamic>{
+        'promiseId': promiseId,
+        'dateTime': ts,
+        'place': data['place'],
+        'placeCategory': data['placeCategory'],
+        'status': 'confirmed',
+        ...apExtras,
+      };
+      final legacyThumb = data['placeThumbnailUrl']?.toString();
+      if (legacyThumb != null && legacyThumb.isNotEmpty) {
+        activePromise['placeThumbnailUrl'] = legacyThumb;
+      }
+
       tx.set(roomRef, {
-        'activePromise': {
-          'promiseId': promiseId,
-          'dateTime': ts,
-          'place': data['place'],
-          'placeCategory': data['placeCategory'],
-          'status': 'confirmed',
-        },
+        'activePromise': activePromise,
         'lastMessage': '약속이 확정되었어요',
         'lastMessageAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),

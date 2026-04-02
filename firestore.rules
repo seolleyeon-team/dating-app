@@ -336,6 +336,19 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
+    // Place catalog (약속 장소 목록 — 앱에서 읽기 전용, 콘솔/백오피스에서 관리)
+    // -----------------------------------------------------------------------
+    match /place_catalog_meta/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /place_catalog_items/{placeId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // -----------------------------------------------------------------------
     // Default deny
     // -----------------------------------------------------------------------
     match /{document=**} {
