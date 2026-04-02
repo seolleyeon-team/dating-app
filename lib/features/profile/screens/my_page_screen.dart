@@ -9,6 +9,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
 import '../../../router/route_names.dart';
+import '../../../services/ask_service.dart';
 import '../../chat/services/chat_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
@@ -44,6 +45,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
   final _userService = UserService();
   final _storageService = StorageService();
   final ChatService _chatService = ChatService();
+  final AskService _askService = AskService();
   String? _currentUserId;
 
   String userName = '사용자 이름';
@@ -166,15 +168,46 @@ class _MyPageScreenState extends State<MyPageScreen> {
             physics: const BouncingScrollPhysics(),
             slivers: [
               SliverToBoxAdapter(
-                child: _Header(
-                  onSettings: () async {
-                    await Navigator.of(
-                      context,
-                      rootNavigator: true,
-                    ).pushNamed(RouteNames.settings);
-                    await loadUser();
-                  },
-                ),
+                child: (_currentUserId != null && _currentUserId!.isNotEmpty)
+                    ? StreamBuilder<int>(
+                        stream: _askService.unreadReceivedCount(
+                          _currentUserId!,
+                        ),
+                        builder: (context, askSnap) {
+                          final hasUnread = (askSnap.data ?? 0) > 0;
+                          return _Header(
+                            showAsksBadge: hasUnread,
+                            onAsksInbox: () {
+                              Navigator.of(
+                                context,
+                                rootNavigator: true,
+                              ).pushNamed(RouteNames.asksInbox);
+                            },
+                            onSettings: () async {
+                              await Navigator.of(
+                                context,
+                                rootNavigator: true,
+                              ).pushNamed(RouteNames.settings);
+                              await loadUser();
+                            },
+                          );
+                        },
+                      )
+                    : _Header(
+                        onAsksInbox: () {
+                          Navigator.of(
+                            context,
+                            rootNavigator: true,
+                          ).pushNamed(RouteNames.asksInbox);
+                        },
+                        onSettings: () async {
+                          await Navigator.of(
+                            context,
+                            rootNavigator: true,
+                          ).pushNamed(RouteNames.settings);
+                          await loadUser();
+                        },
+                      ),
               ),
               SliverToBoxAdapter(
                 child: _ProfileCard(
@@ -257,8 +290,14 @@ class _MyPageScreenState extends State<MyPageScreen> {
 
 class _Header extends StatelessWidget {
   final VoidCallback? onSettings;
+  final VoidCallback? onAsksInbox;
+  final bool showAsksBadge;
 
-  const _Header({this.onSettings});
+  const _Header({
+    this.onSettings,
+    this.onAsksInbox,
+    this.showAsksBadge = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -282,22 +321,68 @@ class _Header extends StatelessWidget {
                 color: _AppColors.textMain,
               ),
             ),
-            CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: () {
-                HapticFeedback.lightImpact();
-                onSettings?.call();
-              },
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: const BoxDecoration(shape: BoxShape.circle),
-                child: const Icon(
-                  CupertinoIcons.gear,
-                  size: 24,
-                  color: _AppColors.gray800,
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    onAsksInbox?.call();
+                  },
+                  child: SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        const Center(
+                          child: Icon(
+                            CupertinoIcons.tray_fill,
+                            size: 23,
+                            color: _AppColors.gray800,
+                          ),
+                        ),
+                        if (showAsksBadge)
+                          Positioned(
+                            right: 4,
+                            top: 4,
+                            child: Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                color: _AppColors.primary,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: _AppColors.backgroundLight,
+                                  width: 1.5,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(width: 4),
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    onSettings?.call();
+                  },
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: const BoxDecoration(shape: BoxShape.circle),
+                    child: const Icon(
+                      CupertinoIcons.gear,
+                      size: 24,
+                      color: _AppColors.gray800,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

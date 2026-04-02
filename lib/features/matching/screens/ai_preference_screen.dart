@@ -216,7 +216,13 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
         _urlCacheByPath[storagePath] = _placeholderUrl;
         return _placeholderUrl;
       }
-      rethrow;
+      debugPrint('[AI_PREF] Storage FirebaseException: $storagePath code=${e.code} msg=${e.message}');
+      _urlCacheByPath[storagePath] = _placeholderUrl;
+      return _placeholderUrl;
+    } catch (e) {
+      debugPrint('[AI_PREF] Storage 기타 예외: $storagePath err=$e');
+      _urlCacheByPath[storagePath] = _placeholderUrl;
+      return _placeholderUrl;
     }
   }
 
@@ -351,9 +357,33 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
             heightDebug: heightRes.debug,
           ),
         );
-      } catch (_) {
-        // 실패 시 다음 후보로 넘어감
+      } catch (e, st) {
+        debugPrint('[AI_PREF] _fillCards 실패 id=$id path=$path: $e');
+        debugPrint('[AI_PREF] stack: $st');
       }
+    }
+
+    if (_cards.isEmpty && targetCount > 0) {
+      debugPrint('[AI_PREF] Storage/Firestore에서 카드 로드 실패 → 플레이스홀더 폴백');
+      _addPlaceholderFallbackCards(targetCount);
+    }
+  }
+
+  void _addPlaceholderFallbackCards(int count) {
+    final pool = _decideTargetPool(_userGender);
+    for (var i = 0; i < count; i++) {
+      final id = pool.minId + (i % (pool.maxId - pool.minId + 1));
+      final path = _storagePathFor(pool.folder, id);
+      _cards.add(
+        _AiCardData(
+          id: id,
+          folder: pool.folder,
+          storagePath: path,
+          imageUrl: _placeholderUrl,
+          heightTag: null,
+          heightDebug: 'fallback',
+        ),
+      );
     }
   }
 

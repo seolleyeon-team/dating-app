@@ -193,6 +193,28 @@ class InteractionService {
     return snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
   }
 
+  /// 내가 like한 유저 목록 (실시간 스트림)
+  Stream<List<Map<String, dynamic>>> watchLikesSent(String userId) {
+    return _interactionsRef
+        .where('fromUserId', isEqualTo: userId)
+        .where('action', whereIn: ['like', 'super_like'])
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) =>
+            snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+  }
+
+  /// 나에게 like한 유저 목록 (실시간 스트림)
+  Stream<List<Map<String, dynamic>>> watchLikesReceived(String userId) {
+    return _interactionsRef
+        .where('toUserId', isEqualTo: userId)
+        .where('action', whereIn: ['like', 'super_like'])
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) =>
+            snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+  }
+
   /// 특정 유저에게 이미 like/nope 했는지 확인 (중복 카드 방지)
   Future<bool> hasInteracted({
     required String fromUserId,

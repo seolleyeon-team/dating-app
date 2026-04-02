@@ -32,7 +32,7 @@ from transformers import AutoModel, AutoProcessor
 # -----------------------------
 # Defaults (모델/다운로드 보안)
 # -----------------------------
-DEFAULT_MODEL_ID = os.getenv("CLIP_MODEL_ID", "openai/clip-vit-base-patch32")
+DEFAULT_MODEL_ID = os.getenv("CLIP_MODEL_ID", "openai/clip-vit-large-patch14")
 
 # 서버(Cloud Run)에서 URL을 받아 다운로드할 때 SSRF 위험을 줄이고 싶으면 allowlist 사용
 # 로컬에서만 쓰면 비워도 됨(빈 값이면 allowlist 체크 안 함)
@@ -219,17 +219,29 @@ class SeolleyeonCLIPEmbedder:
     def _image_features(self, pixel_values: torch.Tensor) -> torch.Tensor:
         # 1) CLIPModel이면 get_image_features 사용(문서 예시). :contentReference[oaicite:4]{index=4}
         if self._has_get_image_features:
-            return self.model.get_image_features(pixel_values=pixel_values)
+            out = self.model.get_image_features(pixel_values=pixel_values)
+            # transformers 버전에 따라 BaseModelOutputWithPooling 또는 Tensor 반환
+            return self._extract_tensor(out)
 
         # 2) fallback: forward 결과에 image_embeds가 있으면 사용
         outputs = self.model(pixel_values=pixel_values)
         if hasattr(outputs, "image_embeds") and outputs.image_embeds is not None:
-            return outputs.image_embeds
+            return self._extract_tensor(outputs.image_embeds)
 
         raise RuntimeError(
             "Loaded model does not expose get_image_features nor image_embeds. "
             "Try a standard CLIP checkpoint like openai/clip-vit-base-patch32."
         )
+
+    def _extract_tensor(self, out) -> torch.Tensor:
+        """BaseModelOutputWithPooling 또는 유사 객체에서 embedding tensor 추출."""
+        if isinstance(out, torch.Tensor):
+            return out
+        if hasattr(out, "pooler_output") and out.pooler_output is not None:
+            return out.pooler_output
+        if hasattr(out, "last_hidden_state") and out.last_hidden_state is not None:
+            return out.last_hidden_state[:, 0, :]  # CLS token
+        raise RuntimeError(f"Cannot extract tensor from model output type: {type(out)}")
 
     def embed_sources(self, sources: Sequence[str], normalize: bool = True) -> EmbedResult:
         images = [load_image_any(s) for s in sources]

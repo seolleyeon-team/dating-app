@@ -74,6 +74,7 @@ import '../features/profile/screens/friends_list_screen.dart';
 import '../features/profile/screens/profile_edit_screen.dart';
 import '../features/profile/screens/received_hearts_screen.dart';
 import '../features/matching/screens/sent_hearts_screen.dart';
+import '../features/profile/screens/asks_inbox_screen.dart';
 import '../features/profile/screens/settings_screen.dart';
 import '../features/matching/models/profile_card_args.dart';
 import '../features/profile/screens/terms_webview_screen.dart';
@@ -263,6 +264,8 @@ class AppRouter {
         return _cupertino(const SentHeartsScreen());
       case RouteNames.settings:
         return _cupertino(const SettingsScreen());
+      case RouteNames.asksInbox:
+        return _cupertino(const AsksInboxScreen());
       case RouteNames.termsWebview:
         return _cupertino(const TermsWebViewScreen());
 

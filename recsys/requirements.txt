@@ -1,0 +1,17 @@
+# ---- ML core (SVD / KNN) ----
+numpy>=1.26.0
+scipy>=1.11.0
+pandas>=2.0.0
+tqdm>=4.66.0
+implicit>=0.7.2
+
+# ---- CLIP (CPU-only PyTorch) ----
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.2.0
+transformers>=4.45.0
+Pillow>=10.0.0
+requests>=2.31.0
+
+# ---- GCP ----
+google-cloud-firestore>=2.16.0
+google-cloud-storage>=2.14.0
