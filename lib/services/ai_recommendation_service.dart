@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import 'storage_service.dart';
 import 'user_service.dart';
 
 // =============================================================================
@@ -50,6 +51,22 @@ class AiRecommendedProfile {
 class AiRecommendationService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final UserService _userService = UserService();
+  final StorageService _storageService = StorageService();
+
+  /// blocks/{uid}/targets/* 에서 차단된 UID 세트를 가져온다.
+  Future<Set<String>> _fetchBlockedUids(String uid) async {
+    try {
+      final snap = await _firestore
+          .collection('blocks')
+          .doc(uid)
+          .collection('targets')
+          .get();
+      return snap.docs.map((d) => d.id).toSet();
+    } catch (e) {
+      debugPrint('[AI] _fetchBlockedUids error: $e');
+      return {};
+    }
+  }
 
   /// KST 기준 YYYYMMDD 날짜 키 생성
   String _generateKstDateKey(DateTime dateTime) {
@@ -108,6 +125,7 @@ class AiRecommendationService {
     required String algo,
     required String dateKey,
     required int limit,
+    Set<String> blockedUids = const {},
   }) async {
     final List<AiRecommendedProfile> results = [];
     final uuid = const Uuid();
@@ -120,9 +138,14 @@ class AiRecommendationService {
       return rankA.compareTo(rankB);
     });
 
-    for (final item in sortedItems.take(limit)) {
+    for (final item in sortedItems.take(limit + blockedUids.length)) {
+      if (results.length >= limit) break;
+
       final candUid = item['uid'] as String?;
       if (candUid == null) continue;
+
+      // 차단된 사용자 제외
+      if (blockedUids.contains(candUid)) continue;
 
       // 1. 추천 문서 자체에 이미지가 있는지 확인 (미래 확장성)
       List<String> images = [];
@@ -198,8 +221,9 @@ class AiRecommendationService {
   /// modelRecs 비어있을 때 users 컬렉션에서 폴백 프로필 로드
   Future<List<AiRecommendedProfile>> _fetchFallbackFromUsers(
     String currentUserId,
-    int limit,
-  ) async {
+    int limit, {
+    Set<String> blockedUids = const {},
+  }) async {
     final uuid = const Uuid();
     final todayKey = _generateKstDateKey(DateTime.now());
     final snapshot = await _firestore
@@ -210,6 +234,7 @@ class AiRecommendationService {
     final results = <AiRecommendedProfile>[];
     for (final doc in snapshot.docs) {
       if (doc.id == currentUserId) continue;
+      if (blockedUids.contains(doc.id)) continue;
       if (results.length >= limit) break;
 
       final data = doc.data();
@@ -259,10 +284,12 @@ class AiRecommendationService {
     int limit = 10,
     String? userId,
   }) async {
-    final uid = userId ?? FirebaseAuth.instance.currentUser?.uid;
+    final uid = userId ?? await _resolveUid();
     if (uid == null || uid.isEmpty) return [];
 
     try {
+      final blockedUids = await _fetchBlockedUids(uid);
+
       var result = await _fetchRawRecs(uid, 'svd');
       if (result != null) {
         final data = result['data'] as Map<String, dynamic>;
@@ -273,12 +300,13 @@ class AiRecommendationService {
           algo: 'svd',
           dateKey: dateKey,
           limit: limit,
+          blockedUids: blockedUids,
         );
       }
       if (kDebugMode) debugPrint('[AI] fetchProfileFeed: modelRecs empty, using users fallback');
-      return await _fetchFallbackFromUsers(uid, limit);
+      return await _fetchFallbackFromUsers(uid, limit, blockedUids: blockedUids);
     } catch (e) {
-      print('fetchProfileFeed Error: $e');
+      debugPrint('fetchProfileFeed Error: $e');
       if (kDebugMode) debugPrint('[AI] fetchProfileFeed: error, trying users fallback');
       return await _fetchFallbackFromUsers(uid, limit);
     }
@@ -291,10 +319,12 @@ class AiRecommendationService {
     int limit = 3,
     String? userId,
   }) async {
-    final uid = userId ?? FirebaseAuth.instance.currentUser?.uid;
+    final uid = userId ?? await _resolveUid();
     if (uid == null || uid.isEmpty) return [];
 
     try {
+      final blockedUids = await _fetchBlockedUids(uid);
+
       var result = await _fetchRawRecs(uid, 'rrf');
       String algoUsed = 'rrf';
 
@@ -332,14 +362,21 @@ class AiRecommendationService {
           algo: algoUsed,
           dateKey: dateKey,
           limit: limit,
+          blockedUids: blockedUids,
         );
       }
       if (kDebugMode) debugPrint('[AI] fetchMysteryFeed: modelRecs empty, using users fallback');
-      return await _fetchFallbackFromUsers(uid, limit);
+      return await _fetchFallbackFromUsers(uid, limit, blockedUids: blockedUids);
     } catch (e) {
-      print('fetchMysteryFeed Error: $e');
+      debugPrint('fetchMysteryFeed Error: $e');
       if (kDebugMode) debugPrint('[AI] fetchMysteryFeed: error, trying users fallback');
       return await _fetchFallbackFromUsers(uid, limit);
     }
+  }
+
+  Future<String?> _resolveUid() async {
+    final firebaseUid = FirebaseAuth.instance.currentUser?.uid;
+    if (firebaseUid != null && firebaseUid.isNotEmpty) return firebaseUid;
+    return await _storageService.getKakaoUserId();
   }
 }

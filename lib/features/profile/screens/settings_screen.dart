@@ -12,7 +12,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
-import '../../../../router/route_names.dart';
+import '../../../router/route_names.dart';
 
 // =============================================================================
 // 색상 상수
@@ -126,7 +126,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         title: '연락처 차단',
                         subtitle: '내 연락처의 지인 차단',
                         hasChevron: true,
-                        onTap: () {},
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          Navigator.of(context).pushNamed(
+                            RouteNames.contactBlock,
+                          );
+                        },
                       ),
                       const _Divider(),
                       _SettingsToggle(

@@ -89,6 +89,7 @@ class RouteNames {
   static const String receivedHearts = '/profile/hearts';
   static const String sentHearts = '/profile/sent-hearts';
   static const String settings = '/profile/settings';
+  static const String contactBlock = '/profile/contact-block';
   static const String asksInbox = '/profile/asks-inbox';
   static const String termsWebview = '/profile/terms-webview';
   static const String inquiry = '/profile/inquiry';
@@ -98,6 +99,8 @@ class RouteNames {
 
   // Event
   static const String teamSetup = '/event/team-setup';
+  static const String eventTeamFriendPicker = '/event/team-friend-picker';
+  static const String eventTeamInviteResponse = '/event/team-invite-response';
   static const String seasonMeetingRoulette = '/event/season-meeting-roulette';
   static const String matchResult = '/event/match-result';
   static const String randomMatching = '/event/random-matching';

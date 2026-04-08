@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
 import '../../../router/route_names.dart';
+import '../../event/models/event_team_route_args.dart';
 import '../../../services/storage_service.dart';
 import '../../../shared/layouts/main_scaffold_args.dart';
 import '../models/app_notification.dart';
@@ -110,6 +111,22 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
       });
       return;
     }
+
+    if (deeplinkType == 'event_team_invite') {
+      var inviteId = deeplinkId;
+      if (inviteId.isEmpty &&
+          notification.id.startsWith('event_team_invite_')) {
+        inviteId =
+            notification.id.substring('event_team_invite_'.length);
+      }
+      if (inviteId.isEmpty) return;
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pushNamed(
+        RouteNames.eventTeamInviteResponse,
+        arguments: EventTeamInviteResponseArgs(inviteId: inviteId),
+      );
+      return;
+    }
   }
 
   Future<void> _markAllAsRead() async {
@@ -144,6 +161,8 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         return CupertinoIcons.person_crop_circle;
       case 'ask_received':
         return CupertinoIcons.question_circle_fill;
+      case 'event_team_invite':
+        return CupertinoIcons.person_3_fill;
       default:
         return CupertinoIcons.bell_fill;
     }

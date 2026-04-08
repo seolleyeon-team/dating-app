@@ -8,6 +8,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../firebase_options.dart';
 import '../router/route_names.dart';
+import '../features/event/models/event_team_route_args.dart';
 import '../shared/layouts/main_scaffold_args.dart';
 import 'navigation_service.dart';
 import 'storage_service.dart';
@@ -257,6 +258,19 @@ class PushNotificationService {
       Future.delayed(const Duration(milliseconds: 300), () {
         nav.pushNamed(RouteNames.asksInbox);
       });
+      return;
+    }
+
+    if (type == 'event_team_invite') {
+      final inviteId = data['inviteId'] ?? '';
+      if (inviteId.isEmpty) {
+        nav.pushNamed(RouteNames.notifications);
+        return;
+      }
+      nav.pushNamed(
+        RouteNames.eventTeamInviteResponse,
+        arguments: EventTeamInviteResponseArgs(inviteId: inviteId),
+      );
       return;
     }
 
