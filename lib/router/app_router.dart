@@ -54,7 +54,6 @@ import '../features/matching/screens/profile_card_screen.dart';
 import '../features/matching/screens/ai_preference_screen.dart';
 import '../features/matching/screens/ai_match_card_screen.dart';
 import '../features/matching/screens/profile_specific_detail_screen.dart';
-import '../services/ai_recommendation_service.dart';
 
 // Chat
 import '../features/chat/screens/premium_chat_list_screen.dart';
@@ -76,6 +75,7 @@ import '../features/profile/screens/received_hearts_screen.dart';
 import '../features/matching/screens/sent_hearts_screen.dart';
 import '../features/profile/screens/asks_inbox_screen.dart';
 import '../features/profile/screens/settings_screen.dart';
+import '../features/profile/screens/contact_block_screen.dart';
 import '../features/matching/models/profile_card_args.dart';
 import '../features/profile/screens/terms_webview_screen.dart';
 import '../features/reports/issue_report_screen.dart';
@@ -89,6 +89,9 @@ import '../features/notifications/screens/notification_list_screen.dart';
 // Event
 import '../features/event/screens/event_screen.dart';
 import '../features/event/screens/team_setup_screen.dart';
+import '../features/event/screens/team_friend_picker_screen.dart';
+import '../features/event/screens/event_team_invite_response_screen.dart';
+import '../features/event/models/event_team_route_args.dart';
 import '../features/event/screens/season_meeting_roulette_screen.dart';
 import '../features/event/screens/match_result_screen.dart';
 import '../features/event/screens/random_matching_screen1.dart';
@@ -264,6 +267,8 @@ class AppRouter {
         return _cupertino(const SentHeartsScreen());
       case RouteNames.settings:
         return _cupertino(const SettingsScreen());
+      case RouteNames.contactBlock:
+        return _cupertino(const ContactBlockScreen());
       case RouteNames.asksInbox:
         return _cupertino(const AsksInboxScreen());
       case RouteNames.termsWebview:
@@ -326,6 +331,22 @@ class AppRouter {
         return _cupertino(const EventScreen());
       case RouteNames.teamSetup:
         return _cupertino(const TeamSetupScreen());
+      case RouteNames.eventTeamFriendPicker:
+        final args = settings.arguments as TeamFriendPickerArgs?;
+        if (args == null) {
+          return _cupertino(
+            const Scaffold(body: Center(child: Text('Missing arguments'))),
+          );
+        }
+        return _cupertino(TeamFriendPickerScreen(args: args));
+      case RouteNames.eventTeamInviteResponse:
+        final args = settings.arguments as EventTeamInviteResponseArgs?;
+        if (args == null) {
+          return _cupertino(
+            const Scaffold(body: Center(child: Text('Missing arguments'))),
+          );
+        }
+        return _cupertino(EventTeamInviteResponseScreen(args: args));
       case RouteNames.seasonMeetingRoulette:
         return _cupertino(const SeasonMeetingRouletteScreen());
       case RouteNames.matchResult:

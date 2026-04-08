@@ -25,6 +25,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 import { createHash, randomBytes } from "crypto";
+import { onDocumentWritten } from "firebase-functions/v2/firestore";
 
 // Firebase Admin 초기화
 initializeApp();
@@ -585,6 +586,9 @@ function readFriendName(
 }
 
 export const createFirebaseCustomToken = onCall(async (request) => {
+  logger.info("createFirebaseCustomToken invoked", {
+    hasAccessToken: !!asNonEmptyString(request.data?.accessToken),
+  });
   const accessToken = asNonEmptyString(request.data?.accessToken);
   if (!accessToken) {
     throw new HttpsError("invalid-argument", "카카오 액세스 토큰이 필요해요.");
@@ -873,6 +877,364 @@ export const acceptFriendInvite = onCall(async (request) => {
   });
 
   return transactionResult;
+});
+
+// =============================================================================
+// 이벤트 3인 팀 초대 (친구 선택 → 푸시 → 수락 시 팀 반영)
+// =============================================================================
+
+async function assertUsersAreFriends(
+  userIdA: string,
+  userIdB: string
+): Promise<boolean> {
+  const a = await db
+    .collection("users")
+    .doc(userIdA)
+    .collection("friends")
+    .doc(userIdB)
+    .get();
+  return a.exists;
+}
+
+async function writeEventTeamInviteNotification(params: {
+  inviteeUserId: string;
+  inviterUserId: string;
+  inviterName: string;
+  inviteId: string;
+  teamSetupId: string;
+}): Promise<void> {
+  const notifId = `event_team_invite_${params.inviteId}`;
+  const notifRef = db
+    .collection("users")
+    .doc(params.inviteeUserId)
+    .collection("notifications")
+    .doc(notifId);
+  const existing = await notifRef.get();
+  if (existing.exists) return;
+
+  await notifRef.set({
+    type: "event_team_invite",
+    title: "팀 초대가 도착했어요",
+    body: `${params.inviterName}님이 3인 팀 참여를 요청했어요.`,
+    isRead: false,
+    createdAt: FieldValue.serverTimestamp(),
+    actorId: params.inviterUserId,
+    actorName: params.inviterName,
+    deeplinkType: "event_team_invite",
+    deeplinkId: params.inviteId,
+    teamSetupId: params.teamSetupId,
+    inviteId: params.inviteId,
+  });
+}
+
+export const ensureEventTeamSetup = onCall(async (request) => {
+  const data = getCallableData(request);
+  const leader = await resolveUserForFriendCallable(request);
+  let teamSetupId = asNonEmptyString(data.teamSetupId);
+  if (!teamSetupId) {
+    teamSetupId = randomBytes(16).toString("hex");
+  }
+
+  const ref = db.collection("eventTeamSetups").doc(teamSetupId);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    await ref.set({
+      leaderUserId: leader.userId,
+      acceptedUserIds: [leader.userId],
+      pendingInviteeIds: [],
+      updatedAt: FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  } else {
+    const d = (snap.data() ?? {}) as Record<string, unknown>;
+    const lid = asString(d.leaderUserId ?? "");
+    if (lid !== leader.userId) {
+      throw new HttpsError(
+        "permission-denied",
+        "이 팀 설정에 접근할 수 없어요."
+      );
+    }
+  }
+
+  return { teamSetupId };
+});
+
+export const createEventTeamInvite = onCall(async (request) => {
+  const data = getCallableData(request);
+  const inviter = await resolveUserForFriendCallable(request);
+  const teamSetupId = asNonEmptyString(data.teamSetupId);
+  const inviteeUserId = asNonEmptyString(data.inviteeUserId);
+  if (!teamSetupId || !inviteeUserId) {
+    throw new HttpsError(
+      "invalid-argument",
+      "teamSetupId와 inviteeUserId가 필요해요."
+    );
+  }
+  if (inviteeUserId === inviter.userId) {
+    throw new HttpsError("invalid-argument", "자기 자신은 초대할 수 없어요.");
+  }
+
+  const teamRef = db.collection("eventTeamSetups").doc(teamSetupId);
+  const teamSnap = await teamRef.get();
+  if (!teamSnap.exists) {
+    throw new HttpsError("not-found", "팀 정보를 찾을 수 없어요.");
+  }
+  const team = (teamSnap.data() ?? {}) as Record<string, unknown>;
+  const leaderUserId = asString(team.leaderUserId ?? "");
+  if (leaderUserId !== inviter.userId) {
+    throw new HttpsError("permission-denied", "팀 리더만 초대할 수 있어요.");
+  }
+
+  const acceptedRaw = team.acceptedUserIds;
+  const acceptedUserIds = Array.isArray(acceptedRaw)
+    ? acceptedRaw.map((u) => asString(u)).filter((u) => u.length > 0)
+    : [];
+  const pendingRaw = team.pendingInviteeIds;
+  const pendingInviteeIds = Array.isArray(pendingRaw)
+    ? pendingRaw.map((u) => asString(u)).filter((u) => u.length > 0)
+    : [];
+
+  if (acceptedUserIds.includes(inviteeUserId)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "이미 팀에 참여한 친구예요."
+    );
+  }
+  if (pendingInviteeIds.includes(inviteeUserId)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "이미 초대를 보낸 친구예요."
+    );
+  }
+  if (acceptedUserIds.length + pendingInviteeIds.length >= 3) {
+    throw new HttpsError(
+      "failed-precondition",
+      "팀 정원이 찼어요."
+    );
+  }
+
+  const friendsOk = await assertUsersAreFriends(inviter.userId, inviteeUserId);
+  if (!friendsOk) {
+    throw new HttpsError(
+      "failed-precondition",
+      "친구로 연결된 사용자만 초대할 수 있어요."
+    );
+  }
+
+  const dup = await db
+    .collection("eventTeamInvites")
+    .where("teamSetupId", "==", teamSetupId)
+    .where("inviteeUserId", "==", inviteeUserId)
+    .where("status", "==", "pending")
+    .limit(1)
+    .get();
+  if (!dup.empty) {
+    throw new HttpsError(
+      "failed-precondition",
+      "이미 진행 중인 초대가 있어요."
+    );
+  }
+
+  const inviteRef = db.collection("eventTeamInvites").doc();
+  const inviteId = inviteRef.id;
+  const inviterInfo = await getUserDisplayInfo(inviter.userId);
+
+  await db.runTransaction(async (tx) => {
+    const fresh = await tx.get(teamRef);
+    if (!fresh.exists) {
+      throw new HttpsError("not-found", "팀 정보를 찾을 수 없어요.");
+    }
+    const t = (fresh.data() ?? {}) as Record<string, unknown>;
+    const acc = Array.isArray(t.acceptedUserIds)
+      ? t.acceptedUserIds.map((u) => asString(u))
+      : [];
+    const pend = Array.isArray(t.pendingInviteeIds)
+      ? t.pendingInviteeIds.map((u) => asString(u))
+      : [];
+    if (acc.length + pend.length >= 3) {
+      throw new HttpsError("failed-precondition", "팀 정원이 찼어요.");
+    }
+    tx.set(inviteRef, {
+      teamSetupId,
+      inviterUserId: inviter.userId,
+      inviteeUserId,
+      status: "pending",
+      createdAt: FieldValue.serverTimestamp(),
+      respondedAt: null,
+    });
+    tx.update(teamRef, {
+      pendingInviteeIds: FieldValue.arrayUnion(inviteeUserId),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+
+  await writeEventTeamInviteNotification({
+    inviteeUserId,
+    inviterUserId: inviter.userId,
+    inviterName: inviterInfo.nickname,
+    inviteId,
+    teamSetupId,
+  });
+
+  await sendPushToUsers([inviteeUserId], {
+    title: "팀 초대",
+    body: `${inviterInfo.nickname}님이 3인 팀 참여를 요청했어요.`,
+    data: {
+      type: "event_team_invite",
+      inviteId,
+      teamSetupId,
+      inviterUserId: inviter.userId,
+      inviterName: inviterInfo.nickname,
+    },
+  });
+
+  logger.info("createEventTeamInvite ok", { inviteId, teamSetupId, inviteeUserId });
+
+  return { inviteId, teamSetupId };
+});
+
+export const respondEventTeamInvite = onCall(async (request) => {
+  const data = getCallableData(request);
+  const user = await resolveUserForFriendCallable(request);
+  const inviteId = asNonEmptyString(data.inviteId);
+  const accept = data.accept === true;
+  if (!inviteId) {
+    throw new HttpsError("invalid-argument", "inviteId가 필요해요.");
+  }
+
+  const inviteRef = db.collection("eventTeamInvites").doc(inviteId);
+  const invitePreview = await inviteRef.get();
+  if (!invitePreview.exists) {
+    return { ok: false, code: "not_found" };
+  }
+  const invPre = (invitePreview.data() ?? {}) as Record<string, unknown>;
+  const inviterUid = asString(invPre.inviterUserId ?? "");
+  const inviteeUserId = asString(invPre.inviteeUserId ?? "");
+  if (inviteeUserId !== user.userId) {
+    throw new HttpsError("permission-denied", "초대를 받은 본인만 응답할 수 있어요.");
+  }
+  let friendsStill = true;
+  if (accept && inviterUid.length > 0) {
+    friendsStill = await assertUsersAreFriends(inviterUid, inviteeUserId);
+  }
+
+  const result = await db.runTransaction(async (tx) => {
+    const invSnap = await tx.get(inviteRef);
+    if (!invSnap.exists) {
+      return { ok: false as const, code: "not_found" as const };
+    }
+    const inv = (invSnap.data() ?? {}) as Record<string, unknown>;
+    const status = asString(inv.status ?? "", "pending");
+    const invitee = asString(inv.inviteeUserId ?? "");
+    const teamSetupId = asString(inv.teamSetupId ?? "");
+
+    if (invitee !== user.userId) {
+      throw new HttpsError("permission-denied", "초대를 받은 본인만 응답할 수 있어요.");
+    }
+    if (status !== "pending") {
+      return { ok: false as const, code: "already_responded" as const };
+    }
+
+    const teamRef = db.collection("eventTeamSetups").doc(teamSetupId);
+    const teamSnap = await tx.get(teamRef);
+    if (!teamSnap.exists) {
+      return { ok: false as const, code: "team_missing" as const };
+    }
+
+    if (!accept) {
+      tx.update(inviteRef, {
+        status: "declined",
+        respondedAt: FieldValue.serverTimestamp(),
+      });
+      tx.update(teamRef, {
+        pendingInviteeIds: FieldValue.arrayRemove(inviteeUserId),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return { ok: true as const, status: "declined" as const };
+    }
+
+    if (!friendsStill) {
+      tx.update(inviteRef, {
+        status: "cancelled",
+        respondedAt: FieldValue.serverTimestamp(),
+      });
+      tx.update(teamRef, {
+        pendingInviteeIds: FieldValue.arrayRemove(inviteeUserId),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return { ok: false as const, code: "not_friends" as const };
+    }
+
+    const team = (teamSnap.data() ?? {}) as Record<string, unknown>;
+    const acc = Array.isArray(team.acceptedUserIds)
+      ? team.acceptedUserIds.map((u) => asString(u))
+      : [];
+    const pend = Array.isArray(team.pendingInviteeIds)
+      ? team.pendingInviteeIds.map((u) => asString(u))
+      : [];
+
+    if (!pend.includes(inviteeUserId)) {
+      tx.update(inviteRef, {
+        status: "cancelled",
+        respondedAt: FieldValue.serverTimestamp(),
+      });
+      return { ok: false as const, code: "stale_invite" as const };
+    }
+
+    if (acc.length >= 3) {
+      tx.update(inviteRef, {
+        status: "expired",
+        respondedAt: FieldValue.serverTimestamp(),
+      });
+      tx.update(teamRef, {
+        pendingInviteeIds: FieldValue.arrayRemove(inviteeUserId),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return { ok: false as const, code: "team_full" as const };
+    }
+
+    if (acc.includes(inviteeUserId)) {
+      tx.update(inviteRef, {
+        status: "accepted",
+        respondedAt: FieldValue.serverTimestamp(),
+      });
+      tx.update(teamRef, {
+        pendingInviteeIds: FieldValue.arrayRemove(inviteeUserId),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return { ok: true as const, status: "accepted" as const };
+    }
+
+    const nextAccepted = [...acc];
+    if (!nextAccepted.includes(inviteeUserId)) {
+      nextAccepted.push(inviteeUserId);
+    }
+    if (nextAccepted.length > 3) {
+      tx.update(inviteRef, {
+        status: "expired",
+        respondedAt: FieldValue.serverTimestamp(),
+      });
+      tx.update(teamRef, {
+        pendingInviteeIds: FieldValue.arrayRemove(inviteeUserId),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return { ok: false as const, code: "team_full" as const };
+    }
+
+    tx.update(inviteRef, {
+      status: "accepted",
+      respondedAt: FieldValue.serverTimestamp(),
+    });
+    tx.update(teamRef, {
+      acceptedUserIds: nextAccepted,
+      pendingInviteeIds: FieldValue.arrayRemove(inviteeUserId),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return { ok: true as const, status: "accepted" as const };
+  });
+
+  return result;
 });
 
 // =============================================================================
@@ -1486,6 +1848,340 @@ export const sendDailyUnreadChatDigests = onSchedule(
     logger.info("sendDailyUnreadChatDigests finished", { digestDate });
   }
 );
+
+// =============================================================================
+// 전화번호 정규화 + 해시 (클라이언트와 동일 알고리즘)
+// =============================================================================
+export function normalizeKoreanPhone(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const hasPlus = trimmed.startsWith("+");
+  const digits = trimmed.replace(/[^\d]/g, "");
+  if (digits.length < 7) return null;
+
+  if ((hasPlus || !digits.startsWith("0")) && digits.startsWith("82")) {
+    const local = digits.substring(2);
+    if (local.startsWith("10") && local.length >= 9 && local.length <= 11) {
+      return `+82${local}`;
+    }
+    if (local.startsWith("0") && local.length >= 10 && local.length <= 12) {
+      return `+82${local.substring(1)}`;
+    }
+    return null;
+  }
+  if (digits.startsWith("0")) {
+    if (digits.length >= 10 && digits.length <= 11) {
+      return `+82${digits.substring(1)}`;
+    }
+    return null;
+  }
+  if (digits.startsWith("10") && digits.length >= 9 && digits.length <= 11) {
+    return `+82${digits}`;
+  }
+  return null;
+}
+
+export function hashPhoneNumber(normalized: string): string {
+  return createHash("sha256").update(normalized).digest("hex");
+}
+
+// =============================================================================
+// syncContactBlocks — 연락처 차단 동기화 Callable
+// =============================================================================
+const MAX_CONTACT_HASHES = 5000;
+
+export const syncContactBlocks = onCall(async (request) => {
+  const callerUid = request.auth?.uid;
+  if (!callerUid) {
+    throw new HttpsError("unauthenticated", "로그인이 필요해요.");
+  }
+
+  const data = getCallableData(request);
+  const rawHashes = data.contactHashes;
+  if (!Array.isArray(rawHashes)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "contactHashes 배열이 필요합니다."
+    );
+  }
+
+  // dedupe + validate (64-char hex SHA-256)
+  const hexPattern = /^[a-f0-9]{64}$/;
+  const seen = new Set<string>();
+  const validHashes: string[] = [];
+  let invalidCount = 0;
+
+  for (const h of rawHashes) {
+    if (typeof h !== "string" || !hexPattern.test(h)) {
+      invalidCount++;
+      continue;
+    }
+    if (seen.has(h)) continue;
+    seen.add(h);
+    validHashes.push(h);
+    if (validHashes.length >= MAX_CONTACT_HASHES) break;
+  }
+
+  let matchedUserCount = 0;
+  let newlyBlockedPairCount = 0;
+  let alreadyBlockedPairCount = 0;
+  let skippedSelfCount = 0;
+  const now = FieldValue.serverTimestamp();
+
+  // process in chunks of 400 (Firestore batch limit 500)
+  const CHUNK = 400;
+  for (let i = 0; i < validHashes.length; i += CHUNK) {
+    const chunk = validHashes.slice(i, i + CHUNK);
+    const batch = db.batch();
+
+    for (const phoneHash of chunk) {
+      // 1. contactBlockedHashes/{hash}
+      const cbRef = db
+        .collection("users")
+        .doc(callerUid)
+        .collection("contactBlockedHashes")
+        .doc(phoneHash);
+      batch.set(
+        cbRef,
+        {
+          phoneHash,
+          source: "device_contacts",
+          updatedAt: now,
+          lastSeenInSyncAt: now,
+        },
+        { merge: true }
+      );
+
+      // 2. contactBlockedHashIndex/{hash}/owners/{uid}
+      const idxRef = db
+        .collection("contactBlockedHashIndex")
+        .doc(phoneHash)
+        .collection("owners")
+        .doc(callerUid);
+      batch.set(
+        idxRef,
+        { ownerUserId: callerUid, updatedAt: now },
+        { merge: true }
+      );
+    }
+    await batch.commit();
+
+    // 3. phoneHashIndex lookup + mutual block
+    for (const phoneHash of chunk) {
+      const phiSnap = await db
+        .collection("phoneHashIndex")
+        .doc(phoneHash)
+        .get();
+      if (!phiSnap.exists) continue;
+
+      const matchedUid = asNonEmptyString(
+        (phiSnap.data() as Record<string, unknown>)?.userId
+      );
+      if (!matchedUid) continue;
+      if (matchedUid === callerUid) {
+        skippedSelfCount++;
+        continue;
+      }
+      matchedUserCount++;
+
+      // update contactBlockedHashes doc
+      await db
+        .collection("users")
+        .doc(callerUid)
+        .collection("contactBlockedHashes")
+        .doc(phoneHash)
+        .set(
+          { isMatchedToAppUser: true, matchedUserId: matchedUid },
+          { merge: true }
+        );
+
+      // mutual block
+      const created = await ensureMutualContactBlock(
+        callerUid,
+        matchedUid,
+        phoneHash
+      );
+      if (created) {
+        newlyBlockedPairCount++;
+      } else {
+        alreadyBlockedPairCount++;
+      }
+    }
+  }
+
+  logger.info("syncContactBlocks completed", {
+    callerUid,
+    submittedHashCount: rawHashes.length,
+    storedHashCount: validHashes.length,
+    matchedUserCount,
+    newlyBlockedPairCount,
+    alreadyBlockedPairCount,
+    skippedSelfCount,
+    invalidCount,
+  });
+
+  return {
+    submittedHashCount: rawHashes.length,
+    storedHashCount: validHashes.length,
+    matchedUserCount,
+    newlyBlockedPairCount,
+    alreadyBlockedPairCount,
+    skippedSelfCount,
+    invalidHashCount: invalidCount,
+  };
+});
+
+/**
+ * A↔B 상호 block을 blocks/{uid}/targets/{targetUid}에 생성.
+ * 이미 양쪽 다 있으면 false 반환(이미 차단).
+ */
+async function ensureMutualContactBlock(
+  uidA: string,
+  uidB: string,
+  phoneHash: string
+): Promise<boolean> {
+  const refAB = db
+    .collection("blocks")
+    .doc(uidA)
+    .collection("targets")
+    .doc(uidB);
+  const refBA = db
+    .collection("blocks")
+    .doc(uidB)
+    .collection("targets")
+    .doc(uidA);
+
+  const [snapAB, snapBA] = await Promise.all([refAB.get(), refBA.get()]);
+  if (snapAB.exists && snapBA.exists) return false;
+
+  const now = FieldValue.serverTimestamp();
+  const batch = db.batch();
+  if (!snapAB.exists) {
+    batch.set(refAB, {
+      fromUserId: uidA,
+      toUserId: uidB,
+      reason: "contact_block",
+      source: "contacts",
+      viaPhoneHash: true,
+      createdAt: now,
+    });
+  }
+  if (!snapBA.exists) {
+    batch.set(refBA, {
+      fromUserId: uidB,
+      toUserId: uidA,
+      reason: "contact_block",
+      source: "contacts",
+      viaPhoneHash: true,
+      createdAt: now,
+    });
+  }
+  await batch.commit();
+  return true;
+}
+
+// =============================================================================
+// onUserPhoneHashUpsert — phoneHash가 생기면 기존 연락처 차단과 상호 block
+// =============================================================================
+export const onUserPhoneHashUpsert = onDocumentWritten(
+  "userPrivate/{uid}",
+  async (event) => {
+    const uid = event.params.uid;
+    const after = event.data?.after?.data() as
+      | Record<string, unknown>
+      | undefined;
+    const before = event.data?.before?.data() as
+      | Record<string, unknown>
+      | undefined;
+    if (!after) return; // deleted
+
+    const newHash = asNonEmptyString(after.phoneHash);
+    const oldHash = asNonEmptyString(before?.phoneHash);
+    if (!newHash || newHash === oldHash) return;
+
+    // 1. phoneHashIndex upsert
+    await db.collection("phoneHashIndex").doc(newHash).set(
+      { userId: uid, updatedAt: FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+
+    // 2. old hash cleanup
+    if (oldHash && oldHash !== newHash) {
+      await db.collection("phoneHashIndex").doc(oldHash).delete();
+    }
+
+    // 3. contactBlockedHashIndex에서 이 해시를 가진 owner 찾기
+    const ownersSnap = await db
+      .collection("contactBlockedHashIndex")
+      .doc(newHash)
+      .collection("owners")
+      .get();
+
+    if (ownersSnap.empty) return;
+
+    for (const ownerDoc of ownersSnap.docs) {
+      const ownerUid = ownerDoc.id;
+      if (ownerUid === uid) continue;
+
+      await ensureMutualContactBlock(ownerUid, uid, newHash);
+
+      // mark matched in owner's contactBlockedHashes
+      await db
+        .collection("users")
+        .doc(ownerUid)
+        .collection("contactBlockedHashes")
+        .doc(newHash)
+        .set(
+          { isMatchedToAppUser: true, matchedUserId: uid },
+          { merge: true }
+        );
+    }
+
+    logger.info("onUserPhoneHashUpsert: processed", {
+      uid,
+      phoneHash: newHash,
+      ownerCount: ownersSnap.size,
+    });
+  }
+);
+
+// =============================================================================
+// saveUserPhoneHash — 카카오 로그인 후 전화번호 해시 저장 Callable
+// =============================================================================
+export const saveUserPhoneHash = onCall(async (request) => {
+  const data = getCallableData(request);
+  const phoneHash = asNonEmptyString(data.phoneHash);
+  const phoneSource = asNonEmptyString(data.phoneSource) ?? "kakao";
+
+  // auth 또는 kakaoAccessToken으로 uid 결정
+  let uid = request.auth?.uid;
+  if (!uid) {
+    const accessToken = asNonEmptyString(data.kakaoAccessToken);
+    if (!accessToken) {
+      throw new HttpsError("unauthenticated", "로그인이 필요해요.");
+    }
+    const kakaoUser = await verifyKakaoAccessToken(accessToken);
+    uid = kakaoUser.userId;
+  }
+
+  if (!phoneHash) {
+    throw new HttpsError("invalid-argument", "phoneHash가 필요합니다.");
+  }
+
+  await db
+    .collection("userPrivate")
+    .doc(uid)
+    .set(
+      {
+        phoneHash,
+        phoneSource,
+        phoneUpdatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+  return { success: true };
+});
 
 // =============================================================================
 // recEvents 기반 매치 체크 헬퍼

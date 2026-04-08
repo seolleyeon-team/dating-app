@@ -13,7 +13,7 @@ import '../../../router/route_names.dart';
 import '../../../services/ask_service.dart';
 import '../../../services/auth_service.dart';
 import '../../chat/services/chat_service.dart';
-import '../../../services/friend_invite_service.dart';
+import '../../../services/kakao_friend_invite_helper.dart';
 import '../../../services/friend_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
@@ -48,7 +48,6 @@ class MyPageScreen extends StatefulWidget {
 class _MyPageScreenState extends State<MyPageScreen> {
   final _authService = AuthService();
   final _userService = UserService();
-  final _friendInviteService = FriendInviteService();
   final _friendService = FriendService();
   final _storageService = StorageService();
   final ChatService _chatService = ChatService();
@@ -136,10 +135,8 @@ class _MyPageScreenState extends State<MyPageScreen> {
     setState(() => _isInvitingFriends = true);
 
     try {
-      final payload = await _friendInviteService.createFriendInvite();
-      await _friendInviteService.shareInviteViaKakao(
-        payload: payload,
-        inviterName: nickname,
+      await KakaoFriendInviteHelper.createAndShareKakaoInvite(
+        inviterDisplayName: nickname,
       );
       _showInviteSnackBar('카카오톡으로 초대 링크를 보냈어요');
     } catch (e) {

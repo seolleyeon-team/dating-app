@@ -197,6 +197,8 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       if (kakaoUserId == null) {
         throw Exception('카카오 로그인 정보가 없습니다.');
       }
+      // 로컬 ID 유지 (AuthProvider 부트스트랩·이메일 링크 타이밍과 무관하게 동일 키로 저장)
+      await _storageService.saveKakaoUserId(kakaoUserId);
 
       final savedEmail = (await _storageService.getStudentEmail(kakaoUserId) ?? '')
           .trim()
@@ -216,6 +218,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         kakaoUserId: kakaoUserId,
         studentEmail: email,
       );
+      await _storageService.saveKakaoUserId(kakaoUserId);
       await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
 
       if (!mounted) return;
@@ -343,6 +346,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         }
 
         // 로컬에도 verified 기록 (다음 실행에서 UX 개선)
+        await _storageService.saveKakaoUserId(kakaoUserId);
         await _storageService.setStudentVerified(kakaoUserId, true);
         await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
 

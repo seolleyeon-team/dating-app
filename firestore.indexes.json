@@ -50,6 +50,23 @@
         { "fieldPath": "action", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "eventTeamInvites",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "teamSetupId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "eventTeamInvites",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "teamSetupId", "order": "ASCENDING" },
+        { "fieldPath": "inviteeUserId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

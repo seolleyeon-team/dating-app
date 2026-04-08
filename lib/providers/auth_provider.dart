@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:app_links/app_links.dart';
 
@@ -76,26 +75,40 @@ class AuthProvider with ChangeNotifier {
 
     try {
       final kakaoUserId = await _storageService.getKakaoUserId();
-      if (kakaoUserId != null &&
-          await _authService.kakaoUserExists(kakaoUserId)) {
-        await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
-        _kakaoUserId = kakaoUserId;
-        _isAuthenticated = true;
-
-        _isInitialSetupComplete = await _authService.isInitialSetupComplete(
-          kakaoUserId,
-        );
-        _hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
-        _isStudentVerified = await _authService.isStudentVerified(kakaoUserId);
-        _studentEmail = await _authService.getStudentEmail(kakaoUserId);
-      } else {
-        await _storageService.clearKakaoUserId();
+      if (kakaoUserId == null || kakaoUserId.isEmpty) {
         _kakaoUserId = null;
         _isAuthenticated = false;
         _isInitialSetupComplete = false;
         _hasSeenTutorial = false;
         _isStudentVerified = false;
         _studentEmail = null;
+      } else {
+        // Firestore에 users 문서가 아직 없어도(가입 직후·지연) 로컬 카카오 ID는 유지한다.
+        // 예전 로직은 exists == false 일 때 clearKakaoUserId() 해서 연세 인증 직후에도 uid가 사라졌다.
+        _kakaoUserId = kakaoUserId;
+        _isAuthenticated = true;
+
+        try {
+          await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
+        } catch (e) {
+          debugPrint('[Auth] ensureFirebaseSessionForKakao (bootstrap): $e');
+        }
+
+        final exists = await _authService.kakaoUserExists(kakaoUserId);
+        if (exists) {
+          _isInitialSetupComplete = await _authService.isInitialSetupComplete(
+            kakaoUserId,
+          );
+          _hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
+          _isStudentVerified = await _authService.isStudentVerified(kakaoUserId);
+          _studentEmail = await _authService.getStudentEmail(kakaoUserId);
+        } else {
+          _isInitialSetupComplete = false;
+          _hasSeenTutorial = false;
+          _isStudentVerified =
+              await _storageService.isStudentVerified(kakaoUserId);
+          _studentEmail = await _storageService.getStudentEmail(kakaoUserId);
+        }
       }
     } catch (e) {
       debugPrint('Error checking auth status: $e');
@@ -155,11 +168,14 @@ class AuthProvider with ChangeNotifier {
     _emailLinkHandling = true;
 
     try {
-      final kakaoUserId = _kakaoUserId;
-      if (kakaoUserId == null) {
+      var kakaoUserId = _kakaoUserId;
+      kakaoUserId ??= await _storageService.getKakaoUserId();
+      if (kakaoUserId == null || kakaoUserId.isEmpty) {
         debugPrint('No kakaoUserId. Cannot complete email link sign-in.');
         return;
       }
+      _kakaoUserId = kakaoUserId;
+      await _storageService.saveKakaoUserId(kakaoUserId);
 
       // 저장된 이메일 우선 사용 (가장 안정적)
       final savedEmail = await _storageService.getStudentEmail(kakaoUserId);
@@ -317,6 +333,7 @@ class AuthProvider with ChangeNotifier {
     _isStudentVerified = true;
     _studentEmail = normalized;
 
+    await _storageService.saveKakaoUserId(kakaoUserId);
     await _storageService.saveStudentEmail(kakaoUserId, normalized);
     await _storageService.setStudentVerified(kakaoUserId, true);
 

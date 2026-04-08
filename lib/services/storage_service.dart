@@ -4,6 +4,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class StorageService {
   static const String _userIdKey = 'user_id';
+
+  /// 카카오 로그인 시 받은 숫자 ID (Kakao User API `id`).
+  /// Firestore 프로필·친구·팀 등은 모두 `users/{kakaoUserId}` 문서를 가리킨다.
+  /// 이 값은 SharedPreferences에만 저장되며, "컬렉션"이 아니다.
   static const String _kakaoUserIdKey = 'kakao_user_id';
   static const String _isFirstLaunchKey = 'is_first_launch';
   static const String _hasSeenTutorialKey = 'has_seen_tutorial';
@@ -11,6 +15,7 @@ class StorageService {
   static const String _studentVerifiedKeyPrefix = 'student_verified_';
   static const String _onboardingDraftKeyPrefix = 'onboarding_draft_';
   static const String _pendingFriendInviteTokenKey = 'pending_friend_invite';
+  static const String _eventTeamSetupIdKeyPrefix = 'event_team_setup_id_';
 
   Future<void> saveUserId(String userId) async {
     final prefs = await SharedPreferences.getInstance();
@@ -40,6 +45,27 @@ class StorageService {
   Future<void> clearKakaoUserId() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kakaoUserIdKey);
+  }
+
+  Future<void> saveEventTeamSetupDraftId(
+    String kakaoUserId,
+    String teamSetupId,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      '$_eventTeamSetupIdKeyPrefix$kakaoUserId',
+      teamSetupId,
+    );
+  }
+
+  Future<String?> getEventTeamSetupDraftId(String kakaoUserId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('$_eventTeamSetupIdKeyPrefix$kakaoUserId');
+  }
+
+  Future<void> clearEventTeamSetupDraftId(String kakaoUserId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('$_eventTeamSetupIdKeyPrefix$kakaoUserId');
   }
 
   Future<bool> isFirstLaunch() async {

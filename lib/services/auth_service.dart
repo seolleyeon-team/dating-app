@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import '../models/user_model.dart';
 import '../router/route_names.dart';
+import '../utils/phone_hash_utils.dart';
 import 'user_service.dart';
 
 class AuthService {
@@ -70,11 +71,19 @@ class AuthService {
         throw Exception('카카오 사용자 ID를 가져오지 못했습니다.');
       }
 
+      final phoneNumber = user.kakaoAccount?.phoneNumber;
+
+      // 전화번호가 있으면 비동기로 phoneHash 저장 (실패해도 로그인 막지 않음)
+      if (phoneNumber != null && phoneNumber.trim().isNotEmpty) {
+        _savePhoneHashInBackground(kakaoUserId, phoneNumber);
+      }
+
       return {
         'id': kakaoUserId,
         'nickname': user.kakaoAccount?.profile?.nickname,
         'profileImageUrl': user.kakaoAccount?.profile?.profileImageUrl,
         'email': user.kakaoAccount?.email,
+        'phoneNumber': phoneNumber,
       };
     } on KakaoException catch (e) {
       final detail = e.message ?? e.toString();
@@ -110,12 +119,38 @@ class AuthService {
     if (kakaoUserId.isEmpty) {
       throw Exception('카카오 사용자 ID를 가져오지 못했습니다.');
     }
+    final phoneNumber = user.kakaoAccount?.phoneNumber;
+    if (phoneNumber != null && phoneNumber.trim().isNotEmpty) {
+      _savePhoneHashInBackground(kakaoUserId, phoneNumber);
+    }
     return {
       'id': kakaoUserId,
       'nickname': user.kakaoAccount?.profile?.nickname,
       'profileImageUrl': user.kakaoAccount?.profile?.profileImageUrl,
       'email': user.kakaoAccount?.email,
+      'phoneNumber': phoneNumber,
     };
+  }
+
+  /// 전화번호 해시를 서버에 저장 (fire-and-forget)
+  void _savePhoneHashInBackground(String kakaoUserId, String rawPhone) {
+    Future(() async {
+      try {
+        final phoneHash = PhoneHashUtils.normalizeAndHash(rawPhone);
+        if (phoneHash == null) {
+          debugPrint('[Auth] 전화번호 정규화 실패: $rawPhone');
+          return;
+        }
+        final callable = _functions.httpsCallable('saveUserPhoneHash');
+        await callable.call(<String, dynamic>{
+          'phoneHash': phoneHash,
+          'phoneSource': 'kakao',
+        });
+        debugPrint('[Auth] phoneHash 저장 완료');
+      } catch (e) {
+        debugPrint('[Auth] phoneHash 저장 실패 (무시): $e');
+      }
+    });
   }
 
   // -------------------------
@@ -277,6 +312,13 @@ class AuthService {
       await credential.user?.getIdToken(true);
       debugPrint('[Auth] Firebase custom auth attached to $kakaoUserId');
       return true;
+    } on FirebaseFunctionsException catch (e, st) {
+      debugPrint(
+        '[Auth] ensureFirebaseSessionForKakao functions error: '
+        'code=${e.code} message=${e.message} details=${e.details}',
+      );
+      debugPrint(st.toString());
+      return false;
     } catch (e, st) {
       debugPrint('[Auth] ensureFirebaseSessionForKakao error: $e');
       debugPrint(st.toString());
