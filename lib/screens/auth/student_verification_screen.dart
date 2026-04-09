@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
@@ -24,6 +25,13 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
   bool _isSending = false;
   bool _isVerifying = false;
   String? _statusMessage;
+
+  String _buildContinueUrl(String token) {
+    if (kIsWeb) {
+      return '${Uri.base.origin}/auth/email-link?t=$token';
+    }
+    return 'https://seolleyeon.web.app/auth/email-link?t=$token';
+  }
 
   @override
   void initState() {
@@ -121,7 +129,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
           });
 
       // 2) continueUrl에 토큰 붙이기 (핵심)
-      final continueUrl = 'https://seolleyeon.web.app/auth/email-link?t=$token';
+      final continueUrl = _buildContinueUrl(token);
 
       // 3) Firebase 이메일 링크 전송
       await _authService.sendStudentEmailLink(

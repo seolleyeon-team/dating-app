@@ -7,11 +7,13 @@ import 'package:uuid/uuid.dart';
 import '../models/user_model.dart';
 import '../router/route_names.dart';
 import '../utils/phone_hash_utils.dart';
+import 'storage_service.dart';
 import 'user_service.dart';
 
 class AuthService {
   final _uuid = const Uuid();
   final _userService = UserService();
+  final _storageService = StorageService();
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
   final FirebaseFunctions _functions =
       FirebaseFunctions.instanceFor(region: 'asia-northeast3');
@@ -326,13 +328,99 @@ class AuthService {
     }
   }
 
+  Future<bool> ensureFirebaseSessionForVerifiedUser(String kakaoUserId) async {
+    try {
+      final currentUser = _firebaseAuth.currentUser;
+      if (currentUser != null) {
+        await currentUser.getIdToken(true);
+        debugPrint(
+          '[Auth] Existing Firebase session is available for verified user '
+          '(uid=${currentUser.uid})',
+        );
+        return true;
+      }
+    } catch (e) {
+      debugPrint('[Auth] Existing Firebase session refresh failed: $e');
+    }
+
+    final verificationToken = await _storageService.getStudentVerificationToken(
+      kakaoUserId,
+    );
+    final savedEmail = await _storageService.getStudentEmail(kakaoUserId);
+    final normalizedEmail = savedEmail?.trim().toLowerCase() ?? '';
+
+    if (verificationToken != null &&
+        verificationToken.trim().isNotEmpty &&
+        normalizedEmail.isNotEmpty &&
+        normalizedEmail.endsWith('@yonsei.ac.kr')) {
+      try {
+        final callable = _functions.httpsCallable(
+          'createFirebaseCustomTokenFromEmailLinkToken',
+        );
+        final result = await callable.call(<String, dynamic>{
+          'verificationToken': verificationToken.trim(),
+          'studentEmail': normalizedEmail,
+          'kakaoUserId': kakaoUserId,
+        });
+        final data = Map<String, dynamic>.from(
+          (result.data as Map?)?.cast<String, dynamic>() ?? const {},
+        );
+        final customToken = data['customToken']?.toString() ?? '';
+        if (customToken.isNotEmpty) {
+          final credential = await _firebaseAuth.signInWithCustomToken(
+            customToken,
+          );
+          await credential.user?.getIdToken(true);
+          debugPrint(
+            '[Auth] Firebase session restored from student verification token '
+            'for $kakaoUserId',
+          );
+          return true;
+        }
+        debugPrint('[Auth] Email-link token bridge returned empty custom token');
+      } on FirebaseFunctionsException catch (e, st) {
+        debugPrint(
+          '[Auth] ensureFirebaseSessionForVerifiedUser functions error: '
+          'code=${e.code} message=${e.message} details=${e.details}',
+        );
+        debugPrint(st.toString());
+      } catch (e, st) {
+        debugPrint('[Auth] ensureFirebaseSessionForVerifiedUser error: $e');
+        debugPrint(st.toString());
+      }
+    } else {
+      debugPrint('[Auth] No stored verified email-link token bridge is available');
+    }
+
+    return await ensureFirebaseSessionForKakao(kakaoUserId);
+  }
+
   /// Firebase Auth 세션이 없을 때 Cloud Functions에서 카카오로 본인 확인할 때 사용
   Future<String?> getKakaoAccessTokenForFunctions() async {
     try {
-      await UserApi.instance.accessTokenInfo();
       final kakaoToken = await TokenManagerProvider.instance.manager.getToken();
       final accessToken = kakaoToken?.accessToken.trim() ?? '';
-      return accessToken.isEmpty ? null : accessToken;
+      if (accessToken.isEmpty) {
+        return null;
+      }
+
+      try {
+        await UserApi.instance.accessTokenInfo();
+        return accessToken;
+      } catch (e) {
+        debugPrint('[Auth] Kakao access token is not usable anymore: $e');
+        // 만료·폐기 토큰이 로컬에 남아 있으면 이후 호출이 계속 실패하므로 세션 정리
+        final msg = e.toString();
+        if (msg.contains('-401') || msg.contains('does not exist')) {
+          try {
+            await UserApi.instance.logout();
+            debugPrint('[Auth] Kakao logout after invalid access token');
+          } catch (logoutErr) {
+            debugPrint('[Auth] Kakao logout after invalid token failed: $logoutErr');
+          }
+        }
+        return null;
+      }
     } catch (e, st) {
       debugPrint('[Auth] getKakaoAccessTokenForFunctions: $e');
       debugPrint('$st');

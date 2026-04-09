@@ -617,6 +617,117 @@ export const createFirebaseCustomToken = onCall(async (request) => {
   };
 });
 
+export const createFirebaseCustomTokenFromEmailLinkToken = onCall(
+  async (request) => {
+    const data = getCallableData(request);
+    const verificationToken = asNonEmptyString(data.verificationToken);
+    const requestedKakaoUserId = asNonEmptyString(data.kakaoUserId);
+    const requestedStudentEmail =
+      asNonEmptyString(data.studentEmail)?.toLowerCase() ?? null;
+
+    logger.info("createFirebaseCustomTokenFromEmailLinkToken invoked", {
+      hasVerificationToken: !!verificationToken,
+      hasKakaoUserId: !!requestedKakaoUserId,
+      hasStudentEmail: !!requestedStudentEmail,
+    });
+
+    if (!verificationToken) {
+      throw new HttpsError(
+        "invalid-argument",
+        "이메일 인증 세션 토큰이 필요해요."
+      );
+    }
+
+    const tokenRef = db.collection("emailLinkTokens").doc(verificationToken);
+    const tokenSnap = await tokenRef.get();
+    if (!tokenSnap.exists) {
+      throw new HttpsError(
+        "failed-precondition",
+        "인증 세션이 없어요. 이메일 인증 링크를 다시 보내주세요."
+      );
+    }
+
+    const tokenData = (tokenSnap.data() ?? {}) as Record<string, unknown>;
+    const tokenKakaoUserId = asNonEmptyString(tokenData.kakaoUserId);
+    const tokenEmail = asNonEmptyString(tokenData.email)?.toLowerCase() ?? null;
+    const expiresAtRaw = tokenData.expiresAt;
+    const expiresAt =
+      expiresAtRaw instanceof Timestamp
+        ? expiresAtRaw.toDate()
+        : expiresAtRaw instanceof Date
+          ? expiresAtRaw
+          : null;
+
+    if (!tokenKakaoUserId || !tokenEmail) {
+      throw new HttpsError(
+        "failed-precondition",
+        "인증 세션 정보가 올바르지 않아요. 이메일 인증을 다시 진행해주세요."
+      );
+    }
+
+    if (requestedKakaoUserId && requestedKakaoUserId !== tokenKakaoUserId) {
+      throw new HttpsError(
+        "permission-denied",
+        "인증 세션이 현재 계정과 일치하지 않아요."
+      );
+    }
+
+    if (requestedStudentEmail && requestedStudentEmail !== tokenEmail) {
+      throw new HttpsError(
+        "permission-denied",
+        "인증 세션 이메일이 현재 계정과 일치하지 않아요."
+      );
+    }
+
+    if (expiresAt && expiresAt.getTime() < Date.now()) {
+      throw new HttpsError(
+        "failed-precondition",
+        "인증 세션이 만료되었어요. 이메일 인증 링크를 다시 보내주세요."
+      );
+    }
+
+    const userSnap = await db.collection("users").doc(tokenKakaoUserId).get();
+    if (!userSnap.exists) {
+      throw new HttpsError(
+        "failed-precondition",
+        "가입 정보를 찾을 수 없어요. 다시 로그인해주세요."
+      );
+    }
+
+    const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
+    const studentEmail =
+      asNonEmptyString(userData.studentEmail)?.toLowerCase() ?? "";
+    const isStudentVerified = userData.isStudentVerified === true;
+
+    if (!isStudentVerified || studentEmail != tokenEmail) {
+      throw new HttpsError(
+        "failed-precondition",
+        "학생 인증이 아직 현재 브라우저와 연결되지 않았어요. 인증 메일 링크를 다시 열어주세요."
+      );
+    }
+
+    await tokenRef.set(
+      {
+        lastRecoveredAt: FieldValue.serverTimestamp(),
+        lastRecoveredKakaoUserId: tokenKakaoUserId,
+      },
+      { merge: true }
+    );
+
+    const customToken = await getAuth().createCustomToken(tokenKakaoUserId, {
+      kakaoUserId: tokenKakaoUserId,
+      studentEmail,
+    });
+
+    return {
+      customToken,
+      userId: tokenKakaoUserId,
+      isStudentVerified: true,
+      studentEmail,
+    };
+  }
+);
+
 export const createFriendInvite = onCall(async (request) => {
   const requestData = getCallableData(request);
   logger.info("createFriendInvite request", {
@@ -659,6 +770,12 @@ export const createFriendInvite = onCall(async (request) => {
 export const acceptFriendInvite = onCall(async (request) => {
   const data = getCallableData(request);
   const rawToken = asNonEmptyString(data.token);
+  logger.info("acceptFriendInvite invoked", {
+    hasAuthUid: !!request.auth?.uid,
+    dataKeys: Object.keys(data),
+    hasToken: !!rawToken,
+    hasKakaoAccessToken: !!asNonEmptyString(data.kakaoAccessToken),
+  });
   if (!rawToken) {
     return {
       status: "invalid",
@@ -667,6 +784,9 @@ export const acceptFriendInvite = onCall(async (request) => {
   }
 
   const acceptor = await resolveUserForFriendCallable(request);
+  logger.info("acceptFriendInvite resolved acceptor", {
+    acceptorUserId: acceptor.userId,
+  });
   const tokenHash = hashInviteToken(rawToken);
   const inviteQuery = await db
     .collection("friendInvites")

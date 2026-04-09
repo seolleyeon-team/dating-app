@@ -2,7 +2,9 @@ package com.yonsei.dating
 
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.util.Base64
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
@@ -14,6 +16,15 @@ class MainActivity : FlutterActivity() {
 
     private val CHANNEL = "com.yonsei.dating/open_mail_app"
     private val KAKAO_CHANNEL = "com.yonsei.dating/kakao_util"
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        normalizeIntentData(intent)
+        super.onCreate(savedInstanceState)
+        try {
+            Log.d("MainActivity", "onCreate data=" + intent?.dataString)
+        } catch (_: Exception) {
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -31,6 +42,42 @@ class MainActivity : FlutterActivity() {
             } else {
                 result.notImplemented()
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        normalizeIntentData(intent)
+        super.onNewIntent(intent)
+        // app_links가 새 인텐트의 data를 읽을 수 있게 업데이트
+        setIntent(intent)
+        try {
+            Log.d("MainActivity", "onNewIntent data=" + intent.dataString)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun normalizeIntentData(intent: Intent?) {
+        if (intent == null) return
+
+        val hasTokenInData = intent.dataString?.contains("token=") == true
+        if (hasTokenInData) return
+
+        val token = intent.getStringExtra("token")
+        if (token.isNullOrBlank()) return
+
+        val target = intent.getStringExtra("target") ?: "friend_invite"
+        val normalizedUri = Uri.Builder()
+            .scheme("seolleyeon")
+            .authority("invite")
+            .path("/friend")
+            .appendQueryParameter("target", target)
+            .appendQueryParameter("token", token)
+            .build()
+
+        intent.data = normalizedUri
+        try {
+            Log.d("MainActivity", "normalized data=" + normalizedUri.toString())
+        } catch (_: Exception) {
         }
     }
 
