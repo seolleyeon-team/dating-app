@@ -1,6 +1,6 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show debugPrint, debugPrintStack, kIsWeb;
 import 'package:kakao_flutter_sdk_share/kakao_flutter_sdk_share.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -128,10 +128,14 @@ class FriendInviteService {
         throw Exception('로그인이 필요해요.');
       }
 
-      final hasFirebaseSession =
-          await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
-      final kakaoAccessToken =
-          await _authService.getKakaoAccessTokenForFunctions();
+      var hasFirebaseSession = FirebaseAuth.instance.currentUser != null;
+      if (!hasFirebaseSession) {
+        hasFirebaseSession =
+            await _authService.ensureFirebaseSessionForVerifiedUser(kakaoUserId);
+      }
+      final kakaoAccessToken = FirebaseAuth.instance.currentUser == null
+          ? await _authService.getKakaoAccessTokenForFunctions()
+          : null;
 
       final Map<String, dynamic> callData = {'shareChannel': 'kakaotalk'};
       if (kakaoAccessToken != null && kakaoAccessToken.isNotEmpty) {
@@ -142,6 +146,12 @@ class FriendInviteService {
       );
       if (FirebaseAuth.instance.currentUser == null) {
         if (kakaoAccessToken == null || kakaoAccessToken.isEmpty) {
+          if (kIsWeb) {
+            throw Exception(
+              '카카오 로그인이 만료됐어요. 브라우저에서 다시 로그인한 뒤, '
+              '연세 메일 인증까지 완료한 다음 친구 초대를 시도해 주세요.',
+            );
+          }
           throw Exception(
             '로그인이 필요해요. 카카오 로그인 후 연세 이메일 인증을 완료해주세요.',
           );
@@ -184,10 +194,12 @@ class FriendInviteService {
     required String inviterName,
   }) async {
     final inviteUri = Uri.parse(payload.inviteUrl);
+    // Android: 버튼 탭 시 웹 URL + 앱 실행 파라미터(카카오링크) 병행 — 스킴 오타 시 웹도 안 열리는 사례 있음
     final executionParams = <String, String>{
       'target': inviteTarget,
       'token': payload.inviteToken,
     };
+    debugPrint('[FriendInvite] executionParams=$executionParams');
     final link = Link(
       webUrl: inviteUri,
       mobileWebUrl: inviteUri,
@@ -265,12 +277,21 @@ class FriendInviteService {
     if (token == null || token.isEmpty) return false;
 
     final normalizedPath = uri.path.toLowerCase();
+    final normalizedHost = uri.host.toLowerCase();
     if (uri.queryParameters['target'] == inviteTarget) {
       return true;
     }
 
+    // 카카오톡 공유 버튼 → 앱 실행 시 흔한 형태:
+    // kakao{NATIVE_APP_KEY}://kakaolink?target=friend_invite&token=...
+    // 일부 기기/버전에서는 target만 빠지거나 순서가 달라질 수 있어 host로 판별한다.
+    if (normalizedHost == 'kakaolink' &&
+        uri.scheme.toLowerCase().startsWith('kakao')) {
+      return true;
+    }
+
     if (uri.scheme == inviteScheme) {
-      if (uri.host.toLowerCase() == 'invite' && normalizedPath == '/friend') {
+      if (normalizedHost == 'invite' && normalizedPath == '/friend') {
         return true;
       }
       return normalizedPath == inviteWebPath;
@@ -278,7 +299,7 @@ class FriendInviteService {
 
     final isWebLink =
         (uri.scheme == 'https' || uri.scheme == 'http') &&
-        uri.host.toLowerCase() == inviteWebHost;
+        normalizedHost == inviteWebHost;
     if (!isWebLink) return false;
 
     return normalizedPath == inviteWebPath ||
@@ -286,9 +307,17 @@ class FriendInviteService {
   }
 
   String? extractInviteToken(Uri uri) {
-    final token = uri.queryParameters['token']?.trim();
-    if (token == null || token.isEmpty) return null;
-    return token;
+    var token = uri.queryParameters['token']?.trim();
+    if (token != null && token.isNotEmpty) return token;
+
+    final frag = uri.fragment.trim();
+    if (frag.isNotEmpty) {
+      try {
+        token = Uri.splitQueryString(frag)['token']?.trim();
+        if (token != null && token.isNotEmpty) return token;
+      } catch (_) {}
+    }
+    return null;
   }
 
   Future<void> savePendingInviteToken(String token) async {
@@ -305,11 +334,17 @@ class FriendInviteService {
 
   Future<FriendInviteAcceptResult?> processPendingInviteIfPossible() async {
     final token = await getPendingInviteToken();
+    debugPrint(
+      '[FriendInvite] processPendingInviteIfPossible tokenExists=${token != null && token.trim().isNotEmpty}',
+    );
     if (token == null || token.trim().isEmpty) {
       return null;
     }
 
     final kakaoUserId = await _storageService.getKakaoUserId();
+    debugPrint(
+      '[FriendInvite] processPendingInviteIfPossible kakaoUserId=$kakaoUserId',
+    );
     if (kakaoUserId == null || kakaoUserId.isEmpty) {
       return const FriendInviteAcceptResult(
         status: FriendInviteAcceptStatus.pendingLogin,
@@ -318,9 +353,12 @@ class FriendInviteService {
 
     // 카카오 커스텀 토큰 세션(UID=카카오ID)을 우선 시도. 실패해도 연세 이메일 링크만으로
     // 로그인된 경우 서버(resolveAuthedAppUser)가 studentEmail로 사용자를 찾을 수 있음.
-    await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
+    await _authService.ensureFirebaseSessionForVerifiedUser(kakaoUserId);
 
     final result = await acceptFriendInvite(token);
+    debugPrint(
+      '[FriendInvite] processPendingInviteIfPossible result=${result.status}',
+    );
     if (result.isTerminal) {
       await clearPendingInviteToken();
     }
@@ -330,8 +368,15 @@ class FriendInviteService {
   Future<FriendInviteAcceptResult> acceptFriendInvite(String rawToken) async {
     try {
       debugPrint('[FriendInvite] acceptFriendInvite start');
-      final kakaoAccessToken =
-          await _authService.getKakaoAccessTokenForFunctions();
+      if (FirebaseAuth.instance.currentUser == null) {
+        final kakaoUserId = await _storageService.getKakaoUserId();
+        if (kakaoUserId != null && kakaoUserId.isNotEmpty) {
+          await _authService.ensureFirebaseSessionForVerifiedUser(kakaoUserId);
+        }
+      }
+      final kakaoAccessToken = FirebaseAuth.instance.currentUser == null
+          ? await _authService.getKakaoAccessTokenForFunctions()
+          : null;
       final Map<String, dynamic> callData = {'token': rawToken};
       if (kakaoAccessToken != null && kakaoAccessToken.isNotEmpty) {
         callData['kakaoAccessToken'] = kakaoAccessToken;

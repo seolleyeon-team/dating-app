@@ -30,6 +30,27 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   String? _errorMessage;
   bool _showWebLoginFallback = false;
 
+  String _formatLoginErrorMessage(String rawMessage) {
+    final msg = rawMessage.replaceFirst('Exception: ', '').trim();
+
+    if (kIsWeb &&
+        msg.toLowerCase().contains('javascript env validation failed')) {
+      final origin = Uri.base.origin;
+      return [
+        '카카오 웹 로그인 환경 검증에 실패했어요.',
+        '',
+        '현재 origin',
+        origin,
+        '',
+        '카카오 개발자 콘솔 > 앱 설정 > 플랫폼 > Web 에 아래 값을 등록해 주세요.',
+        'JavaScript SDK 도메인: $origin',
+        'Redirect URI: ${origin}/',
+      ].join('\n');
+    }
+
+    return msg;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -69,7 +90,14 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   }
 
   Future<bool> _handlePendingInviteAfterLogin() async {
+    final pendingToken = await _friendInviteService.getPendingInviteToken();
+    debugPrint(
+      '[FriendInvite] after login pendingTokenExists=${pendingToken != null && pendingToken.trim().isNotEmpty}',
+    );
     final result = await _friendInviteService.processPendingInviteIfPossible();
+    debugPrint(
+      '[FriendInvite] after login result=${result?.status}',
+    );
     if (!mounted || result == null) return false;
 
     if (result.status == FriendInviteAcceptStatus.pendingLogin ||
@@ -162,6 +190,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         final hasSeenTutorial =
             await _authService.hasSeenTutorial(kakaoUserId);
         if (!hasSeenTutorial) {
+          if (!mounted) return;
           Navigator.of(context)
               .pushReplacementNamed(RouteNames.welcomeTutorial);
           return;
@@ -175,7 +204,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       ).pushReplacementNamed(RouteNames.studentVerification);
     } catch (e, st) {
       debugPrint('[KAKAO] login failed: $e\n$st');
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = _formatLoginErrorMessage(e.toString());
       if (!mounted) return;
       final isKeyHashError = msg.toLowerCase().contains('keyhash') ||
           msg.toLowerCase().contains('key hash');
@@ -311,6 +340,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         final hasSeenTutorial =
             await _authService.hasSeenTutorial(kakaoUserId);
         if (!hasSeenTutorial) {
+          if (!mounted) return;
           Navigator.of(context)
               .pushReplacementNamed(RouteNames.welcomeTutorial);
           return;
@@ -321,7 +351,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
     } catch (e, st) {
       debugPrint('[KAKAO] web login failed: $e\n$st');
       if (!mounted) return;
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = _formatLoginErrorMessage(e.toString());
       final isKeyHashError = msg.toLowerCase().contains('keyhash') ||
           msg.toLowerCase().contains('key hash');
       if (isKeyHashError) {

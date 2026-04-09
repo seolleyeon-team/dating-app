@@ -9,11 +9,15 @@
 3. **플랫폼 키** → **JavaScript 키** → **키 설정** 클릭
 4. **JavaScript SDK 도메인**에 아래를 추가:
    - 로컬 개발: `http://localhost:포트번호` (예: `http://localhost:8080`, `http://localhost:53573`)
-   - 배포 도메인: `https://yourdomain.com`
+   - Firebase Hosting: `https://seolleyeon.web.app`
+   - 필요 시 추가: `https://seolleyeon.firebaseapp.com`
+   - 커스텀 도메인 사용 시: `https://yourdomain.com`
 5. **Redirect URI**에 아래를 추가:
    - `JS-SDK` (Flutter SDK 웹 로그인용)
    - 로컬: `http://localhost:포트번호/` (실제 사용 포트로 변경)
-   - 배포: `https://yourdomain.com/`
+   - Firebase Hosting: `https://seolleyeon.web.app/`
+   - 필요 시 추가: `https://seolleyeon.firebaseapp.com/`
+   - 커스텀 도메인 사용 시: `https://yourdomain.com/`
 6. **저장** 클릭
 
 > ⚠️ Flutter 웹 실행 시 사용하는 포트를 확인하세요. (VS Code launch 설정: 57575, 기본: 8080 또는 터미널에 표시된 포트)
@@ -43,4 +47,5 @@ Launching lib/main.dart on Chrome in debug mode...
 lib/main.dart is being served at http://localhost:53573
 ```
 
-이 경우 **JavaScript SDK 도메인**에 `http://localhost:53573` 을 등록하면 됩니다.
+이 경우 **JavaScript SDK 도메인**에 `http://localhost:53573` 을,
+**Redirect URI**에 `http://localhost:53573/` 을 등록하면 됩니다.

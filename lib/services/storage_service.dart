@@ -13,6 +13,8 @@ class StorageService {
   static const String _hasSeenTutorialKey = 'has_seen_tutorial';
   static const String _studentEmailKeyPrefix = 'student_email_';
   static const String _studentVerifiedKeyPrefix = 'student_verified_';
+  static const String _studentVerificationTokenKeyPrefix =
+      'student_verification_token_';
   static const String _onboardingDraftKeyPrefix = 'onboarding_draft_';
   static const String _pendingFriendInviteTokenKey = 'pending_friend_invite';
   static const String _eventTeamSetupIdKeyPrefix = 'event_team_setup_id_';
@@ -112,6 +114,25 @@ class StorageService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('$_studentEmailKeyPrefix$kakaoUserId');
     await prefs.remove('$_studentVerifiedKeyPrefix$kakaoUserId');
+    await prefs.remove('$_studentVerificationTokenKeyPrefix$kakaoUserId');
+  }
+
+  Future<void> saveStudentVerificationToken(
+    String kakaoUserId,
+    String token,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('$_studentVerificationTokenKeyPrefix$kakaoUserId', token);
+  }
+
+  Future<String?> getStudentVerificationToken(String kakaoUserId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('$_studentVerificationTokenKeyPrefix$kakaoUserId');
+  }
+
+  Future<void> clearStudentVerificationToken(String kakaoUserId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('$_studentVerificationTokenKeyPrefix$kakaoUserId');
   }
 
   // ---------------------------------------------------------------------------

@@ -48,6 +48,7 @@ dependencies:
   intl: ^0.20.2
   uuid: ^4.5.2
   app_links: ^7.0.0
+  kakao_flutter_sdk_common: ^1.10.0
   kakao_flutter_sdk_share: ^1.10.0
   kakao_flutter_sdk_user: ^1.10.0
   google_fonts: ^6.2.1

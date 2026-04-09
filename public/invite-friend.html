@@ -110,9 +110,23 @@
           return;
         }
 
-        const appUrl =
+        const schemeUrl =
           "seolleyeon://invite/friend?target=friend_invite&token=" +
           encodeURIComponent(token);
+
+        // Android WebView(카카오톡/인앱브라우저)에서는 custom scheme 이동이 막히는 경우가 많아서
+        // intent:// 로 한 번 더 우회한다.
+        const ua = (navigator.userAgent || "").toLowerCase();
+        const isAndroid = ua.includes("android");
+        const intentUrl =
+          "intent://invite/friend?target=friend_invite&token=" +
+          encodeURIComponent(token) +
+          "#Intent;scheme=seolleyeon;package=com.yonsei.dating;" +
+          "S.target=friend_invite;" +
+          "S.token=" + encodeURIComponent(token) +
+          ";end";
+
+        const appUrl = isAndroid ? intentUrl : schemeUrl;
 
         openAppButton.href = appUrl;
         retryButton.href = window.location.href;

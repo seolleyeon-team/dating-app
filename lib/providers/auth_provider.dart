@@ -1,7 +1,8 @@
 import 'dart:async';
 
-import 'package:flutter/cupertino.dart';
 import 'package:app_links/app_links.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:kakao_flutter_sdk_common/kakao_flutter_sdk_common.dart';
 
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
@@ -24,6 +25,7 @@ class AuthProvider with ChangeNotifier {
   // ✅ 딥링크 수신(app_links)
   final AppLinks _appLinks = AppLinks();
   StreamSubscription<Uri>? _linkSub;
+  StreamSubscription<String?>? _kakaoSchemeSub;
   bool _emailLinkHandling = false; // 중복 처리 방지
 
   UserModel? _currentUser;
@@ -63,8 +65,9 @@ class AuthProvider with ChangeNotifier {
     await _processPendingFriendInvite();
 
     _startEmailLinkListener();
+    _startKakaoSchemeListener();
 
-    debugPrint('[Auth] deep link listener started');
+    debugPrint('[Auth] deep link listeners started');
   }
 
   Future<void> _checkAuthStatus() async {
@@ -88,12 +91,6 @@ class AuthProvider with ChangeNotifier {
         _kakaoUserId = kakaoUserId;
         _isAuthenticated = true;
 
-        try {
-          await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
-        } catch (e) {
-          debugPrint('[Auth] ensureFirebaseSessionForKakao (bootstrap): $e');
-        }
-
         final exists = await _authService.kakaoUserExists(kakaoUserId);
         if (exists) {
           _isInitialSetupComplete = await _authService.isInitialSetupComplete(
@@ -108,6 +105,17 @@ class AuthProvider with ChangeNotifier {
           _isStudentVerified =
               await _storageService.isStudentVerified(kakaoUserId);
           _studentEmail = await _storageService.getStudentEmail(kakaoUserId);
+        }
+
+        try {
+          final restored = _isStudentVerified
+              ? await _authService.ensureFirebaseSessionForVerifiedUser(
+                  kakaoUserId,
+                )
+              : await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
+          debugPrint('[Auth] bootstrap Firebase session restored=$restored');
+        } catch (e) {
+          debugPrint('[Auth] ensureFirebaseSession (bootstrap): $e');
         }
       }
     } catch (e) {
@@ -141,7 +149,34 @@ class AuthProvider with ChangeNotifier {
     );
   }
 
+  void _startKakaoSchemeListener() {
+    receiveKakaoScheme().then((link) async {
+      if (link == null || link.isEmpty) return;
+      await _handleIncomingKakaoScheme(link);
+    });
+
+    _kakaoSchemeSub = kakaoSchemeStream.listen(
+      (link) async {
+        if (link == null || link.isEmpty) return;
+        await _handleIncomingKakaoScheme(link);
+      },
+      onError: (e) {
+        debugPrint('Kakao scheme stream error: $e');
+      },
+    );
+  }
+
+  Future<void> _handleIncomingKakaoScheme(String link) async {
+    debugPrint('[Auth] incoming Kakao scheme: $link');
+    final uri = Uri.tryParse(link);
+    if (uri == null) return;
+    await _handleIncomingUri(uri);
+  }
+
   Future<void> _handleIncomingUri(Uri uri) async {
+    debugPrint(
+      '[DeepLink] incoming uri=$uri scheme=${uri.scheme} host=${uri.host} path=${uri.path} query=${uri.query}',
+    );
     if (_friendInviteService.isFriendInviteUri(uri)) {
       final token = _friendInviteService.extractInviteToken(uri);
       if (token == null || token.isEmpty) {
@@ -153,7 +188,9 @@ class AuthProvider with ChangeNotifier {
         return;
       }
 
+      debugPrint('[DeepLink] friend invite detected token=$token');
       await _friendInviteService.savePendingInviteToken(token);
+      debugPrint('[DeepLink] saved pending friend invite token');
       await _processPendingFriendInvite();
       return;
     }
@@ -210,6 +247,7 @@ class AuthProvider with ChangeNotifier {
   @override
   void dispose() {
     _linkSub?.cancel();
+    _kakaoSchemeSub?.cancel();
     super.dispose();
   }
 
@@ -222,14 +260,48 @@ class AuthProvider with ChangeNotifier {
   Future<void> _showFriendInviteResult(
     FriendInviteAcceptResult result,
   ) async {
-    if (result.status == FriendInviteAcceptStatus.pendingLogin ||
-        result.status == FriendInviteAcceptStatus.pendingVerification) {
-      return;
-    }
-
     final context = NavigationService.navigatorKey.currentContext;
     final navigator = NavigationService.navigatorKey.currentState;
     if (context == null || navigator == null) return;
+
+    // 딥링크로 앱이 열렸지만 로그인/학생인증이 아직이면 "아무 반응 없음"처럼 보여서,
+    // 사용자에게 다음 액션을 안내하고 해당 화면으로 보낸다.
+    if (result.status == FriendInviteAcceptStatus.pendingLogin ||
+        result.status == FriendInviteAcceptStatus.pendingVerification) {
+      final title = result.status == FriendInviteAcceptStatus.pendingLogin
+          ? '로그인이 필요해요'
+          : '학생 인증이 필요해요';
+      final actionLabel = result.status == FriendInviteAcceptStatus.pendingLogin
+          ? '카카오 로그인'
+          : '학생 인증하기';
+      final route = result.status == FriendInviteAcceptStatus.pendingLogin
+          ? RouteNames.kakaoAuth
+          : RouteNames.studentVerification;
+
+      await showCupertinoDialog<void>(
+        context: context,
+        useRootNavigator: true,
+        builder: (dialogContext) => CupertinoAlertDialog(
+          title: Text(title),
+          content: Text(result.displayMessage),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () {
+                Navigator.of(dialogContext, rootNavigator: true).pop();
+                navigator.pushNamed(route);
+              },
+              child: Text(actionLabel),
+            ),
+            CupertinoDialogAction(
+              onPressed: () =>
+                  Navigator.of(dialogContext, rootNavigator: true).pop(),
+              child: const Text('나중에'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
 
     final shouldNavigateToFriends =
         result.isSuccessLike && _isStudentVerified && _isInitialSetupComplete;
