@@ -1,17 +1,29 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' as material;
 
+import '../services/chat_service.dart';
+import '../utils/safety_stamp_availability.dart';
 import '../../../router/route_names.dart';
 
 class SafetyStampScreen extends StatefulWidget {
+  final String roomId;
+  final String promiseId;
+  final String currentUserId;
+  final String partnerId;
   final String partnerName;
   final String myName;
 
   const SafetyStampScreen({
     super.key,
+    required this.roomId,
+    required this.promiseId,
+    required this.currentUserId,
+    required this.partnerId,
     required this.partnerName,
     required this.myName,
   });
@@ -22,12 +34,22 @@ class SafetyStampScreen extends StatefulWidget {
 
 class _SafetyStampScreenState extends State<SafetyStampScreen>
     with TickerProviderStateMixin {
+  final ChatService _chatService = ChatService();
   late final AnimationController _floatController;
   late final AnimationController _myStampController;
+  late final AnimationController _partnerStampController;
   late final AnimationController _successController;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _roomSubscription;
 
   bool _isMyStamped = false;
-  final bool _isPartnerStamped = false;
+  bool _isPartnerStamped = false;
+  bool _isSubmittingMyStamp = false;
+  bool _didPlaySuccess = false;
+  bool _holdMeetupSuccessView = false;
+  bool _hasReceivedInitialSnapshot = false;
+  bool _showHydratedMyStamp = false;
+  bool _showHydratedPartnerStamp = false;
+  SafetyStampPhase _phase = SafetyStampPhase.meetup;
 
   @override
   void initState() {
@@ -40,31 +62,168 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
       vsync: this,
       duration: const Duration(milliseconds: 860),
     );
+    _partnerStampController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
     _successController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
+    _subscribeToSafetyStamp();
   }
 
   @override
   void dispose() {
+    _roomSubscription?.cancel();
     _floatController.dispose();
     _myStampController.dispose();
+    _partnerStampController.dispose();
     _successController.dispose();
     super.dispose();
   }
 
+  void _subscribeToSafetyStamp() {
+    if (widget.roomId.isEmpty || widget.promiseId.isEmpty) return;
+
+    _roomSubscription = _chatService.roomStream(widget.roomId).listen((snapshot) {
+      final roomData = snapshot.data();
+      final activePromiseRaw = roomData?['activePromise'];
+      final activePromise = activePromiseRaw is Map
+          ? Map<String, dynamic>.from(activePromiseRaw)
+          : null;
+      final activePromiseId = activePromise?['promiseId']?.toString() ?? '';
+      if (activePromise == null || activePromiseId != widget.promiseId) {
+        return;
+      }
+
+      final nextPhase = deriveSafetyStampPhase(activePromise);
+      final safetyStampRaw = activePromise['safetyStamp'];
+      final safetyStamp = safetyStampRaw is Map
+          ? Map<String, dynamic>.from(safetyStampRaw)
+          : const <String, dynamic>{};
+      final meetupStampedUserIds = (safetyStamp['meetupStampedUserIds'] as List?)
+              ?.map((e) => e.toString())
+              .where((e) => e.isNotEmpty)
+              .toSet() ??
+          <String>{};
+      final legacyStampedUserIds = (safetyStamp['stampedUserIds'] as List?)
+              ?.map((e) => e.toString())
+              .where((e) => e.isNotEmpty)
+              .toSet() ??
+          <String>{};
+      final effectiveMeetupStampedUserIds = meetupStampedUserIds.isNotEmpty
+          ? meetupStampedUserIds
+          : legacyStampedUserIds;
+      final goodbyeStampedUserIds = (safetyStamp['goodbyeStampedUserIds'] as List?)
+              ?.map((e) => e.toString())
+              .where((e) => e.isNotEmpty)
+              .toSet() ??
+          <String>{};
+      final isInitialSnapshot = !_hasReceivedInitialSnapshot;
+      final isMeetupCompletedNow =
+          !isInitialSnapshot &&
+          nextPhase == SafetyStampPhase.goodbye &&
+          _phase == SafetyStampPhase.meetup &&
+          effectiveMeetupStampedUserIds.contains(widget.currentUserId) &&
+          effectiveMeetupStampedUserIds.contains(widget.partnerId);
+
+      if (isMeetupCompletedNow) {
+        _holdMeetupSuccessView = true;
+      }
+
+      final displayPhase = _holdMeetupSuccessView
+          ? SafetyStampPhase.meetup
+          : nextPhase;
+
+      final activeStampedUserIds = displayPhase == SafetyStampPhase.goodbye ||
+              displayPhase == SafetyStampPhase.completed
+          ? goodbyeStampedUserIds
+          : effectiveMeetupStampedUserIds;
+
+      final nextMyStamped = activeStampedUserIds.contains(widget.currentUserId);
+      final nextPartnerStamped = activeStampedUserIds.contains(widget.partnerId);
+      final shouldPlaySuccess =
+          nextMyStamped &&
+          nextPartnerStamped &&
+          (!_didPlaySuccess || displayPhase != _phase);
+
+      if (isInitialSnapshot) {
+        if (nextMyStamped) {
+          _showHydratedMyStamp = true;
+        }
+        if (nextPartnerStamped) {
+          _showHydratedPartnerStamp = true;
+        }
+      } else if (nextMyStamped && !_isMyStamped) {
+        _showHydratedMyStamp = false;
+        _myStampController.forward(from: 0);
+      }
+      if (!isInitialSnapshot && nextPartnerStamped && !_isPartnerStamped) {
+        _showHydratedPartnerStamp = false;
+        _partnerStampController.forward(from: 0);
+      }
+      if (shouldPlaySuccess) {
+        _didPlaySuccess = true;
+        _successController.forward(from: 0);
+      }
+
+      if (displayPhase != _phase && !(nextMyStamped && nextPartnerStamped)) {
+        _didPlaySuccess = false;
+        _myStampController.reset();
+        _partnerStampController.reset();
+        _successController.reset();
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _hasReceivedInitialSnapshot = true;
+        _phase = nextPhase;
+        _isMyStamped = nextMyStamped;
+        _isPartnerStamped = nextPartnerStamped;
+        _isSubmittingMyStamp = false;
+        if (!nextMyStamped) {
+          _showHydratedMyStamp = false;
+        }
+        if (!nextPartnerStamped) {
+          _showHydratedPartnerStamp = false;
+        }
+      });
+    });
+  }
+
   Future<void> _handleStampPress() async {
-    if (_isMyStamped) return;
+    if (_isMyStamped || _isSubmittingMyStamp) return;
 
     setState(() {
-      _isMyStamped = true;
+      _isSubmittingMyStamp = true;
     });
 
-    await _myStampController.forward(from: 0);
-
-    if (_isMyStamped && _isPartnerStamped && mounted) {
-      await _successController.forward(from: 0);
+    try {
+      await _chatService.markSafetyStamp(
+        roomId: widget.roomId,
+        promiseId: widget.promiseId,
+        userId: widget.currentUserId,
+        phase: _phase.name,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isSubmittingMyStamp = false;
+      });
+      showCupertinoDialog<void>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: const Text('도장을 찍지 못했어요'),
+          content: const Text('잠시 후 다시 시도해주세요.'),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
     }
   }
 
@@ -77,15 +236,23 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
 
   @override
   Widget build(BuildContext context) {
+    final visualPhase = _holdMeetupSuccessView ? SafetyStampPhase.meetup : _phase;
     final isMatched = _isMyStamped && _isPartnerStamped;
+    final isCompleted = _phase == SafetyStampPhase.completed;
+    final title = visualPhase == SafetyStampPhase.goodbye ? '헤어짐 확인' : '안심 확인';
+    final buttonLabel = isCompleted
+        ? '인증 완료'
+            : _isMyStamped
+                ? '도장 완료'
+                : (_isSubmittingMyStamp ? '도장 처리 중...' : '도장 찍기');
     final screenWidth = MediaQuery.sizeOf(context).width;
 
     return CupertinoPageScaffold(
       backgroundColor: const Color(0xFFFFFCFD),
-      navigationBar: const CupertinoNavigationBar(
+      navigationBar: CupertinoNavigationBar(
         border: Border(),
         middle: Text(
-          '안심 확인',
+          title,
           style: TextStyle(
             fontFamily: 'Pretendard',
             fontWeight: FontWeight.w700,
@@ -98,6 +265,7 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
           animation: Listenable.merge([
             _floatController,
             _myStampController,
+            _partnerStampController,
             _successController,
           ]),
           builder: (context, _) {
@@ -124,7 +292,7 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
                                 0,
                                 _lerp(-24, 0, _successController.value),
                               ),
-                              child: const _SuccessBanner(),
+                              child: _SuccessBanner(phase: visualPhase),
                             ),
                           ),
                         ),
@@ -139,7 +307,8 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
                             label: '상대방 자리',
                             size: _lerp(118, 92, successCurve),
                             isStamped: _isPartnerStamped,
-                            stampProgress: 0,
+                            showSettledStamp: _showHydratedPartnerStamp,
+                            stampProgress: _partnerStampController.value,
                             textOpacity: isMatched ? 0.24 : 0.58,
                           ),
                         ),
@@ -158,21 +327,35 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
                             label: '내 자리',
                             size: _lerp(188, 92, successCurve),
                             isStamped: _isMyStamped,
+                            showSettledStamp: _showHydratedMyStamp,
                             stampProgress: _myStampController.value,
                             textOpacity: _isMyStamped ? 0.24 : 0.72,
-                            helperText: _isMyStamped ? null : '도장 버튼을 눌러\n체크하세요',
+                            helperText: _isMyStamped
+                                ? null
+                                : visualPhase == SafetyStampPhase.goodbye
+                                    ? '헤어질 때\n도장을 남겨요'
+                                    : '도장 버튼으로\n만남을 기록해요',
                           ),
                         ),
                       ],
                     ),
                   ),
-                  _StatusCard(isMyStamped: _isMyStamped, isPartnerStamped: _isPartnerStamped),
+                  _StatusCard(
+                    phase: visualPhase,
+                    isMyStamped: _isMyStamped,
+                    isPartnerStamped: _isPartnerStamped,
+                  ),
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
                     height: 56,
                     child: material.ElevatedButton(
-                      onPressed: _isMyStamped ? null : _handleStampPress,
+                      onPressed: (_holdMeetupSuccessView ||
+                              isCompleted ||
+                              _isMyStamped ||
+                              _isSubmittingMyStamp)
+                          ? null
+                          : _handleStampPress,
                       style: material.ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF23201E),
                         foregroundColor: material.Colors.white,
@@ -184,7 +367,7 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
                         ),
                       ),
                       child: Text(
-                        _isMyStamped ? '도장 완료' : '도장 찍기',
+                        buttonLabel,
                         style: const TextStyle(
                           fontFamily: 'Pretendard',
                           fontSize: 17,
@@ -235,6 +418,7 @@ class _SeatCircle extends StatelessWidget {
   final String label;
   final double size;
   final bool isStamped;
+  final bool showSettledStamp;
   final double stampProgress;
   final double textOpacity;
   final String? helperText;
@@ -243,6 +427,7 @@ class _SeatCircle extends StatelessWidget {
     required this.label,
     required this.size,
     required this.isStamped,
+    required this.showSettledStamp,
     required this.stampProgress,
     required this.textOpacity,
     this.helperText,
@@ -250,19 +435,20 @@ class _SeatCircle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final stampDrop = _stampDropOffset(stampProgress);
-    final stampScale = _stampScale(stampProgress);
-    final stampRotation = _stampRotation(stampProgress);
-    final stampOpacity = _stampOpacity(stampProgress);
-    final stampSquash = _stampSquash(stampProgress);
-    final bodyOffset = _stampBodyOffset(stampProgress);
-    final bodyDx = _stampBodyDx(stampProgress);
-    final bodyScale = _stampBodyScale(stampProgress);
-    final bodyRotation = _stampBodyRotation(stampProgress);
-    final bodyOpacity = _stampBodyOpacity(stampProgress);
-    final bodyTiltX = _stampBodyTiltX(stampProgress);
-    final bodyTiltY = _stampBodyTiltY(stampProgress);
-    final bodyShadowOpacity = _stampBodyShadowOpacity(stampProgress);
+    final visualStampProgress = showSettledStamp ? 1.0 : stampProgress;
+    final stampDrop = _stampDropOffset(visualStampProgress);
+    final stampScale = _stampScale(visualStampProgress);
+    final stampRotation = _stampRotation(visualStampProgress);
+    final stampOpacity = _stampOpacity(visualStampProgress);
+    final stampSquash = _stampSquash(visualStampProgress);
+    final bodyOffset = _stampBodyOffset(visualStampProgress);
+    final bodyDx = _stampBodyDx(visualStampProgress);
+    final bodyScale = _stampBodyScale(visualStampProgress);
+    final bodyRotation = _stampBodyRotation(visualStampProgress);
+    final bodyOpacity = _stampBodyOpacity(visualStampProgress);
+    final bodyTiltX = _stampBodyTiltX(visualStampProgress);
+    final bodyTiltY = _stampBodyTiltY(visualStampProgress);
+    final bodyShadowOpacity = _stampBodyShadowOpacity(visualStampProgress);
 
     return SizedBox(
       width: size,
@@ -952,10 +1138,12 @@ class _InkSpot extends StatelessWidget {
 }
 
 class _StatusCard extends StatelessWidget {
+  final SafetyStampPhase phase;
   final bool isMyStamped;
   final bool isPartnerStamped;
 
   const _StatusCard({
+    required this.phase,
     required this.isMyStamped,
     required this.isPartnerStamped,
   });
@@ -973,13 +1161,13 @@ class _StatusCard extends StatelessWidget {
       child: Column(
         children: [
           _StatusRow(
-            title: '내 도장',
+            title: phase == SafetyStampPhase.goodbye ? '내 헤어짐 도장' : '내 만남 도장',
             value: isMyStamped ? '완료' : '대기 중',
             isDone: isMyStamped,
           ),
           const SizedBox(height: 10),
           _StatusRow(
-            title: '상대방 도장',
+            title: phase == SafetyStampPhase.goodbye ? '상대방 헤어짐 도장' : '상대방 만남 도장',
             value: isPartnerStamped ? '완료' : '아직 확인 전',
             isDone: isPartnerStamped,
           ),
@@ -1041,10 +1229,20 @@ class _StatusRow extends StatelessWidget {
 }
 
 class _SuccessBanner extends StatelessWidget {
-  const _SuccessBanner();
+  final SafetyStampPhase phase;
+
+  const _SuccessBanner({required this.phase});
 
   @override
   Widget build(BuildContext context) {
+    final isMeetupSuccess = phase == SafetyStampPhase.meetup;
+    final title = isMeetupSuccess
+        ? '만남이 성사되었어요!'
+        : '약속이 정상적으로 완료되었어요!';
+    final subtitle = isMeetupSuccess
+        ? '둘 다 만남 도장을 남겼어요. 헤어질 때 한 번 더 도장을 남겨주세요.'
+        : '둘 다 헤어짐 도장을 남겨서 약속이 잘 마무리되었어요.';
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
       decoration: BoxDecoration(
@@ -1059,18 +1257,47 @@ class _SuccessBanner extends StatelessWidget {
           ),
         ],
       ),
-      child: const Text(
-        '매칭이 성사되었습니다!',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          fontFamily: 'Pretendard',
-          fontSize: 24,
-          fontWeight: FontWeight.w800,
-          color: Color(0xFF4B4A48),
-        ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontFamily: 'Pretendard',
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF4B4A48),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontFamily: 'Pretendard',
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF8A847D),
+              height: 1.4,
+            ),
+          ),
+        ],
       ),
     );
   }
+}
+
+double _lerp(double begin, double end, double t) {
+  final clampedT = _clampUnit(t);
+  return ui.lerpDouble(begin, end, clampedT) ?? end;
+}
+
+double _clampUnit(double value) {
+  if (value.isNaN) return 0;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
 }
 
 class _DashedCirclePainter extends CustomPainter {
@@ -1099,11 +1326,4 @@ class _DashedCirclePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-double _lerp(double a, double b, double t) => ui.lerpDouble(a, b, _clampUnit(t)) ?? a;
-
-double _clampUnit(double value) {
-  if (value.isNaN) return 0;
-  return value.clamp(0.0, 1.0).toDouble();
 }

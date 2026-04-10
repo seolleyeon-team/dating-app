@@ -215,16 +215,30 @@ service cloud.firestore {
 
       match /messages/{messageId} {
         allow read, create: if true;
-
-        allow update: if
-          request.resource.data.diff(resource.data).changedKeys().hasOnly([
-            'readBy',
-            'updatedAt'
-          ]);
+        allow update: if true;
 
         allow delete: if false;
       }
+
+      match /promises/{promiseId} {
+        allow read, create, update: if true;
+        allow delete: if false;
+      }
     }
+    
+        // -----------------------------------------------------------------------
+    // Promise place catalog
+    // -----------------------------------------------------------------------
+    match /place_catalog_meta/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /place_catalog_items/{placeId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
 
     // -----------------------------------------------------------------------
     // Bamboo Forest (Community)

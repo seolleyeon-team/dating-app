@@ -81,7 +81,13 @@ class PromisePlaceService {
     final cached = await _readCache();
 
     if (remoteMeta == null) {
-      return cached ?? [];
+      try {
+        final remoteItems = await _fetchItemsRemote();
+        await _saveCache(cachedVersion >= 0 ? cachedVersion : 0, remoteItems);
+        return remoteItems;
+      } catch (_) {
+        return cached ?? [];
+      }
     }
 
     // 버전이 같아도 "빈 캐시"면 items 를 한 번 더 읽는다.
@@ -107,7 +113,14 @@ class PromisePlaceService {
   Future<List<PromisePlace>> refreshFromRemote() async {
     final remoteMeta = await fetchMetaRemote();
     if (remoteMeta == null) {
-      return (await _readCache()) ?? [];
+      try {
+        final remoteItems = await _fetchItemsRemote();
+        final cachedVersion = await _readCachedVersion();
+        await _saveCache(cachedVersion >= 0 ? cachedVersion : 0, remoteItems);
+        return remoteItems;
+      } catch (_) {
+        return (await _readCache()) ?? [];
+      }
     }
     try {
       final remoteItems = await _fetchItemsRemote();

@@ -38,7 +38,14 @@ class _AppColors {
   static const Color sendButton = Color(0xFFFFB2C1);
 }
 
-enum MessageType { received, sent, promiseRequest, promiseConfirmed }
+enum MessageType {
+  received,
+  sent,
+  promiseRequest,
+  promiseConfirmed,
+  promiseInProgress,
+  promiseCompleted,
+}
 
 double? _readFirestoreDouble(dynamic v) {
   if (v is num) return v.toDouble();
@@ -112,7 +119,9 @@ class _ChatMessage {
       type == MessageType.promiseConfirmed;
 
   bool get shouldHideAsExpired {
-    return isExpired;
+    return type == MessageType.promiseRequest &&
+        promiseStatus == 'requested' &&
+        isExpired;
   }
 
   _ChatMessage copyWith({
@@ -248,6 +257,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     Navigator.of(context).push(
       CupertinoPageRoute<void>(
         builder: (_) => SafetyStampScreen(
+          roomId: _roomId,
+          promiseId: activePromise?['promiseId']?.toString() ?? '',
+          currentUserId: _currentUserId ?? '',
+          partnerId: widget.partnerId,
           partnerName: widget.partnerName.isEmpty ? '상대방' : widget.partnerName,
           myName: _currentUserName.isEmpty ? '나' : _currentUserName,
         ),
@@ -420,11 +433,27 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     if (result == null) return;
 
-    if (editingPromiseId != null) {
-      await _chatService.updatePromise(
+    try {
+      if (editingPromiseId != null) {
+        await _chatService.updatePromise(
+          roomId: _roomId,
+          promiseId: editingPromiseId,
+          editedBy: _currentUserId!,
+          dateTime: result.dateTime,
+          place: result.place,
+          placeCategory: result.placeCategory,
+          placeId: result.placeId,
+          placeAddress: result.placeAddress,
+          placeLat: result.placeLat,
+          placeLng: result.placeLng,
+        );
+        return;
+      }
+
+      await _chatService.createPromise(
         roomId: _roomId,
-        promiseId: editingPromiseId,
-        editedBy: _currentUserId!,
+        requestedBy: _currentUserId!,
+        requestedTo: widget.partnerId,
         dateTime: result.dateTime,
         place: result.place,
         placeCategory: result.placeCategory,
@@ -433,21 +462,24 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         placeLat: result.placeLat,
         placeLng: result.placeLng,
       );
-      return;
+    } catch (e) {
+      if (!mounted) return;
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: const Text('약속 요청을 보내지 못했어요'),
+          content: Text(
+            '저장 중 문제가 생겼어요. Firestore 규칙과 네트워크 상태를 확인한 뒤 다시 시도해주세요.\n\n$e',
+          ),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
     }
-
-    await _chatService.createPromise(
-      roomId: _roomId,
-      requestedBy: _currentUserId!,
-      requestedTo: widget.partnerId,
-      dateTime: result.dateTime,
-      place: result.place,
-      placeCategory: result.placeCategory,
-      placeId: result.placeId,
-      placeAddress: result.placeAddress,
-      placeLat: result.placeLat,
-      placeLng: result.placeLng,
-    );
   }
 
   Future<void> _approvePromise(_ChatMessage message) async {
@@ -572,6 +604,48 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       );
     }
 
+    if (type == 'promise_in_progress') {
+      return _ChatMessage(
+        type: MessageType.promiseInProgress,
+        text: text.isNotEmpty ? text : '약속을 진행중입니다',
+        time: '',
+        sortDateTime: createdAt,
+        promiseId: data['promiseId']?.toString(),
+        promiseDateTime: promiseDateTime,
+        promisePlace: data['place']?.toString(),
+        promiseCategory: data['placeCategory']?.toString(),
+        promisePlaceId: data['placeId']?.toString(),
+        promisePlaceAddress: data['placeAddress']?.toString(),
+        promisePlaceLat: _readFirestoreDouble(data['placeLat']),
+        promisePlaceLng: _readFirestoreDouble(data['placeLng']),
+        isMineRequest: senderId == _currentUserId,
+        promiseStatus: promiseStatus ?? 'in_progress',
+        isEdited: false,
+        editedAt: editedAt,
+      );
+    }
+
+    if (type == 'promise_completed') {
+      return _ChatMessage(
+        type: MessageType.promiseCompleted,
+        text: text.isNotEmpty ? text : '약속이 완료되었어요',
+        time: '',
+        sortDateTime: createdAt,
+        promiseId: data['promiseId']?.toString(),
+        promiseDateTime: promiseDateTime,
+        promisePlace: data['place']?.toString(),
+        promiseCategory: data['placeCategory']?.toString(),
+        promisePlaceId: data['placeId']?.toString(),
+        promisePlaceAddress: data['placeAddress']?.toString(),
+        promisePlaceLat: _readFirestoreDouble(data['placeLat']),
+        promisePlaceLng: _readFirestoreDouble(data['placeLng']),
+        isMineRequest: senderId == _currentUserId,
+        promiseStatus: promiseStatus ?? 'completed',
+        isEdited: false,
+        editedAt: editedAt,
+      );
+    }
+
     if (type == 'promise_deleted') {
       return _ChatMessage(
         type: MessageType.promiseRequest,
@@ -638,10 +712,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       final existing = promiseMap[key]!;
 
       final merged = existing.copyWith(
-        type: message.type == MessageType.promiseConfirmed
-            ? MessageType.promiseConfirmed
+        type: message.type == MessageType.promiseConfirmed ||
+                message.type == MessageType.promiseInProgress
+            ? message.type
             : existing.type,
-        text: message.type == MessageType.promiseConfirmed
+        text: message.type == MessageType.promiseConfirmed ||
+                message.type == MessageType.promiseInProgress
             ? message.text
             : existing.text,
         promiseDateTime: message.promiseDateTime ?? existing.promiseDateTime,
@@ -806,6 +882,25 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 final activePromise = activePromiseRaw is Map
                     ? Map<String, dynamic>.from(activePromiseRaw)
                     : null;
+                final safetyStampPhase = activePromise == null
+                    ? null
+                    : deriveSafetyStampPhase(activePromise);
+                final promiseTime = activePromise == null
+                    ? null
+                    : parsePromiseDateTime(activePromise['dateTime']);
+                final isPromiseWithinVisibleWindow =
+                    promiseTime != null &&
+                    !_currentNow.isAfter(
+                      promiseTime.add(const Duration(hours: 1)),
+                    );
+                final shouldShowSafetyStampButton =
+                    activePromise != null &&
+                    isPromiseWithinVisibleWindow &&
+                    safetyStampPhase != SafetyStampPhase.completed;
+                final shouldShowActivePromiseBanner =
+                    activePromise != null &&
+                    isPromiseWithinVisibleWindow &&
+                    safetyStampPhase == SafetyStampPhase.meetup;
                 final safetyStampAvailability = evaluateSafetyStampAvailability(
                   activePromise,
                   now: _currentNow,
@@ -823,11 +918,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       onProfileTap: _openPartnerProfileCard,
                     ),
                     _SafetyStampEntryButton(
+                      isVisible: shouldShowSafetyStampButton,
                       isEnabled: safetyStampAvailability.canOpen,
                       helperText: safetyStampAvailability.message,
                       onTap: () => _openSafetyStampScreen(activePromise),
                     ),
-                    if (activePromise != null)
+                    if (shouldShowActivePromiseBanner)
                       _ActivePromiseBanner(activePromise: activePromise),
                   ],
                 );
@@ -851,11 +947,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 }
 
 class _SafetyStampEntryButton extends StatelessWidget {
+  final bool isVisible;
   final bool isEnabled;
   final String helperText;
   final VoidCallback onTap;
 
   const _SafetyStampEntryButton({
+    required this.isVisible,
     required this.isEnabled,
     required this.helperText,
     required this.onTap,
@@ -863,6 +961,8 @@ class _SafetyStampEntryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!isVisible) return const SizedBox.shrink();
+
     final backgroundColor = isEnabled
         ? const Color(0xFFFFF3F6)
         : const Color(0xFFF7F5F3);
@@ -1201,6 +1301,10 @@ class _MessageItem extends StatelessWidget {
           onEdit: onEditPromise,
           onDelete: onDeletePromise,
         );
+      case MessageType.promiseInProgress:
+        return _PromiseInProgressBanner(message: message);
+      case MessageType.promiseCompleted:
+        return _PromiseCompletedBanner(message: message);
     }
   }
 }
@@ -1688,6 +1792,152 @@ class _PromiseConfirmedBanner extends StatelessWidget {
   }
 }
 
+class _PromiseCompletedBanner extends StatelessWidget {
+  final _ChatMessage message;
+
+  const _PromiseCompletedBanner({required this.message});
+
+  String _formatTime(DateTime? dateTime) {
+    if (dateTime == null) return '';
+    final hour12 = dateTime.hour == 0
+        ? 12
+        : (dateTime.hour > 12 ? dateTime.hour - 12 : dateTime.hour);
+    final minute = dateTime.minute.toString().padLeft(2, '0');
+    final period = dateTime.hour >= 12 ? '오후' : '오전';
+    return '${dateTime.month}월 ${dateTime.day}일 $period $hour12:$minute';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Center(
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEAF5EE),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFC7E5D0)),
+          ),
+          child: Column(
+            children: [
+              const Text(
+                '약속 완료',
+                style: TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF2E7D4F),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _promiseDetailSubtitle(
+                  dateTime: message.promiseDateTime,
+                  category: message.promiseCategory,
+                  place: message.promisePlace,
+                  formatDt: _formatTime,
+                ),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 14,
+                  color: _AppColors.textMain,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                '약속이 완료되었어요',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF2E7D4F),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PromiseInProgressBanner extends StatelessWidget {
+  final _ChatMessage message;
+
+  const _PromiseInProgressBanner({required this.message});
+
+  String _formatTime(DateTime? dateTime) {
+    if (dateTime == null) return '';
+    final hour12 = dateTime.hour == 0
+        ? 12
+        : (dateTime.hour > 12 ? dateTime.hour - 12 : dateTime.hour);
+    final minute = dateTime.minute.toString().padLeft(2, '0');
+    final period = dateTime.hour >= 12 ? '오후' : '오전';
+    return '${dateTime.month}월 ${dateTime.day}일 $period $hour12:$minute';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Center(
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFF7E8),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFF0D7A6)),
+          ),
+          child: Column(
+            children: [
+              const Text(
+                '약속 진행중',
+                style: TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF9A6500),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _promiseDetailSubtitle(
+                  dateTime: message.promiseDateTime,
+                  category: message.promiseCategory,
+                  place: message.promisePlace,
+                  formatDt: _formatTime,
+                ),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 14,
+                  color: _AppColors.textMain,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                '약속을 진행중입니다',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF9A6500),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _PromiseFormResult {
   final DateTime dateTime;
   final String place;
@@ -1731,6 +1981,8 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
   late String selectedPeriod;
   late TextEditingController hourController;
   late TextEditingController minuteController;
+  late FocusNode _hourFocusNode;
+  late FocusNode _minuteFocusNode;
 
   final PromisePlaceService _placeService = PromisePlaceService();
   PromisePlace? _selectedPlace;
@@ -1752,8 +2004,15 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
     minuteController = TextEditingController(
       text: initialDt.minute.toString().padLeft(2, '0'),
     );
+    _hourFocusNode = FocusNode()..addListener(_handleTimeFieldFocusChanged);
+    _minuteFocusNode = FocusNode()..addListener(_handleTimeFieldFocusChanged);
 
     _bootstrapSelectedPlace();
+  }
+
+  void _handleTimeFieldFocusChanged() {
+    if (!mounted) return;
+    setState(() {});
   }
 
   Future<void> _bootstrapSelectedPlace() async {
@@ -1802,9 +2061,25 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
 
   @override
   void dispose() {
+    _hourFocusNode
+      ..removeListener(_handleTimeFieldFocusChanged)
+      ..dispose();
+    _minuteFocusNode
+      ..removeListener(_handleTimeFieldFocusChanged)
+      ..dispose();
     hourController.dispose();
     minuteController.dispose();
     super.dispose();
+  }
+
+  bool get _isEditingTime =>
+      _hourFocusNode.hasFocus || _minuteFocusNode.hasFocus;
+
+  void _dismissKeyboard() {
+    final currentFocus = FocusScope.of(context);
+    if (!currentFocus.hasPrimaryFocus) {
+      currentFocus.unfocus();
+    }
   }
 
   DateTime get selectedDateTime {
@@ -1857,16 +2132,19 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
 
     return Align(
       alignment: Alignment.bottomCenter,
-      child: Container(
-        height: MediaQuery.of(context).size.height * 0.82,
-        decoration: const BoxDecoration(
-          color: CupertinoColors.systemBackground,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            children: [
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _dismissKeyboard,
+        child: Container(
+          height: MediaQuery.of(context).size.height * 0.82,
+          decoration: const BoxDecoration(
+            color: CupertinoColors.systemBackground,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              children: [
               const SizedBox(height: 10),
               Container(
                 width: 44,
@@ -1889,6 +2167,8 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
               const SizedBox(height: 16),
               Expanded(
                 child: SingleChildScrollView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -2014,7 +2294,9 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                                   width: 88,
                                   child: CupertinoTextField(
                                     controller: hourController,
+                                    focusNode: _hourFocusNode,
                                     keyboardType: TextInputType.number,
+                                    textInputAction: TextInputAction.next,
                                     textAlign: TextAlign.center,
                                     maxLength: 2,
                                     placeholder: '12',
@@ -2037,6 +2319,9 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                                       borderRadius: BorderRadius.circular(16),
                                     ),
                                     onChanged: (_) => setState(() {}),
+                                    onSubmitted: (_) {
+                                      _minuteFocusNode.requestFocus();
+                                    },
                                   ),
                                 ),
                                 const Padding(
@@ -2054,7 +2339,9 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                                   width: 88,
                                   child: CupertinoTextField(
                                     controller: minuteController,
+                                    focusNode: _minuteFocusNode,
                                     keyboardType: TextInputType.number,
+                                    textInputAction: TextInputAction.done,
                                     textAlign: TextAlign.center,
                                     maxLength: 2,
                                     placeholder: '00',
@@ -2077,10 +2364,49 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                                       borderRadius: BorderRadius.circular(16),
                                     ),
                                     onChanged: (_) => setState(() {}),
+                                    onSubmitted: (_) => _dismissKeyboard(),
                                   ),
                                 ),
                               ],
                             ),
+                            if (_isEditingTime) ...[
+                              const SizedBox(height: 12),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: CupertinoButton(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 8,
+                                  ),
+                                  minimumSize: Size.zero,
+                                  onPressed: _dismissKeyboard,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _AppColors.primarySoft.withValues(
+                                        alpha: _AppColors.promiseFillAlpha,
+                                      ),
+                                      borderRadius: BorderRadius.circular(999),
+                                      border: Border.all(
+                                        color: _AppColors.primarySoft,
+                                      ),
+                                    ),
+                                    child: const Text(
+                                      '입력 완료',
+                                      style: TextStyle(
+                                        fontFamily: 'Pretendard',
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: _AppColors.primary,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 10),
                             const Text(
                               '시: 1~12 / 분: 0~59 로 입력',
@@ -2220,7 +2546,10 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                     Expanded(
                       child: CupertinoButton(
                         padding: EdgeInsets.zero,
-                        onPressed: () => Navigator.pop(context),
+                        onPressed: () {
+                          _dismissKeyboard();
+                          Navigator.pop(context);
+                        },
                         child: Container(
                           height: 52,
                           alignment: Alignment.center,
@@ -2245,6 +2574,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                       child: CupertinoButton(
                         padding: EdgeInsets.zero,
                         onPressed: () {
+                          _dismissKeyboard();
                           final hour = int.tryParse(hourController.text.trim());
                           final minute = int.tryParse(
                             minuteController.text.trim(),
@@ -2315,6 +2645,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                 ),
               ),
             ],
+            ),
           ),
         ),
       ),

@@ -54,6 +54,174 @@ class ChatService {
     return _firestore.collection('chat_rooms').doc(roomId).snapshots();
   }
 
+  Future<void> markSafetyStamp({
+    required String roomId,
+    required String promiseId,
+    required String userId,
+    required String phase,
+  }) async {
+    final roomRef = _firestore.collection('chat_rooms').doc(roomId);
+    final promiseRef = roomRef.collection('promises').doc(promiseId);
+    final inProgressMessageRef = roomRef.collection('messages').doc();
+    final completedMessageRef = roomRef.collection('messages').doc();
+
+    await _firestore.runTransaction((tx) async {
+      final roomSnap = await tx.get(roomRef);
+      if (!roomSnap.exists) {
+        throw Exception('채팅방이 존재하지 않습니다.');
+      }
+
+      final roomData = roomSnap.data() ?? <String, dynamic>{};
+      final activePromiseRaw = roomData['activePromise'];
+      if (activePromiseRaw is! Map) {
+        throw Exception('활성 약속이 없습니다.');
+      }
+
+      final activePromise = Map<String, dynamic>.from(
+        activePromiseRaw as Map<Object?, Object?>,
+      );
+      final activePromiseId = activePromise['promiseId']?.toString() ?? '';
+      if (activePromiseId.isEmpty || activePromiseId != promiseId) {
+        throw Exception('현재 활성 약속과 일치하지 않습니다.');
+      }
+
+      final safetyStampRaw = activePromise['safetyStamp'];
+      final safetyStamp = safetyStampRaw is Map
+          ? Map<String, dynamic>.from(safetyStampRaw as Map<Object?, Object?>)
+          : <String, dynamic>{};
+
+      final participantIds = (roomData['participantIds'] as List?)
+              ?.map((e) => e.toString())
+              .where((e) => e.isNotEmpty)
+              .toSet() ??
+          <String>{};
+      if (participantIds.isEmpty) {
+        throw Exception('참여자 정보가 없습니다.');
+      }
+
+      final meetupStampedUserIds = (safetyStamp['meetupStampedUserIds'] as List?)
+              ?.map((e) => e.toString())
+              .where((e) => e.isNotEmpty)
+              .toSet() ??
+          <String>{};
+      final legacyStampedUserIds = (safetyStamp['stampedUserIds'] as List?)
+              ?.map((e) => e.toString())
+              .where((e) => e.isNotEmpty)
+              .toSet() ??
+          <String>{};
+      final effectiveMeetupStampedUserIds = meetupStampedUserIds.isNotEmpty
+          ? meetupStampedUserIds
+          : legacyStampedUserIds;
+      final goodbyeStampedUserIds = (safetyStamp['goodbyeStampedUserIds'] as List?)
+              ?.map((e) => e.toString())
+              .where((e) => e.isNotEmpty)
+              .toSet() ??
+          <String>{};
+
+      if (phase == 'goodbye') {
+        if (!effectiveMeetupStampedUserIds.containsAll(participantIds)) {
+          throw Exception('만남 인증이 아직 완료되지 않았습니다.');
+        }
+        if (!goodbyeStampedUserIds.add(userId)) {
+          return;
+        }
+      } else {
+        if (!effectiveMeetupStampedUserIds.add(userId)) {
+          return;
+        }
+      }
+
+      final nextSafetyStamp = <String, dynamic>{
+        ...safetyStamp,
+        'meetupStampedUserIds': effectiveMeetupStampedUserIds.toList(),
+        'goodbyeStampedUserIds': goodbyeStampedUserIds.toList(),
+      };
+      nextSafetyStamp.remove('stampedUserIds');
+
+      activePromise['participantIds'] = participantIds.toList();
+      activePromise['safetyStamp'] = nextSafetyStamp;
+
+      if (phase != 'goodbye' &&
+          effectiveMeetupStampedUserIds.containsAll(participantIds)) {
+        activePromise['status'] = 'in_progress';
+        activePromise['safetyStamp'] = {
+          ...nextSafetyStamp,
+          'meetupCompletedAt': FieldValue.serverTimestamp(),
+        };
+
+        tx.update(promiseRef, {
+          'status': 'in_progress',
+          'meetupCompletedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        tx.set(inProgressMessageRef, {
+          'senderId': userId,
+          'text': '약속을 진행중입니다',
+          'type': 'promise_in_progress',
+          'promiseId': promiseId,
+          'dateTime': FieldValue.serverTimestamp(),
+          'place': activePromise['place'],
+          'placeCategory': activePromise['placeCategory'],
+          'status': 'in_progress',
+          'readBy': [userId],
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        tx.update(roomRef, {
+          'activePromise': activePromise,
+          'lastMessage': '약속을 진행중입니다',
+          'lastMessageAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        return;
+      }
+
+      if (phase == 'goodbye' &&
+          goodbyeStampedUserIds.containsAll(participantIds)) {
+        activePromise['status'] = 'completed';
+        activePromise['safetyStamp'] = {
+          ...nextSafetyStamp,
+          'completedAt': FieldValue.serverTimestamp(),
+        };
+
+        tx.update(promiseRef, {
+          'status': 'completed',
+          'completedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        tx.set(completedMessageRef, {
+          'senderId': userId,
+          'text': '약속이 완료되었어요',
+          'type': 'promise_completed',
+          'promiseId': promiseId,
+          'dateTime': FieldValue.serverTimestamp(),
+          'place': activePromise['place'],
+          'placeCategory': activePromise['placeCategory'],
+          'status': 'completed',
+          'readBy': [userId],
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        tx.update(roomRef, {
+          'activePromise': activePromise,
+          'lastMessage': '약속이 완료되었어요',
+          'lastMessageAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        return;
+      }
+
+      tx.update(roomRef, {
+        'activePromise': activePromise,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
   Stream<int> unreadCountStream({
     required String roomId,
     required String userId,
@@ -369,6 +537,7 @@ class ChatService {
     final promiseRef = roomRef.collection('promises').doc(promiseId);
 
     await _firestore.runTransaction((tx) async {
+      final roomSnap = await tx.get(roomRef);
       final promiseSnap = await tx.get(promiseRef);
       if (!promiseSnap.exists) {
         throw Exception('약속이 존재하지 않습니다.');
@@ -414,6 +583,7 @@ class ChatService {
         'place': data['place'],
         'placeCategory': data['placeCategory'],
         'status': 'confirmed',
+        'participantIds': roomSnap.data()?['participantIds'],
         ...apExtras,
       };
       final legacyThumb = data['placeThumbnailUrl']?.toString();
@@ -421,12 +591,12 @@ class ChatService {
         activePromise['placeThumbnailUrl'] = legacyThumb;
       }
 
-      tx.set(roomRef, {
+      tx.update(roomRef, {
         'activePromise': activePromise,
         'lastMessage': '약속이 확정되었어요',
         'lastMessageAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      });
     });
   }
 
