@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' as material;
@@ -6,7 +8,9 @@ import 'package:flutter/services.dart';
 import '../models/promise_place.dart';
 import '../services/chat_service.dart';
 import '../services/promise_place_service.dart';
+import '../utils/safety_stamp_availability.dart';
 import '../widgets/promise_place_picker_sheet.dart';
+import 'safety_stamp_screen.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../services/push_notification_service.dart';
@@ -107,6 +111,10 @@ class _ChatMessage {
       type == MessageType.promiseRequest ||
       type == MessageType.promiseConfirmed;
 
+  bool get shouldHideAsExpired {
+    return isExpired;
+  }
+
   _ChatMessage copyWith({
     MessageType? type,
     String? text,
@@ -180,7 +188,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   static const String _defaultAvatarUrl =
       'https://lh3.googleusercontent.com/aida-public/AB6AXuBbzHXe44kKkm38LFzZYDrJgB6VdcFI1wOqXLhzmXLluq6QpZFzdN4Kwf2jgvTVY0ulkwDXqpPKoaA8SnoMT5qhSFFGurIjc409LZqO6cs9LiNr2XWRHXHTIQhT0_trL5o9o3NSs5xIr8H1FtojhKTzR0P0wp5-9pIeGcdDl9D6vK5Fxv6IA8lfddlamHK7vlvzUfH7SNwgZ7OBgfMReB4O7jfppVehNPNaM5xl6dsuqMZKa2J3QbWJdkCeYQ20949IQZKdQuyh5Iqz';
-  static const double _topAreaHeight = 166;
+  static const double _topAreaHeight = 232;
 
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
@@ -193,6 +201,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   String? _initError;
   bool _isReady = false;
   bool _isSending = false;
+  DateTime _currentNow = DateTime.now();
+  Timer? _safetyStampTimer;
 
   void _openPartnerProfileCard() {
     if (widget.partnerId.isEmpty) return;
@@ -203,9 +213,52 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
+  void _startSafetyStampTimer() {
+    _safetyStampTimer?.cancel();
+    _safetyStampTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted) return;
+      setState(() {
+        _currentNow = DateTime.now();
+      });
+    });
+  }
+
+  void _openSafetyStampScreen(Map<String, dynamic>? activePromise) {
+    final availability = evaluateSafetyStampAvailability(
+      activePromise,
+      now: _currentNow,
+    );
+    if (!availability.canOpen) {
+      showCupertinoDialog<void>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: const Text('안전도장을 열 수 없어요'),
+          content: Text(availability.message),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => SafetyStampScreen(
+          partnerName: widget.partnerName.isEmpty ? '상대방' : widget.partnerName,
+          myName: _currentUserName.isEmpty ? '나' : _currentUserName,
+        ),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
+    _startSafetyStampTimer();
     _initChat();
   }
 
@@ -214,6 +267,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     if (_roomId.isNotEmpty) {
       PushNotificationService.instance.clearOpenedChatRoom(_roomId);
     }
+    _safetyStampTimer?.cancel();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -335,10 +389,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       widget.onSend?.call(text);
       _scrollToBottom();
     } finally {
-      if (!mounted) return;
-      setState(() {
+      if (mounted) {
+        setState(() {
+          _isSending = false;
+        });
+      } else {
         _isSending = false;
-      });
+      }
     }
   }
 
@@ -553,13 +610,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     for (final message in source) {
       if (!message.isPromise || message.promiseId == null) {
-        if (message.promiseStatus != 'rejected' && !message.isExpired) {
+        if (message.promiseStatus != 'rejected' && !message.shouldHideAsExpired) {
           normalMessages.add(message);
         }
         continue;
       }
 
-      if (message.promiseStatus == 'rejected' || message.isExpired) {
+      if (message.promiseStatus == 'rejected' || message.shouldHideAsExpired) {
         continue;
       }
 
@@ -749,6 +806,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 final activePromise = activePromiseRaw is Map
                     ? Map<String, dynamic>.from(activePromiseRaw)
                     : null;
+                final safetyStampAvailability = evaluateSafetyStampAvailability(
+                  activePromise,
+                  now: _currentNow,
+                );
 
                 return Column(
                   mainAxisSize: MainAxisSize.min,
@@ -760,6 +821,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       onMore: widget.onMore,
                       onPromiseTap: () => _openPromiseSheet(),
                       onProfileTap: _openPartnerProfileCard,
+                    ),
+                    _SafetyStampEntryButton(
+                      isEnabled: safetyStampAvailability.canOpen,
+                      helperText: safetyStampAvailability.message,
+                      onTap: () => _openSafetyStampScreen(activePromise),
                     ),
                     if (activePromise != null)
                       _ActivePromiseBanner(activePromise: activePromise),
@@ -779,6 +845,93 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SafetyStampEntryButton extends StatelessWidget {
+  final bool isEnabled;
+  final String helperText;
+  final VoidCallback onTap;
+
+  const _SafetyStampEntryButton({
+    required this.isEnabled,
+    required this.helperText,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final backgroundColor = isEnabled
+        ? const Color(0xFFFFF3F6)
+        : const Color(0xFFF7F5F3);
+    final borderColor = isEnabled
+        ? const Color(0xFFF4C6D2)
+        : const Color(0xFFE6E1DC);
+    final iconColor = isEnabled
+        ? const Color(0xFFEF6C93)
+        : const Color(0xFFB7AEA6);
+    final titleColor = isEnabled
+        ? const Color(0xFFB94D72)
+        : const Color(0xFF8F867E);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: CupertinoButton(
+        padding: EdgeInsets.zero,
+        onPressed: onTap,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: borderColor),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    CupertinoIcons.checkmark_seal_fill,
+                    size: 18,
+                    color: iconColor,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '안전도장으로 이동하기',
+                      style: TextStyle(
+                        fontFamily: 'Pretendard',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: titleColor,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    CupertinoIcons.right_chevron,
+                    size: 16,
+                    color: titleColor,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                helperText,
+                style: const TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: _AppColors.textSubtle,
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1242,7 +1395,7 @@ class _PromiseRequestMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (message.isExpired) return const SizedBox.shrink();
+    if (message.shouldHideAsExpired) return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -1437,7 +1590,7 @@ class _PromiseConfirmedBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (message.isExpired) return const SizedBox.shrink();
+    if (message.shouldHideAsExpired) return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -2111,6 +2264,16 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                             _showValidationDialog(
                               '장소를 선택해주세요.',
                               title: '장소 선택',
+                            );
+                            return;
+                          }
+
+                          final minAllowedDateTime = DateTime.now().add(
+                            const Duration(minutes: 10),
+                          );
+                          if (selectedDateTime.isBefore(minAllowedDateTime)) {
+                            _showValidationDialog(
+                              '약속 시간은 현재 시각 기준 10분 이후부터 선택할 수 있어요.',
                             );
                             return;
                           }
