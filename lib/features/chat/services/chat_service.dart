@@ -3,6 +3,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class ChatService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  static Map<String, dynamic> _coerceStringMap(dynamic raw) {
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw as Map<Object?, Object?>);
+    }
+    return <String, dynamic>{};
+  }
+
   static Map<String, dynamic> _promisePlaceExtras({
     String? placeId,
     String? placeAddress,
@@ -59,6 +66,7 @@ class ChatService {
     required String promiseId,
     required String userId,
     required String phase,
+    Map<String, dynamic>? verification,
   }) async {
     final roomRef = _firestore.collection('chat_rooms').doc(roomId);
     final promiseRef = roomRef.collection('promises').doc(promiseId);
@@ -85,12 +93,10 @@ class ChatService {
         throw Exception('현재 활성 약속과 일치하지 않습니다.');
       }
 
-      final safetyStampRaw = activePromise['safetyStamp'];
-      final safetyStamp = safetyStampRaw is Map
-          ? Map<String, dynamic>.from(safetyStampRaw as Map<Object?, Object?>)
-          : <String, dynamic>{};
+      final safetyStamp = _coerceStringMap(activePromise['safetyStamp']);
 
-      final participantIds = (roomData['participantIds'] as List?)
+      final participantIds =
+          (roomData['participantIds'] as List?)
               ?.map((e) => e.toString())
               .where((e) => e.isNotEmpty)
               .toSet() ??
@@ -99,12 +105,14 @@ class ChatService {
         throw Exception('참여자 정보가 없습니다.');
       }
 
-      final meetupStampedUserIds = (safetyStamp['meetupStampedUserIds'] as List?)
+      final meetupStampedUserIds =
+          (safetyStamp['meetupStampedUserIds'] as List?)
               ?.map((e) => e.toString())
               .where((e) => e.isNotEmpty)
               .toSet() ??
           <String>{};
-      final legacyStampedUserIds = (safetyStamp['stampedUserIds'] as List?)
+      final legacyStampedUserIds =
+          (safetyStamp['stampedUserIds'] as List?)
               ?.map((e) => e.toString())
               .where((e) => e.isNotEmpty)
               .toSet() ??
@@ -112,7 +120,8 @@ class ChatService {
       final effectiveMeetupStampedUserIds = meetupStampedUserIds.isNotEmpty
           ? meetupStampedUserIds
           : legacyStampedUserIds;
-      final goodbyeStampedUserIds = (safetyStamp['goodbyeStampedUserIds'] as List?)
+      final goodbyeStampedUserIds =
+          (safetyStamp['goodbyeStampedUserIds'] as List?)
               ?.map((e) => e.toString())
               .where((e) => e.isNotEmpty)
               .toSet() ??
@@ -136,10 +145,26 @@ class ChatService {
         'meetupStampedUserIds': effectiveMeetupStampedUserIds.toList(),
         'goodbyeStampedUserIds': goodbyeStampedUserIds.toList(),
       };
+      if (verification != null) {
+        final recordKey = phase == 'goodbye'
+            ? 'goodbyeVerificationByUserId'
+            : 'meetupVerificationByUserId';
+        final verificationByUserId = _coerceStringMap(
+          nextSafetyStamp[recordKey],
+        );
+        verificationByUserId[userId] = verification;
+        nextSafetyStamp[recordKey] = verificationByUserId;
+      }
       nextSafetyStamp.remove('stampedUserIds');
 
       activePromise['participantIds'] = participantIds.toList();
       activePromise['safetyStamp'] = nextSafetyStamp;
+
+      tx.update(promiseRef, {
+        'participantIds': participantIds.toList(),
+        'safetyStamp': nextSafetyStamp,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
 
       if (phase != 'goodbye' &&
           effectiveMeetupStampedUserIds.containsAll(participantIds)) {
@@ -150,6 +175,7 @@ class ChatService {
         };
 
         tx.update(promiseRef, {
+          'safetyStamp': activePromise['safetyStamp'],
           'status': 'in_progress',
           'meetupCompletedAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
@@ -187,6 +213,7 @@ class ChatService {
         };
 
         tx.update(promiseRef, {
+          'safetyStamp': activePromise['safetyStamp'],
           'status': 'completed',
           'completedAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),

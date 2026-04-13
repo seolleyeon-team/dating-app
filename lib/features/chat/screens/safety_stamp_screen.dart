@@ -7,6 +7,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' as material;
 
 import '../services/chat_service.dart';
+import '../services/safety_stamp_verification_service.dart';
 import '../utils/safety_stamp_availability.dart';
 import '../../../router/route_names.dart';
 
@@ -35,6 +36,8 @@ class SafetyStampScreen extends StatefulWidget {
 class _SafetyStampScreenState extends State<SafetyStampScreen>
     with TickerProviderStateMixin {
   final ChatService _chatService = ChatService();
+  final SafetyStampVerificationService _verificationService =
+      SafetyStampVerificationService();
   late final AnimationController _floatController;
   late final AnimationController _myStampController;
   late final AnimationController _partnerStampController;
@@ -86,7 +89,9 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
   void _subscribeToSafetyStamp() {
     if (widget.roomId.isEmpty || widget.promiseId.isEmpty) return;
 
-    _roomSubscription = _chatService.roomStream(widget.roomId).listen((snapshot) {
+    _roomSubscription = _chatService.roomStream(widget.roomId).listen((
+      snapshot,
+    ) {
       final roomData = snapshot.data();
       final activePromiseRaw = roomData?['activePromise'];
       final activePromise = activePromiseRaw is Map
@@ -102,12 +107,14 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
       final safetyStamp = safetyStampRaw is Map
           ? Map<String, dynamic>.from(safetyStampRaw)
           : const <String, dynamic>{};
-      final meetupStampedUserIds = (safetyStamp['meetupStampedUserIds'] as List?)
+      final meetupStampedUserIds =
+          (safetyStamp['meetupStampedUserIds'] as List?)
               ?.map((e) => e.toString())
               .where((e) => e.isNotEmpty)
               .toSet() ??
           <String>{};
-      final legacyStampedUserIds = (safetyStamp['stampedUserIds'] as List?)
+      final legacyStampedUserIds =
+          (safetyStamp['stampedUserIds'] as List?)
               ?.map((e) => e.toString())
               .where((e) => e.isNotEmpty)
               .toSet() ??
@@ -115,7 +122,8 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
       final effectiveMeetupStampedUserIds = meetupStampedUserIds.isNotEmpty
           ? meetupStampedUserIds
           : legacyStampedUserIds;
-      final goodbyeStampedUserIds = (safetyStamp['goodbyeStampedUserIds'] as List?)
+      final goodbyeStampedUserIds =
+          (safetyStamp['goodbyeStampedUserIds'] as List?)
               ?.map((e) => e.toString())
               .where((e) => e.isNotEmpty)
               .toSet() ??
@@ -136,13 +144,16 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
           ? SafetyStampPhase.meetup
           : nextPhase;
 
-      final activeStampedUserIds = displayPhase == SafetyStampPhase.goodbye ||
+      final activeStampedUserIds =
+          displayPhase == SafetyStampPhase.goodbye ||
               displayPhase == SafetyStampPhase.completed
           ? goodbyeStampedUserIds
           : effectiveMeetupStampedUserIds;
 
       final nextMyStamped = activeStampedUserIds.contains(widget.currentUserId);
-      final nextPartnerStamped = activeStampedUserIds.contains(widget.partnerId);
+      final nextPartnerStamped = activeStampedUserIds.contains(
+        widget.partnerId,
+      );
       final shouldPlaySuccess =
           nextMyStamped &&
           nextPartnerStamped &&
@@ -200,11 +211,34 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
     });
 
     try {
+      final verification = await _verificationService
+          .verifyNearbyAndCaptureLocation(
+            promiseId: widget.promiseId,
+            currentUserId: widget.currentUserId,
+            partnerUserId: widget.partnerId,
+          );
+
+      if (!verification.isSuccess) {
+        if (!mounted) return;
+        setState(() {
+          _isSubmittingMyStamp = false;
+        });
+        await _showWarningDialog(
+          title: '안전도장을 찍을 수 없어요',
+          message: verification.message,
+        );
+        return;
+      }
+
       await _chatService.markSafetyStamp(
         roomId: widget.roomId,
         promiseId: widget.promiseId,
         userId: widget.currentUserId,
         phase: _phase.name,
+        verification: verification.toFirestoreMap(
+          phase: _phase.name,
+          verifierUserId: widget.currentUserId,
+        ),
       );
     } catch (_) {
       if (!mounted) return;
@@ -227,24 +261,44 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
     }
   }
 
-  void _goHome() {
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      RouteNames.main,
-      (route) => false,
+  Future<void> _showWarningDialog({
+    required String title,
+    required String message,
+  }) {
+    return showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
     );
+  }
+
+  void _goHome() {
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final visualPhase = _holdMeetupSuccessView ? SafetyStampPhase.meetup : _phase;
+    final visualPhase = _holdMeetupSuccessView
+        ? SafetyStampPhase.meetup
+        : _phase;
     final isMatched = _isMyStamped && _isPartnerStamped;
     final isCompleted = _phase == SafetyStampPhase.completed;
     final title = visualPhase == SafetyStampPhase.goodbye ? '헤어짐 확인' : '안심 확인';
     final buttonLabel = isCompleted
         ? '인증 완료'
-            : _isMyStamped
-                ? '도장 완료'
-                : (_isSubmittingMyStamp ? '도장 처리 중...' : '도장 찍기');
+        : _isMyStamped
+        ? '도장 완료'
+        : (_isSubmittingMyStamp ? '도장 처리 중...' : '도장 찍기');
     final screenWidth = MediaQuery.sizeOf(context).width;
 
     return CupertinoPageScaffold(
@@ -302,7 +356,11 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
                             150,
                             successCurve,
                           ),
-                          left: _lerp((screenWidth - 96) / 2 - 24, 78, successCurve),
+                          left: _lerp(
+                            (screenWidth - 96) / 2 - 24,
+                            78,
+                            successCurve,
+                          ),
                           child: _SeatCircle(
                             label: '상대방 자리',
                             size: _lerp(118, 92, successCurve),
@@ -333,8 +391,8 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
                             helperText: _isMyStamped
                                 ? null
                                 : visualPhase == SafetyStampPhase.goodbye
-                                    ? '헤어질 때\n도장을 남겨요'
-                                    : '도장 버튼으로\n만남을 기록해요',
+                                ? '헤어질 때\n도장을 남겨요'
+                                : '도장 버튼으로\n만남을 기록해요',
                           ),
                         ),
                       ],
@@ -350,7 +408,8 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
                     width: double.infinity,
                     height: 56,
                     child: material.ElevatedButton(
-                      onPressed: (_holdMeetupSuccessView ||
+                      onPressed:
+                          (_holdMeetupSuccessView ||
                               isCompleted ||
                               _isMyStamped ||
                               _isSubmittingMyStamp)
@@ -359,8 +418,9 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
                       style: material.ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF23201E),
                         foregroundColor: material.Colors.white,
-                        disabledBackgroundColor: const Color(0xFF23201E)
-                            .withValues(alpha: 0.36),
+                        disabledBackgroundColor: const Color(
+                          0xFF23201E,
+                        ).withValues(alpha: 0.36),
                         elevation: 0,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(18),
@@ -479,7 +539,9 @@ class _SeatCircle extends StatelessWidget {
                       fontSize: size * 0.13,
                       height: 1.2,
                       fontWeight: FontWeight.w700,
-                      color: const Color(0xFF23201E).withValues(alpha: textOpacity),
+                      color: const Color(
+                        0xFF23201E,
+                      ).withValues(alpha: textOpacity),
                     ),
                   ),
                   if (helperText != null) ...[
@@ -598,7 +660,9 @@ class _SeatCircle extends StatelessWidget {
     return ui.lerpDouble(
           0.94,
           1.0,
-          Curves.easeOutBack.transform(_clampUnit((safeProgress - 0.76) / 0.24)),
+          Curves.easeOutBack.transform(
+            _clampUnit((safeProgress - 0.76) / 0.24),
+          ),
         ) ??
         1.0;
   }
@@ -638,7 +702,9 @@ class _SeatCircle extends StatelessWidget {
     return ui.lerpDouble(
           -size * 0.02,
           -size * 0.92,
-          Curves.easeInOutCubic.transform(_clampUnit((safeProgress - 0.6) / 0.4)),
+          Curves.easeInOutCubic.transform(
+            _clampUnit((safeProgress - 0.6) / 0.4),
+          ),
         ) ??
         (-size * 0.92);
   }
@@ -884,10 +950,7 @@ class _StampBody extends StatelessWidget {
   final double size;
   final double shadowOpacity;
 
-  const _StampBody({
-    required this.size,
-    required this.shadowOpacity,
-  });
+  const _StampBody({required this.size, required this.shadowOpacity});
 
   @override
   Widget build(BuildContext context) {
@@ -1018,10 +1081,7 @@ class _StampBody extends StatelessWidget {
                 gradient: const LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xFFF0F0EE),
-                    Color(0xFFD8D9D7),
-                  ],
+                  colors: [Color(0xFFF0F0EE), Color(0xFFD8D9D7)],
                 ),
               ),
             ),
@@ -1036,10 +1096,7 @@ class _StampBody extends StatelessWidget {
                 gradient: const LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xFFF5F5F3),
-                    Color(0xFFD7D8D5),
-                  ],
+                  colors: [Color(0xFFF5F5F3), Color(0xFFD7D8D5)],
                 ),
               ),
             ),
@@ -1080,10 +1137,7 @@ class _StampBody extends StatelessWidget {
                 gradient: const LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0x66FFFFFF),
-                    Color(0x00FFFFFF),
-                  ],
+                  colors: [Color(0x66FFFFFF), Color(0x00FFFFFF)],
                 ),
               ),
             ),
@@ -1098,10 +1152,7 @@ class _HandleHighlight extends StatelessWidget {
   final double width;
   final double height;
 
-  const _HandleHighlight({
-    required this.width,
-    required this.height,
-  });
+  const _HandleHighlight({required this.width, required this.height});
 
   @override
   Widget build(BuildContext context) {
@@ -1167,7 +1218,9 @@ class _StatusCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           _StatusRow(
-            title: phase == SafetyStampPhase.goodbye ? '상대방 헤어짐 도장' : '상대방 만남 도장',
+            title: phase == SafetyStampPhase.goodbye
+                ? '상대방 헤어짐 도장'
+                : '상대방 만남 도장',
             value: isPartnerStamped ? '완료' : '아직 확인 전',
             isDone: isPartnerStamped,
           ),
@@ -1206,9 +1259,7 @@ class _StatusRow extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: isDone
-                ? const Color(0xFFE9F7EC)
-                : const Color(0xFFF1ECE8),
+            color: isDone ? const Color(0xFFE9F7EC) : const Color(0xFFF1ECE8),
             borderRadius: BorderRadius.circular(999),
           ),
           child: Text(
@@ -1217,9 +1268,7 @@ class _StatusRow extends StatelessWidget {
               fontFamily: 'Pretendard',
               fontSize: 12,
               fontWeight: FontWeight.w700,
-              color: isDone
-                  ? const Color(0xFF2A8A50)
-                  : const Color(0xFF8E827A),
+              color: isDone ? const Color(0xFF2A8A50) : const Color(0xFF8E827A),
             ),
           ),
         ),
@@ -1236,9 +1285,7 @@ class _SuccessBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isMeetupSuccess = phase == SafetyStampPhase.meetup;
-    final title = isMeetupSuccess
-        ? '만남이 성사되었어요!'
-        : '약속이 정상적으로 완료되었어요!';
+    final title = isMeetupSuccess ? '만남이 성사되었어요!' : '약속이 정상적으로 완료되었어요!';
     final subtitle = isMeetupSuccess
         ? '둘 다 만남 도장을 남겼어요. 헤어질 때 한 번 더 도장을 남겨주세요.'
         : '둘 다 헤어짐 도장을 남겨서 약속이 잘 마무리되었어요.';
