@@ -22,7 +22,12 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as logger from "firebase-functions/logger";
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
+import {
+  getFirestore,
+  FieldValue,
+  Timestamp,
+  DocumentReference,
+} from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 import { createHash, randomBytes } from "crypto";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
@@ -76,6 +81,683 @@ function getKstDateKey(now = new Date()): string {
   const m = String(kst.getUTCMonth() + 1).padStart(2, "0");
   const d = String(kst.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+function getKstCompactDateKey(now = new Date()): string {
+  return getKstDateKey(now).replace(/-/g, "");
+}
+
+const DEFAULT_EVENT_TEAM_AVAILABILITY_SLOT_IDS = [
+  "weekday_evening",
+  "weekend_afternoon",
+  "weekend_evening",
+];
+const EVENT_TEAM_MATCH_COLLECTION = "eventTeamMatches";
+const EVENT_TEAM_MATCH_LOCK_COLLECTION = "eventTeamMatchLocks";
+const EVENT_TEAM_MATCH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const EVENT_TEAM_CANDIDATE_POOL_LIMIT = 8;
+
+type EventTeamMemberSnapshot = {
+  uid: string;
+  displayName: string;
+  photoUrl: string | null;
+  universityId: string | null;
+  universityName: string | null;
+  mannerScore: number | null;
+  isVerified: boolean;
+  shortIntro: string | null;
+  birthYear: number | null;
+  major: string | null;
+};
+
+type EventTeamCandidateSnapshot = {
+  groupId: string;
+  sourceSetupId: string | null;
+  membersSnapshot: EventTeamMemberSnapshot[];
+  memberCount: number;
+  score: number;
+  position: number | null;
+  isExplore: boolean;
+  matchedPairs: Record<string, unknown>[];
+};
+
+type MeetingRecommendationCandidate = {
+  groupId: string;
+  score: number;
+  position: number | null;
+  isExplore: boolean;
+  matchedPairs: Record<string, unknown>[];
+};
+
+type MeetingRecommendationSource = {
+  algorithm: string;
+  sourcePath: string;
+  candidates: MeetingRecommendationCandidate[];
+  skipReason: string | null;
+};
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return dedupeStrings(
+    value
+      .map((item) => asString(item, "").trim())
+      .filter((item) => item.length > 0)
+  );
+}
+
+function readMap(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function firstNonEmptyString(...values: unknown[]): string | null {
+  for (const value of values) {
+    const normalized = asStringOrNull(value);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function firstNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+  return null;
+}
+
+function firstInteger(...values: unknown[]): number | null {
+  const parsed = firstNumber(...values);
+  return parsed == null ? null : Math.trunc(parsed);
+}
+
+function readPhotoUrl(userData: Record<string, unknown>): string | null {
+  const onboarding = readMap(userData.onboarding);
+  const photoUrls = normalizeStringList(onboarding.photoUrls);
+  return (
+    photoUrls[0] ??
+    firstNonEmptyString(
+      onboarding.profileImageUrl,
+      onboarding.representativeImageUrl,
+      userData.profileImageUrl
+    )
+  );
+}
+
+function truncateText(value: string | null, maxLength = 90): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+}
+
+function readUserOnboarding(userData: Record<string, unknown>): Record<string, unknown> {
+  return readMap(userData.onboarding);
+}
+
+function buildEventTeamMemberSnapshot(
+  uid: string,
+  userData: Record<string, unknown>,
+  profileData: Record<string, unknown>
+): EventTeamMemberSnapshot {
+  const onboarding = readUserOnboarding(userData);
+  const mannerScore = firstNumber(profileData.mannerScore, userData.mannerScore, 36.5);
+  return {
+    uid,
+    displayName: firstNonEmptyString(onboarding.nickname, userData.nickname, uid) ?? uid,
+    photoUrl: readPhotoUrl(userData),
+    universityId: firstNonEmptyString(
+      onboarding.universityId,
+      userData.universityId,
+      profileData.universityId,
+      onboarding.university,
+      userData.universityName,
+      userData.university
+    ),
+    universityName: firstNonEmptyString(
+      onboarding.university,
+      userData.universityName,
+      userData.university
+    ),
+    mannerScore,
+    isVerified: Boolean(
+      profileData.isVerified ?? userData.isStudentVerified ?? userData.isVerified ?? false
+    ),
+    shortIntro: truncateText(
+      firstNonEmptyString(
+        onboarding.selfIntroduction,
+        onboarding.shortIntro,
+        userData.shortIntro
+      )
+    ),
+    birthYear: firstInteger(profileData.birthYear, onboarding.birthYear, userData.birthYear),
+    major: firstNonEmptyString(onboarding.major, userData.major),
+  };
+}
+
+function buildDeterministicAcceptedOrder(
+  leaderUserId: string,
+  acceptedUserIds: string[]
+): string[] {
+  const ordered = dedupeStrings(acceptedUserIds);
+  if (!leaderUserId) return ordered;
+  return dedupeStrings([
+    leaderUserId,
+    ...ordered.filter((uid) => uid !== leaderUserId),
+  ]);
+}
+
+function pickPrimaryValue(values: Array<string | null>): string | null {
+  const normalized = values.filter((value): value is string => !!value && value.trim().length > 0);
+  if (normalized.length === 0) return null;
+  const counts = new Map<string, number>();
+  for (const value of normalized) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  let best: string | null = null;
+  let bestCount = -1;
+  for (const value of normalized) {
+    const count = counts.get(value) ?? 0;
+    if (count > bestCount) {
+      best = value;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+async function loadCollectionDocsByIds(
+  collectionName: string,
+  docIds: string[]
+): Promise<Record<string, Record<string, unknown>>> {
+  const uniqueIds = dedupeStrings(docIds);
+  if (uniqueIds.length === 0) return {};
+  const refs = uniqueIds.map((docId) => db.collection(collectionName).doc(docId));
+  const snapshots = await db.getAll(...refs);
+  const docs: Record<string, Record<string, unknown>> = {};
+  for (const snapshot of snapshots) {
+    if (!snapshot.exists) continue;
+    docs[snapshot.id] = (snapshot.data() ?? {}) as Record<string, unknown>;
+  }
+  return docs;
+}
+
+function deriveAvailabilitySlotIds(
+  teamData: Record<string, unknown>,
+  userDocs: Record<string, Record<string, unknown>>
+): string[] {
+  const direct = normalizeStringList(teamData.availabilitySlotIds);
+  if (direct.length > 0) return direct;
+
+  const collected: string[] = [];
+  for (const userData of Object.values(userDocs)) {
+    const onboarding = readUserOnboarding(userData);
+    collected.push(...normalizeStringList(onboarding.availabilitySlotIds));
+  }
+  return collected.length > 0
+    ? dedupeStrings(collected)
+    : [...DEFAULT_EVENT_TEAM_AVAILABILITY_SLOT_IDS];
+}
+
+function deriveVibeTagIds(
+  teamData: Record<string, unknown>,
+  userDocs: Record<string, Record<string, unknown>>
+): string[] {
+  const direct = normalizeStringList(teamData.vibeTagIds);
+  if (direct.length > 0) return direct.slice(0, 8);
+
+  const collected: string[] = [];
+  for (const userData of Object.values(userDocs)) {
+    const onboarding = readUserOnboarding(userData);
+    collected.push(...normalizeStringList(onboarding.interests));
+    collected.push(...normalizeStringList(onboarding.keywords));
+    collected.push(...normalizeStringList(onboarding.vibeTagIds));
+  }
+  return dedupeStrings(collected).slice(0, 8);
+}
+
+function buildMeetingGroupPayload(
+  teamSetupId: string,
+  teamData: Record<string, unknown>,
+  userDocs: Record<string, Record<string, unknown>>,
+  profileDocs: Record<string, Record<string, unknown>>
+): Record<string, unknown> {
+  const leaderUserId = asString(teamData.leaderUserId ?? "");
+  const acceptedUserIds = buildDeterministicAcceptedOrder(
+    leaderUserId,
+    normalizeStringList(teamData.acceptedUserIds)
+  );
+  const membersSnapshot = acceptedUserIds.map((uid) =>
+    buildEventTeamMemberSnapshot(uid, userDocs[uid] ?? {}, profileDocs[uid] ?? {})
+  );
+  const memberCount = acceptedUserIds.length;
+  const isEligible = memberCount === 3;
+  const universityIds = dedupeStrings(
+    membersSnapshot
+      .map((member) => member.universityId)
+      .filter((value): value is string => !!value)
+  );
+  const primaryUniversityId = pickPrimaryValue(
+    membersSnapshot.map((member) => member.universityId)
+  );
+  const regionId =
+    firstNonEmptyString(teamData.regionId, primaryUniversityId) ?? null;
+  const expireAt = Timestamp.fromDate(
+    new Date(Date.now() + EVENT_TEAM_MATCH_TTL_MS)
+  );
+
+  return {
+    groupId: teamSetupId,
+    sourceCollection: "eventTeamSetups",
+    sourceSetupId: teamSetupId,
+    captainUid: firstNonEmptyString(teamData.captainUid, leaderUserId),
+    leaderUid: leaderUserId,
+    memberUids: acceptedUserIds,
+    membersSnapshot,
+    memberCount,
+    size: memberCount,
+    status: isEligible ? "open" : memberCount > 0 ? "draft" : "closed",
+    pendingInviteeIds: normalizeStringList(teamData.pendingInviteeIds),
+    eventType: "season_meeting",
+    seasonKey: getKstCompactDateKey().slice(0, 6),
+    regionId,
+    availabilitySlotIds: isEligible
+      ? deriveAvailabilitySlotIds(teamData, userDocs)
+      : [],
+    vibeTagIds: deriveVibeTagIds(teamData, userDocs),
+    universityIds,
+    primaryUniversityId,
+    createdAt: teamData.createdAt ?? FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+    sourceUpdatedAt: teamData.updatedAt ?? null,
+    expireAt,
+    active: isEligible,
+    isEligibleForMeetingRec: isEligible,
+    eligibilityReason: isEligible ? "ready" : "accepted_member_count_not_3",
+    syncSource: "event_team_setup",
+    lastSyncedAt: FieldValue.serverTimestamp(),
+  };
+}
+
+async function syncMeetingGroupFromEventTeamSetup(
+  teamSetupId: string,
+  teamData: Record<string, unknown> | null
+): Promise<void> {
+  const meetingGroupRef = db.collection("meetingGroups").doc(teamSetupId);
+  if (!teamData) {
+    await meetingGroupRef.set(
+      {
+        groupId: teamSetupId,
+        sourceCollection: "eventTeamSetups",
+        sourceSetupId: teamSetupId,
+        status: "closed",
+        active: false,
+        isEligibleForMeetingRec: false,
+        eligibilityReason: "source_team_deleted",
+        memberUids: [],
+        membersSnapshot: [],
+        memberCount: 0,
+        updatedAt: FieldValue.serverTimestamp(),
+        lastSyncedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    return;
+  }
+
+  const memberUids = buildDeterministicAcceptedOrder(
+    asString(teamData.leaderUserId ?? ""),
+    normalizeStringList(teamData.acceptedUserIds)
+  );
+  const userDocs = await loadCollectionDocsByIds("users", memberUids);
+  const profileDocs = await loadCollectionDocsByIds("profileIndex", memberUids);
+  await meetingGroupRef.set(
+    buildMeetingGroupPayload(teamSetupId, teamData, userDocs, profileDocs),
+    { merge: true }
+  );
+}
+
+function readTeamCandidateSnapshot(
+  groupId: string,
+  groupData: Record<string, unknown>,
+  score: number,
+  position: number | null,
+  isExplore: boolean,
+  matchedPairs: Record<string, unknown>[]
+): EventTeamCandidateSnapshot | null {
+  const membersRaw = Array.isArray(groupData.membersSnapshot)
+    ? groupData.membersSnapshot
+    : [];
+  const membersSnapshot = membersRaw
+    .filter((item) => isRecord(item))
+    .map((item) => ({
+      uid: asString(item.uid ?? ""),
+      displayName: asString(item.displayName ?? "알 수 없는 사용자", "알 수 없는 사용자"),
+      photoUrl: asStringOrNull(item.photoUrl) ?? null,
+      universityId: asStringOrNull(item.universityId) ?? null,
+      universityName: asStringOrNull(item.universityName) ?? null,
+      mannerScore: firstNumber(item.mannerScore),
+      isVerified: Boolean(item.isVerified ?? false),
+      shortIntro: asStringOrNull(item.shortIntro) ?? null,
+      birthYear: firstInteger(item.birthYear),
+      major: asStringOrNull(item.major) ?? null,
+    }));
+  if (membersSnapshot.length !== 3) return null;
+
+  return {
+    groupId,
+    sourceSetupId: firstNonEmptyString(
+      groupData.sourceSetupId,
+      groupData.teamSetupId
+    ),
+    membersSnapshot,
+    memberCount: firstInteger(groupData.memberCount) ?? membersSnapshot.length,
+    score,
+    position,
+    isExplore,
+    matchedPairs,
+  };
+}
+
+function normalizeCandidateScores(scores: number[]): number[] {
+  if (scores.length === 0) return [];
+  const min = Math.min(...scores);
+  const max = Math.max(...scores);
+  if (min === max) return scores.map(() => 1);
+  return scores.map((score) => (score - min) / Math.max(1e-9, max - min));
+}
+
+function randomUnit(): number {
+  const buffer = randomBytes(6);
+  const intValue = buffer.readUIntBE(0, 6);
+  return intValue / 0x1000000000000;
+}
+
+function buildWeightedCandidateOrder(
+  candidates: EventTeamCandidateSnapshot[]
+): EventTeamCandidateSnapshot[] {
+  const scores = normalizeCandidateScores(candidates.map((candidate) => candidate.score));
+  const pool = candidates.map((candidate, index) => ({
+    candidate,
+    weight: Math.max(0.15, scores[index] + 0.15),
+  }));
+  const ordered: EventTeamCandidateSnapshot[] = [];
+  while (pool.length > 0) {
+    const totalWeight = pool.reduce((sum, item) => sum + item.weight, 0);
+    let cursor = randomUnit() * totalWeight;
+    let selectedIndex = pool.length - 1;
+    for (let index = 0; index < pool.length; index += 1) {
+      cursor -= pool[index].weight;
+      if (cursor <= 0) {
+        selectedIndex = index;
+        break;
+      }
+    }
+    const [selected] = pool.splice(selectedIndex, 1);
+    if (selected) {
+      ordered.push(selected.candidate);
+    }
+  }
+  return ordered;
+}
+
+function sharesAnyMember(left: string[], right: string[]): boolean {
+  const rightSet = new Set(right);
+  return left.some((uid) => rightSet.has(uid));
+}
+
+function sanitizeMatchedPairs(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is Record<string, unknown> => isRecord(item));
+}
+
+function isMeetingGroupAvailable(groupData: Record<string, unknown>): boolean {
+  const memberUids = normalizeStringList(groupData.memberUids);
+  const memberCount = firstInteger(groupData.memberCount, groupData.size) ?? memberUids.length;
+  const status = asString(groupData.status ?? "", "");
+  const active = groupData.active !== false;
+  const eligible = groupData.isEligibleForMeetingRec !== false;
+  return active && eligible && status === "open" && memberCount === 3;
+}
+
+function readRecommendationCandidateFromDailyItem(
+  value: unknown
+): MeetingRecommendationCandidate | null {
+  if (!isRecord(value)) return null;
+  const groupId = asString(value.groupId ?? "", "").trim();
+  if (!groupId) return null;
+  return {
+    groupId,
+    score: firstNumber(value.scoreTotal, value.score, value.positionScore, 0) ?? 0,
+    position: firstInteger(value.position),
+    isExplore: value.isExplore === true,
+    matchedPairs: sanitizeMatchedPairs(value.matchedPairs),
+  };
+}
+
+function readRecommendationCandidateFromRankerItem(
+  value: unknown
+): MeetingRecommendationCandidate | null {
+  if (!isRecord(value)) return null;
+  const groupId = asString(value.groupId ?? "", "").trim();
+  if (!groupId) return null;
+  return {
+    groupId,
+    score: firstNumber(value.score, value.scoreTotal, 0) ?? 0,
+    position: firstInteger(value.rank, value.position),
+    isExplore: false,
+    matchedPairs: sanitizeMatchedPairs(value.matchedPairs),
+  };
+}
+
+async function loadMeetingRecommendationSource(
+  requestingGroupId: string,
+  dateKey: string
+): Promise<MeetingRecommendationSource | null> {
+  const meetingDailyRef = db
+    .collection("meetingDailyRecs")
+    .doc(requestingGroupId)
+    .collection("days")
+    .doc(dateKey);
+  const meetingDailySnap = await meetingDailyRef.get();
+  if (meetingDailySnap.exists) {
+    const dailyData = (meetingDailySnap.data() ?? {}) as Record<string, unknown>;
+    if (asString(dailyData.status ?? "", "") === "ready") {
+      const candidates = Array.isArray(dailyData.candidates)
+        ? dailyData.candidates
+            .map(readRecommendationCandidateFromDailyItem)
+            .filter(
+              (item): item is MeetingRecommendationCandidate => item !== null
+            )
+        : [];
+      if (candidates.length > 0) {
+        return {
+          algorithm: "meeting_daily_weighted_random",
+          sourcePath: meetingDailyRef.path,
+          candidates,
+          skipReason: null,
+        };
+      }
+    }
+  }
+
+  const rankerRef = db
+    .collection("meetingModelRecs")
+    .doc(requestingGroupId)
+    .collection("daily")
+    .doc(dateKey)
+    .collection("sources")
+    .doc("group_ranker");
+  const rankerSnap = await rankerRef.get();
+  if (!rankerSnap.exists) {
+    return null;
+  }
+
+  const rankerData = (rankerSnap.data() ?? {}) as Record<string, unknown>;
+  if (asString(rankerData.status ?? "", "") !== "ready") {
+    return {
+      algorithm: "meeting_group_ranker_fallback",
+      sourcePath: rankerRef.path,
+      candidates: [],
+      skipReason: asStringOrNull(rankerData.skipReason),
+    };
+  }
+
+  const candidates = Array.isArray(rankerData.items)
+    ? rankerData.items
+        .map(readRecommendationCandidateFromRankerItem)
+        .filter((item): item is MeetingRecommendationCandidate => item !== null)
+    : [];
+  return {
+    algorithm: "meeting_group_ranker_fallback",
+    sourcePath: rankerRef.path,
+    candidates,
+    skipReason: asStringOrNull(rankerData.skipReason),
+  };
+}
+
+async function resolveEventTeamSetupForUser(
+  userId: string,
+  preferredTeamSetupId: string | null
+): Promise<{ teamSetupId: string; data: Record<string, unknown> } | null> {
+  if (preferredTeamSetupId) {
+    const preferredSnap = await db
+      .collection("eventTeamSetups")
+      .doc(preferredTeamSetupId)
+      .get();
+    if (preferredSnap.exists) {
+      const preferredData = (preferredSnap.data() ?? {}) as Record<string, unknown>;
+      const acceptedUserIds = buildDeterministicAcceptedOrder(
+        asString(preferredData.leaderUserId ?? ""),
+        normalizeStringList(preferredData.acceptedUserIds)
+      );
+      if (acceptedUserIds.includes(userId)) {
+        return {
+          teamSetupId: preferredSnap.id,
+          data: preferredData,
+        };
+      }
+    }
+  }
+
+  const teamQuery = await db
+    .collection("eventTeamSetups")
+    .where("acceptedUserIds", "array-contains", userId)
+    .get();
+
+  const docs = [...teamQuery.docs];
+  docs.sort((left, right) => {
+    const leftUpdatedAt =
+      left.data()["updatedAt"] instanceof Timestamp
+        ? (left.data()["updatedAt"] as Timestamp).toMillis()
+        : 0;
+    const rightUpdatedAt =
+      right.data()["updatedAt"] instanceof Timestamp
+        ? (right.data()["updatedAt"] as Timestamp).toMillis()
+        : 0;
+    return rightUpdatedAt - leftUpdatedAt;
+  });
+
+  for (const doc of docs) {
+    const data = (doc.data() ?? {}) as Record<string, unknown>;
+    const acceptedUserIds = buildDeterministicAcceptedOrder(
+      asString(data.leaderUserId ?? ""),
+      normalizeStringList(data.acceptedUserIds)
+    );
+    if (acceptedUserIds.includes(userId)) {
+      return {
+        teamSetupId: doc.id,
+        data,
+      };
+    }
+  }
+
+  return null;
+}
+
+function buildEventTeamMatchLockId(dateKey: string, groupId: string): string {
+  return `${dateKey}_${groupId}`;
+}
+
+function eventTeamCandidateSnapshotToMap(
+  candidate: EventTeamCandidateSnapshot
+): Record<string, unknown> {
+  return {
+    groupId: candidate.groupId,
+    sourceSetupId: candidate.sourceSetupId,
+    membersSnapshot: candidate.membersSnapshot,
+    memberCount: candidate.memberCount,
+    score: candidate.score,
+    position: candidate.position,
+    isExplore: candidate.isExplore,
+    matchedPairs: candidate.matchedPairs,
+  };
+}
+
+function buildEventTeamMatchResultPreview(params: {
+  resultId: string;
+  dateKey: string;
+  requestingTeamSetupId: string;
+  requestingTeam: EventTeamCandidateSnapshot;
+  matchedTeam: EventTeamCandidateSnapshot;
+  candidateTeams: EventTeamCandidateSnapshot[];
+  algorithm: string;
+  sourcePath: string;
+  selectedGroupIndex: number;
+  createdAtIso: string;
+}): Record<string, unknown> {
+  return {
+    resultId: params.resultId,
+    source: "slot_machine",
+    eventType: "season_meeting",
+    seasonKey: params.dateKey.slice(0, 6),
+    dateKey: params.dateKey,
+    requestingEventTeamSetupId: params.requestingTeamSetupId,
+    requestingGroupId: params.requestingTeam.groupId,
+    matchedGroupId: params.matchedTeam.groupId,
+    groupIds: [
+      params.requestingTeam.groupId,
+      params.matchedTeam.groupId,
+    ],
+    candidateGroupIds: params.candidateTeams.map((team) => team.groupId),
+    candidateScores: params.candidateTeams.map((team) => team.score),
+    selectedGroupIndex: params.selectedGroupIndex,
+    algorithm: params.algorithm,
+    algorithmMeta: {
+      recommendationPath: params.sourcePath,
+      candidateCount: params.candidateTeams.length,
+    },
+    requestingTeamSnapshot: eventTeamCandidateSnapshotToMap(params.requestingTeam),
+    matchedTeamSnapshot: eventTeamCandidateSnapshotToMap(params.matchedTeam),
+    matchedMembersSnapshot: params.matchedTeam.membersSnapshot,
+    candidateTeamsSnapshot: params.candidateTeams.map(
+      eventTeamCandidateSnapshotToMap
+    ),
+    matchedPairMeta: params.matchedTeam.matchedPairs,
+    matchedPairs: params.matchedTeam.matchedPairs,
+    status: "created",
+    createdAt: params.createdAtIso,
+    updatedAt: params.createdAtIso,
+  };
 }
 
 async function getUserDisplayInfo(userId: string): Promise<{
@@ -1355,6 +2037,321 @@ export const respondEventTeamInvite = onCall(async (request) => {
   });
 
   return result;
+});
+
+export const onEventTeamSetupWritten = onDocumentWritten(
+  "eventTeamSetups/{teamSetupId}",
+  async (event) => {
+    const teamSetupId = asString(event.params.teamSetupId ?? "", "");
+    if (!teamSetupId) {
+      logger.warn("onEventTeamSetupWritten missing teamSetupId");
+      return;
+    }
+
+    const afterData = event.data?.after.exists
+      ? ((event.data.after.data() ?? {}) as Record<string, unknown>)
+      : null;
+
+    await syncMeetingGroupFromEventTeamSetup(teamSetupId, afterData);
+  }
+);
+
+export const spinSeasonMeetingRoulette = onCall(async (request) => {
+  const data = getCallableData(request);
+  const user = await resolveUserForFriendCallable(request);
+  const requestedTeamSetupId = asNonEmptyString(data.teamSetupId);
+
+  const resolvedTeam = await resolveEventTeamSetupForUser(
+    user.userId,
+    requestedTeamSetupId
+  );
+  if (!resolvedTeam) {
+    throw new HttpsError(
+      "failed-precondition",
+      "현재 참여 중인 3인 팀을 찾을 수 없어요."
+    );
+  }
+
+  const requestingTeamSetupId = resolvedTeam.teamSetupId;
+  const requestingTeamData = resolvedTeam.data;
+  const leaderUserId = asString(requestingTeamData.leaderUserId ?? "", "");
+  const acceptedUserIds = buildDeterministicAcceptedOrder(
+    leaderUserId,
+    normalizeStringList(requestingTeamData.acceptedUserIds)
+  );
+  if (!acceptedUserIds.includes(user.userId)) {
+    throw new HttpsError(
+      "permission-denied",
+      "내 팀에 속한 사용자만 룰렛을 돌릴 수 있어요."
+    );
+  }
+  if (acceptedUserIds.length !== 3) {
+    throw new HttpsError(
+      "failed-precondition",
+      "팀이 3명으로 완성되면 룰렛을 시작할 수 있어요."
+    );
+  }
+
+  await syncMeetingGroupFromEventTeamSetup(
+    requestingTeamSetupId,
+    requestingTeamData
+  );
+
+  const requestingGroupRef = db
+    .collection("meetingGroups")
+    .doc(requestingTeamSetupId);
+  const requestingGroupSnap = await requestingGroupRef.get();
+  if (!requestingGroupSnap.exists || requestingGroupSnap.data() == null) {
+    throw new HttpsError(
+      "failed-precondition",
+      "팀 추천 정보를 준비하지 못했어요. 잠시 후 다시 시도해 주세요."
+    );
+  }
+
+  const requestingGroupData =
+    (requestingGroupSnap.data() ?? {}) as Record<string, unknown>;
+  if (!isMeetingGroupAvailable(requestingGroupData)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "현재 팀 상태로는 추천에 참여할 수 없어요."
+    );
+  }
+
+  const requestingTeamSnapshot = readTeamCandidateSnapshot(
+    requestingTeamSetupId,
+    requestingGroupData,
+    0,
+    0,
+    false,
+    []
+  );
+  if (requestingTeamSnapshot == null) {
+    throw new HttpsError(
+      "failed-precondition",
+      "팀 프로필을 아직 준비하지 못했어요. 잠시 후 다시 시도해 주세요."
+    );
+  }
+
+  const dateKey = getKstCompactDateKey();
+  const recommendationSource = await loadMeetingRecommendationSource(
+    requestingTeamSetupId,
+    dateKey
+  );
+  if (
+    recommendationSource == null ||
+    recommendationSource.candidates.length === 0
+  ) {
+    const skipReason = recommendationSource?.skipReason;
+    throw new HttpsError(
+      "failed-precondition",
+      skipReason == null || skipReason.length === 0
+          ? "추천 결과가 아직 준비되지 않았어요."
+          : `추천 결과를 아직 사용할 수 없어요. (${skipReason})`
+    );
+  }
+
+  const rawCandidates = recommendationSource.candidates.filter(
+    (candidate) => candidate.groupId !== requestingTeamSetupId
+  );
+  const candidateGroupDocs = await loadCollectionDocsByIds(
+    "meetingGroups",
+    rawCandidates.map((candidate) => candidate.groupId)
+  );
+
+  const candidateTeams: EventTeamCandidateSnapshot[] = [];
+  for (const candidate of rawCandidates) {
+    const groupData = candidateGroupDocs[candidate.groupId];
+    if (!groupData || !isMeetingGroupAvailable(groupData)) {
+      continue;
+    }
+    const snapshot = readTeamCandidateSnapshot(
+      candidate.groupId,
+      groupData,
+      candidate.score,
+      candidate.position,
+      candidate.isExplore,
+      candidate.matchedPairs
+    );
+    if (snapshot == null || snapshot.memberCount != 3) {
+      continue;
+    }
+    const memberUids = normalizeStringList(groupData.memberUids);
+    if (sharesAnyMember(acceptedUserIds, memberUids)) {
+      continue;
+    }
+    candidateTeams.push(snapshot);
+    if (candidateTeams.length >= EVENT_TEAM_CANDIDATE_POOL_LIMIT) {
+      break;
+    }
+  }
+
+  if (candidateTeams.length === 0) {
+    throw new HttpsError(
+      "failed-precondition",
+      "지금은 추천 가능한 상대 팀이 없어요."
+    );
+  }
+
+  const weightedCandidateOrder = buildWeightedCandidateOrder(candidateTeams);
+  const requesterLockRef = db
+    .collection(EVENT_TEAM_MATCH_LOCK_COLLECTION)
+    .doc(buildEventTeamMatchLockId(dateKey, requestingTeamSetupId));
+
+  const transactionOutcome = await db.runTransaction(async (tx) => {
+    const requesterLockSnap = await tx.get(requesterLockRef);
+    if (requesterLockSnap.exists) {
+      const requesterLockData =
+        (requesterLockSnap.data() ?? {}) as Record<string, unknown>;
+      const lockedResultId = asStringOrNull(requesterLockData.resultId);
+      if (lockedResultId) {
+        const lockedResultRef = db
+          .collection(EVENT_TEAM_MATCH_COLLECTION)
+          .doc(lockedResultId);
+        const lockedResultSnap = await tx.get(lockedResultRef);
+        if (lockedResultSnap.exists && lockedResultSnap.data() != null) {
+          return {
+            reusedExisting: true,
+            selectedTeamIndex:
+              firstInteger(lockedResultSnap.data()?.selectedGroupIndex) ?? 0,
+            resultId: lockedResultSnap.id,
+            result: (lockedResultSnap.data() ?? {}) as Record<string, unknown>,
+          };
+        }
+      }
+      tx.delete(requesterLockRef);
+    }
+
+    const freshRequestingGroupSnap = await tx.get(requestingGroupRef);
+    if (
+      !freshRequestingGroupSnap.exists ||
+      freshRequestingGroupSnap.data() == null ||
+      !isMeetingGroupAvailable(
+        (freshRequestingGroupSnap.data() ?? {}) as Record<string, unknown>
+      )
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "내 팀 정보가 변경되어 매칭을 진행할 수 없어요."
+      );
+    }
+
+    let selectedCandidate: EventTeamCandidateSnapshot | null = null;
+    let selectedCandidateLockRef: DocumentReference | null = null;
+
+    for (const candidate of weightedCandidateOrder) {
+      const candidateLockRef = db
+        .collection(EVENT_TEAM_MATCH_LOCK_COLLECTION)
+        .doc(buildEventTeamMatchLockId(dateKey, candidate.groupId));
+      const candidateLockSnap = await tx.get(candidateLockRef);
+      if (candidateLockSnap.exists) {
+        const candidateLockData =
+          (candidateLockSnap.data() ?? {}) as Record<string, unknown>;
+        const lockedResultId = asStringOrNull(candidateLockData.resultId);
+        if (lockedResultId) {
+          const lockedResultSnap = await tx.get(
+            db.collection(EVENT_TEAM_MATCH_COLLECTION).doc(lockedResultId)
+          );
+          if (lockedResultSnap.exists) {
+            continue;
+          }
+        }
+        tx.delete(candidateLockRef);
+      }
+
+      const candidateGroupRef = db
+        .collection("meetingGroups")
+        .doc(candidate.groupId);
+      const candidateGroupSnap = await tx.get(candidateGroupRef);
+      if (!candidateGroupSnap.exists || candidateGroupSnap.data() == null) {
+        continue;
+      }
+      const candidateGroupData =
+        (candidateGroupSnap.data() ?? {}) as Record<string, unknown>;
+      if (!isMeetingGroupAvailable(candidateGroupData)) {
+        continue;
+      }
+      const liveCandidate = readTeamCandidateSnapshot(
+        candidate.groupId,
+        candidateGroupData,
+        candidate.score,
+        candidate.position,
+        candidate.isExplore,
+        candidate.matchedPairs
+      );
+      if (liveCandidate == null) {
+        continue;
+      }
+
+      selectedCandidate = liveCandidate;
+      selectedCandidateLockRef = candidateLockRef;
+      break;
+    }
+
+    if (selectedCandidate == null || selectedCandidateLockRef == null) {
+      throw new HttpsError(
+        "resource-exhausted",
+        "이번에는 매칭 가능한 상대 팀을 찾지 못했어요."
+      );
+    }
+
+    const resultRef = db.collection(EVENT_TEAM_MATCH_COLLECTION).doc();
+    const selectedTeamIndex = candidateTeams.findIndex(
+      (candidate) => candidate.groupId === selectedCandidate?.groupId
+    );
+    const createdAtIso = new Date().toISOString();
+    const resultPreview = buildEventTeamMatchResultPreview({
+      resultId: resultRef.id,
+      dateKey,
+      requestingTeamSetupId,
+      requestingTeam: requestingTeamSnapshot,
+      matchedTeam: selectedCandidate,
+      candidateTeams,
+      algorithm: recommendationSource.algorithm,
+      sourcePath: recommendationSource.sourcePath,
+      selectedGroupIndex: selectedTeamIndex >= 0 ? selectedTeamIndex : 0,
+      createdAtIso,
+    });
+
+    tx.set(resultRef, {
+      ...resultPreview,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(requesterLockRef, {
+      dateKey,
+      groupId: requestingTeamSetupId,
+      resultId: resultRef.id,
+      peerGroupId: selectedCandidate.groupId,
+      status: "locked",
+      source: "slot_machine",
+      algorithm: recommendationSource.algorithm,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(selectedCandidateLockRef, {
+      dateKey,
+      groupId: selectedCandidate.groupId,
+      resultId: resultRef.id,
+      peerGroupId: requestingTeamSetupId,
+      status: "locked",
+      source: "slot_machine",
+      algorithm: recommendationSource.algorithm,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return {
+      reusedExisting: false,
+      selectedTeamIndex: selectedTeamIndex >= 0 ? selectedTeamIndex : 0,
+      resultId: resultRef.id,
+      result: resultPreview,
+    };
+  });
+
+  return {
+    ...transactionOutcome,
+    viewerGroupId: requestingTeamSetupId,
+  };
 });
 
 // =============================================================================

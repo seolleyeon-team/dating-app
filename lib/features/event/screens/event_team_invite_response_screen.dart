@@ -1,17 +1,17 @@
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/services.dart';
 
 import '../../../services/event_team_service.dart';
 import '../../../services/storage_service.dart';
-import '../../../services/user_service.dart';
 import '../models/event_team_route_args.dart';
+import '../widgets/team_invite_response_sheet.dart';
 
 class _C {
-  static const Color primary = Color(0xFFF0426E);
-  static const Color bg = Color(0xFFF8F6F6);
-  static const Color textMain = Color(0xFF181113);
-  static const Color textSub = Color(0xFF9E9E9E);
+  static const Color bg = Color(0xFFFFFBF7);
+  static const Color textMain = Color(0xFF3D2C33);
+  static const Color textSub = Color(0xFF89616B);
+  static const Color plumAccent = Color(0xFF9B5A6A);
+  static const Color plumLight = Color(0xFFF5EBF0);
+  static const Color gray200 = Color(0xFFEEEEEE);
 }
 
 /// 푸시·알림 목록에서 이벤트 팀 초대에 응답할 때 사용
@@ -28,11 +28,10 @@ class EventTeamInviteResponseScreen extends StatefulWidget {
 class _EventTeamInviteResponseScreenState
     extends State<EventTeamInviteResponseScreen> {
   final EventTeamService _eventTeam = EventTeamService();
-  final UserService _userService = UserService();
   final StorageService _storage = StorageService();
 
   String? _meId;
-  bool _busy = false;
+  bool _sheetShown = false;
 
   @override
   void initState() {
@@ -45,80 +44,16 @@ class _EventTeamInviteResponseScreenState
     if (mounted) setState(() => _meId = id);
   }
 
-  String _fnError(Object e) {
-    if (e is FirebaseFunctionsException) {
-      return e.message ?? '요청을 실패했어요.';
-    }
-    return e.toString();
-  }
-
-  String _codeMessage(String code) {
-    switch (code) {
-      case 'not_found':
-        return '초대를 찾을 수 없어요.';
-      case 'already_responded':
-        return '이미 처리된 초대예요.';
-      case 'team_full':
-        return '팀 정원이 이미 찼어요. 다음에 다시 만나요.';
-      case 'not_friends':
-        return '더는 친구 관계가 아니어서 참여할 수 없어요.';
-      case 'stale_invite':
-        return '유효하지 않은 초대예요.';
-      case 'team_missing':
-        return '팀 정보가 없어요.';
-      default:
-        return '초대를 처리하지 못했어요.';
-    }
-  }
-
-  Future<void> _respond(bool accept) async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    try {
-      final res = await _eventTeam.respondInvite(
-        inviteId: widget.args.inviteId,
-        accept: accept,
-      );
-      final ok = res['ok'] == true;
+  /// 초대 문서가 로드되면 자동으로 bottom sheet를 열기
+  void _autoShowSheet(EventTeamInviteDoc invite) {
+    if (_sheetShown) return;
+    _sheetShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (ok) {
-        HapticFeedback.mediumImpact();
-        Navigator.of(context).maybePop();
-        return;
-      }
-      final code = res['code']?.toString() ?? '';
-      await showCupertinoDialog<void>(
-        context: context,
-        builder: (ctx) => CupertinoAlertDialog(
-          title: const Text('알림'),
-          content: Text(_codeMessage(code)),
-          actions: [
-            CupertinoDialogAction(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('확인'),
-            ),
-          ],
-        ),
-      );
-    } catch (e) {
-      if (mounted) {
-        await showCupertinoDialog<void>(
-          context: context,
-          builder: (ctx) => CupertinoAlertDialog(
-            title: const Text('오류'),
-            content: Text(_fnError(e)),
-            actions: [
-              CupertinoDialogAction(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('확인'),
-              ),
-            ],
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+      showTeamInviteResponseSheet(context, invite: invite).then((_) {
+        if (mounted) Navigator.of(context).maybePop();
+      });
+    });
   }
 
   @override
@@ -126,9 +61,15 @@ class _EventTeamInviteResponseScreenState
     return CupertinoPageScaffold(
       backgroundColor: _C.bg,
       navigationBar: CupertinoNavigationBar(
+        backgroundColor: _C.bg,
+        border: const Border(),
         middle: const Text(
           '팀 초대',
-          style: TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.w700),
+          style: TextStyle(
+            fontFamily: 'Pretendard',
+            fontWeight: FontWeight.w700,
+            color: _C.textMain,
+          ),
         ),
         leading: CupertinoButton(
           padding: EdgeInsets.zero,
@@ -146,19 +87,7 @@ class _EventTeamInviteResponseScreenState
               return const Center(child: CupertinoActivityIndicator());
             }
             if (invite == null) {
-              return const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    '초대 정보를 찾을 수 없어요.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      color: _C.textSub,
-                    ),
-                  ),
-                ),
-              );
+              return _buildMessage('초대 정보를 찾을 수 없어요.');
             }
 
             final me = _meId;
@@ -166,19 +95,7 @@ class _EventTeamInviteResponseScreenState
                 me.isNotEmpty &&
                 invite.inviteeUserId.isNotEmpty &&
                 invite.inviteeUserId != me) {
-              return const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    '이 초대는 다른 계정으로 받은 요청이에요.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      color: _C.textSub,
-                    ),
-                  ),
-                ),
-              );
+              return _buildMessage('이 초대는 다른 계정으로 받은 요청이에요.');
             }
 
             final status = invite.status.toLowerCase();
@@ -191,115 +108,88 @@ class _EventTeamInviteResponseScreenState
               } else {
                 msg = '더 이상 유효하지 않은 초대예요.';
               }
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(
-                    msg,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontFamily: 'Pretendard',
-                      color: _C.textSub,
-                    ),
-                  ),
-                ),
-              );
+              return _buildMessage(msg);
             }
 
-            return FutureBuilder<String>(
-              future: _inviterName(invite.inviterUserId),
-              builder: (context, nameSnap) {
-                final name = nameSnap.data ?? '친구';
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SizedBox(height: 32),
-                      const Text(
-                        '3명 팀 초대',
-                        style: TextStyle(
-                          fontFamily: 'Pretendard',
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                          color: _C.textMain,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        '$name님이 3인 팀 참여를 요청했어요.\n함께할까요?',
-                        style: const TextStyle(
-                          fontFamily: 'Pretendard',
-                          fontSize: 15,
-                          height: 1.45,
-                          color: _C.textSub,
-                        ),
-                      ),
-                      const Spacer(),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: CupertinoButton(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              color: CupertinoColors.systemGrey5,
-                              onPressed:
-                                  _busy ? null : () => _respond(false),
-                              child: const Text(
-                                '거절',
-                                style: TextStyle(
-                                  fontFamily: 'Pretendard',
-                                  fontWeight: FontWeight.w700,
-                                  color: _C.textMain,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: CupertinoButton(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              color: _C.primary,
-                              onPressed: _busy ? null : () => _respond(true),
-                              child: _busy
-                                  ? const CupertinoActivityIndicator(
-                                      color: CupertinoColors.white,
-                                    )
-                                  : const Text(
-                                      '수락',
-                                      style: TextStyle(
-                                        fontFamily: 'Pretendard',
-                                        fontWeight: FontWeight.w700,
-                                        color: CupertinoColors.white,
-                                      ),
-                                    ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      SizedBox(height: 16 + MediaQuery.paddingOf(context).bottom),
-                    ],
-                  ),
-                );
-              },
-            );
+            // pending 상태면 bottom sheet 자동 열기
+            _autoShowSheet(invite);
+
+            return _buildLoadingState();
           },
         ),
       ),
     );
   }
 
-  Future<String> _inviterName(String inviterUserId) async {
-    if (inviterUserId.isEmpty) return '친구';
-    final user = await _userService.getUserProfile(inviterUserId);
-    if (user == null) return '친구';
-    final raw = user['onboarding'];
-    final ob = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
-    if (ob['nickname']?.toString().trim().isNotEmpty == true) {
-      return ob['nickname'].toString();
-    }
-    if (user['nickname']?.toString().trim().isNotEmpty == true) {
-      return user['nickname'].toString();
-    }
-    return '친구';
+  Widget _buildMessage(String msg) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: _C.plumLight,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                CupertinoIcons.mail,
+                size: 28,
+                color: _C.plumAccent,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              msg,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontFamily: 'Pretendard',
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+                color: _C.textSub,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 24),
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              color: _C.gray200,
+              onPressed: () => Navigator.of(context).maybePop(),
+              child: const Text(
+                '돌아가기',
+                style: TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontWeight: FontWeight.w600,
+                  color: _C.textMain,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const CupertinoActivityIndicator(),
+          const SizedBox(height: 16),
+          const Text(
+            '초대 내용을 확인하고 있어요…',
+            style: TextStyle(
+              fontFamily: 'Pretendard',
+              fontSize: 14,
+              color: _C.textSub,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

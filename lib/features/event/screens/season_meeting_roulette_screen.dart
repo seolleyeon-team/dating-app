@@ -1,36 +1,24 @@
-// =============================================================================
-// 3:3 시즌 미팅 룰렛 화면
-// 경로: lib/features/event/screens/season_meeting_roulette_screen.dart
-//
-// 사용 예시:
-// Navigator.push(
-//   context,
-//   CupertinoPageRoute(builder: (_) => const SeasonMeetingRouletteScreen()),
-// );
-// =============================================================================
-
 import 'dart:ui';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
-// =============================================================================
-// 색상 상수
-// =============================================================================
-class _AppColors {
-  static const Color purpleSoft = Color(0xFFCE93D8);
-  static const Color lavenderLight = Color(0xFFE9E4F0);
-}
+import '../../../data/models/event/event_team_match_model.dart';
+import '../../../router/route_names.dart';
+import '../../../services/event_match_service.dart';
+import '../models/event_team_route_args.dart';
+import '../widgets/event_slot_machine.dart';
+import '../widgets/slot_reel_controller.dart';
 
-// =============================================================================
-// 메인 화면
-// =============================================================================
 class SeasonMeetingRouletteScreen extends StatefulWidget {
+  final SeasonMeetingRouletteArgs? args;
   final VoidCallback? onBack;
   final VoidCallback? onSpin;
   final int ticketCount;
 
   const SeasonMeetingRouletteScreen({
     super.key,
+    this.args,
     this.onBack,
     this.onSpin,
     this.ticketCount = 5,
@@ -43,39 +31,198 @@ class SeasonMeetingRouletteScreen extends StatefulWidget {
 
 class _SeasonMeetingRouletteScreenState
     extends State<SeasonMeetingRouletteScreen> {
-  final List<String> _userImages = const [
-    'https://lh3.googleusercontent.com/aida-public/AB6AXuBB6gR7HwWsX820iMKBagWyZdo6br52VDqEa0Wvv94n7MomuY8tkKpEdLBplHZawCLddd32ng-rzbCIJ754_xKDg0m4fX5k8UL-jW_80g-RuS4Wx3gPBal3rhJQC-WdMqyVeMUmfA_pFbImDrvK9xjzt69Csft3CGBaohikkG7HIf0o2At2REBn0PZNcRt54N69eQqJWi6aZU88t8EyDx-5xssGJsW4wH0OE3_HHlYyOszNnLbCn0tNJGgQG88znoQ_IOWUpGbeU97w',
-    'https://lh3.googleusercontent.com/aida-public/AB6AXuBAGGszvoYIhORd33FJ05aTBC53DEisuY0kJiQiQnoBYfWs6OyX18OvUC3vzLUaOMP40jnOF3LEJCPErp8xxpcuWUxSxE5q_5FTW5V4w2kdho9RNbLDA4zYdO1wrKpzOsa5HkbQB_tH0mpWdhlS9plTGUXFuoHRFniRDXUk-phLB58XjmffthqlWVbEJfICCSXkYcDxxbu7QZqqJuJgqk8dnhFSwjxkDAtK3yCssGwF95EldLSIvXkomEj74KJVGG6K1ryVhl82k0cA',
-    'https://lh3.googleusercontent.com/aida-public/AB6AXuDOsB-jftWq1FVAsGDIsjHXP10d9sm4rNZTLFJeMPRlqginqDtiAQKWWBa_JV43t3sI4ljWgZ7wJQJBbAOC_ykcqJqyIewkvr_BVg8Plrg8Y0Gvd9JBTi2fpsMfLzMLNpRjRWCG2JQF6LITla3NhZHNqoGYjKKzc2EQ60mZzxazLohSR_oz9EOBv6bcYYTBYh-xb3S3bkAKoj4dt4FG_vS_U7bDC_1oS8pXbpKXLca-413_bwWiU3bJWw7tCHgiWqMf0wPMCV9qsYY0',
-  ];
+  final _reel1 = SlotReelController();
+  final _reel2 = SlotReelController();
+  final _reel3 = SlotReelController();
+  final EventMatchService _eventMatchService = EventMatchService();
+
+  List<EventTeamMatchTeamSnapshot> _candidateTeams =
+      const <EventTeamMatchTeamSnapshot>[];
+  bool _resolvingSpin = false;
+  bool _spinning = false;
+  String? _statusMessage;
+  String? _errorMessage;
+
+  List<Widget> _buildReelItems(int memberIndex) {
+    if (_candidateTeams.isEmpty) {
+      return List<Widget>.generate(
+        4,
+        (_) => const _PlaceholderSlotProfileCard(),
+      );
+    }
+    return _candidateTeams
+        .map(
+          (team) => _SlotProfileCard(
+            member: team.members.length > memberIndex
+                ? team.members[memberIndex]
+                : const EventTeamMatchMemberSnapshot(
+                    uid: '',
+                    displayName: '프로필 준비 중',
+                  ),
+          ),
+        )
+        .toList();
+  }
+
+  Future<void> _spin() async {
+    if (_resolvingSpin || _spinning) return;
+
+    setState(() {
+      _resolvingSpin = true;
+      _errorMessage = null;
+      _statusMessage = '추천 팀을 찾고 있어요...';
+    });
+    widget.onSpin?.call();
+
+    try {
+      final response = await _eventMatchService.spinSeasonMeetingRoulette(
+        teamSetupId: widget.args?.teamSetupId ?? '',
+      );
+      if (!mounted) return;
+
+      if (response.reusedExisting) {
+        setState(() {
+          _resolvingSpin = false;
+          _statusMessage = '이미 확정된 결과를 열고 있어요.';
+        });
+        _navigateToResult(response);
+        return;
+      }
+
+      if (response.result.candidateTeams.isEmpty) {
+        throw StateError('추천 후보 팀이 비어 있어요.');
+      }
+
+      setState(() {
+        _candidateTeams = response.result.candidateTeams;
+        _resolvingSpin = false;
+        _spinning = true;
+        _statusMessage = '추천 결과에 맞춰 릴을 돌리고 있어요...';
+      });
+
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      final targetIndex = response.selectedTeamIndex;
+
+      await Future.wait([
+        _reel1.spinTo(
+          targetIndex,
+          duration: const Duration(milliseconds: 1400),
+          extraTurns: 4,
+        ),
+        () async {
+          await Future<void>.delayed(const Duration(milliseconds: 120));
+          await _reel2.spinTo(
+            targetIndex,
+            duration: const Duration(milliseconds: 1700),
+            extraTurns: 5,
+          );
+        }(),
+        () async {
+          await Future<void>.delayed(const Duration(milliseconds: 240));
+          await _reel3.spinTo(
+            targetIndex,
+            duration: const Duration(milliseconds: 2000),
+            extraTurns: 6,
+          );
+        }(),
+      ]);
+
+      if (!mounted) return;
+      setState(() {
+        _spinning = false;
+        _statusMessage = null;
+      });
+      _navigateToResult(response);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _resolvingSpin = false;
+        _spinning = false;
+        _statusMessage = null;
+        _errorMessage = _readErrorMessage(error);
+      });
+    }
+  }
+
+  void _navigateToResult(EventTeamMatchSpinResponse response) {
+    Navigator.of(context).pushNamed(
+      RouteNames.matchResult,
+      arguments: EventMatchResultArgs(
+        resultId: response.result.resultId,
+        initialResult: response.result,
+        viewerGroupId: response.viewerGroupId,
+      ),
+    );
+  }
+
+  String _readErrorMessage(Object error) {
+    final message = error.toString();
+    if (message.contains('추천 결과가 아직 준비되지 않았어요')) {
+      return '추천 결과를 준비 중이에요. 잠시 후 다시 시도해 주세요.';
+    }
+    if (message.contains('팀이 3명으로 완성되면')) {
+      return '팀이 3명으로 완성되면 룰렛을 시작할 수 있어요.';
+    }
+    if (message.contains('추천 가능한 상대 팀이 없어요')) {
+      return '오늘은 아직 연결 가능한 팀이 보이지 않아요.';
+    }
+    return '지금은 룰렛을 시작할 수 없어요. 잠시 후 다시 시도해 주세요.';
+  }
 
   @override
   Widget build(BuildContext context) {
+    final reel1Items = _buildReelItems(0);
+    final reel2Items = _buildReelItems(1);
+    final reel3Items = _buildReelItems(2);
+    final isBusy = _resolvingSpin || _spinning;
+
     return CupertinoPageScaffold(
-      backgroundColor: _AppColors.lavenderLight,
+      backgroundColor: const Color(0xFFE9E4F0),
       child: Stack(
         children: [
-          // 배경 그라데이션
-          _BackgroundGlow(),
-          // 메인 콘텐츠
+          const _BackgroundGlow(),
           SafeArea(
             child: Column(
               children: [
-                // 헤더
-                _Header(onBack: widget.onBack, ticketCount: widget.ticketCount),
-                // 타이틀
+                _Header(
+                  onBack: widget.onBack ?? () => Navigator.of(context).pop(),
+                  ticketCount: widget.ticketCount,
+                ),
                 const _TitleSection(),
-                // 슬롯 머신
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: _SlotMachine(userImages: _userImages),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+                  child: _StatusBanner(
+                    message: _statusMessage,
+                    errorMessage: _errorMessage,
+                    hasResolvedTeams: _candidateTeams.isNotEmpty,
                   ),
                 ),
-                // 스핀 버튼
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 380),
+                        child: EventSlotMachine(
+                          reel1: _reel1,
+                          reel2: _reel2,
+                          reel3: _reel3,
+                          reel1Items: reel1Items,
+                          reel2Items: reel2Items,
+                          reel3Items: reel3Items,
+                          onLeverPull: _spin,
+                          spinning: isBusy,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-                  child: _SpinButton(onPressed: widget.onSpin),
+                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 36),
+                  child: _SpinButton(
+                    onPressed: _spin,
+                    spinning: isBusy,
+                  ),
                 ),
               ],
             ),
@@ -86,60 +233,43 @@ class _SeasonMeetingRouletteScreenState
   }
 }
 
-// =============================================================================
-// 배경 글로우
-// =============================================================================
 class _BackgroundGlow extends StatelessWidget {
+  const _BackgroundGlow();
+
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // 메인 배경
         Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [Color(0xFFD1C4E9), Color(0xFFEDE7F6)],
+              colors: [Color(0xFFD5C8EC), Color(0xFFF1E6F4)],
             ),
           ),
         ),
-        // 오른쪽 상단 글로우
         Positioned(
-          top: -250,
-          right: -100,
+          top: -200,
+          right: -80,
           child: Container(
-            width: 500,
-            height: 500,
+            width: 420,
+            height: 420,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFFE1BEE7).withValues(alpha: 0.4),
+              color: const Color(0xFFE1BEE7).withValues(alpha: 0.35),
             ),
           ),
         ),
-        // 왼쪽 하단 글로우
         Positioned(
-          bottom: -150,
-          left: -100,
+          bottom: -120,
+          left: -80,
           child: Container(
-            width: 400,
-            height: 400,
+            width: 360,
+            height: 360,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFFFCE4EC).withValues(alpha: 0.4),
-            ),
-          ),
-        ),
-        // 중앙 글로우
-        Positioned(
-          top: MediaQuery.of(context).size.height * 0.4,
-          left: MediaQuery.of(context).size.width * 0.3,
-          child: Container(
-            width: 300,
-            height: 300,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: CupertinoColors.white.withValues(alpha: 0.2),
+              color: const Color(0xFFFCE4EC).withValues(alpha: 0.3),
             ),
           ),
         ),
@@ -148,28 +278,24 @@ class _BackgroundGlow extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// 헤더
-// =============================================================================
 class _Header extends StatelessWidget {
-  final VoidCallback? onBack;
+  final VoidCallback onBack;
   final int ticketCount;
 
-  const _Header({this.onBack, required this.ticketCount});
+  const _Header({required this.onBack, required this.ticketCount});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // 뒤로가기
           CupertinoButton(
             padding: EdgeInsets.zero,
             onPressed: () {
               HapticFeedback.lightImpact();
-              onBack?.call();
+              onBack();
             },
             child: ClipRRect(
               borderRadius: BorderRadius.circular(20),
@@ -179,10 +305,10 @@ class _Header extends StatelessWidget {
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    color: CupertinoColors.white.withValues(alpha: 0.6),
+                    color: const Color(0xFFFFFFFF).withValues(alpha: 0.6),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: CupertinoColors.white.withValues(alpha: 0.4),
+                      color: const Color(0xFFFFFFFF).withValues(alpha: 0.4),
                     ),
                   ),
                   child: const Icon(
@@ -194,7 +320,6 @@ class _Header extends StatelessWidget {
               ),
             ),
           ),
-          // 타이틀
           const Text(
             '3:3 시즌 미팅',
             style: TextStyle(
@@ -204,7 +329,6 @@ class _Header extends StatelessWidget {
               color: Color(0xFF1E293B),
             ),
           ),
-          // 티켓 카운터
           ClipRRect(
             borderRadius: BorderRadius.circular(16),
             child: BackdropFilter(
@@ -215,18 +339,25 @@ class _Header extends StatelessWidget {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: CupertinoColors.white.withValues(alpha: 0.6),
+                  color: const Color(0xFFFFFFFF).withValues(alpha: 0.6),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: CupertinoColors.white.withValues(alpha: 0.4),
+                    color: const Color(0xFFFFFFFF).withValues(alpha: 0.4),
                   ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF000000).withValues(alpha: 0.05),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
                 child: Row(
                   children: [
                     const Icon(
-                      CupertinoIcons.ticket,
+                      CupertinoIcons.ticket_fill,
                       size: 18,
-                      color: _AppColors.purpleSoft,
+                      color: Color(0xFFCE93D8),
                     ),
                     const SizedBox(width: 6),
                     Text(
@@ -249,42 +380,40 @@ class _Header extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// 타이틀 섹션
-// =============================================================================
 class _TitleSection extends StatelessWidget {
   const _TitleSection();
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Column(
         children: [
           Text(
-            '3:3 시즌 미팅',
+            '추천 팀으로 만나는\n시즌 미팅 룰렛',
+            textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: 'Pretendard',
               fontSize: 30,
-              fontWeight: FontWeight.w700,
-              color: CupertinoColors.white,
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFFFFFFFF),
               shadows: [
                 Shadow(
-                  color: CupertinoColors.black.withValues(alpha: 0.15),
+                  color: const Color(0xFF000000).withValues(alpha: 0.12),
                   offset: const Offset(0, 2),
-                  blurRadius: 4,
+                  blurRadius: 6,
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
-            '한 번뿐인 랜덤 매칭',
+            '추천 시스템이 고른 상대 팀으로 릴이 함께 멈춰요.',
             style: TextStyle(
               fontFamily: 'Pretendard',
               fontSize: 14,
               fontWeight: FontWeight.w500,
-              color: CupertinoColors.white.withValues(alpha: 0.8),
+              color: const Color(0xFFFFFFFF).withValues(alpha: 0.82),
             ),
           ),
         ],
@@ -293,372 +422,61 @@ class _TitleSection extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// 슬롯 머신
-// =============================================================================
-class _SlotMachine extends StatelessWidget {
-  final List<String> userImages;
+class _StatusBanner extends StatelessWidget {
+  final String? message;
+  final String? errorMessage;
+  final bool hasResolvedTeams;
 
-  const _SlotMachine({required this.userImages});
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        // 글래스 패널
-        ClipRRect(
-          borderRadius: BorderRadius.circular(40),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-            child: Container(
-              decoration: BoxDecoration(
-                color: CupertinoColors.white.withValues(alpha: 0.45),
-                borderRadius: BorderRadius.circular(40),
-                border: Border.all(
-                  color: CupertinoColors.white.withValues(alpha: 0.7),
-                  width: 2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF64508C).withValues(alpha: 0.1),
-                    blurRadius: 40,
-                    offset: const Offset(0, 20),
-                  ),
-                ],
-              ),
-              padding: const EdgeInsets.all(16),
-              child: _SlotFrame(userImages: userImages),
-            ),
-          ),
-        ),
-        // 레버
-        Positioned(
-          right: -8,
-          top: 0,
-          bottom: 0,
-          child: Center(child: _Lever()),
-        ),
-      ],
-    );
-  }
-}
-
-// =============================================================================
-// 슬롯 프레임
-// =============================================================================
-class _SlotFrame extends StatelessWidget {
-  final List<String> userImages;
-
-  const _SlotFrame({required this.userImages});
+  const _StatusBanner({
+    required this.message,
+    required this.errorMessage,
+    required this.hasResolvedTeams,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final bannerMessage = errorMessage ??
+        message ??
+        (hasResolvedTeams
+            ? '추천된 팀 프로필로 릴이 정렬되어 있어요.'
+            : '룰렛을 돌리면 추천 후보 팀의 실제 프로필이 릴에 올라와요.');
+    final isError = errorMessage != null;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFFF3E5F5), Color(0xFFFFFFFF), Color(0xFFE1BEE7)],
-        ),
-        borderRadius: BorderRadius.circular(32),
-        boxShadow: [
-          BoxShadow(
-            color: CupertinoColors.white.withValues(alpha: 0.8),
-            offset: const Offset(0, 2),
-            blurRadius: 4,
-          ),
-          BoxShadow(
-            color: CupertinoColors.black.withValues(alpha: 0.05),
-            offset: const Offset(0, 10),
-            blurRadius: 20,
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(12),
-      child: Stack(
-        children: [
-          // 슬롯 릴
-          Container(
-            height: 260,
-            decoration: BoxDecoration(
-              color: CupertinoColors.white.withValues(alpha: 0.8),
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF644078).withValues(alpha: 0.15),
-                  offset: const Offset(0, 4),
-                  blurRadius: 8,
-                ),
-              ],
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Row(
-              children: List.generate(3, (colIndex) {
-                return Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: colIndex < 2
-                          ? Border(
-                              right: BorderSide(
-                                color: const Color(
-                                  0xFFE2E8F0,
-                                ).withValues(alpha: 0.5),
-                                width: 1,
-                              ),
-                            )
-                          : null,
-                    ),
-                    child: Column(
-                      children: [
-                        // 상단 이미지 (블러)
-                        Expanded(
-                          child: _SlotImage(
-                            imageUrl: userImages[colIndex % userImages.length],
-                            isBlurred: true,
-                          ),
-                        ),
-                        // 하단 이미지 (선명)
-                        Expanded(
-                          child: _SlotImage(
-                            imageUrl:
-                                userImages[(colIndex + 1) % userImages.length],
-                            isBlurred: false,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }),
-            ),
-          ),
-          // 중앙 구분선
-          Positioned(
-            left: 0,
-            right: 0,
-            top: 130,
-            child: Container(
-              height: 1,
-              decoration: BoxDecoration(
-                color: CupertinoColors.white.withValues(alpha: 0.4),
-                boxShadow: [
-                  BoxShadow(
-                    color: CupertinoColors.black.withValues(alpha: 0.05),
-                    offset: const Offset(0, 1),
-                    blurRadius: 2,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          // 상단 그라데이션 마스크
-          Positioned(
-            left: 0,
-            right: 0,
-            top: 0,
-            height: 30,
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(24),
-                ),
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    CupertinoColors.white,
-                    CupertinoColors.white.withValues(alpha: 0),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          // 하단 그라데이션 마스크
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: 30,
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: const BorderRadius.vertical(
-                  bottom: Radius.circular(24),
-                ),
-                gradient: LinearGradient(
-                  begin: Alignment.bottomCenter,
-                  end: Alignment.topCenter,
-                  colors: [
-                    CupertinoColors.white,
-                    CupertinoColors.white.withValues(alpha: 0),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// 슬롯 이미지
-// =============================================================================
-class _SlotImage extends StatelessWidget {
-  final String imageUrl;
-  final bool isBlurred;
-
-  const _SlotImage({required this.imageUrl, required this.isBlurred});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      color: const Color(0xFFF1F5F9).withValues(alpha: 0.5),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: ImageFiltered(
-          imageFilter: isBlurred
-              ? ImageFilter.blur(sigmaX: 1, sigmaY: 1)
-              : ImageFilter.blur(sigmaX: 0, sigmaY: 0),
-          child: Opacity(
-            opacity: isBlurred ? 0.8 : 1.0,
-            child: Image.network(
-              imageUrl,
-              fit: BoxFit.cover,
-              width: double.infinity,
-              height: double.infinity,
-              errorBuilder: (_, __, ___) =>
-                  Container(color: _AppColors.lavenderLight),
-            ),
-          ),
+        color: (isError
+                ? const Color(0xFFF7D7E0)
+                : const Color(0xFFFFFFFF))
+            .withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: (isError
+                  ? const Color(0xFFE87A97)
+                  : const Color(0xFFE6DCEF))
+              .withValues(alpha: 0.9),
         ),
       ),
-    );
-  }
-}
-
-// =============================================================================
-// 레버
-// =============================================================================
-class _Lever extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 40,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          // 루비 볼
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: const RadialGradient(
-                center: Alignment(-0.3, -0.3),
-                colors: [
-                  Color(0xFFFFF5F5),
-                  Color(0xFFFF1744),
-                  Color(0xFFB71C1C),
-                  Color(0xFF500000),
-                ],
-                stops: [0.0, 0.3, 0.7, 1.0],
-              ),
-              border: Border.all(
-                color: CupertinoColors.white.withValues(alpha: 0.3),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: CupertinoColors.black.withValues(alpha: 0.6),
-                  offset: const Offset(-2, -2),
-                  blurRadius: 6,
-                ),
-                BoxShadow(
-                  color: CupertinoColors.white.withValues(alpha: 0.8),
-                  offset: const Offset(2, 2),
-                  blurRadius: 8,
-                ),
-                BoxShadow(
-                  color: const Color(0xFFB71C1C).withValues(alpha: 0.6),
-                  blurRadius: 15,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Stack(
-              children: [
-                // 하이라이트
-                Positioned(
-                  top: 4,
-                  left: 4,
-                  child: Container(
-                    width: 12,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: CupertinoColors.white,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+          Icon(
+            isError ? CupertinoIcons.exclamationmark_circle : CupertinoIcons.sparkles,
+            size: 18,
+            color: isError ? const Color(0xFFD94C72) : const Color(0xFF8D66B8),
           ),
-          // 크롬 샤프트
-          Container(
-            width: 8,
-            height: 64,
-            margin: const EdgeInsets.only(top: -6),
-            decoration: BoxDecoration(
-              borderRadius: const BorderRadius.vertical(
-                bottom: Radius.circular(4),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              bannerMessage,
+              style: TextStyle(
+                fontFamily: 'Pretendard',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color:
+                    isError ? const Color(0xFF8E304C) : const Color(0xFF5A4A71),
               ),
-              gradient: const LinearGradient(
-                colors: [
-                  Color(0xFF3F3F46),
-                  Color(0xFFE4E4E7),
-                  Color(0xFFA1A1AA),
-                  Color(0xFFFFFFFF),
-                  Color(0xFFA1A1AA),
-                  Color(0xFFE4E4E7),
-                  Color(0xFF3F3F46),
-                ],
-                stops: [0.0, 0.15, 0.35, 0.5, 0.65, 0.85, 1.0],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: CupertinoColors.black.withValues(alpha: 0.2),
-                  blurRadius: 4,
-                ),
-              ],
-            ),
-          ),
-          // 베이스
-          Container(
-            width: 20,
-            height: 48,
-            decoration: BoxDecoration(
-              borderRadius: const BorderRadius.horizontal(
-                right: Radius.circular(8),
-              ),
-              gradient: const LinearGradient(
-                colors: [
-                  Color(0xFF9CA3AF),
-                  Color(0xFFF1F5F9),
-                  Color(0xFF6B7280),
-                ],
-              ),
-              border: Border.all(
-                color: CupertinoColors.white.withValues(alpha: 0.5),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: CupertinoColors.black.withValues(alpha: 0.1),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
             ),
           ),
         ],
@@ -667,60 +485,255 @@ class _Lever extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// 스핀 버튼
-// =============================================================================
 class _SpinButton extends StatelessWidget {
-  final VoidCallback? onPressed;
+  final VoidCallback onPressed;
+  final bool spinning;
 
-  const _SpinButton({this.onPressed});
+  const _SpinButton({
+    required this.onPressed,
+    required this.spinning,
+  });
 
   @override
   Widget build(BuildContext context) {
     return CupertinoButton(
       padding: EdgeInsets.zero,
-      onPressed: () {
-        HapticFeedback.heavyImpact();
-        onPressed?.call();
-      },
-      child: Container(
-        width: double.infinity,
-        height: 56,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFFAB47BC), Color(0xFFCE93D8)],
-          ),
-          borderRadius: BorderRadius.circular(28),
-          border: Border.all(
-            color: CupertinoColors.white.withValues(alpha: 0.2),
-          ),
-          boxShadow: [
-            const BoxShadow(color: Color(0xFF9575CD), offset: Offset(0, 8)),
-            BoxShadow(
-              color: CupertinoColors.black.withValues(alpha: 0.15),
-              offset: const Offset(0, 15),
-              blurRadius: 20,
+      onPressed: spinning
+          ? null
+          : () {
+              HapticFeedback.heavyImpact();
+              onPressed();
+            },
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 200),
+        opacity: spinning ? 0.6 : 1.0,
+        child: Stack(
+          children: [
+            Container(
+              width: double.infinity,
+              height: 60,
+              margin: const EdgeInsets.only(top: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF8E44AD),
+                borderRadius: BorderRadius.circular(30),
+              ),
+            ),
+            Container(
+              width: double.infinity,
+              height: 60,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    Color(0xFFB44AC0),
+                    Color(0xFFD084D8),
+                    Color(0xFFE89AD0),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(
+                  color: const Color(0xFFFFFFFF).withValues(alpha: 0.25),
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF9B59B6).withValues(alpha: 0.3),
+                    blurRadius: 16,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  spinning ? '추천 팀을 맞추는 중...' : '추천 룰렛 돌리기',
+                  style: TextStyle(
+                    fontFamily: 'Pretendard',
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.2,
+                    color: CupertinoColors.white,
+                    shadows: [
+                      Shadow(
+                        color: const Color(0xFF000000).withValues(alpha: 0.2),
+                        offset: const Offset(0, 1),
+                        blurRadius: 2,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ],
         ),
-        child: Center(
-          child: Text(
-            '이상형 룰렛 돌리기',
-            style: TextStyle(
-              fontFamily: 'Pretendard',
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.5,
-              color: CupertinoColors.white,
-              shadows: [
-                Shadow(
-                  color: CupertinoColors.black.withValues(alpha: 0.2),
-                  offset: const Offset(0, 1),
-                  blurRadius: 2,
-                ),
-              ],
-            ),
+      ),
+    );
+  }
+}
+
+class _SlotProfileCard extends StatelessWidget {
+  final EventTeamMatchMemberSnapshot member;
+
+  const _SlotProfileCard({required this.member});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(8),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFFFDFBFF),
+              Color(0xFFF3EDF8),
+            ],
           ),
+          border: Border.all(
+            color: const Color(0xFFE1D4EE),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF8A70AF).withValues(alpha: 0.08),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: AspectRatio(
+                  aspectRatio: 1,
+                  child: _ProfileImage(photoUrl: member.photoUrl),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Flexible(
+                    child: Text(
+                      member.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'Pretendard',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF34284A),
+                      ),
+                    ),
+                  ),
+                  if (member.isVerified) ...[
+                    const SizedBox(width: 4),
+                    const Icon(
+                      CupertinoIcons.check_mark_circled_solid,
+                      size: 14,
+                      color: Color(0xFF7C5BA0),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                member.universityName?.trim().isNotEmpty == true
+                    ? member.universityName!
+                    : '학교 인증 프로필',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF8B7BA4),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlaceholderSlotProfileCard extends StatelessWidget {
+  const _PlaceholderSlotProfileCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.all(8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.all(Radius.circular(18)),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFFFDFBFF),
+              Color(0xFFF3EDF8),
+            ],
+          ),
+        ),
+        child: Center(
+          child: Icon(
+            CupertinoIcons.person_2_fill,
+            size: 34,
+            color: Color(0xFFC4B4D8),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileImage extends StatelessWidget {
+  final String? photoUrl;
+
+  const _ProfileImage({required this.photoUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    if (photoUrl == null || photoUrl!.isEmpty) {
+      return const _ProfileImageFallback();
+    }
+
+    return Image.network(
+      photoUrl!,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => const _ProfileImageFallback(),
+    );
+  }
+}
+
+class _ProfileImageFallback extends StatelessWidget {
+  const _ProfileImageFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFFF1E8F8),
+            Color(0xFFE1D4EE),
+          ],
+        ),
+      ),
+      child: const Center(
+        child: Icon(
+          CupertinoIcons.person_fill,
+          size: 34,
+          color: Color(0xFFA38ABC),
         ),
       ),
     );

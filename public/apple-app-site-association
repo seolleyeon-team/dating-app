@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "29ZU3S9H2G.com.yonsei.dating",
+        "paths": [
+          "/invite/friend",
+          "/invite/friend/*"
+        ]
+      }
+    ]
+  }
+}

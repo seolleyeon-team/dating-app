@@ -99,6 +99,7 @@ class RouteNames {
 
   // Event
   static const String teamSetup = '/event/team-setup';
+  static const String eventAddFriend = '/event/add-friend';
   static const String eventTeamFriendPicker = '/event/team-friend-picker';
   static const String eventTeamInviteResponse = '/event/team-invite-response';
   static const String seasonMeetingRoulette = '/event/season-meeting-roulette';
@@ -108,6 +109,8 @@ class RouteNames {
       '/event/random-matching-wait'; // 신청 내역 (typo 유지)
   static const String randomMeeting = '/event/random-meeting';
   static const String threeVsThreeMatch = '/event/three-vs-three-match';
+  static const String teamRequests = '/event/team-requests';
+  static const String teamRequestDeclined = '/event/team-request-declined';
   static const String groupMatch = '/event/3v3';
   static const String groupLobby = '/event/3v3/lobby';
   static const String slotMachine = '/event/slot-machine';

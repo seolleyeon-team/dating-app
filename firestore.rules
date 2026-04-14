@@ -506,6 +506,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /eventTeamMatches/{resultId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /eventTeamMatchLocks/{lockId} {
+      allow read, write: if false;
+    }
+
     // -----------------------------------------------------------------------
     // Default deny
     // -----------------------------------------------------------------------
