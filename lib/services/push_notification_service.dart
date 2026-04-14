@@ -274,6 +274,28 @@ class PushNotificationService {
       return;
     }
 
+    if (type == 'event_team_request_accepted') {
+      final matchId = data['matchId'] ?? '';
+      if (matchId.isNotEmpty) {
+        nav.pushNamed(
+          RouteNames.threeVsThreeMatch,
+          arguments: ThreeVsThreeMatchArgs(matchId: matchId),
+        );
+        return;
+      }
+    }
+
+    if (type == 'event_team_request_declined') {
+      final requestId = data['requestId'] ?? '';
+      if (requestId.isNotEmpty) {
+        nav.pushNamed(
+          RouteNames.teamRequestDeclined,
+          arguments: TeamRequestDeclinedArgs(requestId: requestId),
+        );
+        return;
+      }
+    }
+
     nav.pushNamed(RouteNames.notifications);
   }
 }

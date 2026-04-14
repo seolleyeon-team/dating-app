@@ -88,6 +88,7 @@ import '../features/notifications/screens/notification_list_screen.dart';
 
 // Event
 import '../features/event/screens/event_screen.dart';
+import '../features/event/screens/add_friend.dart';
 import '../features/event/screens/team_setup_screen.dart';
 import '../features/event/screens/team_friend_picker_screen.dart';
 import '../features/event/screens/event_team_invite_response_screen.dart';
@@ -98,6 +99,8 @@ import '../features/event/screens/random_matching_screen1.dart';
 import '../features/event/screens/random_mathcing_screen.dart';
 import '../features/event/screens/random_meeting_screen.dart';
 import '../features/event/screens/three_vs_three_match_screen.dart';
+import '../features/event/screens/team_requests_screen.dart';
+import '../features/event/screens/team_request_declined_screen.dart';
 
 // Meeting
 import '../features/meeting/screens/meeting_application_screen.dart';
@@ -331,6 +334,8 @@ class AppRouter {
         return _cupertino(const EventScreen());
       case RouteNames.teamSetup:
         return _cupertino(const TeamSetupScreen());
+      case RouteNames.eventAddFriend:
+        return _cupertino(const AddFriendScreen());
       case RouteNames.eventTeamFriendPicker:
         final args = settings.arguments as TeamFriendPickerArgs?;
         if (args == null) {
@@ -348,9 +353,11 @@ class AppRouter {
         }
         return _cupertino(EventTeamInviteResponseScreen(args: args));
       case RouteNames.seasonMeetingRoulette:
-        return _cupertino(const SeasonMeetingRouletteScreen());
+        final args = settings.arguments as SeasonMeetingRouletteArgs?;
+        return _cupertino(SeasonMeetingRouletteScreen(args: args));
       case RouteNames.matchResult:
-        return _cupertino(const MatchResultScreen());
+        final args = settings.arguments as EventMatchResultArgs?;
+        return _cupertino(MatchResultScreen(args: args));
       case RouteNames.randomMatching:
         return _cupertino(const RandomMatchingScreen());
       case RouteNames.randomMathcingWait:
@@ -360,7 +367,13 @@ class AppRouter {
       case RouteNames.randomMeeting:
         return _cupertino(const RandomMeetingScreen());
       case RouteNames.threeVsThreeMatch:
-        return _cupertino(const ThreeVsThreeMatchScreen());
+        final args = settings.arguments as ThreeVsThreeMatchArgs?;
+        return _cupertino(ThreeVsThreeMatchScreen(args: args));
+      case RouteNames.teamRequests:
+        return _cupertino(const TeamRequestsScreen());
+      case RouteNames.teamRequestDeclined:
+        final args = settings.arguments as TeamRequestDeclinedArgs?;
+        return _cupertino(TeamRequestDeclinedScreen(args: args));
 
       // Meeting
       case RouteNames.meetingApplication:

@@ -1,6 +1,13 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show debugPrint, debugPrintStack, kIsWeb;
+import 'package:flutter/foundation.dart'
+    show
+        TargetPlatform,
+        debugPrint,
+        debugPrintStack,
+        defaultTargetPlatform,
+        kIsWeb;
+import 'package:flutter/services.dart';
 import 'package:kakao_flutter_sdk_share/kakao_flutter_sdk_share.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -16,6 +23,35 @@ enum FriendInviteAcceptStatus {
   pendingLogin,
   pendingVerification,
   error,
+}
+
+enum FriendInviteShareSurface {
+  kakaoTalkApp,
+  webSharePage,
+  desktopSharePage,
+}
+
+class FriendInviteShareResult {
+  final FriendInviteShareSurface surface;
+  final bool inviteLinkCopied;
+
+  const FriendInviteShareResult({
+    required this.surface,
+    this.inviteLinkCopied = false,
+  });
+
+  String get successMessage {
+    switch (surface) {
+      case FriendInviteShareSurface.kakaoTalkApp:
+        return '\uCE74\uCE74\uC624\uD1A1 \uACF5\uC720 \uD654\uBA74\uC744 \uC5F4\uC5C8\uC5B4\uC694.';
+      case FriendInviteShareSurface.webSharePage:
+        return '\uCE74\uCE74\uC624 \uACF5\uC720 \uD398\uC774\uC9C0\uB97C \uC5F4\uC5C8\uC5B4\uC694.';
+      case FriendInviteShareSurface.desktopSharePage:
+        return inviteLinkCopied
+            ? '\uB370\uC2A4\uD06C\uD1B1\uC5D0\uC11C \uCE74\uCE74\uC624 \uACF5\uC720 \uD398\uC774\uC9C0\uB97C \uC5F4\uACE0 \uCD08\uB300 \uB9C1\uD06C\uB97C \uBCF5\uC0AC\uD588\uC5B4\uC694.'
+            : '\uB370\uC2A4\uD06C\uD1B1\uC5D0\uC11C \uCE74\uCE74\uC624 \uACF5\uC720 \uD398\uC774\uC9C0\uB97C \uC5F4\uC5C8\uC5B4\uC694.';
+    }
+  }
 }
 
 class FriendInviteSharePayload {
@@ -77,25 +113,25 @@ class FriendInviteAcceptResult {
       case FriendInviteAcceptStatus.accepted:
         final name = otherUserName?.trim();
         return (name != null && name.isNotEmpty)
-            ? '$name님과 친구가 되었어요.'
-            : '친구가 추가되었어요.';
+            ? '$name\uACFC \uCE5C\uAD6C\uAC00 \uB418\uC5C8\uC5B4\uC694.'
+            : '\uCE5C\uAD6C\uAC00 \uCD94\uAC00\uB418\uC5C8\uC5B4\uC694.';
       case FriendInviteAcceptStatus.alreadyFriends:
         final name = otherUserName?.trim();
         return (name != null && name.isNotEmpty)
-            ? '$name님은 이미 친구예요.'
-            : '이미 친구로 연결되어 있어요.';
+            ? '$name\uB2D8\uACFC \uC774\uBBF8 \uCE5C\uAD6C\uC608\uC694.'
+            : '\uC774\uBBF8 \uCE5C\uAD6C\uB85C \uC5F0\uACB0\uB418\uC5B4 \uC788\uC5B4\uC694.';
       case FriendInviteAcceptStatus.expired:
-        return '친구 초대 링크가 만료되었어요.';
+        return '\uCE5C\uAD6C \uCD08\uB300 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB418\uC5C8\uC5B4\uC694.';
       case FriendInviteAcceptStatus.invalid:
-        return '유효하지 않은 친구 초대 링크예요.';
+        return '\uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 \uCE5C\uAD6C \uCD08\uB300 \uB9C1\uD06C\uC608\uC694.';
       case FriendInviteAcceptStatus.selfInvite:
-        return '내가 만든 초대 링크로는 친구를 추가할 수 없어요.';
+        return '\uB0B4\uAC00 \uB9CC\uB4E0 \uCD08\uB300 \uB9C1\uD06C\uB85C\uB294 \uCE5C\uAD6C\uB97C \uCD94\uAC00\uD560 \uC218 \uC5C6\uC5B4\uC694.';
       case FriendInviteAcceptStatus.pendingLogin:
-        return '로그인 후 자동으로 친구 추가를 이어서 진행할게요.';
+        return '\uB85C\uADF8\uC778\uD558\uBA74 \uC790\uB3D9\uC73C\uB85C \uCE5C\uAD6C \uCD94\uAC00\uB97C \uC774\uC5B4\uC11C \uC9C4\uD589\uD560\uAC8C\uC694.';
       case FriendInviteAcceptStatus.pendingVerification:
-        return '학교 이메일 인증이 끝나면 자동으로 친구 추가를 이어서 진행할게요.';
+        return '\uD559\uAD50 \uC774\uBA54\uC77C \uC778\uC99D\uC744 \uB9C8\uCE58\uBA74 \uC790\uB3D9\uC73C\uB85C \uCE5C\uAD6C \uCD94\uAC00\uB97C \uC774\uC5B4\uC11C \uC9C4\uD589\uD560\uAC8C\uC694.';
       case FriendInviteAcceptStatus.error:
-        return '친구 초대를 처리하지 못했어요. 잠시 후 다시 시도해주세요.';
+        return '\uCE5C\uAD6C \uCD08\uB300\uB97C \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.';
     }
   }
 }
@@ -120,19 +156,23 @@ class FriendInviteService {
   final StorageService _storageService;
   final AuthService _authService;
 
+  bool get _isDesktopPlatform =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.linux);
+
   Future<FriendInviteSharePayload> createFriendInvite() async {
     try {
       debugPrint('[FriendInvite] createFriendInvite start');
       final kakaoUserId = await _storageService.getKakaoUserId();
       if (kakaoUserId == null || kakaoUserId.isEmpty) {
-        throw Exception('로그인이 필요해요.');
+        throw Exception('\uB85C\uADF8\uC778\uC774 \uD544\uC694\uD574\uC694.');
       }
 
-      var hasFirebaseSession = FirebaseAuth.instance.currentUser != null;
-      if (!hasFirebaseSession) {
-        hasFirebaseSession =
-            await _authService.ensureFirebaseSessionForVerifiedUser(kakaoUserId);
-      }
+      final hasFirebaseSession =
+          await _authService.ensureFirebaseSessionForVerifiedUser(kakaoUserId);
+
       final kakaoAccessToken = FirebaseAuth.instance.currentUser == null
           ? await _authService.getKakaoAccessTokenForFunctions()
           : null;
@@ -141,26 +181,26 @@ class FriendInviteService {
       if (kakaoAccessToken != null && kakaoAccessToken.isNotEmpty) {
         callData['kakaoAccessToken'] = kakaoAccessToken;
       }
+
       debugPrint(
         '[FriendInvite] createFriendInvite auth firebaseAttached=$hasFirebaseSession firebaseUid=${FirebaseAuth.instance.currentUser?.uid} hasKakaoAccessToken=${kakaoAccessToken != null && kakaoAccessToken.isNotEmpty}',
       );
-      if (FirebaseAuth.instance.currentUser == null) {
-        if (kakaoAccessToken == null || kakaoAccessToken.isEmpty) {
-          if (kIsWeb) {
-            throw Exception(
-              '카카오 로그인이 만료됐어요. 브라우저에서 다시 로그인한 뒤, '
-              '연세 메일 인증까지 완료한 다음 친구 초대를 시도해 주세요.',
-            );
-          }
+
+      if (FirebaseAuth.instance.currentUser == null &&
+          (kakaoAccessToken == null || kakaoAccessToken.isEmpty)) {
+        if (kIsWeb) {
           throw Exception(
-            '로그인이 필요해요. 카카오 로그인 후 연세 이메일 인증을 완료해주세요.',
+            '\uCE74\uCE74\uC624 \uB85C\uADF8\uC778\uC774 \uB9CC\uB8CC\uB418\uC5C8\uC5B4\uC694. \uBE0C\uB77C\uC6B0\uC800\uC5D0\uC11C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC5F0\uC138 \uBA54\uC77C \uC778\uC99D\uAE4C\uC9C0 \uC644\uB8CC\uD55C \uB2E4\uC74C \uCE5C\uAD6C \uCD08\uB300\uB97C \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.',
           );
         }
+
+        throw Exception(
+          '\uB85C\uADF8\uC778\uC774 \uD544\uC694\uD574\uC694. \uCE74\uCE74\uC624 \uB85C\uADF8\uC778 \uD6C4 \uC5F0\uC138 \uC774\uBA54\uC77C \uC778\uC99D\uC744 \uC644\uB8CC\uD574\uC8FC\uC138\uC694.',
+        );
       }
 
       final callable = _functions.httpsCallable('createFriendInvite');
       final result = await callable.call(callData);
-
       final data = Map<String, dynamic>.from(
         (result.data as Map?)?.cast<String, dynamic>() ?? const {},
       );
@@ -169,7 +209,9 @@ class FriendInviteService {
       if (payload.inviteId.isEmpty ||
           payload.inviteToken.isEmpty ||
           payload.inviteUrl.isEmpty) {
-        throw Exception('친구 초대 응답이 올바르지 않아요.');
+        throw Exception(
+          '\uCE5C\uAD6C \uCD08\uB300 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544\uC694.',
+        );
       }
 
       debugPrint(
@@ -185,37 +227,35 @@ class FriendInviteService {
     } catch (e, st) {
       debugPrint('[FriendInvite] createFriendInvite error: $e');
       debugPrintStack(stackTrace: st);
-      throw Exception('친구 초대 링크를 만들지 못했어요: $e');
+      throw Exception(
+        '\uCE5C\uAD6C \uCD08\uB300 \uB9C1\uD06C\uB97C \uB9CC\uB4E4\uC9C0 \uBABB\uD588\uC5B4\uC694: $e',
+      );
     }
   }
 
-  Future<void> shareInviteViaKakao({
+  Future<FriendInviteShareResult> shareInviteViaKakao({
     required FriendInviteSharePayload payload,
     required String inviterName,
   }) async {
     final inviteUri = Uri.parse(payload.inviteUrl);
-    // Android: 버튼 탭 시 웹 URL + 앱 실행 파라미터(카카오링크) 병행 — 스킴 오타 시 웹도 안 열리는 사례 있음
-    final executionParams = <String, String>{
-      'target': inviteTarget,
-      'token': payload.inviteToken,
-    };
-    debugPrint('[FriendInvite] executionParams=$executionParams');
+    debugPrint('[FriendInvite] share target url=$inviteUri');
+
     final link = Link(
       webUrl: inviteUri,
       mobileWebUrl: inviteUri,
-      androidExecutionParams: executionParams,
-      iosExecutionParams: executionParams,
     );
+
     final template = TextTemplate(
-      text: '설레연에서 친구 추가하기\n${_shareDisplayName(inviterName)}님이 친구로 초대했어요',
+      text:
+          '\uC124\uB808\uC5F0\uC5D0\uC11C \uCE5C\uAD6C \uCD94\uAC00\uD558\uAE30\n${_shareDisplayName(inviterName)}\uB2D8\uC774 \uCE5C\uAD6C\uB85C \uCD08\uB300\uD588\uC5B4\uC694.',
       link: link,
       buttons: [
         Button(
-          title: '친구 추가하기',
+          title: '\uCE5C\uAD6C \uCD94\uAC00\uD558\uAE30',
           link: link,
         ),
       ],
-      buttonTitle: '친구 추가하기',
+      buttonTitle: '\uCE5C\uAD6C \uCD94\uAC00\uD558\uAE30',
     );
 
     try {
@@ -229,16 +269,42 @@ class FriendInviteService {
         );
         debugPrint('[FriendInvite] web sharer uri=$sharerUri');
 
-        // Web popup blockers can block async new-window opens.
-        // Navigating the current tab is the most reliable fallback here.
         final launched = await launchUrl(
           sharerUri,
           webOnlyWindowName: '_self',
         );
         if (!launched) {
-          throw Exception('카카오 공유 페이지를 열지 못했어요.');
+          throw Exception(
+            '\uCE74\uCE74\uC624 \uACF5\uC720 \uD398\uC774\uC9C0\uB97C \uC5F4\uC9C0 \uBABB\uD588\uC5B4\uC694.',
+          );
         }
-        return;
+
+        return const FriendInviteShareResult(
+          surface: FriendInviteShareSurface.webSharePage,
+        );
+      }
+
+      if (_isDesktopPlatform) {
+        final sharerUri = await WebSharerClient.instance.makeDefaultUrl(
+          template: template,
+        );
+        debugPrint('[FriendInvite] desktop sharer uri=$sharerUri');
+
+        await Clipboard.setData(ClipboardData(text: payload.inviteUrl));
+        final launched = await launchUrl(
+          sharerUri,
+          mode: LaunchMode.externalApplication,
+        );
+        if (!launched) {
+          throw Exception(
+            '\uB370\uC2A4\uD06C\uD1B1\uC5D0\uC11C \uCE74\uCE74\uC624 \uACF5\uC720 \uD398\uC774\uC9C0\uB97C \uC5F4\uC9C0 \uBABB\uD588\uC5B4\uC694.',
+          );
+        }
+
+        return const FriendInviteShareResult(
+          surface: FriendInviteShareSurface.desktopSharePage,
+          inviteLinkCopied: true,
+        );
       }
 
       final canShareToTalk =
@@ -251,40 +317,52 @@ class FriendInviteService {
         );
         debugPrint('[FriendInvite] launchKakaoTalk uri=$sharingUri');
         await ShareClient.instance.launchKakaoTalk(sharingUri);
-        return;
+
+        return const FriendInviteShareResult(
+          surface: FriendInviteShareSurface.kakaoTalkApp,
+        );
       }
 
       final sharerUri = await WebSharerClient.instance.makeDefaultUrl(
         template: template,
       );
       debugPrint('[FriendInvite] native fallback sharer uri=$sharerUri');
+
       final launched = await launchUrl(
         sharerUri,
         mode: LaunchMode.externalApplication,
       );
       if (!launched) {
-        throw Exception('카카오 공유 페이지를 열지 못했어요.');
+        throw Exception(
+          '\uCE74\uCE74\uC624 \uACF5\uC720 \uD398\uC774\uC9C0\uB97C \uC5F4\uC9C0 \uBABB\uD588\uC5B4\uC694.',
+        );
       }
+
+      return const FriendInviteShareResult(
+        surface: FriendInviteShareSurface.webSharePage,
+      );
     } catch (e, st) {
       debugPrint('[FriendInvite] shareInviteViaKakao error: $e');
       debugPrintStack(stackTrace: st);
-      throw Exception('카카오톡 공유를 실행하지 못했어요: $e');
+      throw Exception(
+        '\uCE74\uCE74\uC624\uD1A1 \uACF5\uC720\uB97C \uC2E4\uD589\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694: $e',
+      );
     }
   }
 
   bool isFriendInviteUri(Uri uri) {
     final token = extractInviteToken(uri);
-    if (token == null || token.isEmpty) return false;
+    if (token == null || token.isEmpty) {
+      return false;
+    }
 
     final normalizedPath = uri.path.toLowerCase();
     final normalizedHost = uri.host.toLowerCase();
+
     if (uri.queryParameters['target'] == inviteTarget) {
       return true;
     }
 
-    // 카카오톡 공유 버튼 → 앱 실행 시 흔한 형태:
-    // kakao{NATIVE_APP_KEY}://kakaolink?target=friend_invite&token=...
-    // 일부 기기/버전에서는 target만 빠지거나 순서가 달라질 수 있어 host로 판별한다.
     if (normalizedHost == 'kakaolink' &&
         uri.scheme.toLowerCase().startsWith('kakao')) {
       return true;
@@ -300,7 +378,9 @@ class FriendInviteService {
     final isWebLink =
         (uri.scheme == 'https' || uri.scheme == 'http') &&
         normalizedHost == inviteWebHost;
-    if (!isWebLink) return false;
+    if (!isWebLink) {
+      return false;
+    }
 
     return normalizedPath == inviteWebPath ||
         normalizedPath.startsWith('$inviteWebPath/');
@@ -308,15 +388,20 @@ class FriendInviteService {
 
   String? extractInviteToken(Uri uri) {
     var token = uri.queryParameters['token']?.trim();
-    if (token != null && token.isNotEmpty) return token;
+    if (token != null && token.isNotEmpty) {
+      return token;
+    }
 
-    final frag = uri.fragment.trim();
-    if (frag.isNotEmpty) {
+    final fragment = uri.fragment.trim();
+    if (fragment.isNotEmpty) {
       try {
-        token = Uri.splitQueryString(frag)['token']?.trim();
-        if (token != null && token.isNotEmpty) return token;
+        token = Uri.splitQueryString(fragment)['token']?.trim();
+        if (token != null && token.isNotEmpty) {
+          return token;
+        }
       } catch (_) {}
     }
+
     return null;
   }
 
@@ -337,6 +422,7 @@ class FriendInviteService {
     debugPrint(
       '[FriendInvite] processPendingInviteIfPossible tokenExists=${token != null && token.trim().isNotEmpty}',
     );
+
     if (token == null || token.trim().isEmpty) {
       return null;
     }
@@ -345,53 +431,57 @@ class FriendInviteService {
     debugPrint(
       '[FriendInvite] processPendingInviteIfPossible kakaoUserId=$kakaoUserId',
     );
+
     if (kakaoUserId == null || kakaoUserId.isEmpty) {
       return const FriendInviteAcceptResult(
         status: FriendInviteAcceptStatus.pendingLogin,
       );
     }
 
-    // 카카오 커스텀 토큰 세션(UID=카카오ID)을 우선 시도. 실패해도 연세 이메일 링크만으로
-    // 로그인된 경우 서버(resolveAuthedAppUser)가 studentEmail로 사용자를 찾을 수 있음.
     await _authService.ensureFirebaseSessionForVerifiedUser(kakaoUserId);
 
     final result = await acceptFriendInvite(token);
     debugPrint(
       '[FriendInvite] processPendingInviteIfPossible result=${result.status}',
     );
+
     if (result.isTerminal) {
       await clearPendingInviteToken();
     }
+
     return result;
   }
 
   Future<FriendInviteAcceptResult> acceptFriendInvite(String rawToken) async {
     try {
       debugPrint('[FriendInvite] acceptFriendInvite start');
-      if (FirebaseAuth.instance.currentUser == null) {
-        final kakaoUserId = await _storageService.getKakaoUserId();
-        if (kakaoUserId != null && kakaoUserId.isNotEmpty) {
-          await _authService.ensureFirebaseSessionForVerifiedUser(kakaoUserId);
-        }
+
+      final kakaoUserId = await _storageService.getKakaoUserId();
+      if (kakaoUserId != null && kakaoUserId.isNotEmpty) {
+        await _authService.ensureFirebaseSessionForVerifiedUser(kakaoUserId);
       }
+
       final kakaoAccessToken = FirebaseAuth.instance.currentUser == null
           ? await _authService.getKakaoAccessTokenForFunctions()
           : null;
+
       final Map<String, dynamic> callData = {'token': rawToken};
       if (kakaoAccessToken != null && kakaoAccessToken.isNotEmpty) {
         callData['kakaoAccessToken'] = kakaoAccessToken;
       }
+
       debugPrint(
         '[FriendInvite] acceptFriendInvite auth firebaseUid=${FirebaseAuth.instance.currentUser?.uid} hasKakaoAccessToken=${kakaoAccessToken != null && kakaoAccessToken.isNotEmpty}',
       );
-      if (FirebaseAuth.instance.currentUser == null) {
-        if (kakaoAccessToken == null || kakaoAccessToken.isEmpty) {
-          return const FriendInviteAcceptResult(
-            status: FriendInviteAcceptStatus.pendingVerification,
-            message: '카카오 로그인이 필요해요.',
-          );
-        }
+
+      if (FirebaseAuth.instance.currentUser == null &&
+          (kakaoAccessToken == null || kakaoAccessToken.isEmpty)) {
+        return const FriendInviteAcceptResult(
+          status: FriendInviteAcceptStatus.pendingVerification,
+          message: '\uCE74\uCE74\uC624 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD574\uC694.',
+        );
       }
+
       final callable = _functions.httpsCallable('acceptFriendInvite');
       final result = await callable.call(callData);
       final data = Map<String, dynamic>.from(
@@ -404,6 +494,7 @@ class FriendInviteService {
         '[FriendInvite] acceptFriendInvite functions error code=${e.code} message=${e.message}',
       );
       debugPrintStack(stackTrace: st);
+
       if (e.code == 'unauthenticated') {
         return const FriendInviteAcceptResult(
           status: FriendInviteAcceptStatus.pendingVerification,
@@ -419,7 +510,8 @@ class FriendInviteService {
       debugPrintStack(stackTrace: st);
       return FriendInviteAcceptResult(
         status: FriendInviteAcceptStatus.error,
-        message: '친구 초대를 처리하지 못했어요: $e',
+        message:
+            '\uCE5C\uAD6C \uCD08\uB300\uB97C \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694: $e',
       );
     }
   }
@@ -454,20 +546,20 @@ class FriendInviteService {
 
     switch (error.code) {
       case 'unauthenticated':
-        return '학교 이메일 인증이 완료된 계정으로 다시 로그인해주세요.';
+        return '\uD559\uAD50 \uC774\uBA54\uC77C \uC778\uC99D\uC744 \uC644\uB8CC\uD55C \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694.';
       case 'failed-precondition':
-        return '친구 초대를 사용하려면 학교 이메일 인증이 완료되어 있어야 해요.';
+        return '\uCE5C\uAD6C \uCD08\uB300\uB97C \uC0AC\uC6A9\uD558\uB824\uBA74 \uD559\uAD50 \uC774\uBA54\uC77C \uC778\uC99D\uC774 \uC644\uB8CC\uB418\uC5B4 \uC788\uC5B4\uC57C \uD574\uC694.';
       case 'permission-denied':
-        return '친구 초대를 처리할 권한이 없어요.';
+        return '\uCE5C\uAD6C \uCD08\uB300\uB97C \uCC98\uB9AC\uD560 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.';
       case 'unavailable':
-        return '서버에 연결하지 못했어요. 잠시 후 다시 시도해주세요.';
+        return '\uC11C\uBC84\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.';
       default:
-        return '친구 초대 처리 중 오류가 발생했어요.';
+        return '\uCE5C\uAD6C \uCD08\uB300 \uCC98\uB9AC \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC5B4\uC694.';
     }
   }
 
   String _shareDisplayName(String inviterName) {
     final trimmed = inviterName.trim();
-    return trimmed.isEmpty ? '설레연 친구' : trimmed;
+    return trimmed.isEmpty ? '\uC124\uB808\uC5F0 \uCE5C\uAD6C' : trimmed;
   }
 }

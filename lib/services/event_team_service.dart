@@ -41,12 +41,27 @@ class EventTeamSetupState {
   /// 본인 포함 확정 멤버 수
   int get acceptedCount => acceptedUserIds.length;
 
-  /// 슬롯머신: 확정 3명(본인 포함)이고 대기 초대(pending) 없을 때만 활성
-  bool get canStartSlotMachine =>
-      acceptedUserIds.length == 3 && pendingInviteeIds.isEmpty;
+  /// 슬롯머신은 실제로 수락이 완료된 3명일 때만 활성
+  bool get canStartSlotMachine => acceptedUserIds.length == 3;
 
-  int get remainingSlots =>
-      3 - acceptedUserIds.length - pendingInviteeIds.length;
+  int get remainingSlots => remainingMemberSlots;
+
+  int get remainingMemberSlots {
+    final remaining = 3 - acceptedUserIds.length;
+    return remaining > 0 ? remaining : 0;
+  }
+
+  int get remainingInviteSlots {
+    final remaining = 3 - acceptedUserIds.length - pendingInviteeIds.length;
+    return remaining > 0 ? remaining : 0;
+  }
+
+  bool containsUser(String userId) {
+    if (userId.isEmpty) return false;
+    return leaderUserId == userId ||
+        acceptedUserIds.contains(userId) ||
+        pendingInviteeIds.contains(userId);
+  }
 }
 
 /// Firestore `eventTeamInvites/{id}` (앱에서 읽기 전용)
@@ -56,6 +71,7 @@ class EventTeamInviteDoc {
   final String inviterUserId;
   final String inviteeUserId;
   final String status;
+  final DateTime? createdAt;
 
   const EventTeamInviteDoc({
     required this.inviteId,
@@ -63,20 +79,44 @@ class EventTeamInviteDoc {
     required this.inviterUserId,
     required this.inviteeUserId,
     required this.status,
+    this.createdAt,
   });
 
   factory EventTeamInviteDoc.fromSnap(
     DocumentSnapshot<Map<String, dynamic>> snap,
   ) {
     final d = snap.data() ?? {};
+    final ts = d['createdAt'];
+    DateTime? created;
+    if (ts is Timestamp) created = ts.toDate();
     return EventTeamInviteDoc(
       inviteId: snap.id,
       teamSetupId: d['teamSetupId']?.toString() ?? '',
       inviterUserId: d['inviterUserId']?.toString() ?? '',
       inviteeUserId: d['inviteeUserId']?.toString() ?? '',
       status: d['status']?.toString() ?? '',
+      createdAt: created,
     );
   }
+}
+
+/// 초대 상세 응답 시트에서 보여줄 초대자 프로필
+class InviterProfile {
+  final String userId;
+  final String name;
+  final String? imageUrl;
+  final String? university;
+  final String? mbti;
+  final bool isStudentVerified;
+
+  const InviterProfile({
+    required this.userId,
+    required this.name,
+    this.imageUrl,
+    this.university,
+    this.mbti,
+    this.isStudentVerified = false,
+  });
 }
 
 class EventTeamMemberProfile {
@@ -231,7 +271,90 @@ class EventTeamService {
     return EventTeamInviteDoc.fromSnap(s);
   }
 
-  /// 팀 멤버 카드용 프로필 (확정 + pending 표시)
+  /// 현재 유저가 받은 pending 초대 목록 실시간 스트림
+  Stream<List<EventTeamInviteDoc>> watchPendingInvitesForUser(
+    String userId,
+  ) {
+    return _firestore
+        .collection('eventTeamInvites')
+        .where('inviteeUserId', isEqualTo: userId)
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .map((qs) {
+      final invites =
+          qs.docs.map((d) => EventTeamInviteDoc.fromSnap(d)).toList();
+      invites.sort((a, b) {
+        final createdCompare = (b.createdAt?.millisecondsSinceEpoch ?? 0)
+            .compareTo(a.createdAt?.millisecondsSinceEpoch ?? 0);
+        if (createdCompare != 0) {
+          return createdCompare;
+        }
+        return b.inviteId.compareTo(a.inviteId);
+      });
+      return invites;
+    });
+  }
+
+  /// 초대자 프로필 상세 조회 (응답 시트용)
+  Future<InviterProfile> getInviterProfile(String inviterUserId) async {
+    if (inviterUserId.isEmpty) {
+      return const InviterProfile(userId: '', name: '친구');
+    }
+    final user = await _userService.getUserProfile(inviterUserId);
+    if (user == null) {
+      return InviterProfile(userId: inviterUserId, name: '친구');
+    }
+    final raw = user['onboarding'];
+    final ob =
+        raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+    final name = _extractName(ob, user, inviterUserId);
+    final photos = ob['photoUrls'];
+    String? imageUrl;
+    if (photos is List && photos.isNotEmpty) {
+      imageUrl = photos.first.toString();
+    }
+    imageUrl = imageUrl ?? user['profileImageUrl']?.toString();
+    if (imageUrl != null && imageUrl.isEmpty) imageUrl = null;
+    final university = (ob['university']?.toString().trim().isNotEmpty == true)
+        ? ob['university'].toString()
+        : _inferUniversityFromEmail(user['studentEmail']?.toString());
+    final mbti = ob['mbti']?.toString().trim().isNotEmpty == true
+        ? ob['mbti'].toString()
+        : null;
+    final verified =
+        user['isStudentVerified'] == true ||
+        user['isStudentVerified'] == 'true';
+    return InviterProfile(
+      userId: inviterUserId,
+      name: name,
+      imageUrl: imageUrl,
+      university: university,
+      mbti: mbti,
+      isStudentVerified: verified,
+    );
+  }
+
+  String _extractName(
+    Map<String, dynamic> ob,
+    Map<String, dynamic> user,
+    String fallback,
+  ) {
+    if (ob['nickname']?.toString().trim().isNotEmpty == true) {
+      return ob['nickname'].toString();
+    }
+    if (user['nickname']?.toString().trim().isNotEmpty == true) {
+      return user['nickname'].toString();
+    }
+    return fallback;
+  }
+
+  String _inferUniversityFromEmail(String? email) {
+    final e = email?.trim().toLowerCase() ?? '';
+    if (e.endsWith('@yonsei.ac.kr')) return '연세대학교';
+    return '';
+  }
+
+  /// 팀 멤버 카드용 프로필 (수락 완료 멤버만)
   Future<List<EventTeamMemberProfile>> buildMemberProfiles({
     required EventTeamSetupState state,
     required String currentUserId,
@@ -251,6 +374,20 @@ class EventTeamService {
       );
     }
 
+    out.sort((a, b) {
+      if (a.userId == currentUserId) return -1;
+      if (b.userId == currentUserId) return 1;
+      return 0;
+    });
+
+    return out;
+  }
+
+  Future<List<EventTeamMemberProfile>> buildPendingInviteProfiles({
+    required EventTeamSetupState state,
+  }) async {
+    final List<EventTeamMemberProfile> out = [];
+
     for (final uid in state.pendingInviteeIds) {
       if (state.acceptedUserIds.contains(uid)) continue;
       final p = await _profileForUser(uid);
@@ -264,13 +401,6 @@ class EventTeamService {
         ),
       );
     }
-
-    out.sort((a, b) {
-      if (a.userId == currentUserId) return -1;
-      if (b.userId == currentUserId) return 1;
-      if (a.isPending != b.isPending) return a.isPending ? 1 : -1;
-      return 0;
-    });
 
     return out;
   }

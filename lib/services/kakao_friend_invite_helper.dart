@@ -9,12 +9,12 @@ class KakaoFriendInviteHelper {
   static final FriendInviteService _service = FriendInviteService();
 
   /// 친구 초대 링크를 만들고 카카오로 공유한다. (FriendInviteService 경로 단일화)
-  static Future<void> createAndShareKakaoInvite({
+  static Future<FriendInviteShareResult> createAndShareKakaoInvite({
     required String inviterDisplayName,
   }) async {
     debugPrint('[KakaoFriendInvite] createAndShareKakaoInvite');
     final payload = await _service.createFriendInvite();
-    await _service.shareInviteViaKakao(
+    return await _service.shareInviteViaKakao(
       payload: payload,
       inviterName: inviterDisplayName,
     );

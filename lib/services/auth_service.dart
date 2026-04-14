@@ -18,6 +18,49 @@ class AuthService {
   final FirebaseFunctions _functions =
       FirebaseFunctions.instanceFor(region: 'asia-northeast3');
 
+  Future<bool> _hasMatchingFirebaseSession(String kakaoUserId) async {
+    final currentUser = _firebaseAuth.currentUser;
+    if (currentUser == null) {
+      return false;
+    }
+
+    try {
+      final tokenResult = await currentUser.getIdTokenResult(true);
+      final claimedKakaoUserId =
+          tokenResult.claims?['kakaoUserId']?.toString().trim() ?? '';
+      final matches =
+          currentUser.uid == kakaoUserId || claimedKakaoUserId == kakaoUserId;
+      if (!matches) {
+        debugPrint(
+          '[Auth] Firebase session mismatch: '
+          'uid=${currentUser.uid} '
+          'claimKakaoUserId=$claimedKakaoUserId '
+          'expected=$kakaoUserId',
+        );
+      }
+      return matches;
+    } catch (e, st) {
+      debugPrint('[Auth] Firebase session inspection failed: $e');
+      debugPrint(st.toString());
+      return false;
+    }
+  }
+
+  Future<void> _signOutFirebaseIfMismatched(String kakaoUserId) async {
+    final currentUser = _firebaseAuth.currentUser;
+    if (currentUser == null) {
+      return;
+    }
+
+    final matches = await _hasMatchingFirebaseSession(kakaoUserId);
+    if (matches) {
+      return;
+    }
+
+    await _firebaseAuth.signOut();
+    debugPrint('[Auth] Signed out mismatched Firebase session');
+  }
+
   /// ✅ 카카오 로그인
   /// - Web: 카카오 계정 로그인
   /// - Mobile(iOS/Android): 카카오톡 앱 우선 -> 실패/미설치 시 계정 로그인 fallback
@@ -281,14 +324,13 @@ class AuthService {
 
   Future<bool> ensureFirebaseSessionForKakao(String kakaoUserId) async {
     try {
-      final currentUser = _firebaseAuth.currentUser;
-      if (currentUser?.uid == kakaoUserId) {
-        await currentUser?.getIdToken(true);
+      if (await _hasMatchingFirebaseSession(kakaoUserId)) {
         debugPrint('[Auth] Firebase session already attached to $kakaoUserId');
         return true;
       }
 
-      await UserApi.instance.accessTokenInfo();
+      await _signOutFirebaseIfMismatched(kakaoUserId);
+
       final kakaoToken = await TokenManagerProvider.instance.manager.getToken();
       final accessToken = kakaoToken?.accessToken.trim() ?? '';
 
@@ -296,6 +338,8 @@ class AuthService {
         debugPrint('[Auth] No Kakao access token available for Firebase auth bridge');
         return false;
       }
+
+      await UserApi.instance.accessTokenInfo();
 
       final callable = _functions.httpsCallable('createFirebaseCustomToken');
       final result = await callable.call(<String, dynamic>{
@@ -330,18 +374,18 @@ class AuthService {
 
   Future<bool> ensureFirebaseSessionForVerifiedUser(String kakaoUserId) async {
     try {
-      final currentUser = _firebaseAuth.currentUser;
-      if (currentUser != null) {
-        await currentUser.getIdToken(true);
+      if (await _hasMatchingFirebaseSession(kakaoUserId)) {
         debugPrint(
           '[Auth] Existing Firebase session is available for verified user '
-          '(uid=${currentUser.uid})',
+          '(kakaoUserId=$kakaoUserId)',
         );
         return true;
       }
     } catch (e) {
       debugPrint('[Auth] Existing Firebase session refresh failed: $e');
     }
+
+    await _signOutFirebaseIfMismatched(kakaoUserId);
 
     final verificationToken = await _storageService.getStudentVerificationToken(
       kakaoUserId,
@@ -393,6 +437,22 @@ class AuthService {
     }
 
     return await ensureFirebaseSessionForKakao(kakaoUserId);
+  }
+
+  Future<void> signOutAll() async {
+    try {
+      await _firebaseAuth.signOut();
+    } catch (e, st) {
+      debugPrint('[Auth] Firebase signOut failed: $e');
+      debugPrint(st.toString());
+    }
+
+    try {
+      await UserApi.instance.logout();
+    } catch (e, st) {
+      debugPrint('[Auth] Kakao logout failed: $e');
+      debugPrint(st.toString());
+    }
   }
 
   /// Firebase Auth 세션이 없을 때 Cloud Functions에서 카카오로 본인 확인할 때 사용

@@ -461,8 +461,10 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
 
     try {
+      await _authService.signOutAll();
       await _storageService.clearUserId();
       await _storageService.clearKakaoUserId();
+      await _friendInviteService.clearPendingInviteToken();
       if (_kakaoUserId != null) {
         await _storageService.clearStudentVerification(_kakaoUserId!);
       }
