@@ -15,6 +15,7 @@ import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../services/push_notification_service.dart';
 import '../../../router/route_names.dart';
+import '../../../shared/widgets/capture_protected_image.dart';
 import '../../matching/models/profile_card_args.dart';
 
 class _AppColors {
@@ -1413,14 +1414,13 @@ class _ReceivedMessage extends StatelessWidget {
                     color: _AppColors.stone200,
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: Image.network(
-                    avatarUrl,
+                  child: CaptureProtectedImage(
+                    imageUrl: avatarUrl,
+                    shape: CaptureProtectedImageShape.circle,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const Icon(
-                      CupertinoIcons.person_fill,
-                      size: 20,
-                      color: _AppColors.stone400,
-                    ),
+                    backgroundColor: _AppColors.stone200,
+                    placeholderIconColor: _AppColors.stone400,
+                    placeholderIconSize: 20,
                   ),
                 ),
               ),

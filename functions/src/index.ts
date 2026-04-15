@@ -28,7 +28,6 @@ import * as logger from "firebase-functions/logger";
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFunctions } from "firebase-admin/functions";
-import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import {
   getFirestore,
   FieldValue,

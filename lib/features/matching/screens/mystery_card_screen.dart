@@ -7,6 +7,7 @@
 // 2차 탭: ai_match_card_screen으로 이동
 // =============================================================================
 
+import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
@@ -19,7 +20,8 @@ import '../../../services/ask_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/ai_recommendation_service.dart';
-import '../../../shared/widgets/profile_photo_blur.dart';
+import '../../../shared/constants/photo_blur_constants.dart';
+import '../../../shared/widgets/capture_protected_image.dart';
 import '../models/profile_card_args.dart';
 
 // =============================================================================
@@ -185,12 +187,13 @@ class _BackgroundGradients extends StatelessWidget {
             width: 400,
             height: 400,
             decoration: BoxDecoration(
-              color: const Color(0xFFFBCFE8).withValues(alpha: 0.3),
               shape: BoxShape.circle,
-            ),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 100, sigmaY: 100),
-              child: const SizedBox(),
+              gradient: RadialGradient(
+                colors: [
+                  const Color(0xFFFBCFE8).withValues(alpha: 0.32),
+                  const Color(0xFFFBCFE8).withValues(alpha: 0.0),
+                ],
+              ),
             ),
           ),
         ),
@@ -201,12 +204,13 @@ class _BackgroundGradients extends StatelessWidget {
             width: 500,
             height: 500,
             decoration: BoxDecoration(
-              color: const Color(0xFFE9D5FF).withValues(alpha: 0.3),
               shape: BoxShape.circle,
-            ),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 100, sigmaY: 100),
-              child: const SizedBox(),
+              gradient: RadialGradient(
+                colors: [
+                  const Color(0xFFE9D5FF).withValues(alpha: 0.32),
+                  const Color(0xFFE9D5FF).withValues(alpha: 0.0),
+                ],
+              ),
             ),
           ),
         ),
@@ -373,7 +377,11 @@ class _MainContentState extends State<_MainContent> {
   int _currentIndex = 0;
   List<AiRecommendedProfile> _profiles = [];
   bool _isLoading = true;
+  bool _isPageInteracting = false;
+  bool _isCardFlipLocked = false;
+  bool _isForceSnapping = false;
   String? _kakaoUserId;
+  Timer? _pageSettleTimer;
   final _storageService = StorageService();
   final _askService = AskService();
 
@@ -446,8 +454,76 @@ class _MainContentState extends State<_MainContent> {
 
   @override
   void dispose() {
+    _pageSettleTimer?.cancel();
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _setPageInteracting(bool value) {
+    if (!mounted || _isPageInteracting == value) return;
+    setState(() => _isPageInteracting = value);
+  }
+
+  void _setCardFlipLocked(bool value) {
+    if (!mounted || _isCardFlipLocked == value) return;
+    setState(() => _isCardFlipLocked = value);
+  }
+
+  void _markPageMoving() {
+    _pageSettleTimer?.cancel();
+    _setPageInteracting(true);
+  }
+
+  Future<void> _forceSnapToNearestPage() async {
+    if (!mounted || !_pageController.hasClients || _isForceSnapping) return;
+    if (_profiles.isEmpty || _isCardFlipLocked) return;
+
+    final page = _pageController.page;
+    if (page == null || !page.isFinite) return;
+
+    final targetPage = page.round().clamp(0, _profiles.length - 1);
+    if ((page - targetPage).abs() < 0.001) return;
+
+    _isForceSnapping = true;
+    try {
+      await _pageController.animateToPage(
+        targetPage,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    } finally {
+      _isForceSnapping = false;
+    }
+  }
+
+  void _handleScrollSettled() {
+    _pageSettleTimer?.cancel();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _forceSnapToNearestPage();
+      if (!mounted) return;
+      _scheduleSnapVerification();
+    });
+  }
+
+  bool _isPageAligned() {
+    if (!_pageController.hasClients) return true;
+    final page = _pageController.page;
+    if (page == null || !page.isFinite) return true;
+    return (page - page.round()).abs() < 0.01;
+  }
+
+  void _scheduleSnapVerification([int retriesLeft = 2]) {
+    _pageSettleTimer?.cancel();
+    _pageSettleTimer = Timer(const Duration(milliseconds: 120), () async {
+      if (!mounted) return;
+      if (!_isPageAligned() && retriesLeft > 0) {
+        await _forceSnapToNearestPage();
+        if (!mounted) return;
+        _scheduleSnapVerification(retriesLeft - 1);
+        return;
+      }
+      _setPageInteracting(false);
+    });
   }
 
   @override
@@ -619,22 +695,32 @@ class _MainContentState extends State<_MainContent> {
                       ),
                     ),
                   )
-                : PageView.builder(
-                    controller: _pageController,
-                    itemCount: _profiles.length,
-                    physics: const BouncingScrollPhysics(),
-                    onPageChanged: (idx) {
-                      setState(() => _currentIndex = idx);
-                      _recordImpression(idx);
+                : NotificationListener<ScrollNotification>(
+                    onNotification: (notification) {
+                      if (notification is ScrollStartNotification) {
+                        _markPageMoving();
+                      } else if (notification is ScrollUpdateNotification) {
+                        _markPageMoving();
+                      } else if (notification is ScrollEndNotification) {
+                        _handleScrollSettled();
+                      }
+                      return false;
                     },
-                    itemBuilder: (context, index) {
-                      final isActive = index == _currentIndex;
-                      return AnimatedScale(
-                        scale: isActive ? 1.0 : 0.95,
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeOutCubic,
-                        child: AnimatedOpacity(
-                          opacity: isActive ? 1.0 : 0.55,
+                    child: PageView.builder(
+                      controller: _pageController,
+                      pageSnapping: true,
+                      physics: _isCardFlipLocked
+                          ? const NeverScrollableScrollPhysics()
+                          : const PageScrollPhysics(),
+                      itemCount: _profiles.length,
+                      onPageChanged: (idx) {
+                        setState(() => _currentIndex = idx);
+                        _recordImpression(idx);
+                      },
+                      itemBuilder: (context, index) {
+                        final isActive = index == _currentIndex;
+                        return AnimatedScale(
+                          scale: isActive ? 1.0 : 0.95,
                           duration: const Duration(milliseconds: 300),
                           curve: Curves.easeOutCubic,
                           child: Center(
@@ -642,12 +728,14 @@ class _MainContentState extends State<_MainContent> {
                               key: ValueKey(_profiles[index].candidateUid),
                               profile: _profiles[index],
                               isActive: isActive,
+                              allowSecureCapture: true,
+                              onFlipLockChanged: _setCardFlipLocked,
                               kakaoUserId: _kakaoUserId,
                             ),
                           ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
           ),
           const SizedBox(height: 24),
@@ -681,12 +769,16 @@ class _MainContentState extends State<_MainContent> {
 class _MysteryCard extends StatefulWidget {
   final AiRecommendedProfile profile;
   final bool isActive;
+  final bool allowSecureCapture;
+  final ValueChanged<bool>? onFlipLockChanged;
   final String? kakaoUserId;
 
   const _MysteryCard({
     super.key,
     required this.profile,
     required this.isActive,
+    required this.allowSecureCapture,
+    this.onFlipLockChanged,
     this.kakaoUserId,
   });
 
@@ -735,6 +827,7 @@ class _MysteryCardState extends State<_MysteryCard>
       });
     } else {
       HapticFeedback.mediumImpact();
+      widget.onFlipLockChanged?.call(true);
       final uid = widget.kakaoUserId;
       if (uid != null) {
         final Map<String, dynamic> contextMetadata = {
@@ -768,7 +861,11 @@ class _MysteryCardState extends State<_MysteryCard>
             );
       }
       _controller.forward().then((_) {
-        if (mounted) setState(() => _isRevealed = true);
+        if (mounted) {
+          setState(() => _isRevealed = true);
+        }
+      }).whenComplete(() {
+        widget.onFlipLockChanged?.call(false);
       });
     }
   }
@@ -779,26 +876,30 @@ class _MysteryCardState extends State<_MysteryCard>
     final screenWidth = MediaQuery.of(context).size.width;
     final cardWidth = screenWidth * 0.75;
     final cardHeight = cardWidth * 1.33;
+    final staticBackFace = _isRevealed && !_controller.isAnimating;
 
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: _onCardTap,
-      child: AnimatedBuilder(
-        animation: _animation,
-        builder: (context, child) {
-          final angle = _animation.value * pi;
-          final isBackVisible = _animation.value >= 0.5;
+      child: staticBackFace
+          ? _buildBackFace(cardWidth, cardHeight, applyMirrorTransform: false)
+          : AnimatedBuilder(
+              animation: _animation,
+              builder: (context, child) {
+                final angle = _animation.value * pi;
+                final isBackVisible = _animation.value >= 0.5;
 
-          return Transform(
-            alignment: Alignment.center,
-            transform: Matrix4.identity()
-              ..setEntry(3, 2, 0.001)
-              ..rotateY(angle),
-            child: isBackVisible
-                ? _buildBackFace(cardWidth, cardHeight)
-                : _buildFrontFace(cardWidth, cardHeight),
-          );
-        },
-      ),
+                return Transform(
+                  alignment: Alignment.center,
+                  transform: Matrix4.identity()
+                    ..setEntry(3, 2, 0.001)
+                    ..rotateY(angle),
+                  child: isBackVisible
+                      ? _buildBackFace(cardWidth, cardHeight)
+                      : _buildFrontFace(cardWidth, cardHeight),
+                );
+              },
+            ),
     );
   }
 
@@ -832,14 +933,24 @@ class _MysteryCardState extends State<_MysteryCard>
             width: 160,
             height: 160,
             decoration: BoxDecoration(
-              color: _AppColors.primary.withValues(
-                alpha: widget.isActive ? 0.1 : 0.05,
-              ),
               shape: BoxShape.circle,
-            ),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-              child: const SizedBox(),
+              gradient: RadialGradient(
+                colors: [
+                  _AppColors.primary.withValues(
+                    alpha: widget.isActive ? 0.16 : 0.08,
+                  ),
+                  _AppColors.primary.withValues(alpha: 0),
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: _AppColors.primary.withValues(
+                    alpha: widget.isActive ? 0.16 : 0.08,
+                  ),
+                  blurRadius: widget.isActive ? 36 : 22,
+                  spreadRadius: widget.isActive ? 4 : 1,
+                ),
+              ],
             ),
           ),
           Text(
@@ -892,12 +1003,18 @@ class _MysteryCardState extends State<_MysteryCard>
     );
   }
 
-  Widget _buildBackFace(double cardWidth, double cardHeight) {
+  Widget _buildBackFace(
+    double cardWidth,
+    double cardHeight, {
+    bool applyMirrorTransform = true,
+  }) {
     final profile = widget.profile;
-    return Transform(
-      alignment: Alignment.center,
-      transform: Matrix4.identity()..rotateY(pi),
-      child: Container(
+    final shouldUseSecureCapture =
+        widget.allowSecureCapture &&
+        _isRevealed &&
+        !_controller.isAnimating;
+
+    final body = Container(
         width: cardWidth,
         height: cardHeight,
         decoration: BoxDecoration(
@@ -915,15 +1032,17 @@ class _MysteryCardState extends State<_MysteryCard>
           fit: StackFit.expand,
           children: [
             widget.profile.imageUrls.isNotEmpty
-                ? ProfilePhotoBlur(
-                    enabled: true,
-                    badgeText: '사진은 상세에서 채팅 후 선명하게 보여요',
-                    child: Image.network(
-                      widget.profile.imageUrls.first,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) =>
-                          Container(color: _AppColors.gray300),
-                    ),
+                ? CaptureProtectedImage(
+                    imageUrl: widget.profile.imageUrls.first,
+                    fit: BoxFit.cover,
+                    borderRadius: 24,
+                    blurEnabled: true,
+                    blurSigma: kLockedProfilePhotoBlurSigma,
+                    blurBadgeText: '사진은 상세에서 채팅 후 선명하게 보여요',
+                    iosSecureCaptureEnabled: shouldUseSecureCapture,
+                    backgroundColor: _AppColors.gray300,
+                    placeholderIconColor: CupertinoColors.white,
+                    placeholderIconSize: 42,
                   )
                 : Container(color: _AppColors.gray300),
             Container(
@@ -1053,7 +1172,16 @@ class _MysteryCardState extends State<_MysteryCard>
             ),
           ],
         ),
-      ),
+      );
+
+    if (!applyMirrorTransform) {
+      return body;
+    }
+
+    return Transform(
+      alignment: Alignment.center,
+      transform: Matrix4.identity()..rotateY(pi),
+      child: body,
     );
   }
 }

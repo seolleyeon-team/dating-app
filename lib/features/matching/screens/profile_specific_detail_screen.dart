@@ -8,7 +8,8 @@ import '../../../services/interaction_service.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
-import '../../../shared/widgets/profile_photo_blur.dart';
+import '../../../shared/constants/photo_blur_constants.dart';
+import '../../../shared/widgets/capture_protected_image.dart';
 import '../../chat/models/chat_room_data.dart';
 import '../../chat/services/chat_service.dart';
 import '../../../router/route_names.dart';
@@ -1169,9 +1170,13 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                       shouldBlurPhotos:
                           widget.args?.isPreview == true ||
                           !_isPhotoBlurUnlocked,
-                      photoBlurBadgeText: widget.args?.isPreview == true
-                          ? '미리보기 사진은 살짝 가려둘게요 :)'
-                          : '메시지를 보내면 사진이 선명하게 보여요 :)',
+                      photoBlurBadgeText:
+                          (widget.args?.isPreview == true ||
+                              !_isPhotoBlurUnlocked)
+                          ? widget.args?.isPreview == true
+                                ? '미리보기 사진은 살짝 가려둘게요 :)'
+                                : '메시지를 보내면 사진이 선명하게 보여요 :)'
+                          : null,
                       onHeroImageChanged: (index) {
                         setState(() {
                           _heroImageIndex = index;
@@ -1461,23 +1466,15 @@ class _HeroImage extends StatelessWidget {
                 );
               }
 
-              return ProfilePhotoBlur(
-                enabled: shouldBlurPhotos,
-                badgeText: blurBadgeText,
-                child: Image.network(
-                  imageUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    color: _AppColors.gray100,
-                    child: const Center(
-                      child: Icon(
-                        CupertinoIcons.person_fill,
-                        size: 72,
-                        color: _AppColors.gray300,
-                      ),
-                    ),
-                  ),
-                ),
+              return CaptureProtectedImage(
+                imageUrl: imageUrl,
+                fit: BoxFit.cover,
+                blurEnabled: shouldBlurPhotos,
+                blurSigma: kLockedProfilePhotoBlurSigma,
+                blurBadgeText: blurBadgeText,
+                backgroundColor: _AppColors.gray100,
+                placeholderIconColor: _AppColors.gray300,
+                placeholderIconSize: 72,
               );
             },
           ),
@@ -1788,19 +1785,15 @@ class _MyGallerySlider extends StatelessWidget {
               ],
             ),
             clipBehavior: Clip.antiAlias,
-            child: ProfilePhotoBlur(
-              enabled: shouldBlurPhotos,
-              child: Image.network(
-                url,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const Center(
-                  child: Icon(
-                    CupertinoIcons.person_fill,
-                    size: 38,
-                    color: _AppColors.gray300,
-                  ),
-                ),
-              ),
+            child: CaptureProtectedImage(
+              imageUrl: url,
+              fit: BoxFit.cover,
+              borderRadius: 22,
+              blurEnabled: shouldBlurPhotos,
+              blurSigma: kLockedProfilePhotoBlurSigma,
+              backgroundColor: _AppColors.gray100,
+              placeholderIconColor: _AppColors.gray300,
+              placeholderIconSize: 38,
             ),
           );
         },

@@ -7,11 +7,11 @@ import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../../router/route_names.dart';
 import '../../../services/storage_service.dart';
+import '../../../shared/widgets/capture_protected_image.dart';
 import '../models/chat_room_data.dart';
 import '../services/chat_service.dart';
 
@@ -960,30 +960,14 @@ class _Avatar extends StatelessWidget {
               color: _AppColors.gray400,
               size: 28,
             )
-          : isGrayscale
-          ? ColorFiltered(
-              colorFilter: const ColorFilter.mode(
-                CupertinoColors.systemGrey,
-                BlendMode.saturation,
-              ),
-              child: Image.network(
-                safeImageUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const Icon(
-                  CupertinoIcons.person_fill,
-                  color: _AppColors.gray400,
-                  size: 28,
-                ),
-              ),
-            )
-          : Image.network(
-              safeImageUrl,
+          : CaptureProtectedImage(
+              imageUrl: safeImageUrl,
+              shape: CaptureProtectedImageShape.circle,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const Icon(
-                CupertinoIcons.person_fill,
-                color: _AppColors.gray400,
-                size: 28,
-              ),
+              grayscale: isGrayscale,
+              backgroundColor: _AppColors.gray100,
+              placeholderIconColor: _AppColors.gray400,
+              placeholderIconSize: 28,
             ),
     );
 
@@ -1006,13 +990,13 @@ class _Avatar extends StatelessWidget {
             border: Border.all(color: CupertinoColors.white, width: 2),
           ),
           clipBehavior: Clip.antiAlias,
-          child: Image.network(
-            safeImageUrl,
+          child: CaptureProtectedImage(
+            imageUrl: safeImageUrl,
+            shape: CaptureProtectedImageShape.circle,
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => const Icon(
-              CupertinoIcons.person_fill,
-              color: _AppColors.gray400,
-            ),
+            backgroundColor: CupertinoColors.white,
+            placeholderIconColor: _AppColors.gray400,
+            placeholderIconSize: 28,
           ),
         ),
       );
