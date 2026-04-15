@@ -54,12 +54,15 @@ import '../features/matching/screens/profile_card_screen.dart';
 import '../features/matching/screens/ai_preference_screen.dart';
 import '../features/matching/screens/ai_match_card_screen.dart';
 import '../features/matching/screens/profile_specific_detail_screen.dart';
+import '../shared/widgets/sensitive_screen_protection.dart';
 
 // Chat
 import '../features/chat/screens/premium_chat_list_screen.dart';
 import '../features/chat/screens/chat_room_screen.dart';
 import '../features/chat/screens/group_match_screen.dart';
 import '../features/chat/models/chat_room_data.dart';
+import '../features/chat/models/safety_stamp_follow_up_args.dart';
+import '../features/chat/screens/safety_stamp_follow_up_screen.dart';
 
 // Community
 import '../features/community/screens/community_screen.dart';
@@ -75,6 +78,7 @@ import '../features/profile/screens/received_hearts_screen.dart';
 import '../features/matching/screens/sent_hearts_screen.dart';
 import '../features/profile/screens/asks_inbox_screen.dart';
 import '../features/profile/screens/settings_screen.dart';
+import '../features/profile/screens/safety_stamp_log_screen.dart';
 import '../features/profile/screens/contact_block_screen.dart';
 import '../features/matching/models/profile_card_args.dart';
 import '../features/profile/screens/terms_webview_screen.dart';
@@ -225,10 +229,14 @@ class AppRouter {
         return _cupertino(const AiMatchCardScreen());
       case RouteNames.profileSpecificDetail:
         final args = settings.arguments as ProfileCardArgs?;
-        return _cupertino(AiMatchProfileScreen(args: args));
+        return _cupertino(
+          SensitiveScreenProtection(child: AiMatchProfileScreen(args: args)),
+        );
       // Chat
       case RouteNames.premiumChatList:
-        return _cupertino(const ChatListScreen());
+        return _cupertino(
+          const SensitiveScreenProtection(child: ChatListScreen()),
+        );
       case RouteNames.chatRoom:
         final data = settings.arguments as ChatRoomData?;
         return _cupertino(
@@ -243,6 +251,15 @@ class AppRouter {
       case RouteNames.groupChat:
       case RouteNames.groupMatch:
         return _cupertino(const GroupMatchScreen());
+      case RouteNames.safetyStampFollowUp:
+        final args = settings.arguments as SafetyStampFollowUpArgs?;
+        return _cupertino(
+          SafetyStampFollowUpScreen(
+            args:
+                args ??
+                const SafetyStampFollowUpArgs(roomId: '', promiseId: ''),
+          ),
+        );
 
       // Community
 
@@ -270,6 +287,8 @@ class AppRouter {
         return _cupertino(const SentHeartsScreen());
       case RouteNames.settings:
         return _cupertino(const SettingsScreen());
+      case RouteNames.safetyStampLogs:
+        return _cupertino(const SafetyStampLogScreen());
       case RouteNames.contactBlock:
         return _cupertino(const ContactBlockScreen());
       case RouteNames.asksInbox:

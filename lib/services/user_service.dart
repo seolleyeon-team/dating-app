@@ -3,6 +3,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class UserService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  Future<void> setLastActivePlatform({
+    required String kakaoUserId,
+    required String platform,
+  }) async {
+    await _firestore.collection('users').doc(kakaoUserId).set({
+      'lastActivePlatform': platform,
+      'lastActivePlatformUpdatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   // ---------------------------------------------------------------------------
   // 카카오 유저 생성/갱신
   // ---------------------------------------------------------------------------
@@ -291,8 +301,9 @@ class UserService {
 
     if (onboarding['basicInfo'] == null) return 1;
     if (onboarding['photoUrls'] == null ||
-        (onboarding['photoUrls'] as List).length < 2)
+        (onboarding['photoUrls'] as List).length < 2) {
       return 5;
+    }
     if (onboarding['keywords'] == null) return 6;
     if (onboarding['profileQa'] == null) return 7;
 

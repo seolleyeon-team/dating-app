@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb, TargetPlatform;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
@@ -9,6 +10,7 @@ import '../../../screens/auth/kakao_callback_screen.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/friend_invite_service.dart';
 import '../../../services/storage_service.dart';
+import '../../../services/user_service.dart';
 import '../../../shared/layouts/main_scaffold_args.dart';
 import '../../../utils/kakao_key_hash_util.dart';
 
@@ -25,10 +27,16 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   final _authService = AuthService();
   final _storageService = StorageService();
   final _friendInviteService = FriendInviteService();
+  final _userService = UserService();
 
   bool _isLoading = false;
   String? _errorMessage;
   bool _showWebLoginFallback = false;
+
+  String get _currentPlatformLabel {
+    if (kIsWeb) return 'web';
+    return defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
+  }
 
   String _formatLoginErrorMessage(String rawMessage) {
     final msg = rawMessage.replaceFirst('Exception: ', '').trim();
@@ -44,7 +52,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         '',
         '카카오 개발자 콘솔 > 앱 설정 > 플랫폼 > Web 에 아래 값을 등록해 주세요.',
         'JavaScript SDK 도메인: $origin',
-        'Redirect URI: ${origin}/',
+        'Redirect URI: $origin/',
       ].join('\n');
     }
 
@@ -82,7 +90,9 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       await Navigator.of(context).push(
         CupertinoPageRoute<void>(
           builder: (_) => KakaoCallbackScreen(
-            callbackPathAndQuery: pathAndQuery.startsWith('?') ? pathAndQuery : '/$pathAndQuery',
+            callbackPathAndQuery: pathAndQuery.startsWith('?')
+                ? pathAndQuery
+                : '/$pathAndQuery',
           ),
         ),
       );
@@ -95,9 +105,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       '[FriendInvite] after login pendingTokenExists=${pendingToken != null && pendingToken.trim().isNotEmpty}',
     );
     final result = await _friendInviteService.processPendingInviteIfPossible();
-    debugPrint(
-      '[FriendInvite] after login result=${result?.status}',
-    );
+    debugPrint('[FriendInvite] after login result=${result?.status}');
     if (!mounted || result == null) return false;
 
     if (result.status == FriendInviteAcceptStatus.pendingLogin ||
@@ -154,6 +162,10 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
 
       await _storageService.saveKakaoUserId(kakaoUserId);
       await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
+      await _userService.setLastActivePlatform(
+        kakaoUserId: kakaoUserId,
+        platform: _currentPlatformLabel,
+      );
 
       if (!mounted) return;
       // ✅ 이미 서버에 등록된 유저(재설치 후 약관→카카오 로그인 포함): 연세+초기설정 완료 시 홈으로
@@ -167,32 +179,35 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
           final handledInvite = await _handlePendingInviteAfterLogin();
           if (handledInvite || !mounted) return;
           if (!mounted) return;
-          Navigator.of(context)
-              .pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
           return;
         }
 
         if (!mounted) return;
         if (!isVerified) {
-          Navigator.of(context)
-              .pushReplacementNamed(RouteNames.studentVerification);
+          Navigator.of(
+            context,
+          ).pushReplacementNamed(RouteNames.studentVerification);
           return;
         }
         if (!isInitialSetupComplete) {
-          final nextRoute =
-              await _authService.getOnboardingNextRoute(kakaoUserId);
-          if (!mounted) return;
-          Navigator.of(context).pushReplacementNamed(
-            nextRoute ?? RouteNames.onboardingBasicInfo,
+          final nextRoute = await _authService.getOnboardingNextRoute(
+            kakaoUserId,
           );
+          if (!mounted) return;
+          Navigator.of(
+            context,
+          ).pushReplacementNamed(nextRoute ?? RouteNames.onboardingBasicInfo);
           return;
         }
-        final hasSeenTutorial =
-            await _authService.hasSeenTutorial(kakaoUserId);
+        final hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
         if (!hasSeenTutorial) {
           if (!mounted) return;
-          Navigator.of(context)
-              .pushReplacementNamed(RouteNames.welcomeTutorial);
+          Navigator.of(
+            context,
+          ).pushReplacementNamed(RouteNames.welcomeTutorial);
           return;
         }
       }
@@ -206,7 +221,8 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       debugPrint('[KAKAO] login failed: $e\n$st');
       final msg = _formatLoginErrorMessage(e.toString());
       if (!mounted) return;
-      final isKeyHashError = msg.toLowerCase().contains('keyhash') ||
+      final isKeyHashError =
+          msg.toLowerCase().contains('keyhash') ||
           msg.toLowerCase().contains('key hash');
       if (isKeyHashError) {
         final keyHash = await getAndroidKeyHash();
@@ -308,51 +324,61 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       }
       await _storageService.saveKakaoUserId(kakaoUserId);
       await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
+      await _userService.setLastActivePlatform(
+        kakaoUserId: kakaoUserId,
+        platform: _currentPlatformLabel,
+      );
       if (!mounted) return;
       final exists = await _authService.kakaoUserExists(kakaoUserId);
       if (exists) {
         final isVerified = await _authService.isStudentVerified(kakaoUserId);
-        final isInitialSetupComplete =
-            await _authService.isInitialSetupComplete(kakaoUserId);
+        final isInitialSetupComplete = await _authService
+            .isInitialSetupComplete(kakaoUserId);
         if (isVerified && isInitialSetupComplete) {
           final handledInvite = await _handlePendingInviteAfterLogin();
           if (handledInvite || !mounted) return;
           if (!mounted) return;
-          Navigator.of(context)
-              .pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
           return;
         }
         if (!mounted) return;
         if (!isVerified) {
-          Navigator.of(context)
-              .pushReplacementNamed(RouteNames.studentVerification);
+          Navigator.of(
+            context,
+          ).pushReplacementNamed(RouteNames.studentVerification);
           return;
         }
         if (!isInitialSetupComplete) {
-          final nextRoute =
-              await _authService.getOnboardingNextRoute(kakaoUserId);
-          if (!mounted) return;
-          Navigator.of(context).pushReplacementNamed(
-            nextRoute ?? RouteNames.onboardingBasicInfo,
+          final nextRoute = await _authService.getOnboardingNextRoute(
+            kakaoUserId,
           );
+          if (!mounted) return;
+          Navigator.of(
+            context,
+          ).pushReplacementNamed(nextRoute ?? RouteNames.onboardingBasicInfo);
           return;
         }
-        final hasSeenTutorial =
-            await _authService.hasSeenTutorial(kakaoUserId);
+        final hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
         if (!hasSeenTutorial) {
           if (!mounted) return;
-          Navigator.of(context)
-              .pushReplacementNamed(RouteNames.welcomeTutorial);
+          Navigator.of(
+            context,
+          ).pushReplacementNamed(RouteNames.welcomeTutorial);
           return;
         }
       }
       if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed(RouteNames.studentVerification);
+      Navigator.of(
+        context,
+      ).pushReplacementNamed(RouteNames.studentVerification);
     } catch (e, st) {
       debugPrint('[KAKAO] web login failed: $e\n$st');
       if (!mounted) return;
       final msg = _formatLoginErrorMessage(e.toString());
-      final isKeyHashError = msg.toLowerCase().contains('keyhash') ||
+      final isKeyHashError =
+          msg.toLowerCase().contains('keyhash') ||
           msg.toLowerCase().contains('key hash');
       if (isKeyHashError) {
         final keyHash = await getAndroidKeyHash();
@@ -477,11 +503,15 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
                   ),
                 ),
               ),
-              if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) ...[
+              if (!kIsWeb &&
+                  defaultTargetPlatform == TargetPlatform.android) ...[
                 const SizedBox(height: 8),
                 Center(
                   child: CupertinoButton(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
                     onPressed: _isLoading ? null : _showKeyHashIfAndroid,
                     child: const Text(
                       '키 해시 확인',

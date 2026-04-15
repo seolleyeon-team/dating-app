@@ -2,12 +2,14 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'services/screen_security_service.dart';
 import 'services/navigation_service.dart';
 import 'services/push_notification_service.dart';
 import 'router/app_router.dart';
 import 'router/route_names.dart';
 import 'providers/auth_provider.dart';
 import 'features/community/providers/community_provider.dart';
+import 'shared/widgets/app_privacy_splash_overlay.dart';
 
 /// 설레연 앱 (MaterialApp 루트 + Provider 등록)
 class SeolleyeonApp extends StatefulWidget {
@@ -28,6 +30,7 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
   void initState() {
     super.initState();
     PushNotificationService.instance.initialize();
+    ScreenSecurityService.instance.enableProtection();
   }
 
   @override
@@ -136,9 +139,11 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
               theme.textTheme.bodyMedium ??
               const TextStyle(decoration: TextDecoration.none);
 
-          return DefaultTextStyle(
-            style: fallback.copyWith(decoration: TextDecoration.none),
-            child: child ?? const SizedBox.shrink(),
+          return AppPrivacySplashOverlay(
+            child: DefaultTextStyle(
+              style: fallback.copyWith(decoration: TextDecoration.none),
+              child: child ?? const SizedBox.shrink(),
+            ),
           );
         },
       ),

@@ -76,6 +76,7 @@ class RouteNames {
   static const String premiumChatList = '/chat/list';
   static const String chatRoom = '/chat/room';
   static const String groupChat = '/chat/group';
+  static const String safetyStampFollowUp = '/chat/safety-stamp-follow-up';
 
   // Community (대나무숲)
   static const String postDetail = '/community/post';
@@ -89,6 +90,7 @@ class RouteNames {
   static const String receivedHearts = '/profile/hearts';
   static const String sentHearts = '/profile/sent-hearts';
   static const String settings = '/profile/settings';
+  static const String safetyStampLogs = '/profile/safety-stamp-logs';
   static const String contactBlock = '/profile/contact-block';
   static const String asksInbox = '/profile/asks-inbox';
   static const String termsWebview = '/profile/terms-webview';

@@ -9,7 +9,11 @@
  *   5) onBambooPostLikeCreated   — 대나무숲 글 좋아요 푸시 + 인앱 알림
  *   6) onAskCreated              — 무물(ask) 생성 시 알림 + 푸시
  *   7) onMatchUpdated            — 매치 해제 시 채팅방 비활성화
- *   8) sendDailyUnreadChatDigests — 매일 오후 1시 unread chat digest 푸시 + 인앱 알림
+ *   8) autoCompleteExpiredGoodbyeSafetyStamps — 헤어짐 도장 24시간 초과 약속 자동 완료 + 후속 알림
+ *   9) schedulePromiseReminderTask — 약속 확정 시 정확한 1시간 전 리마인더 예약
+ *   10) dispatchPromiseReminder — 예약된 약속 1시간 전 푸시 실행
+ *   11) sendUpcomingPromiseReminderPushes — 기존 15분 리마인더(비활성화)
+ *   12) sendDailyUnreadChatDigests — 매일 오후 1시 unread chat digest 푸시 + 인앱 알림
  */
 
 import { setGlobalOptions } from "firebase-functions/v2";
@@ -19,9 +23,12 @@ import {
 } from "firebase-functions/v2/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { onTaskDispatched } from "firebase-functions/v2/tasks";
 import * as logger from "firebase-functions/logger";
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
+import { getFunctions } from "firebase-admin/functions";
+import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import {
   getFirestore,
   FieldValue,
@@ -31,6 +38,12 @@ import {
 import { getMessaging } from "firebase-admin/messaging";
 import { createHash, randomBytes } from "crypto";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
+import {
+  buildReminderScheduledForMs,
+  buildUpcomingPromiseReminderTitle,
+  PROMISE_REMINDER_QUEUE_PATH,
+  type PromiseReminderTaskPayload,
+} from "./promiseReminder";
 
 // Firebase Admin 초기화
 initializeApp();
@@ -68,6 +81,21 @@ function asString(v: unknown, fallback = ""): string {
 function asStringOrNull(v: unknown): string | null {
   const s = asString(v, "").trim();
   return s.length > 0 ? s : null;
+}
+
+function asStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((item) => asString(item, "").trim()).filter(Boolean);
+}
+
+function asDate(v: unknown): Date | null {
+  if (v instanceof Timestamp) return v.toDate();
+  if (v instanceof Date) return v;
+  if (typeof v === "string" || typeof v === "number") {
+    const parsed = new Date(v);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
 }
 
 function buildDirectRoomId(userA: string, userB: string): string {
@@ -804,10 +832,16 @@ type InAppNotificationPayload = {
     | "community_comment"
     | "community_reply"
     | "profile_like"
-    | "ask_received";
+    | "ask_received"
+    | "safety_stamp_follow_up";
   title: string;
   body: string;
-  deeplinkType: "chat" | "community_post" | "received_like" | "asks_inbox";
+  deeplinkType:
+    | "chat"
+    | "community_post"
+    | "received_like"
+    | "asks_inbox"
+    | "safety_stamp_follow_up";
   deeplinkId?: string;
   actorId?: string;
   actorName?: string;
@@ -973,6 +1007,13 @@ async function sendPushToUsers(
       await batch.commit();
     }
   }
+}
+
+function buildSafetyStampFollowUpNotificationId(
+  promiseId: string,
+  userId: string
+): string {
+  return `safety_stamp_follow_up_${promiseId}_${userId}`;
 }
 
 async function getUnreadChatDigestForUser(userId: string): Promise<{
@@ -2893,7 +2934,459 @@ export const onMatchUpdated = onDocumentUpdated(
 );
 
 // =============================================================================
-// 8) 매일 오후 1시 unread chat digest 푸시 + 인앱 알림
+// 8) 헤어짐 도장 24시간 초과 약속 자동 완료 + 후속 알림
+// =============================================================================
+export const autoCompleteExpiredGoodbyeSafetyStamps = onSchedule(
+  {
+    schedule: "every 15 minutes",
+    timeZone: "Asia/Seoul",
+  },
+  async () => {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const cutoffTimestamp = Timestamp.fromDate(cutoff);
+
+    logger.info("autoCompleteExpiredGoodbyeSafetyStamps started", {
+      cutoff: cutoff.toISOString(),
+    });
+
+    const promisesSnap = await db
+      .collectionGroup("promises")
+      .where("meetupCompletedAt", "<=", cutoffTimestamp)
+      .get();
+
+    for (const promiseDoc of promisesSnap.docs) {
+      const roomRef = promiseDoc.ref.parent.parent;
+      if (!roomRef) continue;
+
+      const roomId = roomRef.id;
+      const promiseId = promiseDoc.id;
+
+      try {
+        const result = await db.runTransaction(async (tx) => {
+          const latestPromiseSnap = await tx.get(promiseDoc.ref);
+          if (!latestPromiseSnap.exists) return null;
+          const roomSnap = await tx.get(roomRef);
+
+          const promiseData = (latestPromiseSnap.data() ??
+            {}) as Record<string, unknown>;
+          if (asString(promiseData.status, "").toLowerCase() !== "in_progress") {
+            return null;
+          }
+
+          const meetupCompletedAt = asDate(promiseData.meetupCompletedAt);
+          if (!meetupCompletedAt || meetupCompletedAt.getTime() > cutoff.getTime()) {
+            return null;
+          }
+
+          const participantIds = asStringArray(promiseData.participantIds);
+          if (participantIds.length < 2) {
+            return null;
+          }
+
+          const safetyStamp = isRecord(promiseData.safetyStamp)
+            ? { ...promiseData.safetyStamp }
+            : {};
+          const completionMode = asString(
+            promiseData.completionMode ?? safetyStamp.completionMode,
+            ""
+          ).toLowerCase();
+          if (completionMode === "auto_without_goodbye_stamp") {
+            return null;
+          }
+
+          const goodbyeStampedUserIds = asStringArray(
+            safetyStamp.goodbyeStampedUserIds
+          );
+          const missingUserIds = participantIds.filter(
+            (userId) => !goodbyeStampedUserIds.includes(userId)
+          );
+          if (missingUserIds.length === 0) {
+            return null;
+          }
+
+          const followUpByUserId = isRecord(safetyStamp.goodbyeFollowUpByUserId)
+            ? { ...safetyStamp.goodbyeFollowUpByUserId }
+            : {};
+
+          for (const userId of missingUserIds) {
+            const existingEntry = isRecord(followUpByUserId[userId])
+              ? { ...followUpByUserId[userId] }
+              : {};
+            followUpByUserId[userId] = {
+              ...existingEntry,
+              status:
+                asString(existingEntry.status, "").toLowerCase() === "submitted"
+                  ? "submitted"
+                  : "pending",
+              notificationId:
+                asStringOrNull(existingEntry.notificationId) ??
+                buildSafetyStampFollowUpNotificationId(promiseId, userId),
+              notificationSentAt:
+                existingEntry.notificationSentAt ?? FieldValue.serverTimestamp(),
+            };
+          }
+
+          const nextSafetyStamp = {
+            ...safetyStamp,
+            completionMode: "auto_without_goodbye_stamp",
+            autoCompletedWithoutGoodbye: true,
+            goodbyeAutoCompletedAt: FieldValue.serverTimestamp(),
+            goodbyeFollowUpByUserId: followUpByUserId,
+          };
+          const completedMessageText = "헤어짐 도장이 없어 약속이 자동으로 완료되었어요";
+          const messageRef = roomRef.collection("messages").doc();
+          const roomData = (roomSnap.data() ?? {}) as Record<string, unknown>;
+          const activePromise = isRecord(roomData.activePromise)
+            ? { ...roomData.activePromise }
+            : null;
+          const activePromiseId = asString(activePromise?.promiseId, "");
+
+          tx.update(promiseDoc.ref, {
+            status: "completed",
+            completionMode: "auto_without_goodbye_stamp",
+            completedAt: FieldValue.serverTimestamp(),
+            safetyStamp: nextSafetyStamp,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+
+          tx.set(messageRef, {
+            senderId: "system",
+            text: completedMessageText,
+            type: "promise_completed",
+            promiseId,
+            place: promiseData.place ?? null,
+            placeCategory: promiseData.placeCategory ?? null,
+            status: "completed",
+            completionMode: "auto_without_goodbye_stamp",
+            readBy: [],
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+            dateTime: FieldValue.serverTimestamp(),
+          });
+
+          const roomUpdate: Record<string, unknown> = {
+            lastMessage: completedMessageText,
+            lastMessageAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          };
+
+          if (activePromise && activePromiseId === promiseId) {
+            roomUpdate.activePromise = {
+              ...activePromise,
+              status: "completed",
+              completionMode: "auto_without_goodbye_stamp",
+              completedAt: FieldValue.serverTimestamp(),
+              safetyStamp: nextSafetyStamp,
+            };
+          }
+
+          tx.set(roomRef, roomUpdate, { merge: true });
+
+          return {
+            roomId,
+            promiseId,
+            missingUserIds,
+          };
+        });
+
+        if (!result) {
+          continue;
+        }
+
+        for (const userId of result.missingUserIds) {
+          const notificationId = buildSafetyStampFollowUpNotificationId(
+            result.promiseId,
+            userId
+          );
+          const title = "헤어짐 도장을 찍지 않으셨네요";
+          const body = "무슨 일이 있으셨나요? 이유를 남겨주세요.";
+
+          const created = await createInAppNotification(
+            userId,
+            {
+              type: "safety_stamp_follow_up",
+              title,
+              body,
+              deeplinkType: "safety_stamp_follow_up",
+              deeplinkId: result.promiseId,
+              roomId: result.roomId,
+            },
+            notificationId
+          );
+
+          if (!created) {
+            continue;
+          }
+
+          await sendPushToUsers([userId], {
+            title,
+            body,
+            data: {
+              type: "safety_stamp_follow_up",
+              roomId: result.roomId,
+              promiseId: result.promiseId,
+            },
+          });
+        }
+      } catch (error) {
+        logger.error("Failed to auto-complete expired goodbye safety stamp", {
+          roomId,
+          promiseId,
+          error,
+        });
+      }
+    }
+
+    logger.info("autoCompleteExpiredGoodbyeSafetyStamps finished", {
+      processedCount: promisesSnap.size,
+    });
+  }
+);
+
+// =============================================================================
+// 9) 약속 확정 시 정확한 1시간 전 리마인더 예약
+// =============================================================================
+export const schedulePromiseReminderTask = onDocumentWritten(
+  {
+    document: "chat_rooms/{roomId}/promises/{promiseId}",
+    region: "asia-northeast3",
+  },
+  async (event) => {
+    const afterData = event.data?.after.data();
+    if (!afterData) {
+      return;
+    }
+
+    const roomId = event.params.roomId;
+    const promiseId = event.params.promiseId;
+    const status = asString(afterData.status, "").toLowerCase();
+    if (status !== "confirmed") {
+      return;
+    }
+
+    const promiseDateTime = asDate(afterData.dateTime);
+    if (!promiseDateTime) {
+      logger.warn("Skipped exact promise reminder scheduling: invalid dateTime", {
+        roomId,
+        promiseId,
+      });
+      return;
+    }
+
+    const scheduledForMs = buildReminderScheduledForMs(
+      promiseDateTime.getTime()
+    );
+    if (scheduledForMs <= Date.now()) {
+      logger.info(
+        "Skipped exact promise reminder scheduling: less than 1 hour left",
+        {
+          roomId,
+          promiseId,
+          scheduledForMs,
+        }
+      );
+      return;
+    }
+
+    const existingScheduledForMs =
+      typeof afterData.exactReminderScheduledForMs === "number"
+        ? afterData.exactReminderScheduledForMs
+        : null;
+    const existingTaskToken = asStringOrNull(afterData.exactReminderTaskToken);
+    if (
+      existingScheduledForMs === scheduledForMs &&
+      existingTaskToken != null
+    ) {
+      return;
+    }
+
+    const taskToken = randomBytes(16).toString("hex");
+    const payload: PromiseReminderTaskPayload = {
+      roomId,
+      promiseId,
+      taskToken,
+      scheduledForMs,
+    };
+
+    await getFunctions()
+      .taskQueue(PROMISE_REMINDER_QUEUE_PATH)
+      .enqueue(payload, {
+        scheduleDelaySeconds: Math.max(
+          0,
+          Math.floor((scheduledForMs - Date.now()) / 1000)
+        ),
+        dispatchDeadlineSeconds: 180,
+      });
+
+    await event.data?.after.ref.set(
+      {
+        exactReminderScheduledForMs: scheduledForMs,
+        exactReminderTaskToken: taskToken,
+        exactReminderTaskCreatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    logger.info("Scheduled exact promise reminder task", {
+      roomId,
+      promiseId,
+      scheduledForMs,
+    });
+  }
+);
+
+// =============================================================================
+// 10) 예약된 약속 1시간 전 푸시 실행
+// =============================================================================
+export const dispatchPromiseReminder = onTaskDispatched(
+  {
+    region: "asia-northeast3",
+    retryConfig: {
+      maxAttempts: 3,
+      minBackoffSeconds: 30,
+    },
+    rateLimits: {
+      maxConcurrentDispatches: 20,
+    },
+  },
+  async (request) => {
+    const data = (request.data ?? {}) as Partial<PromiseReminderTaskPayload>;
+    const roomId = asString(data.roomId, "");
+    const promiseId = asString(data.promiseId, "");
+    const taskToken = asString(data.taskToken, "");
+    const scheduledForMs =
+      typeof data.scheduledForMs === "number" ? data.scheduledForMs : 0;
+
+    if (!roomId || !promiseId || !taskToken || scheduledForMs <= 0) {
+      logger.warn("Invalid exact promise reminder payload", { data });
+      return;
+    }
+
+    const roomRef = db.collection("chat_rooms").doc(roomId);
+    const promiseRef = roomRef.collection("promises").doc(promiseId);
+
+    const result = await db.runTransaction(async (tx) => {
+      const promiseSnap = await tx.get(promiseRef);
+      if (!promiseSnap.exists) {
+        return null;
+      }
+
+      const roomSnap = await tx.get(roomRef);
+      const promiseData = (promiseSnap.data() ?? {}) as Record<string, unknown>;
+      const roomData = (roomSnap.data() ?? {}) as Record<string, unknown>;
+
+      if (asString(promiseData.status, "").toLowerCase() !== "confirmed") {
+        return null;
+      }
+
+      if (asDate(promiseData.oneHourReminderSentAt)) {
+        return null;
+      }
+
+      const currentTaskToken = asStringOrNull(promiseData.exactReminderTaskToken);
+      const currentScheduledForMs =
+        typeof promiseData.exactReminderScheduledForMs === "number"
+          ? promiseData.exactReminderScheduledForMs
+          : null;
+      if (
+        currentTaskToken == null ||
+        currentTaskToken !== taskToken ||
+        currentScheduledForMs == null ||
+        currentScheduledForMs !== scheduledForMs
+      ) {
+        return null;
+      }
+
+      const promiseDateTime = asDate(promiseData.dateTime);
+      if (!promiseDateTime) {
+        return null;
+      }
+      if (buildReminderScheduledForMs(promiseDateTime.getTime()) !== scheduledForMs) {
+        return null;
+      }
+
+      const promiseParticipantIds = asStringArray(promiseData.participantIds);
+      const roomParticipantIds = asStringArray(roomData.participantIds);
+      const participantIds =
+        promiseParticipantIds.length > 0
+          ? promiseParticipantIds
+          : roomParticipantIds;
+      if (participantIds.length === 0) {
+        return null;
+      }
+
+      tx.update(promiseRef, {
+        oneHourReminderSentAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      const activePromise = isRecord(roomData.activePromise)
+        ? { ...roomData.activePromise }
+        : null;
+      const activePromiseId = asString(activePromise?.promiseId, "");
+      if (activePromise && activePromiseId === promiseId) {
+        tx.set(
+          roomRef,
+          {
+            activePromise: {
+              oneHourReminderSentAt: FieldValue.serverTimestamp(),
+            },
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+
+      return {
+        participantIds,
+        place: asStringOrNull(promiseData.place),
+      };
+    });
+
+    if (!result) {
+      logger.info("Skipped exact promise reminder dispatch", {
+        roomId,
+        promiseId,
+      });
+      return;
+    }
+
+    await sendPushToUsers(result.participantIds, {
+      title: buildUpcomingPromiseReminderTitle(result.place),
+      body: "상대방 만날 때 같이 안전도장 누르는 거 잊지 말기!",
+      data: {
+        type: "chat",
+        roomId,
+        promiseId,
+      },
+    });
+
+    logger.info("Dispatched exact promise reminder push", {
+      roomId,
+      promiseId,
+      participantCount: result.participantIds.length,
+    });
+  }
+);
+
+// =============================================================================
+// 11) 약속 1시간 전 푸시 리마인더 (기존 15분 스케줄러 비활성화)
+// =============================================================================
+export const sendUpcomingPromiseReminderPushes = onSchedule(
+  {
+    schedule: "every 15 minutes",
+    timeZone: "Asia/Seoul",
+  },
+  async () => {
+    logger.info(
+      "sendUpcomingPromiseReminderPushes skipped: exact task queue is active"
+    );
+  }
+);
+
+// =============================================================================
+// 12) 매일 오후 1시 unread chat digest 푸시 + 인앱 알림
 // =============================================================================
 export const sendDailyUnreadChatDigests = onSchedule(
   {

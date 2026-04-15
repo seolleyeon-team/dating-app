@@ -9,6 +9,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../firebase_options.dart';
 import '../router/route_names.dart';
 import '../features/event/models/event_team_route_args.dart';
+import '../features/chat/models/safety_stamp_follow_up_args.dart';
 import '../shared/layouts/main_scaffold_args.dart';
 import 'navigation_service.dart';
 import 'storage_service.dart';
@@ -274,26 +275,26 @@ class PushNotificationService {
       return;
     }
 
-    if (type == 'event_team_request_accepted') {
-      final matchId = data['matchId'] ?? '';
-      if (matchId.isNotEmpty) {
-        nav.pushNamed(
-          RouteNames.threeVsThreeMatch,
-          arguments: ThreeVsThreeMatchArgs(matchId: matchId),
-        );
+    if (type == 'safety_stamp_follow_up') {
+      final roomId = data['roomId'] ?? '';
+      final promiseId = data['promiseId'] ?? '';
+      if (roomId.isEmpty || promiseId.isEmpty) {
+        nav.pushNamed(RouteNames.notifications);
         return;
       }
-    }
-
-    if (type == 'event_team_request_declined') {
-      final requestId = data['requestId'] ?? '';
-      if (requestId.isNotEmpty) {
-        nav.pushNamed(
-          RouteNames.teamRequestDeclined,
-          arguments: TeamRequestDeclinedArgs(requestId: requestId),
-        );
-        return;
-      }
+      nav.pushNamedAndRemoveUntil(
+        RouteNames.main,
+        (route) => false,
+        arguments: MainScaffoldArgs(
+          initialTabIndex: 1,
+          pendingRouteName: RouteNames.safetyStampFollowUp,
+          pendingRouteArgs: SafetyStampFollowUpArgs(
+            roomId: roomId,
+            promiseId: promiseId,
+          ),
+        ),
+      );
+      return;
     }
 
     nav.pushNamed(RouteNames.notifications);

@@ -4,8 +4,7 @@ import '../../features/chat/screens/premium_chat_list_screen.dart';
 import '../../features/event/screens/event_screen.dart';
 import '../../features/community/screens/community_screen.dart';
 import '../../features/profile/screens/my_page_screen.dart';
-import '../../router/route_names.dart';
-import 'main_scaffold_args.dart';
+import '../widgets/sensitive_screen_protection.dart';
 
 /// 메인 화면 스캐폴드 (CupertinoTabScaffold, 5탭: 설레연/채팅/이벤트/대나무숲/내 페이지)
 class MainScaffold extends StatefulWidget {
@@ -70,13 +69,19 @@ class _MainScaffoldState extends State<MainScaffold> {
         switch (index) {
           case 0:
             return CupertinoTabView(
-              builder: (context) =>
-                  MysteryCardScreen(onNavTap: (i) => _tabController.index = i),
+              builder: (context) => SensitiveScreenProtection(
+                child: MysteryCardScreen(
+                  onNavTap: (i) => _tabController.index = i,
+                ),
+              ),
             );
           case 1:
             return CupertinoTabView(
-              builder: (context) =>
-                  ChatListScreen(onNavTap: (i) => _tabController.index = i),
+              builder: (context) => SensitiveScreenProtection(
+                child: ChatListScreen(
+                  onNavTap: (i) => _tabController.index = i,
+                ),
+              ),
             );
           case 2:
             return CupertinoTabView(
@@ -95,8 +100,11 @@ class _MainScaffoldState extends State<MainScaffold> {
             );
           default:
             return CupertinoTabView(
-              builder: (context) =>
-                  MysteryCardScreen(onNavTap: (i) => _tabController.index = i),
+              builder: (context) => SensitiveScreenProtection(
+                child: MysteryCardScreen(
+                  onNavTap: (i) => _tabController.index = i,
+                ),
+              ),
             );
         }
       },

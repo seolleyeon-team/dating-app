@@ -1,7 +1,16 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../utils/safety_stamp_availability.dart';
+
 class ChatService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  static Map<String, dynamic> _coerceStringMap(dynamic raw) {
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw as Map<Object?, Object?>);
+    }
+    return <String, dynamic>{};
+  }
 
   static Map<String, dynamic> _promisePlaceExtras({
     String? placeId,
@@ -54,11 +63,92 @@ class ChatService {
     return _firestore.collection('chat_rooms').doc(roomId).snapshots();
   }
 
+  Future<bool> cancelExpiredIncompleteSafetyStamp({
+    required String roomId,
+    required String promiseId,
+  }) async {
+    final roomRef = _firestore.collection('chat_rooms').doc(roomId);
+    final promiseRef = roomRef.collection('promises').doc(promiseId);
+    final cancelledMessageRef = roomRef.collection('messages').doc();
+    final now = DateTime.now();
+    final cancelledMessageText = '약속이 취소되었어요 (${_formatKoreanDateTime(now)})';
+
+    return _firestore.runTransaction((tx) async {
+      final roomSnap = await tx.get(roomRef);
+      if (!roomSnap.exists) return false;
+
+      final roomData = roomSnap.data() ?? <String, dynamic>{};
+      final activePromiseRaw = roomData['activePromise'];
+      if (activePromiseRaw is! Map) return false;
+
+      final activePromise = _coerceStringMap(activePromiseRaw);
+      final activePromiseId = activePromise['promiseId']?.toString() ?? '';
+      if (activePromiseId.isEmpty || activePromiseId != promiseId) {
+        return false;
+      }
+      if (!isMeetupSafetyStampExpired(activePromise, now: now)) {
+        return false;
+      }
+
+      final promiseSnap = await tx.get(promiseRef);
+      if (!promiseSnap.exists) return false;
+
+      final promiseData = promiseSnap.data() ?? <String, dynamic>{};
+      final promiseStatus =
+          promiseData['status']?.toString().toLowerCase() ?? '';
+      if (promiseStatus == 'cancelled' || promiseStatus == 'completed') {
+        return false;
+      }
+
+      tx.update(promiseRef, {
+        'status': 'cancelled',
+        'cancelledAt': FieldValue.serverTimestamp(),
+        'cancelledReason': 'safety_stamp_timeout',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      tx.set(cancelledMessageRef, {
+        'senderId': 'system',
+        'text': cancelledMessageText,
+        'type': 'promise_deleted',
+        'promiseId': promiseId,
+        'dateTime': FieldValue.serverTimestamp(),
+        'place': activePromise['place'],
+        'placeCategory': activePromise['placeCategory'],
+        'status': 'cancelled',
+        'cancelledReason': 'safety_stamp_timeout',
+        'readBy': const <String>[],
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      tx.set(roomRef, {
+        'activePromise': FieldValue.delete(),
+        'lastMessage': cancelledMessageText,
+        'lastMessageAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      return true;
+    });
+  }
+
+  static String _formatKoreanDateTime(DateTime dateTime) {
+    final local = dateTime.toLocal();
+    final hour12 = local.hour == 0
+        ? 12
+        : (local.hour > 12 ? local.hour - 12 : local.hour);
+    final minute = local.minute.toString().padLeft(2, '0');
+    final period = local.hour >= 12 ? '오후' : '오전';
+    return '${local.month}월 ${local.day}일 $period $hour12:$minute';
+  }
+
   Future<void> markSafetyStamp({
     required String roomId,
     required String promiseId,
     required String userId,
     required String phase,
+    Map<String, dynamic>? verification,
   }) async {
     final roomRef = _firestore.collection('chat_rooms').doc(roomId);
     final promiseRef = roomRef.collection('promises').doc(promiseId);
@@ -85,12 +175,10 @@ class ChatService {
         throw Exception('현재 활성 약속과 일치하지 않습니다.');
       }
 
-      final safetyStampRaw = activePromise['safetyStamp'];
-      final safetyStamp = safetyStampRaw is Map
-          ? Map<String, dynamic>.from(safetyStampRaw as Map<Object?, Object?>)
-          : <String, dynamic>{};
+      final safetyStamp = _coerceStringMap(activePromise['safetyStamp']);
 
-      final participantIds = (roomData['participantIds'] as List?)
+      final participantIds =
+          (roomData['participantIds'] as List?)
               ?.map((e) => e.toString())
               .where((e) => e.isNotEmpty)
               .toSet() ??
@@ -99,12 +187,14 @@ class ChatService {
         throw Exception('참여자 정보가 없습니다.');
       }
 
-      final meetupStampedUserIds = (safetyStamp['meetupStampedUserIds'] as List?)
+      final meetupStampedUserIds =
+          (safetyStamp['meetupStampedUserIds'] as List?)
               ?.map((e) => e.toString())
               .where((e) => e.isNotEmpty)
               .toSet() ??
           <String>{};
-      final legacyStampedUserIds = (safetyStamp['stampedUserIds'] as List?)
+      final legacyStampedUserIds =
+          (safetyStamp['stampedUserIds'] as List?)
               ?.map((e) => e.toString())
               .where((e) => e.isNotEmpty)
               .toSet() ??
@@ -112,7 +202,8 @@ class ChatService {
       final effectiveMeetupStampedUserIds = meetupStampedUserIds.isNotEmpty
           ? meetupStampedUserIds
           : legacyStampedUserIds;
-      final goodbyeStampedUserIds = (safetyStamp['goodbyeStampedUserIds'] as List?)
+      final goodbyeStampedUserIds =
+          (safetyStamp['goodbyeStampedUserIds'] as List?)
               ?.map((e) => e.toString())
               .where((e) => e.isNotEmpty)
               .toSet() ??
@@ -136,10 +227,26 @@ class ChatService {
         'meetupStampedUserIds': effectiveMeetupStampedUserIds.toList(),
         'goodbyeStampedUserIds': goodbyeStampedUserIds.toList(),
       };
+      if (verification != null) {
+        final recordKey = phase == 'goodbye'
+            ? 'goodbyeVerificationByUserId'
+            : 'meetupVerificationByUserId';
+        final verificationByUserId = _coerceStringMap(
+          nextSafetyStamp[recordKey],
+        );
+        verificationByUserId[userId] = verification;
+        nextSafetyStamp[recordKey] = verificationByUserId;
+      }
       nextSafetyStamp.remove('stampedUserIds');
 
       activePromise['participantIds'] = participantIds.toList();
       activePromise['safetyStamp'] = nextSafetyStamp;
+
+      tx.update(promiseRef, {
+        'participantIds': participantIds.toList(),
+        'safetyStamp': nextSafetyStamp,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
 
       if (phase != 'goodbye' &&
           effectiveMeetupStampedUserIds.containsAll(participantIds)) {
@@ -150,6 +257,7 @@ class ChatService {
         };
 
         tx.update(promiseRef, {
+          'safetyStamp': activePromise['safetyStamp'],
           'status': 'in_progress',
           'meetupCompletedAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
@@ -187,6 +295,7 @@ class ChatService {
         };
 
         tx.update(promiseRef, {
+          'safetyStamp': activePromise['safetyStamp'],
           'status': 'completed',
           'completedAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
@@ -368,6 +477,9 @@ class ChatService {
     batch.set(roomRef, {
       'lastMessage': text,
       'lastMessageAt': FieldValue.serverTimestamp(),
+      'photoBlurUnlocked': true,
+      'photoBlurUnlockedAt': FieldValue.serverTimestamp(),
+      'photoBlurUnlockedBy': senderId,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
