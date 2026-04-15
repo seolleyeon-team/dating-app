@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 
 import '../../../router/route_names.dart';
 import '../../event/models/event_team_route_args.dart';
+import '../../chat/models/safety_stamp_follow_up_args.dart';
 import '../../../services/storage_service.dart';
 import '../../../shared/layouts/main_scaffold_args.dart';
 import '../models/app_notification.dart';
@@ -92,8 +93,10 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
       );
       Future.delayed(const Duration(milliseconds: 300), () {
         if (!mounted) return;
-        Navigator.of(context, rootNavigator: true)
-            .pushNamed(RouteNames.receivedHearts);
+        Navigator.of(
+          context,
+          rootNavigator: true,
+        ).pushNamed(RouteNames.receivedHearts);
       });
       return;
     }
@@ -106,8 +109,10 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
       );
       Future.delayed(const Duration(milliseconds: 300), () {
         if (!mounted) return;
-        Navigator.of(context, rootNavigator: true)
-            .pushNamed(RouteNames.asksInbox);
+        Navigator.of(
+          context,
+          rootNavigator: true,
+        ).pushNamed(RouteNames.asksInbox);
       });
       return;
     }
@@ -116,14 +121,28 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
       var inviteId = deeplinkId;
       if (inviteId.isEmpty &&
           notification.id.startsWith('event_team_invite_')) {
-        inviteId =
-            notification.id.substring('event_team_invite_'.length);
+        inviteId = notification.id.substring('event_team_invite_'.length);
       }
       if (inviteId.isEmpty) return;
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pushNamed(
         RouteNames.eventTeamInviteResponse,
         arguments: EventTeamInviteResponseArgs(inviteId: inviteId),
+      );
+      return;
+    }
+
+    if (deeplinkType == 'safety_stamp_follow_up') {
+      final promiseId = deeplinkId;
+      final roomId = notification.roomId ?? '';
+      if (promiseId.isEmpty || roomId.isEmpty) return;
+      Navigator.of(context, rootNavigator: true).pushNamed(
+        RouteNames.safetyStampFollowUp,
+        arguments: SafetyStampFollowUpArgs(
+          roomId: roomId,
+          promiseId: promiseId,
+          notificationId: notification.id,
+        ),
       );
       return;
     }
@@ -163,6 +182,8 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         return CupertinoIcons.question_circle_fill;
       case 'event_team_invite':
         return CupertinoIcons.person_3_fill;
+      case 'safety_stamp_follow_up':
+        return CupertinoIcons.exclamationmark_bubble_fill;
       default:
         return CupertinoIcons.bell_fill;
     }

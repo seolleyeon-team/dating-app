@@ -109,15 +109,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _SettingsCard(
                     children: [
                       _SettingsItem(
+                        icon: CupertinoIcons.checkmark_shield,
+                        title: '안전도장 로그',
+                        subtitle: '만남과 헤어짐 도장 기록 보기',
+                        hasChevron: true,
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          Navigator.of(
+                            context,
+                          ).pushNamed(RouteNames.safetyStampLogs);
+                        },
+                      ),
+                      const _Divider(),
+                      _SettingsItem(
                         icon: CupertinoIcons.person_badge_minus,
                         title: '연락처 차단',
                         subtitle: '내 연락처의 지인 차단',
                         hasChevron: true,
                         onTap: () {
                           HapticFeedback.selectionClick();
-                          Navigator.of(context).pushNamed(
-                            RouteNames.contactBlock,
-                          );
+                          Navigator.of(
+                            context,
+                          ).pushNamed(RouteNames.contactBlock);
                         },
                       ),
                       const _Divider(),

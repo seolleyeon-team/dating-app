@@ -8,10 +8,13 @@ import '../../../services/interaction_service.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/constants/photo_blur_constants.dart';
+import '../../../shared/widgets/capture_protected_image.dart';
 import '../../chat/models/chat_room_data.dart';
 import '../../chat/services/chat_service.dart';
 import '../../../router/route_names.dart';
 import '../models/profile_card_args.dart';
+import '../services/profile_photo_access_service.dart';
 
 const String _kFontFamily = 'Pretendard';
 
@@ -24,7 +27,6 @@ class _AppColors {
   static const Color textSub = Color(0xFF6A6367);
   static const Color titleLight = Color(0xFFA39AA0);
   static const Color softPink = Color(0xFFE4E7EB);
-  static const Color softRose = Color(0xFFDDE2E7);
   static const Color chipBg = Color(0xFFFFFFFF);
   static const Color chipBg2 = Color(0xFFFFFFFF);
   static const Color gray100 = Color(0xFFF8F1F4);
@@ -112,6 +114,8 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
   final RecEventService _recEventService = RecEventService();
   final AskService _askService = AskService();
   final ChatService _chatService = ChatService();
+  final ProfilePhotoAccessService _photoAccessService =
+      ProfilePhotoAccessService();
 
   _ResolvedProfile? _profile;
   bool _isLoading = true;
@@ -124,6 +128,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
   bool _isNopeInFlight = false;
   bool _hasLiked = false;
   bool _hasNoped = false;
+  bool _isPhotoBlurUnlocked = false;
 
   @override
   void initState() {
@@ -137,6 +142,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
     final uid = await _storageService.getKakaoUserId();
     if (!mounted) return;
     setState(() => _currentUserId = uid);
+    await _loadPhotoAccess();
     // detail_open recEvent
     if (uid != null && uid.isNotEmpty) {
       final targetId =
@@ -158,6 +164,31 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
             .catchError((e) => debugPrint('[RecEvent] detail_open failed: $e'));
       }
     }
+  }
+
+  Future<void> _loadPhotoAccess() async {
+    if (widget.args?.isPreview == true) {
+      if (!mounted) return;
+      setState(() {
+        _isPhotoBlurUnlocked = false;
+      });
+      return;
+    }
+
+    final viewerUserId = _currentUserId;
+    final targetUserId = _profile?.id ?? widget.args?.userId ?? '';
+    if (viewerUserId == null || viewerUserId.isEmpty || targetUserId.isEmpty) {
+      return;
+    }
+
+    final isUnlocked = await _photoAccessService.canViewUnblurredProfilePhotos(
+      viewerUserId: viewerUserId,
+      targetUserId: targetUserId,
+    );
+    if (!mounted) return;
+    setState(() {
+      _isPhotoBlurUnlocked = isUnlocked;
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -349,9 +380,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
             },
           },
         )
-        .catchError(
-          (e) => debugPrint('[RecEvent] ask_button_tap failed: $e'),
-        );
+        .catchError((e) => debugPrint('[RecEvent] ask_button_tap failed: $e'));
 
     showModalBottomSheet(
       context: context,
@@ -369,26 +398,22 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
               ? Map<String, dynamic>.from(myProfile!['onboarding'] as Map)
               : <String, dynamic>{};
           final myPhotoUrls = myOnboarding['photoUrls'] is List
-              ? (myOnboarding['photoUrls'] as List)
-                  .whereType<String>()
-                  .toList()
+              ? (myOnboarding['photoUrls'] as List).whereType<String>().toList()
               : <String>[];
 
           final fromSnapshot = _askService.buildProfileSnapshot(
             uid: uid,
             nickname: myOnboarding['nickname']?.toString(),
-            profileImageUrl:
-                myPhotoUrls.isNotEmpty ? myPhotoUrls.first : null,
+            profileImageUrl: myPhotoUrls.isNotEmpty ? myPhotoUrls.first : null,
             universityName: myOnboarding['university']?.toString(),
           );
 
           final toSnapshot = _askService.buildProfileSnapshot(
             uid: targetId,
             nickname: _profile?.name,
-            profileImageUrl:
-                _profile?.imageUrls.isNotEmpty == true
-                    ? _profile!.imageUrls.first
-                    : null,
+            profileImageUrl: _profile?.imageUrls.isNotEmpty == true
+                ? _profile!.imageUrls.first
+                : null,
             universityName: _profile?.university,
           );
 
@@ -493,9 +518,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
               ? Map<String, dynamic>.from(myProfile!['onboarding'] as Map)
               : <String, dynamic>{};
           final myPhotoUrls = myOnboarding['photoUrls'] is List
-              ? (myOnboarding['photoUrls'] as List)
-                  .whereType<String>()
-                  .toList()
+              ? (myOnboarding['photoUrls'] as List).whereType<String>().toList()
               : <String>[];
 
           final roomId = _chatService.buildDirectRoomId(uid, targetId);
@@ -506,8 +529,9 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
             partnerId: targetId,
             currentUserName: myOnboarding['nickname']?.toString() ?? '',
             partnerName: _profile?.name ?? '',
-            currentUserAvatarUrl:
-                myPhotoUrls.isNotEmpty ? myPhotoUrls.first : null,
+            currentUserAvatarUrl: myPhotoUrls.isNotEmpty
+                ? myPhotoUrls.first
+                : null,
             partnerAvatarUrl: _profile?.imageUrls.isNotEmpty == true
                 ? _profile!.imageUrls.first
                 : null,
@@ -518,6 +542,12 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
             senderId: uid,
             text: messageText,
           );
+
+          if (mounted) {
+            setState(() {
+              _isPhotoBlurUnlocked = true;
+            });
+          }
 
           _recEventService
               .logEvent(
@@ -550,8 +580,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
           _showToast('메시지를 보냈어요 💬');
           final tId = _profile?.id ?? '';
           if (tId.isNotEmpty && _currentUserId != null) {
-            final roomId =
-                _chatService.buildDirectRoomId(_currentUserId!, tId);
+            final roomId = _chatService.buildDirectRoomId(_currentUserId!, tId);
             Navigator.of(context, rootNavigator: true).pushNamed(
               RouteNames.chatRoom,
               arguments: ChatRoomData(
@@ -825,6 +854,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
         _profile = resolved;
         _isLoading = false;
       });
+      await _loadPhotoAccess();
     } catch (e) {
       debugPrint('AiMatchProfileScreen load profile error: $e');
 
@@ -853,6 +883,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
         );
         _isLoading = false;
       });
+      await _loadPhotoAccess();
     }
   }
 
@@ -960,6 +991,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                               Navigator.pop(dialogCtx);
                             }
 
+                            if (!parentContext.mounted) return;
                             showCupertinoDialog(
                               context: parentContext,
                               builder: (successCtx) => CupertinoAlertDialog(
@@ -997,6 +1029,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                               setState(() => isSubmitting = false);
                             }
 
+                            if (!parentContext.mounted) return;
                             showCupertinoDialog(
                               context: parentContext,
                               builder: (errorCtx) => CupertinoAlertDialog(
@@ -1134,6 +1167,16 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                     child: _ProfileCard(
                       profile: profile,
                       heroImageIndex: _heroImageIndex,
+                      shouldBlurPhotos:
+                          widget.args?.isPreview == true ||
+                          !_isPhotoBlurUnlocked,
+                      photoBlurBadgeText:
+                          (widget.args?.isPreview == true ||
+                              !_isPhotoBlurUnlocked)
+                          ? widget.args?.isPreview == true
+                                ? '미리보기 사진은 살짝 가려둘게요 :)'
+                                : '메시지를 보내면 사진이 선명하게 보여요 :)'
+                          : null,
                       onHeroImageChanged: (index) {
                         setState(() {
                           _heroImageIndex = index;
@@ -1167,11 +1210,15 @@ class _ProfileCard extends StatelessWidget {
   final _ResolvedProfile profile;
   final int heroImageIndex;
   final ValueChanged<int> onHeroImageChanged;
+  final bool shouldBlurPhotos;
+  final String? photoBlurBadgeText;
 
   const _ProfileCard({
     required this.profile,
     required this.heroImageIndex,
     required this.onHeroImageChanged,
+    required this.shouldBlurPhotos,
+    this.photoBlurBadgeText,
   });
 
   @override
@@ -1200,6 +1247,8 @@ class _ProfileCard extends StatelessWidget {
             imageUrls: profile.imageUrls,
             currentIndex: heroImageIndex,
             onPageChanged: onHeroImageChanged,
+            shouldBlurPhotos: shouldBlurPhotos,
+            blurBadgeText: photoBlurBadgeText,
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
@@ -1359,7 +1408,10 @@ class _ProfileCard extends StatelessWidget {
                   const _SectionTitle(text: '나의 모습!'),
                   const SizedBox(height: 10),
                   _SectionCard(
-                    child: _MyGallerySlider(imageUrls: profile.imageUrls),
+                    child: _MyGallerySlider(
+                      imageUrls: profile.imageUrls,
+                      shouldBlurPhotos: shouldBlurPhotos,
+                    ),
                   ),
                 ],
               ],
@@ -1375,11 +1427,15 @@ class _HeroImage extends StatelessWidget {
   final List<String> imageUrls;
   final int currentIndex;
   final ValueChanged<int> onPageChanged;
+  final bool shouldBlurPhotos;
+  final String? blurBadgeText;
 
   const _HeroImage({
     required this.imageUrls,
     required this.currentIndex,
     required this.onPageChanged,
+    required this.shouldBlurPhotos,
+    this.blurBadgeText,
   });
 
   @override
@@ -1410,19 +1466,15 @@ class _HeroImage extends StatelessWidget {
                 );
               }
 
-              return Image.network(
-                imageUrl,
+              return CaptureProtectedImage(
+                imageUrl: imageUrl,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  color: _AppColors.gray100,
-                  child: const Center(
-                    child: Icon(
-                      CupertinoIcons.person_fill,
-                      size: 72,
-                      color: _AppColors.gray300,
-                    ),
-                  ),
-                ),
+                blurEnabled: shouldBlurPhotos,
+                blurSigma: kLockedProfilePhotoBlurSigma,
+                blurBadgeText: blurBadgeText,
+                backgroundColor: _AppColors.gray100,
+                placeholderIconColor: _AppColors.gray300,
+                placeholderIconSize: 72,
               );
             },
           ),
@@ -1701,8 +1753,12 @@ class _QaItem extends StatelessWidget {
 
 class _MyGallerySlider extends StatelessWidget {
   final List<String> imageUrls;
+  final bool shouldBlurPhotos;
 
-  const _MyGallerySlider({required this.imageUrls});
+  const _MyGallerySlider({
+    required this.imageUrls,
+    required this.shouldBlurPhotos,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1729,16 +1785,15 @@ class _MyGallerySlider extends StatelessWidget {
               ],
             ),
             clipBehavior: Clip.antiAlias,
-            child: Image.network(
-              url,
+            child: CaptureProtectedImage(
+              imageUrl: url,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const Center(
-                child: Icon(
-                  CupertinoIcons.person_fill,
-                  size: 38,
-                  color: _AppColors.gray300,
-                ),
-              ),
+              borderRadius: 22,
+              blurEnabled: shouldBlurPhotos,
+              blurSigma: kLockedProfilePhotoBlurSigma,
+              backgroundColor: _AppColors.gray100,
+              placeholderIconColor: _AppColors.gray300,
+              placeholderIconSize: 38,
             ),
           );
         },

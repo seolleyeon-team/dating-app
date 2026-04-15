@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../../../services/ask_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/widgets/capture_protected_image.dart';
 
 const String _kFontFamily = 'Noto Sans KR';
 
@@ -428,21 +429,14 @@ class _Avatar extends StatelessWidget {
         border: Border.all(color: _C.gray200.withValues(alpha: 0.5)),
       ),
       clipBehavior: Clip.antiAlias,
-      child: url.isNotEmpty
-          ? Image.network(
-              url,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const Icon(
-                CupertinoIcons.person_fill,
-                size: 24,
-                color: _C.gray300,
-              ),
-            )
-          : const Icon(
-              CupertinoIcons.person_fill,
-              size: 24,
-              color: _C.gray300,
-            ),
+      child: CaptureProtectedImage(
+        imageUrl: url,
+        fit: BoxFit.cover,
+        shape: CaptureProtectedImageShape.circle,
+        backgroundColor: _C.gray100,
+        placeholderIconColor: _C.gray300,
+        placeholderIconSize: 24,
+      ),
     );
   }
 }

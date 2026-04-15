@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../router/route_names.dart';
 import '../../../services/storage_service.dart';
+import '../../../shared/widgets/capture_protected_image.dart';
 import '../models/chat_room_data.dart';
 import '../services/chat_service.dart';
 
@@ -985,30 +986,14 @@ class _Avatar extends StatelessWidget {
               color: seol.gray400,
               size: 28,
             )
-          : isGrayscale
-          ? ColorFiltered(
-              colorFilter: const ColorFilter.mode(
-                CupertinoColors.systemGrey,
-                BlendMode.saturation,
-              ),
-              child: Image.network(
-                safeImageUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Icon(
-                  CupertinoIcons.person_fill,
-                  color: seol.gray400,
-                  size: 28,
-                ),
-              ),
-            )
-          : Image.network(
-              safeImageUrl,
+          : CaptureProtectedImage(
+              imageUrl: safeImageUrl,
+              shape: CaptureProtectedImageShape.circle,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Icon(
-                CupertinoIcons.person_fill,
-                color: seol.gray400,
-                size: 28,
-              ),
+              grayscale: isGrayscale,
+              backgroundColor: seol.gray100,
+              placeholderIconColor: _AppColors.gray400,
+              placeholderIconSize: 28,
             ),
     );
 
@@ -1031,13 +1016,14 @@ class _Avatar extends StatelessWidget {
             border: Border.all(color: ringColor, width: 2),
           ),
           clipBehavior: Clip.antiAlias,
-          child: Image.network(
-            safeImageUrl,
+          child: CaptureProtectedImage(
+            imageUrl: safeImageUrl,
+            shape: CaptureProtectedImageShape.circle,
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Icon(
-              CupertinoIcons.person_fill,
-              color: seol.gray400,
-            ),
+            grayscale: isGrayscale,
+            backgroundColor: seol.gray100,
+            placeholderIconColor: _AppColors.gray400,
+            placeholderIconSize: 28,
           ),
         ),
       );
@@ -1064,6 +1050,7 @@ class _Avatar extends StatelessWidget {
     );
   }
 }
+
 
 // =============================================================================
 // 하단 네비게이션

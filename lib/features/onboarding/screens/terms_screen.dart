@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import '../../../router/route_names.dart';
 import 'terms_detail_sheet.dart';
 import '../../../services/storage_service.dart';
+import '../../../services/user_service.dart';
 
 // =============================================================================
 // 색상 상수
@@ -86,7 +87,15 @@ class _TermsScreenState extends State<TermsScreen> {
 
   Future<void> _enterWithTestAccount() async {
     final storage = StorageService();
+    final userService = UserService();
     await storage.saveKakaoUserId("fake_user_1");
+    final existingProfile = await userService.getUserProfile('fake_user_1');
+    if (existingProfile != null) {
+      await userService.setLastActivePlatform(
+        kakaoUserId: 'fake_user_1',
+        platform: 'web',
+      );
+    }
 
     if (!mounted) return;
 
