@@ -13,7 +13,10 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import '../../chat/services/chat_service.dart';
 import '../../../router/route_names.dart';
+import '../../../services/event_team_service.dart';
 import '../../../services/storage_service.dart';
+import '../widgets/pending_team_invite_card.dart';
+import '../widgets/team_invite_response_sheet.dart';
 
 // =============================================================================
 // 색상 상수
@@ -44,7 +47,11 @@ class _EventScreenState extends State<EventScreen> {
   int _selectedTabIndex = 0;
   final StorageService _storageService = StorageService();
   final ChatService _chatService = ChatService();
+  final EventTeamService _eventTeamService = EventTeamService();
   String? _currentUserId;
+
+  /// "나중에 보기" 눌렀을 때 세션 내 일시 dismiss
+  String? _dismissedInviteId;
 
   @override
   void initState() {
@@ -81,6 +88,42 @@ class _EventScreenState extends State<EventScreen> {
             children: [
               // 상단 앱 바
               _TopAppBar(onBackPressed: () => Navigator.of(context).pop()),
+              // Pending 팀 초대 배너 — 이벤트 탭 전체(세그먼트 무관)에서 표시
+              if (_currentUserId != null && _currentUserId!.isNotEmpty)
+                StreamBuilder<List<EventTeamInviteDoc>>(
+                  stream: _eventTeamService.watchPendingInvitesForUser(
+                    _currentUserId!,
+                  ),
+                  builder: (context, invSnap) {
+                    if (invSnap.hasError) {
+                      return const SizedBox.shrink();
+                    }
+                    final invites = invSnap.data ?? [];
+                    if (invites.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    final visibleInvite = invites.first;
+                    if (_dismissedInviteId == visibleInvite.inviteId) {
+                      return const SizedBox.shrink();
+                    }
+                    return PendingTeamInviteCard(
+                      pendingInvites: invites,
+                      onDismiss: () {
+                        HapticFeedback.lightImpact();
+                        setState(
+                          () => _dismissedInviteId = visibleInvite.inviteId,
+                        );
+                      },
+                      onConfirm: () {
+                        HapticFeedback.mediumImpact();
+                        showTeamInviteResponseSheet(
+                          context,
+                          invite: visibleInvite,
+                        );
+                      },
+                    );
+                  },
+                ),
               // 세그먼트 컨트롤
               _SegmentedControl(
                 selectedIndex: _selectedTabIndex,
@@ -91,23 +134,33 @@ class _EventScreenState extends State<EventScreen> {
                 child: _selectedTabIndex == 0
                     ? SingleChildScrollView(
                         physics: const BouncingScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+                        padding: const EdgeInsets.fromLTRB(0, 16, 0, 120),
                         child: Column(
                           children: [
-                            // 히어로 카드 (슬롯머신)
-                            const _HeroCard(),
-                            const SizedBox(height: 16),
-                            // 상태 표시줄
-                            const _StatusStrip(),
-                            const SizedBox(height: 16),
-                            // CTA 버튼
-                            _PrimaryCTA(onPressed: _onStartPressed),
-                            const SizedBox(height: 24),
-                            // 구분선
-                            const _Divider(),
-                            const SizedBox(height: 24),
-                            // 제휴 장소 섹션
-                            const _PartnerVenueSection(),
+                            // ━━━ 기존 콘텐츠 ━━━
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              child: Column(
+                                children: [
+                                  // 히어로 카드 (슬롯머신)
+                                  const _HeroCard(),
+                                  const SizedBox(height: 16),
+                                  // 상태 표시줄
+                                  const _StatusStrip(),
+                                  const SizedBox(height: 16),
+                                  // CTA 버튼
+                                  _PrimaryCTA(onPressed: _onStartPressed),
+                                  const SizedBox(height: 24),
+                                  // 구분선
+                                  const _Divider(),
+                                  const SizedBox(height: 24),
+                                  // 제휴 장소 섹션
+                                  const _PartnerVenueSection(),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
                       )

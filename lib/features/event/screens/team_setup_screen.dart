@@ -9,14 +9,14 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors, Icons;
 import 'package:flutter/services.dart';
 
+import '../models/event_team_route_args.dart';
 import '../../../router/route_names.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/event_team_service.dart';
+import '../../../services/team_meeting_request_service.dart';
 import '../../../services/kakao_friend_invite_helper.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
-import '../models/event_team_route_args.dart';
-
 class _AppColors {
   static const Color primary = Color(0xFFF0426E);
   static const Color backgroundLight = Color(0xFFF8F6F6);
@@ -80,9 +80,22 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
     await _loadShareName(uid);
     try {
       final saved = await _storage.getEventTeamSetupDraftId(uid);
-      final id = await _eventTeam.ensureTeamSetup(
-        existingTeamSetupId: saved ?? '',
-      );
+      if (saved != null && saved.isNotEmpty) {
+        final savedTeam = await _eventTeam.getTeamSetupOnce(saved);
+        if (savedTeam != null && savedTeam.containsUser(uid)) {
+          if (!mounted) return;
+          setState(() {
+            _teamSetupId = saved;
+            _bootError = false;
+            _bootstrapErrorDetail = null;
+            _bootstrapComplete = true;
+          });
+          return;
+        }
+        await _storage.clearEventTeamSetupDraftId(uid);
+      }
+
+      final id = await _eventTeam.ensureTeamSetup();
       await _storage.saveEventTeamSetupDraftId(uid, id);
       if (!mounted) return;
       setState(() {
@@ -180,11 +193,10 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
   }
 
   Future<void> _openPicker() async {
-    final id = _teamSetupId;
     final uid = _kakaoUserId;
-    if (id == null || uid == null) return;
+    if (uid == null || uid.isEmpty) return;
     if (!_sessionOk) {
-      final ok = await _auth.ensureFirebaseSessionForKakao(uid);
+      final ok = await _auth.ensureFirebaseSessionForVerifiedUser(uid);
       if (!mounted) return;
       setState(() => _sessionOk = ok);
       if (!ok) {
@@ -193,10 +205,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
       }
     }
     HapticFeedback.lightImpact();
-    Navigator.of(context).pushNamed(
-      RouteNames.eventTeamFriendPicker,
-      arguments: TeamFriendPickerArgs(teamSetupId: id),
-    );
+    Navigator.of(context).pushNamed(RouteNames.eventAddFriend);
   }
 
   Future<void> _kakaoInvite() async {
@@ -257,7 +266,10 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
           SafeArea(
             child: Column(
               children: [
-                _Header(onBack: () => Navigator.of(context).pop()),
+                _Header(
+                  onBack: () => Navigator.of(context).pop(),
+                  teamSetupId: _teamSetupId,
+                ),
                 Expanded(
                   child: SingleChildScrollView(
                     physics: const BouncingScrollPhysics(),
@@ -409,6 +421,16 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
   }
 }
 
+class _TeamProfilesData {
+  final List<EventTeamMemberProfile> acceptedProfiles;
+  final List<EventTeamMemberProfile> pendingProfiles;
+
+  const _TeamProfilesData({
+    required this.acceptedProfiles,
+    required this.pendingProfiles,
+  });
+}
+
 class _TeamBody extends StatelessWidget {
   final String teamSetupId;
   final String currentUserId;
@@ -422,35 +444,60 @@ class _TeamBody extends StatelessWidget {
     required this.onInviteSlotTap,
   });
 
+  EventTeamSetupState _fallbackState() {
+    return EventTeamSetupState(
+      teamSetupId: teamSetupId,
+      leaderUserId: currentUserId,
+      acceptedUserIds: [currentUserId],
+      pendingInviteeIds: const [],
+    );
+  }
+
+  Future<_TeamProfilesData> _loadProfiles(
+    EventTeamSetupState state,
+  ) async {
+    final acceptedProfiles = await eventTeam.buildMemberProfiles(
+      state: state,
+      currentUserId: currentUserId,
+    );
+    final pendingProfiles = await eventTeam.buildPendingInviteProfiles(
+      state: state,
+    );
+    return _TeamProfilesData(
+      acceptedProfiles: acceptedProfiles,
+      pendingProfiles: pendingProfiles,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<EventTeamSetupState?>(
       stream: eventTeam.watchTeamSetup(teamSetupId),
       builder: (context, snap) {
-        final state = snap.data;
-        if (snap.connectionState == ConnectionState.waiting && state == null) {
+        final state = snap.data ?? _fallbackState();
+        if (snap.connectionState == ConnectionState.waiting &&
+            snap.data == null) {
           return const Padding(
             padding: EdgeInsets.all(40),
             child: Center(child: CupertinoActivityIndicator()),
           );
         }
-        if (state == null) {
+        if (snap.hasError) {
           return const Text(
             '팀 상태를 불러오지 못했어요.',
             style: TextStyle(color: _AppColors.textSub),
           );
         }
         final isLeader = state.leaderUserId == currentUserId;
-        final remaining = state.remainingSlots;
+        final canInviteMore = isLeader && state.remainingInviteSlots > 0;
 
-        return FutureBuilder<List<EventTeamMemberProfile>>(
-          future: eventTeam.buildMemberProfiles(
-            state: state,
-            currentUserId: currentUserId,
-          ),
+        return FutureBuilder<_TeamProfilesData>(
+          future: _loadProfiles(state),
           builder: (context, profSnap) {
-            final profiles = profSnap.data ?? [];
+            final acceptedProfiles = profSnap.data?.acceptedProfiles ?? [];
+            final pendingProfiles = profSnap.data?.pendingProfiles ?? [];
             return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -458,25 +505,115 @@ class _TeamBody extends StatelessWidget {
                     for (var i = 0; i < 3; i++) ...[
                       if (i > 0) const SizedBox(width: 12),
                       Expanded(
-                        child: i < profiles.length
+                        child: i < acceptedProfiles.length
                             ? _MemberSlotCard(
-                                profile: profiles[i],
-                                isMe: profiles[i].userId == currentUserId,
+                                profile: acceptedProfiles[i],
+                                isMe:
+                                    acceptedProfiles[i].userId ==
+                                    currentUserId,
                               )
                             : _EmptyInviteSlot(
-                                onTap: isLeader && remaining > 0
-                                    ? onInviteSlotTap
-                                    : null,
+                                onTap: canInviteMore ? onInviteSlotTap : null,
                               ),
                       ),
                     ],
                   ],
                 ),
+                if (pendingProfiles.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  _PendingInviteSection(profiles: pendingProfiles),
+                ],
               ],
             );
           },
         );
       },
+    );
+  }
+}
+
+class _PendingInviteSection extends StatelessWidget {
+  final List<EventTeamMemberProfile> profiles;
+
+  const _PendingInviteSection({required this.profiles});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: _AppColors.primary.withValues(alpha: 0.12),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(
+                CupertinoIcons.time_solid,
+                color: _AppColors.primary,
+                size: 16,
+              ),
+              SizedBox(width: 8),
+              Text(
+                '\uc218\ub77d \ub300\uae30 \uc911',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: _AppColors.textMain,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final profile in profiles)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _AppColors.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '${profile.name} \u00b7 \ucd08\ub300 \ubcf4\ub0c4',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: _AppColors.textMain,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            '\uce5c\uad6c\uac00 \ucd08\ub300\ub97c \uc218\ub77d\ud558\uba74 '
+            '\ud300 \uba64\ubc84\ub85c \ucd94\uac00\ub3fc\uc694.',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: _AppColors.textSub,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -695,7 +832,10 @@ class _BottomSlotMachineCTA extends StatelessWidget {
       builder: (context, snap) {
         final state = snap.data;
         final ready = state?.canStartSlotMachine ?? false;
-        return _BottomCTA(isDisabled: !ready);
+        return _BottomCTA(
+          isDisabled: !ready,
+          teamSetupId: teamSetupId,
+        );
       },
     );
   }
@@ -703,8 +843,9 @@ class _BottomSlotMachineCTA extends StatelessWidget {
 
 class _Header extends StatelessWidget {
   final VoidCallback onBack;
+  final String? teamSetupId;
 
-  const _Header({required this.onBack});
+  const _Header({required this.onBack, this.teamSetupId});
 
   @override
   Widget build(BuildContext context) {
@@ -741,9 +882,97 @@ class _Header extends StatelessWidget {
               color: _AppColors.textMain,
             ),
           ),
-          const SizedBox(width: 40),
+          _HeartIconButton(teamSetupId: teamSetupId),
         ],
       ),
+    );
+  }
+}
+
+class _HeartIconButton extends StatelessWidget {
+  final String? teamSetupId;
+
+  const _HeartIconButton({this.teamSetupId});
+
+  @override
+  Widget build(BuildContext context) {
+    if (teamSetupId == null) return const SizedBox(width: 40);
+
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      minimumSize: const Size(40, 40),
+      onPressed: () {
+        HapticFeedback.selectionClick();
+        Navigator.of(context).pushNamed(RouteNames.teamRequests);
+      },
+      child: SizedBox(
+        width: 40,
+        height: 40,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.05),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                CupertinoIcons.heart,
+                color: _AppColors.primary,
+                size: 22,
+              ),
+            ),
+            _PendingBadge(teamSetupId: teamSetupId!),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingBadge extends StatelessWidget {
+  final String teamSetupId;
+
+  const _PendingBadge({required this.teamSetupId});
+
+  @override
+  Widget build(BuildContext context) {
+    final service = TeamMeetingRequestService();
+    return StreamBuilder<int>(
+      stream: service.watchPendingReceivedCount(teamSetupId),
+      builder: (context, snap) {
+        final count = snap.data ?? 0;
+        if (count == 0) return const SizedBox.shrink();
+        return Positioned(
+          top: -2,
+          right: -2,
+          child: Container(
+            width: 18,
+            height: 18,
+            decoration: BoxDecoration(
+              color: _AppColors.primary,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: _AppColors.backgroundLight,
+                width: 2,
+              ),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              count > 9 ? '9+' : '$count',
+              style: const TextStyle(
+                fontFamily: 'Pretendard',
+                fontSize: 9,
+                fontWeight: FontWeight.w800,
+                color: CupertinoColors.white,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -902,13 +1131,22 @@ class _InviteButtons extends StatelessWidget {
 
 class _BottomCTA extends StatelessWidget {
   final bool isDisabled;
+  final String? teamSetupId;
 
-  const _BottomCTA({this.isDisabled = false});
+  const _BottomCTA({
+    this.isDisabled = false,
+    this.teamSetupId,
+  });
 
   void _onPressed(BuildContext context) {
     if (!isDisabled) {
       HapticFeedback.mediumImpact();
-      Navigator.of(context).pushNamed(RouteNames.seasonMeetingRoulette);
+      Navigator.of(context).pushNamed(
+        RouteNames.seasonMeetingRoulette,
+        arguments: teamSetupId == null || teamSetupId!.isEmpty
+            ? null
+            : SeasonMeetingRouletteArgs(teamSetupId: teamSetupId!),
+      );
     }
   }
 

@@ -11,7 +11,10 @@ import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayInputStream
 import java.security.MessageDigest
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
 
 class MainActivity : FlutterActivity() {
 
@@ -42,6 +45,8 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, KAKAO_CHANNEL).setMethodCallHandler { call, result ->
             if (call.method == "getKeyHash") {
                 result.success(getKeyHash())
+            } else if (call.method == "isDebugSigned") {
+                result.success(isDebugSigned())
             } else {
                 result.notImplemented()
             }
@@ -97,18 +102,7 @@ class MainActivity : FlutterActivity() {
 
     private fun getKeyHash(): String {
         return try {
-            @Suppress("DEPRECATION")
-            val signatures = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                packageManager.getPackageInfo(
-                    packageName,
-                    PackageManager.GET_SIGNING_CERTIFICATES
-                ).signingInfo?.apkContentsSigners
-            } else {
-                packageManager.getPackageInfo(
-                    packageName,
-                    PackageManager.GET_SIGNATURES
-                ).signatures
-            }) ?: emptyArray()
+            val signatures = getSigningCertificates()
             if (signatures.isNotEmpty()) {
                 val md = MessageDigest.getInstance("SHA")
                 md.update(signatures[0].toByteArray())
@@ -121,6 +115,35 @@ class MainActivity : FlutterActivity() {
             ""
         }
     }
+
+    private fun isDebugSigned(): Boolean {
+        return try {
+            val certificateFactory = CertificateFactory.getInstance("X.509")
+            getSigningCertificates().any { signature ->
+                val certificate = certificateFactory.generateCertificate(
+                    ByteArrayInputStream(signature.toByteArray())
+                ) as X509Certificate
+                certificate.subjectX500Principal.name.contains("CN=Android Debug")
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "isDebugSigned error", e)
+            false
+        }
+    }
+
+    private fun getSigningCertificates() =
+        @Suppress("DEPRECATION")
+        (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageManager.getPackageInfo(
+                packageName,
+                PackageManager.GET_SIGNING_CERTIFICATES
+            ).signingInfo?.apkContentsSigners
+        } else {
+            packageManager.getPackageInfo(
+                packageName,
+                PackageManager.GET_SIGNATURES
+            ).signatures
+        }) ?: emptyArray()
 
     private fun launchAppByPackage(packageName: String): Boolean {
         return try {

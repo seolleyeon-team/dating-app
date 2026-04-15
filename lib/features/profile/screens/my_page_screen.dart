@@ -8,7 +8,9 @@ import 'dart:ui';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
+import '../../../providers/auth_provider.dart';
 import '../../../router/route_names.dart';
 import '../../../services/ask_service.dart';
 import '../../../services/auth_service.dart';
@@ -56,6 +58,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
   bool _isInvitingFriends = false;
   OverlayEntry? _inviteToastEntry;
   Timer? _inviteToastTimer;
+  StreamSubscription? _friendsCountSubscription;
 
   String userName = '사용자 이름';
   String nickname = '닉네임';
@@ -77,6 +80,26 @@ class _MyPageScreenState extends State<MyPageScreen> {
   Future<void> _loadCurrentUser() async {
     final kakaoUserId = await _storageService.getKakaoUserId();
     if (!mounted) return;
+    await _friendsCountSubscription?.cancel();
+
+    final canReadFriends = kakaoUserId != null && kakaoUserId.isNotEmpty
+        ? await _authService.ensureFirebaseSessionForVerifiedUser(kakaoUserId)
+        : false;
+
+    if (canReadFriends) {
+      _friendsCountSubscription = _friendService
+          .friendsStream(kakaoUserId)
+          .listen(
+        (snapshot) {
+          if (!mounted) return;
+          setState(() => friendsCount = snapshot.size);
+        },
+        onError: (error) {
+          debugPrint('[MyPage] friends stream error: $error');
+        },
+      );
+    }
+
     setState(() => _currentUserId = kakaoUserId);
   }
 
@@ -86,7 +109,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
 
     final user = await _userService.getUserProfile(kakaoUserId);
     if (!mounted || user == null) return;
-    final canReadFriends = await _authService.ensureFirebaseSessionForKakao(
+    final canReadFriends = await _authService.ensureFirebaseSessionForVerifiedUser(
       kakaoUserId,
     );
     final actualFriendsCount = canReadFriends
@@ -187,10 +210,12 @@ class _MyPageScreenState extends State<MyPageScreen> {
   void dispose() {
     _inviteToastTimer?.cancel();
     _inviteToastEntry?.remove();
+    _friendsCountSubscription?.cancel();
     super.dispose();
   }
 
   Future<void> _confirmLogout() async {
+    final authProvider = context.read<AuthProvider>();
     final shouldLogout = await showCupertinoDialog<bool>(
       context: context,
       useRootNavigator: true,
@@ -225,7 +250,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
 
     if (shouldLogout != true) return;
 
-    await _storageService.clearAll();
+    await authProvider.logout();
 
     if (!mounted) return;
 

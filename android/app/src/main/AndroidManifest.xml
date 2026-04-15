@@ -59,8 +59,17 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:scheme="kakaocb08e2aea50a58b7d0c5e610e0c5a644"
+                    android:scheme="kakao08e2aea50a58b7d0c5e610e0c5a644"
                     android:host="kakaolink" />
+            </intent-filter>
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="seolleyeon.web.app"
+                    android:pathPrefix="/invite/friend" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
