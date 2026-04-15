@@ -7,7 +7,7 @@
 | **1:1 피드 추천** | **v3** | `lib/ai_recommend_model/seolleyeon_*_v3.py`, `seolleyeon_rec_common_v3.py`, `seolleyeon_run_all_v3.py` | CLIP을 앵커로 두고 SVD/KNN은 보조; RRF는 `seolleyeon_rrf_export.py`로 병합 |
 | **3:3 미팅(그룹) 추천** | **v1** | `lib/ai_recommend_model/seolleyeon_meeting_*_v1.py` | `meetingGroupIndex` → `meetingModelRecs` → `meetingDailyRecs` |
 
-아래 **Cloud Run / `recsys.main`** 은 배포 편의를 위해 **접미사 없는 레거시 스크립트**(`seolleyeon_svd_train_export.py` 등)를 호출합니다. **운영·실험 기준 1:1 로직은 v3**를 보시면 됩니다. 상세 실행은 `lib/ai_recommend_model/README.md` 참고.
+아래 **Cloud Run / `recsys.main`** 은 `clip` / `svd` / `knn` 스텝에서 **v3 스크립트**(`seolleyeon_*_train_export_v3.py`)를 호출합니다. 운영 기준 1:1 로직은 v3를 기준으로 보면 됩니다. 상세 실행은 `lib/ai_recommend_model/README.md` 참고.
 
 ## Architecture
 

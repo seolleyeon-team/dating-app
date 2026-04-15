@@ -3391,6 +3391,9 @@ export const sendDailyUnreadChatDigests = onSchedule(
   {
     schedule: "0 13 * * *",
     timeZone: "Asia/Seoul",
+    cpu: "gcf_gen1",
+    concurrency: 1,
+    maxInstances: 1,
   },
   async () => {
     const digestDate = getKstDateKey();

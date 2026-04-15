@@ -90,16 +90,16 @@ python seolleyeon_rrf_export.py --firestore_project YOUR_PROJECT --date_key 2026
 ### 레거시 1:1 일괄 실행 (비 v3)
 
 ```bash
-python seolleyeon_run_all.py --firestore_project YOUR_PROJECT --date_key 20250309
+python seolleyeon_run_all.py --firestore_project seolleyeon --date_key 20250309
 ```
 
 개별 단계는 기존과 동일하게 `seolleyeon_svd_train_export.py` 등 파일명 **접미사 없음**.
 
 ```bash
-python seolleyeon_svd_train_export.py --firestore_project YOUR_PROJECT --date_key 20250309 --firestore_events
-python seolleyeon_knn_train_export.py --firestore_project YOUR_PROJECT --date_key 20250309 --firestore_events
-python seolleyeon_clip_train_export.py --firestore_project YOUR_PROJECT --date_key 20250309
-python seolleyeon_rrf_export.py --firestore_project YOUR_PROJECT --date_key 20250309
+python seolleyeon_svd_train_export.py --firestore_project seolleyeon --date_key 20250309 --firestore_events
+python seolleyeon_knn_train_export.py --firestore_project seolleyeon --date_key 20250309 --firestore_events
+python seolleyeon_clip_train_export.py --firestore_project seolleyeon --date_key 20250309
+python seolleyeon_rrf_export.py --firestore_project seolleyeon --date_key 20250309
 ```
 
 ---
@@ -129,7 +129,7 @@ python seolleyeon_meeting_run_all_v1.py --firestore_project YOUR_PROJECT --date_
 ### 오프라인 평가 (선택)
 
 ```bash
-python seolleyeon_meeting_eval_v1.py --firestore_project YOUR_PROJECT --date_key 20260413
+python seolleyeon_meeting_eval_v1.py --firestore_project seolleyeon --date_key 20260413
 ```
 
 컬렉션 이름·소스 종류는 스크립트의 CLI 도움말(`--help`)을 참고하세요.

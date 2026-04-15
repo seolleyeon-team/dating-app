@@ -7,8 +7,11 @@ import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/constants/app_colors.dart';
 import '../../../router/route_names.dart';
 import '../../../services/storage_service.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
@@ -19,11 +22,7 @@ import '../services/chat_service.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFFF5A7E);
-  static const Color textMain = Color(0xFF111111);
-  static const Color gray100 = Color(0xFFF3F4F6);
   static const Color gray400 = Color(0xFF9CA3AF);
-  static const Color gray500 = Color(0xFF6B7280);
   static const Color onlineGreen = Color(0xFF22C55E);
 }
 
@@ -303,13 +302,19 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final currentUserId = _currentKakaoUserId ?? '';
 
     if (_isLoading) {
-      return const CupertinoPageScaffold(
-        child: Center(child: CupertinoActivityIndicator()),
+      return CupertinoPageScaffold(
+        backgroundColor: Theme.of(context).brightness == Brightness.dark
+            ? AppColorsDark.background
+            : CupertinoColors.white,
+        child: const Center(child: CupertinoActivityIndicator()),
       );
     }
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scaffoldBg = isDark ? AppColorsDark.background : CupertinoColors.white;
+
     return CupertinoPageScaffold(
-      backgroundColor: CupertinoColors.white,
+      backgroundColor: scaffoldBg,
       child: Stack(
         children: [
           CustomScrollView(
@@ -382,16 +387,17 @@ class _ChatListScreenState extends State<ChatListScreen> {
                         );
                       }
 
-                      return const SliverToBoxAdapter(
+                      final seol = Theme.of(context).extension<SeolThemeColors>()!;
+                      return SliverToBoxAdapter(
                         child: Padding(
-                          padding: EdgeInsets.only(top: 80),
+                          padding: const EdgeInsets.only(top: 80),
                           child: Center(
                             child: Text(
                               '채팅 목록을 불러오지 못했어요',
                               style: TextStyle(
                                 fontFamily: 'Pretendard',
                                 fontSize: 15,
-                                color: _AppColors.gray500,
+                                color: seol.gray400,
                               ),
                             ),
                           ),
@@ -497,6 +503,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     ];
 
                     if (firestoreChats.isEmpty) {
+                      final seol = Theme.of(context).extension<SeolThemeColors>()!;
                       return SliverToBoxAdapter(
                         child: Padding(
                           padding: const EdgeInsets.only(top: 80),
@@ -505,10 +512,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
                               currentUserId == 'fake_user_1'
                                   ? '아직 받은 채팅이 없어요'
                                   : '채팅을 시작해 보세요!',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontFamily: 'Pretendard',
                                 fontSize: 15,
-                                color: _AppColors.gray500,
+                                color: seol.gray400,
                               ),
                             ),
                           ),
@@ -614,8 +621,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      CupertinoColors.white.withValues(alpha: 0),
-                      CupertinoColors.white,
+                      scaffoldBg.withValues(alpha: 0),
+                      scaffoldBg,
                     ],
                   ),
                 ),
@@ -655,6 +662,13 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final titleColor = seol.gray800;
+    final filterBg = isDark
+        ? CupertinoColors.white.withValues(alpha: 0.08)
+        : CupertinoColors.black.withValues(alpha: 0.03);
+
     return SafeArea(
       bottom: false,
       child: Padding(
@@ -662,14 +676,14 @@ class _Header extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
+            Text(
               '채팅',
               style: TextStyle(
                 fontFamily: 'Pretendard',
                 fontSize: 28,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.5,
-                color: _AppColors.textMain,
+                color: titleColor,
               ),
             ),
             CupertinoButton(
@@ -683,12 +697,12 @@ class _Header extends StatelessWidget {
                 height: 40,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: CupertinoColors.black.withValues(alpha: 0.03),
+                  color: filterBg,
                 ),
-                child: const Icon(
+                child: Icon(
                   CupertinoIcons.slider_horizontal_3,
                   size: 24,
-                  color: _AppColors.textMain,
+                  color: titleColor,
                 ),
               ),
             ),
@@ -770,6 +784,9 @@ class _TabChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+
     return CupertinoButton(
       padding: EdgeInsets.zero,
       onPressed: () {
@@ -779,12 +796,12 @@ class _TabChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected ? _AppColors.primary : _AppColors.gray100,
+          color: isSelected ? primary : seol.gray100,
           borderRadius: BorderRadius.circular(20),
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: _AppColors.primary.withValues(alpha: 0.15),
+                    color: primary.withValues(alpha: 0.15),
                     blurRadius: 20,
                     offset: const Offset(0, 4),
                   ),
@@ -798,7 +815,7 @@ class _TabChip extends StatelessWidget {
               Icon(
                 icon,
                 size: 14,
-                color: isSelected ? CupertinoColors.white : _AppColors.gray500,
+                color: isSelected ? CupertinoColors.white : seol.gray400,
               ),
               const SizedBox(width: 6),
             ],
@@ -808,7 +825,7 @@ class _TabChip extends StatelessWidget {
                 fontFamily: 'Pretendard',
                 fontSize: 13,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                color: isSelected ? CupertinoColors.white : _AppColors.gray500,
+                color: isSelected ? CupertinoColors.white : seol.gray400,
               ),
             ),
           ],
@@ -829,11 +846,17 @@ class _ChatListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+
     return CupertinoButton(
       padding: EdgeInsets.zero,
       onPressed: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: seol.cardSurface,
+          borderRadius: BorderRadius.circular(12),
+        ),
         child: Row(
           children: [
             _Avatar(
@@ -859,17 +882,17 @@ class _ChatListItem extends StatelessWidget {
                               ? FontWeight.w700
                               : FontWeight.w600,
                           letterSpacing: -0.2,
-                          color: _AppColors.textMain,
+                          color: seol.gray800,
                         ),
                       ),
                       if (chat.time.isNotEmpty)
                         Text(
                           chat.time,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'Pretendard',
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
-                            color: _AppColors.gray400,
+                            color: seol.gray400,
                           ),
                         ),
                     ],
@@ -889,8 +912,8 @@ class _ChatListItem extends StatelessWidget {
                                 ? FontWeight.w500
                                 : FontWeight.w400,
                             color: chat.hasUnread
-                                ? _AppColors.textMain
-                                : _AppColors.gray500,
+                                ? seol.gray800
+                                : seol.gray400,
                             height: 1.3,
                           ),
                         ),
@@ -944,20 +967,23 @@ class _Avatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
     final safeImageUrl = imageUrl;
+    final ringColor = seol.cardSurface;
+
     Widget avatar = Container(
       width: 60,
       height: 60,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        border: Border.all(color: _AppColors.gray100),
-        color: _AppColors.gray100,
+        border: Border.all(color: seol.gray100),
+        color: seol.gray100,
       ),
       clipBehavior: Clip.antiAlias,
       child: safeImageUrl.isEmpty
-          ? const Icon(
+          ? Icon(
               CupertinoIcons.person_fill,
-              color: _AppColors.gray400,
+              color: seol.gray400,
               size: 28,
             )
           : CaptureProtectedImage(
@@ -965,7 +991,7 @@ class _Avatar extends StatelessWidget {
               shape: CaptureProtectedImageShape.circle,
               fit: BoxFit.cover,
               grayscale: isGrayscale,
-              backgroundColor: _AppColors.gray100,
+              backgroundColor: seol.gray100,
               placeholderIconColor: _AppColors.gray400,
               placeholderIconSize: 28,
             ),
@@ -987,14 +1013,15 @@ class _Avatar extends StatelessWidget {
           height: 56,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(color: CupertinoColors.white, width: 2),
+            border: Border.all(color: ringColor, width: 2),
           ),
           clipBehavior: Clip.antiAlias,
           child: CaptureProtectedImage(
             imageUrl: safeImageUrl,
             shape: CaptureProtectedImageShape.circle,
             fit: BoxFit.cover,
-            backgroundColor: CupertinoColors.white,
+            grayscale: isGrayscale,
+            backgroundColor: seol.gray100,
             placeholderIconColor: _AppColors.gray400,
             placeholderIconSize: 28,
           ),
@@ -1015,7 +1042,7 @@ class _Avatar extends StatelessWidget {
               decoration: BoxDecoration(
                 color: _AppColors.onlineGreen,
                 shape: BoxShape.circle,
-                border: Border.all(color: CupertinoColors.white, width: 2),
+                border: Border.all(color: ringColor, width: 2),
               ),
             ),
           ),
@@ -1023,6 +1050,7 @@ class _Avatar extends StatelessWidget {
     );
   }
 }
+
 
 // =============================================================================
 // 하단 네비게이션
@@ -1035,6 +1063,14 @@ class _BottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final navBg = isDark
+        ? const Color(0xFF221A28).withValues(alpha: 0.92)
+        : CupertinoColors.white.withValues(alpha: 0.95);
+    final navBorder = isDark
+        ? AppColorsDark.border.withValues(alpha: 0.55)
+        : CupertinoColors.white.withValues(alpha: 0.4);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(32),
       child: BackdropFilter(
@@ -1042,10 +1078,10 @@ class _BottomNavBar extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
           decoration: BoxDecoration(
-            color: CupertinoColors.white.withValues(alpha: 0.95),
+            color: navBg,
             borderRadius: BorderRadius.circular(32),
             border: Border.all(
-              color: CupertinoColors.white.withValues(alpha: 0.4),
+              color: navBorder,
             ),
             boxShadow: [
               BoxShadow(
@@ -1110,6 +1146,11 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final inactiveColor = Theme.of(context).brightness == Brightness.dark
+        ? const Color(0xFF7A6B76)
+        : _AppColors.gray400;
+
     return CupertinoButton(
       padding: EdgeInsets.zero,
       onPressed: onTap,
@@ -1122,7 +1163,7 @@ class _NavItem extends StatelessWidget {
               Icon(
                 icon,
                 size: 24,
-                color: isActive ? _AppColors.primary : _AppColors.gray400,
+                color: isActive ? primary : inactiveColor,
               ),
               if (showBadge)
                 Positioned(
@@ -1147,7 +1188,7 @@ class _NavItem extends StatelessWidget {
               fontSize: 10,
               fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
               letterSpacing: -0.2,
-              color: isActive ? _AppColors.primary : _AppColors.gray400,
+              color: isActive ? primary : inactiveColor,
             ),
           ),
         ],

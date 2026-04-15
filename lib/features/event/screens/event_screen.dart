@@ -17,17 +17,14 @@ import '../../../services/event_team_service.dart';
 import '../../../services/storage_service.dart';
 import '../widgets/pending_team_invite_card.dart';
 import '../widgets/team_invite_response_sheet.dart';
+import 'package:flutter/material.dart';
+import '../../../core/constants/app_colors.dart';
 
 // =============================================================================
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFF0426E);
   static const Color backgroundLight = Color(0xFFFFF5F8);
-  static const Color surfaceLight = Color(0xFFFFFFFF);
-  static const Color textMain = Color(0xFF181113);
-  static const Color textSecondary = Color(0xFF89616B);
-  static const Color chipBg = Color(0xFFEDE8E9);
   static const Color border = Color(0xFFE6DBDE);
 }
 
@@ -80,7 +77,9 @@ class _EventScreenState extends State<EventScreen> {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return CupertinoPageScaffold(
-      backgroundColor: _AppColors.backgroundLight,
+      backgroundColor: Theme.of(context).brightness == Brightness.dark
+          ? AppColorsDark.background
+          : _AppColors.backgroundLight,
       child: Stack(
         children: [
           // 메인 콘텐츠
@@ -202,6 +201,9 @@ class _TopAppBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final textColor = seol.gray800;
+
     return SafeArea(
       bottom: false,
       child: Padding(
@@ -212,13 +214,13 @@ class _TopAppBar extends StatelessWidget {
               padding: EdgeInsets.zero,
               minimumSize: const Size(48, 48),
               onPressed: onBackPressed,
-              child: const Icon(
+              child: Icon(
                 CupertinoIcons.back,
-                color: _AppColors.textMain,
+                color: textColor,
                 size: 24,
               ),
             ),
-            const Expanded(
+            Expanded(
               child: Text(
                 'Event',
                 textAlign: TextAlign.center,
@@ -226,7 +228,7 @@ class _TopAppBar extends StatelessWidget {
                   fontFamily: 'Pretendard',
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
-                  color: _AppColors.textMain,
+                  color: textColor,
                   letterSpacing: -0.3,
                 ),
               ),
@@ -253,13 +255,15 @@ class _SegmentedControl extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Container(
         height: 48,
         padding: const EdgeInsets.all(4),
         decoration: BoxDecoration(
-          color: _AppColors.chipBg,
+          color: seol.gray100,
           borderRadius: BorderRadius.circular(24),
         ),
         child: Row(
@@ -294,13 +298,16 @@ class _SegmentTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           decoration: BoxDecoration(
-            color: isSelected ? _AppColors.surfaceLight : Colors.transparent,
+            color: isSelected ? seol.cardSurface : Colors.transparent,
             borderRadius: BorderRadius.circular(20),
             boxShadow: isSelected
                 ? [
@@ -319,9 +326,7 @@ class _SegmentTab extends StatelessWidget {
                 fontFamily: 'Pretendard',
                 fontSize: 14,
                 fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                color: isSelected
-                    ? _AppColors.primary
-                    : _AppColors.textSecondary,
+                color: isSelected ? primary : seol.sectionTitle,
               ),
             ),
           ),
@@ -329,11 +334,6 @@ class _SegmentTab extends StatelessWidget {
       ),
     );
   }
-}
-
-// Material Colors placeholder
-class Colors {
-  static const Color transparent = Color(0x00000000);
 }
 
 // =============================================================================
@@ -344,14 +344,17 @@ class _HeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: _AppColors.surfaceLight,
+        color: seol.cardSurface,
         borderRadius: BorderRadius.circular(32),
         boxShadow: [
           BoxShadow(
-            color: _AppColors.primary.withValues(alpha: 0.12),
+            color: primary.withValues(alpha: 0.12),
             blurRadius: 30,
             offset: const Offset(0, 8),
           ),
@@ -363,10 +366,10 @@ class _HeroCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: _AppColors.primary.withValues(alpha: 0.1),
+              color: primary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: _AppColors.primary.withValues(alpha: 0.1),
+                color: primary.withValues(alpha: 0.1),
               ),
             ),
             child: Row(
@@ -375,17 +378,17 @@ class _HeroCard extends StatelessWidget {
                 Icon(
                   CupertinoIcons.shield_fill,
                   size: 14,
-                  color: _AppColors.primary,
+                  color: primary,
                 ),
                 const SizedBox(width: 4),
-                const Text(
+                Text(
                   'SAFE MATCHING',
                   style: TextStyle(
                     fontFamily: 'Pretendard',
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.8,
-                    color: _AppColors.primary,
+                    color: primary,
                   ),
                 ),
               ],
@@ -393,24 +396,24 @@ class _HeroCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           // 타이틀
-          const Text(
+          Text(
             '두근두근 3:3 시즌 미팅',
             style: TextStyle(
               fontFamily: 'Pretendard',
               fontSize: 22,
               fontWeight: FontWeight.w700,
-              color: _AppColors.textMain,
+              color: seol.gray800,
               letterSpacing: -0.3,
             ),
           ),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             '검증된 회원들과 안전하고 설레는 만남',
             style: TextStyle(
               fontFamily: 'Pretendard',
               fontSize: 14,
               fontWeight: FontWeight.w500,
-              color: _AppColors.textSecondary,
+              color: seol.sectionTitle,
             ),
           ),
           const SizedBox(height: 28),
@@ -430,12 +433,15 @@ class _SlotMachineVisual extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF9FA),
+        color: seol.pink50,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _AppColors.primary.withValues(alpha: 0.05)),
+        border: Border.all(color: primary.withValues(alpha: 0.05)),
       ),
       child: Stack(
         alignment: Alignment.center,
@@ -445,7 +451,7 @@ class _SlotMachineVisual extends StatelessWidget {
             height: 2,
             margin: const EdgeInsets.symmetric(horizontal: 24),
             decoration: BoxDecoration(
-              color: _AppColors.primary.withValues(alpha: 0.1),
+              color: primary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(1),
             ),
           ),
@@ -473,24 +479,27 @@ class _SlotReel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+
     return Transform.scale(
       scale: isActive ? 1.1 : 1.0,
       child: Container(
         width: 64,
         height: 80,
         decoration: BoxDecoration(
-          color: _AppColors.surfaceLight,
+          color: seol.cardSurface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isActive
-                ? _AppColors.primary.withValues(alpha: 0.3)
-                : const Color(0xFFF1F5F9),
+                ? primary.withValues(alpha: 0.3)
+                : seol.gray200,
             width: isActive ? 2 : 1,
           ),
           boxShadow: isActive
               ? [
                   BoxShadow(
-                    color: _AppColors.primary.withValues(alpha: 0.2),
+                    color: primary.withValues(alpha: 0.2),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -507,7 +516,7 @@ class _SlotReel extends StatelessWidget {
           child: Icon(
             CupertinoIcons.heart_fill,
             size: 36,
-            color: isActive ? _AppColors.primary : const Color(0xFFFFCDD2),
+            color: isActive ? primary : seol.gray300,
           ),
         ),
       ),
@@ -523,12 +532,18 @@ class _StatusStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+    final borderColor = Theme.of(context).brightness == Brightness.dark
+        ? AppColorsDark.border
+        : _AppColors.border;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
-        color: _AppColors.surfaceLight,
+        color: seol.cardSurface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _AppColors.border.withValues(alpha: 0.5)),
+        border: Border.all(color: borderColor.withValues(alpha: 0.5)),
       ),
       child: Row(
         children: [
@@ -541,29 +556,29 @@ class _StatusStrip extends StatelessWidget {
                     Icon(
                       CupertinoIcons.tickets_fill,
                       size: 16,
-                      color: _AppColors.primary,
+                      color: primary,
                     ),
                     const SizedBox(width: 6),
-                    const Text(
+                    Text(
                       '오늘 1회 무료',
                       style: TextStyle(
                         fontFamily: 'Pretendard',
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
-                        color: _AppColors.textMain,
+                        color: seol.gray800,
                       ),
                     ),
                   ],
                 ),
-                const Padding(
-                  padding: EdgeInsets.only(left: 22, top: 2),
+                Padding(
+                  padding: const EdgeInsets.only(left: 22, top: 2),
                   child: Text(
                     '추가 돌리기 3,000원',
                     style: TextStyle(
                       fontFamily: 'Pretendard',
                       fontSize: 12,
                       fontWeight: FontWeight.w400,
-                      color: _AppColors.textSecondary,
+                      color: seol.sectionTitle,
                     ),
                   ),
                 ),
@@ -574,13 +589,13 @@ class _StatusStrip extends StatelessWidget {
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: const Color(0xFFF8F6F6),
+              color: seol.gray100,
               borderRadius: BorderRadius.circular(16),
             ),
-            child: const Icon(
+            child: Icon(
               CupertinoIcons.refresh,
               size: 18,
-              color: _AppColors.primary,
+              color: primary,
             ),
           ),
         ],
@@ -599,6 +614,8 @@ class _PrimaryCTA extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+
     return CupertinoButton(
       padding: EdgeInsets.zero,
       onPressed: onPressed,
@@ -606,11 +623,11 @@ class _PrimaryCTA extends StatelessWidget {
         width: double.infinity,
         height: 56,
         decoration: BoxDecoration(
-          color: _AppColors.primary,
+          color: primary,
           borderRadius: BorderRadius.circular(28),
           boxShadow: [
             BoxShadow(
-              color: _AppColors.primary.withValues(alpha: 0.35),
+              color: primary.withValues(alpha: 0.35),
               blurRadius: 16,
               offset: const Offset(0, 6),
             ),
@@ -649,11 +666,15 @@ class _Divider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final borderColor = Theme.of(context).brightness == Brightness.dark
+        ? AppColorsDark.border
+        : _AppColors.border;
+
     return Container(
       height: 1,
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.transparent, _AppColors.border, Colors.transparent],
+          colors: [Colors.transparent, borderColor, Colors.transparent],
         ),
       ),
     );
@@ -668,6 +689,8 @@ class _PartnerVenueSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -677,13 +700,13 @@ class _PartnerVenueSection extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 '제휴 장소 추천',
                 style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
-                  color: _AppColors.textMain,
+                  color: seol.gray800,
                 ),
               ),
               CupertinoButton(
@@ -696,7 +719,7 @@ class _PartnerVenueSection extends StatelessWidget {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: _AppColors.surfaceLight,
+                    color: seol.cardSurface,
                     borderRadius: BorderRadius.circular(8),
                     boxShadow: [
                       BoxShadow(
@@ -705,13 +728,13 @@ class _PartnerVenueSection extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: const Text(
+                  child: Text(
                     '전체보기',
                     style: TextStyle(
                       fontFamily: 'Pretendard',
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: _AppColors.textSecondary,
+                      color: seol.sectionTitle,
                     ),
                   ),
                 ),
@@ -751,12 +774,18 @@ class _VenueCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+    final borderColor = Theme.of(context).brightness == Brightness.dark
+        ? AppColorsDark.border
+        : _AppColors.border;
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _AppColors.surfaceLight,
+        color: seol.cardSurface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _AppColors.border.withValues(alpha: 0.6)),
+        border: Border.all(color: borderColor.withValues(alpha: 0.6)),
       ),
       child: Row(
         children: [
@@ -827,11 +856,11 @@ class _VenueCard extends StatelessWidget {
               children: [
                 Text(
                   name,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Pretendard',
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
-                    color: _AppColors.textMain,
+                    color: seol.gray800,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -839,11 +868,11 @@ class _VenueCard extends StatelessWidget {
                   description,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Pretendard',
                     fontSize: 12,
                     fontWeight: FontWeight.w400,
-                    color: _AppColors.textSecondary,
+                    color: seol.sectionTitle,
                     height: 1.4,
                   ),
                 ),
@@ -858,25 +887,25 @@ class _VenueCard extends StatelessWidget {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: _AppColors.primary.withValues(alpha: 0.05),
+                      color: primary.withValues(alpha: 0.05),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text(
+                        Text(
                           '혜택 보기',
                           style: TextStyle(
                             fontFamily: 'Pretendard',
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
-                            color: _AppColors.primary,
+                            color: primary,
                           ),
                         ),
-                        const Icon(
+                        Icon(
                           CupertinoIcons.chevron_right,
                           size: 12,
-                          color: _AppColors.primary,
+                          color: primary,
                         ),
                       ],
                     ),
@@ -899,6 +928,9 @@ class _RandomMatchingContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
@@ -910,11 +942,11 @@ class _RandomMatchingContent extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: _AppColors.surfaceLight,
+              color: seol.cardSurface,
               borderRadius: BorderRadius.circular(32),
               boxShadow: [
                 BoxShadow(
-                  color: _AppColors.primary.withValues(alpha: 0.12),
+                  color: primary.withValues(alpha: 0.12),
                   blurRadius: 30,
                   offset: const Offset(0, 8),
                 ),
@@ -928,7 +960,7 @@ class _RandomMatchingContent extends StatelessWidget {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: _AppColors.primary.withValues(alpha: 0.1),
+                    color: primary.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Row(
@@ -937,41 +969,41 @@ class _RandomMatchingContent extends StatelessWidget {
                       Icon(
                         CupertinoIcons.shuffle,
                         size: 14,
-                        color: _AppColors.primary,
+                        color: primary,
                       ),
                       const SizedBox(width: 4),
-                      const Text(
+                      Text(
                         'RANDOM MATCHING',
                         style: TextStyle(
                           fontFamily: 'Pretendard',
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
                           letterSpacing: 0.8,
-                          color: _AppColors.primary,
+                          color: primary,
                         ),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 12),
-                const Text(
+                Text(
                   '3:3 랜덤 매칭',
                   style: TextStyle(
                     fontFamily: 'Pretendard',
                     fontSize: 22,
                     fontWeight: FontWeight.w700,
-                    color: _AppColors.textMain,
+                    color: seol.gray800,
                     letterSpacing: -0.3,
                   ),
                 ),
                 const SizedBox(height: 4),
-                const Text(
+                Text(
                   '같은 관심사를 가진 분들과 무작위로 매칭됩니다.',
                   style: TextStyle(
                     fontFamily: 'Pretendard',
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
-                    color: _AppColors.textSecondary,
+                    color: seol.sectionTitle,
                   ),
                 ),
                 const SizedBox(height: 28),
@@ -979,16 +1011,16 @@ class _RandomMatchingContent extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFF9FA),
+                    color: seol.pink50,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: _AppColors.primary.withValues(alpha: 0.05),
+                      color: primary.withValues(alpha: 0.05),
                     ),
                   ),
                   child: Icon(
                     CupertinoIcons.person_2_fill,
                     size: 48,
-                    color: _AppColors.primary.withValues(alpha: 0.8),
+                    color: primary.withValues(alpha: 0.8),
                   ),
                 ),
               ],
@@ -1009,11 +1041,11 @@ class _RandomMatchingContent extends StatelessWidget {
               width: double.infinity,
               height: 56,
               decoration: BoxDecoration(
-                color: _AppColors.primary,
+                color: primary,
                 borderRadius: BorderRadius.circular(28),
                 boxShadow: [
                   BoxShadow(
-                    color: _AppColors.primary.withValues(alpha: 0.35),
+                    color: primary.withValues(alpha: 0.35),
                     blurRadius: 16,
                     offset: const Offset(0, 6),
                   ),
@@ -1058,6 +1090,14 @@ class _BottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final navBg = isDark
+        ? const Color(0xFF221A28).withValues(alpha: 0.92)
+        : CupertinoColors.white.withValues(alpha: 0.95);
+    final navBorder = isDark
+        ? AppColorsDark.border.withValues(alpha: 0.5)
+        : CupertinoColors.white.withValues(alpha: 0.4);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(32),
       child: BackdropFilter(
@@ -1065,10 +1105,10 @@ class _BottomNavBar extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
           decoration: BoxDecoration(
-            color: CupertinoColors.white.withValues(alpha: 0.95),
+            color: navBg,
             borderRadius: BorderRadius.circular(32),
             border: Border.all(
-              color: CupertinoColors.white.withValues(alpha: 0.4),
+              color: navBorder,
             ),
             boxShadow: [
               BoxShadow(
@@ -1133,6 +1173,10 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+    final inactive = seol.gray400;
+
     return CupertinoButton(
       padding: EdgeInsets.zero,
       onPressed: onTap,
@@ -1145,8 +1189,7 @@ class _NavItem extends StatelessWidget {
               Icon(
                 icon,
                 size: 24,
-                color:
-                    isActive ? _AppColors.primary : const Color(0xFF9CA3AF),
+                color: isActive ? primary : inactive,
               ),
               if (showBadge)
                 Positioned(
@@ -1171,7 +1214,7 @@ class _NavItem extends StatelessWidget {
               fontSize: 10,
               fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
               letterSpacing: -0.2,
-              color: isActive ? _AppColors.primary : const Color(0xFF9CA3AF),
+              color: isActive ? primary : inactive,
             ),
           ),
         ],
