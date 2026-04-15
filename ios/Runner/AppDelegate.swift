@@ -7,12 +7,19 @@ import UIKit
   private weak var privacyOverlayView: UIView?
   private var screenSecurityEnabled = false
   private var screenshotOverlayHideWorkItem: DispatchWorkItem?
+  private var secureZones: [String: UITextField] = [:]
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    if let registrar = registrar(forPlugin: "CaptureProtectedImagePlugin") {
+      registrar.register(
+        CaptureProtectedImageViewFactory(),
+        withId: "com.yonsei.dating/capture_protected_image"
+      )
+    }
     if let controller = window?.rootViewController as? FlutterViewController {
       let channel = FlutterMethodChannel(
         name: screenSecurityChannelName,
@@ -26,6 +33,12 @@ import UIKit
         case "enableSensitiveProtection":
           result(nil)
         case "disableSensitiveProtection":
+          result(nil)
+        case "registerSecureZone":
+          self?.registerSecureZone(call.arguments)
+          result(nil)
+        case "unregisterSecureZone":
+          self?.unregisterSecureZone(call.arguments)
           result(nil)
         default:
           result(FlutterMethodNotImplemented)
@@ -147,5 +160,66 @@ import UIKit
     screenshotOverlayHideWorkItem?.cancel()
     screenshotOverlayHideWorkItem = nil
     privacyOverlayView?.isHidden = true
+  }
+
+  private func registerSecureZone(_ args: Any?) {
+    guard let window = window else { return }
+    guard let payload = args as? [String: Any] else { return }
+    guard let id = payload["id"] as? String, !id.isEmpty else { return }
+    guard
+      let x = payload["x"] as? CGFloat,
+      let y = payload["y"] as? CGFloat,
+      let width = payload["width"] as? CGFloat,
+      let height = payload["height"] as? CGFloat
+    else {
+      return
+    }
+
+    let borderRadius = (payload["borderRadius"] as? CGFloat) ?? 0
+    guard x.isFinite, y.isFinite, width.isFinite, height.isFinite else {
+      return
+    }
+    guard width > 0, height > 0 else {
+      return
+    }
+    let frame = CGRect(x: x, y: y, width: width, height: height)
+
+    let field: UITextField
+    if let existing = secureZones[id] {
+      field = existing
+    } else {
+      let secureField = UITextField(frame: frame)
+      secureField.isSecureTextEntry = true
+      secureField.isUserInteractionEnabled = false
+      secureField.isEnabled = false
+      secureField.borderStyle = .none
+      secureField.backgroundColor = .clear
+      secureField.textColor = .clear
+      secureField.tintColor = .clear
+      secureField.alpha = 0.02
+      secureField.clipsToBounds = true
+      secureField.layer.masksToBounds = true
+      secureField.inputView = UIView(frame: .zero)
+      secureField.inputAccessoryView = UIView(frame: .zero)
+      secureZones[id] = secureField
+      window.addSubview(secureField)
+      field = secureField
+    }
+
+    field.frame = frame
+    field.layer.cornerRadius = borderRadius
+    if let overlay = privacyOverlayView, !overlay.isHidden {
+      window.bringSubviewToFront(field)
+      window.bringSubviewToFront(overlay)
+    } else {
+      window.bringSubviewToFront(field)
+    }
+  }
+
+  private func unregisterSecureZone(_ args: Any?) {
+    guard let payload = args as? [String: Any] else { return }
+    guard let id = payload["id"] as? String, !id.isEmpty else { return }
+    guard let field = secureZones.removeValue(forKey: id) else { return }
+    field.removeFromSuperview()
   }
 }
