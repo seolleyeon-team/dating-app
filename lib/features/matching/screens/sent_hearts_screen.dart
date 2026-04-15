@@ -13,6 +13,7 @@ import '../../../router/route_names.dart';
 import '../../../services/interaction_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/widgets/capture_protected_image.dart';
 import '../models/profile_card_args.dart';
 
 // =============================================================================
@@ -515,23 +516,13 @@ class _ProfileAvatar extends StatelessWidget {
         ),
       ),
       clipBehavior: Clip.antiAlias,
-      child: imageUrl.isNotEmpty
-          ? Image.network(
-              imageUrl,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _placeholder(),
-            )
-          : _placeholder(),
-    );
-  }
-
-  Widget _placeholder() {
-    return Container(
-      color: _AppColors.gray100,
-      child: const Icon(
-        CupertinoIcons.person_fill,
-        size: 32,
-        color: _AppColors.gray400,
+      child: CaptureProtectedImage(
+        imageUrl: imageUrl,
+        fit: BoxFit.cover,
+        shape: CaptureProtectedImageShape.circle,
+        backgroundColor: _AppColors.gray100,
+        placeholderIconColor: _AppColors.gray400,
+        placeholderIconSize: 32,
       ),
     );
   }
