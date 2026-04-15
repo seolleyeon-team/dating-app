@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Base64
 import android.util.Log
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -16,10 +17,12 @@ class MainActivity : FlutterActivity() {
 
     private val CHANNEL = "com.yonsei.dating/open_mail_app"
     private val KAKAO_CHANNEL = "com.yonsei.dating/kakao_util"
+    private val SCREEN_SECURITY_CHANNEL = "com.yonsei.dating/screen_security"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         normalizeIntentData(intent)
         super.onCreate(savedInstanceState)
+        enableScreenSecurity()
         try {
             Log.d("MainActivity", "onCreate data=" + intent?.dataString)
         } catch (_: Exception) {
@@ -41,6 +44,17 @@ class MainActivity : FlutterActivity() {
                 result.success(getKeyHash())
             } else {
                 result.notImplemented()
+            }
+        }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SCREEN_SECURITY_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "enableProtection", "enableSensitiveProtection", "disableSensitiveProtection" -> {
+                    enableScreenSecurity()
+                    result.success(null)
+                }
+                else -> {
+                    result.notImplemented()
+                }
             }
         }
     }
@@ -127,5 +141,12 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             false
         }
+    }
+
+    private fun enableScreenSecurity() {
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
     }
 }

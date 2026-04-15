@@ -19,7 +19,8 @@ class SafetyStampAvailabilityResult {
 }
 
 Set<String> _readStampUserIds(Map<String, dynamic>? raw, String key) {
-  final values = (raw?[key] as List?)
+  final values =
+      (raw?[key] as List?)
           ?.map((e) => e.toString())
           .where((e) => e.isNotEmpty)
           .toSet() ??
@@ -27,8 +28,26 @@ Set<String> _readStampUserIds(Map<String, dynamic>? raw, String key) {
   return values;
 }
 
+DateTime? _readMeetupCompletedAt(Map<String, dynamic>? promise) {
+  if (promise == null) return null;
+
+  final safetyStampRaw = promise['safetyStamp'];
+  final safetyStamp = safetyStampRaw is Map
+      ? Map<String, dynamic>.from(safetyStampRaw)
+      : const <String, dynamic>{};
+
+  return parsePromiseDateTime(
+    safetyStamp['meetupCompletedAt'] ?? promise['meetupCompletedAt'],
+  );
+}
+
 SafetyStampPhase deriveSafetyStampPhase(Map<String, dynamic>? promise) {
   if (promise == null) return SafetyStampPhase.meetup;
+
+  final status = promise['status']?.toString().trim().toLowerCase() ?? '';
+  if (status == 'completed') {
+    return SafetyStampPhase.completed;
+  }
 
   final safetyStampRaw = promise['safetyStamp'];
   final safetyStamp = safetyStampRaw is Map
@@ -48,7 +67,8 @@ SafetyStampPhase deriveSafetyStampPhase(Map<String, dynamic>? promise) {
     'goodbyeStampedUserIds',
   );
 
-  final participantIds = (promise['participantIds'] as List?)
+  final participantIds =
+      (promise['participantIds'] as List?)
           ?.map((e) => e.toString())
           .where((e) => e.isNotEmpty)
           .toSet() ??
@@ -105,6 +125,48 @@ bool canOpenSafetyStamp(DateTime promiseTime, DateTime now) {
   return !now.isBefore(openAt) && !now.isAfter(closeAt);
 }
 
+bool canOpenGoodbyeSafetyStamp(Map<String, dynamic>? promise, {DateTime? now}) {
+  final meetupCompletedAt = _readMeetupCompletedAt(promise);
+  if (meetupCompletedAt == null) return false;
+
+  final resolvedNow = (now ?? DateTime.now()).toLocal();
+  final closeAt = meetupCompletedAt.add(const Duration(hours: 24));
+  return !resolvedNow.isAfter(closeAt);
+}
+
+bool isMeetupSafetyStampExpired(
+  Map<String, dynamic>? promise, {
+  DateTime? now,
+}) {
+  if (promise == null) return false;
+
+  final promiseTime = parsePromiseDateTime(promise['dateTime']);
+  if (promiseTime == null) return false;
+
+  final resolvedNow = (now ?? DateTime.now()).toLocal();
+  if (!resolvedNow.isAfter(promiseTime.add(const Duration(hours: 1)))) {
+    return false;
+  }
+
+  return deriveSafetyStampPhase(promise) == SafetyStampPhase.meetup;
+}
+
+bool isGoodbyeSafetyStampExpired(
+  Map<String, dynamic>? promise, {
+  DateTime? now,
+}) {
+  if (promise == null) return false;
+  if (deriveSafetyStampPhase(promise) != SafetyStampPhase.goodbye) {
+    return false;
+  }
+
+  final meetupCompletedAt = _readMeetupCompletedAt(promise);
+  if (meetupCompletedAt == null) return false;
+
+  final resolvedNow = (now ?? DateTime.now()).toLocal();
+  return resolvedNow.isAfter(meetupCompletedAt.add(const Duration(hours: 24)));
+}
+
 SafetyStampAvailabilityResult evaluateSafetyStampAvailability(
   Map<String, dynamic>? promise, {
   DateTime? now,
@@ -135,9 +197,7 @@ SafetyStampAvailabilityResult evaluateSafetyStampAvailability(
     );
   }
 
-  final closeAt = promiseTime.add(const Duration(hours: 1));
-
-  if (phase == SafetyStampPhase.completed || resolvedNow.isAfter(closeAt)) {
+  if (phase == SafetyStampPhase.completed) {
     return const SafetyStampAvailabilityResult(
       isVisible: false,
       canOpen: false,
@@ -147,8 +207,24 @@ SafetyStampAvailabilityResult evaluateSafetyStampAvailability(
     );
   }
 
-  final canOpen = isOpenableSafetyStampStatus(promiseStatus) &&
-      canOpenSafetyStamp(promiseTime, resolvedNow);
+  if (phase == SafetyStampPhase.meetup) {
+    final closeAt = promiseTime.add(const Duration(hours: 1));
+    if (resolvedNow.isAfter(closeAt)) {
+      return const SafetyStampAvailabilityResult(
+        isVisible: false,
+        canOpen: false,
+        promiseTime: null,
+        message: '',
+        phase: SafetyStampPhase.completed,
+      );
+    }
+  }
+
+  final canOpen = phase == SafetyStampPhase.goodbye
+      ? isOpenableSafetyStampStatus(promiseStatus) &&
+            canOpenGoodbyeSafetyStamp(promise, now: resolvedNow)
+      : isOpenableSafetyStampStatus(promiseStatus) &&
+            canOpenSafetyStamp(promiseTime, resolvedNow);
 
   return SafetyStampAvailabilityResult(
     isVisible: true,
@@ -156,11 +232,13 @@ SafetyStampAvailabilityResult evaluateSafetyStampAvailability(
     promiseTime: promiseTime,
     message: canOpen
         ? (phase == SafetyStampPhase.goodbye
-            ? '상대와 헤어질 때 안전도장 누르기!'
-            : '상대와 만났다면 안전도장을 눌러 만남을 기록해보아요.')
+              ? '상대와 헤어질 때 안전도장 누르기!'
+              : '상대와 만났다면 안전도장을 눌러 만남을 기록해보아요.')
         : (isOpenableSafetyStampStatus(promiseStatus)
-            ? '안전도장은 약속 10분 전부터 약속 후 1시간까지 사용할 수 있어요.'
-            : '확정된 약속에서만 안전도장을 사용할 수 있어요.'),
+              ? (phase == SafetyStampPhase.goodbye
+                    ? '헤어짐 도장은 만남 확인이 끝난 뒤 24시간 안에 사용할 수 있어요.'
+                    : '안전도장은 약속 10분 전부터 약속 후 1시간까지 사용할 수 있어요.')
+              : '확정된 약속에서만 안전도장을 사용할 수 있어요.'),
     phase: phase,
   );
 }

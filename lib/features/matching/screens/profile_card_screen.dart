@@ -16,6 +16,7 @@ import '../../../services/storage_service.dart';
 import '../../../services/interaction_service.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/ai_recommendation_service.dart';
+import '../../../shared/widgets/profile_photo_blur.dart';
 import '../../../shared/widgets/seol_swipe_deck.dart';
 
 // =============================================================================
@@ -73,11 +74,16 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
       if (mounted) setState(() => _kakaoUserId = kakaoUserId);
 
       if (kakaoUserId == null || kakaoUserId.isEmpty) {
-        debugPrint('[ProfileCard] ⚠️ kakaoUserId is null/empty — recEvents 기록 불가');
+        debugPrint(
+          '[ProfileCard] ⚠️ kakaoUserId is null/empty — recEvents 기록 불가',
+        );
       }
 
       final aiService = AiRecommendationService();
-      final feed = await aiService.fetchProfileFeed(limit: 10, userId: kakaoUserId);
+      final feed = await aiService.fetchProfileFeed(
+        limit: 10,
+        userId: kakaoUserId,
+      );
       debugPrint('[ProfileCard] 프로필 ${feed.length}개 로드 완료');
 
       if (!mounted) return;
@@ -87,7 +93,9 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
       });
 
       if (_profiles.isNotEmpty) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _recordImpressionAndOpenForTopCard(0));
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _recordImpressionAndOpenForTopCard(0),
+        );
       }
     } catch (e, st) {
       debugPrint('[ProfileCard] ❌ _loadRecommendations 실패: $e');
@@ -107,7 +115,9 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
 
   void _onSwiped(int index, SwipeDirection direction) {
     final uid = _kakaoUserId;
-    debugPrint('[ProfileCard] _onSwiped: index=$index, dir=$direction, uid=$uid, profiles=${_profiles.length}');
+    debugPrint(
+      '[ProfileCard] _onSwiped: index=$index, dir=$direction, uid=$uid, profiles=${_profiles.length}',
+    );
 
     if (uid == null) {
       debugPrint('[ProfileCard] ⚠️ _kakaoUserId가 null — recEvent 기록 건너뜀');
@@ -121,9 +131,15 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
         'position': index,
       };
 
-      if (profile.rank != 999) contextMetadata['rank'] = profile.rank;
-      if (profile.sourceScores != null) contextMetadata['score'] = profile.sourceScores!;
-      if (profile.finalScore != null) contextMetadata['finalScore'] = profile.finalScore!;
+      if (profile.rank != 999) {
+        contextMetadata['rank'] = profile.rank;
+      }
+      if (profile.sourceScores != null) {
+        contextMetadata['score'] = profile.sourceScores!;
+      }
+      if (profile.finalScore != null) {
+        contextMetadata['finalScore'] = profile.finalScore!;
+      }
       contextMetadata['algorithmVersion'] = profile.primaryAlgo;
 
       _logRecEvent(
@@ -173,20 +189,38 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
   void _recordImpressionAndOpenForTopCard(int cardIndex) {
     final uid = _kakaoUserId;
     if (uid == null || cardIndex >= _profiles.length) return;
-    
+
     final profile = _profiles[cardIndex];
 
     final Map<String, dynamic> contextMetadata = {
       'screen': 'profile_card_screen',
       'position': cardIndex,
     };
-    if (profile.rank != 999) contextMetadata['rank'] = profile.rank;
-    if (profile.sourceScores != null) contextMetadata['score'] = profile.sourceScores!;
-    if (profile.finalScore != null) contextMetadata['finalScore'] = profile.finalScore!;
+    if (profile.rank != 999) {
+      contextMetadata['rank'] = profile.rank;
+    }
+    if (profile.sourceScores != null) {
+      contextMetadata['score'] = profile.sourceScores!;
+    }
+    if (profile.finalScore != null) {
+      contextMetadata['finalScore'] = profile.finalScore!;
+    }
     contextMetadata['algorithmVersion'] = profile.primaryAlgo;
 
-    _logRecEvent(uid: uid, eventType: 'impression', profile: profile, contextMetadata: contextMetadata, label: 'impression');
-    _logRecEvent(uid: uid, eventType: 'open', profile: profile, contextMetadata: contextMetadata, label: 'open');
+    _logRecEvent(
+      uid: uid,
+      eventType: 'impression',
+      profile: profile,
+      contextMetadata: contextMetadata,
+      label: 'impression',
+    );
+    _logRecEvent(
+      uid: uid,
+      eventType: 'open',
+      profile: profile,
+      contextMetadata: contextMetadata,
+      label: 'open',
+    );
   }
 
   void _onLike() {
@@ -224,30 +258,30 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                   child: _isLoading
                       ? const Center(child: CupertinoActivityIndicator())
                       : _profiles.isEmpty
-                          ? Center(
-                              child: Text(
-                                '오늘의 추천이 모두 소진되었습니다.',
-                                style: TextStyle(
-                                  color: _AppColors.gray500,
-                                  fontFamily: 'Pretendard',
-                                ),
-                              ),
-                            )
-                          : SeolSwipeDeck(
-                              controller: _deckController,
-                              onSwiped: _onSwiped,
-                              cards: _profiles
-                                  .map(
-                                    (p) => _ProfileCard(
-                                      profile: p,
-                                      pulseController: _pulseController,
-                                      onShare: widget.onShare,
-                                      onMoreOptions: () =>
-                                          _showMoreOptions(context, p),
-                                    ),
-                                  )
-                                  .toList(),
+                      ? Center(
+                          child: Text(
+                            '오늘의 추천이 모두 소진되었습니다.',
+                            style: TextStyle(
+                              color: _AppColors.gray500,
+                              fontFamily: 'Pretendard',
                             ),
+                          ),
+                        )
+                      : SeolSwipeDeck(
+                          controller: _deckController,
+                          onSwiped: _onSwiped,
+                          cards: _profiles
+                              .map(
+                                (p) => _ProfileCard(
+                                  profile: p,
+                                  pulseController: _pulseController,
+                                  onShare: widget.onShare,
+                                  onMoreOptions: () =>
+                                      _showMoreOptions(context, p),
+                                ),
+                              )
+                              .toList(),
+                        ),
                 ),
               ),
             ),
@@ -281,6 +315,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
       ),
     );
   }
+
   void _showMoreOptions(BuildContext context, AiRecommendedProfile profile) {
     // 상세 프로필 팝업 / 옵션 클릭 시 detail_open 기록
     final uid = _kakaoUserId;
@@ -288,12 +323,24 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
       final Map<String, dynamic> contextMetadata = {
         'screen': 'profile_card_screen',
       };
-      if (profile.rank != 999) contextMetadata['rank'] = profile.rank;
-      if (profile.sourceScores != null) contextMetadata['score'] = profile.sourceScores!;
-      if (profile.finalScore != null) contextMetadata['finalScore'] = profile.finalScore!;
+      if (profile.rank != 999) {
+        contextMetadata['rank'] = profile.rank;
+      }
+      if (profile.sourceScores != null) {
+        contextMetadata['score'] = profile.sourceScores!;
+      }
+      if (profile.finalScore != null) {
+        contextMetadata['finalScore'] = profile.finalScore!;
+      }
       contextMetadata['algorithmVersion'] = profile.primaryAlgo;
 
-      _logRecEvent(uid: uid, eventType: 'detail_open', profile: profile, contextMetadata: contextMetadata, label: 'detail_open');
+      _logRecEvent(
+        uid: uid,
+        eventType: 'detail_open',
+        profile: profile,
+        contextMetadata: contextMetadata,
+        label: 'detail_open',
+      );
     }
 
     showCupertinoModalPopup(
@@ -307,7 +354,10 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                 Navigator.pop(ctx);
                 _showReportDialog(context, profile.candidateUid);
               },
-              child: const Text('신고 및 차단', style: TextStyle(fontFamily: 'Pretendard')),
+              child: const Text(
+                '신고 및 차단',
+                style: TextStyle(fontFamily: 'Pretendard'),
+              ),
             ),
           ],
           cancelButton: CupertinoActionSheetAction(
@@ -328,7 +378,10 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
         return StatefulBuilder(
           builder: (context, setState) {
             return CupertinoAlertDialog(
-              title: const Text('신고 및 차단', style: TextStyle(fontFamily: 'Pretendard')),
+              title: const Text(
+                '신고 및 차단',
+                style: TextStyle(fontFamily: 'Pretendard'),
+              ),
               content: Column(
                 children: [
                   const SizedBox(height: 10),
@@ -352,7 +405,10 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                 CupertinoDialogAction(
                   isDestructiveAction: true,
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text('취소', style: TextStyle(fontFamily: 'Pretendard')),
+                  child: const Text(
+                    '취소',
+                    style: TextStyle(fontFamily: 'Pretendard'),
+                  ),
                 ),
                 CupertinoDialogAction(
                   isDefaultAction: true,
@@ -367,7 +423,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                               if (ctx.mounted) Navigator.pop(ctx);
                               return;
                             }
-                            
+
                             await InteractionService().blockAndReportUser(
                               fromUserId: currentUserId,
                               toUserId: targetUserId,
@@ -384,7 +440,10 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                         },
                   child: isSubmitting
                       ? const CupertinoActivityIndicator()
-                      : const Text('확인', style: TextStyle(fontFamily: 'Pretendard')),
+                      : const Text(
+                          '확인',
+                          style: TextStyle(fontFamily: 'Pretendard'),
+                        ),
                 ),
               ],
             );
@@ -413,7 +472,9 @@ class _ProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final imageUrl = profile.imageUrls.isNotEmpty ? profile.imageUrls.first : '';
+    final imageUrl = profile.imageUrls.isNotEmpty
+        ? profile.imageUrls.first
+        : '';
 
     return Container(
       width: double.infinity,
@@ -434,14 +495,18 @@ class _ProfileCard extends StatelessWidget {
           children: [
             // 배경 이미지
             Positioned.fill(
-              child: imageUrl.isNotEmpty
-                  ? Image.network(
-                      imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) =>
-                          Container(color: _AppColors.gray300),
-                    )
-                  : Container(color: _AppColors.gray300),
+              child: ProfilePhotoBlur(
+                enabled: true,
+                badgeText: '사진은 상세에서 채팅 후 선명하게 보여요',
+                child: imageUrl.isNotEmpty
+                    ? Image.network(
+                        imageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                            Container(color: _AppColors.gray300),
+                      )
+                    : Container(color: _AppColors.gray300),
+              ),
             ),
             // 그라데이션 오버레이
             Positioned.fill(
@@ -549,15 +614,28 @@ class _ProfileCard extends StatelessWidget {
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(20),
                               child: BackdropFilter(
-                                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                                filter: ImageFilter.blur(
+                                  sigmaX: 12,
+                                  sigmaY: 12,
+                                ),
                                 child: Container(
                                   padding: const EdgeInsets.all(10),
                                   decoration: BoxDecoration(
-                                    color: CupertinoColors.black.withValues(alpha: 0.2),
+                                    color: CupertinoColors.black.withValues(
+                                      alpha: 0.2,
+                                    ),
                                     shape: BoxShape.circle,
-                                    border: Border.all(color: CupertinoColors.white.withValues(alpha: 0.2)),
+                                    border: Border.all(
+                                      color: CupertinoColors.white.withValues(
+                                        alpha: 0.2,
+                                      ),
+                                    ),
                                   ),
-                                  child: const Icon(CupertinoIcons.share, size: 20, color: CupertinoColors.white),
+                                  child: const Icon(
+                                    CupertinoIcons.share,
+                                    size: 20,
+                                    color: CupertinoColors.white,
+                                  ),
                                 ),
                               ),
                             ),
@@ -569,15 +647,28 @@ class _ProfileCard extends StatelessWidget {
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(20),
                               child: BackdropFilter(
-                                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                                filter: ImageFilter.blur(
+                                  sigmaX: 12,
+                                  sigmaY: 12,
+                                ),
                                 child: Container(
                                   padding: const EdgeInsets.all(10),
                                   decoration: BoxDecoration(
-                                    color: CupertinoColors.black.withValues(alpha: 0.2),
+                                    color: CupertinoColors.black.withValues(
+                                      alpha: 0.2,
+                                    ),
                                     shape: BoxShape.circle,
-                                    border: Border.all(color: CupertinoColors.white.withValues(alpha: 0.2)),
+                                    border: Border.all(
+                                      color: CupertinoColors.white.withValues(
+                                        alpha: 0.2,
+                                      ),
+                                    ),
                                   ),
-                                  child: const Icon(CupertinoIcons.ellipsis, size: 20, color: CupertinoColors.white),
+                                  child: const Icon(
+                                    CupertinoIcons.ellipsis,
+                                    size: 20,
+                                    color: CupertinoColors.white,
+                                  ),
                                 ),
                               ),
                             ),

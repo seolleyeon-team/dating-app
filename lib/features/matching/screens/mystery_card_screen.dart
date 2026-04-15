@@ -19,6 +19,7 @@ import '../../../services/ask_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/ai_recommendation_service.dart';
+import '../../../shared/widgets/profile_photo_blur.dart';
 import '../models/profile_card_args.dart';
 
 // =============================================================================
@@ -184,7 +185,7 @@ class _BackgroundGradients extends StatelessWidget {
             width: 400,
             height: 400,
             decoration: BoxDecoration(
-              color: const Color(0xFFFBCFE8).withOpacity(0.3),
+              color: const Color(0xFFFBCFE8).withValues(alpha: 0.3),
               shape: BoxShape.circle,
             ),
             child: BackdropFilter(
@@ -200,7 +201,7 @@ class _BackgroundGradients extends StatelessWidget {
             width: 500,
             height: 500,
             decoration: BoxDecoration(
-              color: const Color(0xFFE9D5FF).withOpacity(0.3),
+              color: const Color(0xFFE9D5FF).withValues(alpha: 0.3),
               shape: BoxShape.circle,
             ),
             child: BackdropFilter(
@@ -522,8 +523,10 @@ class _MainContentState extends State<_MainContent> {
                             padding: EdgeInsets.zero,
                             onPressed: () {
                               HapticFeedback.lightImpact();
-                              Navigator.of(context, rootNavigator: true)
-                                  .pushNamed(RouteNames.asksInbox);
+                              Navigator.of(
+                                context,
+                                rootNavigator: true,
+                              ).pushNamed(RouteNames.asksInbox);
                             },
                             child: SizedBox(
                               width: 40,
@@ -566,8 +569,10 @@ class _MainContentState extends State<_MainContent> {
                         padding: EdgeInsets.zero,
                         onPressed: () {
                           HapticFeedback.lightImpact();
-                          Navigator.of(context, rootNavigator: true)
-                              .pushNamed(RouteNames.asksInbox);
+                          Navigator.of(
+                            context,
+                            rootNavigator: true,
+                          ).pushNamed(RouteNames.asksInbox);
                         },
                         child: const SizedBox(
                           width: 40,
@@ -584,8 +589,10 @@ class _MainContentState extends State<_MainContent> {
                     CupertinoButton(
                       padding: EdgeInsets.zero,
                       onPressed: () {
-                        Navigator.of(context, rootNavigator: true)
-                            .pushNamed(RouteNames.sentHearts);
+                        Navigator.of(
+                          context,
+                          rootNavigator: true,
+                        ).pushNamed(RouteNames.sentHearts);
                       },
                       child: const Icon(
                         CupertinoIcons.heart,
@@ -908,11 +915,15 @@ class _MysteryCardState extends State<_MysteryCard>
           fit: StackFit.expand,
           children: [
             widget.profile.imageUrls.isNotEmpty
-                ? Image.network(
-                    widget.profile.imageUrls.first,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) =>
-                        Container(color: _AppColors.gray300),
+                ? ProfilePhotoBlur(
+                    enabled: true,
+                    badgeText: '사진은 상세에서 채팅 후 선명하게 보여요',
+                    child: Image.network(
+                      widget.profile.imageUrls.first,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) =>
+                          Container(color: _AppColors.gray300),
+                    ),
                   )
                 : Container(color: _AppColors.gray300),
             Container(

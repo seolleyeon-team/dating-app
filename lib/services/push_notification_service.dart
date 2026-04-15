@@ -9,6 +9,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../firebase_options.dart';
 import '../router/route_names.dart';
 import '../features/event/models/event_team_route_args.dart';
+import '../features/chat/models/safety_stamp_follow_up_args.dart';
 import '../shared/layouts/main_scaffold_args.dart';
 import 'navigation_service.dart';
 import 'storage_service.dart';
@@ -270,6 +271,28 @@ class PushNotificationService {
       nav.pushNamed(
         RouteNames.eventTeamInviteResponse,
         arguments: EventTeamInviteResponseArgs(inviteId: inviteId),
+      );
+      return;
+    }
+
+    if (type == 'safety_stamp_follow_up') {
+      final roomId = data['roomId'] ?? '';
+      final promiseId = data['promiseId'] ?? '';
+      if (roomId.isEmpty || promiseId.isEmpty) {
+        nav.pushNamed(RouteNames.notifications);
+        return;
+      }
+      nav.pushNamedAndRemoveUntil(
+        RouteNames.main,
+        (route) => false,
+        arguments: MainScaffoldArgs(
+          initialTabIndex: 1,
+          pendingRouteName: RouteNames.safetyStampFollowUp,
+          pendingRouteArgs: SafetyStampFollowUpArgs(
+            roomId: roomId,
+            promiseId: promiseId,
+          ),
+        ),
       );
       return;
     }

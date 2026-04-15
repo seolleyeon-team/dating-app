@@ -20,8 +20,10 @@ import '../../matching/models/profile_card_args.dart';
 class _AppColors {
   /// 라벤더 포인트 (#c6a9fe 계열) — 본문/선택 상태 (대비용으로 소프트보다 진함)
   static const Color primary = Color(0xFF9B7FD8);
+
   /// 사용자 지정 라벤더 #c6a9fe — 칩·배너·연한 배경
   static const Color primarySoft = Color(0xFFC6A9FE);
+
   /// 연한 보라 채우기용 알파 (버튼·칩 배경 — 약 30% 더 연하게 조정 시 배수)
   static const double promiseFillAlpha = 0.29;
   static const double promiseFillAlphaLight = 0.25;
@@ -210,8 +212,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   String? _initError;
   bool _isReady = false;
   bool _isSending = false;
+  bool _isNearBottom = true;
+  bool _pendingForceScrollToBottom = true;
+  bool _isCancellingExpiredPromise = false;
   DateTime _currentNow = DateTime.now();
   Timer? _safetyStampTimer;
+  String? _lastMessageSnapshotSignature;
 
   void _openPartnerProfileCard() {
     if (widget.partnerId.isEmpty) return;
@@ -268,9 +274,36 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
+  Future<void> _cancelExpiredPromiseIfNeeded(
+    Map<String, dynamic>? activePromise,
+  ) async {
+    if (_isCancellingExpiredPromise ||
+        activePromise == null ||
+        _roomId.isEmpty) {
+      return;
+    }
+    if (!isMeetupSafetyStampExpired(activePromise, now: _currentNow)) {
+      return;
+    }
+
+    final promiseId = activePromise['promiseId']?.toString() ?? '';
+    if (promiseId.isEmpty) return;
+
+    _isCancellingExpiredPromise = true;
+    try {
+      await _chatService.cancelExpiredIncompleteSafetyStamp(
+        roomId: _roomId,
+        promiseId: promiseId,
+      );
+    } finally {
+      _isCancellingExpiredPromise = false;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_handleScrollChanged);
     _startSafetyStampTimer();
     _initChat();
   }
@@ -282,6 +315,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
     _safetyStampTimer?.cancel();
     _messageController.dispose();
+    _scrollController.removeListener(_handleScrollChanged);
     _scrollController.dispose();
     super.dispose();
   }
@@ -303,6 +337,37 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         curve: Curves.easeOut,
       );
     });
+  }
+
+  void _handleScrollChanged() {
+    if (!_scrollController.hasClients) return;
+
+    final position = _scrollController.position;
+    final distanceFromBottom = position.maxScrollExtent - position.pixels;
+    _isNearBottom = distanceFromBottom <= 96;
+  }
+
+  void _maybeAutoScrollToBottom(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> messageDocs,
+  ) {
+    final lastMessageId = messageDocs.isEmpty ? 'empty' : messageDocs.last.id;
+    final nextSignature = '${messageDocs.length}:$lastMessageId';
+    final hasSnapshotChanged = nextSignature != _lastMessageSnapshotSignature;
+
+    if (_lastMessageSnapshotSignature == null) {
+      _lastMessageSnapshotSignature = nextSignature;
+      _pendingForceScrollToBottom = false;
+      _scrollToBottom();
+      return;
+    }
+
+    _lastMessageSnapshotSignature = nextSignature;
+
+    if (!hasSnapshotChanged) return;
+    if (!_pendingForceScrollToBottom && !_isNearBottom) return;
+
+    _pendingForceScrollToBottom = false;
+    _scrollToBottom();
   }
 
   void _markCurrentRoomAsRead() {
@@ -392,6 +457,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     try {
       _messageController.clear();
+      _pendingForceScrollToBottom = true;
 
       await _chatService.sendTextMessage(
         roomId: _roomId,
@@ -684,7 +750,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     for (final message in source) {
       if (!message.isPromise || message.promiseId == null) {
-        if (message.promiseStatus != 'rejected' && !message.shouldHideAsExpired) {
+        if (message.promiseStatus != 'rejected' &&
+            !message.shouldHideAsExpired) {
           normalMessages.add(message);
         }
         continue;
@@ -712,11 +779,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       final existing = promiseMap[key]!;
 
       final merged = existing.copyWith(
-        type: message.type == MessageType.promiseConfirmed ||
+        type:
+            message.type == MessageType.promiseConfirmed ||
                 message.type == MessageType.promiseInProgress
             ? message.type
             : existing.type,
-        text: message.type == MessageType.promiseConfirmed ||
+        text:
+            message.type == MessageType.promiseConfirmed ||
                 message.type == MessageType.promiseInProgress
             ? message.text
             : existing.text,
@@ -836,7 +905,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             );
                           }
 
-                          _scrollToBottom();
+                          _maybeAutoScrollToBottom(messageDocs);
 
                           return SliverList(
                             delegate: SliverChildBuilderDelegate((
@@ -882,6 +951,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 final activePromise = activePromiseRaw is Map
                     ? Map<String, dynamic>.from(activePromiseRaw)
                     : null;
+                _cancelExpiredPromiseIfNeeded(activePromise);
                 final safetyStampPhase = activePromise == null
                     ? null
                     : deriveSafetyStampPhase(activePromise);
@@ -1226,17 +1296,17 @@ class _ActivePromiseBanner extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: _AppColors.primarySoft.withValues(
-              alpha: _AppColors.promiseFillAlphaLight,
-            ),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: _AppColors.primarySoft.withValues(
-                alpha: _AppColors.promiseBorderAlpha,
-              ),
-            ),
+      decoration: BoxDecoration(
+        color: _AppColors.primarySoft.withValues(
+          alpha: _AppColors.promiseFillAlphaLight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: _AppColors.primarySoft.withValues(
+            alpha: _AppColors.promiseBorderAlpha,
           ),
+        ),
+      ),
       child: Text(
         '${_formatTime(ts)}${categoryLabel.isEmpty ? '' : ' · $categoryLabel'} · $place 에 약속이 있어요',
         maxLines: 1,
@@ -2145,506 +2215,515 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
             top: false,
             child: Column(
               children: [
-              const SizedBox(height: 10),
-              Container(
-                width: 44,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: _AppColors.stone200,
-                  borderRadius: BorderRadius.circular(999),
+                const SizedBox(height: 10),
+                Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: _AppColors.stone200,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                '약속 잡기',
-                style: TextStyle(
-                  fontFamily: 'Pretendard',
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: _AppColors.textMain,
+                const SizedBox(height: 16),
+                const Text(
+                  '약속 잡기',
+                  style: TextStyle(
+                    fontFamily: 'Pretendard',
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: _AppColors.textMain,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: SingleChildScrollView(
-                  keyboardDismissBehavior:
-                      ScrollViewKeyboardDismissBehavior.onDrag,
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '날짜 선택',
-                        style: TextStyle(
-                          fontFamily: 'Pretendard',
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: _AppColors.textMain,
+                const SizedBox(height: 16),
+                Expanded(
+                  child: SingleChildScrollView(
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '날짜 선택',
+                          style: TextStyle(
+                            fontFamily: 'Pretendard',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: _AppColors.textMain,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: CupertinoColors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: _AppColors.stone100),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(20),
-                          child: material.Material(
-                            type: material.MaterialType.transparency,
-                            child: material.Theme(
-                              data: material.ThemeData(
-                                useMaterial3: true,
-                                colorScheme: material.ColorScheme.light(
-                                  primary: _AppColors.primary,
-                                  onPrimary: const Color(0xFFFFFFFF),
-                                  surface: const Color(0xFFFFFFFF),
-                                ),
-                                datePickerTheme: material.DatePickerThemeData(
-                                  todayForegroundColor:
-                                      material.WidgetStateProperty.resolveWith(
-                                    (states) {
-                                      if (states.contains(
-                                        material.WidgetState.selected,
-                                      )) {
-                                        return const Color(0xFFFFFFFF);
-                                      }
-                                      return _AppColors.primary;
-                                    },
+                        const SizedBox(height: 10),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: CupertinoColors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: _AppColors.stone100),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(20),
+                            child: material.Material(
+                              type: material.MaterialType.transparency,
+                              child: material.Theme(
+                                data: material.ThemeData(
+                                  useMaterial3: true,
+                                  colorScheme: material.ColorScheme.light(
+                                    primary: _AppColors.primary,
+                                    onPrimary: const Color(0xFFFFFFFF),
+                                    surface: const Color(0xFFFFFFFF),
                                   ),
-                                  todayBackgroundColor:
-                                      material.WidgetStateProperty.resolveWith(
-                                    (states) {
-                                      if (states.contains(
-                                        material.WidgetState.selected,
-                                      )) {
-                                        return _AppColors.primary;
-                                      }
-                                      return _AppColors.primarySoft.withValues(
-                                        alpha: 0.22,
-                                      );
-                                    },
+                                  datePickerTheme: material.DatePickerThemeData(
+                                    todayForegroundColor:
+                                        material
+                                            .WidgetStateProperty.resolveWith((
+                                          states,
+                                        ) {
+                                          if (states.contains(
+                                            material.WidgetState.selected,
+                                          )) {
+                                            return const Color(0xFFFFFFFF);
+                                          }
+                                          return _AppColors.primary;
+                                        }),
+                                    todayBackgroundColor:
+                                        material
+                                            .WidgetStateProperty.resolveWith((
+                                          states,
+                                        ) {
+                                          if (states.contains(
+                                            material.WidgetState.selected,
+                                          )) {
+                                            return _AppColors.primary;
+                                          }
+                                          return _AppColors.primarySoft
+                                              .withValues(alpha: 0.22);
+                                        }),
                                   ),
                                 ),
-                              ),
-                              child: material.CalendarDatePicker(
-                                initialDate: selectedDate,
-                                firstDate: DateTime.now(),
-                                lastDate: DateTime.now().add(
-                                  const Duration(days: 180),
+                                child: material.CalendarDatePicker(
+                                  initialDate: selectedDate,
+                                  firstDate: DateTime.now(),
+                                  lastDate: DateTime.now().add(
+                                    const Duration(days: 180),
+                                  ),
+                                  onDateChanged: (value) {
+                                    setState(() {
+                                      selectedDate = value;
+                                    });
+                                  },
                                 ),
-                                onDateChanged: (value) {
-                                  setState(() {
-                                    selectedDate = value;
-                                  });
-                                },
                               ),
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 20),
-                      const Text(
-                        '약속 시각',
-                        style: TextStyle(
-                          fontFamily: 'Pretendard',
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: _AppColors.textMain,
+                        const SizedBox(height: 20),
+                        const Text(
+                          '약속 시각',
+                          style: TextStyle(
+                            fontFamily: 'Pretendard',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: _AppColors.textMain,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 20,
-                        ),
-                        decoration: BoxDecoration(
-                          color: CupertinoColors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: _AppColors.stone100),
-                        ),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                _PeriodButton(
-                                  label: '오전',
-                                  isSelected: selectedPeriod == '오전',
-                                  onTap: () =>
-                                      setState(() => selectedPeriod = '오전'),
-                                ),
-                                const SizedBox(width: 8),
-                                _PeriodButton(
-                                  label: '오후',
-                                  isSelected: selectedPeriod == '오후',
-                                  onTap: () =>
-                                      setState(() => selectedPeriod = '오후'),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                SizedBox(
-                                  width: 88,
-                                  child: CupertinoTextField(
-                                    controller: hourController,
-                                    focusNode: _hourFocusNode,
-                                    keyboardType: TextInputType.number,
-                                    textInputAction: TextInputAction.next,
-                                    textAlign: TextAlign.center,
-                                    maxLength: 2,
-                                    placeholder: '12',
-                                    style: const TextStyle(
-                                      fontFamily: 'Pretendard',
-                                      fontSize: 36,
-                                      fontWeight: FontWeight.w800,
-                                      color: _AppColors.textMain,
-                                    ),
-                                    placeholderStyle: const TextStyle(
-                                      fontSize: 36,
-                                      fontWeight: FontWeight.w800,
-                                      color: _AppColors.stone400,
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 14,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: _AppColors.stone100,
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    onChanged: (_) => setState(() {}),
-                                    onSubmitted: (_) {
-                                      _minuteFocusNode.requestFocus();
-                                    },
+                        const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 20,
+                          ),
+                          decoration: BoxDecoration(
+                            color: CupertinoColors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: _AppColors.stone100),
+                          ),
+                          child: Column(
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  _PeriodButton(
+                                    label: '오전',
+                                    isSelected: selectedPeriod == '오전',
+                                    onTap: () =>
+                                        setState(() => selectedPeriod = '오전'),
                                   ),
-                                ),
-                                const Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: 10),
-                                  child: Text(
-                                    ':',
-                                    style: TextStyle(
-                                      fontSize: 40,
-                                      fontWeight: FontWeight.w800,
-                                      color: _AppColors.textMain,
+                                  const SizedBox(width: 8),
+                                  _PeriodButton(
+                                    label: '오후',
+                                    isSelected: selectedPeriod == '오후',
+                                    onTap: () =>
+                                        setState(() => selectedPeriod = '오후'),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  SizedBox(
+                                    width: 88,
+                                    child: CupertinoTextField(
+                                      controller: hourController,
+                                      focusNode: _hourFocusNode,
+                                      keyboardType: TextInputType.number,
+                                      textInputAction: TextInputAction.next,
+                                      textAlign: TextAlign.center,
+                                      maxLength: 2,
+                                      placeholder: '12',
+                                      style: const TextStyle(
+                                        fontFamily: 'Pretendard',
+                                        fontSize: 36,
+                                        fontWeight: FontWeight.w800,
+                                        color: _AppColors.textMain,
+                                      ),
+                                      placeholderStyle: const TextStyle(
+                                        fontSize: 36,
+                                        fontWeight: FontWeight.w800,
+                                        color: _AppColors.stone400,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _AppColors.stone100,
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      onChanged: (_) => setState(() {}),
+                                      onSubmitted: (_) {
+                                        _minuteFocusNode.requestFocus();
+                                      },
                                     ),
                                   ),
-                                ),
-                                SizedBox(
-                                  width: 88,
-                                  child: CupertinoTextField(
-                                    controller: minuteController,
-                                    focusNode: _minuteFocusNode,
-                                    keyboardType: TextInputType.number,
-                                    textInputAction: TextInputAction.done,
-                                    textAlign: TextAlign.center,
-                                    maxLength: 2,
-                                    placeholder: '00',
-                                    style: const TextStyle(
-                                      fontFamily: 'Pretendard',
-                                      fontSize: 36,
-                                      fontWeight: FontWeight.w800,
-                                      color: _AppColors.textMain,
+                                  const Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 10,
                                     ),
-                                    placeholderStyle: const TextStyle(
-                                      fontSize: 36,
-                                      fontWeight: FontWeight.w800,
-                                      color: _AppColors.stone400,
+                                    child: Text(
+                                      ':',
+                                      style: TextStyle(
+                                        fontSize: 40,
+                                        fontWeight: FontWeight.w800,
+                                        color: _AppColors.textMain,
+                                      ),
                                     ),
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 14,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: _AppColors.stone100,
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    onChanged: (_) => setState(() {}),
-                                    onSubmitted: (_) => _dismissKeyboard(),
                                   ),
-                                ),
-                              ],
-                            ),
-                            if (_isEditingTime) ...[
-                              const SizedBox(height: 12),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: CupertinoButton(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                    vertical: 8,
+                                  SizedBox(
+                                    width: 88,
+                                    child: CupertinoTextField(
+                                      controller: minuteController,
+                                      focusNode: _minuteFocusNode,
+                                      keyboardType: TextInputType.number,
+                                      textInputAction: TextInputAction.done,
+                                      textAlign: TextAlign.center,
+                                      maxLength: 2,
+                                      placeholder: '00',
+                                      style: const TextStyle(
+                                        fontFamily: 'Pretendard',
+                                        fontSize: 36,
+                                        fontWeight: FontWeight.w800,
+                                        color: _AppColors.textMain,
+                                      ),
+                                      placeholderStyle: const TextStyle(
+                                        fontSize: 36,
+                                        fontWeight: FontWeight.w800,
+                                        color: _AppColors.stone400,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _AppColors.stone100,
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      onChanged: (_) => setState(() {}),
+                                      onSubmitted: (_) => _dismissKeyboard(),
+                                    ),
                                   ),
-                                  minimumSize: Size.zero,
-                                  onPressed: _dismissKeyboard,
-                                  child: Container(
+                                ],
+                              ),
+                              if (_isEditingTime) ...[
+                                const SizedBox(height: 12),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: CupertinoButton(
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 14,
                                       vertical: 8,
                                     ),
-                                    decoration: BoxDecoration(
-                                      color: _AppColors.primarySoft.withValues(
-                                        alpha: _AppColors.promiseFillAlpha,
+                                    minimumSize: Size.zero,
+                                    onPressed: _dismissKeyboard,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 8,
                                       ),
-                                      borderRadius: BorderRadius.circular(999),
-                                      border: Border.all(
-                                        color: _AppColors.primarySoft,
+                                      decoration: BoxDecoration(
+                                        color: _AppColors.primarySoft
+                                            .withValues(
+                                              alpha:
+                                                  _AppColors.promiseFillAlpha,
+                                            ),
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                        border: Border.all(
+                                          color: _AppColors.primarySoft,
+                                        ),
                                       ),
-                                    ),
-                                    child: const Text(
-                                      '입력 완료',
-                                      style: TextStyle(
-                                        fontFamily: 'Pretendard',
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
-                                        color: _AppColors.primary,
+                                      child: const Text(
+                                        '입력 완료',
+                                        style: TextStyle(
+                                          fontFamily: 'Pretendard',
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          color: _AppColors.primary,
+                                        ),
                                       ),
                                     ),
                                   ),
+                                ),
+                              ],
+                              const SizedBox(height: 10),
+                              const Text(
+                                '시: 1~12 / 분: 0~59 로 입력',
+                                style: TextStyle(
+                                  fontFamily: 'Pretendard',
+                                  fontSize: 12,
+                                  color: _AppColors.textSubtle,
                                 ),
                               ),
                             ],
-                            const SizedBox(height: 10),
-                            const Text(
-                              '시: 1~12 / 분: 0~59 로 입력',
-                              style: TextStyle(
-                                fontFamily: 'Pretendard',
-                                fontSize: 12,
-                                color: _AppColors.textSubtle,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        const Text(
+                          '만날 장소 (송도)',
+                          style: TextStyle(
+                            fontFamily: 'Pretendard',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: _AppColors.textMain,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        if (_placesLoading)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 24),
+                            child: Center(child: CupertinoActivityIndicator()),
+                          )
+                        else
+                          CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: () async {
+                              final picked = await PromisePlacePickerSheet.show(
+                                context,
+                                initialPlaceId: _selectedPlace?.placeId,
+                              );
+                              if (picked != null && mounted) {
+                                setState(() => _selectedPlace = picked);
+                              }
+                            },
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 16,
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      const Text(
-                        '만날 장소 (송도)',
-                        style: TextStyle(
-                          fontFamily: 'Pretendard',
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: _AppColors.textMain,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      if (_placesLoading)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 24),
-                          child: Center(child: CupertinoActivityIndicator()),
-                        )
-                      else
-                        CupertinoButton(
-                          padding: EdgeInsets.zero,
-                          onPressed: () async {
-                            final picked = await PromisePlacePickerSheet.show(
-                              context,
-                              initialPlaceId: _selectedPlace?.placeId,
-                            );
-                            if (picked != null && mounted) {
-                              setState(() => _selectedPlace = picked);
-                            }
-                          },
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 16,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _selectedPlace != null
-                                  ? _AppColors.primarySoft.withValues(
-                                      alpha:
-                                          _AppColors.promiseFillAlphaLight,
-                                    )
-                                  : CupertinoColors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
+                              decoration: BoxDecoration(
                                 color: _selectedPlace != null
-                                    ? _AppColors.primary
-                                    : _AppColors.stone100,
+                                    ? _AppColors.primarySoft.withValues(
+                                        alpha: _AppColors.promiseFillAlphaLight,
+                                      )
+                                    : CupertinoColors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: _selectedPlace != null
+                                      ? _AppColors.primary
+                                      : _AppColors.stone100,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      _selectedPlace?.name ?? '장소를 선택하세요',
+                                      style: TextStyle(
+                                        fontFamily: 'Pretendard',
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: _selectedPlace != null
+                                            ? _AppColors.primary
+                                            : _AppColors.textSubtle,
+                                      ),
+                                    ),
+                                  ),
+                                  if (_selectedPlace != null) ...[
+                                    Text(
+                                      PromisePlaceCategory.label(
+                                        _selectedPlace!.category,
+                                      ),
+                                      style: const TextStyle(
+                                        fontFamily: 'Pretendard',
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: _AppColors.textSubtle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                  ],
+                                  const Icon(
+                                    CupertinoIcons.chevron_forward,
+                                    size: 18,
+                                    color: _AppColors.textSubtle,
+                                  ),
+                                ],
                               ),
                             ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    _selectedPlace?.name ?? '장소를 선택하세요',
-                                    style: TextStyle(
-                                      fontFamily: 'Pretendard',
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      color: _selectedPlace != null
-                                          ? _AppColors.primary
-                                          : _AppColors.textSubtle,
-                                    ),
-                                  ),
-                                ),
-                                if (_selectedPlace != null) ...[
-                                  Text(
-                                    PromisePlaceCategory.label(
-                                      _selectedPlace!.category,
-                                    ),
-                                    style: const TextStyle(
-                                      fontFamily: 'Pretendard',
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: _AppColors.textSubtle,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                ],
-                                const Icon(
-                                  CupertinoIcons.chevron_forward,
-                                  size: 18,
-                                  color: _AppColors.textSubtle,
-                                ),
-                              ],
+                          ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          '칸을 누르면 상세가 펼쳐지고, 지도·이 장소 선택을 할 수 있어요',
+                          style: TextStyle(
+                            fontFamily: 'Pretendard',
+                            fontSize: 12,
+                            color: _AppColors.textSubtle,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: _AppColors.stone100,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            '선택한 일정\n'
+                            '${selectedDate.month}월 ${selectedDate.day}일 '
+                            '$selectedPeriod ${previewHour.toString().padLeft(2, '0')} : ${previewMinute.toString().padLeft(2, '0')}\n'
+                            '${_selectedPlace != null ? '${PromisePlaceCategory.label(_selectedPlace!.category)} · ${_selectedPlace!.name}' : '장소를 선택하세요'}',
+                            style: const TextStyle(
+                              fontFamily: 'Pretendard',
+                              fontSize: 13,
+                              height: 1.5,
+                              color: _AppColors.textMain,
                             ),
                           ),
                         ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        '칸을 누르면 상세가 펼쳐지고, 지도·이 장소 선택을 할 수 있어요',
-                        style: TextStyle(
-                          fontFamily: 'Pretendard',
-                          fontSize: 12,
-                          color: _AppColors.textSubtle,
+                      ],
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: () {
+                            _dismissKeyboard();
+                            Navigator.pop(context);
+                          },
+                          child: Container(
+                            height: 52,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: _AppColors.stone100,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: const Text(
+                              '취소',
+                              style: TextStyle(
+                                fontFamily: 'Pretendard',
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: _AppColors.textMain,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: _AppColors.stone100,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Text(
-                          '선택한 일정\n'
-                          '${selectedDate.month}월 ${selectedDate.day}일 '
-                          '$selectedPeriod ${previewHour.toString().padLeft(2, '0')} : ${previewMinute.toString().padLeft(2, '0')}\n'
-                          '${_selectedPlace != null ? '${PromisePlaceCategory.label(_selectedPlace!.category)} · ${_selectedPlace!.name}' : '장소를 선택하세요'}',
-                          style: const TextStyle(
-                            fontFamily: 'Pretendard',
-                            fontSize: 13,
-                            height: 1.5,
-                            color: _AppColors.textMain,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: () {
+                            _dismissKeyboard();
+                            final hour = int.tryParse(
+                              hourController.text.trim(),
+                            );
+                            final minute = int.tryParse(
+                              minuteController.text.trim(),
+                            );
+
+                            if (hour == null || hour < 1 || hour > 12) {
+                              _showValidationDialog('시는 1부터 12까지 입력해주세요.');
+                              return;
+                            }
+                            if (minute == null || minute < 0 || minute > 59) {
+                              _showValidationDialog('분은 0부터 59까지 입력해주세요.');
+                              return;
+                            }
+
+                            final p = _selectedPlace;
+                            if (p == null) {
+                              _showValidationDialog(
+                                '장소를 선택해주세요.',
+                                title: '장소 선택',
+                              );
+                              return;
+                            }
+
+                            final minAllowedDateTime = DateTime.now().add(
+                              const Duration(minutes: 10),
+                            );
+                            if (selectedDateTime.isBefore(minAllowedDateTime)) {
+                              _showValidationDialog(
+                                '약속 시간은 현재 시각 기준 10분 이후부터 선택할 수 있어요.',
+                              );
+                              return;
+                            }
+
+                            Navigator.pop(
+                              context,
+                              _PromiseFormResult(
+                                dateTime: selectedDateTime,
+                                place: p.name,
+                                placeCategory: p.category,
+                                placeId: p.placeId,
+                                placeAddress: p.address.isNotEmpty
+                                    ? p.address
+                                    : null,
+                                placeLat: p.lat,
+                                placeLng: p.lng,
+                              ),
+                            );
+                          },
+                          child: Container(
+                            height: 52,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: _AppColors.primary,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: const Text(
+                              '약속 요청 보내기',
+                              style: TextStyle(
+                                fontFamily: 'Pretendard',
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: CupertinoColors.white,
+                              ),
+                            ),
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: () {
-                          _dismissKeyboard();
-                          Navigator.pop(context);
-                        },
-                        child: Container(
-                          height: 52,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: _AppColors.stone100,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: const Text(
-                            '취소',
-                            style: TextStyle(
-                              fontFamily: 'Pretendard',
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: _AppColors.textMain,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: () {
-                          _dismissKeyboard();
-                          final hour = int.tryParse(hourController.text.trim());
-                          final minute = int.tryParse(
-                            minuteController.text.trim(),
-                          );
-
-                          if (hour == null || hour < 1 || hour > 12) {
-                            _showValidationDialog('시는 1부터 12까지 입력해주세요.');
-                            return;
-                          }
-                          if (minute == null || minute < 0 || minute > 59) {
-                            _showValidationDialog('분은 0부터 59까지 입력해주세요.');
-                            return;
-                          }
-
-                          final p = _selectedPlace;
-                          if (p == null) {
-                            _showValidationDialog(
-                              '장소를 선택해주세요.',
-                              title: '장소 선택',
-                            );
-                            return;
-                          }
-
-                          final minAllowedDateTime = DateTime.now().add(
-                            const Duration(minutes: 10),
-                          );
-                          if (selectedDateTime.isBefore(minAllowedDateTime)) {
-                            _showValidationDialog(
-                              '약속 시간은 현재 시각 기준 10분 이후부터 선택할 수 있어요.',
-                            );
-                            return;
-                          }
-
-                          Navigator.pop(
-                            context,
-                            _PromiseFormResult(
-                              dateTime: selectedDateTime,
-                              place: p.name,
-                              placeCategory: p.category,
-                              placeId: p.placeId,
-                              placeAddress:
-                                  p.address.isNotEmpty ? p.address : null,
-                              placeLat: p.lat,
-                              placeLng: p.lng,
-                            ),
-                          );
-                        },
-                        child: Container(
-                          height: 52,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: _AppColors.primary,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: const Text(
-                            '약속 요청 보내기',
-                            style: TextStyle(
-                              fontFamily: 'Pretendard',
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: CupertinoColors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+              ],
             ),
           ),
         ),

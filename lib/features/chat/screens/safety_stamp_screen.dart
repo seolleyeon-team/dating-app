@@ -6,6 +6,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' as material;
 
+import '../../profile/models/safety_stamp_log_entry.dart';
+import '../../profile/services/safety_stamp_log_cache_service.dart';
+import '../../../services/user_service.dart';
 import '../services/chat_service.dart';
 import '../services/safety_stamp_verification_service.dart';
 import '../utils/safety_stamp_availability.dart';
@@ -36,6 +39,9 @@ class SafetyStampScreen extends StatefulWidget {
 class _SafetyStampScreenState extends State<SafetyStampScreen>
     with TickerProviderStateMixin {
   final ChatService _chatService = ChatService();
+  final SafetyStampLogCacheService _logCacheService =
+      SafetyStampLogCacheService();
+  final UserService _userService = UserService();
   final SafetyStampVerificationService _verificationService =
       SafetyStampVerificationService();
   late final AnimationController _floatController;
@@ -53,6 +59,9 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
   bool _showHydratedMyStamp = false;
   bool _showHydratedPartnerStamp = false;
   SafetyStampPhase _phase = SafetyStampPhase.meetup;
+  String _currentPlaceName = '위치 정보 없음';
+  bool _shouldUseGpsFallbackForPartner = false;
+  bool _isCancellingExpiredPromise = false;
 
   @override
   void initState() {
@@ -73,7 +82,21 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
+    _loadPartnerPlatform();
     _subscribeToSafetyStamp();
+  }
+
+  Future<void> _loadPartnerPlatform() async {
+    if (widget.partnerId.isEmpty) return;
+
+    final partnerProfile = await _userService.getUserProfile(widget.partnerId);
+    final partnerPlatform =
+        partnerProfile?['lastActivePlatform']?.toString().toLowerCase() ?? '';
+
+    if (!mounted) return;
+    setState(() {
+      _shouldUseGpsFallbackForPartner = partnerPlatform == 'web';
+    });
   }
 
   @override
@@ -101,6 +124,11 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
       if (activePromise == null || activePromiseId != widget.promiseId) {
         return;
       }
+      _cancelExpiredPromiseIfNeeded(activePromise);
+      _currentPlaceName =
+          activePromise['place']?.toString().trim().isNotEmpty == true
+          ? activePromise['place'].toString().trim()
+          : '위치 정보 없음';
 
       final nextPhase = deriveSafetyStampPhase(activePromise);
       final safetyStampRaw = activePromise['safetyStamp'];
@@ -203,6 +231,23 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
     });
   }
 
+  Future<void> _cancelExpiredPromiseIfNeeded(
+    Map<String, dynamic> activePromise,
+  ) async {
+    if (_isCancellingExpiredPromise) return;
+    if (!isMeetupSafetyStampExpired(activePromise)) return;
+
+    _isCancellingExpiredPromise = true;
+    try {
+      await _chatService.cancelExpiredIncompleteSafetyStamp(
+        roomId: widget.roomId,
+        promiseId: widget.promiseId,
+      );
+    } finally {
+      _isCancellingExpiredPromise = false;
+    }
+  }
+
   Future<void> _handleStampPress() async {
     if (_isMyStamped || _isSubmittingMyStamp) return;
 
@@ -216,6 +261,7 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
             promiseId: widget.promiseId,
             currentUserId: widget.currentUserId,
             partnerUserId: widget.partnerId,
+            preferGpsOnly: _shouldUseGpsFallbackForPartner,
           );
 
       if (!verification.isSuccess) {
@@ -238,6 +284,21 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
         verification: verification.toFirestoreMap(
           phase: _phase.name,
           verifierUserId: widget.currentUserId,
+        ),
+      );
+      await _logCacheService.saveLog(
+        widget.currentUserId,
+        SafetyStampLogEntry(
+          logId: '${widget.promiseId}_${_phase.name}_${widget.currentUserId}',
+          promiseId: widget.promiseId,
+          roomId: widget.roomId,
+          partnerId: widget.partnerId,
+          partnerName: widget.partnerName,
+          phase: _phase.name,
+          placeName: _currentPlaceName,
+          stampedAt: verification.location?.capturedAt ?? DateTime.now(),
+          latitude: verification.location?.latitude,
+          longitude: verification.location?.longitude,
         ),
       );
     } catch (_) {

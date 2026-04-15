@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:geolocator/geolocator.dart';
@@ -23,7 +23,23 @@ class SafetyStampVerificationService {
     required String promiseId,
     required String currentUserId,
     required String partnerUserId,
+    bool preferGpsOnly = false,
   }) async {
+    if (kIsWeb || preferGpsOnly) {
+      final location = await _captureLocation();
+      if (!location.isSuccess) {
+        return location;
+      }
+
+      return SafetyStampVerificationResult.success(
+        message: preferGpsOnly
+            ? '상대가 웹에서 접속 중이라 현재 위치를 기준으로 안전도장을 기록했어요.'
+            : '웹에서는 현재 위치를 기준으로 안전도장을 기록했어요.',
+        rssi: 0,
+        location: location.location!,
+      );
+    }
+
     final bluetoothReady = await _ensureBluetoothReady();
     if (bluetoothReady != null) {
       return bluetoothReady;
@@ -126,7 +142,7 @@ class SafetyStampVerificationService {
       return null;
     }
 
-    if (Platform.isAndroid) {
+    if (defaultTargetPlatform == TargetPlatform.android) {
       final enabled = await _peripheral.enableBluetooth();
       if (enabled) {
         await FlutterBluePlus.adapterState

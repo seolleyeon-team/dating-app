@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../utils/safety_stamp_availability.dart';
+
 class ChatService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -59,6 +61,86 @@ class ChatService {
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> roomStream(String roomId) {
     return _firestore.collection('chat_rooms').doc(roomId).snapshots();
+  }
+
+  Future<bool> cancelExpiredIncompleteSafetyStamp({
+    required String roomId,
+    required String promiseId,
+  }) async {
+    final roomRef = _firestore.collection('chat_rooms').doc(roomId);
+    final promiseRef = roomRef.collection('promises').doc(promiseId);
+    final cancelledMessageRef = roomRef.collection('messages').doc();
+    final now = DateTime.now();
+    final cancelledMessageText = '약속이 취소되었어요 (${_formatKoreanDateTime(now)})';
+
+    return _firestore.runTransaction((tx) async {
+      final roomSnap = await tx.get(roomRef);
+      if (!roomSnap.exists) return false;
+
+      final roomData = roomSnap.data() ?? <String, dynamic>{};
+      final activePromiseRaw = roomData['activePromise'];
+      if (activePromiseRaw is! Map) return false;
+
+      final activePromise = _coerceStringMap(activePromiseRaw);
+      final activePromiseId = activePromise['promiseId']?.toString() ?? '';
+      if (activePromiseId.isEmpty || activePromiseId != promiseId) {
+        return false;
+      }
+      if (!isMeetupSafetyStampExpired(activePromise, now: now)) {
+        return false;
+      }
+
+      final promiseSnap = await tx.get(promiseRef);
+      if (!promiseSnap.exists) return false;
+
+      final promiseData = promiseSnap.data() ?? <String, dynamic>{};
+      final promiseStatus =
+          promiseData['status']?.toString().toLowerCase() ?? '';
+      if (promiseStatus == 'cancelled' || promiseStatus == 'completed') {
+        return false;
+      }
+
+      tx.update(promiseRef, {
+        'status': 'cancelled',
+        'cancelledAt': FieldValue.serverTimestamp(),
+        'cancelledReason': 'safety_stamp_timeout',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      tx.set(cancelledMessageRef, {
+        'senderId': 'system',
+        'text': cancelledMessageText,
+        'type': 'promise_deleted',
+        'promiseId': promiseId,
+        'dateTime': FieldValue.serverTimestamp(),
+        'place': activePromise['place'],
+        'placeCategory': activePromise['placeCategory'],
+        'status': 'cancelled',
+        'cancelledReason': 'safety_stamp_timeout',
+        'readBy': const <String>[],
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      tx.set(roomRef, {
+        'activePromise': FieldValue.delete(),
+        'lastMessage': cancelledMessageText,
+        'lastMessageAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      return true;
+    });
+  }
+
+  static String _formatKoreanDateTime(DateTime dateTime) {
+    final local = dateTime.toLocal();
+    final hour12 = local.hour == 0
+        ? 12
+        : (local.hour > 12 ? local.hour - 12 : local.hour);
+    final minute = local.minute.toString().padLeft(2, '0');
+    final period = local.hour >= 12 ? '오후' : '오전';
+    return '${local.month}월 ${local.day}일 $period $hour12:$minute';
   }
 
   Future<void> markSafetyStamp({
@@ -395,6 +477,9 @@ class ChatService {
     batch.set(roomRef, {
       'lastMessage': text,
       'lastMessageAt': FieldValue.serverTimestamp(),
+      'photoBlurUnlocked': true,
+      'photoBlurUnlockedAt': FieldValue.serverTimestamp(),
+      'photoBlurUnlockedBy': senderId,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 

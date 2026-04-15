@@ -69,6 +69,8 @@ service cloud.firestore {
             'email',
             'createdAt',
             'lastLoginAt',
+            'lastActivePlatform',
+            'lastActivePlatformUpdatedAt',
             'onboarding',
             'onboardingUpdatedAt',
             'initialSetupComplete',
@@ -104,6 +106,8 @@ service cloud.firestore {
             usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
               'kakaoUserId',
+              'lastActivePlatform',
+              'lastActivePlatformUpdatedAt',
               'onboarding',
               'onboardingUpdatedAt',
               'initialSetupComplete',
@@ -119,6 +123,8 @@ service cloud.firestore {
               request.resource.data.kakaoUserId == kakaoUserId) &&
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
               'kakaoUserId',
+              'lastActivePlatform',
+              'lastActivePlatformUpdatedAt',
               'onboarding',
               'onboardingUpdatedAt',
               'idealType',
