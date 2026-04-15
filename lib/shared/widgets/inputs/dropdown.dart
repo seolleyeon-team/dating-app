@@ -18,11 +18,14 @@ class SeolDropdown<T> extends StatelessWidget {
   });
 
   void _showPicker(BuildContext context) {
+    final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
+    final pickerBg = isDark ? const Color(0xFF261E2C) : CupertinoColors.systemBackground;
+
     showCupertinoModalPopup(
       context: context,
       builder: (context) => Container(
         height: 250,
-        color: CupertinoColors.systemBackground,
+        color: pickerBg,
         child: Column(
           children: [
             Row(
@@ -63,14 +66,23 @@ class SeolDropdown<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
+    final fieldBg = isDark ? const Color(0xFF302838) : CupertinoColors.white;
+    final borderColor = isDark ? const Color(0xFF3E3548) : const Color(0xFFE6DBDF);
+    final textColor = isDark ? const Color(0xFFF0E8ED) : const Color(0xFF181113);
+    final hintColor = isDark
+        ? const Color(0xFF7A6B76)
+        : const Color(0xFF89616F).withValues(alpha: 0.6);
+    final iconColor = isDark ? const Color(0xFF7A6B76) : const Color(0xFF89616F);
+
     return GestureDetector(
       onTap: () => _showPicker(context),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: CupertinoColors.white,
+          color: fieldBg,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE6DBDF)),
+          border: Border.all(color: borderColor),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -80,15 +92,13 @@ class SeolDropdown<T> extends StatelessWidget {
               style: TextStyle(
                 fontFamily: 'Pretendard',
                 fontSize: 16,
-                color: value != null
-                    ? const Color(0xFF181113)
-                    : const Color(0xFF89616F).withValues(alpha: 0.6),
+                color: value != null ? textColor : hintColor,
               ),
             ),
-            const Icon(
+            Icon(
               CupertinoIcons.chevron_down,
               size: 18,
-              color: Color(0xFF89616F),
+              color: iconColor,
             ),
           ],
         ),

@@ -1,4 +1,7 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+
+import '../../../core/constants/app_colors.dart';
 
 /// 기본 카드 위젯
 class BaseCard extends StatelessWidget {
@@ -21,10 +24,11 @@ class BaseCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
     final card = Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: backgroundColor ?? CupertinoColors.white,
+        color: backgroundColor ?? seol.cardSurface,
         borderRadius: BorderRadius.circular(borderRadius),
         boxShadow: hasShadow
             ? [

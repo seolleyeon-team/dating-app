@@ -1,0 +1,17 @@
+.git
+.gitignore
+*
+
+# Include pipeline code
+!recsys/
+!lib/
+lib/*
+!lib/ai_recommend_model/
+!infra/
+!cloudbuild.yaml
+!Dockerfile
+
+# Exclude virtual environments and caches that might be inside included folders
+recsys/.venv/
+**/.venv/
+**/__pycache__/

@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 
 /// Secondary 버튼 위젯
 class SecondaryButton extends StatelessWidget {
@@ -17,6 +18,8 @@ class SecondaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+
     return SizedBox(
       width: isFullWidth ? double.infinity : null,
       height: 56,
@@ -25,7 +28,7 @@ class SecondaryButton extends StatelessWidget {
         padding: EdgeInsets.zero,
         child: Container(
           decoration: BoxDecoration(
-            border: Border.all(color: const Color(0xFFEF3976), width: 1.5),
+            border: Border.all(color: primary, width: 1.5),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Center(
@@ -33,11 +36,11 @@ class SecondaryButton extends StatelessWidget {
                 ? const CupertinoActivityIndicator()
                 : Text(
                     text,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Pretendard',
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFFEF3976),
+                      color: primary,
                     ),
                   ),
           ),

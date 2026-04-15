@@ -10,6 +10,7 @@ Usage (local):
   python -m recsys.main --step verify  --project seolleyeon
 
 All steps default --date-key to today (KST YYYYMMDD) when omitted.
+Model steps (`clip`, `svd`, `knn`) dispatch to the v3 training/export scripts.
 """
 from __future__ import annotations
 
@@ -37,7 +38,7 @@ from recsys.jobs.common import (
 from recsys.jobs.export_job import run_export
 from recsys.jobs.verify_job import run_verify
 
-# Directory containing the original ML scripts.
+# Directory containing the ML scripts.
 # Docker:  /app/ai_recommend_model   (set via ENV AI_MODEL_DIR)
 # Local:   lib/ai_recommend_model    (relative to project root)
 AI_MODEL_DIR = os.environ.get(
@@ -46,6 +47,13 @@ AI_MODEL_DIR = os.environ.get(
 )
 if not os.path.isdir(AI_MODEL_DIR):
     AI_MODEL_DIR = os.path.join(_PROJECT_ROOT, "ai_recommend_model")
+
+
+MODEL_SCRIPT_NAMES = {
+    "clip": "seolleyeon_clip_train_export_v3.py",
+    "svd": "seolleyeon_svd_train_export_v3.py",
+    "knn": "seolleyeon_knn_train_export_v3.py",
+}
 
 
 # ---------------------------------------------------------------
@@ -129,7 +137,7 @@ def step_svd(args, logger) -> int:
     if args.database:
         script_args.extend(["--firestore_database", args.database])
 
-    return _run_script("seolleyeon_svd_train_export.py", script_args, logger)
+    return _run_script(MODEL_SCRIPT_NAMES["svd"], script_args, logger)
 
 
 def step_knn(args, logger) -> int:
@@ -145,7 +153,7 @@ def step_knn(args, logger) -> int:
     if args.database:
         script_args.extend(["--firestore_database", args.database])
 
-    return _run_script("seolleyeon_knn_train_export.py", script_args, logger)
+    return _run_script(MODEL_SCRIPT_NAMES["knn"], script_args, logger)
 
 
 def step_clip(args, logger) -> int:
@@ -156,7 +164,7 @@ def step_clip(args, logger) -> int:
     if args.database:
         script_args.extend(["--firestore_database", args.database])
 
-    return _run_script("seolleyeon_clip_train_export.py", script_args, logger)
+    return _run_script(MODEL_SCRIPT_NAMES["clip"], script_args, logger)
 
 
 def step_rrf(args, logger) -> int:

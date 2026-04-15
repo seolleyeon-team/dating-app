@@ -1,34 +1,15 @@
 // =============================================================================
 // 설정 화면
-// 경로: lib/features/settings/screens/settings_screen.dart
-//
-// 사용 예시:
-// Navigator.push(
-//   context,
-//   CupertinoPageRoute(builder: (_) => const SettingsScreen()),
-// );
 // =============================================================================
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart' show Theme, Brightness;
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
+import '../../../core/constants/app_colors.dart';
+import '../../../providers/theme_provider.dart';
 import '../../../router/route_names.dart';
-
-// =============================================================================
-// 색상 상수
-// =============================================================================
-class _AppColors {
-  static const Color primary = Color(0xFFF0426E);
-  static const Color backgroundLight = Color(0xFFF8F6F6);
-  static const Color surfaceLight = Color(0xFFFFFFFF);
-  static const Color textMain = Color(0xFF181113);
-  static const Color textSecondary = Color(0xFF89616B);
-  static const Color gray100 = Color(0xFFF3F4F6);
-  static const Color gray300 = Color(0xFFD1D5DB);
-  static const Color gray400 = Color(0xFF9CA3AF);
-  static const Color kakao = Color(0xFFFEE500);
-  static const Color kakaoBrown = Color(0xFF3C1E1E);
-}
 
 // =============================================================================
 // 메인 화면
@@ -44,14 +25,21 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _profileVisible = true;
-  bool _darkMode = false;
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = context.watch<ThemeProvider>();
+    final isDark = themeProvider.isDarkMode;
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+    final textMain = isDark ? AppColorsDark.textPrimary : const Color(0xFF181113);
+    final bgColor = isDark ? AppColorsDark.background : const Color(0xFFF8F6F6);
+    final surfaceColor = seol.cardSurface;
+
     return CupertinoPageScaffold(
-      backgroundColor: _AppColors.backgroundLight,
+      backgroundColor: bgColor,
       navigationBar: CupertinoNavigationBar(
-        backgroundColor: _AppColors.surfaceLight.withValues(alpha: 0.8),
+        backgroundColor: surfaceColor.withValues(alpha: 0.8),
         border: null,
         leading: CupertinoButton(
           padding: EdgeInsets.zero,
@@ -68,28 +56,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
             height: 40,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: CupertinoColors.black.withValues(alpha: 0.05),
+              color: isDark
+                  ? CupertinoColors.white.withValues(alpha: 0.08)
+                  : CupertinoColors.black.withValues(alpha: 0.05),
             ),
-            child: const Icon(
+            child: Icon(
               CupertinoIcons.back,
               size: 20,
-              color: _AppColors.textMain,
+              color: textMain,
             ),
           ),
         ),
-        middle: const Text(
+        middle: Text(
           '설정',
           style: TextStyle(
             fontFamily: 'Pretendard',
             fontSize: 18,
             fontWeight: FontWeight.w700,
-            color: _AppColors.textMain,
+            color: textMain,
           ),
         ),
       ),
       child: Stack(
         children: [
-          // 배경 글로우
           Positioned(
             top: -100,
             left: 0,
@@ -101,15 +90,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 decoration: BoxDecoration(
                   gradient: RadialGradient(
                     colors: [
-                      _AppColors.primary.withValues(alpha: 0.06),
-                      _AppColors.primary.withValues(alpha: 0),
+                      primary.withValues(alpha: isDark ? 0.04 : 0.06),
+                      primary.withValues(alpha: 0),
                     ],
                   ),
                 ),
               ),
             ),
           ),
-          // 메인 콘텐츠
           SafeArea(
             child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
@@ -117,7 +105,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 개인정보
                   _SectionTitle(title: '개인정보'),
                   _SettingsCard(
                     children: [
@@ -143,7 +130,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                   const SizedBox(height: 32),
-                  // 계정
                   _SectionTitle(title: '계정'),
                   _SettingsCard(
                     children: [
@@ -157,16 +143,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             vertical: 6,
                           ),
                           decoration: BoxDecoration(
-                            color: _AppColors.kakao,
+                            color: seol.kakao,
                             borderRadius: BorderRadius.circular(16),
                           ),
-                          child: const Text(
+                          child: Text(
                             '카카오 연동됨',
                             style: TextStyle(
                               fontFamily: 'Pretendard',
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
-                              color: _AppColors.kakaoBrown,
+                              color: seol.kakaoBrown,
                             ),
                           ),
                         ),
@@ -175,28 +161,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                   const SizedBox(height: 32),
-                  // 앱 설정
                   _SectionTitle(title: '앱 설정'),
                   _SettingsCard(
                     children: [
                       _SettingsToggle(
                         icon: CupertinoIcons.moon,
                         title: '다크 모드',
-                        value: _darkMode,
-                        onChanged: (v) => setState(() => _darkMode = v),
+                        value: themeProvider.isDarkMode,
+                        onChanged: (v) => themeProvider.toggleDarkMode(v),
                       ),
                       const _Divider(),
                       _SettingsItem(
                         icon: CupertinoIcons.bell,
                         title: '알림 설정',
                         hasChevron: true,
-                        trailing: const Text(
+                        trailing: Text(
                           '켜짐',
                           style: TextStyle(
                             fontFamily: 'Pretendard',
                             fontSize: 14,
                             fontWeight: FontWeight.w500,
-                            color: _AppColors.primary,
+                            color: primary,
                           ),
                         ),
                         onTap: () {},
@@ -204,7 +189,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                   const SizedBox(height: 32),
-                  // 도움말
                   _SectionTitle(title: '도움말'),
                   _SettingsCard(
                     children: [
@@ -224,7 +208,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                   const SizedBox(height: 32),
-                  // 의견 보내기
                   _SectionTitle(title: '의견 보내기'),
                   _SettingsCard(
                     children: [
@@ -252,7 +235,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                   const SizedBox(height: 32),
-                  // 약관
                   _SectionTitle(title: '약관'),
                   _SettingsCard(
                     children: [
@@ -270,15 +252,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                   const SizedBox(height: 32),
-                  // 버전
-                  const Center(
+                  Center(
                     child: Text(
                       '버전 1.0.0',
                       style: TextStyle(
                         fontFamily: 'Pretendard',
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
-                        color: _AppColors.gray400,
+                        color: seol.gray400,
                       ),
                     ),
                   ),
@@ -302,16 +283,17 @@ class _SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
     return Padding(
       padding: const EdgeInsets.only(left: 16, bottom: 12),
       child: Text(
         title.toUpperCase(),
-        style: const TextStyle(
+        style: TextStyle(
           fontFamily: 'Pretendard',
           fontSize: 12,
           fontWeight: FontWeight.w700,
           letterSpacing: 1,
-          color: _AppColors.gray400,
+          color: seol.gray400,
         ),
       ),
     );
@@ -328,16 +310,22 @@ class _SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
-        color: _AppColors.surfaceLight,
+        color: seol.cardSurface,
         borderRadius: BorderRadius.circular(32),
         border: Border.all(
-          color: _AppColors.surfaceLight.withValues(alpha: 0.5),
+          color: isDark
+              ? seol.gray200.withValues(alpha: 0.3)
+              : seol.cardSurface.withValues(alpha: 0.5),
         ),
         boxShadow: [
           BoxShadow(
-            color: CupertinoColors.black.withValues(alpha: 0.03),
+            color: isDark
+                ? CupertinoColors.black.withValues(alpha: 0.12)
+                : CupertinoColors.black.withValues(alpha: 0.03),
             blurRadius: 20,
             offset: const Offset(0, 4),
           ),
@@ -370,6 +358,12 @@ class _SettingsItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = Theme.of(context).colorScheme.primary;
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final textMain = isDark ? AppColorsDark.textPrimary : const Color(0xFF181113);
+    final textSub = isDark ? AppColorsDark.textSecondary : const Color(0xFF89616B);
+
     return CupertinoButton(
       padding: EdgeInsets.zero,
       onPressed: onTap,
@@ -377,52 +371,49 @@ class _SettingsItem extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         child: Row(
           children: [
-            // 아이콘
             Container(
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: _AppColors.primary.withValues(alpha: 0.05),
+                color: primary.withValues(alpha: isDark ? 0.12 : 0.05),
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, size: 22, color: _AppColors.primary),
+              child: Icon(icon, size: 22, color: primary),
             ),
             const SizedBox(width: 16),
-            // 텍스트
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Pretendard',
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
-                      color: _AppColors.textMain,
+                      color: textMain,
                     ),
                   ),
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),
                     Text(
                       subtitle!,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: 'Pretendard',
                         fontSize: 13,
-                        color: _AppColors.textSecondary,
+                        color: textSub,
                       ),
                     ),
                   ],
                 ],
               ),
             ),
-            // 트레일링
             if (trailing != null) ...[trailing!, const SizedBox(width: 8)],
             if (hasChevron)
-              const Icon(
+              Icon(
                 CupertinoIcons.chevron_right,
                 size: 18,
-                color: _AppColors.gray300,
+                color: seol.gray300,
               ),
           ],
         ),
@@ -449,37 +440,38 @@ class _SettingsToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = Theme.of(context).colorScheme.primary;
+    final textMain = isDark ? AppColorsDark.textPrimary : const Color(0xFF181113);
+
     return Padding(
       padding: const EdgeInsets.all(20),
       child: Row(
         children: [
-          // 아이콘
           Container(
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: _AppColors.primary.withValues(alpha: 0.05),
+              color: primary.withValues(alpha: isDark ? 0.12 : 0.05),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, size: 22, color: _AppColors.primary),
+            child: Icon(icon, size: 22, color: primary),
           ),
           const SizedBox(width: 16),
-          // 타이틀
           Expanded(
             child: Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Pretendard',
                 fontSize: 16,
                 fontWeight: FontWeight.w500,
-                color: _AppColors.textMain,
+                color: textMain,
               ),
             ),
           ),
-          // 토글
           CupertinoSwitch(
             value: value,
-            activeTrackColor: _AppColors.primary,
+            activeTrackColor: primary,
             onChanged: onChanged,
           ),
         ],
@@ -496,10 +488,11 @@ class _Divider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
       height: 1,
-      color: _AppColors.gray100,
+      color: seol.gray100,
     );
   }
 }

@@ -40,39 +40,42 @@ class BaseBottomSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF261E2C) : CupertinoColors.systemBackground;
+    final handleColor = isDark ? const Color(0xFF4A4054) : CupertinoColors.systemGrey4;
+    final textColor = isDark ? const Color(0xFFF0E8ED) : CupertinoColors.label;
+
     return Container(
-      decoration: const BoxDecoration(
-        color: CupertinoColors.systemBackground,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 드래그 핸들
           if (showDragHandle)
             Container(
               margin: const EdgeInsets.only(top: 12),
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: CupertinoColors.systemGrey4,
+                color: handleColor,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-          // 제목
           if (title != null)
             Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
                 title!,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
+                  color: textColor,
                 ),
               ),
             ),
-          // 컨텐츠
           Flexible(child: child),
         ],
       ),

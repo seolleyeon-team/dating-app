@@ -22,11 +22,16 @@ class LoadingDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = MediaQuery.platformBrightnessOf(context);
+    final isDark = brightness == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF261E2C) : CupertinoColors.systemBackground;
+    final textColor = isDark ? const Color(0xFFF0E8ED) : const Color(0xFF181113);
+
     return Center(
       child: Container(
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          color: CupertinoColors.systemBackground,
+          color: bgColor,
           borderRadius: BorderRadius.circular(16),
         ),
         child: Column(
@@ -37,10 +42,10 @@ class LoadingDialog extends StatelessWidget {
               const SizedBox(height: 16),
               Text(
                 message!,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 14,
-                  color: Color(0xFF181113),
+                  color: textColor,
                 ),
               ),
             ],

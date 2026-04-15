@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-const Color _primaryColor = Color(0xFFFF6B8A);
-
 /// 기본 버튼 위젯
 class PrimaryButton extends StatelessWidget {
   final String text;
@@ -19,25 +17,28 @@ class PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final onPrimary = Theme.of(context).colorScheme.onPrimary;
+
     return SizedBox(
       width: isFullWidth ? double.infinity : null,
       height: 56,
       child: ElevatedButton(
         onPressed: isLoading ? null : onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: _primaryColor,
-          foregroundColor: Colors.white,
+          backgroundColor: primary,
+          foregroundColor: onPrimary,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          disabledBackgroundColor: _primaryColor.withValues(alpha: 0.5),
+          disabledBackgroundColor: primary.withValues(alpha: 0.5),
         ),
         child: isLoading
-            ? const SizedBox(
+            ? SizedBox(
                 width: 24,
                 height: 24,
                 child: CircularProgressIndicator(
-                  color: Colors.white,
+                  color: onPrimary,
                   strokeWidth: 2,
                 ),
               )
