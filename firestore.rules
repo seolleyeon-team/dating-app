@@ -29,7 +29,7 @@ service cloud.firestore {
         // -----------------------------------------------------------------------
     // Users
     // -----------------------------------------------------------------------
-    // users 문서에 kakaoUserId 필드가 없으면 규칙에서 null 로 평가됨 → 프로필 수정 허용
+    // users 문서에 kakaoUserId 필드가 없으면 규칙에서 null 로 평가됨 -> 프로필 수정 허용
     function usersDocKakaoIdOk(data, docKakaoId) {
       return data.kakaoUserId == null || data.kakaoUserId == docKakaoId;
     }
@@ -118,7 +118,7 @@ service cloud.firestore {
               'updatedAt'
             ])
           ) || (
-            // 프로필 수정(온보딩 데이터 갱신) — 기존 규칙 유지 + 온보딩 편집 허용
+            // 프로필 수정(온보딩 데이터 갱신) - 기존 규칙 유지 + 온보딩 편집 허용
             (request.resource.data.kakaoUserId == null ||
               request.resource.data.kakaoUserId == kakaoUserId) &&
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -180,7 +180,7 @@ service cloud.firestore {
       }
 
       // ---------------------------------------------------------------------
-      // Contact blocked hashes (연락처 차단 — server-side callable로만 쓰기)
+      // Contact blocked hashes (연락처 차단 - server-side callable로만 쓰기)
       // users/{kakaoUserId}/contactBlockedHashes/{phoneHash}
       // ---------------------------------------------------------------------
       match /contactBlockedHashes/{phoneHash} {
@@ -245,6 +245,19 @@ service cloud.firestore {
       allow write: if false;
     }
 
+
+    // -----------------------------------------------------------------------
+    // Promise place catalog
+    // -----------------------------------------------------------------------
+    match /place_catalog_meta/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /place_catalog_items/{placeId} {
+      allow read: if true;
+      allow write: if false;
+    }
 
     // -----------------------------------------------------------------------
     // Bamboo Forest (Community)
@@ -389,25 +402,26 @@ service cloud.firestore {
       allow update: if true;
       allow delete: if true;
     }
-    match /app_inquiries/{inquiryId} {
-  allow create: if
-    request.resource.data.inquirerId is string &&
-    request.resource.data.category is string &&
-    request.resource.data.category.size() > 0 &&
-    request.resource.data.content is string &&
-    request.resource.data.content.size() > 0 &&
-    request.resource.data.allowContact is bool &&
-    request.resource.data.sourceScreen is string &&
-    request.resource.data.platform is string &&
-    request.resource.data.status is string;
 
-  allow read: if true;
-  allow update: if true;
-  allow delete: if true;
-}
+    match /app_inquiries/{inquiryId} {
+      allow create: if
+        request.resource.data.inquirerId is string &&
+        request.resource.data.category is string &&
+        request.resource.data.category.size() > 0 &&
+        request.resource.data.content is string &&
+        request.resource.data.content.size() > 0 &&
+        request.resource.data.allowContact is bool &&
+        request.resource.data.sourceScreen is string &&
+        request.resource.data.platform is string &&
+        request.resource.data.status is string;
+
+      allow read: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
 
     // -----------------------------------------------------------------------
-    // User Private (전화번호 해시 등 민감 정보 — server callable로만 쓰기)
+    // User Private (전화번호 해시 등 민감 정보 - server callable로만 쓰기)
     // -----------------------------------------------------------------------
     match /userPrivate/{uid} {
       allow get: if request.auth != null && request.auth.uid == uid;
@@ -416,14 +430,14 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
-    // Phone Hash Index (역매칭 — server/admin only)
+    // Phone Hash Index (역매칭 - server/admin only)
     // -----------------------------------------------------------------------
     match /phoneHashIndex/{phoneHash} {
       allow read, write: if false;
     }
 
     // -----------------------------------------------------------------------
-    // Contact Blocked Hash Index (연락처 차단 역인덱스 — server/admin only)
+    // Contact Blocked Hash Index (연락처 차단 역인덱스 - server/admin only)
     // -----------------------------------------------------------------------
     match /contactBlockedHashIndex/{phoneHash} {
       allow read, write: if false;
@@ -441,7 +455,7 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
-    // Model Recs (AI 추천 결과: rrf, clip, svd, knn — 서버에서 저장, 앱에서 읽기)
+    // Model Recs (AI 추천 결과: rrf, clip, svd, knn - 서버에서 저장, 앱에서 읽기)
     // Kakao 로그인 시 request.auth가 null일 수 있어 read는 허용
     // -----------------------------------------------------------------------
     match /modelRecs/{userId}/daily/{dateKey}/sources/{algo} {
@@ -514,7 +528,7 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
-    // Event 3인 팀 (초대·상태 — 쓰기는 Cloud Functions만, 읽기는 앱 동기화용)
+    // Event 3인 팀 (초대·상태 - 쓰기는 Cloud Functions만, 읽기는 앱 동기화용)
     // -----------------------------------------------------------------------
     match /eventTeamSetups/{teamSetupId} {
       allow read: if true;

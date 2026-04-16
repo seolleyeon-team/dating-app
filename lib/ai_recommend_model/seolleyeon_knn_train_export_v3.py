@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 from scipy import sparse
 from tqdm import tqdm
+from seolleyeon_knn_backend import build_weighted_user_item, should_use_implicit_backend
 
 from seolleyeon_rec_common_v3 import (
     DEFAULT_EVENT_WEIGHTS,
@@ -140,6 +141,16 @@ def _train_cosine_knn_scipy(user_item: sparse.csr_matrix):
 
 
 def train_item_knn(user_item: sparse.csr_matrix, cfg: KNNConfig):
+    if not should_use_implicit_backend():
+        weighted_user_item = build_weighted_user_item(
+            user_item,
+            knn_type=cfg.knn_type,
+            bm25_k1=cfg.bm25_k1,
+            bm25_b=cfg.bm25_b,
+        )
+        print(f"[train] using scipy backend for knn_type={cfg.knn_type}")
+        return _train_cosine_knn_scipy(weighted_user_item)
+
     try:
         from implicit.nearest_neighbours import BM25Recommender, CosineRecommender, TFIDFRecommender
 
@@ -172,8 +183,14 @@ def train_item_knn(user_item: sparse.csr_matrix, cfg: KNNConfig):
             or "expected 'long'" in msg
             or "int32" in msg
         ):
-            print(f"[warn] implicit KNN unavailable/failed ({e}); falling back to scipy cosine KNN")
-            return _train_cosine_knn_scipy(user_item)
+            weighted_user_item = build_weighted_user_item(
+                user_item,
+                knn_type=cfg.knn_type,
+                bm25_k1=cfg.bm25_k1,
+                bm25_b=cfg.bm25_b,
+            )
+            print(f"[warn] implicit KNN unavailable/failed ({e}); falling back to scipy backend")
+            return _train_cosine_knn_scipy(weighted_user_item)
         raise
 
 
@@ -436,9 +453,12 @@ def main() -> None:
         if self_item_idx is not None:
             filter_items.add(self_item_idx)
 
+        # implicit item-item recommenders expect a single-row CSR matrix for
+        # scalar user queries, not the full user-item matrix.
+        user_row = user_item[ui]
         item_idx, scores = model.recommend(
-            ui,
-            user_item,
+            0,
+            user_row,
             N=topn * oversample,
             filter_already_liked_items=True,
             filter_items=list(filter_items) if filter_items else None,

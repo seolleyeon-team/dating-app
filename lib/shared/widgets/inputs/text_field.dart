@@ -27,6 +27,16 @@ class SeolTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
+    final fieldBg = isDark ? const Color(0xFF302838) : CupertinoColors.white;
+    final borderColor = errorText != null
+        ? CupertinoColors.destructiveRed
+        : (isDark ? const Color(0xFF3E3548) : const Color(0xFFE6DBDF));
+    final textColor = isDark ? const Color(0xFFF0E8ED) : const Color(0xFF181113);
+    final placeholderColor = isDark
+        ? const Color(0xFF7A6B76)
+        : const Color(0xFF89616F).withValues(alpha: 0.6);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -41,23 +51,19 @@ class SeolTextField extends StatelessWidget {
           enabled: enabled,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: CupertinoColors.white,
+            color: fieldBg,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: errorText != null
-                  ? CupertinoColors.destructiveRed
-                  : const Color(0xFFE6DBDF),
-            ),
+            border: Border.all(color: borderColor),
           ),
-          style: const TextStyle(
+          style: TextStyle(
             fontFamily: 'Pretendard',
             fontSize: 16,
-            color: Color(0xFF181113),
+            color: textColor,
           ),
           placeholderStyle: TextStyle(
             fontFamily: 'Pretendard',
             fontSize: 16,
-            color: const Color(0xFF89616F).withValues(alpha: 0.6),
+            color: placeholderColor,
           ),
         ),
         if (errorText != null) ...[

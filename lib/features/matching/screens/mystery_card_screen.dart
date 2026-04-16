@@ -11,6 +11,7 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
@@ -24,6 +25,7 @@ import '../../../services/ai_recommendation_service.dart';
 import '../../../shared/constants/photo_blur_constants.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
 import '../models/profile_card_args.dart';
+import '../../../core/constants/app_colors.dart';
 
 // =============================================================================
 // 색상 상수
@@ -103,7 +105,9 @@ class _MysteryCardScreenState extends State<MysteryCardScreen> {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return CupertinoPageScaffold(
-      backgroundColor: CupertinoColors.white,
+      backgroundColor: Theme.of(context).brightness == Brightness.dark
+          ? AppColorsDark.background
+          : CupertinoColors.white,
       child: Stack(
         children: [
           _BackgroundGradients(),
@@ -237,6 +241,10 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final displayCount = notificationCount > 9 ? '9+' : '$notificationCount';
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = Theme.of(context).colorScheme.primary;
+    final titleColor =
+        isDark ? AppColorsDark.textPrimary : _AppColors.gray900;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
@@ -245,20 +253,20 @@ class _Header extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(
+              Icon(
                 CupertinoIcons.heart_fill,
                 size: 24,
-                color: _AppColors.primary,
+                color: primary,
               ),
               const SizedBox(width: 8),
-              const Text(
+              Text(
                 '설레연',
                 style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 21,
                   fontWeight: FontWeight.w700,
                   letterSpacing: -0.3,
-                  color: _AppColors.gray900,
+                  color: titleColor,
                 ),
               ),
             ],
@@ -277,27 +285,35 @@ class _Header extends StatelessWidget {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: _AppColors.pink50,
+                      color: isDark
+                          ? AppColorsDark.surfaceVariant
+                          : _AppColors.pink50,
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: _AppColors.pink100),
+                      border: Border.all(
+                        color: isDark
+                            ? AppColorsDark.border
+                            : _AppColors.pink100,
+                      ),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(
+                        Icon(
                           CupertinoIcons.sparkles,
                           size: 16,
-                          color: _AppColors.pink500,
+                          color: isDark
+                              ? AppColorsDark.primary
+                              : _AppColors.pink500,
                         ),
                         const SizedBox(width: 4),
-                        const Flexible(
+                        Flexible(
                           child: Text(
                             'AI에게 내 취향 알려주기',
                             style: TextStyle(
                               fontFamily: 'Pretendard',
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
-                              color: _AppColors.gray900,
+                              color: titleColor,
                             ),
                           ),
                         ),
@@ -312,10 +328,12 @@ class _Header extends StatelessWidget {
                   child: Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      const Icon(
+                      Icon(
                         CupertinoIcons.bell,
                         size: 24,
-                        color: _AppColors.gray500,
+                        color: isDark
+                            ? AppColorsDark.textSecondary
+                            : _AppColors.gray500,
                       ),
                       if (notificationCount > 0)
                         Positioned(
@@ -328,10 +346,12 @@ class _Header extends StatelessWidget {
                             ),
                             padding: const EdgeInsets.symmetric(horizontal: 3),
                             decoration: BoxDecoration(
-                              color: _AppColors.primary,
+                              color: primary,
                               borderRadius: BorderRadius.circular(999),
                               border: Border.all(
-                                color: CupertinoColors.white,
+                                color: isDark
+                                    ? AppColorsDark.background
+                                    : CupertinoColors.white,
                                 width: 2,
                               ),
                             ),
@@ -533,6 +553,13 @@ class _MainContentState extends State<_MainContent> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final headlineColor =
+        isDark ? AppColorsDark.textPrimary : _AppColors.gray900;
+    final mutedColor =
+        isDark ? const Color(0xFF7A6B76) : _AppColors.gray400;
+    final primary = Theme.of(context).colorScheme.primary;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 0),
       child: Column(
@@ -555,16 +582,20 @@ class _MainContentState extends State<_MainContent> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: _AppColors.purple100,
+                            color: isDark
+                                ? AppColorsDark.surfaceVariant
+                                : _AppColors.purple100,
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: const Text(
+                          child: Text(
                             'AI CURATED',
                             style: TextStyle(
                               fontFamily: 'Pretendard',
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
-                              color: _AppColors.purple600,
+                              color: isDark
+                                  ? AppColorsDark.primaryLight
+                                  : _AppColors.purple600,
                             ),
                           ),
                         ),
@@ -574,20 +605,20 @@ class _MainContentState extends State<_MainContent> {
                           style: TextStyle(
                             fontFamily: 'Pretendard',
                             fontSize: 12,
-                            color: _AppColors.gray400,
+                            color: mutedColor,
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 4),
-                    const Text(
+                    Text(
                       '오늘의 인연',
                       style: TextStyle(
                         fontFamily: 'Pretendard',
                         fontSize: 30,
                         fontWeight: FontWeight.w500,
                         letterSpacing: -0.5,
-                        color: _AppColors.gray900,
+                        color: headlineColor,
                       ),
                     ),
                   ],
@@ -615,11 +646,11 @@ class _MainContentState extends State<_MainContent> {
                               child: Stack(
                                 clipBehavior: Clip.none,
                                 children: [
-                                  const Center(
+                                  Center(
                                     child: Icon(
                                       CupertinoIcons.tray_fill,
                                       size: 23,
-                                      color: _AppColors.gray400,
+                                      color: mutedColor,
                                     ),
                                   ),
                                   if (hasUnread)
@@ -630,10 +661,12 @@ class _MainContentState extends State<_MainContent> {
                                         width: 10,
                                         height: 10,
                                         decoration: BoxDecoration(
-                                          color: _AppColors.primary,
+                                          color: primary,
                                           shape: BoxShape.circle,
                                           border: Border.all(
-                                            color: CupertinoColors.white,
+                                            color: isDark
+                                                ? AppColorsDark.background
+                                                : CupertinoColors.white,
                                             width: 1.5,
                                           ),
                                         ),
@@ -655,14 +688,14 @@ class _MainContentState extends State<_MainContent> {
                             rootNavigator: true,
                           ).pushNamed(RouteNames.asksInbox);
                         },
-                        child: const SizedBox(
+                        child: SizedBox(
                           width: 40,
                           height: 40,
                           child: Center(
                             child: Icon(
                               CupertinoIcons.tray_fill,
                               size: 23,
-                              color: _AppColors.gray400,
+                              color: mutedColor,
                             ),
                           ),
                         ),
@@ -675,10 +708,10 @@ class _MainContentState extends State<_MainContent> {
                           rootNavigator: true,
                         ).pushNamed(RouteNames.sentHearts);
                       },
-                      child: const Icon(
+                      child: Icon(
                         CupertinoIcons.heart,
                         size: 24,
-                        color: _AppColors.gray400,
+                        color: mutedColor,
                       ),
                     ),
                   ],
@@ -695,7 +728,9 @@ class _MainContentState extends State<_MainContent> {
                     child: Text(
                       '오늘의 미스터리 카드가 모두 소진되었습니다.',
                       style: TextStyle(
-                        color: _AppColors.gray500,
+                        color: isDark
+                            ? AppColorsDark.textSecondary
+                            : _AppColors.gray500,
                         fontFamily: 'Pretendard',
                       ),
                     ),
@@ -754,8 +789,12 @@ class _MainContentState extends State<_MainContent> {
                   margin: const EdgeInsets.symmetric(horizontal: 4),
                   decoration: BoxDecoration(
                     color: i == _currentIndex
-                        ? _AppColors.gray900
-                        : _AppColors.gray300,
+                        ? (isDark
+                            ? AppColorsDark.textPrimary
+                            : _AppColors.gray900)
+                        : (isDark
+                            ? AppColorsDark.divider
+                            : _AppColors.gray300),
                     shape: BoxShape.circle,
                   ),
                 );
@@ -909,13 +948,19 @@ class _MysteryCardState extends State<_MysteryCard>
   }
 
   Widget _buildFrontFace(double cardWidth, double cardHeight) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg =
+        isDark ? AppColorsDark.surface : CupertinoColors.white;
+    final cardBorder =
+        isDark ? AppColorsDark.border : _AppColors.gray100;
+
     return Container(
       width: cardWidth,
       height: cardHeight,
       decoration: BoxDecoration(
-        color: CupertinoColors.white,
+        color: cardBg,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: _AppColors.gray100),
+        border: Border.all(color: cardBorder),
         boxShadow: widget.isActive
             ? [
                 BoxShadow(
@@ -1202,6 +1247,11 @@ class _FloatingNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final navBg = isDark
+        ? const Color(0xFF221A28).withValues(alpha: 0.92)
+        : CupertinoColors.white.withValues(alpha: 0.95);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(32),
       child: BackdropFilter(
@@ -1209,9 +1259,11 @@ class _FloatingNavBar extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
           decoration: BoxDecoration(
-            color: CupertinoColors.white.withValues(alpha: 0.95),
+            color: navBg,
             borderRadius: BorderRadius.circular(32),
-            border: Border.all(color: _AppColors.gray100),
+            border: Border.all(
+              color: isDark ? const Color(0xFF302838) : _AppColors.gray100,
+            ),
             boxShadow: [
               BoxShadow(
                 color: CupertinoColors.black.withValues(alpha: 0.05),
@@ -1275,6 +1327,11 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final inactiveColor = Theme.of(context).brightness == Brightness.dark
+        ? const Color(0xFF7A6B76)
+        : _AppColors.gray400;
+
     return CupertinoButton(
       padding: EdgeInsets.zero,
       onPressed: onTap,
@@ -1289,7 +1346,7 @@ class _NavItem extends StatelessWidget {
                 Icon(
                   icon,
                   size: 24,
-                  color: isActive ? _AppColors.primary : _AppColors.gray400,
+                  color: isActive ? primary : inactiveColor,
                 ),
                 if (showBadge)
                   Positioned(
@@ -1313,7 +1370,7 @@ class _NavItem extends StatelessWidget {
                 fontFamily: 'Pretendard',
                 fontSize: 10,
                 fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-                color: isActive ? _AppColors.primary : _AppColors.gray400,
+                color: isActive ? primary : inactiveColor,
               ),
             ),
           ],

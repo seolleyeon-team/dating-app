@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/constants/app_colors.dart';
 import '../../../data/models/community/post_model.dart';
 import '../../chat/services/chat_service.dart';
 import '../../../router/route_names.dart';
@@ -23,7 +24,6 @@ import '../providers/community_provider.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFF0428B);
   static const Color softPink = Color(0xFFFFE4E6);
   static const Color softLavender = Color(0xFFE9D5FF);
 
@@ -74,7 +74,25 @@ class _CommunityScreenState extends State<CommunityScreen> {
     super.dispose();
   }
 
-  Color _getCategoryColor(String category) {
+  Color _getCategoryColor(BuildContext context, String category) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    if (isDark) {
+      switch (category) {
+        case '설렘':
+          return seol.pink50;
+        case '고민':
+          return seol.gray100;
+        case '일상':
+          return seol.purple50;
+        case '질문':
+          return const Color(0xFF2A2520);
+        case '인기':
+          return const Color(0xFF2C2420);
+        default:
+          return seol.gray100;
+      }
+    }
     switch (category) {
       case '설렘':
         return const Color(0xFFFCE7F3);
@@ -91,7 +109,25 @@ class _CommunityScreenState extends State<CommunityScreen> {
     }
   }
 
-  Color _getCategoryTextColor(String category) {
+  Color _getCategoryTextColor(BuildContext context, String category) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    if (isDark) {
+      switch (category) {
+        case '설렘':
+          return Theme.of(context).colorScheme.primary;
+        case '고민':
+          return seol.gray400;
+        case '일상':
+          return seol.purple500;
+        case '질문':
+          return const Color(0xFFFBBF24);
+        case '인기':
+          return const Color(0xFFFB923C);
+        default:
+          return seol.gray400;
+      }
+    }
     switch (category) {
       case '설렘':
         return const Color(0xFFEC4899);
@@ -119,10 +155,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
         final categories = CommunityProvider.tabs;
 
         return Scaffold(
-          backgroundColor: Colors.white,
+          backgroundColor: Theme.of(context).brightness == Brightness.dark
+              ? AppColorsDark.background
+              : Colors.white,
           body: Stack(
             children: [
-              const _BackgroundDecoration(),
+              _BackgroundDecoration(),
 
               SafeArea(
                 bottom: false,
@@ -165,9 +203,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                   _PostCard(
                                     post: posts[i],
                                     categoryColor: _getCategoryColor(
+                                      context,
                                       posts[i].category,
                                     ),
                                     categoryTextColor: _getCategoryTextColor(
+                                      context,
                                       posts[i].category,
                                     ),
                                   ),
@@ -185,46 +225,68 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                     ),
                                   )
                                 else if (provider.hasMore)
-                                  Center(
-                                    child: CupertinoButton(
-                                      padding: EdgeInsets.zero,
-                                      onPressed: provider.loadMore,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 20,
-                                          vertical: 10,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.85,
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            20,
-                                          ),
-                                          border: Border.all(
-                                            color: Colors.white,
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withValues(
-                                                alpha: 0.05,
-                                              ),
-                                              blurRadius: 8,
-                                              offset: const Offset(0, 2),
+                                  Builder(
+                                    builder: (context) {
+                                      final isDark =
+                                          Theme.of(context).brightness ==
+                                              Brightness.dark;
+                                      final seol = Theme.of(context)
+                                          .extension<SeolThemeColors>()!;
+                                      final moreBg = isDark
+                                          ? seol.cardSurface.withValues(
+                                              alpha: 0.9,
+                                            )
+                                          : Colors.white.withValues(
+                                              alpha: 0.85,
+                                            );
+                                      final moreBorder = isDark
+                                          ? seol.gray200
+                                          : Colors.white;
+                                      final moreText = isDark
+                                          ? AppColorsDark.textPrimary
+                                          : _AppColors.textMain;
+                                      return Center(
+                                        child: CupertinoButton(
+                                          padding: EdgeInsets.zero,
+                                          onPressed: provider.loadMore,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 20,
+                                              vertical: 10,
                                             ),
-                                          ],
-                                        ),
-                                        child: const Text(
-                                          '더보기',
-                                          style: TextStyle(
-                                            fontFamily: 'Pretendard',
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w700,
-                                            color: _AppColors.textMain,
+                                            decoration: BoxDecoration(
+                                              color: moreBg,
+                                              borderRadius:
+                                                  BorderRadius.circular(
+                                                20,
+                                              ),
+                                              border: Border.all(
+                                                color: moreBorder,
+                                              ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.black
+                                                      .withValues(
+                                                    alpha: 0.05,
+                                                  ),
+                                                  blurRadius: 8,
+                                                  offset: const Offset(0, 2),
+                                                ),
+                                              ],
+                                            ),
+                                            child: Text(
+                                              '더보기',
+                                              style: TextStyle(
+                                                fontFamily: 'Pretendard',
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w700,
+                                                color: moreText,
+                                              ),
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                    ),
+                                      );
+                                    },
                                   ),
                               ],
                             ],
@@ -269,18 +331,28 @@ class _BackgroundDecoration extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+
     return Stack(
       children: [
         Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
-                _AppColors.softPink,
-                Colors.white,
-                _AppColors.softLavender,
-              ],
+              colors: isDark
+                  ? [
+                      seol.pink50,
+                      AppColorsDark.background,
+                      seol.purple50,
+                    ]
+                  : [
+                      _AppColors.softPink,
+                      Colors.white,
+                      _AppColors.softLavender,
+                    ],
             ),
           ),
         ),
@@ -289,7 +361,7 @@ class _BackgroundDecoration extends StatelessWidget {
           left: 40,
           child: _PetalIcon(
             size: 32,
-            color: _AppColors.primary.withValues(alpha: 0.2),
+            color: primary.withValues(alpha: 0.2),
             rotation: 45,
           ),
         ),
@@ -298,7 +370,7 @@ class _BackgroundDecoration extends StatelessWidget {
           right: 48,
           child: _PetalIcon(
             size: 48,
-            color: _AppColors.primary.withValues(alpha: 0.1),
+            color: primary.withValues(alpha: 0.1),
             rotation: -12,
           ),
         ),
@@ -307,7 +379,7 @@ class _BackgroundDecoration extends StatelessWidget {
           left: 32,
           child: _PetalIcon(
             size: 24,
-            color: _AppColors.primary.withValues(alpha: 0.15),
+            color: primary.withValues(alpha: 0.15),
             rotation: 90,
           ),
         ),
@@ -316,7 +388,7 @@ class _BackgroundDecoration extends StatelessWidget {
           right: 24,
           child: _PetalIcon(
             size: 40,
-            color: _AppColors.primary.withValues(alpha: 0.1),
+            color: primary.withValues(alpha: 0.1),
             rotation: 180,
           ),
         ),
@@ -361,11 +433,20 @@ class _HeaderArea extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+    final titleColor =
+        isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final headerGlass = isDark
+        ? seol.cardSurface.withValues(alpha: 0.75)
+        : Colors.white.withValues(alpha: 0.7);
+
     return ClipRRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
         child: Container(
-          color: Colors.white.withValues(alpha: 0.7),
+          color: headerGlass,
           padding: const EdgeInsets.only(bottom: 8),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.end,
@@ -380,9 +461,9 @@ class _HeaderArea extends StatelessWidget {
                     _CircleIconButton(
                       icon: Icons.menu,
                       onTap: () {},
-                      color: Colors.black,
+                      color: isDark ? AppColorsDark.textPrimary : Colors.black,
                     ),
-                    const Expanded(
+                    Expanded(
                       child: Text(
                         '대나무숲',
                         textAlign: TextAlign.center,
@@ -390,7 +471,7 @@ class _HeaderArea extends StatelessWidget {
                           fontFamily: 'Pretendard',
                           fontSize: 20,
                           fontWeight: FontWeight.w800,
-                          color: _AppColors.textMain,
+                          color: titleColor,
                         ),
                       ),
                     ),
@@ -408,10 +489,8 @@ class _HeaderArea extends StatelessWidget {
                               .refreshCurrentTab();
                         }
                       },
-                      color: _AppColors.primary,
-                      backgroundColor: _AppColors.primary.withValues(
-                        alpha: 0.1,
-                      ),
+                      color: primary,
+                      backgroundColor: primary.withValues(alpha: 0.1),
                     ),
                   ],
                 ),
@@ -435,13 +514,17 @@ class _HeaderArea extends StatelessWidget {
                           ),
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? _AppColors.textMain
-                                : Colors.white.withValues(alpha: 0.8),
+                                ? (isDark ? seol.gray800 : _AppColors.textMain)
+                                : (isDark
+                                    ? seol.gray100.withValues(alpha: 0.85)
+                                    : Colors.white.withValues(alpha: 0.8)),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                               color: isSelected
                                   ? Colors.transparent
-                                  : Colors.white,
+                                  : (isDark
+                                      ? seol.gray200
+                                      : Colors.white),
                             ),
                             boxShadow: [
                               BoxShadow(
@@ -462,8 +545,10 @@ class _HeaderArea extends StatelessWidget {
                                   ? FontWeight.w600
                                   : FontWeight.w500,
                               color: isSelected
-                                  ? Colors.white
-                                  : _AppColors.textMain,
+                                  ? (isDark
+                                      ? AppColorsDark.background
+                                      : Colors.white)
+                                  : titleColor,
                             ),
                           ),
                         ),
@@ -566,6 +651,19 @@ class _PostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+    final cardBg = isDark
+        ? seol.cardSurface.withValues(alpha: 0.92)
+        : _AppColors.cardBg;
+    final cardBorder =
+        isDark ? seol.gray200 : Colors.white;
+    final textMain =
+        isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final textSub =
+        isDark ? AppColorsDark.textSecondary : _AppColors.textSub;
+
     return GestureDetector(
       onTap: () {
         HapticFeedback.selectionClick();
@@ -577,12 +675,12 @@ class _PostCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: _AppColors.cardBg,
+          color: cardBg,
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white, width: 1.5),
+          border: Border.all(color: cardBorder, width: 1.5),
           boxShadow: [
             BoxShadow(
-              color: _AppColors.primary.withValues(alpha: 0.05),
+              color: primary.withValues(alpha: 0.05),
               blurRadius: 20,
               offset: const Offset(0, 4),
             ),
@@ -619,15 +717,15 @@ class _PostCard extends StatelessWidget {
                     const SizedBox(width: 8),
                     Text(
                       post.relativeTimeLabel,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
-                        color: _AppColors.textSub,
+                        color: textSub,
                       ),
                     ),
                   ],
                 ),
-                Icon(Icons.more_horiz, color: Colors.grey[300]),
+                Icon(Icons.more_horiz, color: seol.gray300),
               ],
             ),
             const SizedBox(height: 16),
@@ -635,11 +733,11 @@ class _PostCard extends StatelessWidget {
             // Content
             Text(
               post.content,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 16,
                 height: 1.6,
                 fontWeight: FontWeight.w500,
-                color: _AppColors.textMain,
+                color: textMain,
                 letterSpacing: -0.2,
               ),
             ),
@@ -656,16 +754,16 @@ class _PostCard extends StatelessWidget {
                       vertical: 5,
                     ),
                     decoration: BoxDecoration(
-                      color: _AppColors.primary.withValues(alpha: 0.08),
+                      color: primary.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text(
                       tag,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: 'Pretendard',
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: _AppColors.primary,
+                        color: primary,
                       ),
                     ),
                   );
@@ -674,7 +772,10 @@ class _PostCard extends StatelessWidget {
             ],
 
             const SizedBox(height: 16),
-            Divider(color: Colors.grey[100], height: 1),
+            Divider(
+              color: isDark ? AppColorsDark.divider : Colors.grey[100],
+              height: 1,
+            ),
             const SizedBox(height: 12),
 
             // Footer
@@ -683,13 +784,13 @@ class _PostCard extends StatelessWidget {
                 _ActionIcon(
                   icon: Icons.favorite_border_rounded,
                   count: post.likeCount,
-                  color: Colors.grey[400]!,
+                  color: seol.gray400,
                 ),
                 const SizedBox(width: 20),
                 _ActionIcon(
                   icon: Icons.chat_bubble_outline_rounded,
                   count: post.commentCount,
-                  color: Colors.grey[400]!,
+                  color: seol.gray400,
                 ),
               ],
             ),
@@ -713,6 +814,11 @@ class _ActionIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final countColor =
+        isDark ? seol.sectionTitle : Colors.grey[500]!;
+
     return Row(
       children: [
         Icon(icon, size: 20, color: color),
@@ -722,7 +828,7 @@ class _ActionIcon extends StatelessWidget {
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
-            color: Colors.grey[500],
+            color: countColor,
           ),
         ),
       ],
@@ -738,31 +844,38 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = Theme.of(context).colorScheme.primary;
+    final titleColor =
+        isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final subColor =
+        isDark ? AppColorsDark.textSecondary : _AppColors.textSub;
+
+    return Center(
       child: Column(
         children: [
           Icon(
             CupertinoIcons.leaf_arrow_circlepath,
             size: 44,
-            color: _AppColors.primary,
+            color: primary,
           ),
-          SizedBox(height: 12),
+          const SizedBox(height: 12),
           Text(
             '아직 글이 없어요',
             style: TextStyle(
               fontFamily: 'Pretendard',
               fontSize: 18,
               fontWeight: FontWeight.w800,
-              color: _AppColors.textMain,
+              color: titleColor,
             ),
           ),
-          SizedBox(height: 6),
+          const SizedBox(height: 6),
           Text(
             '첫 번째 익명 글을 남겨보세요.',
             style: TextStyle(
               fontFamily: 'Pretendard',
               fontSize: 14,
-              color: _AppColors.textSub,
+              color: subColor,
             ),
           ),
         ],
@@ -782,6 +895,14 @@ class _BottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final navBg = isDark
+        ? const Color(0xFF221A28).withValues(alpha: 0.92)
+        : CupertinoColors.white.withValues(alpha: 0.95);
+    final navBorder = isDark
+        ? AppColorsDark.border.withValues(alpha: 0.55)
+        : CupertinoColors.white.withValues(alpha: 0.4);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(32),
       child: BackdropFilter(
@@ -789,9 +910,9 @@ class _BottomNavBar extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.95),
+            color: navBg,
             borderRadius: BorderRadius.circular(32),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
+            border: Border.all(color: navBorder),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.15),
@@ -855,6 +976,10 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+    final inactive = seol.gray400;
+
     return CupertinoButton(
       padding: EdgeInsets.zero,
       onPressed: onTap,
@@ -867,8 +992,7 @@ class _NavItem extends StatelessWidget {
               Icon(
                 icon,
                 size: 24,
-                color:
-                    isActive ? _AppColors.primary : const Color(0xFF9CA3AF),
+                color: isActive ? primary : inactive,
               ),
               if (showBadge)
                 Positioned(
@@ -893,7 +1017,7 @@ class _NavItem extends StatelessWidget {
               fontSize: 10,
               fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
               letterSpacing: -0.2,
-              color: isActive ? _AppColors.primary : const Color(0xFF9CA3AF),
+              color: isActive ? primary : inactive,
             ),
           ),
         ],

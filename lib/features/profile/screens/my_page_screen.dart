@@ -7,9 +7,11 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart' show Theme, Brightness;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/constants/app_colors.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../router/route_names.dart';
 import '../../../services/ask_service.dart';
@@ -19,24 +21,6 @@ import '../../../services/kakao_friend_invite_helper.dart';
 import '../../../services/friend_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
-
-class _AppColors {
-  static const Color primary = Color(0xFFF0428B);
-  static const Color backgroundLight = Color(0xFFFFFFFF);
-  static const Color surface = Color(0xFFF9F9F9);
-  static const Color textMain = Color(0xFF1A1A1A);
-  static const Color textSub = Color(0xFF8E8E93);
-  static const Color gray100 = Color(0xFFF3F4F6);
-  static const Color gray200 = Color(0xFFE5E7EB);
-  static const Color gray300 = Color(0xFFD1D5DB);
-  static const Color gray400 = Color(0xFF9CA3AF);
-  static const Color gray800 = Color(0xFF1F2937);
-  static const Color pink50 = Color(0xFFFDF2F8);
-  static const Color purple50 = Color(0xFFFAF5FF);
-  static const Color purple500 = Color(0xFF8B5CF6);
-  static const Color emerald50 = Color(0xFFECFDF5);
-  static const Color emerald500 = Color(0xFF10B981);
-}
 
 class MyPageScreen extends StatefulWidget {
   final Function(int)? onNavTap;
@@ -264,8 +248,11 @@ class _MyPageScreenState extends State<MyPageScreen> {
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scaffoldBg = isDark ? AppColorsDark.background : const Color(0xFFF9F9F9);
+
     return CupertinoPageScaffold(
-      backgroundColor: _AppColors.surface,
+      backgroundColor: scaffoldBg,
       child: Stack(
         children: [
           CustomScrollView(
@@ -406,7 +393,7 @@ class _InviteToast extends StatelessWidget {
       decoration: BoxDecoration(
         color: isError
             ? CupertinoColors.systemRed.withValues(alpha: 0.92)
-            : _AppColors.gray800.withValues(alpha: 0.92),
+            : Theme.of(context).extension<SeolThemeColors>()!.gray800.withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -443,24 +430,30 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = Theme.of(context).colorScheme.primary;
+    final bgColor = isDark ? AppColorsDark.surface : const Color(0xFFFFFFFF);
+    final textMain = isDark ? AppColorsDark.textPrimary : const Color(0xFF1A1A1A);
+
     return SafeArea(
       bottom: false,
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
         decoration: BoxDecoration(
-          color: _AppColors.backgroundLight.withValues(alpha: 0.8),
+          color: bgColor.withValues(alpha: 0.8),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
+            Text(
               '내 페이지',
               style: TextStyle(
                 fontFamily: 'Pretendard',
                 fontSize: 21,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.3,
-                color: _AppColors.textMain,
+                color: textMain,
               ),
             ),
             Row(
@@ -478,11 +471,11 @@ class _Header extends StatelessWidget {
                     child: Stack(
                       clipBehavior: Clip.none,
                       children: [
-                        const Center(
+                        Center(
                           child: Icon(
                             CupertinoIcons.tray_fill,
                             size: 23,
-                            color: _AppColors.gray800,
+                            color: seol.gray800,
                           ),
                         ),
                         if (showAsksBadge)
@@ -493,10 +486,10 @@ class _Header extends StatelessWidget {
                               width: 10,
                               height: 10,
                               decoration: BoxDecoration(
-                                color: _AppColors.primary,
+                                color: primary,
                                 shape: BoxShape.circle,
                                 border: Border.all(
-                                  color: _AppColors.backgroundLight,
+                                  color: bgColor,
                                   width: 1.5,
                                 ),
                               ),
@@ -517,10 +510,10 @@ class _Header extends StatelessWidget {
                     width: 40,
                     height: 40,
                     decoration: const BoxDecoration(shape: BoxShape.circle),
-                    child: const Icon(
+                    child: Icon(
                       CupertinoIcons.gear,
                       size: 24,
-                      color: _AppColors.gray800,
+                      color: seol.gray800,
                     ),
                   ),
                 ),
@@ -556,11 +549,20 @@ class _ProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? AppColorsDark.surface : const Color(0xFFFFFFFF);
+    final textMain = isDark ? AppColorsDark.textPrimary : const Color(0xFF1A1A1A);
+    final textSub = isDark ? AppColorsDark.textSecondary : const Color(0xFF8E8E93);
+    final avatarRingInner = isDark ? AppColorsDark.surface : CupertinoColors.white;
+    final gradientA = isDark ? const Color(0xFF4A2040) : const Color(0xFFFBCFE8);
+    final gradientB = isDark ? const Color(0xFF352050) : const Color(0xFFE9D5FF);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 24),
       padding: const EdgeInsets.fromLTRB(0, 32, 0, 40),
       decoration: BoxDecoration(
-        color: _AppColors.backgroundLight,
+        color: bgColor,
         borderRadius: const BorderRadius.only(
           bottomLeft: Radius.circular(32),
           bottomRight: Radius.circular(32),
@@ -584,8 +586,8 @@ class _ProfileCard extends StatelessWidget {
               decoration: BoxDecoration(
                 gradient: RadialGradient(
                   colors: [
-                    _AppColors.pink50.withValues(alpha: 0.5),
-                    _AppColors.backgroundLight.withValues(alpha: 0),
+                    seol.pink50.withValues(alpha: 0.5),
+                    bgColor.withValues(alpha: 0),
                   ],
                 ),
               ),
@@ -601,10 +603,10 @@ class _ProfileCard extends StatelessWidget {
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: const LinearGradient(
+                      gradient: LinearGradient(
                         begin: Alignment.topRight,
                         end: Alignment.bottomLeft,
-                        colors: [Color(0xFFFBCFE8), Color(0xFFE9D5FF)],
+                        colors: [gradientA, gradientB],
                       ),
                       boxShadow: [
                         BoxShadow(
@@ -616,24 +618,24 @@ class _ProfileCard extends StatelessWidget {
                     ),
                     child: Container(
                       padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
-                        color: CupertinoColors.white,
+                      decoration: BoxDecoration(
+                        color: avatarRingInner,
                         shape: BoxShape.circle,
                       ),
                       child: Container(
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: _AppColors.pink50,
+                          color: seol.pink50,
                         ),
                         clipBehavior: Clip.antiAlias,
                         child: Image.network(
                           avatarUrl,
                           key: ValueKey(avatarUrl),
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => const Icon(
+                          errorBuilder: (_, __, ___) => Icon(
                             CupertinoIcons.person_fill,
                             size: 48,
-                            color: _AppColors.gray400,
+                            color: seol.gray400,
                           ),
                         ),
                       ),
@@ -649,9 +651,9 @@ class _ProfileCard extends StatelessWidget {
                         width: 32,
                         height: 32,
                         decoration: BoxDecoration(
-                          color: CupertinoColors.white,
+                          color: seol.cardSurface,
                           shape: BoxShape.circle,
-                          border: Border.all(color: _AppColors.gray100),
+                          border: Border.all(color: seol.gray100),
                           boxShadow: [
                             BoxShadow(
                               color: CupertinoColors.black.withValues(
@@ -662,10 +664,10 @@ class _ProfileCard extends StatelessWidget {
                             ),
                           ],
                         ),
-                        child: const Icon(
+                        child: Icon(
                           CupertinoIcons.pencil,
                           size: 18,
-                          color: _AppColors.gray400,
+                          color: seol.gray400,
                         ),
                       ),
                     ),
@@ -675,21 +677,21 @@ class _ProfileCard extends StatelessWidget {
               const SizedBox(height: 20),
               Text(
                 userName,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 24,
                   fontWeight: FontWeight.w700,
-                  color: _AppColors.textMain,
+                  color: textMain,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 nickname,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
-                  color: _AppColors.textSub,
+                  color: textSub,
                 ),
               ),
               const SizedBox(height: 24),
@@ -704,7 +706,7 @@ class _ProfileCard extends StatelessWidget {
                     width: 1,
                     height: 32,
                     margin: const EdgeInsets.symmetric(horizontal: 32),
-                    color: _AppColors.gray200,
+                    color: seol.gray200,
                   ),
                   GestureDetector(
                     onTap: onFriendsTap,
@@ -728,24 +730,25 @@ class _StatItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
     return Column(
       children: [
         Text(
           '$value',
-          style: const TextStyle(
+          style: TextStyle(
             fontFamily: 'Pretendard',
             fontSize: 18,
             fontWeight: FontWeight.w700,
-            color: _AppColors.gray800,
+            color: seol.gray800,
           ),
         ),
         const SizedBox(height: 4),
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontFamily: 'Pretendard',
             fontSize: 12,
-            color: _AppColors.gray400,
+            color: seol.gray400,
           ),
         ),
       ],
@@ -768,11 +771,14 @@ class _MenuList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
         decoration: BoxDecoration(
-          color: _AppColors.backgroundLight,
+          color: seol.cardSurface,
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
@@ -786,30 +792,30 @@ class _MenuList extends StatelessWidget {
           children: [
             _MenuItem(
               icon: CupertinoIcons.person,
-              iconBgColor: _AppColors.pink50,
-              iconColor: _AppColors.primary,
+              iconBgColor: seol.pink50,
+              iconColor: primary,
               label: '프로필 편집',
               onTap: onEditProfile,
             ),
             Container(
               height: 1,
-              color: _AppColors.gray100.withValues(alpha: 0.5),
+              color: seol.gray100.withValues(alpha: 0.5),
             ),
             _MenuItem(
               icon: CupertinoIcons.creditcard,
-              iconBgColor: _AppColors.purple50,
-              iconColor: _AppColors.purple500,
+              iconBgColor: seol.purple50,
+              iconColor: seol.purple500,
               label: '머니 충전',
               onTap: onRecharge,
             ),
             Container(
               height: 1,
-              color: _AppColors.gray100.withValues(alpha: 0.5),
+              color: seol.gray100.withValues(alpha: 0.5),
             ),
             _MenuItem(
               icon: CupertinoIcons.person_add,
-              iconBgColor: _AppColors.emerald50,
-              iconColor: _AppColors.emerald500,
+              iconBgColor: seol.emerald50,
+              iconColor: seol.emerald500,
               label: '친구 초대',
               onTap: onInviteFriends,
               isLoading: isInviteLoading,
@@ -863,20 +869,20 @@ class _MenuItem extends StatelessWidget {
             Expanded(
               child: Text(
                 label,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 15,
                   fontWeight: FontWeight.w500,
-                  color: _AppColors.gray800,
+                  color: Theme.of(context).extension<SeolThemeColors>()!.gray800,
                 ),
               ),
             ),
             isLoading
                 ? const CupertinoActivityIndicator()
-                : const Icon(
+                : Icon(
                     CupertinoIcons.chevron_right,
                     size: 20,
-                    color: _AppColors.gray300,
+                    color: Theme.of(context).extension<SeolThemeColors>()!.gray300,
                   ),
           ],
         ),
@@ -898,13 +904,13 @@ class _LogoutButton extends StatelessWidget {
         child: CupertinoButton(
           padding: EdgeInsets.zero,
           onPressed: onLogout,
-          child: const Text(
+          child: Text(
             '로그아웃',
             style: TextStyle(
               fontFamily: 'Pretendard',
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              color: _AppColors.gray400,
+              color: Theme.of(context).extension<SeolThemeColors>()!.gray400,
             ),
           ),
         ),
@@ -921,6 +927,12 @@ class _FloatingNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final navBg = isDark
+        ? seol.navBarBackground.withValues(alpha: 0.92)
+        : CupertinoColors.white.withValues(alpha: 0.95);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(32),
       child: BackdropFilter(
@@ -928,12 +940,12 @@ class _FloatingNavBar extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
           decoration: BoxDecoration(
-            color: CupertinoColors.white.withValues(alpha: 0.95),
+            color: navBg,
             borderRadius: BorderRadius.circular(32),
-            border: Border.all(color: _AppColors.gray100),
+            border: Border.all(color: seol.gray100),
             boxShadow: [
               BoxShadow(
-                color: CupertinoColors.black.withValues(alpha: 0.05),
+                color: CupertinoColors.black.withValues(alpha: isDark ? 0.2 : 0.05),
                 blurRadius: 20,
                 offset: const Offset(0, 4),
               ),
@@ -994,6 +1006,9 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+
     return CupertinoButton(
       padding: EdgeInsets.zero,
       onPressed: onTap,
@@ -1008,7 +1023,7 @@ class _NavItem extends StatelessWidget {
                 Icon(
                   icon,
                   size: 24,
-                  color: isActive ? _AppColors.primary : _AppColors.gray400,
+                  color: isActive ? primary : seol.gray400,
                 ),
                 if (showBadge)
                   Positioned(
@@ -1017,8 +1032,8 @@ class _NavItem extends StatelessWidget {
                     child: Container(
                       width: 8,
                       height: 8,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF10B981),
+                      decoration: BoxDecoration(
+                        color: seol.emerald500,
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -1032,7 +1047,7 @@ class _NavItem extends StatelessWidget {
                 fontFamily: 'Pretendard',
                 fontSize: 10,
                 fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-                color: isActive ? _AppColors.primary : _AppColors.gray400,
+                color: isActive ? primary : seol.gray400,
               ),
             ),
           ],

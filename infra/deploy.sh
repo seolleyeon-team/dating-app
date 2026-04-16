@@ -109,7 +109,7 @@ echo "--- 5. IAM Roles ---"
 ROLES=(
   "roles/datastore.user"          # Firestore read/write
   "roles/storage.objectAdmin"     # GCS read/write
-  "roles/run.invoker"             # Workflows → Cloud Run Job
+  "roles/run.developer"           # Workflows → Cloud Run Job (run.jobs.runWithOverrides)
   "roles/logging.logWriter"       # Structured logging
   "roles/workflows.invoker"       # Scheduler → Workflow
 )
@@ -193,7 +193,7 @@ if gcloud scheduler jobs describe "${SCHEDULER_NAME}" \
     --time-zone="Asia/Seoul" \
     --uri="${WORKFLOW_URI}" \
     --http-method=POST \
-    --headers="Content-Type=application/json" \
+    --update-headers="Content-Type=application/json" \
     --message-body='{"argument":"{}"}' \
     --oauth-service-account-email="${SA_EMAIL}"
 else
