@@ -264,7 +264,7 @@ class _Header extends StatelessWidget {
                       ),
                       const SizedBox(width: 6),
                       const Text(
-                        'AI에게 내 취향 더 잘 알려주기',
+                        'AI에게 내 취향 알려주기',
                         style: TextStyle(
                           fontFamily: 'Pretendard',
                           fontSize: 12,

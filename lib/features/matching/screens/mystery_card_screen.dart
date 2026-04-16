@@ -13,6 +13,7 @@ import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
 import '../../chat/services/chat_service.dart';
 import '../../notifications/services/notification_service.dart';
@@ -472,6 +473,10 @@ class _MainContentState extends State<_MainContent> {
         );
   }
 
+  String _todayLabel() {
+    return DateFormat('MMM d', 'en_US').format(DateTime.now());
+  }
+
   @override
   void dispose() {
     _pageSettleTimer?.cancel();
@@ -596,7 +601,7 @@ class _MainContentState extends State<_MainContent> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'Nov 14',
+                          _todayLabel(),
                           style: TextStyle(
                             fontFamily: 'Pretendard',
                             fontSize: 12,

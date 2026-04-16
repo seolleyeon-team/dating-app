@@ -484,7 +484,7 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     return CupertinoPageScaffold(
       backgroundColor: CupertinoColors.systemGroupedBackground,
       navigationBar: CupertinoNavigationBar(
-        middle: const Text('AI에게 내 취향 더 잘 알려주기'),
+        middle: const Text('AI에게 내 취향 알려주기'),
         trailing: CupertinoButton(
           padding: EdgeInsets.zero,
           onPressed: () => Navigator.of(context).pop(),

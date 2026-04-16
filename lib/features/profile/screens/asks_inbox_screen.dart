@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import '../../../services/ask_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
-import '../../../shared/widgets/capture_protected_image.dart';
+import '../../../shared/widgets/chat_unlocked_profile_avatar.dart';
 
 const String _kFontFamily = 'Noto Sans KR';
 
@@ -268,6 +268,8 @@ class _AskCard extends StatelessWidget {
     final nickname = snapshot['nickname']?.toString() ?? '';
     final avatarUrl = snapshot['profileImageUrl']?.toString() ?? '';
     final university = snapshot['universityName']?.toString() ?? '';
+    final otherUserId =
+        (isReceived ? data['fromUserId'] : data['toUserId'])?.toString() ?? '';
 
     final createdAt = data['createdAt'];
     final timeText = _formatTime(createdAt);
@@ -296,7 +298,11 @@ class _AskCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _Avatar(url: avatarUrl),
+            _Avatar(
+              url: avatarUrl,
+              currentUserId: currentUserId,
+              targetUserId: otherUserId,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -387,6 +393,7 @@ class _AskCard extends StatelessWidget {
       builder: (ctx) => _AskDetailSheet(
         data: data,
         isReceived: isReceived,
+        currentUserId: currentUserId,
       ),
     );
   }
@@ -415,28 +422,27 @@ class _AskCard extends StatelessWidget {
 // =============================================================================
 class _Avatar extends StatelessWidget {
   final String url;
+  final String currentUserId;
+  final String targetUserId;
 
-  const _Avatar({required this.url});
+  const _Avatar({
+    required this.url,
+    required this.currentUserId,
+    required this.targetUserId,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 48,
-      height: 48,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: _C.gray100,
-        border: Border.all(color: _C.gray200.withValues(alpha: 0.5)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: CaptureProtectedImage(
-        imageUrl: url,
-        fit: BoxFit.cover,
-        shape: CaptureProtectedImageShape.circle,
-        backgroundColor: _C.gray100,
-        placeholderIconColor: _C.gray300,
-        placeholderIconSize: 24,
-      ),
+    return ChatUnlockedProfileAvatar(
+      currentUserId: currentUserId,
+      targetUserId: targetUserId,
+      imageUrl: url,
+      size: 48,
+      borderWidth: 1,
+      borderColor: _C.gray200.withValues(alpha: 0.5),
+      backgroundColor: _C.gray100,
+      placeholderIconColor: _C.gray300,
+      placeholderIconSize: 24,
     );
   }
 }
@@ -447,10 +453,12 @@ class _Avatar extends StatelessWidget {
 class _AskDetailSheet extends StatelessWidget {
   final Map<String, dynamic> data;
   final bool isReceived;
+  final String currentUserId;
 
   const _AskDetailSheet({
     required this.data,
     required this.isReceived,
+    required this.currentUserId,
   });
 
   @override
@@ -465,6 +473,8 @@ class _AskDetailSheet extends StatelessWidget {
     final nickname = snapshot['nickname']?.toString() ?? '사용자';
     final avatarUrl = snapshot['profileImageUrl']?.toString() ?? '';
     final university = snapshot['universityName']?.toString() ?? '';
+    final otherUserId =
+        (isReceived ? data['fromUserId'] : data['toUserId'])?.toString() ?? '';
 
     final label = isReceived ? '$nickname님의 질문' : '$nickname님에게 보낸 질문';
 
@@ -494,7 +504,11 @@ class _AskDetailSheet extends StatelessWidget {
           const SizedBox(height: 20),
           Row(
             children: [
-              _Avatar(url: avatarUrl),
+              _Avatar(
+                url: avatarUrl,
+                currentUserId: currentUserId,
+                targetUserId: otherUserId,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
