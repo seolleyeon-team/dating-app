@@ -144,6 +144,26 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
     return true;
   }
 
+  Future<bool> _ensureUserShellIfMissing({
+    required String kakaoUserId,
+    required Map<String, dynamic> userInfo,
+  }) async {
+    final existedBeforeLogin = await _authService.kakaoUserExists(kakaoUserId);
+    if (existedBeforeLogin) {
+      return true;
+    }
+
+    await _userService.upsertKakaoUser(
+      kakaoUserId: kakaoUserId,
+      nickname: userInfo['nickname']?.toString(),
+      profileImageUrl: userInfo['profileImageUrl']?.toString(),
+      email: userInfo['email']?.toString(),
+    );
+
+    debugPrint('[KAKAO] recreated missing users/$kakaoUserId shell document');
+    return false;
+  }
+
   Future<void> _login() async {
     if (_isLoading) return;
 
@@ -162,6 +182,10 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
 
       await _storageService.saveKakaoUserId(kakaoUserId);
       await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
+      final existedBeforeLogin = await _ensureUserShellIfMissing(
+        kakaoUserId: kakaoUserId,
+        userInfo: userInfo,
+      );
       await _userService.setLastActivePlatform(
         kakaoUserId: kakaoUserId,
         platform: _currentPlatformLabel,
@@ -169,8 +193,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
 
       if (!mounted) return;
       // ✅ 이미 서버에 등록된 유저(재설치 후 약관→카카오 로그인 포함): 연세+초기설정 완료 시 홈으로
-      final exists = await _authService.kakaoUserExists(kakaoUserId);
-      if (exists) {
+      if (existedBeforeLogin) {
         final isVerified = await _authService.isStudentVerified(kakaoUserId);
         final isInitialSetupComplete = await _authService
             .isInitialSetupComplete(kakaoUserId);
@@ -324,13 +347,16 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       }
       await _storageService.saveKakaoUserId(kakaoUserId);
       await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
+      final existedBeforeLogin = await _ensureUserShellIfMissing(
+        kakaoUserId: kakaoUserId,
+        userInfo: userInfo,
+      );
       await _userService.setLastActivePlatform(
         kakaoUserId: kakaoUserId,
         platform: _currentPlatformLabel,
       );
       if (!mounted) return;
-      final exists = await _authService.kakaoUserExists(kakaoUserId);
-      if (exists) {
+      if (existedBeforeLogin) {
         final isVerified = await _authService.isStudentVerified(kakaoUserId);
         final isInitialSetupComplete = await _authService
             .isInitialSetupComplete(kakaoUserId);

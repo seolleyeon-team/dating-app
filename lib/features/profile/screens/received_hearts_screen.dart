@@ -15,7 +15,7 @@ import '../../../router/route_names.dart';
 import '../../../services/interaction_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
-import '../../../shared/widgets/capture_protected_image.dart';
+import '../../../shared/widgets/chat_unlocked_profile_avatar.dart';
 import '../../matching/models/profile_card_args.dart';
 
 // =============================================================================
@@ -281,6 +281,7 @@ class _ReceivedHeartsScreenState extends State<ReceivedHeartsScreen> {
                                       padding: const EdgeInsets.only(bottom: 12),
                                       child: _ReceivedHeartCard(
                                         item: items[index],
+                                        currentUserId: _currentUserId!,
                                         dateText: _formatDate(items[index].createdAt),
                                         onTap: () => _onProfileTap(items[index].otherUserId),
                                       ),
@@ -368,11 +369,13 @@ class _Header extends StatelessWidget {
 // =============================================================================
 class _ReceivedHeartCard extends StatelessWidget {
   final _HeartItem item;
+  final String currentUserId;
   final String dateText;
   final VoidCallback? onTap;
 
   const _ReceivedHeartCard({
     required this.item,
+    required this.currentUserId,
     required this.dateText,
     this.onTap,
   });
@@ -404,7 +407,11 @@ class _ReceivedHeartCard extends StatelessWidget {
         child: Row(
           children: [
             // 프로필 이미지
-            _ProfileAvatar(imageUrl: item.imageUrl),
+            _ProfileAvatar(
+              currentUserId: currentUserId,
+              targetUserId: item.otherUserId,
+              imageUrl: item.imageUrl,
+            ),
             const SizedBox(width: 16),
             // 콘텐츠
             Expanded(
@@ -487,31 +494,28 @@ class _ReceivedHeartCard extends StatelessWidget {
 // 프로필 아바타
 // =============================================================================
 class _ProfileAvatar extends StatelessWidget {
+  final String currentUserId;
+  final String targetUserId;
   final String imageUrl;
 
-  const _ProfileAvatar({required this.imageUrl});
+  const _ProfileAvatar({
+    required this.currentUserId,
+    required this.targetUserId,
+    required this.imageUrl,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 72,
-      height: 72,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: _AppColors.primary.withValues(alpha: 0.15),
-          width: 2,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: CaptureProtectedImage(
-        imageUrl: imageUrl,
-        fit: BoxFit.cover,
-        shape: CaptureProtectedImageShape.circle,
-        backgroundColor: _AppColors.gray100,
-        placeholderIconColor: _AppColors.gray400,
-        placeholderIconSize: 32,
-      ),
+    return ChatUnlockedProfileAvatar(
+      currentUserId: currentUserId,
+      targetUserId: targetUserId,
+      imageUrl: imageUrl,
+      size: 72,
+      borderWidth: 2,
+      borderColor: _AppColors.primary.withValues(alpha: 0.15),
+      backgroundColor: _AppColors.gray100,
+      placeholderIconColor: _AppColors.gray400,
+      placeholderIconSize: 32,
     );
   }
 }

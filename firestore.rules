@@ -26,7 +26,7 @@ service cloud.firestore {
       allow delete: if request.auth != null;
     }
 
-    // -----------------------------------------------------------------------
+        // -----------------------------------------------------------------------
     // Users
     // -----------------------------------------------------------------------
     // users 문서에 kakaoUserId 필드가 없으면 규칙에서 null 로 평가됨 → 프로필 수정 허용
@@ -524,15 +524,6 @@ service cloud.firestore {
     match /eventTeamInvites/{inviteId} {
       allow read: if true;
       allow write: if false;
-    }
-
-    match /eventTeamMatches/{resultId} {
-      allow read: if true;
-      allow write: if false;
-    }
-
-    match /eventTeamMatchLocks/{lockId} {
-      allow read, write: if false;
     }
 
     // -----------------------------------------------------------------------

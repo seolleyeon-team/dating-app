@@ -78,6 +78,9 @@ class _EventScreenState extends State<EventScreen> {
   @override
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final handleBack = widget.onNavTap != null
+        ? () => widget.onNavTap!.call(0)
+        : () => Navigator.of(context).pop();
 
     return CupertinoPageScaffold(
       backgroundColor: _AppColors.backgroundLight,
@@ -87,7 +90,7 @@ class _EventScreenState extends State<EventScreen> {
           Column(
             children: [
               // 상단 앱 바
-              _TopAppBar(onBackPressed: () => Navigator.of(context).pop()),
+              _TopAppBar(onBackPressed: handleBack),
               // Pending 팀 초대 배너 — 이벤트 탭 전체(세그먼트 무관)에서 표시
               if (_currentUserId != null && _currentUserId!.isNotEmpty)
                 StreamBuilder<List<EventTeamInviteDoc>>(

@@ -268,7 +268,7 @@ class _AnimatedHighlightButton extends StatelessWidget {
                     SizedBox(width: 6),
                     Flexible(
                       child: Text(
-                        'AI에게 내 취향 더 잘 알려주기',
+                        'AI에게 내 취향 알려주기',
                         style: TextStyle(
                           fontFamily: 'Pretendard',
                           fontSize: 12,
@@ -571,7 +571,7 @@ class _FakeMainScreen extends StatelessWidget {
                                   SizedBox(width: 6),
                                   Flexible(
                                     child: Text(
-                                      'AI에게 내 취향 더 잘 알려주기',
+                                      'AI에게 내 취향 알려주기',
                                       style: TextStyle(
                                         fontFamily: 'Pretendard',
                                         fontSize: 12,
