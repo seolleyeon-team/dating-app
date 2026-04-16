@@ -7,7 +7,6 @@ import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -117,73 +116,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
   String? _currentKakaoUserId;
   bool _isLoading = true;
 
-  static const List<_ChatItem> _baseChats = [
-    _ChatItem(
-      id: '1',
-      name: '김지수',
-      avatarUrl:
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuBtt7Y2vSpmfeZkZz9MgWhu1gNFZz4EW0bZI4gS-x-Mz5CuOT5xQHNgU0Vi4PbzkGuzaBQtk7R-27MK-kukpLLD9mRT899HBUConFqkslrJW_YzCt8mvJrr6kgOhy-Rh5WRRWnstRxeBrsZe9hRihlFxYShp1cHsn6YGlcG810RH6oc04uEgm4lQ3brO0E0N16z0XtvjXOUEAiTBhrLp07VpCGlkhNbzGdnKO0AqpqEXv20rUI-mAomZzZhfDi8j9BBM4GMj1CikI25',
-      lastMessage: '오늘 저녁에 시간 어때요? 강남역 근처에 맛있는 파스타집 알아요!',
-      time: '방금 전',
-      isOnline: true,
-      hasUnread: true,
-      sortOrder: 500,
-    ),
-    _ChatItem(
-      id: '2',
-      name: '박민준',
-      avatarUrl:
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuDT0RK8vCMZ1fdHvltVWDurwmelCqxdies0jRqVZ_i25_eXkBCWJSMVbt1RHAXD45KRadkUNxR_I2QrUqowUVd6LAmnoRziNg9prWLp5-enwv4B2WnmBUopjrYkYLJ8Cfg4V19xvQCLCy3YiL3OWgiSdunOve4HFVg5cw_LyBCbsjMVnDX5loPDI6HE6DZspiFsBGHimsJGffCUK-K7s0tzpMe7fprq9qO_3oB0jD_PqSGgr3Iu-txc3QGpFn_AS4QNEI9m3BKCzum',
-      lastMessage: '반가워요! 프로필 사진 분위기가 정말 좋으시네요 ㅎㅎ',
-      time: '10분 전',
-      hasUnread: true,
-      hasGradientBorder: true,
-      sortOrder: 400,
-    ),
-    _ChatItem(
-      id: '3',
-      name: '이서연',
-      avatarUrl:
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuCaoLaT2eg0Mr_CWMHTb5DFnC5NtnwIvbYSr7QlFAo429bhcRjjwZ9eM3KXCGGry_-VwTlGW47t69Ak613q9yN48tItC8XhxXVqQ86xWtAwYvjMYdr_P9OK5iF8KAOItKthh-1k1Yyb8Hw9Xsg0sNvpr2Lk-jPDZV8ycVaam8IOELv_NnjuKvJTEjGQ4_0BXIEfDkJW9k_eUdW51hXHAqnnL2vhABTODCwEnScNf9OS2fWATu403bThgZNQPrpzISgd7fJTNXMop1Xu',
-      lastMessage: '네 알겠습니다~ 그럼 주말에 뵙는 걸로 할게요!',
-      time: '1시간 전',
-      sortOrder: 300,
-    ),
-    _ChatItem(
-      id: '4',
-      name: '최현우',
-      avatarUrl:
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuBkclIYukugmfdmt_FqHn8n6ngOFy_HcntISLBJEEeng4mqga5wP8CTpo5nSbBLPrfKTmN1Cn5J65q8775JhJgm1JgGcKCUWg4SOouC6CFrYgDZxNGA2zgHwl5QWNh_gHj6N1Sq7I5YEeXtZ4oW4I12Sd21200BxMAniftmmGyNlkrjFtnR8ejLC3BdX7HJ8d2kvjG6mMxINka5PxHf-MuEX4QWFqSihtVj8ap_6F8IRbkAMAFu0GIa_J-0voPIWJoa2yTA138wQo28',
-      lastMessage: '사진 보내드렸습니다. 확인해주세요.',
-      time: '어제',
-      isGrayscale: true,
-      sortOrder: 200,
-    ),
-    _ChatItem(
-      id: '5',
-      name: '정하나',
-      avatarUrl:
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuD5daUKQ65R86r5mD6ge1Dbq2r2x9s6mfF64QKG-Ok03q5Bk0RKkYndnQPpn2_qabOdm5-c4EXRI0RcmvAMRcdizRxM_MdpXu6n29zGbZckSgCt-BkONB0jM-ABrBhZOSyiQCZF1u9d7ukDbTa1eRA1CW7xgYecLFR_MFTngH-H503o6iKizja6XfMSkR7958WwJEMQ9lQ1lZAyr0rIZAP4-gQOOnEFV1H0w8SADoT7BJvmFJa6q5CKX4NFUuEur0R27-wnqmopSJM1',
-      lastMessage: '즐거운 하루 보내세요 :)',
-      time: '어제',
-      sortOrder: 100,
-    ),
-  ];
-
-  static const _ChatItem _fakeChat = _ChatItem(
-    id: 'fake_user_1',
-    name: '가짜 계정 1',
-    avatarUrl: '',
-    lastMessage: '채팅을 시작해 보세요!',
-    time: '',
-    isOnline: true,
-    hasUnread: false,
-    hasGradientBorder: false,
-    isGrayscale: false,
-    sortOrder: 999999,
-    isFakeAccountRoom: true,
-  );
-
   @override
   void initState() {
     super.initState();
@@ -283,17 +215,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
       sortOrder: 999999,
       isFakeAccountRoom: true,
     );
-  }
-
-  List<_ChatItem> get _sortedChats {
-    final chats = [..._baseChats];
-
-    if (_currentKakaoUserId != null && _currentKakaoUserId != 'fake_user_1') {
-      chats.add(_fakeChat);
-    }
-
-    chats.sort((a, b) => b.sortOrder.compareTo(a.sortOrder));
-    return chats;
   }
 
   @override
