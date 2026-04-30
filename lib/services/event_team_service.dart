@@ -20,10 +20,7 @@ class EventTeamSetupState {
     required this.pendingInviteeIds,
   });
 
-  factory EventTeamSetupState.fromDoc(
-    String id,
-    Map<String, dynamic> data,
-  ) {
+  factory EventTeamSetupState.fromDoc(String id, Map<String, dynamic> data) {
     final acc = data['acceptedUserIds'];
     final pend = data['pendingInviteeIds'];
     return EventTeamSetupState(
@@ -142,12 +139,11 @@ class EventTeamService {
     StorageService? storageService,
     UserService? userService,
     FriendService? friendService,
-  })  : _functions =
-            functions ?? FirebaseFunctions.instanceFor(region: _region),
-        _authService = authService ?? AuthService(),
-        _storageService = storageService ?? StorageService(),
-        _userService = userService ?? UserService(),
-        _friendService = friendService ?? FriendService();
+  }) : _functions = functions ?? FirebaseFunctions.instanceFor(region: _region),
+       _authService = authService ?? AuthService(),
+       _storageService = storageService ?? StorageService(),
+       _userService = userService ?? UserService(),
+       _friendService = friendService ?? FriendService();
 
   static const String _region = 'asia-northeast3';
   final FirebaseFunctions _functions;
@@ -204,6 +200,75 @@ class EventTeamService {
     return savedTeamSetupId;
   }
 
+  Future<EventTeamSetupState?> resolveCurrentTeamSetupForUser(
+    String userId, {
+    String? preferredTeamSetupId,
+  }) async {
+    if (userId.isEmpty) return null;
+
+    final snapshotsById = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+    if (preferredTeamSetupId != null && preferredTeamSetupId.isNotEmpty) {
+      final preferred = await _firestore
+          .collection('eventTeamSetups')
+          .doc(preferredTeamSetupId)
+          .get();
+      if (preferred.exists && preferred.data() != null) {
+        snapshotsById[preferred.id] = preferred;
+      }
+    }
+
+    final acceptedQuery = await _firestore
+        .collection('eventTeamSetups')
+        .where('acceptedUserIds', arrayContains: userId)
+        .get();
+    for (final doc in acceptedQuery.docs) {
+      snapshotsById[doc.id] = doc;
+    }
+
+    final leaderQuery = await _firestore
+        .collection('eventTeamSetups')
+        .where('leaderUserId', isEqualTo: userId)
+        .get();
+    for (final doc in leaderQuery.docs) {
+      snapshotsById[doc.id] = doc;
+    }
+
+    return _bestTeamSetupFromDocs(snapshotsById.values, userId: userId);
+  }
+
+  EventTeamSetupState? _bestTeamSetupFromDocs(
+    Iterable<DocumentSnapshot<Map<String, dynamic>>> docs, {
+    required String userId,
+  }) {
+    final candidates = docs
+        .where((doc) => doc.exists && doc.data() != null)
+        .map((doc) {
+          final data = doc.data()!;
+          final updatedAt = _timestampMs(data['updatedAt']);
+          final createdAt = _timestampMs(data['createdAt']);
+          return (
+            state: EventTeamSetupState.fromDoc(doc.id, data),
+            timestampMs: updatedAt > 0 ? updatedAt : createdAt,
+          );
+        })
+        .where((candidate) => candidate.state.containsUser(userId))
+        .toList();
+    candidates.sort((a, b) {
+      final acceptedCompare = b.state.acceptedCount.compareTo(
+        a.state.acceptedCount,
+      );
+      if (acceptedCompare != 0) return acceptedCompare;
+      return b.timestampMs.compareTo(a.timestampMs);
+    });
+    return candidates.isEmpty ? null : candidates.first.state;
+  }
+
+  int _timestampMs(dynamic value) {
+    if (value is Timestamp) return value.millisecondsSinceEpoch;
+    if (value is DateTime) return value.millisecondsSinceEpoch;
+    return 0;
+  }
+
   Future<void> createInvite({
     required String teamSetupId,
     required String inviteeUserId,
@@ -237,9 +302,9 @@ class EventTeamService {
         .doc(teamSetupId)
         .snapshots()
         .map((s) {
-      if (!s.exists || s.data() == null) return null;
-      return EventTeamSetupState.fromDoc(s.id, s.data()!);
-    });
+          if (!s.exists || s.data() == null) return null;
+          return EventTeamSetupState.fromDoc(s.id, s.data()!);
+        });
   }
 
   Future<EventTeamSetupState?> getTeamSetupOnce(String teamSetupId) async {
@@ -257,9 +322,9 @@ class EventTeamService {
         .doc(inviteId)
         .snapshots()
         .map((s) {
-      if (!s.exists || s.data() == null) return null;
-      return EventTeamInviteDoc.fromSnap(s);
-    });
+          if (!s.exists || s.data() == null) return null;
+          return EventTeamInviteDoc.fromSnap(s);
+        });
   }
 
   Future<EventTeamInviteDoc?> getInviteOnce(String inviteId) async {
@@ -272,27 +337,26 @@ class EventTeamService {
   }
 
   /// 현재 유저가 받은 pending 초대 목록 실시간 스트림
-  Stream<List<EventTeamInviteDoc>> watchPendingInvitesForUser(
-    String userId,
-  ) {
+  Stream<List<EventTeamInviteDoc>> watchPendingInvitesForUser(String userId) {
     return _firestore
         .collection('eventTeamInvites')
         .where('inviteeUserId', isEqualTo: userId)
         .where('status', isEqualTo: 'pending')
         .snapshots()
         .map((qs) {
-      final invites =
-          qs.docs.map((d) => EventTeamInviteDoc.fromSnap(d)).toList();
-      invites.sort((a, b) {
-        final createdCompare = (b.createdAt?.millisecondsSinceEpoch ?? 0)
-            .compareTo(a.createdAt?.millisecondsSinceEpoch ?? 0);
-        if (createdCompare != 0) {
-          return createdCompare;
-        }
-        return b.inviteId.compareTo(a.inviteId);
-      });
-      return invites;
-    });
+          final invites = qs.docs
+              .map((d) => EventTeamInviteDoc.fromSnap(d))
+              .toList();
+          invites.sort((a, b) {
+            final createdCompare = (b.createdAt?.millisecondsSinceEpoch ?? 0)
+                .compareTo(a.createdAt?.millisecondsSinceEpoch ?? 0);
+            if (createdCompare != 0) {
+              return createdCompare;
+            }
+            return b.inviteId.compareTo(a.inviteId);
+          });
+          return invites;
+        });
   }
 
   /// 초대자 프로필 상세 조회 (응답 시트용)
@@ -305,8 +369,9 @@ class EventTeamService {
       return InviterProfile(userId: inviterUserId, name: '친구');
     }
     final raw = user['onboarding'];
-    final ob =
-        raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+    final ob = raw is Map
+        ? Map<String, dynamic>.from(raw)
+        : <String, dynamic>{};
     final name = _extractName(ob, user, inviterUserId);
     final photos = ob['photoUrls'];
     String? imageUrl;
@@ -414,12 +479,11 @@ class EventTeamService {
     final onboarding = onboardingRaw is Map
         ? Map<String, dynamic>.from(onboardingRaw)
         : <String, dynamic>{};
-    final name = (onboarding['nickname']?.toString().trim().isNotEmpty ??
-            false)
+    final name = (onboarding['nickname']?.toString().trim().isNotEmpty ?? false)
         ? onboarding['nickname'].toString()
         : (user['nickname']?.toString().trim().isNotEmpty ?? false)
-            ? user['nickname'].toString()
-            : userId;
+        ? user['nickname'].toString()
+        : userId;
     final mbti = onboarding['mbti']?.toString().trim().isNotEmpty == true
         ? onboarding['mbti'].toString()
         : '—';

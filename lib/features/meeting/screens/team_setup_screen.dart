@@ -10,6 +10,7 @@
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 // =============================================================================
 // 색상 상수
@@ -74,9 +75,13 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
     // TODO: 카카오톡 초대
   }
 
-  void _onCopyLink() {
+  void _onShare() {
     HapticFeedback.lightImpact();
-    // TODO: 링크 복사
+    SharePlus.instance.share(
+      ShareParams(
+        text: '설레연에서 함께 3:3 미팅해요! 🎉',
+      ),
+    );
   }
 
   void _onStartMatching() {
@@ -122,7 +127,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
                         // 초대 버튼
                         _InviteButtons(
                           onKakao: _onInviteKakao,
-                          onCopyLink: _onCopyLink,
+                          onShare: _onShare,
                         ),
                       ],
                     ),
@@ -479,9 +484,9 @@ class _InfoChip extends StatelessWidget {
 // =============================================================================
 class _InviteButtons extends StatelessWidget {
   final VoidCallback onKakao;
-  final VoidCallback onCopyLink;
+  final VoidCallback onShare;
 
-  const _InviteButtons({required this.onKakao, required this.onCopyLink});
+  const _InviteButtons({required this.onKakao, required this.onShare});
 
   @override
   Widget build(BuildContext context) {
@@ -530,11 +535,11 @@ class _InviteButtons extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        // 링크 복사
+        // 공유하기
         Expanded(
           child: CupertinoButton(
             padding: EdgeInsets.zero,
-            onPressed: onCopyLink,
+            onPressed: onShare,
             child: Container(
               height: 48,
               decoration: BoxDecoration(
@@ -553,13 +558,13 @@ class _InviteButtons extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
-                    CupertinoIcons.link,
+                    CupertinoIcons.square_arrow_up,
                     size: 18,
                     color: _AppColors.gray400,
                   ),
                   SizedBox(width: 8),
                   Text(
-                    '링크 복사',
+                    '공유하기',
                     style: TextStyle(
                       fontFamily: 'Pretendard',
                       fontSize: 14,
