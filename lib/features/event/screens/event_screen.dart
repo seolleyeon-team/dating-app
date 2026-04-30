@@ -19,6 +19,7 @@ import '../widgets/pending_team_invite_card.dart';
 import '../widgets/team_invite_response_sheet.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 
 // =============================================================================
 // 색상 상수
@@ -171,23 +172,24 @@ class _EventScreenState extends State<EventScreen> {
             ],
           ),
           // 하단 네비게이션
-          Positioned(
-            left: 24,
-            right: 24,
-            bottom: bottomPadding + 32,
-            child: (_currentUserId == null || _currentUserId!.isEmpty)
-                ? _BottomNavBar(onTap: widget.onNavTap, showChatBadge: false)
-                : StreamBuilder<bool>(
-                    stream: _chatService.hasAnyUnreadChats(_currentUserId!),
-                    builder: (context, snapshot) {
-                      final hasUnread = snapshot.data == true;
-                      return _BottomNavBar(
-                        onTap: widget.onNavTap,
-                        showChatBadge: hasUnread,
-                      );
-                    },
-                  ),
-          ),
+          if (_currentUserId == null || _currentUserId!.isEmpty)
+            SeolleyeonBottomNavPositioned(
+              currentTab: BottomNavTab.event,
+              onTap: widget.onNavTap,
+              showChatBadge: false,
+            )
+          else
+            StreamBuilder<bool>(
+              stream: _chatService.hasAnyUnreadChats(_currentUserId!),
+              builder: (context, snapshot) {
+                final hasUnread = snapshot.data == true;
+                return SeolleyeonBottomNavPositioned(
+                  currentTab: BottomNavTab.event,
+                  onTap: widget.onNavTap,
+                  showChatBadge: hasUnread,
+                );
+              },
+            ),
         ],
       ),
     );
@@ -217,11 +219,7 @@ class _TopAppBar extends StatelessWidget {
               padding: EdgeInsets.zero,
               minimumSize: const Size(48, 48),
               onPressed: onBackPressed,
-              child: Icon(
-                CupertinoIcons.back,
-                color: textColor,
-                size: 24,
-              ),
+              child: Icon(CupertinoIcons.back, color: textColor, size: 24),
             ),
             Expanded(
               child: Text(
@@ -371,18 +369,12 @@ class _HeroCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: primary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: primary.withValues(alpha: 0.1),
-              ),
+              border: Border.all(color: primary.withValues(alpha: 0.1)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  CupertinoIcons.shield_fill,
-                  size: 14,
-                  color: primary,
-                ),
+                Icon(CupertinoIcons.shield_fill, size: 14, color: primary),
                 const SizedBox(width: 4),
                 Text(
                   'SAFE MATCHING',
@@ -494,9 +486,7 @@ class _SlotReel extends StatelessWidget {
           color: seol.cardSurface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isActive
-                ? primary.withValues(alpha: 0.3)
-                : seol.gray200,
+            color: isActive ? primary.withValues(alpha: 0.3) : seol.gray200,
             width: isActive ? 2 : 1,
           ),
           boxShadow: isActive
@@ -556,11 +546,7 @@ class _StatusStrip extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Icon(
-                      CupertinoIcons.tickets_fill,
-                      size: 16,
-                      color: primary,
-                    ),
+                    Icon(CupertinoIcons.tickets_fill, size: 16, color: primary),
                     const SizedBox(width: 6),
                     Text(
                       '오늘 1회 무료',
@@ -595,11 +581,7 @@ class _StatusStrip extends StatelessWidget {
               color: seol.gray100,
               borderRadius: BorderRadius.circular(16),
             ),
-            child: Icon(
-              CupertinoIcons.refresh,
-              size: 18,
-              color: primary,
-            ),
+            child: Icon(CupertinoIcons.refresh, size: 18, color: primary),
           ),
         ],
       ),
@@ -969,11 +951,7 @@ class _RandomMatchingContent extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        CupertinoIcons.shuffle,
-                        size: 14,
-                        color: primary,
-                      ),
+                      Icon(CupertinoIcons.shuffle, size: 14, color: primary),
                       const SizedBox(width: 4),
                       Text(
                         'RANDOM MATCHING',
@@ -1016,9 +994,7 @@ class _RandomMatchingContent extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: seol.pink50,
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: primary.withValues(alpha: 0.05),
-                    ),
+                    border: Border.all(color: primary.withValues(alpha: 0.05)),
                   ),
                   child: Icon(
                     CupertinoIcons.person_2_fill,
@@ -1082,146 +1058,3 @@ class _RandomMatchingContent extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// 하단 네비게이션
-// =============================================================================
-class _BottomNavBar extends StatelessWidget {
-  final Function(int index)? onTap;
-  final bool showChatBadge;
-
-  const _BottomNavBar({this.onTap, this.showChatBadge = false});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final navBg = isDark
-        ? const Color(0xFF221A28).withValues(alpha: 0.92)
-        : CupertinoColors.white.withValues(alpha: 0.95);
-    final navBorder = isDark
-        ? AppColorsDark.border.withValues(alpha: 0.5)
-        : CupertinoColors.white.withValues(alpha: 0.4);
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(32),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-          decoration: BoxDecoration(
-            color: navBg,
-            borderRadius: BorderRadius.circular(32),
-            border: Border.all(
-              color: navBorder,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: CupertinoColors.black.withValues(alpha: 0.15),
-                blurRadius: 40,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _NavItem(
-                icon: CupertinoIcons.heart_fill,
-                label: '설레연',
-                onTap: () => onTap?.call(0),
-              ),
-              _NavItem(
-                icon: CupertinoIcons.chat_bubble_fill,
-                label: '채팅',
-                showBadge: showChatBadge,
-                onTap: () => onTap?.call(1),
-              ),
-              _NavItem(
-                icon: CupertinoIcons.calendar,
-                label: '이벤트',
-                isActive: true,
-                onTap: () => onTap?.call(2),
-              ),
-              _NavItem(
-                icon: CupertinoIcons.tree,
-                label: '대나무숲',
-                onTap: () => onTap?.call(3),
-              ),
-              _NavItem(
-                icon: CupertinoIcons.person,
-                label: '내 페이지',
-                onTap: () => onTap?.call(4),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool isActive;
-  final bool showBadge;
-  final VoidCallback? onTap;
-
-  const _NavItem({
-    required this.icon,
-    required this.label,
-    this.isActive = false,
-    this.showBadge = false,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final seol = Theme.of(context).extension<SeolThemeColors>()!;
-    final primary = Theme.of(context).colorScheme.primary;
-    final inactive = seol.gray400;
-
-    return CupertinoButton(
-      padding: EdgeInsets.zero,
-      onPressed: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Icon(
-                icon,
-                size: 24,
-                color: isActive ? primary : inactive,
-              ),
-              if (showBadge)
-                Positioned(
-                  right: -2,
-                  top: -2,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF10B981),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontFamily: 'Pretendard',
-              fontSize: 10,
-              fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-              letterSpacing: -0.2,
-              color: isActive ? primary : inactive,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}

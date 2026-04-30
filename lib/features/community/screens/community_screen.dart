@@ -19,6 +19,7 @@ import '../../chat/services/chat_service.dart';
 import '../../../router/route_names.dart';
 import '../../../services/storage_service.dart';
 import '../providers/community_provider.dart';
+import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 
 // =============================================================================
 // 색상 상수
@@ -295,26 +296,24 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 ),
               ),
 
-              Positioned(
-                left: 24,
-                right: 24,
-                bottom: bottomPadding + 32,
-                child: (_currentUserId == null || _currentUserId!.isEmpty)
-                    ? _BottomNavBar(
-                        onTap: widget.onNavTap,
-                        showChatBadge: false,
-                      )
-                    : StreamBuilder<bool>(
-                        stream: _chatService.hasAnyUnreadChats(_currentUserId!),
-                        builder: (context, snapshot) {
-                          final hasUnread = snapshot.data == true;
-                          return _BottomNavBar(
-                            onTap: widget.onNavTap,
-                            showChatBadge: hasUnread,
-                          );
-                        },
-                      ),
-              ),
+              if (_currentUserId == null || _currentUserId!.isEmpty)
+                SeolleyeonBottomNavPositioned(
+                  currentTab: BottomNavTab.community,
+                  onTap: widget.onNavTap,
+                  showChatBadge: false,
+                )
+              else
+                StreamBuilder<bool>(
+                  stream: _chatService.hasAnyUnreadChats(_currentUserId!),
+                  builder: (context, snapshot) {
+                    final hasUnread = snapshot.data == true;
+                    return SeolleyeonBottomNavPositioned(
+                      currentTab: BottomNavTab.community,
+                      onTap: widget.onNavTap,
+                      showChatBadge: hasUnread,
+                    );
+                  },
+                ),
             ],
           ),
         );
@@ -884,144 +883,3 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// 하단 네비게이션
-// =============================================================================
-class _BottomNavBar extends StatelessWidget {
-  final Function(int index)? onTap;
-  final bool showChatBadge;
-
-  const _BottomNavBar({this.onTap, this.showChatBadge = false});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final navBg = isDark
-        ? const Color(0xFF221A28).withValues(alpha: 0.92)
-        : CupertinoColors.white.withValues(alpha: 0.95);
-    final navBorder = isDark
-        ? AppColorsDark.border.withValues(alpha: 0.55)
-        : CupertinoColors.white.withValues(alpha: 0.4);
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(32),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-          decoration: BoxDecoration(
-            color: navBg,
-            borderRadius: BorderRadius.circular(32),
-            border: Border.all(color: navBorder),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.15),
-                blurRadius: 40,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _NavItem(
-                icon: CupertinoIcons.heart_fill,
-                label: '설레연',
-                onTap: () => onTap?.call(0),
-              ),
-              _NavItem(
-                icon: CupertinoIcons.chat_bubble_fill,
-                label: '채팅',
-                showBadge: showChatBadge,
-                onTap: () => onTap?.call(1),
-              ),
-              _NavItem(
-                icon: CupertinoIcons.calendar,
-                label: '이벤트',
-                onTap: () => onTap?.call(2),
-              ),
-              _NavItem(
-                icon: CupertinoIcons.tree,
-                label: '대나무숲',
-                isActive: true,
-                onTap: () => onTap?.call(3),
-              ),
-              _NavItem(
-                icon: CupertinoIcons.person,
-                label: '내 페이지',
-                onTap: () => onTap?.call(4),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool isActive;
-  final bool showBadge;
-  final VoidCallback? onTap;
-
-  const _NavItem({
-    required this.icon,
-    required this.label,
-    this.isActive = false,
-    this.showBadge = false,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final seol = Theme.of(context).extension<SeolThemeColors>()!;
-    final primary = Theme.of(context).colorScheme.primary;
-    final inactive = seol.gray400;
-
-    return CupertinoButton(
-      padding: EdgeInsets.zero,
-      onPressed: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Icon(
-                icon,
-                size: 24,
-                color: isActive ? primary : inactive,
-              ),
-              if (showBadge)
-                Positioned(
-                  right: -2,
-                  top: -2,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF10B981),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontFamily: 'Pretendard',
-              fontSize: 10,
-              fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-              letterSpacing: -0.2,
-              color: isActive ? primary : inactive,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}

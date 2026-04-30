@@ -693,13 +693,26 @@ async function resolveEventTeamSetupForUser(
 
   const docs = [...teamQuery.docs];
   docs.sort((left, right) => {
+    const leftData = (left.data() ?? {}) as Record<string, unknown>;
+    const rightData = (right.data() ?? {}) as Record<string, unknown>;
+    const leftAcceptedCount = buildDeterministicAcceptedOrder(
+      asString(leftData.leaderUserId ?? ""),
+      normalizeStringList(leftData.acceptedUserIds)
+    ).length;
+    const rightAcceptedCount = buildDeterministicAcceptedOrder(
+      asString(rightData.leaderUserId ?? ""),
+      normalizeStringList(rightData.acceptedUserIds)
+    ).length;
+    if (leftAcceptedCount !== rightAcceptedCount) {
+      return rightAcceptedCount - leftAcceptedCount;
+    }
     const leftUpdatedAt =
-      left.data()["updatedAt"] instanceof Timestamp
-        ? (left.data()["updatedAt"] as Timestamp).toMillis()
+      leftData.updatedAt instanceof Timestamp
+        ? leftData.updatedAt.toMillis()
         : 0;
     const rightUpdatedAt =
-      right.data()["updatedAt"] instanceof Timestamp
-        ? (right.data()["updatedAt"] as Timestamp).toMillis()
+      rightData.updatedAt instanceof Timestamp
+        ? rightData.updatedAt.toMillis()
         : 0;
     return rightUpdatedAt - leftUpdatedAt;
   });
@@ -1769,10 +1782,22 @@ async function writeEventTeamInviteNotification(params: {
   });
 }
 
-export const ensureEventTeamSetup = onCall(async (request) => {
+export const ensureEventTeamSetup = onCall(
+  {
+    cpu: "gcf_gen1",
+    concurrency: 1,
+    maxInstances: 2,
+  },
+  async (request) => {
   const data = getCallableData(request);
   const leader = await resolveUserForFriendCallable(request);
   let teamSetupId = asNonEmptyString(data.teamSetupId);
+  if (!teamSetupId) {
+    const existingTeam = await resolveEventTeamSetupForUser(leader.userId, null);
+    if (existingTeam) {
+      return { teamSetupId: existingTeam.teamSetupId };
+    }
+  }
   if (!teamSetupId) {
     teamSetupId = randomBytes(16).toString("hex");
   }
@@ -1799,7 +1824,8 @@ export const ensureEventTeamSetup = onCall(async (request) => {
   }
 
   return { teamSetupId };
-});
+  }
+);
 
 export const createEventTeamInvite = onCall(async (request) => {
   const data = getCallableData(request);

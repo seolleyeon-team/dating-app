@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' as material;
+import 'package:flutter/material.dart' show Brightness, Theme;
 import 'package:flutter/services.dart';
 
 import '../models/promise_place.dart';
@@ -17,6 +18,7 @@ import '../../../services/push_notification_service.dart';
 import '../../../router/route_names.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
 import '../../matching/models/profile_card_args.dart';
+import '../../../core/constants/app_colors.dart';
 
 class _AppColors {
   /// 라벤더 포인트 (#c6a9fe 계열) — 본문/선택 상태 (대비용으로 소프트보다 진함)
@@ -833,7 +835,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return CupertinoPageScaffold(
-      backgroundColor: _AppColors.backgroundLight,
+      backgroundColor: Theme.of(context).brightness == Brightness.dark
+          ? AppColorsDark.background
+          : _AppColors.backgroundLight,
       child: Stack(
         children: [
           CustomScrollView(
@@ -853,10 +857,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                 : Text(
                                     '채팅방을 불러오지 못했어요\n$_initError',
                                     textAlign: TextAlign.center,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontFamily: 'Pretendard',
                                       fontSize: 14,
-                                      color: _AppColors.textSubtle,
+                                      color: Theme.of(context).brightness == Brightness.dark
+                                          ? AppColorsDark.textSecondary
+                                          : _AppColors.textSubtle,
                                     ),
                                   ),
                           ),
@@ -1033,19 +1039,20 @@ class _SafetyStampEntryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!isVisible) return const SizedBox.shrink();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final backgroundColor = isEnabled
-        ? const Color(0xFFFFF3F6)
-        : const Color(0xFFF7F5F3);
+        ? (isDark ? const Color(0xFF2E1F28) : const Color(0xFFFFF3F6))
+        : (isDark ? AppColorsDark.surfaceVariant : const Color(0xFFF7F5F3));
     final borderColor = isEnabled
-        ? const Color(0xFFF4C6D2)
-        : const Color(0xFFE6E1DC);
+        ? (isDark ? const Color(0xFF5C2A3E) : const Color(0xFFF4C6D2))
+        : (isDark ? AppColorsDark.border : const Color(0xFFE6E1DC));
     final iconColor = isEnabled
-        ? const Color(0xFFEF6C93)
-        : const Color(0xFFB7AEA6);
+        ? (isDark ? const Color(0xFFFF8FA8) : const Color(0xFFEF6C93))
+        : (isDark ? AppColorsDark.textHint : const Color(0xFFB7AEA6));
     final titleColor = isEnabled
-        ? const Color(0xFFB94D72)
-        : const Color(0xFF8F867E);
+        ? (isDark ? const Color(0xFFFF8FA8) : const Color(0xFFB94D72))
+        : (isDark ? AppColorsDark.textSecondary : const Color(0xFF8F867E));
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -1092,11 +1099,11 @@ class _SafetyStampEntryButton extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 helperText,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  color: _AppColors.textSubtle,
+                  color: isDark ? AppColorsDark.textSecondary : _AppColors.textSubtle,
                   height: 1.35,
                 ),
               ),
@@ -1127,13 +1134,22 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark
+        ? AppColorsDark.background.withValues(alpha: 0.92)
+        : _AppColors.backgroundLight.withValues(alpha: 0.92);
+    final borderColor = isDark ? AppColorsDark.border : _AppColors.stone100;
+    final buttonBg = isDark ? AppColorsDark.surfaceVariant : _AppColors.stone100;
+    final textMainColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final textSubColor = isDark ? AppColorsDark.textSecondary : _AppColors.textSubtle;
+
     return SafeArea(
       bottom: false,
       child: Container(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
         decoration: BoxDecoration(
-          color: _AppColors.backgroundLight.withValues(alpha: 0.92),
-          border: Border(bottom: BorderSide(color: _AppColors.stone100)),
+          color: bgColor,
+          border: Border(bottom: BorderSide(color: borderColor)),
         ),
         child: SizedBox(
           height: 52,
@@ -1155,12 +1171,12 @@ class _Header extends StatelessWidget {
                   height: 40,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _AppColors.stone100,
+                    color: buttonBg,
                   ),
-                  child: const Icon(
+                  child: Icon(
                     CupertinoIcons.back,
                     size: 24,
-                    color: _AppColors.textMain,
+                    color: textMainColor,
                   ),
                 ),
               ),
@@ -1188,13 +1204,13 @@ class _Header extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               textAlign: TextAlign.center,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontFamily: 'Pretendard',
                                 fontSize: 18,
                                 fontWeight: FontWeight.w700,
                                 height: 1.1,
                                 letterSpacing: -0.3,
-                                color: _AppColors.textMain,
+                                color: textMainColor,
                               ),
                             ),
                             const SizedBox(height: 2),
@@ -1203,12 +1219,12 @@ class _Header extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               textAlign: TextAlign.center,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontFamily: 'Pretendard',
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                                 height: 1.1,
-                                color: _AppColors.textSubtle,
+                                color: textSubColor,
                               ),
                             ),
                           ],
@@ -1256,12 +1272,12 @@ class _Header extends StatelessWidget {
                   height: 40,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _AppColors.stone100,
+                    color: buttonBg,
                   ),
-                  child: const Icon(
+                  child: Icon(
                     CupertinoIcons.ellipsis,
                     size: 24,
-                    color: _AppColors.textMain,
+                    color: textMainColor,
                   ),
                 ),
               ),
@@ -1395,6 +1411,12 @@ class _ReceivedMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final avatarBg = isDark ? AppColorsDark.surfaceVariant : _AppColors.stone200;
+    final bubbleBg = isDark ? AppColorsDark.chatBubbleOther : _AppColors.bubblePartner;
+    final textColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final timeColor = isDark ? AppColorsDark.textHint : _AppColors.stone400;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(
@@ -1411,15 +1433,15 @@ class _ReceivedMessage extends StatelessWidget {
                   height: 32,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _AppColors.stone200,
+                    color: avatarBg,
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: CaptureProtectedImage(
                     imageUrl: avatarUrl,
                     shape: CaptureProtectedImageShape.circle,
                     fit: BoxFit.cover,
-                    backgroundColor: _AppColors.stone200,
-                    placeholderIconColor: _AppColors.stone400,
+                    backgroundColor: avatarBg,
+                    placeholderIconColor: isDark ? AppColorsDark.textHint : _AppColors.stone400,
                     placeholderIconSize: 20,
                   ),
                 ),
@@ -1432,7 +1454,7 @@ class _ReceivedMessage extends StatelessWidget {
                     vertical: 14,
                   ),
                   decoration: BoxDecoration(
-                    color: _AppColors.bubblePartner,
+                    color: bubbleBg,
                     borderRadius: const BorderRadius.only(
                       topLeft: Radius.circular(20),
                       topRight: Radius.circular(20),
@@ -1442,11 +1464,11 @@ class _ReceivedMessage extends StatelessWidget {
                   ),
                   child: Text(
                     text,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Pretendard',
                       fontSize: 15,
                       height: 1.5,
-                      color: _AppColors.textMain,
+                      color: textColor,
                     ),
                   ),
                 ),
@@ -1457,10 +1479,10 @@ class _ReceivedMessage extends StatelessWidget {
             padding: const EdgeInsets.only(left: 48, top: 4),
             child: Text(
               time,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Pretendard',
                 fontSize: 10,
-                color: _AppColors.stone400,
+                color: timeColor,
               ),
             ),
           ),
@@ -1483,6 +1505,12 @@ class _SentMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bubbleBg = isDark ? AppColorsDark.chatBubbleMine : _AppColors.bubbleUser;
+    final bubbleBorder = isDark ? AppColorsDark.border : const Color(0xFFEFECE8);
+    final textColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final timeColor = isDark ? AppColorsDark.textHint : _AppColors.stone400;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(
@@ -1494,22 +1522,22 @@ class _SentMessage extends StatelessWidget {
             ),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             decoration: BoxDecoration(
-              color: _AppColors.bubbleUser,
+              color: bubbleBg,
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(20),
                 topRight: Radius.circular(20),
                 bottomLeft: Radius.circular(20),
                 bottomRight: Radius.circular(4),
               ),
-              border: Border.all(color: const Color(0xFFEFECE8)),
+              border: Border.all(color: bubbleBorder),
             ),
             child: Text(
               text,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Pretendard',
                 fontSize: 15,
                 height: 1.5,
-                color: _AppColors.textMain,
+                color: textColor,
               ),
             ),
           ),
@@ -1527,10 +1555,10 @@ class _SentMessage extends StatelessWidget {
                 if (isRead) const SizedBox(width: 4),
                 Text(
                   time,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Pretendard',
                     fontSize: 10,
-                    color: _AppColors.stone400,
+                    color: timeColor,
                   ),
                 ),
               ],
@@ -1570,6 +1598,12 @@ class _PromiseRequestMessage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (message.shouldHideAsExpired) return const SizedBox.shrink();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppColorsDark.surface : CupertinoColors.white;
+    final cardBorder = isDark ? AppColorsDark.border : _AppColors.stone200;
+    final textMainColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final textSubColor = isDark ? AppColorsDark.textSecondary : _AppColors.textSubtle;
+    final rejectBg = isDark ? AppColorsDark.surfaceVariant : _AppColors.stone100;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -1578,19 +1612,19 @@ class _PromiseRequestMessage extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: CupertinoColors.white,
+            color: cardBg,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: _AppColors.stone200),
+            border: Border.all(color: cardBorder),
           ),
           child: Column(
             children: [
-              const Text(
+              Text(
                 '약속 요청',
                 style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
-                  color: _AppColors.textMain,
+                  color: textMainColor,
                 ),
               ),
               const SizedBox(height: 8),
@@ -1602,10 +1636,10 @@ class _PromiseRequestMessage extends StatelessWidget {
                   formatDt: _formatTime,
                 ),
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 14,
-                  color: _AppColors.textSubtle,
+                  color: textSubColor,
                 ),
               ),
               if (message.isEdited && message.editedAt != null) ...[
@@ -1625,20 +1659,20 @@ class _PromiseRequestMessage extends StatelessWidget {
               Text(
                 message.text,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 13,
-                  color: _AppColors.textMain,
+                  color: textMainColor,
                 ),
               ),
               const SizedBox(height: 14),
               if (message.promiseStatus == 'cancelled')
-                const Text(
+                Text(
                   '삭제된 약속이에요.',
                   style: TextStyle(
                     fontFamily: 'Pretendard',
                     fontSize: 13,
-                    color: _AppColors.textSubtle,
+                    color: textSubColor,
                   ),
                 )
               else if (!message.isMineRequest)
@@ -1652,15 +1686,15 @@ class _PromiseRequestMessage extends StatelessWidget {
                           height: 42,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: _AppColors.stone100,
+                            color: rejectBg,
                             borderRadius: BorderRadius.circular(14),
                           ),
-                          child: const Text(
+                          child: Text(
                             '거절',
                             style: TextStyle(
                               fontFamily: 'Pretendard',
                               fontWeight: FontWeight.w700,
-                              color: _AppColors.textMain,
+                              color: textMainColor,
                             ),
                           ),
                         ),
@@ -1765,6 +1799,8 @@ class _PromiseConfirmedBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (message.shouldHideAsExpired) return const SizedBox.shrink();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textMainColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -1803,10 +1839,10 @@ class _PromiseConfirmedBanner extends StatelessWidget {
                   formatDt: _formatTime,
                 ),
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 14,
-                  color: _AppColors.textMain,
+                  color: textMainColor,
                 ),
               ),
               if (message.isEdited && message.editedAt != null) ...[
@@ -1879,6 +1915,12 @@ class _PromiseCompletedBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF1A2922) : const Color(0xFFEAF5EE);
+    final borderColor = isDark ? const Color(0xFF2A4A34) : const Color(0xFFC7E5D0);
+    final greenTitle = isDark ? const Color(0xFF66BB6A) : const Color(0xFF2E7D4F);
+    final textMainColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Center(
@@ -1886,19 +1928,19 @@ class _PromiseCompletedBanner extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0xFFEAF5EE),
+            color: bgColor,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFC7E5D0)),
+            border: Border.all(color: borderColor),
           ),
           child: Column(
             children: [
-              const Text(
+              Text(
                 '약속 완료',
                 style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
-                  color: Color(0xFF2E7D4F),
+                  color: greenTitle,
                 ),
               ),
               const SizedBox(height: 8),
@@ -1910,21 +1952,21 @@ class _PromiseCompletedBanner extends StatelessWidget {
                   formatDt: _formatTime,
                 ),
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 14,
-                  color: _AppColors.textMain,
+                  color: textMainColor,
                 ),
               ),
               const SizedBox(height: 10),
-              const Text(
+              Text(
                 '약속이 완료되었어요',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF2E7D4F),
+                  color: greenTitle,
                 ),
               ),
             ],
@@ -1952,6 +1994,12 @@ class _PromiseInProgressBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF2A2314) : const Color(0xFFFFF7E8);
+    final borderColor = isDark ? const Color(0xFF4A3A1E) : const Color(0xFFF0D7A6);
+    final amberTitle = isDark ? const Color(0xFFFFB74D) : const Color(0xFF9A6500);
+    final textMainColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Center(
@@ -1959,19 +2007,19 @@ class _PromiseInProgressBanner extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0xFFFFF7E8),
+            color: bgColor,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFF0D7A6)),
+            border: Border.all(color: borderColor),
           ),
           child: Column(
             children: [
-              const Text(
+              Text(
                 '약속 진행중',
                 style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
-                  color: Color(0xFF9A6500),
+                  color: amberTitle,
                 ),
               ),
               const SizedBox(height: 8),
@@ -1983,21 +2031,21 @@ class _PromiseInProgressBanner extends StatelessWidget {
                   formatDt: _formatTime,
                 ),
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 14,
-                  color: _AppColors.textMain,
+                  color: textMainColor,
                 ),
               ),
               const SizedBox(height: 10),
-              const Text(
+              Text(
                 '약속을 진행중입니다',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF9A6500),
+                  color: amberTitle,
                 ),
               ),
             ],
@@ -2788,6 +2836,15 @@ class _InputBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final gradientBase = isDark ? AppColorsDark.background : _AppColors.backgroundLight;
+    final inputBg = isDark ? AppColorsDark.surface : CupertinoColors.white;
+    final inputBorder = isDark ? AppColorsDark.border : _AppColors.stone100;
+    final iconColor = isDark ? AppColorsDark.textHint : _AppColors.stone400;
+    final placeholderColor = isDark ? AppColorsDark.textHint : _AppColors.stone400;
+    final textColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final sendBg = isDark ? AppColorsDark.primary : _AppColors.sendButton;
+
     return Container(
       padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPadding + 32),
       decoration: BoxDecoration(
@@ -2795,18 +2852,18 @@ class _InputBar extends StatelessWidget {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            _AppColors.backgroundLight.withValues(alpha: 0),
-            _AppColors.backgroundLight.withValues(alpha: 0.9),
-            _AppColors.backgroundLight,
+            gradientBase.withValues(alpha: 0),
+            gradientBase.withValues(alpha: 0.9),
+            gradientBase,
           ],
         ),
       ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
         decoration: BoxDecoration(
-          color: CupertinoColors.white,
+          color: inputBg,
           borderRadius: BorderRadius.circular(32),
-          border: Border.all(color: _AppColors.stone100),
+          border: Border.all(color: inputBorder),
         ),
         child: Row(
           children: [
@@ -2815,10 +2872,10 @@ class _InputBar extends StatelessWidget {
               onPressed: () {},
               child: Transform.rotate(
                 angle: 0.785,
-                child: const Icon(
+                child: Icon(
                   CupertinoIcons.paperclip,
                   size: 24,
-                  color: _AppColors.stone400,
+                  color: iconColor,
                 ),
               ),
             ),
@@ -2826,15 +2883,15 @@ class _InputBar extends StatelessWidget {
               child: CupertinoTextField(
                 controller: controller,
                 placeholder: 'Write a message...',
-                placeholderStyle: const TextStyle(
+                placeholderStyle: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 15,
-                  color: _AppColors.stone400,
+                  color: placeholderColor,
                 ),
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 15,
-                  color: _AppColors.textMain,
+                  color: textColor,
                 ),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 8,
@@ -2853,8 +2910,8 @@ class _InputBar extends StatelessWidget {
               child: Container(
                 width: 40,
                 height: 40,
-                decoration: const BoxDecoration(
-                  color: _AppColors.sendButton,
+                decoration: BoxDecoration(
+                  color: sendBg,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(

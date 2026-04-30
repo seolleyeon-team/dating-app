@@ -8,6 +8,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors, Icons;
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/event_team_route_args.dart';
 import '../../../router/route_names.dart';
@@ -17,6 +18,7 @@ import '../../../services/team_meeting_request_service.dart';
 import '../../../services/kakao_friend_invite_helper.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+
 class _AppColors {
   static const Color primary = Color(0xFFF0426E);
   static const Color backgroundLight = Color(0xFFF8F6F6);
@@ -46,8 +48,10 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
   bool _sessionOk = false;
   String? _teamSetupId;
   bool _bootError = false;
+
   /// 첫 프레임에서 uid=null로 오인하지 않도록, 부트스트랩 완료 후에만 본문 분기
   bool _bootstrapComplete = false;
+
   /// Cloud Function 등에서 온 실제 사유 (Wi-Fi와 무관한 경우가 많음)
   String? _bootstrapErrorDetail;
   String _kakaoShareName = '친구';
@@ -80,18 +84,22 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
     await _loadShareName(uid);
     try {
       final saved = await _storage.getEventTeamSetupDraftId(uid);
+      final existingTeam = await _eventTeam.resolveCurrentTeamSetupForUser(
+        uid,
+        preferredTeamSetupId: saved,
+      );
+      if (existingTeam != null) {
+        await _storage.saveEventTeamSetupDraftId(uid, existingTeam.teamSetupId);
+        if (!mounted) return;
+        setState(() {
+          _teamSetupId = existingTeam.teamSetupId;
+          _bootError = false;
+          _bootstrapErrorDetail = null;
+          _bootstrapComplete = true;
+        });
+        return;
+      }
       if (saved != null && saved.isNotEmpty) {
-        final savedTeam = await _eventTeam.getTeamSetupOnce(saved);
-        if (savedTeam != null && savedTeam.containsUser(uid)) {
-          if (!mounted) return;
-          setState(() {
-            _teamSetupId = saved;
-            _bootError = false;
-            _bootstrapErrorDetail = null;
-            _bootstrapComplete = true;
-          });
-          return;
-        }
         await _storage.clearEventTeamSetupDraftId(uid);
       }
 
@@ -137,9 +145,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
         return _firebaseFunctionsCodeHint('not-found');
       }
       final msg = e.message?.trim();
-      if (msg != null &&
-          msg.isNotEmpty &&
-          msg.toUpperCase() != 'NOT_FOUND') {
+      if (msg != null && msg.isNotEmpty && msg.toUpperCase() != 'NOT_FOUND') {
         return msg;
       }
       return _firebaseFunctionsCodeHint(e.code);
@@ -183,12 +189,14 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
     final user = await _userService.getUserProfile(uid);
     if (!mounted || user == null) return;
     final raw = user['onboarding'];
-    final ob = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+    final ob = raw is Map
+        ? Map<String, dynamic>.from(raw)
+        : <String, dynamic>{};
     final n = ob['nickname']?.toString().trim().isNotEmpty == true
         ? ob['nickname'].toString()
         : (user['nickname']?.toString().trim().isNotEmpty == true
-            ? user['nickname'].toString()
-            : '친구');
+              ? user['nickname'].toString()
+              : '친구');
     setState(() => _kakaoShareName = n);
   }
 
@@ -230,9 +238,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
       );
     } catch (e) {
       if (mounted) {
-        _briefAlert(
-          e.toString().replaceFirst('Exception: ', ''),
-        );
+        _briefAlert(e.toString().replaceFirst('Exception: ', ''));
       }
     }
   }
@@ -393,9 +399,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
                         const SizedBox(height: 32),
                         const _HelperText(),
                         const SizedBox(height: 32),
-                        _InviteButtons(
-                          onKakao: _kakaoInvite,
-                        ),
+                        _InviteButtons(onKakao: _kakaoInvite),
                         const SizedBox(height: 100),
                       ],
                     ),
@@ -408,7 +412,8 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
             left: 0,
             right: 0,
             bottom: 0,
-            child: _bootstrapComplete &&
+            child:
+                _bootstrapComplete &&
                     _teamSetupId != null &&
                     uid != null &&
                     uid.isNotEmpty
@@ -453,9 +458,7 @@ class _TeamBody extends StatelessWidget {
     );
   }
 
-  Future<_TeamProfilesData> _loadProfiles(
-    EventTeamSetupState state,
-  ) async {
+  Future<_TeamProfilesData> _loadProfiles(EventTeamSetupState state) async {
     final acceptedProfiles = await eventTeam.buildMemberProfiles(
       state: state,
       currentUserId: currentUserId,
@@ -509,8 +512,7 @@ class _TeamBody extends StatelessWidget {
                             ? _MemberSlotCard(
                                 profile: acceptedProfiles[i],
                                 isMe:
-                                    acceptedProfiles[i].userId ==
-                                    currentUserId,
+                                    acceptedProfiles[i].userId == currentUserId,
                               )
                             : _EmptyInviteSlot(
                                 onTap: canInviteMore ? onInviteSlotTap : null,
@@ -544,9 +546,7 @@ class _PendingInviteSection extends StatelessWidget {
       decoration: BoxDecoration(
         color: _AppColors.surfaceLight,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: _AppColors.primary.withValues(alpha: 0.12),
-        ),
+        border: Border.all(color: _AppColors.primary.withValues(alpha: 0.12)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.04),
@@ -622,10 +622,7 @@ class _MemberSlotCard extends StatelessWidget {
   final EventTeamMemberProfile profile;
   final bool isMe;
 
-  const _MemberSlotCard({
-    required this.profile,
-    required this.isMe,
-  });
+  const _MemberSlotCard({required this.profile, required this.isMe});
 
   @override
   Widget build(BuildContext context) {
@@ -660,8 +657,7 @@ class _MemberSlotCard extends StatelessWidget {
                               width: 64,
                               height: 64,
                               fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) =>
-                                  _fallbackAvatar(),
+                              errorBuilder: (_, __, ___) => _fallbackAvatar(),
                             )
                           : _fallbackAvatar(),
                     ),
@@ -832,10 +828,7 @@ class _BottomSlotMachineCTA extends StatelessWidget {
       builder: (context, snap) {
         final state = snap.data;
         final ready = state?.canStartSlotMachine ?? false;
-        return _BottomCTA(
-          isDisabled: !ready,
-          teamSetupId: teamSetupId,
-        );
+        return _BottomCTA(isDisabled: !ready, teamSetupId: teamSetupId);
       },
     );
   }
@@ -955,10 +948,7 @@ class _PendingBadge extends StatelessWidget {
             decoration: BoxDecoration(
               color: _AppColors.primary,
               shape: BoxShape.circle,
-              border: Border.all(
-                color: _AppColors.backgroundLight,
-                width: 2,
-              ),
+              border: Border.all(color: _AppColors.backgroundLight, width: 2),
             ),
             alignment: Alignment.center,
             child: Text(
@@ -1088,7 +1078,14 @@ class _InviteButtons extends StatelessWidget {
         Expanded(
           child: CupertinoButton(
             padding: EdgeInsets.zero,
-            onPressed: () {},
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              SharePlus.instance.share(
+                ShareParams(
+                  text: '설레연에서 함께 3:3 미팅해요! 🎉',
+                ),
+              );
+            },
             child: Container(
               height: 48,
               decoration: BoxDecoration(
@@ -1106,13 +1103,13 @@ class _InviteButtons extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
-                    CupertinoIcons.link,
+                    CupertinoIcons.square_arrow_up,
                     color: _AppColors.gray400,
                     size: 20,
                   ),
                   SizedBox(width: 8),
                   Text(
-                    '링크 복사',
+                    '공유하기',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
@@ -1133,10 +1130,7 @@ class _BottomCTA extends StatelessWidget {
   final bool isDisabled;
   final String? teamSetupId;
 
-  const _BottomCTA({
-    this.isDisabled = false,
-    this.teamSetupId,
-  });
+  const _BottomCTA({this.isDisabled = false, this.teamSetupId});
 
   void _onPressed(BuildContext context) {
     if (!isDisabled) {
