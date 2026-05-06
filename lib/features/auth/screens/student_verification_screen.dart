@@ -59,11 +59,14 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     if (!mounted) return;
     await showCupertinoDialog<void>(
       context: context,
-      builder: (_) => CupertinoAlertDialog(
+      builder: (dialogContext) => CupertinoAlertDialog(
         title: Text(title),
         content: Text(message),
-        actions: const [
-          CupertinoDialogAction(child: Text('확인')),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('확인'),
+          ),
         ],
       ),
     );
@@ -83,7 +86,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
 
     const detailMessage =
         '학생 인증은 확인됐지만 현재 브라우저의 로그인 세션을 복구하지 못했어요.\n\n'
-        '가장 최근에 받은 인증 메일 링크를 이 브라우저에서 다시 열어주세요.';
+        '학생 인증 자체는 완료되었으니, 앱으로 돌아가 다시 진행해 주세요.';
 
     setState(() {
       _statusMessage =
@@ -211,11 +214,11 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     try {
       final isVerified = await _authService.isStudentVerified(kakaoUserId);
       if (isVerified && mounted) {
-        final hasFirebaseSession = await _ensureFirebaseSessionAfterVerification(
+        await _ensureFirebaseSessionAfterVerification(
           kakaoUserId,
           showDialogOnFailure: false,
         );
-        if (!hasFirebaseSession || !mounted) return;
+        if (!mounted) return;
         final handledInvite = await _handlePendingInviteAfterVerification();
         if (handledInvite || !mounted) return;
         Navigator.of(context).pushReplacementNamed(RouteNames.onboardingBasicInfo);
@@ -273,10 +276,11 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         studentEmail: email,
       );
       await _storageService.saveKakaoUserId(kakaoUserId);
-      final hasFirebaseSession = await _ensureFirebaseSessionAfterVerification(
+      await _ensureFirebaseSessionAfterVerification(
         kakaoUserId,
+        showDialogOnFailure: false,
       );
-      if (!hasFirebaseSession || !mounted) return;
+      if (!mounted) return;
 
       if (!mounted) return;
       setState(() => _statusMessage = '학생 인증 완료!');
@@ -351,7 +355,10 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       await _storageService.setStudentVerified(kakaoUserId, false);
 
       if (!mounted) return;
-      setState(() => _statusMessage = '연세 메일로 인증 링크를 보냈습니다');
+      setState(
+        () => _statusMessage =
+            '연세 메일로 인증 링크를 보냈습니다. 받은편지함과 스팸함을 모두 확인해주세요.',
+      );
     } catch (e, stack) {
       debugPrint('❌ 이메일 인증 링크 전송 실패');
       debugPrint(e.toString());
@@ -406,9 +413,11 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         // 로컬에도 verified 기록 (다음 실행에서 UX 개선)
         await _storageService.saveKakaoUserId(kakaoUserId);
         await _storageService.setStudentVerified(kakaoUserId, true);
-        final hasFirebaseSession =
-            await _ensureFirebaseSessionAfterVerification(kakaoUserId);
-        if (!hasFirebaseSession || !mounted) return;
+        await _ensureFirebaseSessionAfterVerification(
+          kakaoUserId,
+          showDialogOnFailure: false,
+        );
+        if (!mounted) return;
 
         if (!mounted) return;
         setState(() => _statusMessage = '학생 인증이 확인되었습니다!');
@@ -464,7 +473,9 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    '@yonsei.ac.kr 메일로 인증 링크를 보내드릴게요.\n메일에서 인증을 완료한 뒤, 아래에서 확인을 눌러주세요.',
+                    '@yonsei.ac.kr 메일로 인증 링크를 보내드릴게요.\n'
+                    '메일에서 인증을 완료한 뒤, 아래에서 확인을 눌러주세요.\n'
+                    '받은편지함에 메일이 없으면 스팸함도 함께 확인해주세요.',
                     style: TextStyle(
                       fontFamily: 'Pretendard',
                       fontSize: 15,

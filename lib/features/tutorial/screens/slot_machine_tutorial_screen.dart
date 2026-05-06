@@ -1,49 +1,16 @@
-// =============================================================================
-// 슬롯머신 튜토리얼 화면 (3인 매칭 릴 애니메이션)
-// 경로: lib/features/tutorial/screens/slot_machine_tutorial_screen.dart
-//
-// 사용 예시:
-// Navigator.push(
-//   context,
-//   CupertinoPageRoute(builder: (_) => const SlotMachineTutorialScreen()),
-// );
-// =============================================================================
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+
 import '../../../router/route_names.dart';
 
-// =============================================================================
-// 색상 상수
-// =============================================================================
-class _AppColors {
-  static const Color primary = Color(0xFFFF4D7D);
-  static const Color backgroundLight = Color(0xFFFFF5F8);
-  static const Color surfaceLight = Color(0xFFFFFFFF);
-  static const Color slotFrameLight = Color(0xFFF5E6EA);
-  static const Color textMain = Color(0xFF1F2937);
-  static const Color textSecondary = Color(0xFF6B7280);
-  static const Color gray200 = Color(0xFFE5E7EB);
-  static const Color gray300 = Color(0xFFD1D5DB);
-  static const Color gray600 = Color(0xFF4B5563);
-  static const Color purple300 = Color(0xFFC4B5FD);
-}
-
-// =============================================================================
-// 메인 화면
-// =============================================================================
 class SlotMachineTutorialScreen extends StatefulWidget {
   final VoidCallback? onStart;
   final VoidCallback? onSkip;
-  final int currentStep;
-  final int totalSteps;
 
   const SlotMachineTutorialScreen({
     super.key,
     this.onStart,
     this.onSkip,
-    this.currentStep = 3,
-    this.totalSteps = 3,
   });
 
   @override
@@ -52,153 +19,159 @@ class SlotMachineTutorialScreen extends StatefulWidget {
 }
 
 class _SlotMachineTutorialScreenState extends State<SlotMachineTutorialScreen>
-    with TickerProviderStateMixin {
-  late AnimationController _pulseController;
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
-      duration: const Duration(seconds: 2),
+    _controller = AnimationController(
       vsync: this,
-    )..repeat(reverse: true);
+      duration: const Duration(milliseconds: 700),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _controller.forward();
+    });
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
+    _controller.dispose();
     super.dispose();
   }
 
-  void _onStart() {
+  void _goNext() {
     HapticFeedback.mediumImpact();
     if (widget.onStart != null) {
       widget.onStart!();
-    } else {
-      Navigator.of(context).pushNamed(RouteNames.promiseAgreementTutorial);
+      return;
     }
-  }
-
-  void _onSkip() {
-    HapticFeedback.lightImpact();
-    if (widget.onSkip != null) {
-      widget.onSkip!();
-    } else {
-      Navigator.of(
-        context,
-      ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
-    }
+    Navigator.of(context).pushNamed(RouteNames.bambooForestWriteTutorial);
   }
 
   @override
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final fade = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    );
 
     return CupertinoPageScaffold(
-      backgroundColor: _AppColors.backgroundLight,
+      backgroundColor: const Color(0xFFFFF6F9),
       child: Stack(
         children: [
-          // 배경 블러 원
           Positioned(
-            top: -80,
-            left: -100,
-            child: AnimatedBuilder(
-              animation: _pulseController,
-              builder: (_, child) {
-                return Opacity(
-                  opacity: 0.4 + (0.2 * _pulseController.value),
-                  child: child,
-                );
-              },
-              child: Container(
-                width: 400,
-                height: 400,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _AppColors.primary.withValues(alpha: 0.2),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: -80,
-            right: -60,
+            top: -110,
+            left: -90,
             child: Container(
-              width: 320,
-              height: 320,
+              width: 260,
+              height: 260,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: _AppColors.purple300.withValues(alpha: 0.2),
+                color: const Color(0xFFFF4D82).withValues(alpha: 0.08),
               ),
             ),
           ),
-          // 메인 콘텐츠
+          Positioned(
+            bottom: -120,
+            right: -90,
+            child: Container(
+              width: 240,
+              height: 240,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFFC4B5FD).withValues(alpha: 0.14),
+              ),
+            ),
+          ),
           SafeArea(
             child: Padding(
-              padding: EdgeInsets.fromLTRB(24, 0, 24, bottomPadding + 16),
+              padding: EdgeInsets.fromLTRB(24, 24, 24, bottomPadding + 24),
               child: Column(
                 children: [
-                  // 헤더
-                  _Header(onSkip: _onSkip),
-                  // 콘텐츠
-                  Expanded(
+                  const Spacer(),
+                  FadeTransition(
+                    opacity: fade,
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        // 슬롯머신
                         const _SlotMachine(),
-                        const SizedBox(height: 40),
-                        // 타이틀
-                        const _TitleSection(),
+                        const SizedBox(height: 38),
+                        const Text(
+                          '3:3 랜덤 미팅\n원하는 상대가 나올 때까지\n룰렛을 돌리세요',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Pretendard',
+                            fontSize: 28,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF1F2937),
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        const Text(
+                          '이벤트 탭에서 팀을 만들고,\n룰렛처럼 새로운 상대를 만나볼 수 있어요.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Pretendard',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF6B7280),
+                            height: 1.6,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        const _TutorialNavBar(
+                          selectedIndex: 2,
+                          selectedLabel: '이벤트 탭',
+                        ),
                       ],
                     ),
                   ),
-                  // 하단 버튼
-                  Column(
-                    children: [
-                      // 시작 버튼
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: _onStart,
-                        child: Container(
-                          width: double.infinity,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            color: _AppColors.primary,
-                            borderRadius: BorderRadius.circular(18),
-                            boxShadow: [
-                              BoxShadow(
-                                color: _AppColors.primary.withValues(
-                                  alpha: 0.15,
-                                ),
-                                blurRadius: 20,
-                                offset: const Offset(0, 10),
+                  const Spacer(),
+                  FadeTransition(
+                    opacity: fade,
+                    child: CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: _goNext,
+                      child: Container(
+                        width: double.infinity,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF24D82),
+                          borderRadius: BorderRadius.circular(18),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFFF24D82).withValues(
+                                alpha: 0.22,
                               ),
-                            ],
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                '시작하기',
-                                style: TextStyle(
-                                  fontFamily: 'Pretendard',
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  color: CupertinoColors.white,
-                                ),
-                              ),
-                              SizedBox(width: 8),
-                              Icon(
-                                CupertinoIcons.arrow_right,
-                                size: 20,
+                              blurRadius: 18,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              '다음',
+                              style: TextStyle(
+                                fontFamily: 'Pretendard',
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
                                 color: CupertinoColors.white,
                               ),
-                            ],
-                          ),
+                            ),
+                            SizedBox(width: 8),
+                            Icon(
+                              CupertinoIcons.arrow_right,
+                              size: 18,
+                              color: CupertinoColors.white,
+                            ),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ],
               ),
@@ -210,108 +183,27 @@ class _SlotMachineTutorialScreenState extends State<SlotMachineTutorialScreen>
   }
 }
 
-// =============================================================================
-// 헤더
-// =============================================================================
-class _Header extends StatelessWidget {
-  final VoidCallback onSkip;
-
-  const _Header({required this.onSkip});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // 로고
-          const Row(
-            children: [
-              Icon(
-                CupertinoIcons.heart_fill,
-                color: _AppColors.primary,
-                size: 28,
-              ),
-              SizedBox(width: 8),
-              Text(
-                '설레연',
-                style: TextStyle(
-                  fontFamily: 'Pretendard',
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: _AppColors.textMain,
-                ),
-              ),
-            ],
-          ),
-          // Skip 버튼
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            onPressed: onSkip,
-            child: const Text(
-              'Skip',
-              style: TextStyle(
-                fontFamily: 'Pretendard',
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: _AppColors.textSecondary,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// 슬롯머신
-// =============================================================================
 class _SlotMachine extends StatelessWidget {
   const _SlotMachine();
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(22, 22, 22, 34),
       decoration: BoxDecoration(
-        color: _AppColors.surfaceLight,
+        color: CupertinoColors.white,
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: CupertinoColors.white.withValues(alpha: 0.5)),
-        boxShadow: [
+        boxShadow: const [
           BoxShadow(
-            color: CupertinoColors.black.withValues(alpha: 0.1),
-            blurRadius: 25,
-            offset: const Offset(0, 20),
-          ),
-          BoxShadow(
-            color: CupertinoColors.black.withValues(alpha: 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 10),
+            color: Color(0x14000000),
+            blurRadius: 24,
+            offset: Offset(0, 14),
           ),
         ],
       ),
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // 그라데이션 오버레이
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    CupertinoColors.white.withValues(alpha: 0.4),
-                    CupertinoColors.white.withValues(alpha: 0),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          // 릴 3개
           Row(
             children: List.generate(3, (index) {
               return Expanded(
@@ -325,7 +217,6 @@ class _SlotMachine extends StatelessWidget {
               );
             }),
           ),
-          // 레버 (오른쪽)
           Positioned(
             right: -12,
             top: 0,
@@ -338,24 +229,16 @@ class _SlotMachine extends StatelessWidget {
                   gradient: const LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [_AppColors.gray200, _AppColors.gray300],
+                    colors: [Color(0xFFE5E7EB), Color(0xFFD1D5DB)],
                   ),
                   borderRadius: const BorderRadius.only(
                     topRight: Radius.circular(8),
                     bottomRight: Radius.circular(8),
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: CupertinoColors.black.withValues(alpha: 0.1),
-                      blurRadius: 4,
-                      offset: const Offset(2, 2),
-                    ),
-                  ],
                 ),
               ),
             ),
           ),
-          // Matching 배지
           Positioned(
             left: 0,
             right: 0,
@@ -367,11 +250,9 @@ class _SlotMachine extends StatelessWidget {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: _AppColors.primary.withValues(alpha: 0.1),
+                  color: const Color(0xFFFFEEF4),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: _AppColors.primary.withValues(alpha: 0.2),
-                  ),
+                  border: Border.all(color: const Color(0xFFFFD3E1)),
                 ),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
@@ -379,7 +260,7 @@ class _SlotMachine extends StatelessWidget {
                     Icon(
                       CupertinoIcons.sparkles,
                       size: 14,
-                      color: _AppColors.primary,
+                      color: Color(0xFFF24D82),
                     ),
                     SizedBox(width: 6),
                     Text(
@@ -387,8 +268,8 @@ class _SlotMachine extends StatelessWidget {
                       style: TextStyle(
                         fontFamily: 'Pretendard',
                         fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: _AppColors.primary,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFF24D82),
                       ),
                     ),
                   ],
@@ -402,9 +283,6 @@ class _SlotMachine extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// 슬롯 릴
-// =============================================================================
 class _SlotReel extends StatelessWidget {
   final int reelIndex;
 
@@ -413,15 +291,15 @@ class _SlotReel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 256,
+      height: 240,
       decoration: BoxDecoration(
-        color: _AppColors.slotFrameLight,
+        color: const Color(0xFFF7EAEF),
         borderRadius: BorderRadius.circular(18),
-        boxShadow: [
+        boxShadow: const [
           BoxShadow(
-            color: CupertinoColors.black.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: Color(0x0A000000),
+            blurRadius: 10,
+            offset: Offset(0, 4),
           ),
         ],
       ),
@@ -440,16 +318,13 @@ class _SlotReel extends StatelessWidget {
           ).createShader(bounds);
         },
         blendMode: BlendMode.dstIn,
-        child: Column(
+        child: const Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // 상단 블러 아이템
             _ReelItem(isActive: false, size: 64),
-            const SizedBox(height: 16),
-            // 중앙 활성 아이템
+            SizedBox(height: 16),
             _ReelItem(isActive: true, size: 80),
-            const SizedBox(height: 16),
-            // 하단 블러 아이템
+            SizedBox(height: 16),
             _ReelItem(isActive: false, size: 64),
           ],
         ),
@@ -458,9 +333,6 @@ class _SlotReel extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// 릴 아이템
-// =============================================================================
 class _ReelItem extends StatelessWidget {
   final bool isActive;
   final double size;
@@ -469,29 +341,19 @@ class _ReelItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 400),
-      curve: Curves.easeOut,
+    return Container(
       width: size,
       height: size,
-      transform: Matrix4.diagonal3Values(
-        isActive ? 1.05 : 1.0,
-        isActive ? 1.05 : 1.0,
-        1.0,
-      ),
-      transformAlignment: Alignment.center,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: isActive
-            ? _AppColors.primary.withValues(alpha: 0.1)
-            : _AppColors.gray300,
+        color: isActive ? const Color(0x1AF24D82) : const Color(0xFFD1D5DB),
         border: isActive
-            ? Border.all(color: _AppColors.primary, width: 2)
+            ? Border.all(color: const Color(0xFFF24D82), width: 2)
             : null,
         boxShadow: isActive
             ? [
                 BoxShadow(
-                  color: _AppColors.primary.withValues(alpha: 0.25),
+                  color: const Color(0xFFF24D82).withValues(alpha: 0.2),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),
@@ -499,88 +361,119 @@ class _ReelItem extends StatelessWidget {
             : null,
       ),
       child: ClipOval(
-        child: isActive
-            ? Container(
-                padding: const EdgeInsets.all(2),
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _AppColors.surfaceLight,
-                  ),
-                  child: const Center(
-                    child: Icon(
-                      CupertinoIcons.person_fill,
-                      size: 32,
-                      color: _AppColors.textSecondary,
-                    ),
-                  ),
-                ),
-              )
-            : Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _AppColors.gray300.withValues(alpha: 0.7),
-                ),
-                child: const Center(
-                  child: Icon(
-                    CupertinoIcons.person_fill,
-                    size: 24,
-                    color: _AppColors.gray600,
-                  ),
-                ),
+        child: Container(
+          padding: isActive ? const EdgeInsets.all(3) : EdgeInsets.zero,
+          child: Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isActive ? CupertinoColors.white : const Color(0xFFE5E7EB),
+            ),
+            child: Center(
+              child: Icon(
+                CupertinoIcons.person_fill,
+                size: isActive ? 32 : 24,
+                color: isActive
+                    ? const Color(0xFF6B7280)
+                    : const Color(0xFF9CA3AF),
               ),
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-// =============================================================================
-// 타이틀 섹션
-// =============================================================================
-class _TitleSection extends StatelessWidget {
-  const _TitleSection();
+class _TutorialNavBar extends StatelessWidget {
+  final int selectedIndex;
+  final String selectedLabel;
+
+  const _TutorialNavBar({
+    required this.selectedIndex,
+    required this.selectedLabel,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        children: [
-          RichText(
-            textAlign: TextAlign.center,
-            text: const TextSpan(
-              style: TextStyle(
-                fontFamily: 'Pretendard',
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                height: 1.3,
+    const labels = ['홈', '채팅', '이벤트', '대나무숲', '내 정보'];
+    const icons = [
+      CupertinoIcons.heart_fill,
+      CupertinoIcons.chat_bubble_2_fill,
+      CupertinoIcons.calendar,
+      CupertinoIcons.leaf_arrow_circlepath,
+      CupertinoIcons.person_fill,
+    ];
+
+    return Column(
+      children: [
+        Text(
+          selectedLabel,
+          style: const TextStyle(
+            fontFamily: 'Pretendard',
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFFF24D82),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          decoration: BoxDecoration(
+            color: CupertinoColors.white,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x12000000),
+                blurRadius: 18,
+                offset: Offset(0, 10),
               ),
-              children: [
-                TextSpan(
-                  text: '두근거림은 랜덤에서 오지만,\n',
-                  style: TextStyle(color: _AppColors.textMain),
-                ),
-                TextSpan(
-                  text: '경험은 안전해요',
-                  style: TextStyle(color: _AppColors.primary),
-                ),
-              ],
-            ),
+            ],
           ),
-          const SizedBox(height: 16),
-          const Text(
-            '게임 같은 재미와 프리미엄한 신뢰를 동시에.\n검증된 회원들과 설레는 매칭을 시작해보세요.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: 'Pretendard',
-              fontSize: 14,
-              height: 1.6,
-              fontWeight: FontWeight.w300,
-              color: _AppColors.textSecondary,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(labels.length, (index) {
+              final selected = index == selectedIndex;
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? const Color(0xFFFFEEF4)
+                            : const Color(0xFFF4F4F5),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        icons[index],
+                        size: 18,
+                        color: selected
+                            ? const Color(0xFFF24D82)
+                            : const Color(0xFF9CA3AF),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      labels[index],
+                      style: TextStyle(
+                        fontFamily: 'Pretendard',
+                        fontSize: 11,
+                        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                        color: selected
+                            ? const Color(0xFFF24D82)
+                            : const Color(0xFF8F8A92),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

@@ -86,7 +86,7 @@ void main() {
                 : const AndroidPlayIntegrityProvider(),
             providerApple: useDebugAppCheck
                 ? const AppleDebugProvider()
-                : const AppleAppAttestProvider(),
+                : const AppleDeviceCheckProvider(),
           );
           await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
           debugPrint(
