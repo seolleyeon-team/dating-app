@@ -1,5 +1,5 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -112,6 +112,15 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       final Reference ref = FirebaseStorage.instance.ref().child(
         'users/$kakaoUserId/onboarding/photos/$fileName',
       );
+
+      if (FirebaseAuth.instance.currentUser == null) {
+        try {
+          await FirebaseAuth.instance.signInAnonymously();
+        } catch (_) {
+          // Storage 규칙/백엔드 상태에 따라 비인증 업로드가 허용될 수 있으므로
+          // 익명 로그인 실패만으로 업로드를 중단하지는 않는다.
+        }
+      }
 
       final SettableMetadata metadata = SettableMetadata(
         contentType: 'image/$extension',

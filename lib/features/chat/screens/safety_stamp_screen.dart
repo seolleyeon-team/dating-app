@@ -72,11 +72,11 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
     )..repeat(reverse: true);
     _myStampController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 860),
+      duration: const Duration(milliseconds: 2400),
     );
     _partnerStampController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 700),
+      duration: const Duration(milliseconds: 2400),
     );
     _successController = AnimationController(
       vsync: this,
@@ -352,7 +352,6 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
     final visualPhase = _holdMeetupSuccessView
         ? SafetyStampPhase.meetup
         : _phase;
-    final isMatched = _isMyStamped && _isPartnerStamped;
     final isCompleted = _phase == SafetyStampPhase.completed;
     final title = visualPhase == SafetyStampPhase.goodbye ? '헤어짐 확인' : '안심 확인';
     final buttonLabel = isCompleted
@@ -363,15 +362,16 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
     final screenWidth = MediaQuery.sizeOf(context).width;
 
     return CupertinoPageScaffold(
-      backgroundColor: const Color(0xFFFFFCFD),
+      backgroundColor: const Color(0xFFF8F8F8),
       navigationBar: CupertinoNavigationBar(
-        border: Border(),
+        backgroundColor: const Color(0xFFF8F8F8),
+        border: const Border(),
         middle: Text(
           title,
-          style: TextStyle(
+          style: const TextStyle(
             fontFamily: 'Pretendard',
             fontWeight: FontWeight.w700,
-            color: Color(0xFF23201E),
+            color: Color(0xFF222222),
           ),
         ),
       ),
@@ -388,136 +388,148 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
               _successController.value,
             );
 
+            final cardWidth = screenWidth - 32;
+            const slotCardHeight = 186.0;
+
+            // 애니메이션 중에는 상태카드/버튼 fade out + 클릭 차단
+            final myAnim = _myStampController.value;
+            final partnerAnim = _partnerStampController.value;
+            final isAnyAnimating =
+                (myAnim > 0 && myAnim < 1) || (partnerAnim > 0 && partnerAnim < 1);
+            final controlsOpacity = isAnyAnimating ? 0.0 : 1.0;
+            final trimmedPartnerName = widget.partnerName.trim();
+            final partnerSlotLabel = trimmedPartnerName.isEmpty
+                ? '상대방 칸'
+                : trimmedPartnerName.endsWith('님')
+                    ? '$trimmedPartnerName 칸'
+                    : '$trimmedPartnerName님 칸';
+
             return Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
               child: Column(
                 children: [
                   Expanded(
                     child: Stack(
                       clipBehavior: Clip.none,
+                      alignment: Alignment.center,
                       children: [
-                        Positioned(
-                          top: _lerp(-120, 0, successCurve),
-                          left: 8,
-                          right: 8,
-                          child: Opacity(
-                            opacity: _successController.value,
-                            child: Transform.translate(
-                              offset: Offset(
-                                0,
-                                _lerp(-24, 0, _successController.value),
+                        Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _StickerSlotCard(
+                                label: partnerSlotLabel,
+                                cardWidth: cardWidth,
+                                cardHeight: slotCardHeight,
+                                stickerSize: 210,
+                                isStamped: _isPartnerStamped,
+                                showSettledStamp: _showHydratedPartnerStamp,
+                                stampProgress: partnerAnim,
+                                settledRotationDeg: 5.0,
+                                emphasis: false,
                               ),
+                              const SizedBox(height: 14),
+                              _StickerSlotCard(
+                                label: '내 칸',
+                                cardWidth: cardWidth,
+                                cardHeight: slotCardHeight,
+                                stickerSize: 260,
+                                isStamped: _isMyStamped,
+                                showSettledStamp: _showHydratedMyStamp,
+                                stampProgress: myAnim,
+                                settledRotationDeg: -3.0,
+                                emphasis: true,
+                                helperText: _isMyStamped
+                                    ? null
+                                    : visualPhase == SafetyStampPhase.goodbye
+                                        ? '헤어질 때 벚꽃 스티커를 남겨요'
+                                        : '만남 후 벚꽃 스티커를 남겨요',
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (_successController.value > 0)
+                          Positioned(
+                            top: _lerp(-80, 8, successCurve),
+                            left: 0,
+                            right: 0,
+                            child: Opacity(
+                              opacity: _clampUnit(_successController.value),
                               child: _SuccessBanner(phase: visualPhase),
                             ),
                           ),
-                        ),
-                        Positioned(
-                          top: _lerp(
-                            70 + _floatingOffset(phase: 0.25),
-                            150,
-                            successCurve,
-                          ),
-                          left: _lerp(
-                            (screenWidth - 96) / 2 - 24,
-                            78,
-                            successCurve,
-                          ),
-                          child: _SeatCircle(
-                            label: '상대방 자리',
-                            size: _lerp(118, 92, successCurve),
-                            isStamped: _isPartnerStamped,
-                            showSettledStamp: _showHydratedPartnerStamp,
-                            stampProgress: _partnerStampController.value,
-                            textOpacity: isMatched ? 0.24 : 0.58,
-                          ),
-                        ),
-                        Positioned(
-                          top: _lerp(
-                            248 + _floatingOffset(phase: 1.2),
-                            150,
-                            successCurve,
-                          ),
-                          left: _lerp(
-                            (screenWidth - 196) / 2 - 24,
-                            screenWidth - 194,
-                            successCurve,
-                          ),
-                          child: _SeatCircle(
-                            label: '내 자리',
-                            size: _lerp(188, 92, successCurve),
-                            isStamped: _isMyStamped,
-                            showSettledStamp: _showHydratedMyStamp,
-                            stampProgress: _myStampController.value,
-                            textOpacity: _isMyStamped ? 0.24 : 0.72,
-                            helperText: _isMyStamped
-                                ? null
-                                : visualPhase == SafetyStampPhase.goodbye
-                                ? '헤어질 때\n도장을 남겨요'
-                                : '도장 버튼으로\n만남을 기록해요',
-                          ),
-                        ),
                       ],
                     ),
                   ),
-                  _StatusCard(
-                    phase: visualPhase,
-                    isMyStamped: _isMyStamped,
-                    isPartnerStamped: _isPartnerStamped,
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: material.ElevatedButton(
-                      onPressed:
-                          (_holdMeetupSuccessView ||
-                              isCompleted ||
-                              _isMyStamped ||
-                              _isSubmittingMyStamp)
-                          ? null
-                          : _handleStampPress,
-                      style: material.ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF23201E),
-                        foregroundColor: material.Colors.white,
-                        disabledBackgroundColor: const Color(
-                          0xFF23201E,
-                        ).withValues(alpha: 0.36),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                      ),
-                      child: Text(
-                        buttonLabel,
-                        style: const TextStyle(
-                          fontFamily: 'Pretendard',
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: material.ElevatedButton(
-                      onPressed: _goHome,
-                      style: material.ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFF07F9D),
-                        foregroundColor: material.Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      child: const Text(
-                        '홈으로 돌아가기',
-                        style: TextStyle(
-                          fontFamily: 'Pretendard',
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
+                  IgnorePointer(
+                    ignoring: isAnyAnimating,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 180),
+                      opacity: controlsOpacity,
+                      child: Column(
+                        children: [
+                          _StatusCard(
+                            phase: visualPhase,
+                            isMyStamped: _isMyStamped,
+                            isPartnerStamped: _isPartnerStamped,
+                          ),
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 56,
+                            child: material.ElevatedButton(
+                              onPressed: (_holdMeetupSuccessView ||
+                                      isCompleted ||
+                                      _isMyStamped ||
+                                      _isSubmittingMyStamp)
+                                  ? null
+                                  : _handleStampPress,
+                              style: material.ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF222222),
+                                foregroundColor: material.Colors.white,
+                                disabledBackgroundColor: const Color(
+                                  0xFF222222,
+                                ).withValues(alpha: 0.32),
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                              ),
+                              child: Text(
+                                buttonLabel,
+                                style: const TextStyle(
+                                  fontFamily: 'Pretendard',
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 56,
+                            child: material.ElevatedButton(
+                              onPressed: _goHome,
+                              style: material.ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFF07F9D),
+                                foregroundColor: material.Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: const Text(
+                                '홈으로 돌아가기',
+                                style: TextStyle(
+                                  fontFamily: 'Pretendard',
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -530,721 +542,298 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
     );
   }
 
-  double _floatingOffset({required double phase}) {
-    return math.sin((_floatController.value * math.pi * 2) + phase) * 7;
-  }
 }
 
-class _SeatCircle extends StatelessWidget {
+// ─────────────────────────────────────────────────────────────────────────────
+// 벚꽃 스티커 보드 — 종이 카드 위에 cherrysticker.png가 "착착착" 붙는 UI
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 스케치북 종이 카드 — 배경: sketchbook.png / 스티커는 외부 Stack에 올라가
+// clipBehavior: Clip.none 이므로 스티커가 카드 밖에 있어도 절대 잘리지 않음
+// ─────────────────────────────────────────────────────────────────────────────
+class _StickerSlotCard extends StatelessWidget {
   final String label;
-  final double size;
+  final double cardWidth;
+  final double cardHeight;
+  final double stickerSize;
   final bool isStamped;
   final bool showSettledStamp;
   final double stampProgress;
-  final double textOpacity;
+  final double settledRotationDeg;
+  final bool emphasis;
   final String? helperText;
 
-  const _SeatCircle({
+  const _StickerSlotCard({
     required this.label,
-    required this.size,
+    required this.cardWidth,
+    required this.cardHeight,
+    required this.stickerSize,
     required this.isStamped,
     required this.showSettledStamp,
     required this.stampProgress,
-    required this.textOpacity,
+    required this.settledRotationDeg,
+    required this.emphasis,
     this.helperText,
   });
 
   @override
   Widget build(BuildContext context) {
-    final visualStampProgress = showSettledStamp ? 1.0 : stampProgress;
-    final stampDrop = _stampDropOffset(visualStampProgress);
-    final stampScale = _stampScale(visualStampProgress);
-    final stampRotation = _stampRotation(visualStampProgress);
-    final stampOpacity = _stampOpacity(visualStampProgress);
-    final stampSquash = _stampSquash(visualStampProgress);
-    final bodyOffset = _stampBodyOffset(visualStampProgress);
-    final bodyDx = _stampBodyDx(visualStampProgress);
-    final bodyScale = _stampBodyScale(visualStampProgress);
-    final bodyRotation = _stampBodyRotation(visualStampProgress);
-    final bodyOpacity = _stampBodyOpacity(visualStampProgress);
-    final bodyTiltX = _stampBodyTiltX(visualStampProgress);
-    final bodyTiltY = _stampBodyTiltY(visualStampProgress);
-    final bodyShadowOpacity = _stampBodyShadowOpacity(visualStampProgress);
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
+    final forceSettled = showSettledStamp || (reduceMotion && isStamped);
+    final progress = forceSettled ? 1.0 : stampProgress;
 
+    // SizedBox로 레이아웃 크기를 카드 크기에 고정하면서도,
+    // clipBehavior: Clip.none으로 스티커가 카드 밖을 자유롭게 이동 가능
     return SizedBox(
-      width: size,
-      height: size,
+      width: cardWidth,
+      height: cardHeight,
       child: Stack(
         clipBehavior: Clip.none,
         alignment: Alignment.center,
         children: [
-          CustomPaint(
-            size: Size.square(size),
-            painter: _DashedCirclePainter(),
+          // ── 카드 본체: sketchbook.png 배경 (ClipRRect는 카드 배경에만 적용) ──
+          ClipRRect(
+            borderRadius: BorderRadius.circular(17),
             child: Container(
-              width: size,
-              height: size,
-              alignment: Alignment.center,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Color(0xFFFFFEFE),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      fontSize: size * 0.13,
-                      height: 1.2,
-                      fontWeight: FontWeight.w700,
-                      color: const Color(
-                        0xFF23201E,
-                      ).withValues(alpha: textOpacity),
-                    ),
-                  ),
-                  if (helperText != null) ...[
-                    SizedBox(height: size * 0.06),
-                    Text(
-                      helperText!,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontFamily: 'Pretendard',
-                        fontSize: size * 0.09,
-                        height: 1.2,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFFB1ABA6),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          if (isStamped && bodyOpacity > 0)
-            Transform.translate(
-              offset: Offset(bodyDx, bodyOffset),
-              child: Transform(
-                alignment: Alignment.center,
-                transform: Matrix4.identity()
-                  ..setEntry(3, 2, 0.0014)
-                  ..rotateX(bodyTiltX)
-                  ..rotateY(bodyTiltY)
-                  ..rotateZ(bodyRotation),
-                child: Transform.scale(
-                  scale: bodyScale,
-                  child: Opacity(
-                    opacity: bodyOpacity,
-                    child: _StampBody(
-                      size: size * 0.98,
-                      shadowOpacity: bodyShadowOpacity,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          if (isStamped)
-            Transform.translate(
-              offset: Offset(0, stampDrop),
-              child: Transform.rotate(
-                angle: stampRotation,
-                child: Transform.scale(
-                  scaleX: stampScale,
-                  scaleY: stampScale * stampSquash,
-                  child: Opacity(
-                    opacity: stampOpacity,
-                    child: _StampSeal(size: size * 0.7),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  double _stampDropOffset(double progress) {
-    final safeProgress = _clampUnit(progress);
-    if (safeProgress <= 0.58) {
-      return size * 0.06;
-    }
-    if (safeProgress < 0.8) {
-      final reveal = Curves.easeOutCubic.transform(
-        _clampUnit((safeProgress - 0.58) / 0.22),
-      );
-      return ui.lerpDouble(size * 0.06, 0, reveal) ?? 0;
-    }
-    final settle = Curves.easeOutBack.transform(
-      _clampUnit((safeProgress - 0.8) / 0.2),
-    );
-    return ui.lerpDouble(0, 2, settle) ?? 2;
-  }
-
-  double _stampScale(double progress) {
-    final safeProgress = _clampUnit(progress);
-    if (safeProgress <= 0.58) return 0.88;
-    if (safeProgress < 0.82) {
-      return ui.lerpDouble(
-            0.82,
-            1.0,
-            Curves.easeOutExpo.transform(
-              _clampUnit((safeProgress - 0.58) / 0.24),
-            ),
-          ) ??
-          1;
-    }
-    return ui.lerpDouble(
-          1.0,
-          1.0,
-          _clampUnit(
-            Curves.easeOutBack.transform(
-              _clampUnit((safeProgress - 0.82) / 0.18),
-            ),
-          ),
-        ) ??
-        1;
-  }
-
-  double _stampSquash(double progress) {
-    final safeProgress = _clampUnit(progress);
-    if (safeProgress <= 0.58) return 1.05;
-    if (safeProgress < 0.76) {
-      return ui.lerpDouble(
-            1.08,
-            0.94,
-            Curves.easeOut.transform(_clampUnit((safeProgress - 0.58) / 0.18)),
-          ) ??
-          0.94;
-    }
-    return ui.lerpDouble(
-          0.94,
-          1.0,
-          Curves.easeOutBack.transform(
-            _clampUnit((safeProgress - 0.76) / 0.24),
-          ),
-        ) ??
-        1.0;
-  }
-
-  double _stampRotation(double progress) {
-    final safeProgress = _clampUnit(progress);
-    if (safeProgress <= 0.58) return -0.1;
-    return ui.lerpDouble(
-          -0.12,
-          -0.02,
-          Curves.easeOutCubic.transform(
-            _clampUnit((safeProgress - 0.58) / 0.42),
-          ),
-        ) ??
-        -0.02;
-  }
-
-  double _stampOpacity(double progress) {
-    final safeProgress = _clampUnit(progress);
-    if (safeProgress <= 0.58) return 0;
-    if (safeProgress < 0.72) {
-      return Curves.easeOut.transform(_clampUnit((safeProgress - 0.58) / 0.14));
-    }
-    return 1;
-  }
-
-  double _stampBodyOffset(double progress) {
-    final safeProgress = _clampUnit(progress);
-    if (safeProgress < 0.6) {
-      return ui.lerpDouble(
-            -size * 1.26,
-            -size * 0.03,
-            Curves.easeInCubic.transform(safeProgress / 0.6),
-          ) ??
-          (-size * 1.26);
-    }
-    return ui.lerpDouble(
-          -size * 0.02,
-          -size * 0.92,
-          Curves.easeInOutCubic.transform(
-            _clampUnit((safeProgress - 0.6) / 0.4),
-          ),
-        ) ??
-        (-size * 0.92);
-  }
-
-  double _stampBodyScale(double progress) {
-    final safeProgress = _clampUnit(progress);
-    if (safeProgress < 0.55) {
-      return ui.lerpDouble(
-            1.08,
-            0.96,
-            Curves.easeOutCubic.transform(safeProgress / 0.55),
-          ) ??
-          0.96;
-    }
-    return ui.lerpDouble(
-          0.96,
-          1.02,
-          Curves.easeIn.transform(_clampUnit((safeProgress - 0.55) / 0.45)),
-        ) ??
-        1.02;
-  }
-
-  double _stampBodyRotation(double progress) {
-    final safeProgress = _clampUnit(progress);
-    if (safeProgress < 0.58) {
-      return ui.lerpDouble(
-            -0.38,
-            -0.1,
-            Curves.easeOutCubic.transform(safeProgress / 0.58),
-          ) ??
-          -0.1;
-    }
-    return ui.lerpDouble(
-          -0.1,
-          -0.04,
-          Curves.easeOut.transform(_clampUnit((safeProgress - 0.58) / 0.42)),
-        ) ??
-        -0.04;
-  }
-
-  double _stampBodyOpacity(double progress) {
-    final safeProgress = _clampUnit(progress);
-    if (safeProgress < 0.08) return safeProgress / 0.08;
-    if (safeProgress < 0.76) return 1;
-    return ui.lerpDouble(
-          1,
-          0,
-          Curves.easeIn.transform(_clampUnit((safeProgress - 0.76) / 0.24)),
-        ) ??
-        0;
-  }
-
-  double _stampBodyDx(double progress) {
-    final safeProgress = _clampUnit(progress);
-    if (safeProgress < 0.6) {
-      return ui.lerpDouble(
-            size * 0.34,
-            size * 0.06,
-            Curves.easeOutCubic.transform(safeProgress / 0.6),
-          ) ??
-          (size * 0.06);
-    }
-    return ui.lerpDouble(
-          size * 0.06,
-          size * 0.16,
-          Curves.easeInOut.transform(_clampUnit((safeProgress - 0.6) / 0.4)),
-        ) ??
-        (size * 0.16);
-  }
-
-  double _stampBodyTiltX(double progress) {
-    final safeProgress = _clampUnit(progress);
-    if (safeProgress < 0.6) {
-      return ui.lerpDouble(
-            0.98,
-            0.28,
-            Curves.easeOutCubic.transform(safeProgress / 0.6),
-          ) ??
-          0.28;
-    }
-    return ui.lerpDouble(
-          0.28,
-          0.72,
-          Curves.easeIn.transform(_clampUnit((safeProgress - 0.6) / 0.4)),
-        ) ??
-        0.72;
-  }
-
-  double _stampBodyTiltY(double progress) {
-    final safeProgress = _clampUnit(progress);
-    return ui.lerpDouble(
-          -0.26,
-          -0.08,
-          Curves.easeOut.transform(safeProgress),
-        ) ??
-        -0.08;
-  }
-
-  double _stampBodyShadowOpacity(double progress) {
-    final safeProgress = _clampUnit(progress);
-    if (safeProgress < 0.58) {
-      return ui.lerpDouble(
-            0.08,
-            0.2,
-            Curves.easeIn.transform(safeProgress / 0.58),
-          ) ??
-          0.2;
-    }
-    return ui.lerpDouble(
-          0.2,
-          0.1,
-          Curves.easeOut.transform(_clampUnit((safeProgress - 0.58) / 0.42)),
-        ) ??
-        0.1;
-  }
-}
-
-class _StampSeal extends StatelessWidget {
-  final double size;
-
-  const _StampSeal({required this.size});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: const Color(0xFFDF5A59).withValues(alpha: 0.08),
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Container(
-            width: size * 0.92,
-            height: size * 0.92,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: const Color(0xFFDF5A59).withValues(alpha: 0.82),
-                width: size * 0.038,
-              ),
-            ),
-          ),
-          Container(
-            width: size * 0.72,
-            height: size * 0.72,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: const Color(0xFFDF5A59).withValues(alpha: 0.28),
-                width: size * 0.02,
-              ),
-            ),
-          ),
-          Container(
-            width: size * 0.22,
-            height: size * 0.22,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0xFFDF5A59).withValues(alpha: 0.12),
-            ),
-          ),
-          Transform.rotate(
-            angle: -0.18,
-            child: Text(
-              'M',
-              style: TextStyle(
-                fontFamily: 'Pretendard',
-                fontSize: size * 0.28,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -2,
-                color: const Color(0xFFDF5A59).withValues(alpha: 0.82),
-              ),
-            ),
-          ),
-          Positioned(
-            top: size * 0.19,
-            child: Text(
-              'MEET VERIFIED',
-              style: TextStyle(
-                fontFamily: 'Pretendard',
-                fontSize: size * 0.055,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.1,
-                color: const Color(0xFFDF5A59).withValues(alpha: 0.78),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: size * 0.2,
-            child: Text(
-              'CONFIRMED',
-              style: TextStyle(
-                fontFamily: 'Pretendard',
-                fontSize: size * 0.06,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.4,
-                color: const Color(0xFFDF5A59).withValues(alpha: 0.65),
-              ),
-            ),
-          ),
-          Positioned(
-            left: size * 0.24,
-            child: Transform.rotate(
-              angle: -0.72,
-              child: Container(
-                width: size * 0.014,
-                height: size * 0.17,
-                color: const Color(0xFFDF5A59).withValues(alpha: 0.38),
-              ),
-            ),
-          ),
-          Positioned(
-            right: size * 0.24,
-            child: Transform.rotate(
-              angle: 0.72,
-              child: Container(
-                width: size * 0.014,
-                height: size * 0.17,
-                color: const Color(0xFFDF5A59).withValues(alpha: 0.38),
-              ),
-            ),
-          ),
-          Positioned(
-            left: size * 0.14,
-            top: size * 0.18,
-            child: _InkSpot(size: size * 0.07),
-          ),
-          Positioned(
-            right: size * 0.16,
-            bottom: size * 0.18,
-            child: _InkSpot(size: size * 0.045),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StampBody extends StatelessWidget {
-  final double size;
-  final double shadowOpacity;
-
-  const _StampBody({required this.size, required this.shadowOpacity});
-
-  @override
-  Widget build(BuildContext context) {
-    final knobSize = size * 0.34;
-    final neckWidth = size * 0.16;
-    final neckHeight = size * 0.2;
-    final plateWidth = size * 0.76;
-    final plateHeight = size * 0.34;
-
-    return SizedBox(
-      width: size * 0.9,
-      height: size,
-      child: Stack(
-        alignment: Alignment.topCenter,
-        clipBehavior: Clip.none,
-        children: [
-          Positioned(
-            top: size * 0.69,
-            child: Container(
-              width: plateWidth * 0.86,
-              height: size * 0.09,
+              width: cardWidth,
+              height: cardHeight,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(999),
-                color: material.Colors.black.withValues(alpha: shadowOpacity),
-                boxShadow: [
-                  BoxShadow(
-                    color: material.Colors.black.withValues(
-                      alpha: shadowOpacity * 0.7,
-                    ),
-                    blurRadius: 18,
-                    spreadRadius: 1,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Positioned(
-            top: size * 0.08,
-            child: Container(
-              width: knobSize,
-              height: knobSize,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFFFFFFFF),
-                    Color(0xFFF3F3F1),
-                    Color(0xFFD6D8D7),
-                  ],
-                ),
+                borderRadius: BorderRadius.circular(17),
                 boxShadow: const [
                   BoxShadow(
-                    color: Color(0x18000000),
-                    blurRadius: 16,
-                    offset: Offset(0, 8),
+                    color: Color(0x0D000000),
+                    blurRadius: 12,
+                    offset: Offset(0, 5),
                   ),
                 ],
               ),
               child: Stack(
+                fit: StackFit.expand,
                 children: [
-                  Positioned(
-                    left: knobSize * 0.16,
-                    top: knobSize * 0.12,
-                    child: _HandleHighlight(
-                      width: knobSize * 0.14,
-                      height: knobSize * 0.2,
-                    ),
+                  // sketchbook.png 질감 배경
+                  Image.asset(
+                    'sketchbook.png',
+                    fit: BoxFit.cover,
                   ),
+                  // 아주 연한 화이트 오버레이 — 과한 빈티지 억제
+                  Container(color: const Color(0x18FFFFFF)),
+                  // 라벨
                   Positioned(
-                    left: knobSize * 0.34,
-                    top: knobSize * 0.08,
-                    child: _HandleHighlight(
-                      width: knobSize * 0.1,
-                      height: knobSize * 0.13,
-                    ),
-                  ),
-                  Positioned(
-                    right: knobSize * 0.18,
-                    top: knobSize * 0.18,
-                    child: Container(
-                      width: knobSize * 0.1,
-                      height: knobSize * 0.1,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Color(0x55FFFFFF),
+                    top: 16,
+                    left: 17,
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontFamily: 'Pretendard',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: emphasis
+                            ? const Color(0xFF7A736C)
+                            : const Color(0xFF8E8880),
+                        letterSpacing: -0.2,
                       ),
                     ),
                   ),
+                  // 미완료 안내 텍스트
+                  if (!isStamped)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(28, 12, 28, 0),
+                        child: Text(
+                          helperText ?? '아직 확인 전이에요',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontFamily: 'Pretendard',
+                            fontSize: 13,
+                            fontWeight: FontWeight.w400,
+                            color: Color(0xFFB0A9A3),
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
           ),
-          Positioned(
-            top: size * 0.3,
-            child: Container(
-              width: neckWidth,
-              height: neckHeight,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(neckWidth),
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xFFF9F9F7),
-                    Color(0xFFE8E8E5),
-                    Color(0xFFD6D7D5),
-                  ],
-                ),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x12000000),
-                    blurRadius: 8,
-                    offset: Offset(0, 4),
-                  ),
-                ],
-              ),
+
+          // ── 벚꽃 스티커: ClipRRect 바깥 레이어 → 카드 위로 자유롭게 이동 ──
+          if (isStamped)
+            _AnimatedCherrySticker(
+              progress: progress,
+              stickerSize: stickerSize,
+              settledRotationDeg: settledRotationDeg,
+              skipAnimation: forceSettled,
             ),
-          ),
-          Positioned(
-            top: size * 0.46,
-            child: Container(
-              width: neckWidth * 1.3,
-              height: size * 0.032,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(999),
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFFF0F0EE), Color(0xFFD8D9D7)],
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: size * 0.39,
-            child: Container(
-              width: neckWidth * 1.35,
-              height: size * 0.08,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFFF5F5F3), Color(0xFFD7D8D5)],
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: size * 0.46,
-            child: Container(
-              width: plateWidth,
-              height: plateHeight,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(size * 0.08),
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xFFFFFFFF),
-                    Color(0xFFF1F2F0),
-                    Color(0xFFD8DAD8),
-                  ],
-                ),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x16000000),
-                    blurRadius: 16,
-                    offset: Offset(0, 9),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Positioned(
-            top: size * 0.48,
-            child: Container(
-              width: plateWidth * 0.9,
-              height: plateHeight * 0.18,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(999),
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0x66FFFFFF), Color(0x00FFFFFF)],
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     );
   }
 }
 
-class _HandleHighlight extends StatelessWidget {
-  final double width;
-  final double height;
+// ─────────────────────────────────────────────────────────────────────────────
+// 스티커 포즈 — 각 프레임의 완전한 상태
+// 위치는 카드 중앙(Stack alignment: center)을 기준으로 하는 절대 픽셀 오프셋
+// ─────────────────────────────────────────────────────────────────────────────
+class _StickerPose {
+  final double dx;
+  final double dy;
+  final double rotDeg;
+  final double scaleX;
+  final double scaleY;
+  final double opacity;
 
-  const _HandleHighlight({required this.width, required this.height});
+  const _StickerPose({
+    required this.dx,
+    required this.dy,
+    required this.rotDeg,
+    this.scaleX = 1.0,
+    this.scaleY = 1.0,
+    this.opacity = 1.0,
+  });
 
+}
+
+// 4개 포즈 — 스티커가 내려와 붙을 때 거치는 기준 포즈들
+// 단계 수를 줄여서 더 단순하고 한 구간씩 길게 보이도록 만든다.
+List<_StickerPose> _buildPoses(double stickerSize, double finalRotDeg) {
+  final s = stickerSize;
+  const fx = 0.0;
+  const fy = 0.0;
+  return [
+    // F0: 카드 위쪽 바깥, 투명
+    _StickerPose(dx: fx - 34, dy: -s * 1.28, rotDeg: -18, opacity: 0),
+    // F1: 상단에서 천천히 나타남
+    _StickerPose(
+      dx: fx + 24,
+      dy: -s * 0.82,
+      rotDeg: 10,
+      scaleX: 1.015,
+      scaleY: 1.015,
+      opacity: 1,
+    ),
+    // F2: 카드 직상단
+    _StickerPose(dx: fx - 18, dy: -s * 0.22, rotDeg: -7),
+    // F3: 찰싹 붙으며 정착
+    _StickerPose(dx: fx, dy: fy, rotDeg: finalRotDeg, scaleX: 1.04, scaleY: 0.96),
+  ];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 벚꽃 스티커 애니메이션 위젯
+// 스티커는 카드 밖 위쪽에서 시작해 아래로 회전하며 붙는다.
+// 기준 포즈들을 부드럽게 보간해서 스무스하게 내려오도록 만든다.
+// ─────────────────────────────────────────────────────────────────────────────
+class _AnimatedCherrySticker extends StatelessWidget {
+  final double progress;
+  final double stickerSize;
+  final double settledRotationDeg;
+  final bool skipAnimation;
+
+  const _AnimatedCherrySticker({
+    required this.progress,
+    required this.stickerSize,
+    required this.settledRotationDeg,
+    required this.skipAnimation,
+  });
   @override
   Widget build(BuildContext context) {
-    return Transform.rotate(
-      angle: -0.42,
-      child: Container(
-        width: width,
-        height: height,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(width),
-          color: const Color(0x78FFFFFF),
+    final p = skipAnimation ? 1.0 : _clampUnit(progress);
+    final poses = _buildPoses(stickerSize, settledRotationDeg);
+    final motionProgress = Curves.easeInOut.transform(p);
+    final pose = _poseAt(poses, motionProgress);
+
+    final trailProgresses = [
+      math.max(0.0, motionProgress - 0.08),
+      math.max(0.0, motionProgress - 0.16),
+    ];
+
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        for (int i = trailProgresses.length - 1; i >= 0; i--)
+          _buildStickerLayer(
+            _poseAt(poses, trailProgresses[i]),
+            extraOpacity: i == 0 ? 0.16 : 0.08,
+          ),
+        _buildStickerLayer(pose),
+      ],
+    );
+  }
+
+  Widget _buildStickerLayer(_StickerPose pose, {double extraOpacity = 1.0}) {
+    return Transform.translate(
+      offset: Offset(pose.dx, pose.dy),
+      child: Transform.rotate(
+        angle: pose.rotDeg * (math.pi / 180.0),
+        child: Transform.scale(
+          scaleX: pose.scaleX,
+          scaleY: pose.scaleY,
+          child: Opacity(
+            opacity: _clampUnit(pose.opacity * extraOpacity),
+            child: Image.asset(
+              'cherrysticker.png',
+              width: stickerSize,
+              height: stickerSize,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              errorBuilder: (_, __, ___) => SizedBox(
+                width: stickerSize,
+                height: stickerSize,
+                child: const Icon(
+                  CupertinoIcons.heart_fill,
+                  color: Color(0xFFE86F91),
+                  size: 64,
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
-}
 
-class _InkSpot extends StatelessWidget {
-  final double size;
+  _StickerPose _poseAt(List<_StickerPose> poses, double progress) {
+    final interpolated = _interpolatePose(poses, progress);
+    final sway = math.sin(progress * math.pi * 3.2) *
+        (stickerSize * 0.045) *
+        (1 - progress);
 
-  const _InkSpot({required this.size});
+    return _StickerPose(
+      dx: interpolated.dx + sway,
+      dy: interpolated.dy,
+      rotDeg: interpolated.rotDeg,
+      scaleX: interpolated.scaleX,
+      scaleY: interpolated.scaleY,
+      opacity: interpolated.opacity,
+    );
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: const Color(0xFFD84D4D).withValues(alpha: 0.45),
-      ),
+  _StickerPose _interpolatePose(List<_StickerPose> poses, double progress) {
+    if (progress >= 1.0) return poses.last;
+
+    final segmentProgress = progress * (poses.length - 1);
+    final lowerIndex = segmentProgress.floor().clamp(0, poses.length - 1);
+    final upperIndex = math.min(lowerIndex + 1, poses.length - 1);
+
+    if (lowerIndex == upperIndex) {
+      return poses[lowerIndex];
+    }
+
+    final localT = Curves.easeInOutCubic.transform(
+      segmentProgress - lowerIndex,
+    );
+    final from = poses[lowerIndex];
+    final to = poses[upperIndex];
+
+    return _StickerPose(
+      dx: ui.lerpDouble(from.dx, to.dx, localT) ?? to.dx,
+      dy: ui.lerpDouble(from.dy, to.dy, localT) ?? to.dy,
+      rotDeg: ui.lerpDouble(from.rotDeg, to.rotDeg, localT) ?? to.rotDeg,
+      scaleX: ui.lerpDouble(from.scaleX, to.scaleX, localT) ?? to.scaleX,
+      scaleY: ui.lerpDouble(from.scaleY, to.scaleY, localT) ?? to.scaleY,
+      opacity: ui.lerpDouble(from.opacity, to.opacity, localT) ?? to.opacity,
     );
   }
 }
@@ -1266,22 +855,22 @@ class _StatusCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8F4F1),
+        color: material.Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFEAE2DD)),
+        border: Border.all(color: const Color(0xFFEADDE1)),
       ),
       child: Column(
         children: [
           _StatusRow(
-            title: phase == SafetyStampPhase.goodbye ? '내 헤어짐 도장' : '내 만남 도장',
+            title: phase == SafetyStampPhase.goodbye ? '내 헤어짐 확인' : '내 안전 확인',
             value: isMyStamped ? '완료' : '대기 중',
             isDone: isMyStamped,
           ),
           const SizedBox(height: 10),
           _StatusRow(
             title: phase == SafetyStampPhase.goodbye
-                ? '상대방 헤어짐 도장'
-                : '상대방 만남 도장',
+                ? '상대방 헤어짐 확인'
+                : '상대방 안전 확인',
             value: isPartnerStamped ? '완료' : '아직 확인 전',
             isDone: isPartnerStamped,
           ),
@@ -1313,14 +902,14 @@ class _StatusRow extends StatelessWidget {
               fontFamily: 'Pretendard',
               fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF403A36),
+              color: Color(0xFF333333),
             ),
           ),
         ),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: isDone ? const Color(0xFFE9F7EC) : const Color(0xFFF1ECE8),
+            color: isDone ? const Color(0xFFFCEFF3) : const Color(0xFFF3F3F3),
             borderRadius: BorderRadius.circular(999),
           ),
           child: Text(
@@ -1329,7 +918,7 @@ class _StatusRow extends StatelessWidget {
               fontFamily: 'Pretendard',
               fontSize: 12,
               fontWeight: FontWeight.w700,
-              color: isDone ? const Color(0xFF2A8A50) : const Color(0xFF8E827A),
+              color: isDone ? const Color(0xFFD95C7D) : const Color(0xFF8A8A8A),
             ),
           ),
         ),
@@ -1348,20 +937,20 @@ class _SuccessBanner extends StatelessWidget {
     final isMeetupSuccess = phase == SafetyStampPhase.meetup;
     final title = isMeetupSuccess ? '만남이 성사되었어요!' : '약속이 정상적으로 완료되었어요!';
     final subtitle = isMeetupSuccess
-        ? '둘 다 만남 도장을 남겼어요. 헤어질 때 한 번 더 도장을 남겨주세요.'
-        : '둘 다 헤어짐 도장을 남겨서 약속이 잘 마무리되었어요.';
+        ? '둘 다 벚꽃 스티커를 남겼어요. 헤어질 때 한 번 더 스티커를 남겨주세요.'
+        : '둘 다 헤어짐 확인을 남겨서 약속이 잘 마무리되었어요.';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
       decoration: BoxDecoration(
         color: material.Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE2DED9)),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFEADDE1)),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x14000000),
-            blurRadius: 24,
-            offset: Offset(0, 10),
+            color: Color(0x12000000),
+            blurRadius: 20,
+            offset: Offset(0, 6),
           ),
         ],
       ),
@@ -1375,7 +964,7 @@ class _SuccessBanner extends StatelessWidget {
               fontFamily: 'Pretendard',
               fontSize: 24,
               fontWeight: FontWeight.w800,
-              color: Color(0xFF4B4A48),
+              color: Color(0xFF222222),
             ),
           ),
           const SizedBox(height: 8),
@@ -1386,7 +975,7 @@ class _SuccessBanner extends StatelessWidget {
               fontFamily: 'Pretendard',
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF8A847D),
+              color: Color(0xFF666666),
               height: 1.4,
             ),
           ),
@@ -1406,32 +995,4 @@ double _clampUnit(double value) {
   if (value < 0) return 0;
   if (value > 1) return 1;
   return value;
-}
-
-class _DashedCirclePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xFFB8B1AB)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.8;
-
-    final radius = size.width / 2 - 1.5;
-    const dashCount = 28;
-    const dashSweep = 0.14;
-    const gapSweep = 0.085;
-    final rect = Rect.fromCircle(
-      center: Offset(size.width / 2, size.height / 2),
-      radius: radius,
-    );
-
-    double start = -math.pi / 2;
-    for (int i = 0; i < dashCount; i++) {
-      canvas.drawArc(rect, start, dashSweep, false, paint);
-      start += dashSweep + gapSweep;
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

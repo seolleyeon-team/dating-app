@@ -296,6 +296,8 @@ class AuthService {
     required String email,
     required String continueUrl,
   }) async {
+    await _firebaseAuth.setLanguageCode('ko');
+
     final acs = ActionCodeSettings(
       url: continueUrl,
       handleCodeInApp: true,

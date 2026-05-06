@@ -75,7 +75,7 @@ class _TodaysMatchTutorialScreenState extends State<TodaysMatchTutorialScreen>
     if (widget.onStart != null) {
       widget.onStart!();
     } else {
-      Navigator.of(context).pushNamed(RouteNames.aiTasteButtonTutorial);
+      Navigator.of(context).pushNamed(RouteNames.promiseAgreementTutorial);
     }
   }
 
@@ -141,14 +141,25 @@ class _TodaysMatchTutorialScreenState extends State<TodaysMatchTutorialScreen>
                         ],
                       ),
                       child: const Center(
-                        child: Text(
-                          '설레연 시작하기',
-                          style: TextStyle(
-                            fontFamily: 'Pretendard',
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: CupertinoColors.white,
-                          ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              '다음',
+                              style: TextStyle(
+                                fontFamily: 'Pretendard',
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: CupertinoColors.white,
+                              ),
+                            ),
+                            SizedBox(width: 8),
+                            Icon(
+                              CupertinoIcons.arrow_right,
+                              size: 18,
+                              color: CupertinoColors.white,
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -162,7 +173,6 @@ class _TodaysMatchTutorialScreenState extends State<TodaysMatchTutorialScreen>
     );
   }
 }
-
 // =============================================================================
 // 헤더
 // =============================================================================
@@ -510,15 +520,15 @@ class _TitleSection extends StatelessWidget {
               ),
               children: [
                 TextSpan(
-                  text: '하루 한 번,\n',
+                  text: '매일 오전 4시에\n',
                   style: TextStyle(color: _AppColors.textMain),
                 ),
                 TextSpan(
-                  text: '설레는',
+                  text: '새로운 인연 3명',
                   style: TextStyle(color: _AppColors.primary),
                 ),
                 TextSpan(
-                  text: ' 추천을 확인하세요',
+                  text: '이 추천됩니다!',
                   style: TextStyle(color: _AppColors.textMain),
                 ),
               ],
@@ -526,7 +536,7 @@ class _TitleSection extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const Text(
-            '매일 도착하는 3명의 인연을\n놓치지 마세요.',
+            '마음에 드는 인연이 있다면\n재화를 사용하여 채팅을 진행해보세요!',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: 'Pretendard',
