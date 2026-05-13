@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../constants/legal_texts.dart';
+
 class StorageService {
   static const String _userIdKey = 'user_id';
 
@@ -18,6 +20,7 @@ class StorageService {
   static const String _onboardingDraftKeyPrefix = 'onboarding_draft_';
   static const String _pendingFriendInviteTokenKey = 'pending_friend_invite';
   static const String _eventTeamSetupIdKeyPrefix = 'event_team_setup_id_';
+  static const String _pendingLegalConsentsKey = 'pending_legal_consents';
 
   Future<void> saveUserId(String userId) async {
     final prefs = await SharedPreferences.getInstance();
@@ -122,7 +125,10 @@ class StorageService {
     String token,
   ) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('$_studentVerificationTokenKeyPrefix$kakaoUserId', token);
+    await prefs.setString(
+      '$_studentVerificationTokenKeyPrefix$kakaoUserId',
+      token,
+    );
   }
 
   Future<String?> getStudentVerificationToken(String kakaoUserId) async {
@@ -188,6 +194,38 @@ class StorageService {
   Future<void> clearOnboardingDraft(String kakaoUserId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('$_onboardingDraftKeyPrefix$kakaoUserId');
+  }
+
+  Future<void> savePendingLegalConsents() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _pendingLegalConsentsKey,
+      jsonEncode({
+        'termsOfService': true,
+        'privacyPolicy': true,
+        'kakaoNamePhone': true,
+        'ageOver18': true,
+        'agreedAtClientIso': DateTime.now().toUtc().toIso8601String(),
+        'version': LegalTexts.version,
+      }),
+    );
+  }
+
+  Future<Map<String, dynamic>?> getPendingLegalConsents() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_pendingLegalConsentsKey);
+    if (raw == null || raw.trim().isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> clearPendingLegalConsents() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_pendingLegalConsentsKey);
   }
 
   Future<void> savePendingFriendInviteToken(String token) async {

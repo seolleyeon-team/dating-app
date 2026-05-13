@@ -257,7 +257,7 @@ class InterestsSelectionScreen extends StatefulWidget {
     this.onBack,
     this.maxSelection = 10,
     this.currentStep = 2,
-    this.totalSteps = 8,
+    this.totalSteps = 9,
   });
 
   @override
@@ -355,98 +355,99 @@ class _InterestsSelectionScreenState extends State<InterestsSelectionScreen> {
                     totalSteps: widget.totalSteps,
                     onBack: _handleBack,
                   ),
-                // 메인 콘텐츠
-                Expanded(
-                  child: SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 16),
-                        // 타이틀 및 카운터
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            const Text(
-                              '관심사',
-                              style: TextStyle(
-                                fontFamily: 'Pretendard',
-                                fontSize: 28,
-                                fontWeight: FontWeight.bold,
-                                color: _AppColors.textMain,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 4),
-                              child: Text(
-                                '${_selectedInterests.length}/${widget.maxSelection}',
-                                style: const TextStyle(
+                  // 메인 콘텐츠
+                  Expanded(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 16),
+                          // 타이틀 및 카운터
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              const Text(
+                                '관심사',
+                                style: TextStyle(
                                   fontFamily: 'Pretendard',
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  color: _AppColors.textSub,
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.bold,
+                                  color: _AppColors.textMain,
+                                  letterSpacing: -0.5,
                                 ),
                               ),
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Text(
+                                  '${_selectedInterests.length}/${widget.maxSelection}',
+                                  style: const TextStyle(
+                                    fontFamily: 'Pretendard',
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: _AppColors.textSub,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+                          // 선택된 관심사 칩 영역
+                          if (_selectedInterests.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 24),
+                              child: Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: _selectedInterests.map((interest) {
+                                  return _SelectedChip(
+                                    label: interest,
+                                    onDeleted: () => _toggleInterest(interest),
+                                  );
+                                }).toList(),
+                              ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-                        // 선택된 관심사 칩 영역
-                        if (_selectedInterests.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 24),
-                            child: Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: _selectedInterests.map((interest) {
-                                return _SelectedChip(
-                                  label: interest,
-                                  onDeleted: () => _toggleInterest(interest),
-                                );
-                              }).toList(),
+                          // 검색창
+                          const _SearchBar(),
+                          const SizedBox(height: 32),
+                          // 카테고리별 섹션
+                          ..._categories.map(
+                            (category) => _CategorySection(
+                              category: category,
+                              selectedInterests: _selectedInterests,
+                              onToggle: _toggleInterest,
                             ),
                           ),
-                        // 검색창
-                        const _SearchBar(),
-                        const SizedBox(height: 32),
-                        // 카테고리별 섹션
-                        ..._categories.map(
-                          (category) => _CategorySection(
-                            category: category,
-                            selectedInterests: _selectedInterests,
-                            onToggle: _toggleInterest,
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            // 하단 플로팅 버튼 (다음 클릭 → lifestyle_screen)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _BottomFloatingArea(
-                onNext:
-                    widget.onComplete ??
-                    () async {
-                      await _saveCurrentInterests();
-                      if (!mounted) return;
-                      Navigator.of(context)
-                          .pushNamed(RouteNames.onboardingLifestyle);
-                    },
+                ],
               ),
-            ),
-          ],
+              // 하단 플로팅 버튼 (다음 클릭 → lifestyle_screen)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: _BottomFloatingArea(
+                  onNext:
+                      widget.onComplete ??
+                      () async {
+                        await _saveCurrentInterests();
+                        if (!mounted) return;
+                        Navigator.of(
+                          context,
+                        ).pushNamed(RouteNames.onboardingLifestyle);
+                      },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
   }
 }
 

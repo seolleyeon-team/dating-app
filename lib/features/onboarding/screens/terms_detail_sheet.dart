@@ -14,6 +14,8 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
+import '../../../constants/legal_texts.dart';
+
 // =============================================================================
 // 색상 상수
 // =============================================================================
@@ -339,49 +341,21 @@ class _AgreeButton extends StatelessWidget {
 // 서비스 이용약관 기본 데이터 (편의용)
 // =============================================================================
 class DefaultTermsSections {
-  static const List<TermsSection> serviceTerms = [
-    TermsSection(
-      title: '제1조 (목적)',
-      content:
-          '본 약관은 회사가 제공하는 위치기반 서비스와 관련하여 회사와 개인위치정보주체와의 권리, 의무 및 책임사항, 기타 필요한 사항을 규정함을 목적으로 합니다. 회사는 개인정보보호법 등 관련 법령을 준수하며, 이용자의 개인정보 보호를 위해 최선을 다하고 있습니다.',
-    ),
-    TermsSection(
-      title: '제2조 (이용약관의 효력 및 변경)',
-      content:
-          '본 약관은 서비스를 신청한 고객 또는 개인위치정보주체가 본 약관에 동의하고 회사가 정한 소정의 절차에 따라 서비스의 이용자로 등록함으로써 효력이 발생합니다. 회사는 관련 법령을 위배하지 않는 범위에서 본 약관을 개정할 수 있습니다. 변경된 약관은 공지사항을 통해 공지하며, 효력 발생일 7일 전부터 공지합니다.',
-    ),
-    TermsSection(
-      title: '제3조 (서비스의 내용)',
-      content:
-          '회사는 위치정보사업자로부터 위치정보를 전달받아 아래와 같은 위치기반서비스를 제공합니다.\n1. 접속 위치 기반 매칭 추천 서비스\n2. 현재 위치 주변의 친구 찾기 서비스\n3. 위치 기반 커뮤니티 게시글 열람 서비스',
-    ),
-    TermsSection(
-      title: '제4조 (서비스 이용요금)',
-      content:
-          '회사가 제공하는 서비스는 기본적으로 무료입니다. 다만, 별도의 유료 서비스의 경우 해당 서비스에 명시된 요금을 지불하여야 사용 가능합니다. 유료 서비스의 환불 및 취소에 관한 규정은 별도의 유료 서비스 약관을 따릅니다.',
-    ),
-    TermsSection(
-      title: '제5조 (개인위치정보의 이용 또는 제공)',
-      content:
-          '회사는 개인위치정보를 이용하여 서비스를 제공하고자 하는 경우에는 미리 이용약관에 명시한 후 개인위치정보주체의 동의를 얻어야 합니다. 회사는 타사업자 또는 이용 고객과의 요금정산 및 민원처리를 위해 위치정보 이용·제공사실 확인자료를 자동 기록·보존하며, 해당 자료는 1년간 보관합니다.',
-    ),
-  ];
+  static List<TermsSection> get serviceTerms =>
+      _toTermsSections(LegalTexts.serviceTerms);
 
-  static const List<TermsSection> privacyPolicy = [
-    TermsSection(
-      title: '제1조 (개인정보의 수집항목)',
-      content:
-          '회사는 서비스 제공을 위해 다음과 같은 개인정보를 수집합니다.\n• 필수항목: 이름, 생년월일, 성별, 휴대폰번호\n• 선택항목: 프로필 사진, 학교, 학과, 관심사',
-    ),
-    TermsSection(
-      title: '제2조 (개인정보의 이용목적)',
-      content:
-          '수집한 개인정보는 다음의 목적으로 이용됩니다.\n• 회원 가입 및 관리\n• 매칭 서비스 제공\n• 서비스 개선 및 신규 서비스 개발\n• 불법 이용 방지',
-    ),
-    TermsSection(
-      title: '제3조 (개인정보의 보유 및 이용기간)',
-      content:
-          '회사는 개인정보 수집 및 이용목적이 달성된 후에는 해당 정보를 지체 없이 파기합니다. 단, 관련 법령에 의거하여 보존할 필요가 있는 경우 일정 기간 보관합니다.',
-    ),
-  ];
+  static List<TermsSection> get privacyPolicy =>
+      _toTermsSections(LegalTexts.privacyPolicy);
+
+  static List<TermsSection> get kakaoNamePhoneConsent =>
+      _toTermsSections(LegalTexts.kakaoNamePhoneConsent);
+
+  static List<TermsSection> _toTermsSections(LegalTextDocument document) {
+    return document.sections
+        .map(
+          (section) =>
+              TermsSection(title: section.title, content: section.content),
+        )
+        .toList();
+  }
 }

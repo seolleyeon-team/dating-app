@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>설레연 회원가입 및 개인정보 동의 안내</title>
+  <meta name="description" content="설레연 회원가입 동선과 카카오 개인정보 동의항목 안내" />
+  <style>
+    :root {
+      --bg: #fff9fc;
+      --surface: #ffffff;
+      --surface-2: #fff3f7;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --line: #ecdfe7;
+      --heading: #1f5b78;
+      --accent: #ef3976;
+      --accent-soft: #ffe6ef;
+      --safe: #0f766e;
+      --shadow: 0 10px 30px rgba(24, 39, 75, 0.08);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(239, 57, 118, 0.11), transparent 30%),
+        radial-gradient(circle at top right, rgba(31, 91, 120, 0.09), transparent 28%),
+        linear-gradient(180deg, #fffafc 0%, #fffdfd 100%);
+      font-family:
+        "Pretendard",
+        "Apple SD Gothic Neo",
+        "Malgun Gothic",
+        "Segoe UI",
+        system-ui,
+        -apple-system,
+        sans-serif;
+      line-height: 1.8;
+      word-break: keep-all;
+    }
+
+    a { color: inherit; }
+
+    .page {
+      width: min(100%, 1040px);
+      margin: 0 auto;
+      padding: 32px 20px 72px;
+    }
+
+    .hero,
+    .section-card,
+    .flow-step,
+    .consent-row {
+      background: var(--surface);
+      border: 1px solid rgba(236, 223, 231, 0.95);
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      border-radius: 30px;
+      padding: 32px 28px 28px;
+      background: linear-gradient(135deg, rgba(239, 57, 118, 0.08), rgba(31, 91, 120, 0.06));
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      top: -90px;
+      right: -80px;
+      width: 240px;
+      height: 240px;
+      border-radius: 999px;
+      background: rgba(239, 57, 118, 0.08);
+    }
+
+    .eyebrow {
+      position: relative;
+      z-index: 1;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid rgba(236, 223, 231, 0.95);
+      color: var(--accent);
+      font-size: 0.92rem;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      position: relative;
+      z-index: 1;
+    }
+
+    h1 {
+      margin: 16px 0 10px;
+      max-width: 760px;
+      font-size: clamp(2rem, 4vw, 3rem);
+      line-height: 1.2;
+      letter-spacing: -0.035em;
+      color: var(--text);
+    }
+
+    h2 {
+      margin: 0 0 18px;
+      font-size: clamp(1.42rem, 2.2vw, 1.9rem);
+      line-height: 1.35;
+      letter-spacing: -0.02em;
+      color: var(--heading);
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 1.08rem;
+      line-height: 1.45;
+      color: var(--text);
+    }
+
+    p {
+      margin: 0;
+      font-size: 1rem;
+      color: var(--text);
+    }
+
+    .subtitle,
+    .meta,
+    .muted {
+      color: var(--muted);
+    }
+
+    .subtitle {
+      max-width: 760px;
+      font-size: 1.02rem;
+    }
+
+    .meta {
+      margin-top: 12px;
+      font-size: 0.95rem;
+    }
+
+    .hero-links {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .button-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 10px 16px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      text-decoration: none;
+      color: var(--text);
+      font-weight: 800;
+    }
+
+    .button-link.primary {
+      border-color: transparent;
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .content {
+      display: grid;
+      gap: 20px;
+      margin-top: 24px;
+    }
+
+    .section-card {
+      border-radius: var(--radius);
+      padding: 28px 24px;
+    }
+
+    .notice {
+      display: grid;
+      gap: 10px;
+      padding: 18px;
+      border-radius: 18px;
+      background: var(--surface-2);
+      border: 1px solid rgba(239, 57, 118, 0.14);
+    }
+
+    .notice strong,
+    .consent-badge.required,
+    .highlight {
+      color: var(--accent);
+      font-weight: 900;
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .flow-step {
+      min-height: 178px;
+      border-radius: 20px;
+      padding: 18px;
+    }
+
+    .step-number {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      margin-bottom: 14px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 900;
+    }
+
+    .consent-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .consent-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 14px;
+      align-items: center;
+      border-radius: 18px;
+      padding: 16px;
+    }
+
+    .consent-row p {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .consent-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      font-size: 0.9rem;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      margin-top: 16px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+      background: #fff;
+    }
+
+    th,
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: 0.96rem;
+    }
+
+    th {
+      background: #fff3f7;
+      color: var(--heading);
+      font-weight: 900;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .rule-list {
+      margin: 14px 0 0;
+      padding-left: 22px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .check-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .check-item {
+      padding: 16px;
+      border-radius: 18px;
+      background: #f8fffd;
+      border: 1px solid rgba(15, 118, 110, 0.16);
+    }
+
+    .check-item strong {
+      color: var(--safe);
+    }
+
+    .footer {
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: 0.94rem;
+      text-align: center;
+    }
+
+    @media (max-width: 840px) {
+      .flow-grid,
+      .check-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .page {
+        padding: 18px 14px 52px;
+      }
+
+      .hero,
+      .section-card {
+        padding: 22px 18px;
+        border-radius: 22px;
+      }
+
+      .consent-row {
+        grid-template-columns: 1fr;
+      }
+
+      .consent-badge {
+        justify-self: start;
+      }
+
+      .rule-list {
+        padding-left: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div class="eyebrow">설레연 • 회원가입 안내</div>
+      <h1>설레연 회원가입 및 개인정보 동의항목 안내</h1>
+      <p class="subtitle">
+        설레연은 대학생 인증 기반 매칭 커뮤니티 서비스입니다. 회원가입 과정에서 카카오 로그인, 필수 개인정보 수집·이용 동의, 프로필 생성, 대학생 인증을 순서대로 진행합니다.
+      </p>
+      <p class="meta">시행일: 2026년 5월 10일</p>
+      <div class="hero-links">
+        <a class="button-link primary" href="/privacy">개인정보 처리방침 보기</a>
+        <a class="button-link" href="/legal/terms.html">서비스 이용약관 보기</a>
+      </div>
+    </header>
+
+    <div class="content">
+      <section class="section-card">
+        <h2>서비스 및 회원가입 개요</h2>
+        <div class="notice">
+          <p>
+            이 페이지는 카카오 개인정보 동의항목 신청 심사를 위해 설레연 앱의 회원가입 동선과 개인정보 이용 목적을 외부에서 확인할 수 있도록 제공하는 공개 안내 페이지입니다.
+          </p>
+          <p>
+            화면 예시와 안내 문구에는 실제 이용자의 이름, 전화번호, 이메일 등 <strong>개인정보가 포함되지 않습니다.</strong>
+          </p>
+        </div>
+        <div class="flow-grid" aria-label="설레연 회원가입 동선">
+          <article class="flow-step">
+            <div class="step-number">1</div>
+            <h3>카카오 로그인</h3>
+            <p class="muted">사용자는 앱의 카카오 로그인 버튼을 눌러 회원가입을 시작합니다.</p>
+          </article>
+          <article class="flow-step">
+            <div class="step-number">2</div>
+            <h3>필수 동의 확인</h3>
+            <p class="muted">서비스 이용약관, 개인정보 처리방침, 이름 및 전화번호 수집·이용 동의, 만 18세 이상 여부를 확인합니다.</p>
+          </article>
+          <article class="flow-step">
+            <div class="step-number">3</div>
+            <h3>프로필 생성</h3>
+            <p class="muted">닉네임, 학교, 관심사 등 앱 이용에 필요한 프로필 정보를 사용자가 직접 입력합니다.</p>
+          </article>
+          <article class="flow-step">
+            <div class="step-number">4</div>
+            <h3>대학생 인증</h3>
+            <p class="muted">학교 이메일 또는 학교 인증 정보를 통해 대학생 인증 기반 커뮤니티 이용 자격을 확인합니다.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section-card">
+        <h2>회원가입 시 필수 동의 항목</h2>
+        <p>
+          설레연은 안전한 대학생 인증 기반 매칭 커뮤니티 운영을 위해 필요한 최소한의 개인정보를 수집·이용합니다. 필수 항목을 모두 동의해야 다음 단계로 진행할 수 있습니다.
+        </p>
+        <div class="consent-list">
+          <article class="consent-row">
+            <div>
+              <h3>[필수] 서비스 이용약관 동의</h3>
+              <p>서비스 이용 조건, 회원의 의무, 신고 및 제재, 서비스 이용 제한 기준을 안내합니다.</p>
+            </div>
+            <span class="consent-badge required">필수 동의</span>
+          </article>
+          <article class="consent-row">
+            <div>
+              <h3>[필수] 개인정보 처리방침 동의</h3>
+              <p>수집 항목, 이용 목적, 보유 기간, 이용자의 권리, 개인정보 보호 조치를 안내합니다.</p>
+            </div>
+            <span class="consent-badge required">필수 동의</span>
+          </article>
+          <article class="consent-row">
+            <div>
+              <h3>[필수] 이름 및 전화번호 수집·이용 동의</h3>
+              <p>카카오 로그인 과정에서 제공받을 수 있는 이름과 카카오계정에 등록된 전화번호의 이용 목적을 별도 상세 화면으로 안내합니다.</p>
+            </div>
+            <span class="consent-badge required">필수 동의</span>
+          </article>
+          <article class="consent-row">
+            <div>
+              <h3>[필수] 만 18세 이상입니다</h3>
+              <p>서비스 이용 가능 연령을 확인합니다.</p>
+            </div>
+            <span class="consent-badge required">필수 동의</span>
+          </article>
+        </div>
+      </section>
+
+      <section class="section-card">
+        <h2>카카오 개인정보 동의항목 신청 기준</h2>
+        <p>
+          설레연은 카카오 로그인 과정에서 <span class="highlight">이름</span>과 <span class="highlight">카카오계정에 등록된 전화번호</span>만 필수 동의항목으로 신청합니다. 성별, 나이, 학교, 관심사 등은 사용자가 앱에서 직접 입력하는 정보이며 카카오 개인정보 동의항목으로 신청하지 않습니다.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>신청 항목</th>
+                <th>동의 단계</th>
+                <th>수집 및 이용 목적</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>이름</td>
+                <td>필수 동의</td>
+                <td>회원가입 및 본인 확인, 실사용자 확인, 신고·차단·제재 대응 시 이용자 식별</td>
+              </tr>
+              <tr>
+                <td>카카오계정(전화번호)</td>
+                <td>필수 동의</td>
+                <td>중복 가입 방지, 악성 사용자 재가입 방지, 신고·차단·제재 대응, 비상 상황 또는 이용자 보호가 필요한 경우의 본인 확인</td>
+              </tr>
+              <tr>
+                <td>성별, 나이, 학교, 관심사 등</td>
+                <td>카카오 동의항목으로 신청하지 않음</td>
+                <td>앱 내 프로필 생성 단계에서 사용자가 직접 입력하거나 대학생 인증 과정에서 별도로 확인</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section-card">
+        <h2>이름 및 전화번호 수집·이용 안내</h2>
+        <p>
+          이름과 전화번호는 카카오 로그인 과정에서 제공받을 수 있으며, 실사용자 확인, 중복 가입 방지, 신고 및 제재 대응 등 안전한 서비스 운영을 위해 사용됩니다.
+        </p>
+        <ul class="rule-list">
+          <li>수집 항목: 이름, 카카오계정에 등록된 전화번호</li>
+          <li>이용 목적: 실사용자 확인, 중복 가입 방지, 악성 사용자 재가입 방지, 신고·차단·제재 대응, 이용자 보호가 필요한 경우의 본인 확인</li>
+          <li>보유 기간: 회원 탈퇴 시까지 보관하며, 관계 법령 또는 신고·제재·분쟁 대응이 필요한 경우 정해진 기간 동안 보관할 수 있습니다.</li>
+          <li>동의 거부 시 불이익: 해당 정보는 안전한 서비스 운영 및 사용자 보호를 위한 필수 항목이므로, 동의하지 않을 경우 회원가입 및 서비스 이용이 제한될 수 있습니다.</li>
+        </ul>
+      </section>
+
+      <section class="section-card">
+        <h2>심사 제출 자료 체크</h2>
+        <div class="check-grid">
+          <div class="check-item">
+            <p><strong>회원가입 링크</strong></p>
+            <p>이 페이지 URL을 제출합니다: https://seolleyeon.web.app/signup-guide</p>
+          </div>
+          <div class="check-item">
+            <p><strong>개인정보 처리방침</strong></p>
+            <p>개인정보 처리방침 URL을 제출합니다: https://seolleyeon.web.app/privacy</p>
+          </div>
+          <div class="check-item">
+            <p><strong>회원가입 화면 첨부</strong></p>
+            <p>개인정보가 입력되지 않은 회원가입 동선 PDF 또는 화면 캡처를 첨부합니다.</p>
+          </div>
+          <div class="check-item">
+            <p><strong>신청 동의항목</strong></p>
+            <p>이름과 카카오계정(전화번호)을 필수 동의항목으로 신청합니다.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <p class="footer">설레연 운영팀 • 개인정보 및 회원가입 안내</p>
+  </main>
+</body>
+</html>

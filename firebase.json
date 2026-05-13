@@ -33,6 +33,7 @@
     }
   ],
   "hosting": {
+    "site": "seolleyeon",
     "public": "public",
     "ignore": [
       "firebase.json",
@@ -93,6 +94,22 @@
       {
         "source": "/invite/friend/**",
         "destination": "/invite-friend.html"
+      },
+      {
+        "source": "/privacy",
+        "destination": "/privacy.html"
+      },
+      {
+        "source": "/privacy/**",
+        "destination": "/privacy.html"
+      },
+      {
+        "source": "/signup-guide",
+        "destination": "/signup-guide.html"
+      },
+      {
+        "source": "/signup-guide/**",
+        "destination": "/signup-guide.html"
       },
       {
         "source": "/auth/email-link",

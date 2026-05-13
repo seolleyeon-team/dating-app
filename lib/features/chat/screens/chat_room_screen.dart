@@ -30,8 +30,6 @@ class _AppColors {
   /// 연한 보라 채우기용 알파 (버튼·칩 배경 — 약 30% 더 연하게 조정 시 배수)
   static const double promiseFillAlpha = 0.29;
   static const double promiseFillAlphaLight = 0.25;
-  static const double promiseBorderAlpha = 0.39;
-  static const double promiseBorderAlphaStrong = 0.43;
   static const Color backgroundLight = Color(0xFFFAFAFC);
   static const Color bubbleUser = Color(0xFFF5F2EE);
   static const Color bubblePartner = Color(0xFFF0F3F5);
@@ -71,6 +69,28 @@ String _promiseDetailSubtitle({
   if (cat.isNotEmpty) parts.add(cat);
   if (pl.isNotEmpty) parts.add(pl);
   return parts.join(' · ');
+}
+
+List<BoxShadow> _promiseSoftShadow(
+  BuildContext context,
+  Color accentColor, {
+  double opacity = 0.16,
+}) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  return [
+    BoxShadow(
+      color: isDark
+          ? CupertinoColors.black.withValues(alpha: 0.24)
+          : accentColor.withValues(alpha: opacity),
+      blurRadius: 20,
+      offset: const Offset(0, 8),
+    ),
+    BoxShadow(
+      color: CupertinoColors.black.withValues(alpha: isDark ? 0.18 : 0.04),
+      blurRadius: 8,
+      offset: const Offset(0, 2),
+    ),
+  ];
 }
 
 class _ChatMessage {
@@ -215,12 +235,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   String? _initError;
   bool _isReady = false;
   bool _isSending = false;
-  bool _isNearBottom = true;
-  bool _pendingForceScrollToBottom = true;
+  bool _didInitialScrollToBottom = false;
+  bool _isSettlingInitialScrollToBottom = false;
+  bool _isProgrammaticInitialScroll = false;
+  bool _userScrolledDuringInitialScroll = false;
   bool _isCancellingExpiredPromise = false;
   DateTime _currentNow = DateTime.now();
   Timer? _safetyStampTimer;
-  String? _lastMessageSnapshotSignature;
 
   void _openPartnerProfileCard() {
     if (widget.partnerId.isEmpty) return;
@@ -306,7 +327,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_handleScrollChanged);
+    _scrollController.addListener(_handleInitialScrollChanged);
     _startSafetyStampTimer();
     _initChat();
   }
@@ -318,7 +339,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
     _safetyStampTimer?.cancel();
     _messageController.dispose();
-    _scrollController.removeListener(_handleScrollChanged);
+    _scrollController.removeListener(_handleInitialScrollChanged);
     _scrollController.dispose();
     super.dispose();
   }
@@ -331,46 +352,65 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     super.deactivate();
   }
 
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-      );
-    });
-  }
-
-  void _handleScrollChanged() {
-    if (!_scrollController.hasClients) return;
-
-    final position = _scrollController.position;
-    final distanceFromBottom = position.maxScrollExtent - position.pixels;
-    _isNearBottom = distanceFromBottom <= 96;
-  }
-
-  void _maybeAutoScrollToBottom(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> messageDocs,
-  ) {
-    final lastMessageId = messageDocs.isEmpty ? 'empty' : messageDocs.last.id;
-    final nextSignature = '${messageDocs.length}:$lastMessageId';
-    final hasSnapshotChanged = nextSignature != _lastMessageSnapshotSignature;
-
-    if (_lastMessageSnapshotSignature == null) {
-      _lastMessageSnapshotSignature = nextSignature;
-      _pendingForceScrollToBottom = false;
-      _scrollToBottom();
+  void _handleInitialScrollChanged() {
+    if (!_isSettlingInitialScrollToBottom || _isProgrammaticInitialScroll) {
       return;
     }
+    _userScrolledDuringInitialScroll = true;
+  }
 
-    _lastMessageSnapshotSignature = nextSignature;
+  void _scrollToBottomOnceOnOpen() {
+    if (_didInitialScrollToBottom) return;
+    _didInitialScrollToBottom = true;
+    _isSettlingInitialScrollToBottom = true;
+    _userScrolledDuringInitialScroll = false;
 
-    if (!hasSnapshotChanged) return;
-    if (!_pendingForceScrollToBottom && !_isNearBottom) return;
+    const maxAttempts = 12;
+    const tolerance = 1.0;
+    double? previousMaxScrollExtent;
 
-    _pendingForceScrollToBottom = false;
-    _scrollToBottom();
+    void jumpAfterLayout({int attempt = 0}) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) {
+          _isSettlingInitialScrollToBottom = false;
+          return;
+        }
+        if (_userScrolledDuringInitialScroll) {
+          _isSettlingInitialScrollToBottom = false;
+          return;
+        }
+
+        final position = _scrollController.position;
+        if (!position.hasContentDimensions && attempt < 3) {
+          jumpAfterLayout(attempt: attempt + 1);
+          return;
+        }
+
+        final maxScrollExtent = position.maxScrollExtent;
+        _isProgrammaticInitialScroll = true;
+        try {
+          _scrollController.jumpTo(maxScrollExtent);
+        } finally {
+          _isProgrammaticInitialScroll = false;
+        }
+
+        final isStable =
+            previousMaxScrollExtent != null &&
+            (maxScrollExtent - previousMaxScrollExtent!).abs() <= tolerance;
+        final isAtBottom =
+            (position.maxScrollExtent - position.pixels).abs() <= tolerance;
+        previousMaxScrollExtent = maxScrollExtent;
+
+        if (attempt < maxAttempts && (!isStable || !isAtBottom)) {
+          jumpAfterLayout(attempt: attempt + 1);
+          return;
+        }
+
+        _isSettlingInitialScrollToBottom = false;
+      });
+    }
+
+    jumpAfterLayout();
   }
 
   void _markCurrentRoomAsRead() {
@@ -460,7 +500,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     try {
       _messageController.clear();
-      _pendingForceScrollToBottom = true;
 
       await _chatService.sendTextMessage(
         roomId: _roomId,
@@ -469,7 +508,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       );
 
       widget.onSend?.call(text);
-      _scrollToBottom();
     } finally {
       if (mounted) {
         setState(() {
@@ -860,7 +898,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                     style: TextStyle(
                                       fontFamily: 'Pretendard',
                                       fontSize: 14,
-                                      color: Theme.of(context).brightness == Brightness.dark
+                                      color:
+                                          Theme.of(context).brightness ==
+                                              Brightness.dark
                                           ? AppColorsDark.textSecondary
                                           : _AppColors.textSubtle,
                                     ),
@@ -912,7 +952,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             );
                           }
 
-                          _maybeAutoScrollToBottom(messageDocs);
+                          _scrollToBottomOnceOnOpen();
 
                           return SliverList(
                             delegate: SliverChildBuilderDelegate((
@@ -1044,9 +1084,6 @@ class _SafetyStampEntryButton extends StatelessWidget {
     final backgroundColor = isEnabled
         ? (isDark ? const Color(0xFF2E1F28) : const Color(0xFFFFF3F6))
         : (isDark ? AppColorsDark.surfaceVariant : const Color(0xFFF7F5F3));
-    final borderColor = isEnabled
-        ? (isDark ? const Color(0xFF5C2A3E) : const Color(0xFFF4C6D2))
-        : (isDark ? AppColorsDark.border : const Color(0xFFE6E1DC));
     final iconColor = isEnabled
         ? (isDark ? const Color(0xFFFF8FA8) : const Color(0xFFEF6C93))
         : (isDark ? AppColorsDark.textHint : const Color(0xFFB7AEA6));
@@ -1065,7 +1102,11 @@ class _SafetyStampEntryButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: backgroundColor,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: borderColor),
+            boxShadow: _promiseSoftShadow(
+              context,
+              isEnabled ? iconColor : _AppColors.stone400,
+              opacity: isEnabled ? 0.12 : 0.08,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1103,7 +1144,9 @@ class _SafetyStampEntryButton extends StatelessWidget {
                   fontFamily: 'Pretendard',
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  color: isDark ? AppColorsDark.textSecondary : _AppColors.textSubtle,
+                  color: isDark
+                      ? AppColorsDark.textSecondary
+                      : _AppColors.textSubtle,
                   height: 1.35,
                 ),
               ),
@@ -1139,9 +1182,15 @@ class _Header extends StatelessWidget {
         ? AppColorsDark.background.withValues(alpha: 0.92)
         : _AppColors.backgroundLight.withValues(alpha: 0.92);
     final borderColor = isDark ? AppColorsDark.border : _AppColors.stone100;
-    final buttonBg = isDark ? AppColorsDark.surfaceVariant : _AppColors.stone100;
-    final textMainColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
-    final textSubColor = isDark ? AppColorsDark.textSecondary : _AppColors.textSubtle;
+    final buttonBg = isDark
+        ? AppColorsDark.surfaceVariant
+        : _AppColors.stone100;
+    final textMainColor = isDark
+        ? AppColorsDark.textPrimary
+        : _AppColors.textMain;
+    final textSubColor = isDark
+        ? AppColorsDark.textSecondary
+        : _AppColors.textSubtle;
 
     return SafeArea(
       bottom: false,
@@ -1309,19 +1358,20 @@ class _ActivePromiseBanner extends StatelessWidget {
     final place = activePromise['place']?.toString() ?? '';
     final categoryRaw = activePromise['placeCategory']?.toString() ?? '';
     final categoryLabel = PromisePlaceCategory.labelOrEmpty(categoryRaw);
+    final bgColor = _AppColors.primarySoft.withValues(
+      alpha: _AppColors.promiseFillAlphaLight,
+    );
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: _AppColors.primarySoft.withValues(
-          alpha: _AppColors.promiseFillAlphaLight,
-        ),
+        color: bgColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: _AppColors.primarySoft.withValues(
-            alpha: _AppColors.promiseBorderAlpha,
-          ),
+        boxShadow: _promiseSoftShadow(
+          context,
+          _AppColors.primarySoft,
+          opacity: 0.12,
         ),
       ),
       child: Text(
@@ -1412,8 +1462,12 @@ class _ReceivedMessage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final avatarBg = isDark ? AppColorsDark.surfaceVariant : _AppColors.stone200;
-    final bubbleBg = isDark ? AppColorsDark.chatBubbleOther : _AppColors.bubblePartner;
+    final avatarBg = isDark
+        ? AppColorsDark.surfaceVariant
+        : _AppColors.stone200;
+    final bubbleBg = isDark
+        ? AppColorsDark.chatBubbleOther
+        : _AppColors.bubblePartner;
     final textColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
     final timeColor = isDark ? AppColorsDark.textHint : _AppColors.stone400;
 
@@ -1441,7 +1495,9 @@ class _ReceivedMessage extends StatelessWidget {
                     shape: CaptureProtectedImageShape.circle,
                     fit: BoxFit.cover,
                     backgroundColor: avatarBg,
-                    placeholderIconColor: isDark ? AppColorsDark.textHint : _AppColors.stone400,
+                    placeholderIconColor: isDark
+                        ? AppColorsDark.textHint
+                        : _AppColors.stone400,
                     placeholderIconSize: 20,
                   ),
                 ),
@@ -1506,8 +1562,12 @@ class _SentMessage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bubbleBg = isDark ? AppColorsDark.chatBubbleMine : _AppColors.bubbleUser;
-    final bubbleBorder = isDark ? AppColorsDark.border : const Color(0xFFEFECE8);
+    final bubbleBg = isDark
+        ? AppColorsDark.chatBubbleMine
+        : _AppColors.bubbleUser;
+    final bubbleBorder = isDark
+        ? AppColorsDark.border
+        : const Color(0xFFEFECE8);
     final textColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
     final timeColor = isDark ? AppColorsDark.textHint : _AppColors.stone400;
 
@@ -1600,10 +1660,15 @@ class _PromiseRequestMessage extends StatelessWidget {
     if (message.shouldHideAsExpired) return const SizedBox.shrink();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? AppColorsDark.surface : CupertinoColors.white;
-    final cardBorder = isDark ? AppColorsDark.border : _AppColors.stone200;
-    final textMainColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
-    final textSubColor = isDark ? AppColorsDark.textSecondary : _AppColors.textSubtle;
-    final rejectBg = isDark ? AppColorsDark.surfaceVariant : _AppColors.stone100;
+    final textMainColor = isDark
+        ? AppColorsDark.textPrimary
+        : _AppColors.textMain;
+    final textSubColor = isDark
+        ? AppColorsDark.textSecondary
+        : _AppColors.textSubtle;
+    final rejectBg = isDark
+        ? AppColorsDark.surfaceVariant
+        : _AppColors.stone100;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -1614,7 +1679,11 @@ class _PromiseRequestMessage extends StatelessWidget {
           decoration: BoxDecoration(
             color: cardBg,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: cardBorder),
+            boxShadow: _promiseSoftShadow(
+              context,
+              _AppColors.primarySoft,
+              opacity: 0.10,
+            ),
           ),
           child: Column(
             children: [
@@ -1800,7 +1869,9 @@ class _PromiseConfirmedBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     if (message.shouldHideAsExpired) return const SizedBox.shrink();
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textMainColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final textMainColor = isDark
+        ? AppColorsDark.textPrimary
+        : _AppColors.textMain;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -1813,10 +1884,10 @@ class _PromiseConfirmedBanner extends StatelessWidget {
               alpha: _AppColors.promiseFillAlpha,
             ),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: _AppColors.primarySoft.withValues(
-                alpha: _AppColors.promiseBorderAlphaStrong,
-              ),
+            boxShadow: _promiseSoftShadow(
+              context,
+              _AppColors.primarySoft,
+              opacity: 0.15,
             ),
           ),
           child: Column(
@@ -1917,9 +1988,12 @@ class _PromiseCompletedBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF1A2922) : const Color(0xFFEAF5EE);
-    final borderColor = isDark ? const Color(0xFF2A4A34) : const Color(0xFFC7E5D0);
-    final greenTitle = isDark ? const Color(0xFF66BB6A) : const Color(0xFF2E7D4F);
-    final textMainColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final greenTitle = isDark
+        ? const Color(0xFF66BB6A)
+        : const Color(0xFF2E7D4F);
+    final textMainColor = isDark
+        ? AppColorsDark.textPrimary
+        : _AppColors.textMain;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -1930,7 +2004,7 @@ class _PromiseCompletedBanner extends StatelessWidget {
           decoration: BoxDecoration(
             color: bgColor,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: borderColor),
+            boxShadow: _promiseSoftShadow(context, greenTitle, opacity: 0.13),
           ),
           child: Column(
             children: [
@@ -1996,9 +2070,12 @@ class _PromiseInProgressBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF2A2314) : const Color(0xFFFFF7E8);
-    final borderColor = isDark ? const Color(0xFF4A3A1E) : const Color(0xFFF0D7A6);
-    final amberTitle = isDark ? const Color(0xFFFFB74D) : const Color(0xFF9A6500);
-    final textMainColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final amberTitle = isDark
+        ? const Color(0xFFFFB74D)
+        : const Color(0xFF9A6500);
+    final textMainColor = isDark
+        ? AppColorsDark.textPrimary
+        : _AppColors.textMain;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -2009,7 +2086,7 @@ class _PromiseInProgressBanner extends StatelessWidget {
           decoration: BoxDecoration(
             color: bgColor,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: borderColor),
+            boxShadow: _promiseSoftShadow(context, amberTitle, opacity: 0.13),
           ),
           child: Column(
             children: [
@@ -2837,11 +2914,15 @@ class _InputBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final gradientBase = isDark ? AppColorsDark.background : _AppColors.backgroundLight;
+    final gradientBase = isDark
+        ? AppColorsDark.background
+        : _AppColors.backgroundLight;
     final inputBg = isDark ? AppColorsDark.surface : CupertinoColors.white;
     final inputBorder = isDark ? AppColorsDark.border : _AppColors.stone100;
     final iconColor = isDark ? AppColorsDark.textHint : _AppColors.stone400;
-    final placeholderColor = isDark ? AppColorsDark.textHint : _AppColors.stone400;
+    final placeholderColor = isDark
+        ? AppColorsDark.textHint
+        : _AppColors.stone400;
     final textColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
     final sendBg = isDark ? AppColorsDark.primary : _AppColors.sendButton;
 

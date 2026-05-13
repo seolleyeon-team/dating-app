@@ -5,6 +5,7 @@ import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import '../../providers/auth_provider.dart';
 import '../../router/route_names.dart';
 import '../../services/auth_service.dart';
+import '../../services/user_service.dart';
 
 class KakaoCallbackScreen extends StatefulWidget {
   const KakaoCallbackScreen({super.key, this.callbackPathAndQuery});
@@ -44,10 +45,9 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
         _statusMessage = '로그인 실패: ${errorDescription ?? error}';
       });
       if (!mounted) return;
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        RouteNames.kakaoAuth,
-        (route) => false,
-      );
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil(RouteNames.kakaoAuth, (route) => false);
       return;
     }
 
@@ -88,15 +88,24 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
       if (!mounted) return;
       final authProvider = context.read<AuthProvider>();
       await authProvider.setKakaoLogin(kakaoUserId, userInfo: userInfo);
+      await UserService().upsertKakaoUser(
+        kakaoUserId: kakaoUserId,
+        nickname: userInfo['nickname']?.toString(),
+        profileImageUrl: userInfo['profileImageUrl']?.toString(),
+        email: userInfo['email']?.toString(),
+      );
+
+      final authService = AuthService();
+      await authService.syncPendingLegalConsents(kakaoUserId);
 
       if (!mounted) return;
       setState(() => _statusMessage = '로그인 완료! 이동 중...');
 
       // 5) Firebase에서 최신 상태로 재조회 후 라우팅
-      final authService = AuthService();
       final isVerified = await authService.isStudentVerified(kakaoUserId);
-      final isSetupComplete =
-          await authService.isInitialSetupComplete(kakaoUserId);
+      final isSetupComplete = await authService.isInitialSetupComplete(
+        kakaoUserId,
+      );
 
       if (!mounted) return;
       if (!isVerified) {
@@ -114,28 +123,25 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
         );
       } else {
         // 연세 인증 + 초기설정 완료 → 튜토리얼 없이 홈(설레연 탭). 재설치 후 약관→카카오 로그인한 기존 사용자 포함
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          RouteNames.main,
-          (route) => false,
-        );
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
       }
     } on KakaoException catch (e) {
       final detail = e.message ?? e.toString();
       if (!mounted) return;
       setState(() => _statusMessage = '카카오 로그인 실패: $detail');
       if (!mounted) return;
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        RouteNames.kakaoAuth,
-        (route) => false,
-      );
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil(RouteNames.kakaoAuth, (route) => false);
     } catch (e) {
       if (!mounted) return;
       setState(() => _statusMessage = '로그인 처리 실패: $e');
       if (!mounted) return;
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        RouteNames.kakaoAuth,
-        (route) => false,
-      );
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil(RouteNames.kakaoAuth, (route) => false);
     }
   }
 
@@ -151,10 +157,7 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
       body: Center(
         child: Text(
           _statusMessage,
-          style: const TextStyle(
-            fontFamily: 'Pretendard',
-            fontSize: 16,
-          ),
+          style: const TextStyle(fontFamily: 'Pretendard', fontSize: 16),
         ),
       ),
     );

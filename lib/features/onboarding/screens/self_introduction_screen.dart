@@ -1,5 +1,5 @@
 // =============================================================================
-// 자기소개 작성 화면 (온보딩 Step 5)
+// 자기소개 작성 화면 (온보딩 Step 7)
 // 경로: lib/features/onboarding/screens/self_introduction_screen.dart
 // =============================================================================
 
@@ -36,8 +36,8 @@ class SelfIntroductionScreen extends StatefulWidget {
 
   const SelfIntroductionScreen({
     super.key,
-    this.currentStep = 6,
-    this.totalSteps = 8,
+    this.currentStep = 7,
+    this.totalSteps = 9,
     this.onBack,
     this.onNext,
   });
