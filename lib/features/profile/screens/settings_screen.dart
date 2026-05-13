@@ -10,6 +10,8 @@ import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../providers/theme_provider.dart';
 import '../../../router/route_names.dart';
+import '../../../services/storage_service.dart';
+import '../../../services/user_service.dart';
 
 // =============================================================================
 // 메인 화면
@@ -24,7 +26,76 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  final StorageService _storageService = StorageService();
+  final UserService _userService = UserService();
+
   bool _profileVisible = true;
+  bool _avoidSameDepartment = false;
+  bool _isSavingAvoidSameDepartment = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPrivacySettings();
+  }
+
+  Future<void> _loadPrivacySettings() async {
+    final kakaoUserId = await _storageService.getKakaoUserId();
+    if (kakaoUserId == null || kakaoUserId.isEmpty) return;
+
+    final user = await _userService.getUserProfile(kakaoUserId);
+    if (!mounted || user == null) return;
+
+    final privacySettings = user['privacySettings'];
+    if (privacySettings is Map) {
+      setState(() {
+        _avoidSameDepartment = privacySettings['avoidSameDepartment'] == true;
+      });
+    }
+  }
+
+  Future<void> _updateAvoidSameDepartment(bool value) async {
+    if (_isSavingAvoidSameDepartment) return;
+
+    final previousValue = _avoidSameDepartment;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _avoidSameDepartment = value;
+      _isSavingAvoidSameDepartment = true;
+    });
+
+    try {
+      final kakaoUserId = await _storageService.getKakaoUserId();
+      if (kakaoUserId == null || kakaoUserId.isEmpty) {
+        throw Exception('사용자 정보를 찾을 수 없습니다.');
+      }
+
+      await _userService.savePrivacySettings(
+        kakaoUserId: kakaoUserId,
+        privacySettings: {'avoidSameDepartment': value},
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _avoidSameDepartment = previousValue);
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (dialogContext) => CupertinoAlertDialog(
+          title: const Text('저장 실패'),
+          content: const Text('과 피하기 설정을 저장하지 못했어요. 잠시 후 다시 시도해주세요.'),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingAvoidSameDepartment = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +103,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final isDark = themeProvider.isDarkMode;
     final seol = Theme.of(context).extension<SeolThemeColors>()!;
     final primary = Theme.of(context).colorScheme.primary;
-    final textMain = isDark ? AppColorsDark.textPrimary : const Color(0xFF181113);
+    final textMain = isDark
+        ? AppColorsDark.textPrimary
+        : const Color(0xFF181113);
     final bgColor = isDark ? AppColorsDark.background : const Color(0xFFF8F6F6);
     final surfaceColor = seol.cardSurface;
 
@@ -60,11 +133,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ? CupertinoColors.white.withValues(alpha: 0.08)
                   : CupertinoColors.black.withValues(alpha: 0.05),
             ),
-            child: Icon(
-              CupertinoIcons.back,
-              size: 20,
-              color: textMain,
-            ),
+            child: Icon(CupertinoIcons.back, size: 20, color: textMain),
           ),
         ),
         middle: Text(
@@ -139,6 +208,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         title: '프로필 공개',
                         value: _profileVisible,
                         onChanged: (v) => setState(() => _profileVisible = v),
+                      ),
+                      const _Divider(),
+                      _SettingsToggle(
+                        icon: CupertinoIcons.person_2_square_stack,
+                        title: '과 피하기',
+                        subtitle: '같은 과 사람을 추천에서 제외해요',
+                        value: _avoidSameDepartment,
+                        onChanged: _isSavingAvoidSameDepartment
+                            ? null
+                            : _updateAvoidSameDepartment,
                       ),
                     ],
                   ),
@@ -253,7 +332,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       _SettingsItem(
                         icon: CupertinoIcons.doc_text,
-                        title: '이용 약관',
+                        title: '약관 보기',
+                        subtitle: '이용약관, 개인정보 처리방침, 이름·전화번호 동의',
                         hasChevron: true,
                         onTap: () {
                           HapticFeedback.selectionClick();
@@ -374,8 +454,12 @@ class _SettingsItem extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primary = Theme.of(context).colorScheme.primary;
     final seol = Theme.of(context).extension<SeolThemeColors>()!;
-    final textMain = isDark ? AppColorsDark.textPrimary : const Color(0xFF181113);
-    final textSub = isDark ? AppColorsDark.textSecondary : const Color(0xFF89616B);
+    final textMain = isDark
+        ? AppColorsDark.textPrimary
+        : const Color(0xFF181113);
+    final textSub = isDark
+        ? AppColorsDark.textSecondary
+        : const Color(0xFF89616B);
 
     return CupertinoButton(
       padding: EdgeInsets.zero,
@@ -423,11 +507,7 @@ class _SettingsItem extends StatelessWidget {
             ),
             if (trailing != null) ...[trailing!, const SizedBox(width: 8)],
             if (hasChevron)
-              Icon(
-                CupertinoIcons.chevron_right,
-                size: 18,
-                color: seol.gray300,
-              ),
+              Icon(CupertinoIcons.chevron_right, size: 18, color: seol.gray300),
           ],
         ),
       ),
@@ -441,12 +521,14 @@ class _SettingsItem extends StatelessWidget {
 class _SettingsToggle extends StatelessWidget {
   final IconData icon;
   final String title;
+  final String? subtitle;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
 
   const _SettingsToggle({
     required this.icon,
     required this.title,
+    this.subtitle,
     required this.value,
     required this.onChanged,
   });
@@ -455,7 +537,9 @@ class _SettingsToggle extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primary = Theme.of(context).colorScheme.primary;
-    final textMain = isDark ? AppColorsDark.textPrimary : const Color(0xFF181113);
+    final textMain = isDark
+        ? AppColorsDark.textPrimary
+        : const Color(0xFF181113);
 
     return Padding(
       padding: const EdgeInsets.all(20),
@@ -472,14 +556,32 @@ class _SettingsToggle extends StatelessWidget {
           ),
           const SizedBox(width: 16),
           Expanded(
-            child: Text(
-              title,
-              style: TextStyle(
-                fontFamily: 'Pretendard',
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                color: textMain,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontFamily: 'Pretendard',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    color: textMain,
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle!,
+                    style: TextStyle(
+                      fontFamily: 'Pretendard',
+                      fontSize: 13,
+                      color: isDark
+                          ? AppColorsDark.textSecondary
+                          : const Color(0xFF89616B),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           CupertinoSwitch(

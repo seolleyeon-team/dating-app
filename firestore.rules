@@ -84,6 +84,9 @@ service cloud.firestore {
             'studentEmail',
             'studentVerifiedAt',
             'verifiedAt',
+            'legalConsents',
+            'privacySettings',
+            'privacySettingsUpdatedAt',
             'preferenceVector'
           ]);
 
@@ -115,6 +118,9 @@ service cloud.firestore {
               'onboardingCompletedAt',
               'idealType',
               'idealTypeUpdatedAt',
+              'legalConsents',
+              'privacySettings',
+              'privacySettingsUpdatedAt',
               'updatedAt'
             ])
           ) || (
@@ -129,6 +135,9 @@ service cloud.firestore {
               'onboardingUpdatedAt',
               'idealType',
               'idealTypeUpdatedAt',
+              'legalConsents',
+              'privacySettings',
+              'privacySettingsUpdatedAt',
               'updatedAt'
             ])
           );

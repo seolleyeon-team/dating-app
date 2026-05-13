@@ -1,5 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../constants/campus_life_zones.dart';
+import '../constants/legal_texts.dart';
+
 class UserService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -62,6 +65,48 @@ class UserService {
   }
 
   // ---------------------------------------------------------------------------
+  // 필수 약관/개인정보 동의 저장
+  // ---------------------------------------------------------------------------
+
+  Future<void> saveLegalConsents({
+    required String kakaoUserId,
+    Map<String, dynamic>? consentData,
+  }) async {
+    await _firestore.collection('users').doc(kakaoUserId).set({
+      'legalConsents': {
+        'termsOfService': _readConsentBool(
+          consentData?['termsOfService'],
+          fallback: true,
+        ),
+        'privacyPolicy': _readConsentBool(
+          consentData?['privacyPolicy'],
+          fallback: true,
+        ),
+        'kakaoNamePhone': _readConsentBool(
+          consentData?['kakaoNamePhone'],
+          fallback: true,
+        ),
+        'ageOver18': _readConsentBool(
+          consentData?['ageOver18'] ?? consentData?['ageOver14'],
+          fallback: true,
+        ),
+        'ageOver14': FieldValue.delete(),
+        'agreedAt': FieldValue.serverTimestamp(),
+        if (consentData?['agreedAtClientIso'] != null)
+          'agreedAtClientIso': consentData!['agreedAtClientIso'],
+        'version': consentData?['version']?.toString() ?? LegalTexts.version,
+      },
+    }, SetOptions(merge: true));
+  }
+
+  bool _readConsentBool(dynamic value, {required bool fallback}) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    if (value is String) return value.toLowerCase() == 'true';
+    return fallback;
+  }
+
+  // ---------------------------------------------------------------------------
   // 온보딩 상태
   // ---------------------------------------------------------------------------
 
@@ -95,6 +140,17 @@ class UserService {
   Future<Map<String, dynamic>?> getUserProfile(String kakaoUserId) async {
     final doc = await _firestore.collection('users').doc(kakaoUserId).get();
     return doc.data();
+  }
+
+  Future<void> savePrivacySettings({
+    required String kakaoUserId,
+    required Map<String, dynamic> privacySettings,
+  }) async {
+    await _firestore.collection('users').doc(kakaoUserId).set({
+      'privacySettings': privacySettings,
+      'privacySettingsUpdatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   // ---------------------------------------------------------------------------
@@ -150,6 +206,17 @@ class UserService {
     for (final e in basicInfo.entries) {
       mergedOnboarding[e.key.toString()] = e.value;
     }
+
+    final campusLifeZone = CampusLifeZoneResolver.resolve(
+      grade: mergedOnboarding['grade']?.toString(),
+      department: mergedOnboarding['department']?.toString(),
+      isRa: mergedOnboarding['isRa'] == true,
+    );
+    if (campusLifeZone != null) {
+      mergedOnboarding['campusLifeZones'] = campusLifeZone.zones;
+      mergedOnboarding['campusLifeZoneLabels'] = campusLifeZone.labels;
+    }
+
     await docRef.set({
       'onboarding': mergedOnboarding,
       'onboardingUpdatedAt': FieldValue.serverTimestamp(),

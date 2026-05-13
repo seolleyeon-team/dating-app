@@ -19,6 +19,8 @@ class OnboardingSaveHelper {
     required String education,
     required int height,
     required int age,
+    required String grade,
+    required bool isRa,
     required String mbti,
     required List<String> loveLanguages,
     required String relationship,
@@ -34,6 +36,8 @@ class OnboardingSaveHelper {
         'education': education,
         'height': height,
         'age': age,
+        'grade': grade,
+        'isRa': isRa,
         'mbti': mbti,
         'loveLanguages': loveLanguages,
         'relationship': relationship,
@@ -83,6 +87,16 @@ class OnboardingSaveHelper {
     );
   }
 
+  /// Step 5: 세부 학과
+  static Future<void> saveDepartment(String department) async {
+    final uid = await _getUserId();
+    if (uid == null) return;
+    await _userService.saveOnboardingBasicInfo(
+      kakaoUserId: uid,
+      basicInfo: {'department': department},
+    );
+  }
+
   /// 키 단일 저장 (height_selection_screen 등에서 사용)
   static Future<void> saveHeight(int height) async {
     final uid = await _getUserId();
@@ -93,7 +107,7 @@ class OnboardingSaveHelper {
     );
   }
 
-  /// Step 5: 사진
+  /// Step 6: 사진
   static Future<void> savePhotos(List<String> photoUrls) async {
     final uid = await _getUserId();
     if (uid == null) return;
@@ -103,7 +117,7 @@ class OnboardingSaveHelper {
     );
   }
 
-  /// Step 6: 자기소개
+  /// Step 7: 자기소개
   static Future<void> saveSelfIntroduction(String introduction) async {
     final uid = await _getUserId();
     if (uid == null) return;
@@ -113,10 +127,8 @@ class OnboardingSaveHelper {
     );
   }
 
-  /// Step 7: 프로필 문답
-  static Future<void> saveProfileQa(
-    List<Map<String, String>> questions,
-  ) async {
+  /// Step 8: 프로필 문답
+  static Future<void> saveProfileQa(List<Map<String, String>> questions) async {
     final uid = await _getUserId();
     if (uid == null) return;
     await _userService.saveOnboardingProfileQa(
@@ -125,7 +137,7 @@ class OnboardingSaveHelper {
     );
   }
 
-  /// Step 8: 키워드
+  /// Step 9: 키워드
   static Future<void> saveKeywords(List<String> keywords) async {
     final uid = await _getUserId();
     if (uid == null) return;
@@ -177,7 +189,10 @@ class OnboardingSaveHelper {
   }
 
   /// 이상형 단일 필드 저장 (ideal_age, ideal_height, ideal_mbti, ideal_department 등)
-  static Future<void> saveIdealTypeField(String fieldName, dynamic value) async {
+  static Future<void> saveIdealTypeField(
+    String fieldName,
+    dynamic value,
+  ) async {
     final uid = await _getUserId();
     if (uid == null) return;
     await _userService.updateIdealTypeField(

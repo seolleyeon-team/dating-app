@@ -143,7 +143,15 @@ class AppRouter {
       case RouteNames.onboardingMajor:
         return _cupertino(const MajorSelectionScreen());
       case RouteNames.onboardingDepartment:
-        return _cupertino(const DepartmentScreen());
+        {
+          final args = settings.arguments;
+          final initialMajor = args is Map<String, dynamic>
+              ? args['major']?.toString()
+              : args is String
+              ? args
+              : null;
+          return _cupertino(DepartmentScreen(initialMajor: initialMajor));
+        }
       case RouteNames.onboardingPhoto:
         return _cupertino(const PhotoUploadScreen());
       case RouteNames.onboardingSelfIntro:

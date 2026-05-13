@@ -1,5 +1,5 @@
 // =============================================================================
-// 나를 표현하는 키워드 선택 화면 (온보딩 4/6단계)
+// 나를 표현하는 키워드 선택 화면 (온보딩 Step 9)
 // 경로: lib/features/onboarding/screens/keyword_screen.dart
 //
 // 사용 예시 (main.dart):
@@ -148,47 +148,49 @@ class _KeywordScreenState extends State<KeywordScreen> {
                   // 헤더
                   _Header(
                     onBackPressed: _handleBack,
-                  currentStep: 8,
-                  totalSteps: 8,
-                ),
-                // 타이틀 섹션
-                const _TitleSection(),
-                // 키워드 그리드
-                Expanded(
-                  child: SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 120),
-                    child: Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: _KeywordData.keywords.map((keyword) {
-                        final isSelected = _selectedKeywords.contains(keyword);
-                        return _KeywordChip(
-                          label: keyword,
-                          isSelected: isSelected,
-                          onTap: () => _toggleKeyword(keyword),
-                        );
-                      }).toList(),
+                    currentStep: 9,
+                    totalSteps: 9,
+                  ),
+                  // 타이틀 섹션
+                  const _TitleSection(),
+                  // 키워드 그리드
+                  Expanded(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 120),
+                      child: Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: _KeywordData.keywords.map((keyword) {
+                          final isSelected = _selectedKeywords.contains(
+                            keyword,
+                          );
+                          return _KeywordChip(
+                            label: keyword,
+                            isSelected: isSelected,
+                            onTap: () => _toggleKeyword(keyword),
+                          );
+                        }).toList(),
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          // 하단 CTA 버튼
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _BottomCTA(
-              isEnabled: _canProceed,
-              selectedCount: _selectedKeywords.length,
-              onPressed: _onSavePressed,
+            // 하단 CTA 버튼
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _BottomCTA(
+                isEnabled: _canProceed,
+                selectedCount: _selectedKeywords.length,
+                onPressed: _onSavePressed,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
     );
   }
 }

@@ -97,13 +97,16 @@ class AuthProvider with ChangeNotifier {
             kakaoUserId,
           );
           _hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
-          _isStudentVerified = await _authService.isStudentVerified(kakaoUserId);
+          _isStudentVerified = await _authService.isStudentVerified(
+            kakaoUserId,
+          );
           _studentEmail = await _authService.getStudentEmail(kakaoUserId);
         } else {
           _isInitialSetupComplete = false;
           _hasSeenTutorial = false;
-          _isStudentVerified =
-              await _storageService.isStudentVerified(kakaoUserId);
+          _isStudentVerified = await _storageService.isStudentVerified(
+            kakaoUserId,
+          );
           _studentEmail = await _storageService.getStudentEmail(kakaoUserId);
         }
 
@@ -257,9 +260,7 @@ class AuthProvider with ChangeNotifier {
     await _showFriendInviteResult(result);
   }
 
-  Future<void> _showFriendInviteResult(
-    FriendInviteAcceptResult result,
-  ) async {
+  Future<void> _showFriendInviteResult(FriendInviteAcceptResult result) async {
     final context = NavigationService.navigatorKey.currentContext;
     final navigator = NavigationService.navigatorKey.currentState;
     if (context == null || navigator == null) return;
@@ -363,6 +364,8 @@ class AuthProvider with ChangeNotifier {
     try {
       await _storageService.saveKakaoUserId(kakaoUserId);
       await PushNotificationService.instance.syncFcmToken();
+      await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
+      await _authService.syncPendingLegalConsents(kakaoUserId);
 
       _kakaoUserId = kakaoUserId;
       _isAuthenticated = true;

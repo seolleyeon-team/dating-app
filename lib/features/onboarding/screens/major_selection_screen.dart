@@ -13,6 +13,7 @@ import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../constants/yonsei_departments.dart';
 import '../../../router/route_names.dart';
 import '../../../services/onboarding_save_helper.dart';
 import '../../../services/storage_service.dart';
@@ -70,7 +71,7 @@ class MajorSelectionScreen extends StatefulWidget {
   const MajorSelectionScreen({
     super.key,
     this.currentStep = 4,
-    this.totalSteps = 8,
+    this.totalSteps = 9,
     this.onBack,
     this.onSkip,
     this.onNext,
@@ -85,6 +86,7 @@ class _MajorSelectionScreenState extends State<MajorSelectionScreen> {
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
   bool _isSavingOnExit = false;
+  bool _isNavigating = false;
 
   @override
   void initState() {
@@ -128,6 +130,34 @@ class _MajorSelectionScreenState extends State<MajorSelectionScreen> {
     }
   }
 
+  Future<void> _handleMajorSelected(MajorType major) async {
+    if (_isNavigating) return;
+
+    HapticFeedback.selectionClick();
+    setState(() {
+      _selectedMajor = major;
+      _isNavigating = true;
+    });
+
+    try {
+      await _saveCurrentMajor();
+      if (!mounted) return;
+
+      if (widget.onNext != null) {
+        widget.onNext!.call(_selectedMajor);
+      } else {
+        Navigator.of(context).pushNamed(
+          RouteNames.onboardingDepartment,
+          arguments: {'major': major.name},
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isNavigating = false);
+      }
+    }
+  }
+
   static const List<_MajorOption> _options = [
     _MajorOption(
       type: MajorType.liberalArts,
@@ -161,8 +191,6 @@ class _MajorSelectionScreenState extends State<MajorSelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
-
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
@@ -185,54 +213,32 @@ class _MajorSelectionScreenState extends State<MajorSelectionScreen> {
                     totalSteps: widget.totalSteps,
                     onBack: _handleBack,
                   ),
-                // 콘텐츠
-                Expanded(
-                  child: SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(16, 24, 16, 140),
-                    child: Column(
-                      children: [
-                        // 타이틀
-                        const _TitleSection(),
-                        const SizedBox(height: 32),
-                        // 옵션 그리드
-                        _OptionsGrid(
-                          options: _options,
-                          selectedMajor: _selectedMajor,
-                          onSelect: (major) {
-                            HapticFeedback.selectionClick();
-                            setState(() => _selectedMajor = major);
-                          },
-                        ),
-                      ],
+                  // 콘텐츠
+                  Expanded(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 24, 16, 32),
+                      child: Column(
+                        children: [
+                          // 타이틀
+                          const _TitleSection(),
+                          const SizedBox(height: 32),
+                          // 옵션 그리드
+                          _OptionsGrid(
+                            options: _options,
+                            selectedMajor: _selectedMajor,
+                            onSelect: _handleMajorSelected,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          // 하단 버튼
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _BottomButtons(
-              bottomPadding: bottomPadding,
-              onNext: () async {
-                HapticFeedback.mediumImpact();
-                await _saveCurrentMajor();
-                if (!mounted) return;
-                if (widget.onNext != null) {
-                  widget.onNext!.call(_selectedMajor);
-                } else {
-                  Navigator.of(context).pushNamed(RouteNames.onboardingPhoto);
-                }
-              },
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
     );
   }
 }
@@ -448,6 +454,102 @@ class _OptionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final card = AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+      transform: Matrix4.translationValues(0, isSelected ? -6 : 0, 0),
+      decoration: BoxDecoration(
+        color: _AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(32),
+        border: Border.all(
+          color: isSelected
+              ? _AppColors.primary
+              : CupertinoColors.white.withValues(alpha: 0.6),
+          width: isSelected ? 2 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: isSelected
+                ? _AppColors.primary.withValues(alpha: 0.3)
+                : CupertinoColors.black.withValues(alpha: 0.08),
+            blurRadius: isSelected ? 40 : 30,
+            offset: Offset(0, isSelected ? 15 : 12),
+          ),
+          BoxShadow(
+            color: CupertinoColors.black.withValues(alpha: 0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: SizedBox(
+              width: 148,
+              height: 150,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // 이모지 아이콘
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    width: 64,
+                    height: 64,
+                    transform: Matrix4.diagonal3Values(
+                      isSelected ? 1.1 : 1.0,
+                      isSelected ? 1.1 : 1.0,
+                      1.0,
+                    ),
+                    decoration: BoxDecoration(
+                      color: option.bgColor,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Center(
+                      child: Text(
+                        option.emoji,
+                        style: const TextStyle(fontSize: 32),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // 타이틀
+                  Text(
+                    option.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.fade,
+                    softWrap: false,
+                    style: const TextStyle(
+                      fontFamily: 'Pretendard',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: _AppColors.gray800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  // 서브타이틀
+                  Text(
+                    option.subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.fade,
+                    softWrap: false,
+                    style: const TextStyle(
+                      fontFamily: 'Pretendard',
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: _AppColors.gray400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
     return CupertinoButton(
       padding: EdgeInsets.zero,
       minimumSize: const Size(0, 0),
@@ -455,82 +557,19 @@ class _OptionCard extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(6),
         child: SizedBox.expand(
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-            transform: Matrix4.translationValues(0, isSelected ? -6 : 0, 0),
-            decoration: BoxDecoration(
-              color: _AppColors.surfaceLight,
-              borderRadius: BorderRadius.circular(32),
-              border: Border.all(
-                color: isSelected
-                    ? _AppColors.primary
-                    : CupertinoColors.white.withValues(alpha: 0.6),
-                width: isSelected ? 2 : 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: isSelected
-                      ? _AppColors.primary.withValues(alpha: 0.3)
-                      : CupertinoColors.black.withValues(alpha: 0.08),
-                  blurRadius: isSelected ? 40 : 30,
-                  offset: Offset(0, isSelected ? 15 : 12),
-                ),
-                BoxShadow(
-                  color: CupertinoColors.black.withValues(alpha: 0.05),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // 이모지 아이콘
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  width: 64,
-                  height: 64,
-                  transform: Matrix4.diagonal3Values(
-                    isSelected ? 1.1 : 1.0,
-                    isSelected ? 1.1 : 1.0,
-                    1.0,
-                  ),
-                  decoration: BoxDecoration(
-                    color: option.bgColor,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Center(
-                    child: Text(
-                      option.emoji,
-                      style: const TextStyle(fontSize: 32),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                // 타이틀
-                Text(
-                  option.title,
-                  style: const TextStyle(
-                    fontFamily: 'Pretendard',
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: _AppColors.gray800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                // 서브타이틀
-                Text(
-                  option.subtitle,
-                  style: const TextStyle(
-                    fontFamily: 'Pretendard',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: _AppColors.gray400,
-                  ),
-                ),
-              ],
-            ),
+          child: Hero(
+            tag: YonseiDepartments.heroTagFor(option.type.name),
+            flightShuttleBuilder:
+                (
+                  flightContext,
+                  animation,
+                  flightDirection,
+                  fromHeroContext,
+                  toHeroContext,
+                ) {
+                  return _MajorHeroFlightCard(option: option);
+                },
+            child: Material(type: MaterialType.transparency, child: card),
           ),
         ),
       ),
@@ -538,74 +577,83 @@ class _OptionCard extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// 하단 버튼
-// =============================================================================
-class _BottomButtons extends StatelessWidget {
-  final double bottomPadding;
-  final VoidCallback onNext;
+class _MajorHeroFlightCard extends StatelessWidget {
+  final _MajorOption option;
 
-  const _BottomButtons({
-    required this.bottomPadding,
-    required this.onNext,
-  });
+  const _MajorHeroFlightCard({required this.option});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.fromLTRB(24, 24, 24, bottomPadding + 24),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _AppColors.backgroundLight.withValues(alpha: 0),
-            _AppColors.backgroundLight.withValues(alpha: 0.95),
-            _AppColors.backgroundLight,
-          ],
-        ),
-      ),
-      child: SizedBox(
-        width: double.infinity,
-        child: CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: onNext,
-          child: Container(
-            height: 56,
-            decoration: BoxDecoration(
-              color: _AppColors.primary,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                const BoxShadow(
-                  color: Color(0xFFD62660),
-                  offset: Offset(0, 6),
+    return Material(
+      type: MaterialType.transparency,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(30),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: _AppColors.surfaceLight,
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: _AppColors.primary, width: 2),
+          ),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: SizedBox(
+              width: 320,
+              height: 92,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 58,
+                      height: 58,
+                      decoration: BoxDecoration(
+                        color: option.bgColor,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Center(
+                        child: Text(
+                          option.emoji,
+                          style: const TextStyle(fontSize: 30),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            option.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.fade,
+                            softWrap: false,
+                            style: const TextStyle(
+                              fontFamily: 'Pretendard',
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: _AppColors.gray800,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            option.subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.fade,
+                            softWrap: false,
+                            style: const TextStyle(
+                              fontFamily: 'Pretendard',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: _AppColors.gray400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                BoxShadow(
-                  color: CupertinoColors.black.withValues(alpha: 0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  '다음',
-                  style: TextStyle(
-                    fontFamily: 'Pretendard',
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: CupertinoColors.white,
-                  ),
-                ),
-                SizedBox(width: 4),
-                Icon(
-                  CupertinoIcons.arrow_right,
-                  size: 20,
-                  color: CupertinoColors.white,
-                ),
-              ],
+              ),
             ),
           ),
         ),

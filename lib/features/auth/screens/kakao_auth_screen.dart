@@ -190,6 +190,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         kakaoUserId: kakaoUserId,
         platform: _currentPlatformLabel,
       );
+      await _authService.syncPendingLegalConsents(kakaoUserId);
 
       if (!mounted) return;
       // ✅ 이미 서버에 등록된 유저(재설치 후 약관→카카오 로그인 포함): 연세+초기설정 완료 시 홈으로
@@ -355,6 +356,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         kakaoUserId: kakaoUserId,
         platform: _currentPlatformLabel,
       );
+      await _authService.syncPendingLegalConsents(kakaoUserId);
       if (!mounted) return;
       if (existedBeforeLogin) {
         final isVerified = await _authService.isStudentVerified(kakaoUserId);

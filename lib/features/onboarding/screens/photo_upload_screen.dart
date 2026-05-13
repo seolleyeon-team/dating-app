@@ -28,8 +28,8 @@ class PhotoUploadScreen extends StatefulWidget {
 
   const PhotoUploadScreen({
     super.key,
-    this.currentStep = 5,
-    this.totalSteps = 8,
+    this.currentStep = 6,
+    this.totalSteps = 9,
     this.onBack,
     this.onNext,
   });
@@ -103,8 +103,9 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       }
 
       final path = pickedFile.path;
-      final String extension =
-          path.isNotEmpty && path.contains('.') ? path.split('.').last : 'jpg';
+      final String extension = path.isNotEmpty && path.contains('.')
+          ? path.split('.').last
+          : 'jpg';
 
       final String fileName =
           '${DateTime.now().millisecondsSinceEpoch}_slot$index.$extension';

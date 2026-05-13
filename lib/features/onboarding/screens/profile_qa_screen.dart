@@ -54,8 +54,8 @@ class ProfileQaScreen extends StatefulWidget {
 
   const ProfileQaScreen({
     super.key,
-    this.currentStep = 7,
-    this.totalSteps = 8,
+    this.currentStep = 8,
+    this.totalSteps = 9,
     this.onBack,
     this.onComplete,
     this.onSkip,
@@ -172,132 +172,133 @@ class _ProfileQaScreenState extends State<ProfileQaScreen> {
                       totalSteps: widget.totalSteps,
                       onBack: _handleBack,
                     ),
-                  // 메인 콘텐츠
-                  Expanded(
-                    child: SingleChildScrollView(
-                      physics: const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 120),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(height: 16),
-                          // 헤드라인
-                          const _Headline(),
-                          const SizedBox(height: 24),
-                          // 질문 리스트
-                          ListView.separated(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: _questions.length,
-                            separatorBuilder: (context, index) =>
-                                const SizedBox(height: 12),
-                            itemBuilder: (context, index) {
-                              return _QuestionCard(
-                                question: _questions[index],
-                                index: index,
-                                isExpanded: _expandedIndex == index,
-                                onTap: () => _toggleExpand(index),
-                                onAnswerChanged: (value) =>
-                                    _updateAnswer(index, value),
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 32),
-                          // 건너뛰기 버튼
-                          Center(
-                            child: CupertinoButton(
-                              onPressed: () {
-                                HapticFeedback.lightImpact();
-                                widget.onSkip?.call();
+                    // 메인 콘텐츠
+                    Expanded(
+                      child: SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 120),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 16),
+                            // 헤드라인
+                            const _Headline(),
+                            const SizedBox(height: 24),
+                            // 질문 리스트
+                            ListView.separated(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: _questions.length,
+                              separatorBuilder: (context, index) =>
+                                  const SizedBox(height: 12),
+                              itemBuilder: (context, index) {
+                                return _QuestionCard(
+                                  question: _questions[index],
+                                  index: index,
+                                  isExpanded: _expandedIndex == index,
+                                  onTap: () => _toggleExpand(index),
+                                  onAnswerChanged: (value) =>
+                                      _updateAnswer(index, value),
+                                );
                               },
-                              child: const Text(
-                                '다음에 입력하기 (건너뛰기)',
-                                style: TextStyle(
-                                  fontFamily: 'Pretendard',
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  color: _AppColors.textGray,
-                                  decoration: TextDecoration.underline,
+                            ),
+                            const SizedBox(height: 32),
+                            // 건너뛰기 버튼
+                            Center(
+                              child: CupertinoButton(
+                                onPressed: () {
+                                  HapticFeedback.lightImpact();
+                                  widget.onSkip?.call();
+                                },
+                                child: const Text(
+                                  '다음에 입력하기 (건너뛰기)',
+                                  style: TextStyle(
+                                    fontFamily: 'Pretendard',
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: _AppColors.textGray,
+                                    decoration: TextDecoration.underline,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 40),
+                            const SizedBox(height: 40),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                // 하단 완료 버튼
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          _AppColors.backgroundLight.withValues(alpha: 0),
+                          _AppColors.backgroundLight.withValues(alpha: 0.95),
+                          _AppColors.backgroundLight,
                         ],
                       ),
                     ),
-                  ),
-                ],
-              ),
-              // 하단 완료 버튼
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        _AppColors.backgroundLight.withValues(alpha: 0),
-                        _AppColors.backgroundLight.withValues(alpha: 0.95),
-                        _AppColors.backgroundLight,
-                      ],
+                    padding: EdgeInsets.fromLTRB(
+                      20,
+                      20,
+                      20,
+                      MediaQuery.of(context).padding.bottom + 20,
                     ),
-                  ),
-                  padding: EdgeInsets.fromLTRB(
-                    20,
-                    20,
-                    20,
-                    MediaQuery.of(context).padding.bottom + 20,
-                  ),
-                  child: CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: () async {
-                      HapticFeedback.mediumImpact();
-                      await _saveCurrentProfileQa();
-                      if (!mounted) return;
-                      if (widget.onComplete != null) {
-                        widget.onComplete!.call();
-                      } else {
-                        Navigator.of(context)
-                            .pushNamed(RouteNames.onboardingKeywords);
-                      }
-                    },
-                    child: Container(
-                      height: 56,
-                      decoration: BoxDecoration(
-                        color: _AppColors.primary,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: _AppColors.primary.withValues(alpha: 0.3),
-                            blurRadius: 12,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
-                      ),
-                      child: const Center(
-                        child: Text(
-                          '다음',
-                          style: TextStyle(
-                            fontFamily: 'Pretendard',
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                    child: CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: () async {
+                        HapticFeedback.mediumImpact();
+                        await _saveCurrentProfileQa();
+                        if (!mounted) return;
+                        if (widget.onComplete != null) {
+                          widget.onComplete!.call();
+                        } else {
+                          Navigator.of(
+                            context,
+                          ).pushNamed(RouteNames.onboardingKeywords);
+                        }
+                      },
+                      child: Container(
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: _AppColors.primary,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: _AppColors.primary.withValues(alpha: 0.3),
+                              blurRadius: 12,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: const Center(
+                          child: Text(
+                            '다음',
+                            style: TextStyle(
+                              fontFamily: 'Pretendard',
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
-    ),
     );
   }
 }
