@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,6 +45,8 @@ ABANDONED_CHUNK_SCHEMA_VERSION = "seolleyeon_abandoned_chunk_manifest_v3"
 ASSET_QA_MANIFEST_SCHEMA_VERSION = "seolleyeon_asset_qa_manifest_v3"
 MAX_CHUNK_IDENTITIES = 24
 MAX_CHUNK_ASSETS = 72
+IMAGEGEN_RECOVERY_WAIT_SECONDS = 45.0
+IMAGEGEN_RECOVERY_POLL_SECONDS = 1.5
 
 CHUNK_TERMINAL_STATUSES = {"finalized", "failed", "needs_manual_review"}
 EXECUTABLE_CHUNK_STATUSES = {"planned", "running", "generation_in_progress", "generation_paused"}
@@ -62,6 +65,12 @@ ASSET_TERMINAL_STATUSES = {
 GENERATION_COMPLETE_ASSET_STATUSES = {"file_qa_passed", "failed", "skipped"}
 IDENTITY_TERMINAL_STATUSES = {"approved", "needs_review", "rejected", "failed"}
 DEPENDENT_SHOTS = {"silhouette_card", "vibe_card"}
+RECOVERABLE_MANUAL_REVIEW_REASONS = {
+    "child_forbidden_mutation",
+    "one_asset_receipt_missing_or_invalid_requires_reconcile",
+    "bounded_recovery_failed",
+    "unresolved_pending_imagegen",
+}
 
 
 class BoundedBatchExecutorError(RuntimeError):
@@ -100,10 +109,13 @@ class BoundedExecutorConfig:
         image_arg_mode = str(values.get("BOUNDED_EXECUTOR_IMAGE_ARG_MODE") or values.get("CODEX_IMAGE_ARG_MODE") or "auto").strip()
         if image_arg_mode not in {"auto", "image", "short_i"}:
             raise ValueError(f"Unsupported BOUNDED_EXECUTOR_IMAGE_ARG_MODE: {image_arg_mode}")
+        default_agent_cmd = str(values.get("CODEX_BIN") or "omx").strip() or "omx"
+        requested_timeout_sec = int(values.get("BOUNDED_EXECUTOR_TIMEOUT_SEC") or "300")
+        safe_timeout_sec = max(30, min(requested_timeout_sec, 300))
         return cls(
-            agent_cmd=str(values.get("BOUNDED_EXECUTOR_AGENT_CMD") or "omx").strip() or "omx",
+            agent_cmd=str(values.get("BOUNDED_EXECUTOR_AGENT_CMD") or default_agent_cmd).strip() or default_agent_cmd,
             agent_mode=agent_mode,
-            timeout_sec=int(values.get("BOUNDED_EXECUTOR_TIMEOUT_SEC") or "1800"),
+            timeout_sec=safe_timeout_sec,
             max_asset_attempts=int(values.get("BOUNDED_EXECUTOR_MAX_ASSET_ATTEMPTS") or str(MAX_ATTEMPTS)),
             allow_reserve_activation=str(values.get("BOUNDED_EXECUTOR_ALLOW_RESERVE_ACTIVATION") or "0") == "1",
             max_identities=min(MAX_CHUNK_IDENTITIES, int(values.get("BOUNDED_EXECUTOR_MAX_IDENTITIES") or str(MAX_CHUNK_IDENTITIES))),
@@ -181,12 +193,18 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
         except OSError:
             pass
     last_error: OSError | None = None
-    for _ in range(5):
+    # Windows can briefly deny os.replace() when another process, AV scanner, or
+    # file indexer has just opened the destination after a read.  Retrying in a
+    # tight loop usually hits the same transient lock repeatedly, so use a short
+    # backoff before surfacing the real permission problem.
+    for attempt in range(8):
         try:
             tmp.replace(path)
             return
         except PermissionError as exc:
             last_error = exc
+            if attempt < 7:
+                time.sleep(0.1 * (attempt + 1))
     if last_error is not None:
         raise last_error
 
@@ -194,7 +212,7 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
 def _read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise FileNotFoundError(path)
-    value = json.loads(path.read_text(encoding="utf-8"))
+    value = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(value, dict):
         raise ValueError(f"Expected JSON object: {path}")
     return value
@@ -322,6 +340,23 @@ def _current_chunk_abandonable(root: Path | str | None = None) -> bool:
     if pending_is_unresolved(read_pending(pending_path(root))):
         return False
     return str(state.get("status") or plan.get("status") or "") in ABANDONABLE_CHUNK_STATUSES
+
+
+def _manual_review_reason(root: Path | str | None = None) -> str:
+    flag = pipeline_paths(root).manifests / "manual_review_required.flag"
+    if not flag.exists():
+        return ""
+    text = flag.read_text(encoding="utf-8", errors="replace").strip()
+    if not text:
+        return "manual_review_required"
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        first_line = text.splitlines()[0].strip()
+        return first_line.split("=", 1)[0].strip() or "manual_review_required"
+    if isinstance(payload, Mapping):
+        return str(payload.get("reason") or payload.get("reasonCode") or "manual_review_required")
+    return "manual_review_required"
 
 
 def _append_event(
@@ -1213,6 +1248,35 @@ def _progress_snapshot(root: Path | str | None = None) -> dict[str, Any]:
     }
 
 
+def _native_codex_exe_from_cmd_shim(resolved: str) -> str:
+    """Return the native Codex executable for the Windows codex.cmd shim when possible.
+
+    On Windows, subprocess timeouts can kill the .cmd wrapper while leaving the
+    native codex.exe child alive with inherited pipe handles.  The parent Python
+    process then remains stuck in communicate() and the bounded chunk keeps an
+    unresolved pending-imagegen checkpoint.  Running codex.exe directly avoids
+    that wrapper/orphan failure mode.
+    """
+    path = Path(resolved)
+    if path.suffix.lower() != ".cmd" or path.name.lower() != "codex.cmd":
+        return resolved
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        native = Path(local_app_data) / "OpenAI" / "Codex" / "bin" / "codex.exe"
+        if native.exists():
+            return str(native)
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return resolved
+    marker = "%LOCALAPPDATA%\\OpenAI\\Codex\\bin\\codex.exe"
+    if marker in text and local_app_data:
+        native = Path(local_app_data) / "OpenAI" / "Codex" / "bin" / "codex.exe"
+        if native.exists():
+            return str(native)
+    return resolved
+
+
 def _resolve_agent_binary(
     config: BoundedExecutorConfig,
     *,
@@ -1227,7 +1291,7 @@ def _resolve_agent_binary(
     for candidate in candidates:
         resolved = which_func(candidate)
         if resolved:
-            return resolved
+            return _native_codex_exe_from_cmd_shim(resolved)
     write_manual_review_flag(root, "agent_command_unavailable", {"candidates": candidates})
     raise BoundedBatchExecutorError(f"No bounded executor agent command is available: {', '.join(candidates)}")
 
@@ -1327,6 +1391,69 @@ def _handle_child_forbidden_mutation(
     raise BoundedBatchExecutorError("child_forbidden_mutation")
 
 
+def child_workspace_path(root: Path | str | None, chunk_id: str, asset_id: str, attempt: int) -> Path:
+    path = chunk_report_dir(root, chunk_id) / "child_workspaces" / f"{asset_id}_attempt{attempt}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                shell=False,
+            )
+            return
+        except Exception:
+            pass
+    try:
+        proc.kill()
+    except Exception:
+        pass
+
+
+def run_child_command_with_tree_timeout(
+    args: Sequence[str],
+    *,
+    cwd: str | None = None,
+    capture_output: bool = True,
+    text: bool = True,
+    encoding: str | None = "utf-8",
+    errors: str | None = "replace",
+    timeout: int | float | None = None,
+    shell: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    if shell:
+        raise ValueError("child commands must run with shell=False")
+    stdout_pipe = subprocess.PIPE if capture_output else None
+    stderr_pipe = subprocess.PIPE if capture_output else None
+    proc = subprocess.Popen(
+        list(args),
+        cwd=cwd,
+        stdout=stdout_pipe,
+        stderr=stderr_pipe,
+        text=text,
+        encoding=encoding,
+        errors=errors,
+        shell=False,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        _kill_process_tree(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=5)
+        except Exception:
+            stdout = getattr(exc, "output", None)
+            stderr = getattr(exc, "stderr", None)
+        raise subprocess.TimeoutExpired(list(args), timeout, output=stdout, stderr=stderr) from exc
+    return subprocess.CompletedProcess(list(args), int(proc.returncode or 0), stdout, stderr)
+
+
 def build_agent_args(
     prompt: str,
     *,
@@ -1335,15 +1462,57 @@ def build_agent_args(
     agent_bin: str | None = None,
     image_paths: Sequence[Path | str] | None = None,
     image_arg_mode: str = "image",
+    child_workspace: Path | str | None = None,
 ) -> list[str]:
     config = config or BoundedExecutorConfig.from_env()
     binary = agent_bin or config.agent_cmd
-    args = [binary, "exec"]
+    workspace = Path(child_workspace) if child_workspace is not None else pipeline_paths(root).root
+    workspace.mkdir(parents=True, exist_ok=True)
+    args = [
+        binary,
+        "exec",
+        "--ephemeral",
+        "--ignore-rules",
+        "--skip-git-repo-check",
+        "-s",
+        "read-only",
+    ]
     if image_paths:
         image_arg = "--image" if image_arg_mode == "image" else "-i"
         args.extend([image_arg, ",".join(str(Path(path).resolve()) for path in image_paths)])
-    args.extend(["-C", str(pipeline_paths(root).root), prompt])
+    args.extend(["-C", str(workspace), prompt])
     return args
+
+
+def build_one_asset_child_prompt(
+    asset: Mapping[str, Any],
+    *,
+    generation_prompt: str,
+    reference_path: str | None = None,
+) -> str:
+    reference_rule = "- Use attached face_card as same-person reference.\n- The attached face_card image is the authoritative identity anchor.\n" if reference_path else ""
+    return (
+        "Generate exactly one image using Codex internal Image Gen.\n\n"
+        "Asset:\n"
+        f"- assetId: {asset.get('assetId')}\n"
+        f"- profileId: {asset.get('profileId')}\n"
+        f"- shotType: {asset.get('shotType')}\n"
+        f"- attempt: {asset.get('attempt')}\n\n"
+        "Rules:\n"
+        f"{reference_rule}"
+        "- Generate one image only.\n"
+        "- Canvas geometry is mandatory: portrait 2:3 aspect ratio, ideally 1024x1536.\n"
+        "- The image width must be roughly 55% to 85% of its height; avoid ultra-tall 9:19/phone-screenshot framing.\n"
+        "- Keep the subject framed as a realistic profile photo, not a long full-body crop with excessive empty vertical space.\n"
+        "- Do not write files.\n"
+        "- Do not run shell commands.\n"
+        "- Do not inspect or modify project files.\n"
+        "- Do not recover, copy, move, or rename images.\n"
+        "- After image generation, respond with exactly: IMAGEGEN_DONE\n\n"
+        "Generation prompt:\n"
+        "Mandatory output geometry reminder: portrait 2:3, ideally 1024x1536; width/height must be between 0.55 and 0.85 for file QA.\n\n"
+        f"{generation_prompt}\n"
+    )
 
 
 def build_one_asset_prompt(asset_row: Mapping[str, Any], pending_payload: Mapping[str, Any]) -> str:
@@ -1406,6 +1575,33 @@ def _clear_pending_after_failed_call(root: Path | str | None, reason: str) -> No
         pending_file,
         resolved_pending_payload(payload, status="cleared", recoveryStatus="not_recovered", reason=reason, clearedAt=now_utc()),
     )
+
+
+def _mark_pending_imagegen_status(root: Path | str | None, status: str, **extra: Any) -> None:
+    pending_file = pending_path(root)
+    payload = read_pending(pending_file)
+    if not payload or pending_is_resolved(payload):
+        return
+    updated = dict(payload)
+    updated.update(extra)
+    updated["status"] = status
+    updated["updatedAt"] = now_utc()
+    write_pending(pending_file, updated)
+
+
+def _recover_pending_with_board_wait(recover_func: Callable[..., Any], *, root: Path | str | None, pending_file: Path, run_qa: bool) -> Any:
+    try:
+        return recover_func(
+            root=root,
+            pending=pending_file,
+            run_qa=run_qa,
+            wait_seconds=IMAGEGEN_RECOVERY_WAIT_SECONDS,
+            poll_interval=IMAGEGEN_RECOVERY_POLL_SECONDS,
+        )
+    except TypeError:
+        # Tests and older injected recovery functions may not accept the wait
+        # knobs; preserve compatibility while the real Codex recovery path polls.
+        return recover_func(root=root, pending=pending_file, run_qa=run_qa)
 
 
 def _update_generation_row_pending(root: Path | str | None, pending_payload: Mapping[str, Any]) -> None:
@@ -1574,6 +1770,22 @@ def file_qa_single_asset(
             candidate = final_path if str(final_path) not in {"", "."} and final_path.exists() else local_path
             detail = inspect_image_detail(candidate)
             reasons = list(detail.get("reasons", []))
+            candidate_hash = _sha256_file(candidate) if str(candidate) not in {"", "."} and candidate.exists() else None
+            if candidate_hash:
+                for other in rows:
+                    other_asset_id = str(other.get("assetId") or "")
+                    if not other_asset_id or other_asset_id == asset_id:
+                        continue
+                    for path_key in ("finalPath", "approvedPath", "localPath", "rawPath"):
+                        other_value = str(other.get(path_key) or "")
+                        if not other_value:
+                            continue
+                        other_path = Path(other_value)
+                        if other_path.exists() and _sha256_file(other_path) == candidate_hash:
+                            reasons.append("duplicate_image_hash")
+                            break
+                    if "duplicate_image_hash" in reasons:
+                        break
             expected_final = public_final_path(paths, out)
             try:
                 if final_path and final_path.resolve() != expected_final.resolve():
@@ -1857,14 +2069,17 @@ def _process_asset(
         child_guard = snapshot_forbidden_files(root)
         child_backup = backup_forbidden_files(root, child_guard, chunk_id=str(plan["chunkId"]), asset_id=asset_id, attempt=current_attempt)
         generation_prompt = str(pending_payload.get("prompt") or "")
-        if reference_path is not None:
-            context_path = _write_identity_context(root, plan, state, identity, reference_path=reference_path)
-            generation_prompt = f"{_identity_context_prompt(context_path, reference_path)}\n{generation_prompt}"
-        prompt = build_one_asset_worker_prompt(
-            _expected_transaction_payload(plan, generation_row, pending_payload),
+        prompt = build_one_asset_child_prompt(
+            {
+                "assetId": asset_id,
+                "profileId": profile_id,
+                "shotType": shot_type,
+                "attempt": current_attempt,
+            },
             generation_prompt=generation_prompt,
             reference_path=str(pending_payload.get("referenceImagePath") or "") or None,
         )
+        workspace = child_workspace_path(root, str(plan["chunkId"]), asset_id, current_attempt)
         command = build_agent_args(
             prompt,
             root=root,
@@ -1872,6 +2087,7 @@ def _process_asset(
             agent_bin=agent_bin,
             image_paths=[reference_path] if reference_path is not None else None,
             image_arg_mode=reference_image_arg_mode or "image",
+            child_workspace=workspace,
         )
         if reference_path is not None and not _command_has_reference_arg(command, reference_path, reference_image_arg_mode):
             write_manual_review_flag(root, "reference_image_input_unavailable", {"assetId": asset_id, "referencePath": to_portable_path(reference_path)})
@@ -1879,7 +2095,10 @@ def _process_asset(
             _transition_identity(root, plan, state, profile_id, "failed", reason="dependent_reference_unavailable")
             return False
         try:
-            result = run_func(
+            command_runner = run_child_command_with_tree_timeout if run_func is subprocess.run else run_func
+            _mark_pending_imagegen_status(root, "imagegen_started", startedAt=now_utc())
+            _append_event(root, str(plan["chunkId"]), event_type="imagegen_child_started", profile_id=profile_id, asset_id=asset_id, shot_type=shot_type, reason="pending_written")
+            result = command_runner(
                 command,
                 cwd=str(paths.root),
                 capture_output=True,
@@ -1890,6 +2109,8 @@ def _process_asset(
                 shell=False,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
+            _mark_pending_imagegen_status(root, "imagegen_process_returned", processReturnedAt=now_utc(), processException=str(exc))
+            _append_event(root, str(plan["chunkId"]), event_type="imagegen_child_returned", profile_id=profile_id, asset_id=asset_id, shot_type=shot_type, reason="agent_exception", return_code=127)
             stdout_path, _stderr_path = _log_command_output(root, str(plan["chunkId"]), asset_id, current_attempt, "", str(exc), command)
             violations = detect_forbidden_mutations(root, child_guard)
             if violations:
@@ -1916,6 +2137,29 @@ def _process_asset(
                     return True
             except OneAssetTransactionError:
                 pass
+            try:
+                recovered = _recover_pending_with_board_wait(recover_func, root=root, pending_file=pending_file, run_qa=False)
+                state["recoveredAssets"] = int(state.get("recoveredAssets", 0)) + 1
+                _transition_asset(root, plan, state, asset_id, "recovered", profile_id=profile_id, shot_type=shot_type, reason="timeout_parent_recovery", output_path=str(getattr(recovered, "final_path", "")))
+                fallback_receipt = build_receipt_from_existing_file(
+                    root=root,
+                    expected=_expected_transaction_payload(plan, generation_row, pending_payload),
+                    source="parent_recovery_after_child_timeout",
+                )
+                write_receipt(receipt_path, fallback_receipt)
+                if _file_qa_recovered_asset(
+                    root,
+                    plan,
+                    state,
+                    asset_id=asset_id,
+                    profile_id=profile_id,
+                    shot_type=shot_type,
+                    file_qa_func=file_qa_func,
+                    reason="timeout_parent_recovery",
+                ):
+                    return True
+            except Exception:
+                pass
             _clear_pending_after_failed_call(root, "agent_command_failed_before_recovery")
             _transition_asset(
                 root,
@@ -1933,6 +2177,8 @@ def _process_asset(
             continue
 
         stdout_path, _stderr_path = _log_command_output(root, str(plan["chunkId"]), asset_id, current_attempt, result.stdout or "", result.stderr or "", command)
+        _mark_pending_imagegen_status(root, "imagegen_process_returned", processReturnedAt=now_utc(), returnCode=int(result.returncode), stdoutLog=to_portable_path(stdout_path))
+        _append_event(root, str(plan["chunkId"]), event_type="imagegen_child_returned", profile_id=profile_id, asset_id=asset_id, shot_type=shot_type, reason="agent_returned", return_code=int(result.returncode), output_path=to_portable_path(stdout_path))
         violations = detect_forbidden_mutations(root, child_guard)
         if violations:
             _handle_child_forbidden_mutation(root, plan, state, asset_id=asset_id, profile_id=profile_id, shot_type=shot_type, violations=violations, backup=child_backup)
@@ -1988,7 +2234,7 @@ def _process_asset(
                     return False
 
         try:
-            recovered = recover_func(root=root, pending=pending_file, run_qa=False)
+            recovered = _recover_pending_with_board_wait(recover_func, root=root, pending_file=pending_file, run_qa=False)
         except Exception as exc:  # noqa: BLE001 - recovery failure blocks further generation.
             if pending_is_resolved(read_pending(pending_file)):
                 try:
@@ -2140,6 +2386,80 @@ def _auto_reconcile_after_child_forbidden_mutation(
     return result
 
 
+def _auto_reconcile_existing_manual_flag(
+    root: Path | str | None,
+    *,
+    file_qa_func: Callable[..., Mapping[str, int]],
+) -> dict[str, Any]:
+    paths = pipeline_paths(root)
+    manual_flag = paths.manifests / "manual_review_required.flag"
+    reason = _manual_review_reason(root)
+    result: dict[str, Any] = {
+        "attempted": False,
+        "resumed": False,
+        "reason": reason,
+        "reconcile": {},
+        "status": {},
+    }
+    if not manual_flag.exists():
+        return result
+    if reason not in RECOVERABLE_MANUAL_REVIEW_REASONS:
+        result["reason"] = f"manual_flag_reason_not_recoverable:{reason}"
+        return result
+    result["attempted"] = True
+    try:
+        reconcile = reconcile_bounded_chunk(
+            root=root,
+            dry_run=False,
+            apply=True,
+            clear_manual_flag_if_safe=True,
+            file_qa_func=file_qa_func,
+        )
+    except Exception as exc:  # noqa: BLE001 - unsafe reconcile leaves manual review in place.
+        result["reason"] = f"pre_run_auto_reconcile_failed:{exc}"
+        return result
+    result["reconcile"] = dict(reconcile)
+    status = bounded_chunk_status(root=root)
+    result["status"] = dict(status)
+    safe_to_resume = (
+        bool(reconcile.get("manualFlagCanClear"))
+        and bool(reconcile.get("manualFlagCleared"))
+        and not bool(status.get("manualReviewRequired"))
+        and bool(status.get("canRun"))
+    )
+    if safe_to_resume:
+        result["resumed"] = True
+        _append_event(
+            root,
+            str(status.get("chunkId") or reconcile.get("chunkId") or ""),
+            event_type="pre_run_manual_flag_auto_reconciled",
+            from_status="needs_manual_review",
+            to_status=str(status.get("status") or ""),
+            reason=reason,
+            output_path=str(reconcile.get("reportPath") or ""),
+        )
+    else:
+        result["reason"] = "pre_run_auto_reconcile_not_safe_to_resume"
+        chunk_id = str(status.get("chunkId") or reconcile.get("chunkId") or "")
+        if chunk_id:
+            _append_event(
+                root,
+                chunk_id,
+                event_type="pre_run_manual_flag_auto_reconcile_blocked",
+                reason=json.dumps(
+                    {
+                        "manualFlagCanClear": reconcile.get("manualFlagCanClear"),
+                        "manualFlagCleared": reconcile.get("manualFlagCleared"),
+                        "canRun": status.get("canRun"),
+                        "manualReviewRequired": status.get("manualReviewRequired"),
+                    },
+                    ensure_ascii=False,
+                ),
+                output_path=str(reconcile.get("reportPath") or ""),
+            )
+    return result
+
+
 def run_bounded_chunk(
     *,
     root: Path | str | None = None,
@@ -2157,7 +2477,13 @@ def run_bounded_chunk(
     ensure_base_dirs(paths)
     manual_flag = paths.manifests / "manual_review_required.flag"
     if manual_flag.exists():
-        return {"status": "needs_manual_review", "manualReviewFlag": to_portable_path(manual_flag)}
+        auto_reconcile = _auto_reconcile_existing_manual_flag(root, file_qa_func=file_qa_func)
+        if manual_flag.exists():
+            status = {"status": "needs_manual_review", "manualReviewFlag": to_portable_path(manual_flag)}
+            if auto_reconcile.get("attempted"):
+                status["autoReconcile"] = auto_reconcile
+                status["reasonCode"] = str(auto_reconcile.get("reason") or "manual_review_required")
+            return status
     if not config.active_visual_qa:
         flag = write_manual_review_flag(root, "active_visual_qa_disabled_for_bounded_chunk", {"stage": "bounded_chunk_run_precheck"})
         return {"status": "needs_manual_review", "reasonCode": "current_plan_not_executable", "manualReviewFlag": to_portable_path(flag)}
@@ -2378,6 +2704,8 @@ def reconcile_bounded_chunk(
         "chunkId": chunk_id,
         "dryRun": bool(dry_run),
         "apply": bool(apply),
+        "manualReviewReason": _manual_review_reason(root),
+        "manualFlagRecoverable": False,
         "existingFinalFiles": 0,
         "plannedExistingFiles": 0,
         "reconciledAssets": [],
@@ -2399,6 +2727,13 @@ def reconcile_bounded_chunk(
         report["pendingStatus"] = str(pending_payload.get("status") or "")
     if pending_payload and pending_is_unresolved(pending_payload):
         report["reasonsIfCannotClear"].append("pending_unresolved")
+    manual_flag = paths.manifests / "manual_review_required.flag"
+    if manual_flag.exists():
+        reason = str(report["manualReviewReason"] or "")
+        if reason in RECOVERABLE_MANUAL_REVIEW_REASONS:
+            report["manualFlagRecoverable"] = True
+        else:
+            report["reasonsIfCannotClear"].append(f"manual_flag_reason_not_recoverable:{reason}")
 
     for identity, asset in _planned_asset_entries(plan):
         asset_id = str(asset.get("assetId") or "")
@@ -2473,9 +2808,11 @@ def reconcile_bounded_chunk(
                 _transition_asset(root, plan, state, asset_id, "file_qa_failed", profile_id=profile_id, shot_type=shot_type, reason="reconcile_file_qa_failed")
             report["stateChanged"] = True
 
+    if manual_flag.exists() and report["manualReviewReason"] in {"bounded_recovery_failed", "one_asset_receipt_missing_or_invalid_requires_reconcile"} and int(report["plannedExistingFiles"]) <= 0:
+        report["reasonsIfCannotClear"].append("no_reconcilable_final_files")
+
     if not report["reasonsIfCannotClear"]:
         report["manualFlagCanClear"] = True
-    manual_flag = paths.manifests / "manual_review_required.flag"
     if apply and not dry_run and clear_manual_flag_if_safe and report["manualFlagCanClear"]:
         if manual_flag.exists():
             manual_flag.unlink()

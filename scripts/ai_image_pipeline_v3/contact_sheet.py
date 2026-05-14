@@ -31,8 +31,8 @@ def existing_image_rows(
             continue
         if shot_type and str(row.get("shotType")) != shot_type:
             continue
-        candidate_paths = [Path(str(row.get("finalPath") or "")), Path(str(row.get("localPath") or ""))]
-        image_path = next((path for path in candidate_paths if path.exists()), None)
+        candidate_paths = [Path(str(value)) for value in (row.get("finalPath"), row.get("localPath")) if str(value or "").strip()]
+        image_path = next((path for path in candidate_paths if path.is_file()), None)
         if not image_path:
             continue
         if approved_only and str(row.get("status")) not in {"qa_approved", "vision_approved"}:

@@ -211,6 +211,29 @@ class ActiveVisualVerdictRunnerV3Tests(unittest.TestCase):
         filtered = _filter_chunk_entries(entries, "e2e_chunk")
         self.assertEqual([entry.sheet_id for entry in filtered], ["e2e_chunk__contact_sheet_female_face_card", "e2e_chunk__identities__female_997"])
 
+    def test_chunk_index_scopes_stage_asset_and_plan_identity_sheets(self):
+        from scripts.ai_image_pipeline_v3.active_visual_verdict_runner import build_contact_sheet_index, _filter_chunk_entries
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_fixture(root)
+            manifests = root / "ai_image" / "manifests"
+            chunk_id = "chunk_test_001"
+            (manifests / "current_chunk_plan.json").write_text(
+                json.dumps({"chunkId": chunk_id, "identities": [{"profileId": "female_001"}]}),
+                encoding="utf-8",
+            )
+            sheets = root / "ai_image" / "reports" / "contact_sheets"
+            (sheets / f"{chunk_id}_contact_sheet_female_face_card.png").write_bytes(b"asset sheet")
+
+            entries = build_contact_sheet_index(root=root, chunk_id=chunk_id)
+            filtered = _filter_chunk_entries(entries, chunk_id)
+            sheet_ids = [entry.sheet_id for entry in filtered]
+
+            self.assertIn(f"{chunk_id}__{chunk_id}_contact_sheet_female_face_card", sheet_ids)
+            self.assertIn(f"{chunk_id}__identities__female_001", sheet_ids)
+            self.assertNotIn("pilot_contact_sheet_female_face_card", sheet_ids)
+
     def test_probe_prefers_exec_image_form_when_available(self):
         from scripts.ai_image_pipeline_v3.active_visual_verdict_runner import discover_command_forms
 

@@ -1,7 +1,7 @@
 {
   "schemaVersion": "seolleyeon_bounded_chunk_report_v3",
   "chunkId": "chunk_20260512T160506Z",
-  "status": "running",
+  "status": "abandoned",
   "chunk_unattended_verification": "PENDING",
   "chunk_qa_complete": false,
   "chunk_distribution_updated": false,
@@ -45,5 +45,10 @@
     }
   },
   "surplusBuckets": [],
-  "updatedAt": "2026-05-12T22:19:31+00:00"
+  "updatedAt": "2026-05-13T17:00:02+00:00",
+  "abandonedAt": "2026-05-13T17:00:02+00:00",
+  "abandonReason": "workspace_path_recovery_replan",
+  "replacementChunkId": "chunk_20260513T170002Z",
+  "abandonedAssetCount": 72,
+  "abandonedChunkManifest": "C:/Users/Mickey/StudioProjects/dating-app-ai_profile_image/ai_image/manifests/abandoned_chunk_manifest.jsonl"
 }

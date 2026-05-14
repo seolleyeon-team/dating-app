@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "seolleyeon_stale_source_duplicate_cleanup_v1",
+  "invalidatedAssets": [
+    {
+      "assetId": "female_011__vibe_card__v001",
+      "owner": "female_011__silhouette_card__v001",
+      "source": "C:\\Users\\Mickey\\StudioProjects\\dating-app-ai_profile_image\\ai_image\\female\\011\\vibe_card.png",
+      "rejectedPath": "C:\\Users\\Mickey\\StudioProjects\\dating-app-ai_profile_image\\ai_image\\rejected\\female_011__vibe_card__v001__attempt01.png",
+      "removedFinal": true
+    },
+    {
+      "assetId": "female_015__face_card__v001",
+      "owner": "female_014__face_card__v001",
+      "source": "C:\\Users\\Mickey\\StudioProjects\\dating-app-ai_profile_image\\ai_image\\female\\015\\face_card.png",
+      "rejectedPath": "C:\\Users\\Mickey\\StudioProjects\\dating-app-ai_profile_image\\ai_image\\rejected\\female_015__face_card__v001__attempt01.png",
+      "removedFinal": true
+    }
+  ],
+  "updatedAt": "2026-05-13T20:36:17.526140+00:00"
+}

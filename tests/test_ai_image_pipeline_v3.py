@@ -84,6 +84,24 @@ class AiImagePipelineV3Tests(unittest.TestCase):
 
         self.assertEqual(DEFAULT_MODEL, "codex-built-in-imagegen")
 
+    def test_makefile_exposes_required_imagegen_operator_targets(self) -> None:
+        makefile = Path("Makefile").read_text(encoding="utf-8")
+
+        for target in (
+            "ai-image-dry-run:",
+            "ai-image-prepare-smoke:",
+            "ai-image-prepare-pilot:",
+            "ai-image-prepare-720:",
+            "ai-image-next:",
+            "ai-image-recover:",
+            "ai-image-qa:",
+            "ai-image-retry:",
+            "ai-image-summary:",
+        ):
+            self.assertIn(target, makefile)
+        self.assertIn("scripts/prepare_ai_image_assets_v3.py --root . --female_count 1 --male_count 0", makefile)
+        self.assertIn("scripts/next_codex_imagegen_prompt_v3.py --root .", makefile)
+
     def test_prepare_dry_run_writes_three_asset_manifest_and_status(self) -> None:
         from scripts.ai_image_pipeline_v3.prepare import prepare_assets
 
@@ -348,6 +366,34 @@ class AiImagePipelineV3Tests(unittest.TestCase):
             self.assertEqual(counts["duplicateGroups"], 1)
             self.assertEqual(len(rows), 2)
             self.assertEqual({row["duplicateGroup"] for row in rows}, {"sha256:0"})
+
+    def test_duplicate_audit_ignores_empty_or_directory_image_paths(self) -> None:
+        from scripts.ai_image_pipeline_v3.config import pipeline_paths
+        from scripts.ai_image_pipeline_v3.duplicate_audit import audit_duplicates
+        from scripts.ai_image_pipeline_v3.manifest import enrich_asset, write_generation_outputs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = pipeline_paths(root)
+            row = enrich_asset(
+                {
+                    "profileId": "female_001",
+                    "assetId": "female_001__face_card__v001",
+                    "gender": "female",
+                    "shotType": "face_card",
+                    "prompt": "p",
+                    "status": "qa_rejected",
+                },
+                paths,
+            )
+            row["localPath"] = ""
+            row["rawPath"] = ""
+            row["finalPath"] = ""
+            write_generation_outputs(paths, [row])
+
+            counts = audit_duplicates(root=root)
+
+            self.assertEqual(counts["checked"], 0)
 
     def test_contact_sheet_generation_writes_png_for_existing_assets(self) -> None:
         from PIL import Image
@@ -921,6 +967,7 @@ class AiImagePipelineV3Tests(unittest.TestCase):
             self.assertIn("path_gender_mismatch", reason_text)
             self.assertIn("duplicate_assetId", reason_text)
             self.assertIn("duplicate_final_path", reason_text)
+            self.assertIn("duplicate_image_hash", reason_text)
             self.assertIn("missing_required_shot:vibe_card", reason_text)
 
     def test_valid_file_qa_does_not_create_distribution_approval(self) -> None:
@@ -935,10 +982,10 @@ class AiImagePipelineV3Tests(unittest.TestCase):
             root = Path(tmp)
             paths = pipeline_paths(root)
             rows = []
-            for shot in ("face_card", "silhouette_card", "vibe_card"):
+            for index, shot in enumerate(("face_card", "silhouette_card", "vibe_card"), start=1):
                 row = enrich_asset({"profileId": "female_001", "assetId": f"female_001__{shot}__v001", "gender": "female", "shotType": shot, "targetFaceType": "cat_like", "targetLooksLevelBand": "2.5-3.2", "prompt": "p"}, paths)
                 Path(row["localPath"]).parent.mkdir(parents=True, exist_ok=True)
-                Image.new("RGB", (512, 768), (10, 20, 30)).save(row["localPath"])
+                Image.new("RGB", (512, 768), (10 * index, 20 * index, 30 * index)).save(row["localPath"])
                 rows.append(row)
             write_generation_outputs(paths, rows)
 
@@ -1168,6 +1215,96 @@ class AiImagePipelineV3Tests(unittest.TestCase):
 
             with self.assertRaises(RuntimeError):
                 latest_generated_image(generated, created_at="1970-01-01T00:00:00+00:00")
+
+    def test_latest_generated_image_refuses_stale_candidate_before_pending_timestamp(self) -> None:
+        from PIL import Image
+
+        from scripts.ai_image_pipeline_v3.codex_imagegen import latest_generated_image
+
+        with tempfile.TemporaryDirectory() as tmp:
+            generated = Path(tmp) / "generated"
+            generated.mkdir(parents=True, exist_ok=True)
+            source = generated / "old.png"
+            Image.new("RGB", (512, 768), (20, 30, 40)).save(source)
+
+            with self.assertRaises(FileNotFoundError):
+                latest_generated_image(generated, created_at="2999-01-01T00:00:00+00:00")
+
+    def test_recover_pending_rejects_reused_generated_source_or_duplicate_final_hash(self) -> None:
+        from PIL import Image
+
+        from scripts.ai_image_pipeline_v3.codex_imagegen import (
+            build_pending_payload,
+            completed_pending_path,
+            pending_path,
+            recover_pending_imagegen,
+            write_pending,
+        )
+        from scripts.ai_image_pipeline_v3.config import pipeline_paths, write_jsonl
+        from scripts.ai_image_pipeline_v3.manifest import enrich_asset, manifest_path, write_generation_outputs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = pipeline_paths(root)
+            source = root / "generated" / "codex.png"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (512, 768), (20, 30, 40)).save(source)
+
+            first = enrich_asset(
+                {
+                    "profileId": "female_001",
+                    "assetId": "female_001__face_card__v001",
+                    "gender": "female",
+                    "shotType": "face_card",
+                    "prompt": "first",
+                    "status": "recovered_pending_qa",
+                },
+                paths,
+            )
+            first_final = Path(first["finalPath"])
+            first_raw = Path(first["localPath"])
+            first_final.parent.mkdir(parents=True, exist_ok=True)
+            first_raw.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (512, 768), (20, 30, 40)).save(first_final)
+            Image.new("RGB", (512, 768), (20, 30, 40)).save(first_raw)
+
+            second = enrich_asset(
+                {
+                    "profileId": "female_002",
+                    "assetId": "female_002__face_card__v001",
+                    "gender": "female",
+                    "shotType": "face_card",
+                    "prompt": "second",
+                    "status": "pending_imagegen",
+                },
+                paths,
+            )
+            write_generation_outputs(paths, [first, second])
+            write_jsonl(
+                completed_pending_path(root),
+                [
+                    {
+                        "assetId": first["assetId"],
+                        "status": "resolved",
+                        "sourcePath": str(source),
+                    }
+                ],
+            )
+
+            pending_file = pending_path(root)
+            payload = build_pending_payload(
+                paths_root=root,
+                row=second,
+                attempt=1,
+                queue_file=paths.manifests / "imagegen_queue.jsonl",
+                manifest_file=manifest_path(paths),
+                out_pending=pending_file,
+                generated_root=source.parent,
+            )
+            write_pending(pending_file, payload)
+
+            with self.assertRaises(RuntimeError):
+                recover_pending_imagegen(root=root, pending=pending_file, source=source, run_qa=False)
 
     def test_ralph_and_supervisor_prompts_require_visual_verdict_strict_stop(self) -> None:
         ralph_prompt = Path("ai_image/prompts/RALPH_DISTRIBUTION_AWARE_CHUNK_PROMPT.md").read_text(encoding="utf-8")

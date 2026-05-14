@@ -1,44 +1,40 @@
 {
   "qaType": "seolleyeon_visual_verdict_asset_v3",
-  "sheetId": "e2e_bounded_20260509T205437Z_contact_sheet_female_face_card",
+  "sheetId": "chunk_20260513T202934Z__chunk_20260513T202934Z_contact_sheet_male_face_card",
   "assets": [
     {
-      "assetId": "female_997__face_card__v001",
-      "profileId": "female_997",
-      "gender": "female",
+      "assetId": "male_901__face_card__v001",
+      "profileId": "male_901",
+      "gender": "male",
       "shotType": "face_card",
-      "targetFaceType": "deer_like",
-      "observedFaceType": "deer_like",
-      "faceTypeConfidence": 0.78,
-      "targetLooksLevelBand": "2.5-3.2",
+      "targetFaceType": "unknown",
+      "observedFaceType": "mixed_neutral",
+      "faceTypeConfidence": 0.65,
+      "targetLooksLevelBand": "unknown",
       "observedLooksLevelBand": "3.3-3.8",
-      "looksLevelConfidence": 0.72,
+      "looksLevelConfidence": 0.78,
       "adultVisual": true,
-      "photoRealism": 4.4,
-      "campusRealism": 4.1,
-      "brandFit": 4.2,
+      "photoRealism": 4.2,
+      "campusRealism": 4.0,
+      "brandFit": 4.0,
       "shotTypeReadable": true,
-      "influencerRisk": 1.1,
-      "childlikeRisk": 0.8,
+      "influencerRisk": 1.2,
+      "childlikeRisk": 0.4,
       "schoolUniformRisk": 0.0,
       "sexualizationRisk": 0.0,
       "artifactRisk": 0.3,
-      "metadataMismatch": true,
-      "mismatchFields": [
-        "targetLooksLevelBand"
-      ],
-      "decision": "rejected",
-      "rejectReasons": [
-        "confident metadata mismatch on targetLooksLevelBand"
-      ],
-      "notes": "Realistic adult face_card with calm neutral tone, but visual attractiveness reads higher than the target looks band."
+      "metadataMismatch": false,
+      "mismatchFields": [],
+      "decision": "approved",
+      "rejectReasons": [],
+      "notes": "Adult realistic head-and-shoulders portrait with calm neutral styling; slightly polished but still plausible for Seolleyeon."
     }
   ],
   "summary": {
-    "approvedCount": 0,
+    "approvedCount": 1,
     "needsReviewCount": 0,
-    "rejectedCount": 1,
+    "rejectedCount": 0,
     "hardRejectCount": 0,
-    "metadataMismatchCount": 1
+    "metadataMismatchCount": 0
   }
 }

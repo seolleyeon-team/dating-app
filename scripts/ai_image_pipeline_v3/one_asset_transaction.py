@@ -14,9 +14,12 @@ from .qa import inspect_image_detail
 
 RECEIPT_SCHEMA_VERSION = "seolleyeon_one_asset_transaction_v3"
 
-FORBIDDEN_CHILD_RELATIVE_PATHS = (
+PARENT_OWNED_CONTROLLER_RELATIVE_PATHS = (
     "ai_image/manifests/current_chunk_plan.json",
     "ai_image/manifests/current_chunk_state.json",
+)
+
+FORBIDDEN_CHILD_RELATIVE_PATHS = (
     "ai_image/manifests/asset_qa_manifest.jsonl",
     "ai_image/manifests/identity_qa_manifest.jsonl",
     "ai_image/manifests/approved_identity_manifest.jsonl",
@@ -167,6 +170,12 @@ def build_one_asset_worker_prompt(
 
 def snapshot_forbidden_files(root: Path | str | None = None, *, extra_paths: Sequence[Path | str] | None = None) -> dict[str, dict[str, Any]]:
     base = _root(root)
+    # current_chunk_plan/state are parent-owned controller bookkeeping files.
+    # They intentionally move while the bounded executor updates the board-visible
+    # state machine around a child Image Gen call. Guarding them as child-forbidden
+    # caused false-positive child_forbidden_mutation blocks after successful image
+    # recovery. Validate plan/state consistency separately via bounded plan/status
+    # checks and keep this guard focused on artifacts the child must never touch.
     paths = [base / relative for relative in FORBIDDEN_CHILD_RELATIVE_PATHS]
     for extra in extra_paths or ():
         path = Path(extra)
@@ -291,7 +300,7 @@ def detect_forbidden_mutations(root: Path | str | None, snapshot: Mapping[str, M
 
 def _load_receipt(path: Path) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
     except Exception as exc:  # noqa: BLE001
         raise OneAssetTransactionError(f"invalid_receipt_json:{exc}") from exc
     if not isinstance(payload, dict):

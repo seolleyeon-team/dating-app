@@ -132,6 +132,27 @@ class HermesWrapperV3Tests(unittest.TestCase):
                     )
                 )
 
+    def test_autopilot_mode_resolves_git_bash_when_bash_is_not_on_path(self):
+        from scripts.ai_image_pipeline_v3.hermes_wrapper import HermesWrapperConfig, _command_for_mode
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            git_bash = root / "Git" / "bin" / "bash.exe"
+            git_bash.parent.mkdir(parents=True)
+            git_bash.write_text("", encoding="utf-8")
+            config = HermesWrapperConfig(
+                root=root,
+                run_id="run_a_autopilot",
+                execution_mode="autopilot",
+                allow_real_imagegen=True,
+                bash_bin="bash",
+            )
+
+            command = _command_for_mode(config, which_func=lambda cmd: None, bash_candidates=(git_bash,))
+
+            self.assertEqual(command[0], str(git_bash))
+            self.assertTrue(command[1].endswith("codex_imagegen_chunk_autopilot_v3.sh"))
+
     def test_missing_reference_fails_with_manifest_and_logs(self):
         from scripts.ai_image_pipeline_v3.hermes_wrapper import HermesWrapperConfig, run_hermes_wrapper
 

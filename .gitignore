@@ -47,3 +47,26 @@ app.*.map.json
 # Firebase / Google Cloud credentials (절대 커밋 금지)
 **/serviceAccountKey.json
 **/*-service-account*.json
+
+# Generated AI image pipeline artifacts
+/ai_image/raw/
+/ai_image/rejected/
+/ai_image/e2e_runs/
+/ai_image/dry_run_workspace/
+/ai_image/logs/
+/ai_image/reports/e2e/
+/ai_image/reports/chunks/
+/ai_image/reports/contact_sheets/
+/ai_image/reports/visual_verdict/
+/ai_image/reports/pipeline_audit/
+/ai_image/reports/autopilot_logs/
+/ai_image/manifests/*.tmp
+/ai_image/manifests/*_backup_*/
+/ai_image/manifests/repair_backups/
+/ai_image/manifests/manual_flag_backups/
+/ai_image/runs/
+
+# Local orchestration and scratch outputs
+/.omx/
+/*.tmp
+/*.err

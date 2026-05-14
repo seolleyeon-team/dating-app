@@ -4,7 +4,7 @@ from typing import Any, Mapping
 
 
 RESOLVED_PENDING_STATUSES = {"resolved", "cleared"}
-ACTIVE_PENDING_STATUSES = {"pending_imagegen", "imagegen_started"}
+ACTIVE_PENDING_STATUSES = {"pending_imagegen", "imagegen_started", "imagegen_process_returned"}
 
 
 def pending_status(payload: Mapping[str, Any] | None) -> str:

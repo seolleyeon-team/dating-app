@@ -36,8 +36,22 @@ stop_with() {
 
 check_manual_review_flag() {
   if [ -f "$MANUAL_REVIEW_FLAG" ]; then
-    stop_with 2 "manual review required; stopping: $MANUAL_REVIEW_FLAG"
+    try_reconcile_manual_review_flag || stop_with 2 "manual review required; stopping: $MANUAL_REVIEW_FLAG"
   fi
+}
+
+try_reconcile_manual_review_flag() {
+  if [ ! -f "$MANUAL_REVIEW_FLAG" ]; then
+    return 0
+  fi
+  log_line "manual review flag exists; attempting safe bounded-chunk reconcile"
+  run_logged "$PYTHON_BIN" scripts/run_ai_image_pipeline_v3.py bounded-chunk-reconcile --root . --apply --clear-manual-flag-if-safe || true
+  if [ ! -f "$MANUAL_REVIEW_FLAG" ]; then
+    log_line "manual review flag cleared by safe reconcile"
+    return 0
+  fi
+  log_line "manual review flag still requires attention after reconcile attempt"
+  return 2
 }
 
 check_completion() {

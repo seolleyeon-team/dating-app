@@ -1,0 +1,16 @@
+{
+  "reclaimed": 0,
+  "crashed": [],
+  "timed_out": [],
+  "auto_blocked": [],
+  "promoted": 0,
+  "spawned": [
+    {
+      "task_id": "t_433e7689",
+      "assignee": "imgorch",
+      "workspace": ""
+    }
+  ],
+  "skipped_unassigned": [],
+  "skipped_nonspawnable": []
+}

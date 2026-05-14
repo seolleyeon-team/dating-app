@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "seolleyeon_stale_source_duplicate_cleanup_v1",
+  "ownerAssetId": "female_028__face_card__v001",
+  "invalidatedAssets": [
+    {
+      "assetId": "female_028__silhouette_card__v001",
+      "source": "C:\\Users\\Mickey\\StudioProjects\\dating-app-ai_profile_image\\ai_image\\female\\028\\silhouette_card.png",
+      "rejectedPath": "C:\\Users\\Mickey\\StudioProjects\\dating-app-ai_profile_image\\ai_image\\rejected\\female_028__silhouette_card__v001__attempt03.png",
+      "removedFinal": true
+    },
+    {
+      "assetId": "female_029__face_card__v001",
+      "source": "C:\\Users\\Mickey\\StudioProjects\\dating-app-ai_profile_image\\ai_image\\female\\029\\face_card.png",
+      "rejectedPath": "C:\\Users\\Mickey\\StudioProjects\\dating-app-ai_profile_image\\ai_image\\rejected\\female_029__face_card__v001__attempt02.png",
+      "removedFinal": true
+    },
+    {
+      "assetId": "female_029__silhouette_card__v001",
+      "source": "C:\\Users\\Mickey\\StudioProjects\\dating-app-ai_profile_image\\ai_image\\female\\029\\silhouette_card.png",
+      "rejectedPath": "C:\\Users\\Mickey\\StudioProjects\\dating-app-ai_profile_image\\ai_image\\rejected\\female_029__silhouette_card__v001__attempt03.png",
+      "removedFinal": true
+    },
+    {
+      "assetId": "female_030__face_card__v001",
+      "source": "C:\\Users\\Mickey\\StudioProjects\\dating-app-ai_profile_image\\ai_image\\female\\030\\face_card.png",
+      "rejectedPath": "C:\\Users\\Mickey\\StudioProjects\\dating-app-ai_profile_image\\ai_image\\rejected\\female_030__face_card__v001__attempt02.png",
+      "removedFinal": true
+    },
+    {
+      "assetId": "female_030__silhouette_card__v001",
+      "source": "C:\\Users\\Mickey\\StudioProjects\\dating-app-ai_profile_image\\ai_image\\female\\030\\silhouette_card.png",
+      "rejectedPath": "C:\\Users\\Mickey\\StudioProjects\\dating-app-ai_profile_image\\ai_image\\rejected\\female_030__silhouette_card__v001__attempt03.png",
+      "removedFinal": true
+    },
+    {
+      "assetId": "female_031__face_card__v001",
+      "status": "failed_after_worker_stop"
+    }
+  ],
+  "updatedAt": "2026-05-13T20:28:19.919040+00:00"
+}

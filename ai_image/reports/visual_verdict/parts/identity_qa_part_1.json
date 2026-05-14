@@ -2,38 +2,44 @@
   "qaType": "seolleyeon_visual_verdict_identity_v3",
   "identities": [
     {
-      "profileId": "female_997",
+      "profileId": "female_049",
       "gender": "female",
-      "targetFaceType": "deer_like",
-      "observedFaceType": "deer_like",
-      "targetLooksLevelBand": "2.5-3.2",
-      "observedLooksLevelBand": "3.3-3.8",
+      "targetFaceType": "bear_like",
+      "observedFaceType": "bear_like",
+      "targetLooksLevelBand": "3.3-3.8",
+      "observedLooksLevelBand": "2.5-3.2",
       "assetIds": {
-        "face_card": "female_997__face_card__v001",
-        "silhouette_card": "female_997__silhouette_card__v001",
-        "vibe_card": "female_997__vibe_card__v001"
+        "face_card": "female_049__face_card__v001",
+        "silhouette_card": "female_049__silhouette_card__v001",
+        "vibe_card": "female_049__vibe_card__v001"
       },
       "assetDecisions": {
         "face_card": "rejected",
-        "silhouette_card": "approved",
-        "vibe_card": "approved"
+        "silhouette_card": "needs_review",
+        "vibe_card": "rejected"
       },
-      "faceToSilhouetteConsistency": 4.0,
-      "faceToVibeConsistency": 4.5,
+      "faceToSilhouetteConsistency": 4.1,
+      "faceToVibeConsistency": 4.0,
       "sameIdentity": true,
       "completeIdentityDecision": "rejected",
       "countsTowardDistribution": false,
       "failedShotTypes": [
-        "face_card"
+        "face_card",
+        "vibe_card"
       ],
       "retryShotTypes": [
-        "face_card"
+        "face_card",
+        "silhouette_card",
+        "vibe_card"
       ],
       "rejectReasons": [
-        "asset_rejected_face_card",
-        "looks_level_band_mismatch"
+        "asset_rejected:face_card",
+        "asset_needs_review:silhouette_card",
+        "asset_rejected:vibe_card",
+        "metadata_mismatch:targetLooksLevelBand",
+        "metadata_mismatch:vibe_card_faceType"
       ],
-      "notes": "All three shots appear to preserve the same adult identity, but the face_card is asset-rejected and the observed looks band is above target."
+      "notes": "All shots appear broadly same adult student, but asset QA rejects face and vibe for target metadata mismatch and silhouette remains uncertain."
     }
   ],
   "summary": {

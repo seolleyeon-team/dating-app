@@ -30,6 +30,33 @@ VALID_EXEC_MODES = {"auto", "direct", "exec"}
 VALID_IMAGE_ARG_MODES = {"auto", "image", "short_i"}
 
 
+def default_codex_bin(env: Mapping[str, str] | None = None) -> str:
+    """Return a Codex executable name that works from Python subprocesses.
+
+    On this Windows/MSYS setup, Python subprocess timeouts can leave orphaned
+    children when they launch the npm/cmd shim. Prefer the native Codex
+    executable when it is available, then fall back to the explicit override or
+    command shim.
+    """
+    values = env or os.environ
+    if os.name == "nt":
+        native = Path.home() / "AppData" / "Local" / "OpenAI" / "Codex" / "bin" / "codex.exe"
+        if native.exists():
+            return str(native)
+    explicit = str(values.get("CODEX_BIN") or "").strip()
+    if explicit:
+        return explicit
+    if os.name == "nt":
+        if shutil.which("codex.exe"):
+            return "codex.exe"
+        if shutil.which("codex.cmd"):
+            return "codex.cmd"
+        npm_prefix = Path.home() / "AppData" / "Roaming" / "npm" / "codex.cmd"
+        if npm_prefix.exists():
+            return str(npm_prefix)
+    return "codex"
+
+
 class ActiveVisualVerdictError(RuntimeError):
     pass
 
@@ -60,7 +87,7 @@ class ActiveVisualConfig:
         if exec_mode not in VALID_EXEC_MODES:
             raise ValueError(f"Unsupported CODEX_EXEC_MODE: {exec_mode}")
         return cls(
-            codex_bin=str(values.get("CODEX_BIN") or "codex"),
+            codex_bin=default_codex_bin(values),
             image_arg_mode=image_arg_mode,
             exec_mode=exec_mode,
             timeout_sec=int(values.get("CODEX_VISUAL_QA_TIMEOUT_SEC") or "900"),
@@ -329,28 +356,29 @@ def probe_codex_image_input(
         "available": bool(forms),
         "forms": [form.__dict__ for form in forms],
         "codexBin": config.codex_bin,
-        "manualCommands": manual_visual_commands(root=root),
+        "manualCommands": manual_visual_commands(root=root, codex_bin=config.codex_bin),
     }
     if not forms:
         result["manualReviewFlag"] = to_portable_path(write_manual_review_flag(root, "codex_image_input_unavailable", result))
     return result
 
 
-def manual_visual_commands(root: Path | str | None = None) -> dict[str, str]:
+def manual_visual_commands(root: Path | str | None = None, codex_bin: str | None = None) -> dict[str, str]:
     base = pipeline_paths(root).root
+    bin_name = codex_bin or default_codex_bin()
     return {
         "assetQA": (
-            'codex --image "<asset_contact_sheet.png>" "Use '
+            f'{bin_name} --image "<asset_contact_sheet.png>" "Use '
             f'{base / "ai_image/prompts/VISUAL_VERDICT_ASSET_QA_PROMPT.md"} and return strict '
             f'JSON qaType={ASSET_QA_TYPE}. Save to ai_image/reports/visual_verdict/asset_qa_latest.json."'
         ),
         "identityQA": (
-            'codex --image "<identity_contact_sheet.png>" "Use '
+            f'{bin_name} --image "<identity_contact_sheet.png>" "Use '
             f'{base / "ai_image/prompts/VISUAL_VERDICT_IDENTITY_QA_PROMPT.md"} and return strict '
             f'JSON qaType={IDENTITY_QA_TYPE}. Save to ai_image/reports/visual_verdict/identity_qa_latest.json."'
         ),
         "distributionQA": (
-            'codex "Use ai_image/prompts/VISUAL_VERDICT_DISTRIBUTION_AUDIT_PROMPT.md, the visual QA manifests, '
+            f'{bin_name} "Use ai_image/prompts/VISUAL_VERDICT_DISTRIBUTION_AUDIT_PROMPT.md, the visual QA manifests, '
             f'and latest_distribution_audit.json. Return strict JSON qaType={DISTRIBUTION_QA_TYPE}."'
         ),
     }
@@ -383,13 +411,22 @@ def ensure_contact_sheets(root: Path | str | None = None, *, chunk_id: str | Non
     existing = [path for path in sheet_dir.rglob("*") if path.suffix.lower() in IMAGE_SUFFIXES] if sheet_dir.exists() else []
     if not existing:
         try:
-            generate_grouped_contact_sheets(root=root, stage="pilot")
+            generate_grouped_contact_sheets(root=root, stage=chunk_id or "pilot")
             generate_identity_contact_sheets(root=root)
             generate_chunk_contact_sheets(root=root)
         except Exception as exc:  # noqa: BLE001 - convert contact-sheet failures into manual review state.
             write_manual_review_flag(root, "contact_sheets_missing", {"error": str(exc)})
             raise ActiveVisualVerdictError(f"Contact sheet generation failed: {exc}") from exc
     entries = build_contact_sheet_index(root=root, chunk_id=chunk_id)
+    if chunk_id and not _filter_chunk_entries(entries, chunk_id):
+        try:
+            generate_grouped_contact_sheets(root=root, stage=chunk_id)
+            generate_identity_contact_sheets(root=root)
+            generate_chunk_contact_sheets(root=root)
+        except Exception as exc:  # noqa: BLE001 - convert contact-sheet failures into manual review state.
+            write_manual_review_flag(root, "contact_sheets_missing", {"error": str(exc)})
+            raise ActiveVisualVerdictError(f"Contact sheet generation failed: {exc}") from exc
+        entries = build_contact_sheet_index(root=root, chunk_id=chunk_id)
     if not entries:
         write_manual_review_flag(root, "contact_sheets_missing")
         raise ActiveVisualVerdictError("No contact sheets found after generation attempt.")
@@ -428,10 +465,25 @@ def build_contact_sheet_index(root: Path | str | None = None, *, chunk_id: str |
     if not sheet_dir.exists() and not (chunk_sheet_dir and chunk_sheet_dir.exists()):
         return []
     manifest_rows = load_generation_manifest(paths)
+    chunk_profile_ids: set[str] = set()
+    if chunk_id:
+        current_plan = paths.manifests / "current_chunk_plan.json"
+        if current_plan.exists():
+            try:
+                payload = json.loads(current_plan.read_text(encoding="utf-8-sig"))
+                if str(payload.get("chunkId") or "") == str(chunk_id):
+                    chunk_profile_ids = {
+                        str(identity.get("profileId") or "")
+                        for identity in payload.get("identities", [])
+                        if str(identity.get("profileId") or "")
+                    }
+            except Exception:
+                chunk_profile_ids = set()
     entries: list[ContactSheetEntry] = []
     source_dirs = [sheet_dir]
     if chunk_sheet_dir and chunk_sheet_dir.exists():
         source_dirs.insert(0, chunk_sheet_dir)
+
     seen_paths: set[Path] = set()
     for base_dir in source_dirs:
         if not base_dir.exists():
@@ -449,7 +501,13 @@ def build_contact_sheet_index(root: Path | str | None = None, *, chunk_id: str |
                 relative = path.relative_to(base_dir)
             except ValueError:
                 relative = path.name
-            prefix = f"{chunk_id}__" if chunk_id and base_dir == chunk_sheet_dir else ""
+            prefix = ""
+            if chunk_id:
+                is_chunk_dir_entry = base_dir == chunk_sheet_dir
+                is_chunk_stage_asset = sheet_type == "asset" and path.stem.startswith(f"{chunk_id}_")
+                is_chunk_identity = sheet_type == "identity" and bool(chunk_profile_ids.intersection(profile_ids))
+                if is_chunk_dir_entry or is_chunk_stage_asset or is_chunk_identity:
+                    prefix = f"{chunk_id}__"
             entry = ContactSheetEntry(
                 sheet_id=prefix + Path(relative).with_suffix("").as_posix().replace("/", "__"),
                 sheet_path=path.resolve(),
@@ -458,6 +516,7 @@ def build_contact_sheet_index(root: Path | str | None = None, *, chunk_id: str |
                 profile_ids=profile_ids,
             )
             entries.append(entry)
+
     if not entries:
         return []
     sheet_dir.mkdir(parents=True, exist_ok=True)

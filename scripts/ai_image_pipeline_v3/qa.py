@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -46,6 +47,17 @@ MIN_HEIGHT = 512
 MIN_FILE_BYTES = 1024
 MIN_ASPECT_RATIO = 0.55
 MAX_ASPECT_RATIO = 0.85
+
+
+def _file_sha256(path: Path) -> str | None:
+    try:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return None
 
 
 def inspect_image(path: Path) -> tuple[bool, int, int, str]:
@@ -124,11 +136,23 @@ def _path_sanity_issues(paths: Any, row: dict[str, Any]) -> list[str]:
     return issues
 
 
+def _row_existing_image_path(row: dict[str, Any]) -> Path | None:
+    for key in ("localPath", "rawPath", "finalPath", "expectedFinalPath"):
+        value = str(row.get(key) or "")
+        if not value:
+            continue
+        path = Path(value)
+        if path.exists() and path.is_file():
+            return path
+    return None
+
+
 def _manifest_integrity_issues(paths: Any, rows: list[dict[str, Any]]) -> dict[str, list[str]]:
     issues_by_asset: dict[str, list[str]] = {str(row.get("assetId") or ""): [] for row in rows}
     asset_seen: dict[str, int] = {}
     final_seen: dict[str, set[str]] = {}
     by_profile: dict[str, set[str]] = {}
+    hash_seen: dict[str, set[str]] = {}
     for row in rows:
         asset_id = str(row.get("assetId") or "")
         asset_seen[asset_id] = asset_seen.get(asset_id, 0) + 1
@@ -136,13 +160,25 @@ def _manifest_integrity_issues(paths: Any, rows: list[dict[str, Any]]) -> dict[s
         final_seen.setdefault(final_path, set()).add(asset_id)
         by_profile.setdefault(str(row.get("profileId") or ""), set()).add(str(row.get("shotType") or ""))
         issues_by_asset.setdefault(asset_id, []).extend(_path_sanity_issues(paths, row))
+        image_path = _row_existing_image_path(row)
+        digest = _file_sha256(image_path) if image_path else None
+        if digest:
+            hash_seen.setdefault(digest, set()).add(asset_id)
 
     duplicate_asset_ids = {asset_id for asset_id, count in asset_seen.items() if asset_id and count > 1}
     duplicate_final_paths = {path for path, asset_ids in final_seen.items() if path and len(asset_ids) > 1}
+    duplicate_hash_asset_ids = {
+        asset_id
+        for asset_ids in hash_seen.values()
+        if len(asset_ids) > 1
+        for asset_id in asset_ids
+    }
     for row in rows:
         asset_id = str(row.get("assetId") or "")
         if asset_id in duplicate_asset_ids:
             issues_by_asset.setdefault(asset_id, []).append("duplicate_assetId")
+        if asset_id in duplicate_hash_asset_ids:
+            issues_by_asset.setdefault(asset_id, []).append("duplicate_image_hash")
         final_path = str(row.get("finalPath") or row.get("expectedFinalPath") or public_final_path(paths, row))
         if final_path in duplicate_final_paths:
             issues_by_asset.setdefault(asset_id, []).append("duplicate_final_path")

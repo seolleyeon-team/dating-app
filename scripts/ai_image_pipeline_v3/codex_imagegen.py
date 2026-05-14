@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,6 +53,7 @@ ELIGIBLE_STATUSES = {
 }
 PENDING_STATUSES = {"pending_imagegen"}
 RECOVERED_PENDING_STATUSES = {"recovered_pending_qa", "needs_manual_review"}
+GENERATED_IMAGE_TIMESTAMP_GRACE_SECONDS = 5
 
 
 @dataclass(frozen=True)
@@ -138,7 +141,7 @@ def write_imagegen_queue(root: Path | str | None, rows: Iterable[Mapping[str, An
 def read_pending(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
-    text = path.read_text(encoding="utf-8").strip()
+    text = path.read_text(encoding="utf-8-sig").strip()
     if not text:
         return None
     return json.loads(text)
@@ -497,7 +500,7 @@ def latest_generated_image(generated_root: Path, *, created_at: str | None = Non
     created = _parse_timestamp(created_at)
     if created is not None:
         created_ts = created.timestamp()
-        after_created = [path for path in files if path.stat().st_mtime >= created_ts - 5]
+        after_created = [path for path in files if path.stat().st_mtime >= created_ts - GENERATED_IMAGE_TIMESTAMP_GRACE_SECONDS]
         if len(after_created) > 1:
             candidates = ", ".join(str(path) for path in after_created[:5])
             raise RuntimeError(
@@ -506,7 +509,67 @@ def latest_generated_image(generated_root: Path, *, created_at: str | None = Non
             )
         if after_created:
             return after_created[0]
+        newest = files[0]
+        newest_mtime = datetime.fromtimestamp(newest.stat().st_mtime, timezone.utc).isoformat()
+        raise FileNotFoundError(
+            "No Codex generated image was created at or after the pending checkpoint timestamp. "
+            f"pendingCreatedAt={created.isoformat()} newestCandidate={newest} newestMtime={newest_mtime}"
+        )
     return files[0]
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _path_key(path: Path | str) -> str:
+    try:
+        return str(Path(path).resolve()).replace("\\", "/").casefold()
+    except OSError:
+        return str(path).replace("\\", "/").casefold()
+
+
+def _source_reuse_conflict(root: Path | str | None, source_path: Path, asset_id: str) -> str | None:
+    source_key = _path_key(source_path)
+    for row in read_jsonl(completed_pending_path(root)):
+        other_asset_id = str(row.get("assetId") or "")
+        if not other_asset_id or other_asset_id == asset_id:
+            continue
+        for key in ("sourcePath", "codexGeneratedSourcePath", "sourceGeneratedImagePath"):
+            used = str(row.get(key) or "")
+            if used and _path_key(used) == source_key:
+                return other_asset_id
+    return None
+
+
+def _exact_duplicate_existing_asset(rows: Iterable[Mapping[str, Any]], source_path: Path, asset_id: str) -> str | None:
+    if not source_path.exists() or not source_path.is_file():
+        return None
+    try:
+        source_hash = _file_sha256(source_path)
+    except OSError:
+        return None
+    for row in rows:
+        other_asset_id = str(row.get("assetId") or "")
+        if not other_asset_id or other_asset_id == asset_id:
+            continue
+        for key in ("finalPath", "approvedPath", "localPath", "rawPath"):
+            value = str(row.get(key) or "")
+            if not value:
+                continue
+            path = Path(value)
+            if not path.exists() or not path.is_file():
+                continue
+            try:
+                if _file_sha256(path) == source_hash:
+                    return other_asset_id
+            except OSError:
+                continue
+    return None
 
 
 def _copy_as_png(source: Path, target: Path) -> None:
@@ -537,6 +600,8 @@ def recover_pending_imagegen(
     source: Path | str | None = None,
     force: bool = False,
     run_qa: bool = True,
+    wait_seconds: float = 0.0,
+    poll_interval: float = 1.0,
 ) -> RecoverResult:
     root_path: Path | str | None = root
     if out_dir:
@@ -557,7 +622,18 @@ def recover_pending_imagegen(
         or os.environ.get(CODEX_GENERATED_IMAGES_DIR_ENV)
         or DEFAULT_CODEX_GENERATED_IMAGES_DIR
     ).resolve()
-    source_path = Path(source).resolve() if source else latest_generated_image(generated_dir, created_at=payload.get("createdAt"))
+    if source:
+        source_path = Path(source).resolve()
+    else:
+        deadline = time.monotonic() + max(0.0, float(wait_seconds))
+        while True:
+            try:
+                source_path = latest_generated_image(generated_dir, created_at=payload.get("createdAt"))
+                break
+            except FileNotFoundError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(max(0.1, float(poll_interval)))
     if not source_path.exists():
         raise FileNotFoundError(f"Generated image source does not exist: {source_path}")
 
@@ -569,6 +645,20 @@ def recover_pending_imagegen(
     rejected_path = Path(rejected_path_value).resolve() if rejected_path_value else None
     rows = load_generation_manifest(paths)
     row = next((item for item in rows if str(item.get("assetId")) == str(payload["assetId"])), None)
+    asset_id = str(payload["assetId"])
+    if not force:
+        source_conflict = _source_reuse_conflict(root_path, source_path, asset_id)
+        if source_conflict:
+            raise RuntimeError(
+                "Refusing to recover a Codex generated image source that was already assigned "
+                f"to another asset: source={source_path} existingAssetId={source_conflict} assetId={asset_id}"
+            )
+        duplicate_asset = _exact_duplicate_existing_asset(rows, source_path, asset_id)
+        if duplicate_asset:
+            raise RuntimeError(
+                "Refusing to recover an exact duplicate image for another asset. "
+                f"source={source_path} existingAssetId={duplicate_asset} assetId={asset_id}"
+            )
     if row and str(row.get("status") or "") in APPROVED_STATUSES and final_path.exists() and not force:
         raise RuntimeError(f"Refusing to overwrite approved asset without --force: {final_path}")
 

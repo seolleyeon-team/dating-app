@@ -130,6 +130,20 @@ manual_review_check() {
   [ -f "$MANUAL_REVIEW_FLAG" ]
 }
 
+try_reconcile_manual_review_flag() {
+  if ! manual_review_check; then
+    return 0
+  fi
+  log "manual review flag exists; attempting safe bounded-chunk reconcile"
+  run_logged "$PYTHON_BIN" scripts/run_ai_image_pipeline_v3.py bounded-chunk-reconcile --root . --apply --clear-manual-flag-if-safe || true
+  if ! manual_review_check; then
+    log "manual review flag cleared by safe reconcile"
+    return 0
+  fi
+  log "manual review flag still requires attention after reconcile attempt"
+  return 2
+}
+
 pending_status() {
   if [ ! -f "$PENDING_FILE" ]; then
     printf 'none\n'
@@ -256,8 +270,7 @@ PY
 before_run_checks() {
   completion_check && return 10
   if manual_review_check; then
-    log "manual review flag exists before run"
-    return 2
+    try_reconcile_manual_review_flag || return 2
   fi
   recover_pending_if_needed || return $?
   file_qa || return $?
@@ -274,8 +287,7 @@ after_run_checks() {
   summary_step || return $?
   completion_check && return 10
   if manual_review_check; then
-    log "manual review flag exists after run"
-    return 2
+    try_reconcile_manual_review_flag || return 2
   fi
   return 0
 }

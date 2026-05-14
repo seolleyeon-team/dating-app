@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "seolleyeon_active_visual_manual_review_v3",
+  "reason": "bounded_active_visual_qa_failed",
+  "details": {
+    "chunkId": "chunk_20260513T202934Z",
+    "error": "Visual QA coverage check failed."
+  },
+  "updatedAt": "2026-05-14T16:16:30+00:00"
+}

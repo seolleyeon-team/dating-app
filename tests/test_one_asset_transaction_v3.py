@@ -81,6 +81,16 @@ class OneAssetTransactionV3Tests(unittest.TestCase):
             self.assertTrue(result["valid"])
             self.assertEqual(result["assetId"], expected["assetId"])
 
+    def test_receipt_loader_accepts_utf8_bom_receipt(self):
+        from scripts.ai_image_pipeline_v3.one_asset_transaction import _load_receipt
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "receipt.json"
+            payload = self._receipt(Path(tmp))
+            path.write_text(json.dumps(payload), encoding="utf-8-sig")
+
+            self.assertEqual(_load_receipt(path), payload)
+
     def test_receipt_identity_path_and_file_failures_are_rejected(self):
         from scripts.ai_image_pipeline_v3.one_asset_transaction import OneAssetTransactionError, verify_one_asset_transaction
 

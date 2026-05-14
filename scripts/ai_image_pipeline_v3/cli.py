@@ -42,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Cross-platform Seolleyeon AI image pipeline dispatcher.")
     parser.add_argument("command", choices=[
         "prepare-720",
+        "normalize-manifest-paths",
         "recover",
         "file-qa",
         "contact-sheets",
@@ -144,6 +145,12 @@ def main(argv: list[str] | None = None) -> int:
                 "imagegenQueue": str(result.imagegen_queue_jsonl),
             }
         )
+        return 0
+
+    if command == "normalize-manifest-paths":
+        from .manifest_repair import normalize_generation_paths
+
+        _print_json(normalize_generation_paths(root=args.root, dry_run=args.dry_run, backup=not args.force))
         return 0
 
     if command == "recover":

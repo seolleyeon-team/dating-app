@@ -55,10 +55,14 @@ def file_sha256(path: Path) -> str:
 
 
 def row_image_path(row: Mapping[str, Any]) -> Path:
-    local_path = Path(str(row.get("localPath") or ""))
-    if local_path.exists():
-        return local_path
-    return Path(str(row.get("finalPath") or ""))
+    for key in ("localPath", "rawPath", "finalPath"):
+        value = str(row.get(key) or "")
+        if not value:
+            continue
+        path = Path(value)
+        if path.exists() and path.is_file():
+            return path
+    return Path("")
 
 
 def phash(path: Path) -> str:
@@ -69,7 +73,8 @@ def phash(path: Path) -> str:
     try:
         with Image.open(path) as image:
             gray = image.convert("L").resize((32, 32))
-            pixels = list(gray.getdata())
+            pixel_data = gray.get_flattened_data() if hasattr(gray, "get_flattened_data") else gray.getdata()
+            pixels = list(pixel_data)
         mean = sum(pixels) / len(pixels)
         bits = ["1" if pixel >= mean else "0" for pixel in pixels]
         return "".join(f"{int(''.join(bits[i:i + 4]), 2):x}" for i in range(0, len(bits), 4))
@@ -103,7 +108,7 @@ def audit_duplicates(
 
     for row in rows:
         image_path = row_image_path(row)
-        if not image_path.exists() or image_path.stat().st_size < min_file_bytes:
+        if str(image_path) in {"", "."} or not image_path.exists() or not image_path.is_file() or image_path.stat().st_size < min_file_bytes:
             continue
         enriched = dict(row)
         enriched["_path"] = image_path

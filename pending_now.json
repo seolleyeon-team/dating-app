@@ -1,0 +1,32 @@
+{
+  "exists": true,
+  "pendingPath": "C:/Users/Mickey/StudioProjects/dating-app-ai_profile_image/ai_image/manifests/pending-imagegen.json",
+  "status": "pending_imagegen",
+  "resolved": false,
+  "unresolved": true,
+  "requiresRecovery": true,
+  "reason": "female_056__vibe_card__v001",
+  "assetId": "female_056__vibe_card__v001",
+  "profileId": "female_056",
+  "shotType": "vibe_card",
+  "attempt": 1,
+  "expectedRawPath": {
+    "path": "C:/Users/Mickey/StudioProjects/dating-app-ai_profile_image/ai_image/raw/female_056__vibe_card__v001__attempt01.png",
+    "exists": false,
+    "size": 0
+  },
+  "expectedFinalPath": {
+    "path": "C:/Users/Mickey/StudioProjects/dating-app-ai_profile_image/ai_image/female/056/vibe_card.png",
+    "exists": false,
+    "size": 0
+  },
+  "perAssetPending": {
+    "schemaVersion": "seolleyeon_identity_parallel_status_v1",
+    "pendingDir": "C:/Users/Mickey/StudioProjects/dating-app-ai_profile_image/ai_image/manifests/pending",
+    "perAssetPendingCount": 0,
+    "unresolvedPendingFiles": [],
+    "resolvedPendingFiles": [],
+    "activeLeases": [],
+    "staleLeases": []
+  }
+}

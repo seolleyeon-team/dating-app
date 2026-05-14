@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "seolleyeon_bounded_chunk_plan_validation_v3",
+  "valid": true,
+  "canRun": true,
+  "reasonCode": "",
+  "reasons": [],
+  "chunkId": "chunk_20260513T202934Z",
+  "planPath": "C:/Users/Mickey/StudioProjects/dating-app-ai_profile_image/ai_image/manifests/current_chunk_plan.json",
+  "statePath": "C:/Users/Mickey/StudioProjects/dating-app-ai_profile_image/ai_image/manifests/current_chunk_state.json"
+}

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "seolleyeon_bounded_chunk_plan_validation_v3",
+  "valid": false,
+  "canRun": false,
+  "reasonCode": "current_plan_not_executable",
+  "reasons": [
+    "current_plan_not_executable",
+    "manual_review_required",
+    "unresolved_pending_imagegen",
+    "manual_review_required_newer_than_plan"
+  ],
+  "chunkId": "chunk_20260513T202934Z",
+  "planPath": "C:/Users/Mickey/StudioProjects/dating-app-ai_profile_image/ai_image/manifests/current_chunk_plan.json"
+}

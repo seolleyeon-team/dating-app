@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -201,7 +202,37 @@ def _next_attempt(paths: HermesRunPaths) -> int:
     return max(attempts, default=0) + 1
 
 
-def _command_for_mode(config: HermesWrapperConfig) -> tuple[str, ...]:
+def _resolve_bash_binary(
+    requested: str,
+    *,
+    which_func: Callable[[str], str | None] = shutil.which,
+    bash_candidates: Sequence[Path] | None = None,
+) -> str:
+    requested_path = Path(requested)
+    if requested_path.is_absolute() and requested_path.exists():
+        return str(requested_path)
+    resolved = which_func(requested)
+    if resolved:
+        return resolved
+    if requested != "bash":
+        return requested
+    candidates = bash_candidates or (
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "bash.exe",
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "usr" / "bin" / "bash.exe",
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Git" / "bin" / "bash.exe",
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return requested
+
+
+def _command_for_mode(
+    config: HermesWrapperConfig,
+    *,
+    which_func: Callable[[str], str | None] = shutil.which,
+    bash_candidates: Sequence[Path] | None = None,
+) -> tuple[str, ...]:
     script = config.root / "scripts" / "run_ai_image_pipeline_v3.py"
     if config.execution_mode == "dry-run":
         return ("dry-run",)
@@ -214,7 +245,10 @@ def _command_for_mode(config: HermesWrapperConfig) -> tuple[str, ...]:
     if config.execution_mode == "bounded-run":
         return (config.python_bin, str(script), "bounded-chunk-run", "--root", str(config.root))
     if config.execution_mode == "autopilot":
-        return (config.bash_bin, str(config.root / "scripts" / "codex_imagegen_chunk_autopilot_v3.sh"))
+        return (
+            _resolve_bash_binary(config.bash_bin, which_func=which_func, bash_candidates=bash_candidates),
+            str(config.root / "scripts" / "codex_imagegen_chunk_autopilot_v3.sh"),
+        )
     raise HermesWrapperError(f"unsupported execution mode: {config.execution_mode}")
 
 

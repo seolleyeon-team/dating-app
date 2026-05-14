@@ -188,22 +188,25 @@ def write_jsonl(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
 
 
 def replace_with_retry(tmp: Path, path: Path, *, attempts: int = 8, delay_sec: float = 0.25) -> None:
-    last_error: PermissionError | None = None
+    last_error: OSError | None = None
     for _ in range(attempts):
         try:
             tmp.replace(path)
             return
-        except PermissionError as exc:
+        except OSError as exc:
             last_error = exc
             time.sleep(delay_sec)
     if last_error is not None:
-        try:
-            with tmp.open("rb") as src, path.open("wb") as dst:
-                shutil.copyfileobj(src, dst)
-            tmp.unlink(missing_ok=True)
-            return
-        except PermissionError:
-            raise last_error
+        for _ in range(attempts):
+            try:
+                with tmp.open("rb") as src, path.open("wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                tmp.unlink(missing_ok=True)
+                return
+            except OSError as exc:
+                last_error = exc
+                time.sleep(delay_sec)
+        raise last_error
     tmp.replace(path)
 
 

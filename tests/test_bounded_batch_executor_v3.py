@@ -118,7 +118,8 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
             final.parent.mkdir(parents=True, exist_ok=True)
             from PIL import Image
 
-            Image.new("RGB", (512, 768), (20, 40, 60)).save(final)
+            digest = hashlib.sha256(str(payload["assetId"]).encode("utf-8")).digest()
+            Image.new("RGB", (512, 768), tuple(40 + digest[index] % 160 for index in range(3))).save(final)
             paths = pipeline_paths(root)
             rows = []
             for row in load_generation_manifest(paths):
@@ -149,6 +150,169 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
             return {"checked": 1, "approved": 0, "needs_manual_review": 1, "rejected": 0, "missing": 0}
 
         return file_qa
+
+    def test_single_asset_file_qa_rejects_duplicate_image_hash(self):
+        from PIL import Image
+
+        from scripts.ai_image_pipeline_v3.bounded_batch_executor import file_qa_single_asset
+        from scripts.ai_image_pipeline_v3.config import pipeline_paths
+        from scripts.ai_image_pipeline_v3.manifest import enrich_asset, load_generation_manifest, write_generation_outputs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = pipeline_paths(root)
+            rows = []
+            for number in (1, 2):
+                row = enrich_asset(
+                    {
+                        "profileId": f"female_{number:03d}",
+                        "assetId": f"female_{number:03d}__face_card__v001",
+                        "gender": "female",
+                        "shotType": "face_card",
+                        "prompt": "p",
+                    },
+                    paths,
+                )
+                final = Path(row["finalPath"])
+                final.parent.mkdir(parents=True, exist_ok=True)
+                Image.new("RGB", (512, 768), (10, 20, 30)).save(final)
+                row["localPath"] = str(final)
+                rows.append(row)
+            write_generation_outputs(paths, rows)
+
+            counts = file_qa_single_asset(root=root, asset_id="female_002__face_card__v001", shot_type="face_card")
+            updated = {row["assetId"]: row for row in load_generation_manifest(paths)}
+
+            self.assertEqual(counts["rejected"], 1)
+            self.assertEqual(updated["female_002__face_card__v001"]["status"], "file_rejected")
+            self.assertIn("duplicate_image_hash", updated["female_002__face_card__v001"]["error"])
+
+    def test_config_prefers_codex_bin_and_shorter_default_timeout(self):
+        from scripts.ai_image_pipeline_v3.bounded_batch_executor import BoundedExecutorConfig
+
+        config = BoundedExecutorConfig.from_env({"CODEX_BIN": "codex.cmd"})
+
+        self.assertEqual(config.agent_cmd, "codex.cmd")
+        self.assertEqual(config.timeout_sec, 300)
+
+    def test_config_caps_explicit_timeout_to_safe_upper_bound(self):
+        from scripts.ai_image_pipeline_v3.bounded_batch_executor import BoundedExecutorConfig
+
+        config = BoundedExecutorConfig.from_env({"CODEX_BIN": "codex.cmd", "BOUNDED_EXECUTOR_TIMEOUT_SEC": "1800"})
+
+        self.assertEqual(config.timeout_sec, 300)
+
+    def test_config_explicit_bounded_agent_overrides_codex_bin(self):
+        from scripts.ai_image_pipeline_v3.bounded_batch_executor import BoundedExecutorConfig
+
+        config = BoundedExecutorConfig.from_env({"CODEX_BIN": "codex.cmd", "BOUNDED_EXECUTOR_AGENT_CMD": "omx", "BOUNDED_EXECUTOR_TIMEOUT_SEC": "42"})
+
+        self.assertEqual(config.agent_cmd, "omx")
+        self.assertEqual(config.timeout_sec, 42)
+
+    def test_resolve_codex_cmd_shim_to_native_exe_on_windows(self):
+        from unittest import mock
+        from scripts.ai_image_pipeline_v3.bounded_batch_executor import BoundedExecutorConfig, _resolve_agent_binary
+
+        config = BoundedExecutorConfig.from_env({"CODEX_BIN": "codex.cmd"})
+        with tempfile.TemporaryDirectory() as tmp:
+            local_app_data = Path(tmp) / "LocalAppData"
+            native = local_app_data / "OpenAI" / "Codex" / "bin" / "codex.exe"
+            native.parent.mkdir(parents=True)
+            native.write_text("", encoding="utf-8")
+            shim = Path(tmp) / "codex.cmd"
+            shim.write_text('@echo off\n"%LOCALAPPDATA%\\OpenAI\\Codex\\bin\\codex.exe" %*\n', encoding="utf-8")
+
+            with mock.patch.dict("os.environ", {"LOCALAPPDATA": str(local_app_data)}):
+                resolved = _resolve_agent_binary(config, which_func=lambda name: str(shim) if name == "codex.cmd" else None)
+
+        self.assertEqual(Path(resolved), native)
+
+    def test_child_agent_args_use_isolated_read_only_ephemeral_workspace(self):
+        from scripts.ai_image_pipeline_v3.bounded_batch_executor import BoundedExecutorConfig, build_agent_args, child_workspace_path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = child_workspace_path(root, "chunk_test", "female_001__face_card__v001", 1)
+            config = BoundedExecutorConfig.from_env({"CODEX_BIN": "codex"})
+
+            args = build_agent_args(
+                "generate one image",
+                root=root,
+                config=config,
+                agent_bin="codex",
+                child_workspace=workspace,
+            )
+
+            self.assertIn("--ephemeral", args)
+            self.assertIn("--ignore-rules", args)
+            self.assertIn("--skip-git-repo-check", args)
+            self.assertIn("-s", args)
+            self.assertEqual(args[args.index("-s") + 1], "read-only")
+            self.assertIn("-C", args)
+            self.assertEqual(Path(args[args.index("-C") + 1]), workspace)
+            self.assertNotEqual(Path(args[args.index("-C") + 1]), root)
+            self.assertTrue(workspace.exists())
+
+    def test_one_asset_child_prompt_is_imagegen_only_and_hides_controller_paths(self):
+        from scripts.ai_image_pipeline_v3.bounded_batch_executor import build_one_asset_child_prompt
+
+        prompt = build_one_asset_child_prompt(
+            {
+                "assetId": "female_054__silhouette_card__v001",
+                "profileId": "female_054",
+                "shotType": "silhouette_card",
+                "attempt": 1,
+            },
+            generation_prompt="realistic campus image",
+            reference_path="C:/repo/ai_image/female/054/face_card.png",
+        )
+
+        self.assertIn("Generate exactly one image", prompt)
+        self.assertIn("Do not write files", prompt)
+        self.assertIn("Do not run shell commands", prompt)
+        self.assertIn("IMAGEGEN_DONE", prompt)
+        self.assertIn("Use attached face_card as same-person reference", prompt)
+        for forbidden in (
+            "expectedRawPath",
+            "expectedFinalPath",
+            "expectedReceiptPath",
+            "pending-imagegen.json",
+            "current_chunk_plan.json",
+            "current_chunk_state.json",
+            "C:/repo/ai_image",
+        ):
+            self.assertNotIn(forbidden, prompt)
+
+    def test_child_command_timeout_kills_windows_process_tree(self):
+        from unittest import mock
+        from scripts.ai_image_pipeline_v3 import bounded_batch_executor as executor
+
+        proc = mock.Mock()
+        proc.pid = 4242
+        proc.returncode = -9
+        proc.communicate.side_effect = [
+            subprocess.TimeoutExpired(["codex", "exec"], 3),
+            ("partial stdout", "partial stderr"),
+        ]
+
+        with mock.patch.object(executor.os, "name", "nt"), mock.patch.object(executor.subprocess, "Popen", return_value=proc), mock.patch.object(executor.subprocess, "run") as taskkill:
+            with self.assertRaises(subprocess.TimeoutExpired) as context:
+                executor.run_child_command_with_tree_timeout(
+                    ["codex", "exec"],
+                    cwd="C:/sandbox",
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=3,
+                    shell=False,
+                )
+
+        taskkill.assert_called_once()
+        self.assertEqual(taskkill.call_args.args[0], ["taskkill", "/PID", "4242", "/T", "/F"])
+        self.assertEqual(context.exception.output, "partial stdout")
+        self.assertEqual(context.exception.stderr, "partial stderr")
 
     def test_plan_limits_order_references_and_state_files(self):
         from scripts.ai_image_pipeline_v3.bounded_batch_executor import create_chunk_plan
@@ -448,7 +612,10 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
             self.assertIn(str((root / "ai_image" / "female" / "001" / "face_card.png").resolve()), commands[1])
             self.assertIn("--image", commands[2])
             self.assertIn("attached face_card image is the authoritative identity anchor", prompts[1])
-            self.assertTrue((root / "ai_image" / "reports" / "chunks" / json.loads((root / "ai_image" / "manifests" / "current_chunk_plan.json").read_text(encoding="utf-8"))["chunkId"] / "identity_context" / "female_001" / "identity_context.json").exists())
+            chunk_id = json.loads((root / "ai_image" / "manifests" / "current_chunk_plan.json").read_text(encoding="utf-8"))["chunkId"]
+            self.assertFalse((root / "ai_image" / "reports" / "chunks" / chunk_id / "identity_context" / "female_001" / "identity_context.json").exists())
+            self.assertIn("-C", commands[1])
+            self.assertIn("child_workspaces", commands[1][commands[1].index("-C") + 1])
 
     def test_failed_command_retries_same_asset_to_max_attempts(self):
         from scripts.ai_image_pipeline_v3.bounded_batch_executor import create_chunk_plan, run_bounded_chunk
@@ -479,6 +646,75 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
             self.assertEqual(len(commands), 3)
             state = json.loads((root / "ai_image" / "manifests" / "current_chunk_state.json").read_text(encoding="utf-8"))
             self.assertEqual(state["assetStates"]["female_001__face_card__v001"], "failed")
+
+    def test_parent_owned_state_mutation_during_child_is_not_forbidden(self):
+        from scripts.ai_image_pipeline_v3.bounded_batch_executor import create_chunk_plan, run_bounded_chunk
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_audit(root)
+            self._write_manifest(root, 1)
+            plan = create_chunk_plan(root=root)
+            state_path = root / "ai_image" / "manifests" / "current_chunk_state.json"
+            commands = []
+
+            def fake_run(args, **kwargs):
+                commands.append(args)
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                state["boardHeartbeat"] = "parent-owned status ping"
+                state_path.write_text(json.dumps(state), encoding="utf-8")
+                return subprocess.CompletedProcess(args, 0, stdout="IMAGEGEN_DONE", stderr="")
+
+            result = run_bounded_chunk(
+                root=root,
+                config=self._config(),
+                run_func=fake_run,
+                recover_func=self._fake_recover(root),
+                file_qa_func=self._fake_file_qa(root),
+                active_visual_func=lambda **kwargs: {"ok": True},
+                audit_func=lambda **kwargs: {"passed": False, "finalDecision": "needs_more_generation", "approvedCompleteIdentityCount": 0, "approvedImageCount": 0},
+                which_func=lambda cmd: f"C:/bin/{cmd}.exe",
+            )
+
+            self.assertEqual(result["status"], "finalized")
+            self.assertEqual(len(commands), 3)
+            self.assertFalse((root / "ai_image" / "manifests" / "manual_review_required.flag").exists())
+            events = (root / "ai_image" / "reports" / "chunks" / plan["chunkId"] / "events.jsonl").read_text(encoding="utf-8")
+            self.assertIn("imagegen_child_started", events)
+            self.assertIn("imagegen_child_returned", events)
+
+    def test_parent_recovery_receives_wait_window_after_child_return(self):
+        from scripts.ai_image_pipeline_v3.bounded_batch_executor import create_chunk_plan, run_bounded_chunk
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_audit(root)
+            self._write_manifest(root, 1)
+            create_chunk_plan(root=root)
+            recovery_kwargs = []
+
+            def fake_run(args, **kwargs):
+                return subprocess.CompletedProcess(args, 0, stdout="IMAGEGEN_DONE", stderr="")
+
+            def waiting_recover(**kwargs):
+                recovery_kwargs.append(kwargs)
+                return self._fake_recover(root)(pending=kwargs["pending"], run_qa=kwargs.get("run_qa", False))
+
+            result = run_bounded_chunk(
+                root=root,
+                config=self._config(),
+                run_func=fake_run,
+                recover_func=waiting_recover,
+                file_qa_func=self._fake_file_qa(root),
+                active_visual_func=lambda **kwargs: {"ok": True},
+                audit_func=lambda **kwargs: {"passed": False, "finalDecision": "needs_more_generation", "approvedCompleteIdentityCount": 0, "approvedImageCount": 0},
+                which_func=lambda cmd: f"C:/bin/{cmd}.exe",
+            )
+
+            self.assertEqual(result["status"], "finalized")
+            self.assertTrue(recovery_kwargs)
+            self.assertGreaterEqual(recovery_kwargs[0].get("wait_seconds", 0), 30)
+            self.assertGreater(recovery_kwargs[0].get("poll_interval", 0), 0)
 
     def test_recovery_failure_stops_before_next_asset_and_sets_manual_flag(self):
         from scripts.ai_image_pipeline_v3.bounded_batch_executor import create_chunk_plan, run_bounded_chunk
@@ -531,9 +767,11 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
                 pending = read_pending(pending_path(root))
                 raw = Path(pending["expectedRawPath"])
                 final = Path(pending["expectedFinalPath"])
+                digest = hashlib.sha256(str(pending["assetId"]).encode("utf-8")).digest()
+                color = tuple(40 + digest[index] % 160 for index in range(3))
                 for path in (raw, final):
                     path.parent.mkdir(parents=True, exist_ok=True)
-                    Image.new("RGB", (512, 768), (20, 40, 60)).save(path)
+                    Image.new("RGB", (512, 768), color).save(path)
                 receipt_path = Path(pending["expectedReceiptPath"])
                 receipt_path.parent.mkdir(parents=True, exist_ok=True)
                 reference_text = str(pending.get("referenceImagePath") or "")
@@ -658,9 +896,11 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
                 pending = read_pending(pending_path(root))
                 raw = Path(pending["expectedRawPath"])
                 final = Path(pending["expectedFinalPath"])
+                digest = hashlib.sha256(str(pending["assetId"]).encode("utf-8")).digest()
+                color = tuple(40 + digest[index] % 160 for index in range(3))
                 for path in (raw, final):
                     path.parent.mkdir(parents=True, exist_ok=True)
-                    Image.new("RGB", (512, 768), (20, 40, 60)).save(path)
+                    Image.new("RGB", (512, 768), color).save(path)
                 receipt_path = Path(pending["expectedReceiptPath"])
                 receipt_path.parent.mkdir(parents=True, exist_ok=True)
                 reference_text = str(pending.get("referenceImagePath") or "")
@@ -730,6 +970,102 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
             self.assertEqual(state["assetStates"]["female_001__vibe_card__v001"], "file_qa_passed")
             events = (root / "ai_image" / "reports" / "chunks" / plan["chunkId"] / "events.jsonl").read_text(encoding="utf-8")
             self.assertIn("child_forbidden_mutation_auto_reconciled", events)
+
+    def test_existing_recoverable_manual_flag_reconciles_before_resume(self):
+        from PIL import Image
+
+        from scripts.ai_image_pipeline_v3.bounded_batch_executor import create_chunk_plan, run_bounded_chunk
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_audit(root)
+            self._write_manifest(root, 1)
+            plan = create_chunk_plan(root=root)
+            final = root / "ai_image" / "female" / "001" / "face_card.png"
+            final.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (512, 768), (20, 40, 60)).save(final)
+            flag = root / "ai_image" / "manifests" / "manual_review_required.flag"
+            flag.write_text(json.dumps({"reason": "child_forbidden_mutation"}), encoding="utf-8")
+            commands = []
+
+            def fake_run(args, **kwargs):
+                commands.append(args)
+                return subprocess.CompletedProcess(args, 0, stdout="ok", stderr="")
+
+            result = run_bounded_chunk(
+                root=root,
+                config=self._config(),
+                run_func=fake_run,
+                recover_func=self._fake_recover(root),
+                file_qa_func=self._fake_file_qa(root),
+                active_visual_func=lambda **kwargs: {"ok": True},
+                audit_func=lambda **kwargs: {"passed": False, "finalDecision": "needs_more_generation", "approvedCompleteIdentityCount": 0, "approvedImageCount": 0},
+                which_func=lambda cmd: f"C:/bin/{cmd}.exe",
+            )
+
+            self.assertEqual(result["status"], "finalized")
+            self.assertFalse(flag.exists())
+            self.assertEqual(len(commands), 2)
+            self.assertIn("assetId: female_001__silhouette_card__v001", commands[0][-1])
+            self.assertIn("--image", commands[0])
+            state = json.loads((root / "ai_image" / "manifests" / "current_chunk_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["assetStates"]["female_001__face_card__v001"], "file_qa_passed")
+            events = (root / "ai_image" / "reports" / "chunks" / plan["chunkId"] / "events.jsonl").read_text(encoding="utf-8")
+            self.assertIn("pre_run_manual_flag_auto_reconciled", events)
+
+    def test_resolved_pending_manual_flag_reconciles_before_resume(self):
+        from PIL import Image
+
+        from scripts.ai_image_pipeline_v3.bounded_batch_executor import create_chunk_plan, run_bounded_chunk
+        from scripts.ai_image_pipeline_v3.codex_imagegen import pending_path, write_pending
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_audit(root)
+            self._write_manifest(root, 1)
+            plan = create_chunk_plan(root=root)
+            final = root / "ai_image" / "female" / "001" / "face_card.png"
+            final.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (512, 768), (20, 40, 60)).save(final)
+            pending = {
+                "status": "recovered",
+                "resolved": True,
+                "assetId": "female_001__face_card__v001",
+                "profileId": "female_001",
+                "gender": "female",
+                "numericId": "001",
+                "shotType": "face_card",
+                "attempt": 1,
+                "expectedRawPath": str(final),
+                "expectedFinalPath": str(final),
+            }
+            write_pending(pending_path(root), pending)
+            flag = root / "ai_image" / "manifests" / "manual_review_required.flag"
+            flag.write_text(json.dumps({"reason": "unresolved_pending_imagegen", "details": {"assetId": "female_001__face_card__v001", "status": "recovered"}}), encoding="utf-8")
+            commands = []
+
+            def fake_run(args, **kwargs):
+                commands.append(args)
+                return subprocess.CompletedProcess(args, 0, stdout="ok", stderr="")
+
+            result = run_bounded_chunk(
+                root=root,
+                config=self._config(),
+                run_func=fake_run,
+                recover_func=self._fake_recover(root),
+                file_qa_func=self._fake_file_qa(root),
+                active_visual_func=lambda **kwargs: {"ok": True},
+                audit_func=lambda **kwargs: {"passed": False, "finalDecision": "needs_more_generation", "approvedCompleteIdentityCount": 0, "approvedImageCount": 0},
+                which_func=lambda cmd: f"C:/bin/{cmd}.exe",
+            )
+
+            self.assertEqual(result["status"], "finalized")
+            self.assertFalse(flag.exists())
+            self.assertEqual(len(commands), 2)
+            state = json.loads((root / "ai_image" / "manifests" / "current_chunk_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["assetStates"]["female_001__face_card__v001"], "file_qa_passed")
+            events = (root / "ai_image" / "reports" / "chunks" / plan["chunkId"] / "events.jsonl").read_text(encoding="utf-8")
+            self.assertIn("pre_run_manual_flag_auto_reconciled", events)
 
     def test_reconcile_existing_files_dry_run_does_not_approve(self):
         from PIL import Image
@@ -877,6 +1213,11 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
         shell = Path("scripts/codex_imagegen_supervisor_v3.sh").read_text(encoding="utf-8")
         self.assertIn("bounded-chunk-validate-plan", shell)
         self.assertIn("bounded-chunk-plan --root . --production --force-replan --abandon-current", shell)
+        self.assertIn("try_reconcile_manual_review_flag", shell)
+        self.assertIn("bounded-chunk-reconcile --root . --apply --clear-manual-flag-if-safe", shell)
+        autopilot = Path("scripts/codex_imagegen_chunk_autopilot_v3.sh").read_text(encoding="utf-8")
+        self.assertIn("try_reconcile_manual_review_flag", autopilot)
+        self.assertIn("bounded-chunk-reconcile --root . --apply --clear-manual-flag-if-safe", autopilot)
         self.assertIn("bounded-chunk-run", shell)
         self.assertIn("bounded_batch_executor", supervisor_status(root=Path(tempfile.mkdtemp()), mode="chunk")["chunkExecutor"])
 
