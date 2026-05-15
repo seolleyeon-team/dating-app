@@ -44,6 +44,8 @@ class _AppColors {
 enum MessageType {
   received,
   sent,
+  system,
+  hidden,
   promiseRequest,
   promiseConfirmed,
   promiseInProgress,
@@ -243,13 +245,63 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   DateTime _currentNow = DateTime.now();
   Timer? _safetyStampTimer;
 
-  void _openPartnerProfileCard() {
+  Future<void> _openPartnerProfileCard() async {
     if (widget.partnerId.isEmpty) return;
+    if (_roomId.isNotEmpty) {
+      final roomDoc = await _chatService.roomStream(_roomId).first;
+      if (_isPartnerWithdrawn(roomDoc.data())) return;
+    }
+    if (!mounted) return;
 
     Navigator.of(context, rootNavigator: true).pushNamed(
       RouteNames.profileSpecificDetail,
       arguments: ProfileCardArgs.fromChat(userId: widget.partnerId),
     );
+  }
+
+  bool _isPartnerWithdrawn(Map<String, dynamic>? roomData) {
+    return ChatService.isParticipantWithdrawnInRoomData(
+      roomData,
+      widget.partnerId,
+    );
+  }
+
+  Map<String, dynamic> _partnerInfoFromRoom(Map<String, dynamic>? roomData) {
+    final participantInfo = roomData?['participantInfo'];
+    if (participantInfo is! Map) return <String, dynamic>{};
+    final raw = participantInfo[widget.partnerId];
+    if (raw is! Map) return <String, dynamic>{};
+    return Map<String, dynamic>.from(raw);
+  }
+
+  String _partnerDisplayName(Map<String, dynamic>? roomData) {
+    if (_isPartnerWithdrawn(roomData)) return UserService.withdrawnDisplayName;
+    final roomName = _partnerInfoFromRoom(roomData)['nickname']?.toString();
+    if (roomName != null && roomName.trim().isNotEmpty) return roomName;
+    return widget.partnerName;
+  }
+
+  Future<bool> _ensurePartnerCanReceiveMessages() async {
+    if (_roomId.isEmpty || widget.partnerId.isEmpty) return false;
+
+    final roomDoc = await _chatService.roomStream(_roomId).first;
+    if (!_isPartnerWithdrawn(roomDoc.data())) return true;
+
+    if (!mounted) return false;
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('대화할 수 없어요'),
+        content: const Text('상대방이 계정을 탈퇴해 더 이상 메시지나 약속 요청을 보낼 수 없습니다.'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
+    return false;
   }
 
   void _startSafetyStampTimer() {
@@ -493,6 +545,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         _isSending) {
       return;
     }
+    if (!await _ensurePartnerCanReceiveMessages()) return;
 
     setState(() {
       _isSending = true;
@@ -505,6 +558,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         roomId: _roomId,
         senderId: _currentUserId!,
         text: text,
+        recipientId: widget.partnerId,
       );
 
       widget.onSend?.call(text);
@@ -527,6 +581,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     String? initialPlaceId,
   }) async {
     if (_currentUserId == null || _roomId.isEmpty) return;
+    if (!await _ensurePartnerCanReceiveMessages()) return;
+    if (!mounted) return;
 
     final result = await showCupertinoModalPopup<_PromiseFormResult>(
       context: context,
@@ -774,6 +830,26 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       );
     }
 
+    if (type == 'account_withdrawn' && data['hiddenAfterRejoin'] == true) {
+      return _ChatMessage(
+        type: MessageType.hidden,
+        text: '',
+        time: '',
+        sortDateTime: createdAt,
+      );
+    }
+
+    if (senderId == 'system' ||
+        type == 'system' ||
+        type == 'account_withdrawn') {
+      return _ChatMessage(
+        type: MessageType.system,
+        text: text,
+        time: timeText,
+        sortDateTime: createdAt,
+      );
+    }
+
     return _ChatMessage(
       type: senderId == _currentUserId
           ? MessageType.sent
@@ -931,6 +1007,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
                           final mappedMessages = messageDocs
                               .map((doc) => _mapMessage(doc.data()))
+                              .where(
+                                (message) => message.type != MessageType.hidden,
+                              )
                               .toList();
                           final allMessages = _mergeMessages(mappedMessages);
 
@@ -994,6 +1073,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               stream: _roomId.isEmpty ? null : _chatService.roomStream(_roomId),
               builder: (context, snapshot) {
                 final roomData = snapshot.data?.data();
+                final isPartnerWithdrawn = _isPartnerWithdrawn(roomData);
                 final activePromiseRaw = roomData?['activePromise'];
                 final activePromise = activePromiseRaw is Map
                     ? Map<String, dynamic>.from(activePromiseRaw)
@@ -1027,12 +1107,18 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _Header(
-                      name: widget.partnerName,
-                      university: widget.partnerUniversity,
+                      name: _partnerDisplayName(roomData),
+                      university: isPartnerWithdrawn
+                          ? '계정을 탈퇴한 사용자입니다'
+                          : widget.partnerUniversity,
                       onBack: widget.onBack,
                       onMore: widget.onMore,
-                      onPromiseTap: () => _openPromiseSheet(),
-                      onProfileTap: _openPartnerProfileCard,
+                      onPromiseTap: isPartnerWithdrawn
+                          ? null
+                          : () => _openPromiseSheet(),
+                      onProfileTap: isPartnerWithdrawn
+                          ? null
+                          : _openPartnerProfileCard,
                     ),
                     _SafetyStampEntryButton(
                       isVisible: shouldShowSafetyStampButton,
@@ -1051,10 +1137,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             left: 0,
             right: 0,
             bottom: 0,
-            child: _InputBar(
-              controller: _messageController,
-              bottomPadding: bottomPadding,
-              onSend: _handleSend,
+            child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: _roomId.isEmpty ? null : _chatService.roomStream(_roomId),
+              builder: (context, snapshot) {
+                final isPartnerWithdrawn = _isPartnerWithdrawn(
+                  snapshot.data?.data(),
+                );
+                return _InputBar(
+                  controller: _messageController,
+                  bottomPadding: bottomPadding,
+                  onSend: isPartnerWithdrawn ? null : _handleSend,
+                  isDisabled: isPartnerWithdrawn,
+                );
+              },
             ),
           ),
         ],
@@ -1191,6 +1286,7 @@ class _Header extends StatelessWidget {
     final textSubColor = isDark
         ? AppColorsDark.textSecondary
         : _AppColors.textSubtle;
+    final isPromiseEnabled = onPromiseTap != null;
 
     return SafeArea(
       bottom: false,
@@ -1294,19 +1390,23 @@ class _Header extends StatelessWidget {
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: _AppColors.primarySoft.withValues(
-                      alpha: _AppColors.promiseFillAlpha,
-                    ),
+                    color: isPromiseEnabled
+                        ? _AppColors.primarySoft.withValues(
+                            alpha: _AppColors.promiseFillAlpha,
+                          )
+                        : buttonBg,
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: const Center(
+                  child: Center(
                     child: Text(
                       '약속잡기',
                       style: TextStyle(
                         fontFamily: 'Pretendard',
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: _AppColors.primary,
+                        color: isPromiseEnabled
+                            ? _AppColors.primary
+                            : textSubColor,
                       ),
                     ),
                   ),
@@ -1424,6 +1524,10 @@ class _MessageItem extends StatelessWidget {
           time: message.time,
           isRead: message.isRead,
         );
+      case MessageType.system:
+        return _SystemMessage(text: message.text);
+      case MessageType.hidden:
+        return const SizedBox.shrink();
       case MessageType.promiseRequest:
         return _PromiseRequestMessage(
           message: message,
@@ -1543,6 +1647,48 @@ class _ReceivedMessage extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SystemMessage extends StatelessWidget {
+  final String text;
+
+  const _SystemMessage({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? AppColorsDark.surfaceVariant : _AppColors.stone100;
+    final textColor = isDark
+        ? AppColorsDark.textSecondary
+        : _AppColors.textSubtle;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Center(
+        child: Container(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.78,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            text,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Pretendard',
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+              color: textColor,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -2904,11 +3050,13 @@ class _InputBar extends StatelessWidget {
   final TextEditingController controller;
   final double bottomPadding;
   final VoidCallback? onSend;
+  final bool isDisabled;
 
   const _InputBar({
     required this.controller,
     required this.bottomPadding,
     this.onSend,
+    this.isDisabled = false,
   });
 
   @override
@@ -2925,6 +3073,9 @@ class _InputBar extends StatelessWidget {
         : _AppColors.stone400;
     final textColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
     final sendBg = isDark ? AppColorsDark.primary : _AppColors.sendButton;
+    final disabledTextColor = isDark
+        ? AppColorsDark.textHint
+        : _AppColors.stone400;
 
     return Container(
       padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPadding + 32),
@@ -2950,24 +3101,27 @@ class _InputBar extends StatelessWidget {
           children: [
             CupertinoButton(
               padding: EdgeInsets.zero,
-              onPressed: () {},
+              onPressed: isDisabled ? null : () {},
               child: Transform.rotate(
                 angle: 0.785,
                 child: Icon(
                   CupertinoIcons.paperclip,
                   size: 24,
-                  color: iconColor,
+                  color: isDisabled ? disabledTextColor : iconColor,
                 ),
               ),
             ),
             Expanded(
               child: CupertinoTextField(
                 controller: controller,
-                placeholder: 'Write a message...',
+                enabled: !isDisabled,
+                placeholder: isDisabled
+                    ? '탈퇴한 사용자와는 대화할 수 없어요'
+                    : 'Write a message...',
                 placeholderStyle: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 15,
-                  color: placeholderColor,
+                  color: isDisabled ? disabledTextColor : placeholderColor,
                 ),
                 style: TextStyle(
                   fontFamily: 'Pretendard',
@@ -2984,15 +3138,19 @@ class _InputBar extends StatelessWidget {
             ),
             CupertinoButton(
               padding: EdgeInsets.zero,
-              onPressed: () {
-                HapticFeedback.mediumImpact();
-                onSend?.call();
-              },
+              onPressed: isDisabled || onSend == null
+                  ? null
+                  : () {
+                      HapticFeedback.mediumImpact();
+                      onSend?.call();
+                    },
               child: Container(
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: sendBg,
+                  color: isDisabled
+                      ? disabledTextColor.withValues(alpha: 0.35)
+                      : sendBg,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(

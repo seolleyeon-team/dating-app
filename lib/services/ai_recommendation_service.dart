@@ -156,6 +156,11 @@ class AiRecommendationService {
       // 2. Fallback: users/{uid} 문서에서 onboarding.photoUrls 조회
       final userProfile = await _userService.getUserProfile(candUid);
       if (userProfile == null) continue; // 삭제/탈퇴된 유저 패스
+      if (userProfile['status'] == 'withdrawn' ||
+          userProfile['isWithdrawn'] == true ||
+          userProfile['profileVisible'] == false) {
+        continue;
+      }
 
       final onboarding = userProfile['onboarding'];
       if (images.isEmpty && onboarding is Map) {
@@ -169,10 +174,11 @@ class AiRecommendationService {
       }
 
       // 데이터 매핑
-      final nickname = userProfile['nickname'] as String? ??
+      final nickname =
+          userProfile['nickname'] as String? ??
           (onboarding is Map ? onboarding['nickname'] as String? : null) ??
           '익명';
-      
+
       // 나이 계산 (출생년도 기준 대략적 나이 또는 직접 입력값 반영)
       int age = 20;
       if (onboarding is Map && onboarding['birthYear'] != null) {
@@ -182,9 +188,15 @@ class AiRecommendationService {
         }
       }
 
-      final major = (onboarding is Map) ? (onboarding['major'] as String? ?? '전공 미상') : '전공 미상';
-      final bio = (onboarding is Map) ? (onboarding['bio'] as String? ?? '') : '';
-      final university = (onboarding is Map) ? (onboarding['university'] as String? ?? '') : '';
+      final major = (onboarding is Map)
+          ? (onboarding['major'] as String? ?? '전공 미상')
+          : '전공 미상';
+      final bio = (onboarding is Map)
+          ? (onboarding['bio'] as String? ?? '')
+          : '';
+      final university = (onboarding is Map)
+          ? (onboarding['university'] as String? ?? '')
+          : '';
 
       List<String> tags = [];
       if (onboarding is Map) {
@@ -238,6 +250,11 @@ class AiRecommendationService {
       if (results.length >= limit) break;
 
       final data = doc.data();
+      if (data['status'] == 'withdrawn' ||
+          data['isWithdrawn'] == true ||
+          data['profileVisible'] == false) {
+        continue;
+      }
       if (data['isStudentVerified'] != true) continue;
 
       final onboarding = data['onboarding'];
@@ -303,11 +320,21 @@ class AiRecommendationService {
           blockedUids: blockedUids,
         );
       }
-      if (kDebugMode) debugPrint('[AI] fetchProfileFeed: modelRecs empty, using users fallback');
-      return await _fetchFallbackFromUsers(uid, limit, blockedUids: blockedUids);
+      if (kDebugMode) {
+        debugPrint(
+          '[AI] fetchProfileFeed: modelRecs empty, using users fallback',
+        );
+      }
+      return await _fetchFallbackFromUsers(
+        uid,
+        limit,
+        blockedUids: blockedUids,
+      );
     } catch (e) {
       debugPrint('fetchProfileFeed Error: $e');
-      if (kDebugMode) debugPrint('[AI] fetchProfileFeed: error, trying users fallback');
+      if (kDebugMode) {
+        debugPrint('[AI] fetchProfileFeed: error, trying users fallback');
+      }
       return await _fetchFallbackFromUsers(uid, limit);
     }
   }
@@ -344,17 +371,15 @@ class AiRecommendationService {
 
         // RRF인 경우 rank 1~3만 필터, 순서 보장
         if (algoUsed == 'rrf') {
-          items = items
-              .where((item) {
+          items =
+              items.where((item) {
                 final r = (item['rank'] as num?)?.toInt() ?? 999;
                 return r >= 1 && r <= 3;
-              })
-              .toList()
-            ..sort((a, b) {
-              final rankA = (a['rank'] as num?)?.toInt() ?? 999;
-              final rankB = (b['rank'] as num?)?.toInt() ?? 999;
-              return rankA.compareTo(rankB);
-            });
+              }).toList()..sort((a, b) {
+                final rankA = (a['rank'] as num?)?.toInt() ?? 999;
+                final rankB = (b['rank'] as num?)?.toInt() ?? 999;
+                return rankA.compareTo(rankB);
+              });
         }
 
         return await _hydrateProfiles(
@@ -365,11 +390,21 @@ class AiRecommendationService {
           blockedUids: blockedUids,
         );
       }
-      if (kDebugMode) debugPrint('[AI] fetchMysteryFeed: modelRecs empty, using users fallback');
-      return await _fetchFallbackFromUsers(uid, limit, blockedUids: blockedUids);
+      if (kDebugMode) {
+        debugPrint(
+          '[AI] fetchMysteryFeed: modelRecs empty, using users fallback',
+        );
+      }
+      return await _fetchFallbackFromUsers(
+        uid,
+        limit,
+        blockedUids: blockedUids,
+      );
     } catch (e) {
       debugPrint('fetchMysteryFeed Error: $e');
-      if (kDebugMode) debugPrint('[AI] fetchMysteryFeed: error, trying users fallback');
+      if (kDebugMode) {
+        debugPrint('[AI] fetchMysteryFeed: error, trying users fallback');
+      }
       return await _fetchFallbackFromUsers(uid, limit);
     }
   }

@@ -93,6 +93,23 @@ class AuthProvider with ChangeNotifier {
 
         final exists = await _authService.kakaoUserExists(kakaoUserId);
         if (exists) {
+          final isRejoinRestricted = await _authService.isRejoinRestricted(
+            kakaoUserId,
+          );
+          if (isRejoinRestricted) {
+            await _storageService.savePendingRejoinRestrictionNotice();
+            await _authService.signOutAll();
+            await _storageService.clearUserId();
+            await _storageService.clearKakaoUserId();
+            await _storageService.clearStudentVerification(kakaoUserId);
+            _kakaoUserId = null;
+            _isAuthenticated = false;
+            _isInitialSetupComplete = false;
+            _hasSeenTutorial = false;
+            _isStudentVerified = false;
+            _studentEmail = null;
+            return;
+          }
           _isInitialSetupComplete = await _authService.isInitialSetupComplete(
             kakaoUserId,
           );

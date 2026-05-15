@@ -63,6 +63,9 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showPendingRejoinRestrictionNotice();
+    });
   }
 
   @override
@@ -97,6 +100,26 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         ),
       );
     } catch (_) {}
+  }
+
+  Future<void> _showPendingRejoinRestrictionNotice() async {
+    final hasNotice = await _storageService
+        .consumePendingRejoinRestrictionNotice();
+    if (!hasNotice || !mounted) return;
+
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('재가입이 제한된 계정입니다'),
+        content: const Text('운영 정책에 따라 현재 계정은 재가입 또는 로그인이 제한되어 있습니다.'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<bool> _handlePendingInviteAfterLogin() async {
@@ -164,6 +187,50 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
     return false;
   }
 
+  Future<bool> _stopIfRejoinRestrictedAccount(String kakaoUserId) async {
+    final isRestricted = await _userService.isRejoinRestricted(kakaoUserId);
+    if (!isRestricted) return false;
+
+    await _authService.signOutAll();
+    await _storageService.clearKakaoUserId();
+    await _storageService.clearUserId();
+    await _storageService.clearStudentVerification(kakaoUserId);
+
+    if (!mounted) return true;
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('재가입이 제한된 계정입니다'),
+        content: const Text('운영 정책에 따라 현재 계정은 재가입 또는 로그인이 제한되어 있습니다.'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
+    return true;
+  }
+
+  Future<bool> _reactivateIfWithdrawnForRejoin({
+    required String kakaoUserId,
+    required Map<String, dynamic> userInfo,
+  }) async {
+    final isWithdrawn = await _userService.isAccountWithdrawn(kakaoUserId);
+    if (!isWithdrawn) return false;
+
+    await _userService.reactivateForRejoin(
+      kakaoUserId: kakaoUserId,
+      nickname: userInfo['nickname']?.toString(),
+      profileImageUrl: userInfo['profileImageUrl']?.toString(),
+      email: userInfo['email']?.toString(),
+    );
+    await _storageService.clearStudentVerification(kakaoUserId);
+    await _storageService.clearOnboardingDraft(kakaoUserId);
+    return true;
+  }
+
   Future<void> _login() async {
     if (_isLoading) return;
 
@@ -186,6 +253,11 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         kakaoUserId: kakaoUserId,
         userInfo: userInfo,
       );
+      if (await _stopIfRejoinRestrictedAccount(kakaoUserId)) return;
+      final reactivatedForRejoin = await _reactivateIfWithdrawnForRejoin(
+        kakaoUserId: kakaoUserId,
+        userInfo: userInfo,
+      );
       await _userService.setLastActivePlatform(
         kakaoUserId: kakaoUserId,
         platform: _currentPlatformLabel,
@@ -193,6 +265,12 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       await _authService.syncPendingLegalConsents(kakaoUserId);
 
       if (!mounted) return;
+      if (reactivatedForRejoin) {
+        Navigator.of(
+          context,
+        ).pushReplacementNamed(RouteNames.studentVerification);
+        return;
+      }
       // ✅ 이미 서버에 등록된 유저(재설치 후 약관→카카오 로그인 포함): 연세+초기설정 완료 시 홈으로
       if (existedBeforeLogin) {
         final isVerified = await _authService.isStudentVerified(kakaoUserId);
@@ -352,12 +430,23 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         kakaoUserId: kakaoUserId,
         userInfo: userInfo,
       );
+      if (await _stopIfRejoinRestrictedAccount(kakaoUserId)) return;
+      final reactivatedForRejoin = await _reactivateIfWithdrawnForRejoin(
+        kakaoUserId: kakaoUserId,
+        userInfo: userInfo,
+      );
       await _userService.setLastActivePlatform(
         kakaoUserId: kakaoUserId,
         platform: _currentPlatformLabel,
       );
       await _authService.syncPendingLegalConsents(kakaoUserId);
       if (!mounted) return;
+      if (reactivatedForRejoin) {
+        Navigator.of(
+          context,
+        ).pushReplacementNamed(RouteNames.studentVerification);
+        return;
+      }
       if (existedBeforeLogin) {
         final isVerified = await _authService.isStudentVerified(kakaoUserId);
         final isInitialSetupComplete = await _authService

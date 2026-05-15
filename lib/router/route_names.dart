@@ -90,10 +90,13 @@ class RouteNames {
   static const String receivedHearts = '/profile/hearts';
   static const String sentHearts = '/profile/sent-hearts';
   static const String settings = '/profile/settings';
+  static const String accountManagement = '/profile/account-management';
+  static const String notificationSettings = '/profile/notification-settings';
   static const String safetyStampLogs = '/profile/safety-stamp-logs';
   static const String contactBlock = '/profile/contact-block';
   static const String asksInbox = '/profile/asks-inbox';
   static const String termsWebview = '/profile/terms-webview';
+  static const String faq = '/profile/faq';
   static const String inquiry = '/profile/inquiry';
 
   static const String notifications = '/notifications';
