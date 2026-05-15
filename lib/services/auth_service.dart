@@ -214,6 +214,14 @@ class AuthService {
     return await _userService.existsKakaoUser(kakaoUserId);
   }
 
+  Future<bool> isAccountWithdrawn(String kakaoUserId) async {
+    return await _userService.isAccountWithdrawn(kakaoUserId);
+  }
+
+  Future<bool> isRejoinRestricted(String kakaoUserId) async {
+    return await _userService.isRejoinRestricted(kakaoUserId);
+  }
+
   Future<void> syncPendingLegalConsents(String kakaoUserId) async {
     final pendingConsents = await _storageService.getPendingLegalConsents();
     if (pendingConsents == null) return;

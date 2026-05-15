@@ -827,14 +827,63 @@ async function getUserDisplayInfo(userId: string): Promise<{
   };
 }
 
-async function fetchUserTokens(userId: string): Promise<string[]> {
-  const snap = await db
-    .collection("users")
-    .doc(userId)
-    .collection("deviceTokens")
-    .get();
+function notificationCategoryForType(type: string): string | null {
+  switch (type) {
+    case "chat":
+    case "chat_digest":
+      return "chat";
+    case "profile_like":
+      return "matching";
+    case "community_post_like":
+    case "community_comment":
+    case "community_reply":
+      return "community";
+    case "ask_received":
+      return "asks";
+    case "event_team_invite":
+      return "events";
+    case "safety_stamp_follow_up":
+      return "safety";
+    default:
+      return null;
+  }
+}
 
-  return snap.docs.map((d) => d.id).filter((t) => t.length > 0);
+function isPushEnabledForType(
+  settingsRaw: unknown,
+  notificationType: string
+): boolean {
+  if (!isRecord(settingsRaw)) return true;
+  if (settingsRaw.all === false) return false;
+
+  const category = notificationCategoryForType(notificationType);
+  if (category == null) return true;
+  return settingsRaw[category] !== false;
+}
+
+async function fetchUserTokens(
+  userId: string,
+  notificationType: string
+): Promise<string[]> {
+  const userRef = db.collection("users").doc(userId);
+  const userSnap = await userRef.get();
+  const userSettings = userSnap.data()?.notificationSettings;
+
+  if (!isPushEnabledForType(userSettings, notificationType)) {
+    return [];
+  }
+
+  const snap = await userRef.collection("deviceTokens").get();
+
+  return snap.docs
+    .filter((doc) => {
+      const data = doc.data();
+      if (data.notificationsEnabled === false) return false;
+      const tokenSettings = data.notificationSettings ?? userSettings;
+      return isPushEnabledForType(tokenSettings, notificationType);
+    })
+    .map((d) => d.id)
+    .filter((t) => t.length > 0);
 }
 
 type InAppNotificationPayload = {
@@ -963,7 +1012,10 @@ async function sendPushToUsers(
   const uniqueUserIds = [...new Set(userIds.filter((u) => u.length > 0))];
   if (uniqueUserIds.length === 0) return;
 
-  const tokenLists = await Promise.all(uniqueUserIds.map(fetchUserTokens));
+  const notificationType = asString(payload.data.type, "");
+  const tokenLists = await Promise.all(
+    uniqueUserIds.map((uid) => fetchUserTokens(uid, notificationType))
+  );
   const tokens = tokenLists.flat().filter(Boolean);
 
   if (tokens.length === 0) {

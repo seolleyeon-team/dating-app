@@ -21,6 +21,8 @@ class StorageService {
   static const String _pendingFriendInviteTokenKey = 'pending_friend_invite';
   static const String _eventTeamSetupIdKeyPrefix = 'event_team_setup_id_';
   static const String _pendingLegalConsentsKey = 'pending_legal_consents';
+  static const String _pendingRejoinRestrictionNoticeKey =
+      'pending_rejoin_restriction_notice';
 
   Future<void> saveUserId(String userId) async {
     final prefs = await SharedPreferences.getInstance();
@@ -226,6 +228,21 @@ class StorageService {
   Future<void> clearPendingLegalConsents() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_pendingLegalConsentsKey);
+  }
+
+  Future<void> savePendingRejoinRestrictionNotice() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_pendingRejoinRestrictionNoticeKey, true);
+  }
+
+  Future<bool> consumePendingRejoinRestrictionNotice() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hasNotice =
+        prefs.getBool(_pendingRejoinRestrictionNoticeKey) ?? false;
+    if (hasNotice) {
+      await prefs.remove(_pendingRejoinRestrictionNoticeKey);
+    }
+    return hasNotice;
   }
 
   Future<void> savePendingFriendInviteToken(String token) async {

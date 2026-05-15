@@ -97,6 +97,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _openCustomerCenter() async {
+    HapticFeedback.selectionClick();
+    if (!mounted) return;
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('고객 센터'),
+        content: const Text(
+          '문의는 아래 이메일로 보내주세요.\n\nseolleyeon.official@gmail.com',
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () {
+              Clipboard.setData(
+                const ClipboardData(text: 'seolleyeon.official@gmail.com'),
+              );
+              Navigator.of(dialogContext).pop();
+            },
+            child: const Text('이메일 복사'),
+          ),
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('닫기'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
@@ -248,7 +277,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           ),
                         ),
-                        onTap: () {},
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          Navigator.of(
+                            context,
+                          ).pushNamed(RouteNames.accountManagement);
+                        },
                       ),
                     ],
                   ),
@@ -268,7 +302,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         title: '알림 설정',
                         hasChevron: true,
                         trailing: Text(
-                          '켜짐',
+                          '설정',
                           style: TextStyle(
                             fontFamily: 'Pretendard',
                             fontSize: 14,
@@ -276,7 +310,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             color: primary,
                           ),
                         ),
-                        onTap: () {},
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          Navigator.of(
+                            context,
+                          ).pushNamed(RouteNames.notificationSettings);
+                        },
                       ),
                     ],
                   ),
@@ -288,14 +327,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: CupertinoIcons.question_circle,
                         title: '자주 묻는 질문',
                         hasChevron: true,
-                        onTap: () {},
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          Navigator.of(context).pushNamed(RouteNames.faq);
+                        },
                       ),
                       const _Divider(),
                       _SettingsItem(
                         icon: CupertinoIcons.headphones,
                         title: '고객 센터',
                         hasChevron: true,
-                        onTap: () {},
+                        onTap: _openCustomerCenter,
                       ),
                     ],
                   ),

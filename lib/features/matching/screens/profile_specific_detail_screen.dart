@@ -730,8 +730,14 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
 
     try {
       final user = await _userService.getUserProfile(targetUserId);
+      if (user == null ||
+          user['status'] == 'withdrawn' ||
+          user['isWithdrawn'] == true ||
+          user['profileVisible'] == false) {
+        throw Exception('탈퇴했거나 비공개 처리된 사용자입니다.');
+      }
 
-      final onboardingRaw = user?['onboarding'];
+      final onboardingRaw = user['onboarding'];
       final onboarding = onboardingRaw is Map
           ? Map<String, dynamic>.from(onboardingRaw)
           : <String, dynamic>{};
@@ -798,7 +804,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
         age = int.tryParse(onboardingAge.toString()) ?? age;
       }
 
-      final birthYearRaw = onboarding['birthYear'] ?? user?['birthYear'];
+      final birthYearRaw = onboarding['birthYear'] ?? user['birthYear'];
 
       final heightValue = onboarding['height'];
       final heightText = heightValue == null || '$heightValue'.isEmpty

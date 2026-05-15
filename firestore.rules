@@ -87,6 +87,8 @@ service cloud.firestore {
             'legalConsents',
             'privacySettings',
             'privacySettingsUpdatedAt',
+            'notificationSettings',
+            'notificationSettingsUpdatedAt',
             'preferenceVector'
           ]);
 
@@ -109,6 +111,11 @@ service cloud.firestore {
             usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
               'kakaoUserId',
+              'nickname',
+              'profileImageUrl',
+              'email',
+              'studentEmail',
+              'isStudentVerified',
               'lastActivePlatform',
               'lastActivePlatformUpdatedAt',
               'onboarding',
@@ -121,6 +128,25 @@ service cloud.firestore {
               'legalConsents',
               'privacySettings',
               'privacySettingsUpdatedAt',
+              'notificationSettings',
+              'notificationSettingsUpdatedAt',
+              'preferenceVector',
+              'status',
+              'isWithdrawn',
+              'withdrawnAt',
+              'scheduledHardDeleteAt',
+              'withdrawalRetentionDays',
+              'withdrawalReason',
+              'withdrawalPolicy',
+              'profileVisible',
+              'canRejoin',
+              'rejoinRestricted',
+              'rejoinRestrictedUntil',
+              'rejoinRestrictionReason',
+              'rejoinedAt',
+              'lastLoginAt',
+              'hasSeenTutorial',
+              'loginDisabled',
               'updatedAt'
             ])
           ) || (
@@ -129,6 +155,11 @@ service cloud.firestore {
               request.resource.data.kakaoUserId == kakaoUserId) &&
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
               'kakaoUserId',
+              'nickname',
+              'profileImageUrl',
+              'email',
+              'studentEmail',
+              'isStudentVerified',
               'lastActivePlatform',
               'lastActivePlatformUpdatedAt',
               'onboarding',
@@ -138,6 +169,30 @@ service cloud.firestore {
               'legalConsents',
               'privacySettings',
               'privacySettingsUpdatedAt',
+              'notificationSettings',
+              'notificationSettingsUpdatedAt',
+              'preferenceVector',
+              'status',
+              'isWithdrawn',
+              'withdrawnAt',
+              'scheduledHardDeleteAt',
+              'withdrawalRetentionDays',
+              'withdrawalReason',
+              'withdrawalPolicy',
+              'profileVisible',
+              'canRejoin',
+              'rejoinRestricted',
+              'rejoinRestrictedUntil',
+              'rejoinRestrictionReason',
+              'rejoinedAt',
+              'lastLoginAt',
+              'hasSeenTutorial',
+              'initialSetupComplete',
+              'initialSetupCompletedAt',
+              'onboardingCompletedAt',
+              'studentVerifiedAt',
+              'verifiedAt',
+              'loginDisabled',
               'updatedAt'
             ])
           );
