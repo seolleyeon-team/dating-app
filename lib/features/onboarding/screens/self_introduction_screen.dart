@@ -16,13 +16,13 @@ import '../../../services/user_service.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFEF3976);
-  static const Color backgroundLight = Color(0xFFF8F6F6);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color backgroundLight = Color(0xFFFAFAFA);
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color textMain = Color(0xFF181113);
   static const Color textMuted = Color(0xFF89616F);
-  static const Color borderLight = Color(0xFFE6DBDF);
-  static const Color progressBg = Color(0xFFE6DBDF);
+  static const Color borderLight = Color(0xFFEDE8EB);
+  static const Color progressBg = Color(0xFFEDE8EB);
 }
 
 // =============================================================================
@@ -56,6 +56,7 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
   bool _isSavingOnExit = false;
 
   static const int _maxLength = 300;
+  bool get _hasIntroduction => _controller.text.trim().isNotEmpty;
 
   @override
   void initState() {
@@ -141,6 +142,7 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
           body: SafeArea(
             child: Stack(
               children: [
+                const Positioned.fill(child: _SubtleBackgroundGradient()),
                 Column(
                   children: [
                     _Header(
@@ -178,7 +180,7 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
                             ),
                             const SizedBox(height: 4),
                             const Text(
-                              '상대방에게 매력을 어필할 수 있는 기회예요.\n솔직하고 담백하게 작성해보세요.',
+                              '솔직하고 담백하게 작성해보세요.',
                               style: TextStyle(
                                 fontFamily: 'Pretendard',
                                 fontSize: 15,
@@ -211,17 +213,17 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
                   right: 0,
                   bottom: 0,
                   child: _BottomButton(
+                    label: _hasIntroduction ? '다음' : '그냥 넘어갈게요',
                     onNext: () async {
                       HapticFeedback.mediumImpact();
+                      final navigator = Navigator.of(context);
                       await _saveCurrentSelfIntroduction();
                       if (!mounted) return;
 
                       if (widget.onNext != null) {
                         widget.onNext!.call(_controller.text);
                       } else {
-                        Navigator.of(
-                          context,
-                        ).pushNamed(RouteNames.onboardingProfileQa);
+                        navigator.pushNamed(RouteNames.onboardingProfileQa);
                       }
                     },
                   ),
@@ -229,6 +231,27 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SubtleBackgroundGradient extends StatelessWidget {
+  const _SubtleBackgroundGradient();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFEDE8EB).withValues(alpha: 0.16),
+            _AppColors.backgroundLight,
+            Colors.white.withValues(alpha: 0.96),
+          ],
         ),
       ),
     );
@@ -410,7 +433,7 @@ class _SuggestionChipsArea extends StatelessWidget {
   static const List<Map<String, String>> _suggestions = [
     {'icon': '💊', 'text': '요즘 빠진 것'},
     {'icon': '🧗', 'text': '주말 루틴'},
-    {'icon': '🍷', 'text': '좋아하는 데이트'},
+    {'icon': '🍷', 'text': '좋아하는 장소'},
     {'icon': '✈️', 'text': '가고싶은 여행지'},
   ];
 
@@ -508,9 +531,10 @@ class _SuggestionChip extends StatelessWidget {
 // 하단 버튼
 // =============================================================================
 class _BottomButton extends StatelessWidget {
+  final String label;
   final VoidCallback? onNext;
 
-  const _BottomButton({this.onNext});
+  const _BottomButton({required this.label, this.onNext});
 
   @override
   Widget build(BuildContext context) {
@@ -527,10 +551,10 @@ class _BottomButton extends StatelessWidget {
         ),
       ),
       padding: EdgeInsets.fromLTRB(
-        20,
-        20,
-        20,
-        MediaQuery.of(context).padding.bottom + 20,
+        24,
+        16,
+        24,
+        MediaQuery.of(context).padding.bottom + 24,
       ),
       child: CupertinoButton(
         padding: EdgeInsets.zero,
@@ -542,26 +566,30 @@ class _BottomButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: _AppColors.primary.withValues(alpha: 0.3),
-                blurRadius: 12,
+                color: _AppColors.primary.withValues(alpha: 0.24),
+                blurRadius: 16,
                 offset: const Offset(0, 6),
               ),
             ],
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
+            children: [
               Text(
-                '다음',
-                style: TextStyle(
+                label,
+                style: const TextStyle(
                   fontFamily: 'Pretendard',
-                  fontSize: 18,
+                  fontSize: 17,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
               ),
-              SizedBox(width: 8),
-              Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 20),
+              const SizedBox(width: 6),
+              const Icon(
+                Icons.arrow_forward_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
             ],
           ),
         ),

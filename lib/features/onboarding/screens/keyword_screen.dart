@@ -19,12 +19,12 @@ import '../../../services/user_service.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFF04579);
-  static const Color backgroundLight = Color(0xFFFFFFFF);
-  static const Color surfaceLight = Color(0xFFF3F4F6);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color backgroundLight = Color(0xFFFAFAFA);
+  static const Color surfaceLight = Color(0xFFF5F5F5);
   static const Color textMain = Color(0xFF111827);
   static const Color textSecondary = Color(0xFF6B7280);
-  static const Color dotInactive = Color(0xFFE5E7EB);
+  static const Color dotInactive = Color(0xFFEDE8EB);
 }
 
 // =============================================================================
@@ -141,6 +141,7 @@ class _KeywordScreenState extends State<KeywordScreen> {
         backgroundColor: _AppColors.backgroundLight,
         child: Stack(
           children: [
+            const Positioned.fill(child: _SubtleBackgroundGradient()),
             SafeArea(
               bottom: false,
               child: Column(
@@ -188,6 +189,27 @@ class _KeywordScreenState extends State<KeywordScreen> {
                 onPressed: _onSavePressed,
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SubtleBackgroundGradient extends StatelessWidget {
+  const _SubtleBackgroundGradient();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFEDE8EB).withValues(alpha: 0.14),
+            _AppColors.backgroundLight,
+            CupertinoColors.white.withValues(alpha: 0.96),
           ],
         ),
       ),
@@ -377,7 +399,7 @@ class _BottomCTA extends StatelessWidget {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return Container(
-      padding: EdgeInsets.fromLTRB(24, 16, 24, bottomPadding + 16),
+      padding: EdgeInsets.fromLTRB(24, 16, 24, bottomPadding + 24),
       decoration: BoxDecoration(
         color: _AppColors.backgroundLight,
         gradient: LinearGradient(
@@ -401,11 +423,11 @@ class _BottomCTA extends StatelessWidget {
             color: isEnabled
                 ? _AppColors.primary
                 : _AppColors.primary.withValues(alpha: 0.4),
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(16),
             boxShadow: isEnabled
                 ? [
                     BoxShadow(
-                      color: const Color(0xFFFCE7F3),
+                      color: _AppColors.primary.withValues(alpha: 0.24),
                       blurRadius: 16,
                       offset: const Offset(0, 6),
                     ),

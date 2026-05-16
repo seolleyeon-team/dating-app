@@ -19,12 +19,12 @@ import '../../../../services/user_service.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFF04579);
-  static const Color backgroundLight = Color(0xFFFFFFFF);
-  static const Color surfaceLight = Color(0xFFF3F4F6);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color backgroundLight = Color(0xFFFAFAFA);
+  static const Color surfaceLight = Color(0xFFF5F5F5);
   static const Color textMain = Color(0xFF111827);
   static const Color textSecondary = Color(0xFF6B7280);
-  static const Color dotInactive = Color(0xFFE5E7EB);
+  static const Color dotInactive = Color(0xFFEDE8EB);
 }
 
 // =============================================================================
@@ -70,8 +70,9 @@ class _IdealPersonalityScreenState extends State<IdealPersonalityScreen> {
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
   bool _isSavingOnExit = false;
+  bool _isSkipping = false;
 
-  bool get _canProceed => _selectedKeywords.isNotEmpty;
+  bool get _hasAnySelection => _selectedKeywords.isNotEmpty;
 
   @override
   void initState() {
@@ -97,7 +98,9 @@ class _IdealPersonalityScreenState extends State<IdealPersonalityScreen> {
     if (_isSavingOnExit) return;
     _isSavingOnExit = true;
     try {
-      await OnboardingSaveHelper.saveIdealPersonality(_selectedKeywords.toList());
+      await OnboardingSaveHelper.saveIdealPersonality(
+        _selectedKeywords.toList(),
+      );
     } finally {
       _isSavingOnExit = false;
     }
@@ -121,12 +124,27 @@ class _IdealPersonalityScreenState extends State<IdealPersonalityScreen> {
   }
 
   Future<void> _onSavePressed() async {
-    if (_canProceed) {
-      HapticFeedback.mediumImpact();
-      await _saveCurrentIdealPersonality();
-      if (!mounted) return;
-      Navigator.of(context).pushNamed(RouteNames.onboardingIdealLifestyle);
-    }
+    HapticFeedback.mediumImpact();
+    await OnboardingSaveHelper.saveIdealPersonalityAndComplete(
+      _selectedKeywords.toList(),
+    );
+    if (!mounted) return;
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).pushReplacementNamed(RouteNames.welcomeTutorial);
+  }
+
+  Future<void> _skipToTutorial() async {
+    if (_isSkipping) return;
+    HapticFeedback.lightImpact();
+    setState(() => _isSkipping = true);
+    await OnboardingSaveHelper.skipIdealType();
+    if (!mounted) return;
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).pushReplacementNamed(RouteNames.welcomeTutorial);
   }
 
   @override
@@ -141,54 +159,80 @@ class _IdealPersonalityScreenState extends State<IdealPersonalityScreen> {
         backgroundColor: _AppColors.backgroundLight,
         child: Stack(
           children: [
+            const Positioned.fill(child: _SubtleBackgroundGradient()),
             SafeArea(
               bottom: false,
               child: Column(
                 children: [
                   // 헤더
-                _Header(
-                  onBackPressed: () => _handleBack(),
-                  currentStep: 2,
-                  totalSteps: 3,
-                ),
-                // 타이틀 섹션
-                const _TitleSection(),
-                // 키워드 그리드
-                Expanded(
-                  child: SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 120),
-                    child: Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: _PersonalityData.keywords.map((keyword) {
-                        final isSelected = _selectedKeywords.contains(keyword);
-                        return _KeywordChip(
-                          label: keyword,
-                          isSelected: isSelected,
-                          onTap: () => _toggleKeyword(keyword),
-                        );
-                      }).toList(),
+                  _Header(
+                    onBackPressed: () => _handleBack(),
+                    onSkipPressed: _isSkipping ? null : _skipToTutorial,
+                    currentStep: 3,
+                    totalSteps: 3,
+                  ),
+                  // 타이틀 섹션
+                  const _TitleSection(),
+                  // 키워드 그리드
+                  Expanded(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 120),
+                      child: Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: _PersonalityData.keywords.map((keyword) {
+                          final isSelected = _selectedKeywords.contains(
+                            keyword,
+                          );
+                          return _KeywordChip(
+                            label: keyword,
+                            isSelected: isSelected,
+                            onTap: () => _toggleKeyword(keyword),
+                          );
+                        }).toList(),
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          // 하단 CTA 버튼
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _BottomCTA(
-              isEnabled: _canProceed,
-              selectedCount: _selectedKeywords.length,
-              onPressed: _onSavePressed,
+            // 하단 CTA 버튼
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _BottomCTA(
+                isEnabled: true,
+                selectedCount: _selectedKeywords.length,
+                emptyLabel: _hasAnySelection ? null : '그냥 넘어갈게요',
+                onPressed: _onSavePressed,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
+    );
+  }
+}
+
+class _SubtleBackgroundGradient extends StatelessWidget {
+  const _SubtleBackgroundGradient();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFEDE8EB).withValues(alpha: 0.14),
+            _AppColors.backgroundLight,
+            CupertinoColors.white.withValues(alpha: 0.96),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -198,11 +242,13 @@ class _IdealPersonalityScreenState extends State<IdealPersonalityScreen> {
 // =============================================================================
 class _Header extends StatelessWidget {
   final VoidCallback onBackPressed;
+  final VoidCallback? onSkipPressed;
   final int currentStep;
   final int totalSteps;
 
   const _Header({
     required this.onBackPressed,
+    this.onSkipPressed,
     required this.currentStep,
     required this.totalSteps,
   });
@@ -213,14 +259,21 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       child: Row(
         children: [
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            minimumSize: const Size(44, 44),
-            onPressed: onBackPressed,
-            child: const Icon(
-              CupertinoIcons.back,
-              color: _AppColors.textMain,
-              size: 24,
+          SizedBox(
+            width: 132,
+            height: 44,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: CupertinoButton(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(44, 44),
+                onPressed: onBackPressed,
+                child: const Icon(
+                  CupertinoIcons.back,
+                  color: _AppColors.textMain,
+                  size: 24,
+                ),
+              ),
             ),
           ),
           Expanded(
@@ -243,8 +296,89 @@ class _Header extends StatelessWidget {
               }),
             ),
           ),
-          const SizedBox(width: 44),
+          SizedBox(
+            width: 132,
+            height: 44,
+            child: _SkipLaterButton(onPressed: onSkipPressed),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _SkipLaterButton extends StatefulWidget {
+  final VoidCallback? onPressed;
+
+  const _SkipLaterButton({this.onPressed});
+
+  @override
+  State<_SkipLaterButton> createState() => _SkipLaterButtonState();
+}
+
+class _SkipLaterButtonState extends State<_SkipLaterButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<Offset> _offset;
+  late final Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 820),
+    )..repeat(reverse: true);
+    final curved = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeInOut,
+    );
+    _offset = Tween<Offset>(
+      begin: const Offset(-0.025, 0),
+      end: const Offset(0.025, 0),
+    ).animate(curved);
+    _opacity = Tween<double>(begin: 0.68, end: 1).animate(curved);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: SlideTransition(
+        position: _offset,
+        child: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: widget.onPressed,
+          child: Container(
+            height: 34,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: _AppColors.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(17),
+              border: Border.all(
+                color: _AppColors.primary.withValues(alpha: 0.34),
+              ),
+            ),
+            alignment: Alignment.center,
+            child: const Text(
+              '건너뛰고 다음에 할래요',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: 'Pretendard',
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: _AppColors.primary,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -263,17 +397,6 @@ class _TitleSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'STEP 4 OF 6',
-            style: TextStyle(
-              fontFamily: 'Pretendard',
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.2,
-              color: _AppColors.primary,
-            ),
-          ),
-          SizedBox(height: 8),
           Text(
             '나의 이상형의\n성격은?',
             style: TextStyle(
@@ -370,11 +493,13 @@ class _KeywordChip extends StatelessWidget {
 class _BottomCTA extends StatelessWidget {
   final bool isEnabled;
   final int selectedCount;
+  final String? emptyLabel;
   final VoidCallback onPressed;
 
   const _BottomCTA({
     required this.isEnabled,
     required this.selectedCount,
+    this.emptyLabel,
     required this.onPressed,
   });
 
@@ -383,7 +508,7 @@ class _BottomCTA extends StatelessWidget {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return Container(
-      padding: EdgeInsets.fromLTRB(24, 16, 24, bottomPadding + 16),
+      padding: EdgeInsets.fromLTRB(24, 16, 24, bottomPadding + 24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -406,11 +531,11 @@ class _BottomCTA extends StatelessWidget {
             color: isEnabled
                 ? _AppColors.primary
                 : _AppColors.primary.withValues(alpha: 0.4),
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(16),
             boxShadow: isEnabled
                 ? [
                     BoxShadow(
-                      color: const Color(0xFFFCE7F3),
+                      color: _AppColors.primary.withValues(alpha: 0.24),
                       blurRadius: 16,
                       offset: const Offset(0, 6),
                     ),
@@ -421,7 +546,8 @@ class _BottomCTA extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                selectedCount > 0 ? '저장 ($selectedCount/8)' : '저장',
+                emptyLabel ??
+                    (selectedCount > 0 ? '저장 ($selectedCount/8)' : '저장'),
                 style: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 17,

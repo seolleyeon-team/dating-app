@@ -19,12 +19,11 @@ import '../../../../services/storage_service.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFEF3976);
-  static const Color backgroundLight = Color(0xFFFBF8F9);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color backgroundLight = Color(0xFFFAFAFA);
   static const Color gray200 = Color(0xFFE5E7EB);
   static const Color gray400 = Color(0xFF9CA3AF);
   static const Color gray500 = Color(0xFF6B7280);
-  static const Color gray600 = Color(0xFF4B5563);
   static const Color gray800 = Color(0xFF1F2937);
   static const Color gray900 = Color(0xFF111827);
 }
@@ -89,8 +88,6 @@ class _IdealAgeScreenState extends State<IdealAgeScreen> {
               children: [
                 // 헤더
                 _Header(
-                  currentStep: widget.currentStep,
-                  totalSteps: widget.totalSteps,
                   onBack: widget.onBack ?? () => Navigator.of(context).pop(),
                 ),
                 // 콘텐츠
@@ -137,7 +134,17 @@ class _IdealAgeScreenState extends State<IdealAgeScreen> {
                 _BottomButtons(
                   onSkip: () {
                     HapticFeedback.lightImpact();
-                    Navigator.of(context).pop();
+                    () async {
+                      final storage = StorageService();
+                      final kakaoUserId = await storage.getKakaoUserId();
+                      if (kakaoUserId != null) {
+                        await storage.mergeOnboardingDraft(kakaoUserId, {
+                          'idealAge': null,
+                        });
+                      }
+                      if (!context.mounted) return;
+                      Navigator.of(context).pop();
+                    }();
                   },
                   onNext: () {
                     HapticFeedback.mediumImpact();
@@ -155,7 +162,9 @@ class _IdealAgeScreenState extends State<IdealAgeScreen> {
                       }
 
                       if (!context.mounted) return;
-                      Navigator.of(context).pop({'minAge': minAge, 'maxAge': maxAge});
+                      Navigator.of(
+                        context,
+                      ).pop({'minAge': minAge, 'maxAge': maxAge});
                     }();
                   },
                 ),
@@ -220,7 +229,7 @@ class _BackgroundGradients extends StatelessWidget {
             width: 320,
             height: 320,
             decoration: BoxDecoration(
-              color: const Color(0xFFBFDBFE).withValues(alpha: 0.2), // blue-100
+              color: const Color(0xFFEDE8EB).withValues(alpha: 0.18),
               shape: BoxShape.circle,
             ),
             child: BackdropFilter(
@@ -238,15 +247,9 @@ class _BackgroundGradients extends StatelessWidget {
 // 헤더
 // =============================================================================
 class _Header extends StatelessWidget {
-  final int currentStep;
-  final int totalSteps;
   final VoidCallback? onBack;
 
-  const _Header({
-    required this.currentStep,
-    required this.totalSteps,
-    this.onBack,
-  });
+  const _Header({this.onBack});
 
   @override
   Widget build(BuildContext context) {
@@ -258,60 +261,31 @@ class _Header extends StatelessWidget {
           decoration: BoxDecoration(
             color: _AppColors.backgroundLight.withValues(alpha: 0.8),
           ),
-          child: Column(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // 네비게이션
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: () {
-                      HapticFeedback.lightImpact();
-                      onBack?.call();
-                    },
-                    child: const Icon(
-                      CupertinoIcons.back,
-                      size: 24,
-                      color: _AppColors.gray500,
-                    ),
-                  ),
-                  const Text(
-                    '설레연',
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      color: _AppColors.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 40),
-                ],
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  onBack?.call();
+                },
+                child: const Icon(
+                  CupertinoIcons.back,
+                  size: 24,
+                  color: _AppColors.gray500,
+                ),
               ),
-              const SizedBox(height: 16),
-              // 프로그레스 바
-              Row(
-                children: List.generate(totalSteps, (index) {
-                  final isCompleted = index < currentStep;
-                  final isCurrent = index == currentStep - 1;
-                  return Expanded(
-                    child: Container(
-                      height: 6,
-                      margin: EdgeInsets.only(
-                        right: index < totalSteps - 1 ? 6 : 0,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isCompleted || isCurrent
-                            ? (isCurrent
-                                  ? _AppColors.primary
-                                  : _AppColors.primary.withValues(alpha: 0.3))
-                            : _AppColors.gray200,
-                        borderRadius: BorderRadius.circular(3),
-                      ),
-                    ),
-                  );
-                }),
+              const Text(
+                '설레연',
+                style: TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: _AppColors.primary,
+                ),
               ),
+              const SizedBox(width: 40),
             ],
           ),
         ),
@@ -443,29 +417,14 @@ class _BottomButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        24,
-        24,
-        24,
-        MediaQuery.of(context).padding.bottom + 24,
-      ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _AppColors.backgroundLight.withValues(alpha: 0),
-            _AppColors.backgroundLight.withValues(alpha: 0.95),
-            _AppColors.backgroundLight,
-          ],
-        ),
-      ),
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(24, 16, 24, bottomPadding + 24),
       child: Row(
         children: [
           // 상관없어요 버튼
           Expanded(
-            flex: 1,
             child: CupertinoButton(
               padding: EdgeInsets.zero,
               onPressed: () {
@@ -475,8 +434,16 @@ class _BottomButtons extends StatelessWidget {
               child: Container(
                 height: 56,
                 decoration: BoxDecoration(
-                  color: _AppColors.gray200,
+                  color: CupertinoColors.white,
                   borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: _AppColors.gray200),
+                  boxShadow: [
+                    BoxShadow(
+                      color: CupertinoColors.black.withValues(alpha: 0.04),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
                 child: const Center(
                   child: Text(
@@ -485,7 +452,7 @@ class _BottomButtons extends StatelessWidget {
                       fontFamily: 'Pretendard',
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
-                      color: _AppColors.gray600,
+                      color: _AppColors.gray800,
                     ),
                   ),
                 ),
@@ -495,7 +462,6 @@ class _BottomButtons extends StatelessWidget {
           const SizedBox(width: 12),
           // 선택 버튼
           Expanded(
-            flex: 2,
             child: CupertinoButton(
               padding: EdgeInsets.zero,
               onPressed: onNext,
@@ -506,22 +472,31 @@ class _BottomButtons extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: _AppColors.primary.withValues(alpha: 0.3),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
+                      color: const Color(0xFFF5468C).withValues(alpha: 0.24),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
                     ),
                   ],
                 ),
-                child: const Center(
-                  child: Text(
-                    '선택',
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      '선택',
+                      style: TextStyle(
+                        fontFamily: 'Pretendard',
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        color: CupertinoColors.white,
+                      ),
+                    ),
+                    SizedBox(width: 6),
+                    Icon(
+                      CupertinoIcons.arrow_right,
+                      size: 18,
                       color: CupertinoColors.white,
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),

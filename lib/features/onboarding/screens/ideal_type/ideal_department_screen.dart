@@ -18,18 +18,17 @@ import '../../../../services/storage_service.dart';
 // 색상 상수 (V3 테마)
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFEF3976);
-  static const Color backgroundLight = Color(0xFFF8F6F6);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color backgroundLight = Color(0xFFFAFAFA);
   static const Color surfaceLight = Color(0xFFFFFFFF);
-  static const Color gray100 = Color(0xFFF3F4F6);
   static const Color gray200 = Color(0xFFE5E7EB);
   static const Color gray400 = Color(0xFF9CA3AF);
   static const Color gray500 = Color(0xFF6B7280);
   static const Color gray800 = Color(0xFF1F2937);
-  static const Color orange50 = Color(0xFFFFF7ED);
-  static const Color blue50 = Color(0xFFEFF6FF);
-  static const Color green50 = Color(0xFFF0FDF4);
-  static const Color purple50 = Color(0xFFFAF5FF);
+  static const Color orange50 = Color(0xFFFAFAFA);
+  static const Color blue50 = Color(0xFFF7F7F8);
+  static const Color green50 = Color(0xFFF8F8F8);
+  static const Color purple50 = Color(0xFFF6F6F7);
 }
 
 // =============================================================================
@@ -162,8 +161,6 @@ class _IdealDepartmentScreenState extends State<IdealDepartmentScreen> {
               children: [
                 // 헤더
                 _Header(
-                  currentStep: widget.currentStep,
-                  totalSteps: widget.totalSteps,
                   onBack: widget.onBack ?? () => Navigator.of(context).pop(),
                 ),
                 // 콘텐츠
@@ -205,13 +202,29 @@ class _IdealDepartmentScreenState extends State<IdealDepartmentScreen> {
             bottom: 0,
             child: _BottomButtons(
               bottomPadding: bottomPadding,
-              onSkip: widget.onSkip ?? () => Navigator.of(context).pop(),
+              onSkip:
+                  widget.onSkip ??
+                  () {
+                    final navigator = Navigator.of(context);
+                    () async {
+                      final storage = StorageService();
+                      final kakaoUserId = await storage.getKakaoUserId();
+                      if (kakaoUserId != null) {
+                        await storage.mergeOnboardingDraft(kakaoUserId, {
+                          'idealDepartment': <String>[],
+                        });
+                      }
+                      if (!mounted) return;
+                      navigator.pop();
+                    }();
+                  },
               onNext: () async {
                 HapticFeedback.mediumImpact();
                 final list = _selectedMajors.toList();
                 if (widget.onNext != null) {
                   widget.onNext!.call(list);
                 } else {
+                  final navigator = Navigator.of(context);
                   final storage = StorageService();
                   final kakaoUserId = await storage.getKakaoUserId();
                   if (kakaoUserId != null) {
@@ -221,7 +234,7 @@ class _IdealDepartmentScreenState extends State<IdealDepartmentScreen> {
                   }
 
                   if (!mounted) return;
-                  Navigator.of(context).pop();
+                  navigator.pop();
                 }
               },
             ),
@@ -247,9 +260,9 @@ class _BackgroundGradients extends StatelessWidget {
               begin: Alignment.topRight,
               end: Alignment.bottomLeft,
               colors: [
-                const Color(0xFFE9D5FF).withValues(alpha: 0.4),
-                const Color(0xFFFCE7F3).withValues(alpha: 0.2),
-                const Color(0xFFFFF7ED).withValues(alpha: 0.4),
+                const Color(0xFFEDE8EB).withValues(alpha: 0.18),
+                const Color(0xFFFAFAFA).withValues(alpha: 0.82),
+                const Color(0xFFF4F4F5).withValues(alpha: 0.58),
               ],
             ),
           ),
@@ -277,7 +290,7 @@ class _BackgroundGradients extends StatelessWidget {
             width: 400,
             height: 400,
             decoration: BoxDecoration(
-              color: const Color(0xFFC084FC).withValues(alpha: 0.05),
+              color: const Color(0xFFF5468C).withValues(alpha: 0.035),
               shape: BoxShape.circle,
             ),
             child: BackdropFilter(
@@ -295,15 +308,9 @@ class _BackgroundGradients extends StatelessWidget {
 // 헤더
 // =============================================================================
 class _Header extends StatelessWidget {
-  final int currentStep;
-  final int totalSteps;
   final VoidCallback? onBack;
 
-  const _Header({
-    required this.currentStep,
-    required this.totalSteps,
-    this.onBack,
-  });
+  const _Header({this.onBack});
 
   @override
   Widget build(BuildContext context) {
@@ -315,60 +322,31 @@ class _Header extends StatelessWidget {
           decoration: BoxDecoration(
             color: _AppColors.backgroundLight.withValues(alpha: 0.8),
           ),
-          child: Column(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // 네비게이션
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: () {
-                      HapticFeedback.lightImpact();
-                      onBack?.call();
-                    },
-                    child: const Icon(
-                      CupertinoIcons.back,
-                      size: 24,
-                      color: _AppColors.gray500,
-                    ),
-                  ),
-                  const Text(
-                    '설레연',
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      color: _AppColors.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 40),
-                ],
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  onBack?.call();
+                },
+                child: const Icon(
+                  CupertinoIcons.back,
+                  size: 24,
+                  color: _AppColors.gray500,
+                ),
               ),
-              const SizedBox(height: 16),
-              // 프로그레스 바
-              Row(
-                children: List.generate(totalSteps, (index) {
-                  final isCompleted = index < currentStep;
-                  final isCurrent = index == currentStep - 1;
-                  return Expanded(
-                    child: Container(
-                      height: 6,
-                      margin: EdgeInsets.only(
-                        right: index < totalSteps - 1 ? 6 : 0,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isCompleted || isCurrent
-                            ? (isCurrent
-                                  ? _AppColors.primary
-                                  : _AppColors.primary.withValues(alpha: 0.3))
-                            : _AppColors.gray200,
-                        borderRadius: BorderRadius.circular(3),
-                      ),
-                    ),
-                  );
-                }),
+              const Text(
+                '설레연',
+                style: TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: _AppColors.primary,
+                ),
               ),
+              const SizedBox(width: 40),
             ],
           ),
         ),
@@ -572,19 +550,8 @@ class _BottomButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.fromLTRB(24, 24, 24, bottomPadding + 24),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _AppColors.backgroundLight.withValues(alpha: 0),
-            _AppColors.backgroundLight.withValues(alpha: 0.95),
-            _AppColors.backgroundLight,
-          ],
-        ),
-      ),
+    return Padding(
+      padding: EdgeInsets.fromLTRB(24, 16, 24, bottomPadding + 24),
       child: Row(
         children: [
           // 상관없어요 버튼
@@ -598,18 +565,14 @@ class _BottomButtons extends StatelessWidget {
               child: Container(
                 height: 56,
                 decoration: BoxDecoration(
-                  color: CupertinoColors.white,
+                  color: _AppColors.surfaceLight,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: _AppColors.gray100),
+                  border: Border.all(color: _AppColors.gray200),
                   boxShadow: [
-                    const BoxShadow(
-                      color: Color(0xFFE5E7EB),
-                      offset: Offset(0, 6),
-                    ),
                     BoxShadow(
-                      color: CupertinoColors.black.withValues(alpha: 0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 10),
+                      color: CupertinoColors.black.withValues(alpha: 0.04),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
                     ),
                   ],
                 ),
@@ -620,14 +583,14 @@ class _BottomButtons extends StatelessWidget {
                       fontFamily: 'Pretendard',
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
-                      color: _AppColors.gray500,
+                      color: _AppColors.gray800,
                     ),
                   ),
                 ),
               ),
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           // 다음 버튼
           Expanded(
             child: CupertinoButton(
@@ -639,14 +602,10 @@ class _BottomButtons extends StatelessWidget {
                   color: _AppColors.primary,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
-                    const BoxShadow(
-                      color: Color(0xFFD62660),
-                      offset: Offset(0, 6),
-                    ),
                     BoxShadow(
-                      color: CupertinoColors.black.withValues(alpha: 0.1),
-                      blurRadius: 10,
-                      offset: const Offset(0, 10),
+                      color: const Color(0xFFF5468C).withValues(alpha: 0.24),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
                     ),
                   ],
                 ),
@@ -654,7 +613,7 @@ class _BottomButtons extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      '다음',
+                      '선택',
                       style: TextStyle(
                         fontFamily: 'Pretendard',
                         fontSize: 17,
@@ -662,10 +621,10 @@ class _BottomButtons extends StatelessWidget {
                         color: CupertinoColors.white,
                       ),
                     ),
-                    SizedBox(width: 4),
+                    SizedBox(width: 6),
                     Icon(
                       CupertinoIcons.arrow_right,
-                      size: 20,
+                      size: 18,
                       color: CupertinoColors.white,
                     ),
                   ],

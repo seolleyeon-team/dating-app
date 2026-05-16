@@ -21,13 +21,13 @@ import '../../../services/user_service.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFEF3976);
-  static const Color backgroundLight = Color(0xFFF8F6F6);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color backgroundLight = Color(0xFFFAFAFA);
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color textMain = Color(0xFF181113);
   static const Color textSub = Color(0xFF6B7280);
-  static const Color chipDefault = Color(0xFFF4F0F2);
-  static const Color progressBg = Color(0xFFE6DBDF);
+  static const Color chipDefault = Color(0xFFF5F5F5);
+  static const Color progressBg = Color(0xFFEDE8EB);
 }
 
 // =============================================================================
@@ -70,10 +70,9 @@ class LifestyleScreen extends StatefulWidget {
 }
 
 class _LifestyleScreenState extends State<LifestyleScreen> {
-  // 초기값 설정 (HTML 예시대로)
-  DrinkingFrequency? _drinking = DrinkingFrequency.sometimes;
-  SmokingStatus? _smoking = SmokingStatus.nonSmoker;
-  ExerciseFrequency? _exercise = ExerciseFrequency.breathingOnly;
+  DrinkingFrequency? _drinking;
+  SmokingStatus? _smoking;
+  ExerciseFrequency? _exercise;
   Religion? _religion;
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
@@ -98,6 +97,12 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
     final s = lifestyle['smoking']?.toString();
     final e = lifestyle['exercise']?.toString();
     final r = lifestyle['religion']?.toString();
+    final isLegacyDefault =
+        d == DrinkingFrequency.sometimes.name &&
+        s == SmokingStatus.nonSmoker.name &&
+        e == ExerciseFrequency.breathingOnly.name &&
+        (r == null || r.isEmpty);
+    if (isLegacyDefault) return;
     if (d != null && d.isNotEmpty) {
       try {
         _drinking = DrinkingFrequency.values.firstWhere((v) => v.name == d);
@@ -159,6 +164,7 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
         body: SafeArea(
           child: Stack(
             children: [
+              const Positioned.fill(child: _SubtleBackgroundGradient()),
               Column(
                 children: [
                   // 헤더
@@ -259,6 +265,13 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
                               runSpacing: 12,
                               children: [
                                 _SelectionChip(
+                                  label: '운동 매니아',
+                                  isSelected:
+                                      _exercise == ExerciseFrequency.mania,
+                                  onTap: () =>
+                                      _updateExercise(ExerciseFrequency.mania),
+                                ),
+                                _SelectionChip(
                                   label: '매일 함',
                                   isSelected:
                                       _exercise == ExerciseFrequency.daily,
@@ -281,13 +294,6 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
                                   onTap: () => _updateExercise(
                                     ExerciseFrequency.breathingOnly,
                                   ),
-                                ),
-                                _SelectionChip(
-                                  label: '운동 매니아',
-                                  isSelected:
-                                      _exercise == ExerciseFrequency.mania,
-                                  onTap: () =>
-                                      _updateExercise(ExerciseFrequency.mania),
                                 ),
                               ],
                             ),
@@ -347,6 +353,7 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
                 child: _BottomButton(
                   onNext: () async {
                     HapticFeedback.mediumImpact();
+                    final navigator = Navigator.of(context);
                     await _saveCurrentLifestyle();
                     if (!mounted) return;
                     if (widget.onNext != null) {
@@ -357,9 +364,7 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
                         _religion,
                       );
                     } else {
-                      Navigator.of(
-                        context,
-                      ).pushNamed(RouteNames.onboardingMajor);
+                      navigator.pushNamed(RouteNames.onboardingMajor);
                     }
                   },
                 ),
@@ -389,6 +394,27 @@ class _LifestyleScreenState extends State<LifestyleScreen> {
   void _updateReligion(Religion value) {
     HapticFeedback.selectionClick();
     setState(() => _religion = value);
+  }
+}
+
+class _SubtleBackgroundGradient extends StatelessWidget {
+  const _SubtleBackgroundGradient();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFEDE8EB).withValues(alpha: 0.16),
+            _AppColors.backgroundLight,
+            Colors.white.withValues(alpha: 0.96),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -467,17 +493,6 @@ class _TitleSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: const [
-        Text(
-          'STEP 3 OF 6',
-          style: TextStyle(
-            fontFamily: 'Pretendard',
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: _AppColors.primary,
-            letterSpacing: 1.2,
-          ),
-        ),
-        SizedBox(height: 8),
         Text(
           '라이프 스타일',
           style: TextStyle(
@@ -612,7 +627,7 @@ class _BottomButton extends StatelessWidget {
     return Container(
       padding: EdgeInsets.fromLTRB(
         24,
-        24,
+        16,
         24,
         MediaQuery.of(context).padding.bottom + 24,
       ),
@@ -630,8 +645,8 @@ class _BottomButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: _AppColors.primary.withValues(alpha: 0.3),
-                blurRadius: 12,
+                color: _AppColors.primary.withValues(alpha: 0.24),
+                blurRadius: 16,
                 offset: const Offset(0, 6),
               ),
             ],
@@ -643,13 +658,13 @@ class _BottomButton extends StatelessWidget {
                 '다음',
                 style: TextStyle(
                   fontFamily: 'Pretendard',
-                  fontSize: 18,
+                  fontSize: 17,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
               ),
-              SizedBox(width: 8),
-              Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 20),
+              SizedBox(width: 6),
+              Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
             ],
           ),
         ),
