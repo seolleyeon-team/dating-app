@@ -10,14 +10,14 @@ import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 
 class _AppColors {
-  static const Color primary = Color(0xFFEF3976);
-  static const Color backgroundLight = Color(0xFFF8F6F6);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color backgroundLight = Color(0xFFFAFAFA);
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color textMain = Color(0xFF181113);
   static const Color textSub = Color(0xFF89616F);
   static const Color textGray = Color(0xFF9CA3AF);
-  static const Color borderDashed = Color(0xFFE6DBDF);
-  static const Color progressBg = Color(0xFFE6DBDF);
+  static const Color borderDashed = Color(0xFFEDE8EB);
+  static const Color progressBg = Color(0xFFEDE8EB);
 }
 
 class PhotoUploadScreen extends StatefulWidget {
@@ -254,6 +254,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         body: SafeArea(
           child: Stack(
             children: [
+              const Positioned.fill(child: _SubtleBackgroundGradient()),
               Column(
                 children: [
                   _Header(
@@ -339,6 +340,27 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   }
 }
 
+class _SubtleBackgroundGradient extends StatelessWidget {
+  const _SubtleBackgroundGradient();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFEDE8EB).withValues(alpha: 0.16),
+            _AppColors.backgroundLight,
+            Colors.white.withValues(alpha: 0.96),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _Header extends StatelessWidget {
   final int currentStep;
   final int totalSteps;
@@ -416,15 +438,6 @@ class _TitleSection extends StatelessWidget {
             color: _AppColors.textMain,
             height: 1.3,
             letterSpacing: -0.5,
-          ),
-        ),
-        SizedBox(height: 8),
-        Text(
-          '매력을 보여줄 사진을 올려주세요',
-          style: TextStyle(
-            fontFamily: 'Pretendard',
-            fontSize: 14,
-            color: _AppColors.textSub,
           ),
         ),
         SizedBox(height: 8),
@@ -735,7 +748,7 @@ class _BottomActionBar extends StatelessWidget {
             const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
-              height: 54,
+              height: 56,
               child: ElevatedButton(
                 onPressed: onNext,
                 style: ElevatedButton.styleFrom(
@@ -748,13 +761,26 @@ class _BottomActionBar extends StatelessWidget {
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
-                child: Text(
-                  isUploading ? '업로드 중...' : '다음',
-                  style: const TextStyle(
-                    fontFamily: 'Pretendard',
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      isUploading ? '업로드 중...' : '다음',
+                      style: const TextStyle(
+                        fontFamily: 'Pretendard',
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (!isUploading) ...[
+                      const SizedBox(width: 6),
+                      const Icon(
+                        Icons.arrow_forward_rounded,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),

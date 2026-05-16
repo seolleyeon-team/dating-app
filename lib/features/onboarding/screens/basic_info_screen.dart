@@ -21,14 +21,14 @@ import '../../../services/user_service.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFEF3976);
-  static const Color backgroundLight = Color(0xFFF8F6F6);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color backgroundLight = Color(0xFFFAFAFA);
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color textMain = Color(0xFF181113);
   static const Color textSub = Color(0xFF6B7280);
   static const Color border = Color(0xFFE5E7EB);
   static const Color inputBg = Color(0xFFF9FAFB); // gray-50
-  static const Color progressBg = Color(0xFFE6DBDF);
+  static const Color progressBg = Color(0xFFEDE8EB);
 }
 
 // =============================================================================
@@ -106,7 +106,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
   MbtiF _mbtiF = MbtiF.f;
   MbtiJ _mbtiJ = MbtiJ.j;
 
-  final List<String> _loveLanguages = ['인정하는 말 💬', '스킨십 ❤️']; // 초기값 예시
+  final List<String> _loveLanguages = [];
   RelationshipPreference _relationship = RelationshipPreference.serious;
   bool _isSavingOnExit = false;
 
@@ -249,17 +249,6 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
     super.dispose();
   }
 
-  void _toggleLoveLanguage(String language) {
-    HapticFeedback.lightImpact();
-    setState(() {
-      if (_loveLanguages.contains(language)) {
-        _loveLanguages.remove(language);
-      } else {
-        _loveLanguages.add(language);
-      }
-    });
-  }
-
   bool _validateRequiredFields() {
     if (_nicknameController.text.trim().isNotEmpty) {
       return true;
@@ -290,6 +279,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
           body: SafeArea(
             child: Stack(
               children: [
+                const Positioned.fill(child: _SubtleBackgroundGradient()),
                 Column(
                   children: [
                     // 헤더
@@ -759,64 +749,6 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                               color: _AppColors.border,
                             ),
 
-                            // 사랑의 언어
-                            _LabelSection(
-                              label: '사랑의 언어',
-                              subLabel: '(중복 선택 가능)',
-                              child: Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children:
-                                    [
-                                      '인정하는 말 💬',
-                                      '함께하는 시간 🕰️',
-                                      '선물 🎁',
-                                      '봉사 🧹',
-                                      '스킨십 ❤️',
-                                    ].map((lang) {
-                                      final isSelected = _loveLanguages
-                                          .contains(lang);
-                                      return GestureDetector(
-                                        onTap: () => _toggleLoveLanguage(lang),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 8,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: isSelected
-                                                ? _AppColors.primary.withValues(
-                                                    alpha: 0.1,
-                                                  )
-                                                : _AppColors.inputBg,
-                                            borderRadius: BorderRadius.circular(
-                                              20,
-                                            ),
-                                            border: Border.all(
-                                              color: isSelected
-                                                  ? _AppColors.primary
-                                                        .withValues(alpha: 0.2)
-                                                  : _AppColors.border,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            lang,
-                                            style: TextStyle(
-                                              color: isSelected
-                                                  ? _AppColors.primary
-                                                  : _AppColors.textSub,
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    }).toList(),
-                              ),
-                            ),
-
-                            const SizedBox(height: 24),
-
                             // 선호하는 관계
                             _LabelSection(
                               label: '선호하는 관계',
@@ -839,7 +771,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                   ),
                                   const SizedBox(height: 8),
                                   _RelationshipOption(
-                                    label: '일단 만나보고 결정할래요',
+                                    label: '상관없어요',
                                     value: RelationshipPreference.open,
                                     groupValue: _relationship,
                                     onChanged: (v) =>
@@ -972,6 +904,27 @@ class _Header extends StatelessWidget {
   }
 }
 
+class _SubtleBackgroundGradient extends StatelessWidget {
+  const _SubtleBackgroundGradient();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFEDE8EB).withValues(alpha: 0.16),
+            _AppColors.backgroundLight,
+            Colors.white.withValues(alpha: 0.96),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // =============================================================================
 // 입력 필드 컨테이너
 // =============================================================================
@@ -1026,14 +979,9 @@ class _InputField extends StatelessWidget {
 // =============================================================================
 class _LabelSection extends StatelessWidget {
   final String label;
-  final String? subLabel;
   final Widget child;
 
-  const _LabelSection({
-    required this.label,
-    this.subLabel,
-    required this.child,
-  });
+  const _LabelSection({required this.label, required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -1044,28 +992,13 @@ class _LabelSection extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.only(left: 4, bottom: 8),
-            child: Row(
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: _AppColors.textMain,
-                  ),
-                ),
-                if (subLabel != null) ...[
-                  const SizedBox(width: 4),
-                  Text(
-                    subLabel!,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.normal,
-                      color: Color(0xFF9CA3AF),
-                    ),
-                  ),
-                ],
-              ],
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: _AppColors.textMain,
+              ),
             ),
           ),
           child,
@@ -1453,10 +1386,10 @@ class _BottomButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: EdgeInsets.fromLTRB(
+        24,
         16,
-        16,
-        16,
-        MediaQuery.of(context).padding.bottom + 16,
+        24,
+        MediaQuery.of(context).padding.bottom + 24,
       ),
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -1479,8 +1412,8 @@ class _BottomButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: _AppColors.primary.withValues(alpha: 0.3),
-                blurRadius: 12,
+                color: _AppColors.primary.withValues(alpha: 0.24),
+                blurRadius: 16,
                 offset: const Offset(0, 6),
               ),
             ],
@@ -1492,13 +1425,13 @@ class _BottomButton extends StatelessWidget {
                 '다음',
                 style: TextStyle(
                   fontFamily: 'Pretendard',
-                  fontSize: 18,
+                  fontSize: 17,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
               ),
-              SizedBox(width: 8),
-              Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 20),
+              SizedBox(width: 6),
+              Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
             ],
           ),
         ),

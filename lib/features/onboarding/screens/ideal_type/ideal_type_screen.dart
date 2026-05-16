@@ -18,16 +18,15 @@ import '../../../../services/storage_service.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFF43F7E);
-  static const Color backgroundBase = Color(0xFFFDF7F9);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color backgroundBase = Color(0xFFFAFAFA);
   static const Color surfaceWhite = Color(0xFFFFFFFF);
   static const Color textMain = Color(0xFF111827);
   static const Color textSub = Color(0xFF6B7280);
   static const Color gray50 = Color(0xFFF9FAFB);
   static const Color gray100 = Color(0xFFF3F4F6);
-  static const Color gray200 = Color(0xFFE5E7EB);
   static const Color gray400 = Color(0xFF9CA3AF);
-  static const Color dotInactive = Color(0xFFE5E7EB);
+  static const Color dotInactive = Color(0xFFEDE8EB);
 }
 
 // =============================================================================
@@ -41,12 +40,15 @@ class IdealTypeScreen extends StatefulWidget {
 }
 
 class _IdealTypeScreenState extends State<IdealTypeScreen> {
-  String _height = '170';
-  String _age = '20 - 24';
-  String _mbti = 'E, N, F, J';
-  String _major = '예체능 계열';
+  String? _height;
+  String? _age;
+  String? _mbti;
+  String? _major;
 
   bool _isSkipping = false;
+
+  bool get _hasAnyPreference =>
+      _height != null || _age != null || _mbti != null || _major != null;
 
   static const Map<String, String> _majorLabelMap = {
     'liberalArts': '문과 계열',
@@ -119,7 +121,7 @@ class _IdealTypeScreenState extends State<IdealTypeScreen> {
             .map((e) => _majorLabelMap[e.toString()] ?? e.toString())
             .where((s) => s.isNotEmpty)
             .toList();
-        _major = labels.join(', ');
+        _major = labels.isEmpty ? null : labels.join(', ');
       } else {
         final key = idealDepartment.toString();
         if (key.isNotEmpty) {
@@ -131,17 +133,16 @@ class _IdealTypeScreenState extends State<IdealTypeScreen> {
     setState(() {});
   }
 
-  void _onSkipPressed() {
+  Future<void> _onSkipPressed() async {
     if (_isSkipping) return;
     HapticFeedback.lightImpact();
-    OnboardingSaveHelper.skipIdealType();
     setState(() => _isSkipping = true);
-    Future.delayed(const Duration(milliseconds: 160), () {
-      if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pushReplacementNamed(
-        RouteNames.welcomeTutorial,
-      );
-    });
+    await OnboardingSaveHelper.skipIdealType();
+    if (!mounted) return;
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).pushReplacementNamed(RouteNames.welcomeTutorial);
   }
 
   void _onHeightTap() {
@@ -174,7 +175,7 @@ class _IdealTypeScreenState extends State<IdealTypeScreen> {
 
   void _onNextPressed() {
     HapticFeedback.mediumImpact();
-    Navigator.of(context).pushNamed(RouteNames.onboardingIdealPersonality);
+    Navigator.of(context).pushNamed(RouteNames.onboardingIdealLifestyle);
   }
 
   @override
@@ -183,13 +184,14 @@ class _IdealTypeScreenState extends State<IdealTypeScreen> {
       backgroundColor: _AppColors.backgroundBase,
       child: Stack(
         children: [
+          const Positioned.fill(child: _SubtleBackgroundGradient()),
           SafeArea(
             bottom: false,
             child: Column(
               children: [
                 _Header(
                   onBackPressed: () => Navigator.of(context).pop(),
-                  onSkipPressed: _isSkipping ? null : _onSkipPressed,
+                  onSkipPressed: _isSkipping ? null : () => _onSkipPressed(),
                   currentStep: 1,
                   totalSteps: 3,
                 ),
@@ -213,23 +215,23 @@ class _IdealTypeScreenState extends State<IdealTypeScreen> {
                               const SizedBox(height: 32),
                               _InputField(
                                 label: '키',
-                                value: _height,
-                                suffix: 'cm',
+                                value: _height ?? '상관없어요',
+                                suffix: _height != null ? 'cm' : null,
                                 icon: CupertinoIcons.resize_v,
                                 onTap: _onHeightTap,
                               ),
                               const SizedBox(height: 20),
                               _InputField(
                                 label: '나이',
-                                value: _age,
-                                suffix: '살',
+                                value: _age ?? '상관없어요',
+                                suffix: _age != null ? '살' : null,
                                 icon: CupertinoIcons.gift,
                                 onTap: _onAgeTap,
                               ),
                               const SizedBox(height: 20),
                               _InputField(
                                 label: 'MBTI',
-                                value: _mbti,
+                                value: _mbti ?? '상관없어요',
                                 icon: CupertinoIcons.circle_grid_hex,
                                 onTap: _onMbtiTap,
                               ),
@@ -237,7 +239,7 @@ class _IdealTypeScreenState extends State<IdealTypeScreen> {
                               _InputField(
                                 label: '학과',
                                 labelSuffix: '(중복 선택 가능)',
-                                value: _major,
+                                value: _major ?? '상관없어요',
                                 icon: CupertinoIcons.book,
                                 onTap: _onMajorTap,
                               ),
@@ -260,10 +262,34 @@ class _IdealTypeScreenState extends State<IdealTypeScreen> {
               opacity: _isSkipping ? 0.0 : 1.0,
               duration: const Duration(milliseconds: 150),
               curve: Curves.easeOut,
-              child: _BottomCTA(onPressed: _onNextPressed),
+              child: _BottomCTA(
+                label: _hasAnyPreference ? '다음' : '그냥 넘어갈게요',
+                onPressed: _onNextPressed,
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SubtleBackgroundGradient extends StatelessWidget {
+  const _SubtleBackgroundGradient();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFEDE8EB).withValues(alpha: 0.16),
+            _AppColors.backgroundBase,
+            CupertinoColors.white.withValues(alpha: 0.96),
+          ],
+        ),
       ),
     );
   }
@@ -291,14 +317,21 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       child: Row(
         children: [
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            minimumSize: const Size(44, 44),
-            onPressed: onBackPressed,
-            child: const Icon(
-              CupertinoIcons.back,
-              color: _AppColors.textMain,
-              size: 24,
+          SizedBox(
+            width: 132,
+            height: 44,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: CupertinoButton(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(44, 44),
+                onPressed: onBackPressed,
+                child: const Icon(
+                  CupertinoIcons.back,
+                  color: _AppColors.textMain,
+                  size: 24,
+                ),
+              ),
             ),
           ),
           Expanded(
@@ -322,29 +355,88 @@ class _Header extends StatelessWidget {
             ),
           ),
           SizedBox(
-            width: 80,
+            width: 132,
             height: 44,
-            child: CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: onSkipPressed,
-              child: Semantics(
-                label: '이상형 설정 건너뛰기',
-                button: true,
-                child: Text(
-                  '건너뛰기',
-                  style: TextStyle(
-                    fontFamily: 'Pretendard',
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: onSkipPressed != null
-                        ? _AppColors.textSub
-                        : _AppColors.gray200,
-                  ),
-                ),
+            child: _SkipLaterButton(onPressed: onSkipPressed),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SkipLaterButton extends StatefulWidget {
+  final VoidCallback? onPressed;
+
+  const _SkipLaterButton({this.onPressed});
+
+  @override
+  State<_SkipLaterButton> createState() => _SkipLaterButtonState();
+}
+
+class _SkipLaterButtonState extends State<_SkipLaterButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<Offset> _offset;
+  late final Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 820),
+    )..repeat(reverse: true);
+    final curved = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeInOut,
+    );
+    _offset = Tween<Offset>(
+      begin: const Offset(-0.025, 0),
+      end: const Offset(0.025, 0),
+    ).animate(curved);
+    _opacity = Tween<double>(begin: 0.68, end: 1).animate(curved);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: SlideTransition(
+        position: _offset,
+        child: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: widget.onPressed,
+          child: Container(
+            height: 34,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: _AppColors.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(17),
+              border: Border.all(
+                color: _AppColors.primary.withValues(alpha: 0.34),
+              ),
+            ),
+            alignment: Alignment.center,
+            child: const Text(
+              '건너뛰고 다음에 할래요',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: 'Pretendard',
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: _AppColors.primary,
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -524,16 +616,17 @@ class _InputField extends StatelessWidget {
 // 하단 CTA 버튼
 // =============================================================================
 class _BottomCTA extends StatelessWidget {
+  final String label;
   final VoidCallback onPressed;
 
-  const _BottomCTA({required this.onPressed});
+  const _BottomCTA({required this.label, required this.onPressed});
 
   @override
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return Container(
-      padding: EdgeInsets.fromLTRB(20, 16, 20, bottomPadding + 16),
+      padding: EdgeInsets.fromLTRB(24, 16, 24, bottomPadding + 24),
       decoration: BoxDecoration(
         color: _AppColors.backgroundBase.withValues(alpha: 0.9),
       ),
@@ -548,26 +641,26 @@ class _BottomCTA extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: _AppColors.primary.withValues(alpha: 0.4),
-                blurRadius: 14,
-                offset: const Offset(0, 4),
+                color: _AppColors.primary.withValues(alpha: 0.24),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
               ),
             ],
           ),
-          child: const Row(
+          child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                '다음',
-                style: TextStyle(
+                label,
+                style: const TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
                   color: CupertinoColors.white,
                 ),
               ),
-              SizedBox(width: 6),
-              Icon(
+              const SizedBox(width: 6),
+              const Icon(
                 CupertinoIcons.arrow_right,
                 size: 18,
                 color: CupertinoColors.white,

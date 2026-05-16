@@ -252,7 +252,7 @@ class AuthService {
       return RouteNames.onboardingBasicInfo;
     }
     final interests = onboarding['interests'];
-    if (interests == null || (interests is List && interests.isEmpty)) {
+    if (!onboarding.containsKey('interests') || interests == null) {
       return RouteNames.onboardingInterestsSelection;
     }
     final lifestyle = onboarding['lifestyle'];
@@ -273,11 +273,11 @@ class AuthService {
     if (photoUrls == null || (photoUrls is List && photoUrls.isEmpty)) {
       return RouteNames.onboardingPhoto;
     }
-    if (_isEmpty(onboarding['selfIntroduction'])) {
+    if (!onboarding.containsKey('selfIntroduction')) {
       return RouteNames.onboardingSelfIntro;
     }
     final profileQa = onboarding['profileQa'];
-    if (profileQa == null || (profileQa is List && profileQa.isEmpty)) {
+    if (!onboarding.containsKey('profileQa') || profileQa == null) {
       return RouteNames.onboardingProfileQa;
     }
     final keywords = onboarding['keywords'];
@@ -290,6 +290,9 @@ class AuthService {
     }
     if (idealType['preferredLifestyles'] == null) {
       return RouteNames.onboardingIdealLifestyle;
+    }
+    if (idealType['preferredPersonalities'] == null) {
+      return RouteNames.onboardingIdealPersonality;
     }
     return null;
   }

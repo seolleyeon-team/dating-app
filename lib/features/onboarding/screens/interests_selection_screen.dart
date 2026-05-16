@@ -21,15 +21,15 @@ import '../../../services/user_service.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFFF4B6E);
-  static const Color backgroundLight = Color(0xFFFFFFFF);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color backgroundLight = Color(0xFFFAFAFA);
   static const Color surfaceLight = Color(0xFFF8F9FA);
   static const Color textMain = Color(0xFF1A1A1A);
   static const Color textSub = Color(0xFF6B7280);
   static const Color chipBg = Color(0xFFF3F4F6);
-  static const Color chipSelected = Color(0xFF4B5563);
+  static const Color chipSelected = Color(0xFFF5468C);
   static const Color border = Color(0xFFE5E7EB);
-  static const Color progressBg = Color(0xFFE6DBDF);
+  static const Color progressBg = Color(0xFFEDE8EB);
 }
 
 // =============================================================================
@@ -50,7 +50,7 @@ class InterestCategory {
 const List<InterestCategory> _categories = [
   InterestCategory(
     emoji: '🏠',
-    title: 'Inside Activity',
+    title: '실내 활동',
     items: [
       '넷플릭스',
       '홈트',
@@ -75,7 +75,7 @@ const List<InterestCategory> _categories = [
   ),
   InterestCategory(
     emoji: '⛺',
-    title: 'Outside Activity',
+    title: '야외 활동',
     items: [
       '한강에서 치맥',
       '빈티지 쇼핑',
@@ -112,7 +112,7 @@ const List<InterestCategory> _categories = [
   ),
   InterestCategory(
     emoji: '🍷',
-    title: 'Eat & Drink',
+    title: '음식',
     items: [
       '칵테일',
       '맥주',
@@ -215,7 +215,7 @@ const List<InterestCategory> _categories = [
   ),
   InterestCategory(
     emoji: '🎨',
-    title: 'Creativity',
+    title: '창작 활동',
     items: [
       '언어 교환',
       '악기',
@@ -266,12 +266,7 @@ class InterestsSelectionScreen extends StatefulWidget {
 }
 
 class _InterestsSelectionScreenState extends State<InterestsSelectionScreen> {
-  final Set<String> _selectedInterests = {
-    '악기',
-    '빈티지 쇼핑',
-    '한강에서 치맥',
-    '넷플릭스',
-  }; // 초기 데이터 예시
+  final Set<String> _selectedInterests = {};
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
   bool _isSavingOnExit = false;
@@ -347,6 +342,7 @@ class _InterestsSelectionScreenState extends State<InterestsSelectionScreen> {
         body: SafeArea(
           child: Stack(
             children: [
+              const Positioned.fill(child: _SubtleBackgroundGradient()),
               Column(
                 children: [
                   // 헤더
@@ -435,16 +431,36 @@ class _InterestsSelectionScreenState extends State<InterestsSelectionScreen> {
                   onNext:
                       widget.onComplete ??
                       () async {
+                        final navigator = Navigator.of(context);
                         await _saveCurrentInterests();
                         if (!mounted) return;
-                        Navigator.of(
-                          context,
-                        ).pushNamed(RouteNames.onboardingLifestyle);
+                        navigator.pushNamed(RouteNames.onboardingLifestyle);
                       },
                 ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SubtleBackgroundGradient extends StatelessWidget {
+  const _SubtleBackgroundGradient();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFEDE8EB).withValues(alpha: 0.14),
+            _AppColors.backgroundLight,
+            Colors.white.withValues(alpha: 0.96),
+          ],
         ),
       ),
     );
@@ -815,10 +831,10 @@ class _BottomFloatingArea extends StatelessWidget {
         ),
       ),
       padding: EdgeInsets.fromLTRB(
-        20,
-        20,
-        20,
-        MediaQuery.of(context).padding.bottom + 20,
+        24,
+        16,
+        24,
+        MediaQuery.of(context).padding.bottom + 24,
       ),
       child: CupertinoButton(
         padding: EdgeInsets.zero,
@@ -831,11 +847,11 @@ class _BottomFloatingArea extends StatelessWidget {
           width: double.infinity,
           decoration: BoxDecoration(
             color: _AppColors.primary,
-            borderRadius: BorderRadius.circular(30),
+            borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: _AppColors.primary.withValues(alpha: 0.3),
-                blurRadius: 12,
+                color: _AppColors.primary.withValues(alpha: 0.24),
+                blurRadius: 16,
                 offset: const Offset(0, 6),
               ),
             ],
@@ -844,15 +860,15 @@ class _BottomFloatingArea extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: const [
               Text(
-                '다음으로',
+                '다음',
                 style: TextStyle(
-                  fontSize: 16,
+                  fontSize: 17,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
               ),
-              SizedBox(width: 8),
-              Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 20),
+              SizedBox(width: 6),
+              Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
             ],
           ),
         ),
