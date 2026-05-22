@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import 'storage_service.dart';
 import 'user_service.dart';
+import '../shared/utils/profile_display_image_resolver.dart';
 
 // =============================================================================
 // 공통 AI 추천 프로필 모델
@@ -149,30 +150,34 @@ class AiRecommendationService {
 
       // 1. 추천 문서 자체에 이미지가 있는지 확인 (미래 확장성)
       List<String> images = [];
-      if (item['imageUrls'] != null) {
-        images = List<String>.from(item['imageUrls']);
+      final approvedAvatarUrl = item['approvedAvatarUrl'];
+      if (approvedAvatarUrl is String && approvedAvatarUrl.trim().isNotEmpty) {
+        images = [approvedAvatarUrl.trim()];
       }
 
-      // 2. Fallback: users/{uid} 문서에서 onboarding.photoUrls 조회
+      // 2. Fallback: users/{uid} approved avatar display fields only.
       final userProfile = await _userService.getUserProfile(candUid);
       if (userProfile == null) continue; // 삭제/탈퇴된 유저 패스
 
       final onboarding = userProfile['onboarding'];
-      if (images.isEmpty && onboarding is Map) {
-        final photos = onboarding['photoUrls'];
-        if (photos is List && photos.isNotEmpty) {
-          images = List<String>.from(photos);
-        } else {
+      if (images.isEmpty) {
+        final resolved = ProfileDisplayImageResolver.resolve(userProfile);
+        if (resolved.isNotEmpty) {
+          images = [resolved];
+        }
+        if (images.isEmpty) {
           // 사진이 한장도 없으면 렌더링에 문제가 생길 수 있으므로 최소 Fallback
           // images = ['https://placeholder.com/default']; // 기획에 따라 처리 가능. 여기선 빈 리스트 허용
         }
       }
+      if (images.isEmpty) continue;
 
       // 데이터 매핑
-      final nickname = userProfile['nickname'] as String? ??
+      final nickname =
+          userProfile['nickname'] as String? ??
           (onboarding is Map ? onboarding['nickname'] as String? : null) ??
           '익명';
-      
+
       // 나이 계산 (출생년도 기준 대략적 나이 또는 직접 입력값 반영)
       int age = 20;
       if (onboarding is Map && onboarding['birthYear'] != null) {
@@ -182,9 +187,15 @@ class AiRecommendationService {
         }
       }
 
-      final major = (onboarding is Map) ? (onboarding['major'] as String? ?? '전공 미상') : '전공 미상';
-      final bio = (onboarding is Map) ? (onboarding['bio'] as String? ?? '') : '';
-      final university = (onboarding is Map) ? (onboarding['university'] as String? ?? '') : '';
+      final major = (onboarding is Map)
+          ? (onboarding['major'] as String? ?? '전공 미상')
+          : '전공 미상';
+      final bio = (onboarding is Map)
+          ? (onboarding['bio'] as String? ?? '')
+          : '';
+      final university = (onboarding is Map)
+          ? (onboarding['university'] as String? ?? '')
+          : '';
 
       List<String> tags = [];
       if (onboarding is Map) {
@@ -243,10 +254,8 @@ class AiRecommendationService {
       final onboarding = data['onboarding'];
       if (onboarding is! Map) continue;
 
-      final photoUrls = onboarding['photoUrls'];
-      final images = photoUrls is List && photoUrls.isNotEmpty
-          ? List<String>.from(photoUrls)
-          : <String>[];
+      final resolved = ProfileDisplayImageResolver.resolve(data);
+      final images = resolved.isNotEmpty ? <String>[resolved] : <String>[];
       if (images.isEmpty) continue; // 사진 있는 유저만
 
       final nickname = onboarding['nickname'] as String? ?? '익명';
@@ -303,11 +312,21 @@ class AiRecommendationService {
           blockedUids: blockedUids,
         );
       }
-      if (kDebugMode) debugPrint('[AI] fetchProfileFeed: modelRecs empty, using users fallback');
-      return await _fetchFallbackFromUsers(uid, limit, blockedUids: blockedUids);
+      if (kDebugMode) {
+        debugPrint(
+          '[AI] fetchProfileFeed: modelRecs empty, using users fallback',
+        );
+      }
+      return await _fetchFallbackFromUsers(
+        uid,
+        limit,
+        blockedUids: blockedUids,
+      );
     } catch (e) {
       debugPrint('fetchProfileFeed Error: $e');
-      if (kDebugMode) debugPrint('[AI] fetchProfileFeed: error, trying users fallback');
+      if (kDebugMode) {
+        debugPrint('[AI] fetchProfileFeed: error, trying users fallback');
+      }
       return await _fetchFallbackFromUsers(uid, limit);
     }
   }
@@ -344,17 +363,15 @@ class AiRecommendationService {
 
         // RRF인 경우 rank 1~3만 필터, 순서 보장
         if (algoUsed == 'rrf') {
-          items = items
-              .where((item) {
+          items =
+              items.where((item) {
                 final r = (item['rank'] as num?)?.toInt() ?? 999;
                 return r >= 1 && r <= 3;
-              })
-              .toList()
-            ..sort((a, b) {
-              final rankA = (a['rank'] as num?)?.toInt() ?? 999;
-              final rankB = (b['rank'] as num?)?.toInt() ?? 999;
-              return rankA.compareTo(rankB);
-            });
+              }).toList()..sort((a, b) {
+                final rankA = (a['rank'] as num?)?.toInt() ?? 999;
+                final rankB = (b['rank'] as num?)?.toInt() ?? 999;
+                return rankA.compareTo(rankB);
+              });
         }
 
         return await _hydrateProfiles(
@@ -365,11 +382,21 @@ class AiRecommendationService {
           blockedUids: blockedUids,
         );
       }
-      if (kDebugMode) debugPrint('[AI] fetchMysteryFeed: modelRecs empty, using users fallback');
-      return await _fetchFallbackFromUsers(uid, limit, blockedUids: blockedUids);
+      if (kDebugMode) {
+        debugPrint(
+          '[AI] fetchMysteryFeed: modelRecs empty, using users fallback',
+        );
+      }
+      return await _fetchFallbackFromUsers(
+        uid,
+        limit,
+        blockedUids: blockedUids,
+      );
     } catch (e) {
       debugPrint('fetchMysteryFeed Error: $e');
-      if (kDebugMode) debugPrint('[AI] fetchMysteryFeed: error, trying users fallback');
+      if (kDebugMode) {
+        debugPrint('[AI] fetchMysteryFeed: error, trying users fallback');
+      }
       return await _fetchFallbackFromUsers(uid, limit);
     }
   }

@@ -10,7 +10,6 @@
 
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -104,6 +103,7 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
         '[PostWrite] 글 등록 authorId="$kakaoUserId", category="$_selectedCategory"',
       );
 
+      if (!mounted) return;
       final provider = context.read<CommunityProvider>();
 
       await provider.createPost(
@@ -122,11 +122,11 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('게시글 등록 실패: $e')));
     } finally {
-      if (!mounted) return;
-
-      setState(() {
-        _isSubmitting = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
     }
   }
 

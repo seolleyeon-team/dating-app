@@ -39,55 +39,358 @@ service cloud.firestore {
           request.auth.uid == kakaoUserId;
     }
 
+    function isUserDocOwner(kakaoUserId) {
+      return request.auth != null &&
+          (
+            request.auth.uid == kakaoUserId ||
+            (
+              request.auth.token.email is string &&
+              request.auth.token.email_verified == true &&
+              isYonseiEmail(request.auth.token.email) &&
+              resource.data.studentEmail is string &&
+              isYonseiEmail(resource.data.studentEmail) &&
+              request.auth.token.email == resource.data.studentEmail
+            )
+          );
+    }
+
+    function isStorageSourcePath(value) {
+      return value is string &&
+          (
+            value.lower().matches('^https://storage\\.googleapis\\.com/.*') ||
+            value.lower().matches('^https://firebasestorage\\.googleapis\\.com/.*')
+          ) &&
+          (
+            value.lower().matches('.*/source/.*') ||
+            value.lower().matches('.*%2fsource%2f.*')
+          );
+    }
+
+    function isSafePublicMediaUrl(value) {
+      return value is string &&
+          !value.lower().matches('^gs://.*') &&
+          !value.lower().matches('^gcs://.*') &&
+          !value.lower().matches('.*seolleyeon-private-source-photos.*') &&
+          !value.lower().matches('.*seolleyeon-final-private-source-photos.*') &&
+          !value.lower().matches('.*seolleyeon-avatar-temp.*') &&
+          !value.lower().matches('.*seolleyeon-final-avatar-temp.*') &&
+          !value.lower().matches('.*seolleyeon-chat-profile-photos.*') &&
+          !value.lower().matches('.*seolleyeon-final-chat-profile-photos.*') &&
+          !value.lower().matches('.*x-goog-.*') &&
+          !value.lower().matches('.*x-amz-.*') &&
+          !value.lower().matches('.*googleaccessid.*') &&
+          !value.lower().matches('.*signature=.*') &&
+          !value.lower().matches('.*expires=.*') &&
+          !value.lower().matches('.*awsaccesskeyid.*') &&
+          !value.lower().matches('.*signedurl.*') &&
+          !isStorageSourcePath(value);
+    }
+
+    function isApprovedAvatarStoragePath(value) {
+      return value is string &&
+          (
+            value.matches('^gs://seolleyeon-approved-avatars/users/[^/]+/avatar/[^/]+$') ||
+            value.matches('^gs://seolleyeon-final-approved-avatars/users/[^/]+/avatar/[^/]+$')
+          );
+    }
+
+    function avatarPublicMediaOk(avatar) {
+      return avatar is map &&
+          !avatar.keys().hasAny([
+            'sourcePhotos',
+            'sourcePhotoUrls',
+            'sourcePhotoRefs',
+            'sourcePhotoIds',
+            'sourcePhotoGcsUri',
+            'gcsUri',
+            'clipEmbedding',
+            'clipEmbeddings',
+            'vector',
+            'faceEmbedding',
+            'faceEmbeddings',
+            'qaEmbeddings',
+            'signedUrl',
+            'signedUrls',
+            'previewUrl',
+            'previewUrls',
+            'candidatePreviewUrl',
+            'candidatePreviewUrls'
+          ]) &&
+          (!avatar.keys().hasAny(['approvedAvatarUrl']) ||
+            avatar.approvedAvatarUrl == null ||
+            avatar.approvedAvatarUrl == "" ||
+            isSafePublicMediaUrl(avatar.approvedAvatarUrl)) &&
+          (!avatar.keys().hasAny(['approvedAvatarStoragePath']) ||
+            avatar.approvedAvatarStoragePath == null ||
+            avatar.approvedAvatarStoragePath == "" ||
+            isApprovedAvatarStoragePath(avatar.approvedAvatarStoragePath));
+    }
+
+    function onboardingPhotoUrlsOk(onboarding, data) {
+      return !onboarding.keys().hasAny(['photoUrls']) ||
+          (
+            onboarding.photoUrls is list &&
+            onboarding.photoUrls.size() <= 1 &&
+            (
+              onboarding.photoUrls.size() == 0 ||
+              (
+                data.avatar is map &&
+                data.avatar.approvedAvatarUrl is string &&
+                onboarding.photoUrls[0] == data.avatar.approvedAvatarUrl &&
+                isSafePublicMediaUrl(onboarding.photoUrls[0])
+              )
+            )
+          );
+    }
+
+    function onboardingPublicMediaOk(onboarding, data) {
+      return onboarding is map &&
+          !onboarding.keys().hasAny([
+            'sourcePhotos',
+            'sourcePhotoUrls',
+            'sourcePhotoRefs',
+            'sourcePhotoIds',
+            'sourcePhotoGcsUri',
+            'gcsUri',
+            'clipEmbedding',
+            'clipEmbeddings',
+            'vector',
+            'faceEmbedding',
+            'faceEmbeddings',
+            'signedUrl',
+            'signedUrls',
+            'previewUrl',
+            'previewUrls',
+            'candidatePreviewUrl',
+            'candidatePreviewUrls'
+          ]) &&
+          onboardingPhotoUrlsOk(onboarding, data) &&
+          (
+            !onboarding.keys().hasAny(['avatarUrls']) ||
+            (
+              onboarding.avatarUrls is list &&
+              onboarding.avatarUrls.size() <= 1 &&
+              (
+                onboarding.avatarUrls.size() == 0 ||
+                isSafePublicMediaUrl(onboarding.avatarUrls[0])
+              )
+            )
+          );
+    }
+
+    function avatarApprovalFieldsAbsent(data) {
+      return !data.keys().hasAny(['avatar']) ||
+          !(data.avatar is map) ||
+          !data.avatar.keys().hasAny([
+            'approvedAvatarUrl',
+            'approvedAvatarStoragePath'
+          ]);
+    }
+
+    function onboardingAvatarPhotoFieldsAbsent(data) {
+      return !data.keys().hasAny(['onboarding']) ||
+          !(data.onboarding is map) ||
+          !data.onboarding.keys().hasAny([
+            'avatarUrls',
+            'photoUrls'
+          ]);
+    }
+
+    function avatarApprovalFieldsUnchanged() {
+      return (
+          request.resource.data.keys().hasAny(['avatar']) &&
+          resource.data.keys().hasAny(['avatar']) &&
+          request.resource.data.avatar is map &&
+          resource.data.avatar is map &&
+          !request.resource.data.avatar.diff(resource.data.avatar).affectedKeys().hasAny([
+            'approvedAvatarUrl',
+            'approvedAvatarStoragePath'
+          ])
+        ) || (
+          !(
+            request.resource.data.keys().hasAny(['avatar']) &&
+            request.resource.data.avatar is map &&
+            request.resource.data.avatar.keys().hasAny([
+              'approvedAvatarUrl',
+              'approvedAvatarStoragePath'
+            ])
+          ) &&
+          !(
+            resource.data.keys().hasAny(['avatar']) &&
+            resource.data.avatar is map &&
+            resource.data.avatar.keys().hasAny([
+              'approvedAvatarUrl',
+              'approvedAvatarStoragePath'
+            ])
+          )
+        );
+    }
+
+    function onboardingAvatarPhotoFieldsUnchanged() {
+      return (
+          request.resource.data.keys().hasAny(['onboarding']) &&
+          resource.data.keys().hasAny(['onboarding']) &&
+          request.resource.data.onboarding is map &&
+          resource.data.onboarding is map &&
+          !request.resource.data.onboarding.diff(resource.data.onboarding).affectedKeys().hasAny([
+            'avatarUrls',
+            'photoUrls'
+          ])
+        ) || (
+          !(
+            request.resource.data.keys().hasAny(['onboarding']) &&
+            request.resource.data.onboarding is map &&
+            request.resource.data.onboarding.keys().hasAny([
+              'avatarUrls',
+              'photoUrls'
+            ])
+          ) &&
+          !(
+            resource.data.keys().hasAny(['onboarding']) &&
+            resource.data.onboarding is map &&
+            resource.data.onboarding.keys().hasAny([
+              'avatarUrls',
+              'photoUrls'
+            ])
+          )
+        );
+    }
+
+    function clientDoesNotCreateAvatarDisplayFields(data) {
+      return avatarApprovalFieldsAbsent(data) &&
+          onboardingAvatarPhotoFieldsAbsent(data);
+    }
+
+    function clientDoesNotModifyAvatarDisplayFields() {
+      return avatarApprovalFieldsUnchanged() &&
+          onboardingAvatarPhotoFieldsUnchanged();
+    }
+
+    function publicUserMediaOk(data) {
+      return !data.keys().hasAny([
+            'sourcePhotos',
+            'sourcePhotoUrls',
+            'sourcePhotoRefs',
+            'sourcePhotoIds',
+            'sourcePhotoGcsUri',
+            'sourcePhotoGcsUris',
+            'chatRealPhoto',
+            'chatRealPhotoUrl',
+            'realPhotoUrl',
+            'realProfilePhotoUrl',
+            'gcsUri',
+            'signedUrl',
+            'signedUrls',
+            'candidatePreviewUrl',
+            'candidatePreviewUrls',
+            'previewUrl',
+            'previewUrls',
+            'clipEmbedding',
+            'clipEmbeddings',
+            'vector',
+            'faceEmbedding',
+            'faceEmbeddings',
+            'qaEmbeddings'
+          ]) &&
+          (!data.keys().hasAny(['profileImageUrl']) ||
+            data.profileImageUrl == null ||
+            data.profileImageUrl == "" ||
+            (
+              data.avatar is map &&
+              data.avatar.approvedAvatarUrl is string &&
+              data.profileImageUrl == data.avatar.approvedAvatarUrl &&
+              isSafePublicMediaUrl(data.profileImageUrl)
+            )) &&
+          (!data.keys().hasAny(['avatar']) ||
+            avatarPublicMediaOk(data.avatar)) &&
+          (!data.keys().hasAny(['onboarding']) ||
+            onboardingPublicMediaOk(data.onboarding, data));
+    }
+
+    function chatRoomDoesNotPersistPrivateMedia(data) {
+      return !data.keys().hasAny([
+          'sourcePhotos',
+          'sourcePhotoUrls',
+          'sourcePhotoRefs',
+          'sourcePhotoIds',
+          'sourcePhotoGcsUri',
+          'sourcePhotoGcsUris',
+          'chatRealPhoto',
+          'chatRealPhotoUrl',
+          'realPhotoUrl',
+          'realProfilePhotoUrl',
+          'gcsUri',
+          'gcsUris',
+          'signedUrl',
+          'signedUrls',
+          'privatePhotoUrl',
+          'privatePhotoUrls',
+          'clipEmbedding',
+          'clipEmbeddings',
+          'vector',
+          'faceEmbedding',
+          'faceEmbeddings'
+        ]);
+    }
+
     match /users/{kakaoUserId} {
       allow get: if true;
       allow list: if true;
 
       // 연세 메일 학생 인증으로 최초 생성
-      allow create: if request.auth != null &&
-          isYonseiEmail(request.auth.token.email) &&
-          request.resource.data.keys().hasOnly([
-            'kakaoUserId',
-            'isStudentVerified',
-            'studentEmail',
-            'studentVerifiedAt',
-            'verifiedAt'
-          ]) &&
-          (request.resource.data.kakaoUserId == null ||
-            request.resource.data.kakaoUserId == kakaoUserId) &&
-          request.resource.data.studentEmail is string &&
-          isYonseiEmail(request.resource.data.studentEmail) &&
-          request.resource.data.isStudentVerified == true;
+      allow create: if publicUserMediaOk(request.resource.data) &&
+          clientDoesNotCreateAvatarDisplayFields(request.resource.data) &&
+          (
+            (
+              request.auth != null &&
+              isYonseiEmail(request.auth.token.email) &&
+              request.resource.data.keys().hasOnly([
+                'kakaoUserId',
+                'isStudentVerified',
+                'studentEmail',
+                'studentVerifiedAt',
+                'verifiedAt'
+              ]) &&
+              (request.resource.data.kakaoUserId == null ||
+                request.resource.data.kakaoUserId == kakaoUserId) &&
+              request.resource.data.studentEmail is string &&
+              isYonseiEmail(request.resource.data.studentEmail) &&
+              request.resource.data.isStudentVerified == true
+            ) ||
+            (
+              usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
+              request.resource.data.keys().hasOnly([
+                'kakaoUserId',
+                'nickname',
+                'profileImageUrl',
+                'email',
+                'createdAt',
+                'lastLoginAt',
+                'lastActivePlatform',
+                'lastActivePlatformUpdatedAt',
+                'onboarding',
+                'onboardingUpdatedAt',
+                'profileImageMode',
+                'initialSetupComplete',
+                'initialSetupCompletedAt',
+                'onboardingCompletedAt',
+                'idealType',
+                'idealTypeUpdatedAt',
+                'updatedAt',
+                'hasSeenTutorial',
+                'isStudentVerified',
+                'studentEmail',
+                'studentVerifiedAt',
+                'verifiedAt',
+                'preferenceVector'
+              ])
+            )
+          );
 
-      // 카카오 로그인 후 users/{kakaoUserId} 최초 생성 (Firebase Auth 없음)
-      // saveOnboarding* 등은 문서 ID가 곧 kakaoUserId 이므로 필드 생략 가능
-      allow create: if usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
-          request.resource.data.keys().hasOnly([
-            'kakaoUserId',
-            'nickname',
-            'profileImageUrl',
-            'email',
-            'createdAt',
-            'lastLoginAt',
-            'lastActivePlatform',
-            'lastActivePlatformUpdatedAt',
-            'onboarding',
-            'onboardingUpdatedAt',
-            'initialSetupComplete',
-            'initialSetupCompletedAt',
-            'onboardingCompletedAt',
-            'idealType',
-            'idealTypeUpdatedAt',
-            'updatedAt',
-            'hasSeenTutorial',
-            'isStudentVerified',
-            'studentEmail',
-            'studentVerifiedAt',
-            'verifiedAt',
-            'preferenceVector'
-          ]);
 
-      allow update: if (
+      allow update: if publicUserMediaOk(request.resource.data) &&
+          clientDoesNotModifyAvatarDisplayFields() && (
+          (
             request.auth != null &&
             isYonseiEmail(request.auth.token.email) &&
             request.resource.data.studentEmail is string &&
@@ -101,6 +404,7 @@ service cloud.firestore {
               'verifiedAt'
             ])
           ) || (
+            isUserDocOwner(kakaoUserId) &&
             resource.data.isStudentVerified == true &&
             request.resource.data.isStudentVerified == true &&
             usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
@@ -110,6 +414,7 @@ service cloud.firestore {
               'lastActivePlatformUpdatedAt',
               'onboarding',
               'onboardingUpdatedAt',
+              'profileImageMode',
               'initialSetupComplete',
               'initialSetupCompletedAt',
               'onboardingCompletedAt',
@@ -119,6 +424,7 @@ service cloud.firestore {
             ])
           ) || (
             // 프로필 수정(온보딩 데이터 갱신) - 기존 규칙 유지 + 온보딩 편집 허용
+            isUserDocOwner(kakaoUserId) &&
             (request.resource.data.kakaoUserId == null ||
               request.resource.data.kakaoUserId == kakaoUserId) &&
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -127,11 +433,13 @@ service cloud.firestore {
               'lastActivePlatformUpdatedAt',
               'onboarding',
               'onboardingUpdatedAt',
+              'profileImageMode',
               'idealType',
               'idealTypeUpdatedAt',
               'updatedAt'
             ])
-          );
+          )
+        );
 
       // ---------------------------------------------------------------------
       // Device tokens
@@ -191,6 +499,25 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
+    // Backend-only private media and embeddings
+    // -----------------------------------------------------------------------
+    match /userPrivateMedia/{userId} {
+      allow read, write: if false;
+    }
+
+    match /clipEmbeddings/{userId} {
+      allow read, write: if false;
+    }
+
+    match /avatarJobs/{jobId} {
+      allow read, write: if false;
+    }
+
+    match /avatarCandidates/{candidateId} {
+      allow read, write: if false;
+    }
+
+    // -----------------------------------------------------------------------
     // Friend invites / friendships
     // -----------------------------------------------------------------------
     match /friendInvites/{inviteId} {
@@ -216,7 +543,8 @@ service cloud.firestore {
     // Chat
     // -----------------------------------------------------------------------
     match /chat_rooms/{roomId} {
-      allow read, create, update: if true;
+      allow read: if true;
+      allow create, update: if chatRoomDoesNotPersistPrivateMedia(request.resource.data);
       allow delete: if false;
 
       match /messages/{messageId} {

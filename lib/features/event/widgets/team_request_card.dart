@@ -14,7 +14,6 @@ import '../../../data/models/event/team_meeting_request_model.dart';
 
 class _AppColors {
   static const Color primary = Color(0xFFB44AC0);
-  static const Color backgroundLight = Color(0xFFF8F6F6);
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color textMain = Color(0xFF2E243F);
   static const Color textSub = Color(0xFF776886);
@@ -59,9 +58,7 @@ class TeamRequestCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: _AppColors.surfaceLight,
           borderRadius: BorderRadius.circular(22),
-          border: Border.all(
-            color: _AppColors.primary.withValues(alpha: 0.08),
-          ),
+          border: Border.all(color: _AppColors.primary.withValues(alpha: 0.08)),
           boxShadow: [
             BoxShadow(
               color: const Color(0xFF8E74B3).withValues(alpha: 0.06),
@@ -97,10 +94,7 @@ class TeamRequestCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      _StatusChip(
-                        status: request.status,
-                        isReceived: !_isSent,
-                      ),
+                      _StatusChip(status: request.status, isReceived: !_isSent),
                     ],
                   ),
                   const SizedBox(height: 4),

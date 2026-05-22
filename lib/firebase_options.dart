@@ -61,19 +61,20 @@ class DefaultFirebaseOptions {
   // To use Web, configure Firebase Web app in Firebase Console and update this
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyAQdDnW_wt9DDi0wLpAyf5kfQ92wUXimvU',
-    appId: '1:623093454373:android:33bcee0a14a1044b0251cc',
-    messagingSenderId: '623093454373',
-    projectId: 'seolleyeon',
-    storageBucket: 'seolleyeon.firebasestorage.app',
+    apiKey: 'AIzaSyCXdft1O8zRTn48Jkwzl9PBN7Xb0pcsScs',
+    appId: '1:810450765203:android:81ca13cb23027d875c9466',
+    messagingSenderId: '810450765203',
+    projectId: 'seolleyeon-final',
+    storageBucket: 'seolleyeon-final.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyBQCNUk0odNktf79K62gvaUM47AwHGBuX4',
-    appId: '1:623093454373:ios:fa6d8e4c2cc2b0890251cc',
-    messagingSenderId: '623093454373',
-    projectId: 'seolleyeon',
-    storageBucket: 'seolleyeon.firebasestorage.app',
+    apiKey: 'AIzaSyDSBDbN6inF09enjKz946oZOX3rJ0tdAW0',
+    appId: '1:810450765203:ios:7e51bb82970a77145c9466',
+    messagingSenderId: '810450765203',
+    projectId: 'seolleyeon-final',
+    storageBucket: 'seolleyeon-final.firebasestorage.app',
     iosBundleId: 'com.yonsei.dating',
   );
+
 }

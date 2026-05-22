@@ -214,7 +214,7 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
                     onNext: () async {
                       HapticFeedback.mediumImpact();
                       await _saveCurrentSelfIntroduction();
-                      if (!mounted) return;
+                      if (!context.mounted) return;
 
                       if (widget.onNext != null) {
                         widget.onNext!.call(_controller.text);

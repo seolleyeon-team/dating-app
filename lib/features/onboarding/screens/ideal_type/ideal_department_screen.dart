@@ -220,7 +220,7 @@ class _IdealDepartmentScreenState extends State<IdealDepartmentScreen> {
                     });
                   }
 
-                  if (!mounted) return;
+                  if (!context.mounted) return;
                   Navigator.of(context).pop();
                 }
               },

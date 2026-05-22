@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../../../services/ask_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/chat_unlocked_profile_avatar.dart';
 
 const String _kFontFamily = 'Noto Sans KR';
@@ -266,7 +267,7 @@ class _AskCard extends StatelessWidget {
         : <String, dynamic>{};
 
     final nickname = snapshot['nickname']?.toString() ?? '';
-    final avatarUrl = snapshot['profileImageUrl']?.toString() ?? '';
+    final avatarUrl = ProfileDisplayImageResolver.resolve(snapshot);
     final university = snapshot['universityName']?.toString() ?? '';
     final otherUserId =
         (isReceived ? data['fromUserId'] : data['toUserId'])?.toString() ?? '';
@@ -471,7 +472,7 @@ class _AskDetailSheet extends StatelessWidget {
         : <String, dynamic>{};
 
     final nickname = snapshot['nickname']?.toString() ?? '사용자';
-    final avatarUrl = snapshot['profileImageUrl']?.toString() ?? '';
+    final avatarUrl = ProfileDisplayImageResolver.resolve(snapshot);
     final university = snapshot['universityName']?.toString() ?? '';
     final otherUserId =
         (isReceived ? data['fromUserId'] : data['toUserId'])?.toString() ?? '';

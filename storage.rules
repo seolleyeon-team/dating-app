@@ -1,56 +1,68 @@
 rules_version = '2';
 
-// ⚠️ 반드시 배포: firebase deploy --only storage
-// 배포 전에는 ai_profiles 경로에서 code=unauthorized 가 납니다.
 service firebase.storage {
   match /b/{bucket}/o {
-    // AI 취향 화면용 더미 프로필 (비로그인 포함 누구나 읽기)
-    // male/female 을 명시해 와일드카드 매칭 이슈 방지
-    match /ai_profiles/male/{file=**} {
-      allow read: if true;
-      allow write: if false;
+    function isApprovedAvatarBucket() {
+      return bucket == "seolleyeon-approved-avatars" ||
+          bucket == "seolleyeon-final-approved-avatars";
     }
-    match /ai_profiles/female/{file=**} {
-      allow read: if true;
-      allow write: if false;
+
+    function isChatProfilePhotoBucket() {
+      return bucket == "seolleyeon-chat-profile-photos" ||
+          bucket == "seolleyeon-final-chat-profile-photos";
     }
+
     match /ai_profiles/{rest=**} {
       allow read: if true;
       allow write: if false;
     }
 
-    // 온보딩/프로필 편집 사진 — 카카오만 써도 업로드 가능 (Firebase Auth 없음)
-    // 웹 업로드 시 contentType 이 비어 있을 수 있어 image 검사는 선택
     match /users/{userId}/onboarding/photos/{fileName} {
-      allow read: if true;
-      allow create, update: if request.resource != null &&
-        request.resource.size < 12 * 1024 * 1024 &&
-        (request.resource.contentType == null ||
-          request.resource.contentType.matches('image/.*') ||
-          request.resource.contentType == 'application/octet-stream');
-      allow delete: if true;
+      allow read, write: if false;
     }
 
-    // 기타 users/ 하위: 인증된 사용자만
     match /users/{userId}/{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
 
-    // 그 외 경로
+    match /users/{userId}/source/{fileName} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId}/chat-profile/{fileName} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId}/jobs/{jobId}/candidates/{candidateId} {
+      allow read, write: if false;
+    }
+
+    // Approved avatars are the only public-readable avatar display assets.
+    // Writes remain backend-only through the approval API/service account.
+    match /users/{userId}/avatar/{avatarId} {
+      allow read: if isApprovedAvatarBucket();
+      allow write: if false;
+    }
+
+    match /approved_avatars/{userId}/{allPaths=**} {
+      allow read: if isApprovedAvatarBucket();
+      allow write: if false;
+    }
+
+    match /avatar_temp/{userId}/{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    match /private_source_photos/{userId}/{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    match /chat_profile_photos/{userId}/{allPaths=**} {
+      allow read, write: if false;
+    }
+
     match /{allPaths=**} {
-      allow read, write: if request.auth != null;
-      
-// 프로필 사진 업로드: 카카오 로그인 사용으로 Firebase Auth 세션이 없을 수 있음
-// users/{kakaoUserId}/onboarding/photos/ 경로에 이미지 업로드 허용
-// 제한: 10MB 이하, image/* 타입만
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /users/{userId}/{allPaths=**} {
-      allow read: if true;
-      allow create, update: if request.resource.size < 10 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
-      allow delete: if true;
-
+      allow read, write: if false;
     }
   }
 }

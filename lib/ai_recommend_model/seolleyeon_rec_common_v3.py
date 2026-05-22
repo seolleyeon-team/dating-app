@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import dataclasses
 import math
+import dataclasses
+import re
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from urllib.parse import parse_qsl, unquote, urlparse
 
 import numpy as np
 import pandas as pd
@@ -34,6 +36,47 @@ DEFAULT_NEGATIVE_PREF_WEIGHTS: Dict[str, float] = {
     "block": 1.5,
     "report": 2.0,
 }
+PRIVATE_SOURCE_PHOTO_BUCKET = "seolleyeon-private-" "source-photos"
+AVATAR_TEMP_BUCKET = "seolleyeon-avatar-temp"
+SENSITIVE_MEDIA_BUCKET_MARKERS = (PRIVATE_SOURCE_PHOTO_BUCKET, AVATAR_TEMP_BUCKET)
+SIGNED_URL_MARKERS = (
+    "X-Goog-",
+    "GoogleAccessId",
+    "Signature=",
+    "Expires=",
+    "AWSAccessKeyId",
+    "X-Amz-",
+)
+FORBIDDEN_PUBLIC_RECOMMENDATION_KEYS = {
+    "embedding",
+    "embeddings",
+    "gcsUri",
+    "gcsUris",
+    "sourcePhotoUrl",
+    "sourcePhotoUrls",
+    "sourcePhotoGcsUri",
+    "sourcePhotoGcsUris",
+    "sourcePhotoRefs",
+    "sourcePhotos",
+    "clipEmbedding",
+    "clip" "Embeddings",
+    "rawVector",
+    "rawVectors",
+    "vector",
+    "vectors",
+    "faceEmbedding",
+    "faceEmbeddings",
+    "faceSimilarityEmbedding",
+}
+_FORBIDDEN_PUBLIC_RECOMMENDATION_KEYS_LOWER = {
+    key.lower() for key in FORBIDDEN_PUBLIC_RECOMMENDATION_KEYS
+}
+_SIGNED_QUERY_KEYS = {"googleaccessid", "signature", "expires", "awsaccesskeyid"}
+_SIGNED_QUERY_PREFIXES = ("x-goog-", "x-amz-")
+_SIGNED_RAW_RE = re.compile(
+    r"(?:^|[?&])(?:x-goog-[^=&]*|x-amz-[^=&]*|googleaccessid|signature|expires|awsaccesskeyid)=",
+    re.IGNORECASE,
+)
 
 
 def require_firestore() -> None:
@@ -104,6 +147,297 @@ def is_ai_profile(item_id: str) -> bool:
     if not item_id or not isinstance(item_id, str):
         return False
     return item_id.startswith("female_") or item_id.startswith("male_")
+
+
+def coerce_str_list(value: Any) -> List[str]:
+    if not isinstance(value, list):
+        return []
+    out: List[str] = []
+    seen = set()
+    for item in value:
+        text = str(item).strip() if item is not None else ""
+        if text and text not in seen:
+            seen.add(text)
+            out.append(text)
+    return out
+
+
+def _has_signed_url_marker(text: str) -> bool:
+    if _SIGNED_RAW_RE.search(text):
+        return True
+
+    try:
+        parsed = urlparse(text)
+    except Exception:
+        parsed = None
+    if parsed is None:
+        return any(marker.lower() in text.lower() for marker in SIGNED_URL_MARKERS)
+
+    query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    for key, _ in query_pairs:
+        lowered = key.lower()
+        if lowered in _SIGNED_QUERY_KEYS or lowered.startswith(_SIGNED_QUERY_PREFIXES):
+            return True
+    return any(marker.lower() in text.lower() for marker in SIGNED_URL_MARKERS)
+
+
+def _has_sensitive_media_bucket_marker(text: str) -> bool:
+    lowered = unquote(text).lower()
+    return any(marker.lower() in lowered for marker in SENSITIVE_MEDIA_BUCKET_MARKERS)
+
+
+def _has_alt_media_private_or_temp_bucket(text: str) -> bool:
+    try:
+        parsed = urlparse(text)
+    except Exception:
+        return False
+    has_alt_media = any(
+        key.lower() == "alt" and value.lower() == "media"
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+    )
+    return has_alt_media and _has_sensitive_media_bucket_marker(text)
+
+
+def _is_private_or_signed_image_ref(value: str) -> bool:
+    text = str(value).strip()
+    if not text:
+        return False
+    if text.startswith(("gs://", "gcs://")):
+        return True
+    if _has_sensitive_media_bucket_marker(text):
+        return True
+    if _has_signed_url_marker(text):
+        return True
+    if _has_alt_media_private_or_temp_bucket(text):
+        return True
+    return False
+
+
+def _public_recommendation_key_is_forbidden(key: Any) -> bool:
+    lowered = str(key).strip().lower()
+    return (
+        lowered in _FORBIDDEN_PUBLIC_RECOMMENDATION_KEYS_LOWER
+        or lowered.startswith("sourcephoto")
+        or lowered.startswith("faceembedding")
+    )
+
+
+def _value_contains_private_or_signed_ref(value: Any) -> bool:
+    if isinstance(value, str):
+        return _is_private_or_signed_image_ref(value)
+    if isinstance(value, dict):
+        return any(_value_contains_private_or_signed_ref(child) for child in value.values())
+    if isinstance(value, list):
+        return any(_value_contains_private_or_signed_ref(child) for child in value)
+    return False
+
+
+def redact_private_image_ref(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    text = value
+    if _is_private_or_signed_image_ref(text):
+        if text.startswith(("gs://", "gcs://")):
+            return "gs://[redacted-private-image]"
+        return "[redacted-private-image-url]"
+    return text
+
+
+def extract_display_avatar_url(user_doc: Dict[str, Any]) -> str:
+    avatar = user_doc.get("avatar")
+    if isinstance(avatar, dict):
+        approved = str(avatar.get("approvedAvatarUrl") or "").strip()
+        if avatar.get("status") == "approved" and approved and not _is_private_or_signed_image_ref(approved):
+            return approved
+
+    onboarding = user_doc.get("onboarding")
+    if isinstance(onboarding, dict):
+        avatar_urls = coerce_str_list(onboarding.get("avatarUrls"))
+        if avatar_urls and not _is_private_or_signed_image_ref(avatar_urls[0]):
+            return avatar_urls[0]
+
+    return ""
+
+
+def load_users_with_private_source_photos_from_docs(
+    private_media_docs: Dict[str, Dict[str, Any]],
+) -> Dict[str, List[str]]:
+    result: Dict[str, List[str]] = {}
+    for uid, doc in private_media_docs.items():
+        consent = doc.get("photoConsent")
+        if not isinstance(consent, dict):
+            continue
+        if consent.get("clipRecommendation") is not True:
+            continue
+        if consent.get("profileDisplayOriginalPhoto") is not False:
+            continue
+
+        source_uris: List[str] = []
+        source_photos = doc.get("sourcePhotos")
+        if not isinstance(source_photos, list):
+            continue
+        for entry in source_photos:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("status") != "active":
+                continue
+            purpose = entry.get("purpose")
+            if not isinstance(purpose, dict) or purpose.get("clipRecommendation") is not True:
+                continue
+            gcs_uri = str(entry.get("gcsUri") or "").strip()
+            if not gcs_uri.startswith(("gs://", "gcs://")):
+                continue
+            source_uris.append(gcs_uri)
+        if source_uris:
+            result[str(uid)] = source_uris
+    return result
+
+
+def load_users_with_private_source_photos_from_firestore(
+    project_id: str,
+    *,
+    private_media_collection: str = "userPrivate" "Media",
+    database: Optional[str] = None,
+) -> Dict[str, List[str]]:
+    require_firestore()
+    db = firestore.Client(project=project_id, database=database)
+    docs = {
+        doc.id: (doc.to_dict() or {})
+        for doc in db.collection(private_media_collection).stream()
+    }
+    return load_users_with_private_source_photos_from_docs(docs)
+
+
+def load_avatar_display_status_from_docs(
+    users: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    out: Dict[str, Dict[str, Any]] = {}
+    blocked_statuses = {"blocked", "deleted", "suspended"}
+    for uid, doc in users.items():
+        avatar = doc.get("avatar") if isinstance(doc.get("avatar"), dict) else {}
+        avatar_status = str(avatar.get("status") or "none")
+        approved_url = extract_display_avatar_url(doc)
+        profile_image_mode = doc.get("profileImageMode")
+
+        reason: Optional[str] = None
+        account_status = str(doc.get("status") or doc.get("accountStatus") or "").lower()
+        if account_status in blocked_statuses or doc.get("isDeleted") is True or doc.get("isSuspended") is True:
+            reason = "blocked_deleted_or_suspended"
+        elif doc.get("isActive", True) is not True:
+            reason = "inactive"
+        elif not bool(doc.get("isStudentVerified", doc.get("isVerified", False))):
+            reason = "not_verified"
+        elif not bool(doc.get("isProfileComplete", doc.get("initialSetupComplete", False))):
+            reason = "profile_incomplete"
+        elif profile_image_mode not in (None, "avatar"):
+            reason = "profile_image_mode_not_avatar"
+        elif avatar_status != "approved" or not approved_url:
+            reason = "missing_approved_avatar"
+
+        out[str(uid)] = {
+            "displayReady": reason is None,
+            "approvedAvatarUrl": approved_url if reason is None else "",
+            "avatarStatus": avatar_status,
+            "reason": reason,
+        }
+    return out
+
+
+def load_avatar_display_status_from_firestore(
+    project_id: str,
+    *,
+    users_collection: str = "users",
+    database: Optional[str] = None,
+) -> Dict[str, Dict[str, Any]]:
+    require_firestore()
+    db = firestore.Client(project=project_id, database=database)
+    docs = {
+        doc.id: (doc.to_dict() or {})
+        for doc in db.collection(users_collection).stream()
+    }
+    return load_avatar_display_status_from_docs(docs)
+
+
+def validate_public_recommendation_item(item: Dict[str, Any]) -> None:
+    def visit(value: Any, path: str = "") -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                key_text = str(key)
+                if _public_recommendation_key_is_forbidden(key_text):
+                    raise ValueError(f"Forbidden public recommendation field: {path}{key_text}")
+                if key_text.lower() == "imageref" and _value_contains_private_or_signed_ref(child):
+                    raise ValueError(f"Forbidden public recommendation field: {path}{key_text}")
+                visit(child, f"{path}{key_text}.")
+        elif isinstance(value, list):
+            for child in value:
+                visit(child, path)
+        elif isinstance(value, str) and _is_private_or_signed_image_ref(value):
+            raise ValueError(f"Forbidden public recommendation value: {path}{value[:32]}")
+
+    visit(item)
+
+
+def sanitize_public_recommendation_item(
+    item: Dict[str, Any],
+    *,
+    approved_avatar_url: str = "",
+) -> Dict[str, Any]:
+    sentinel = object()
+
+    def clean(value: Any, key_hint: str = "") -> Any:
+        if isinstance(value, dict):
+            cleaned: Dict[str, Any] = {}
+            for key, child in value.items():
+                key_text = str(key)
+                if _public_recommendation_key_is_forbidden(key_text):
+                    continue
+                if key_text.lower() == "imageref" and _value_contains_private_or_signed_ref(child):
+                    continue
+                child_cleaned = clean(child, key_text)
+                if child_cleaned is not sentinel:
+                    cleaned[key_text] = child_cleaned
+            return cleaned
+        if isinstance(value, list):
+            cleaned_items = []
+            for child in value:
+                child_cleaned = clean(child, key_hint)
+                if child_cleaned is not sentinel:
+                    cleaned_items.append(child_cleaned)
+            return cleaned_items
+        if isinstance(value, str) and _is_private_or_signed_image_ref(value):
+            return sentinel
+        return value
+
+    out = clean(item)
+    if not isinstance(out, dict):
+        out = {}
+    if approved_avatar_url:
+        out["approvedAvatarUrl"] = approved_avatar_url
+    validate_public_recommendation_item(out)
+    return out
+
+
+def filter_recommendation_items_for_display_ready(
+    items: Sequence[Dict[str, Any]],
+    display_status: Dict[str, Dict[str, Any]],
+    *,
+    require_approved_avatar: bool = True,
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    filtered: List[Dict[str, Any]] = []
+    skipped: Dict[str, int] = defaultdict(int)
+    for item in items:
+        uid = str(item.get("uid") or "")
+        if not uid:
+            skipped["missing_uid"] += 1
+            continue
+        status = display_status.get(uid)
+        if require_approved_avatar and not (status and status.get("displayReady") is True):
+            reason = str((status or {}).get("reason") or "missing_approved_avatar")
+            skipped[reason] += 1
+            continue
+        approved_url = str((status or {}).get("approvedAvatarUrl") or "")
+        filtered.append(sanitize_public_recommendation_item(item, approved_avatar_url=approved_url))
+    return filtered, dict(skipped)
 
 
 def parse_firestore_like_ts(value: Any) -> pd.Timestamp:
@@ -333,6 +667,8 @@ def load_user_genders_from_firestore(
     return out
 
 
+# Deprecated: only migration/debug code may read public onboarding.photoUrls.
+# Production CLIP jobs must call load_users_with_private_source_photos_from_firestore.
 def load_users_with_photos_from_firestore(
     project_id: str,
     *,

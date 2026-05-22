@@ -1,6 +1,8 @@
 /// 사용자 프로필 모델 (상세 정보)
 class UserProfileModel {
   final String userId;
+  // Legacy compatibility only. Do not use for public display.
+  // Use ProfileDisplayImageResolver or approved avatar fields instead.
   final List<String> photoUrls;
   final List<String> keywords;
   final List<ProfileQuestion> profileQuestions;

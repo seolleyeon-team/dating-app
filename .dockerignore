@@ -10,3 +10,8 @@
 !lib
 !lib/ai_recommend_model
 !lib/ai_recommend_model/*.py
+
+# Include avatar worker build inputs when using cloudbuild.avatar-worker.yaml.
+!requirements_avatar_worker.txt
+!lib/ai_recommend_model/avatar_generation
+!lib/ai_recommend_model/avatar_generation/**

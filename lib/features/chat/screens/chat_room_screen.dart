@@ -12,10 +12,12 @@ import '../services/promise_place_service.dart';
 import '../utils/safety_stamp_availability.dart';
 import '../widgets/promise_place_picker_sheet.dart';
 import 'safety_stamp_screen.dart';
+import '../../../services/chat_profile_photo_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../services/push_notification_service.dart';
 import '../../../router/route_names.dart';
+import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
 import '../../matching/models/profile_card_args.dart';
 import '../../../core/constants/app_colors.dart';
@@ -207,11 +209,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
   final ChatService _chatService = ChatService();
+  final ChatProfilePhotoService _chatProfilePhotoService =
+      ChatProfilePhotoService();
 
   String? _currentUserId;
   String _currentUserName = '나';
   String? _currentUserAvatarUrl;
   String _roomId = '';
+  String? _partnerDisplayAvatarUrl;
   String? _initError;
   bool _isReady = false;
   bool _isSending = false;
@@ -227,8 +232,27 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     Navigator.of(context, rootNavigator: true).pushNamed(
       RouteNames.profileSpecificDetail,
-      arguments: ProfileCardArgs.fromChat(userId: widget.partnerId),
+      arguments: ProfileCardArgs.fromChat(
+        userId: widget.partnerId,
+        chatRoomId: _roomId.isNotEmpty ? _roomId : widget.chatRoomId,
+      ),
     );
+  }
+
+  Future<void> _refreshPartnerChatPhoto() async {
+    if (_roomId.isEmpty || widget.partnerId.isEmpty) return;
+    final fallbackAvatarUrl = widget.partnerAvatarUrl ?? _defaultAvatarUrl;
+    final result = await _chatProfilePhotoService.getChatProfilePhoto(
+      chatRoomId: _roomId,
+      targetUid: widget.partnerId,
+      fallbackAvatarUrl: fallbackAvatarUrl,
+    );
+    if (!mounted) return;
+    setState(() {
+      _partnerDisplayAvatarUrl = result.imageUrl.isNotEmpty
+          ? result.imageUrl
+          : fallbackAvatarUrl;
+    });
   }
 
   void _startSafetyStampTimer() {
@@ -403,18 +427,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           ? onboarding['nickname'].toString()
           : (user?['nickname']?.toString() ?? '나');
 
-      String? resolvedAvatarUrl;
-      if (onboarding is Map) {
-        final photoUrlsRaw = onboarding['photoUrls'];
-        if (photoUrlsRaw is List && photoUrlsRaw.isNotEmpty) {
-          final firstPhoto = photoUrlsRaw.first?.toString() ?? '';
-          if (firstPhoto.isNotEmpty) {
-            resolvedAvatarUrl = firstPhoto;
-          }
-        }
-      }
-      resolvedAvatarUrl ??= user?['profileImageUrl']?.toString();
-      _currentUserAvatarUrl = resolvedAvatarUrl;
+      final resolvedAvatarUrl = ProfileDisplayImageResolver.resolve(user);
+      _currentUserAvatarUrl = resolvedAvatarUrl.isEmpty
+          ? null
+          : resolvedAvatarUrl;
 
       _roomId = widget.chatRoomId.isNotEmpty
           ? widget.chatRoomId
@@ -436,6 +452,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       setState(() {
         _isReady = true;
       });
+      await _refreshPartnerChatPhoto();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -860,7 +877,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                     style: TextStyle(
                                       fontFamily: 'Pretendard',
                                       fontSize: 14,
-                                      color: Theme.of(context).brightness == Brightness.dark
+                                      color:
+                                          Theme.of(context).brightness ==
+                                              Brightness.dark
                                           ? AppColorsDark.textSecondary
                                           : _AppColors.textSubtle,
                                     ),
@@ -924,6 +943,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                               return _MessageItem(
                                 message: message,
                                 avatarUrl:
+                                    _partnerDisplayAvatarUrl ??
                                     widget.partnerAvatarUrl ??
                                     _defaultAvatarUrl,
                                 onApprovePromise: () =>
@@ -1103,7 +1123,9 @@ class _SafetyStampEntryButton extends StatelessWidget {
                   fontFamily: 'Pretendard',
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  color: isDark ? AppColorsDark.textSecondary : _AppColors.textSubtle,
+                  color: isDark
+                      ? AppColorsDark.textSecondary
+                      : _AppColors.textSubtle,
                   height: 1.35,
                 ),
               ),
@@ -1139,9 +1161,15 @@ class _Header extends StatelessWidget {
         ? AppColorsDark.background.withValues(alpha: 0.92)
         : _AppColors.backgroundLight.withValues(alpha: 0.92);
     final borderColor = isDark ? AppColorsDark.border : _AppColors.stone100;
-    final buttonBg = isDark ? AppColorsDark.surfaceVariant : _AppColors.stone100;
-    final textMainColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
-    final textSubColor = isDark ? AppColorsDark.textSecondary : _AppColors.textSubtle;
+    final buttonBg = isDark
+        ? AppColorsDark.surfaceVariant
+        : _AppColors.stone100;
+    final textMainColor = isDark
+        ? AppColorsDark.textPrimary
+        : _AppColors.textMain;
+    final textSubColor = isDark
+        ? AppColorsDark.textSecondary
+        : _AppColors.textSubtle;
 
     return SafeArea(
       bottom: false,
@@ -1412,8 +1440,12 @@ class _ReceivedMessage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final avatarBg = isDark ? AppColorsDark.surfaceVariant : _AppColors.stone200;
-    final bubbleBg = isDark ? AppColorsDark.chatBubbleOther : _AppColors.bubblePartner;
+    final avatarBg = isDark
+        ? AppColorsDark.surfaceVariant
+        : _AppColors.stone200;
+    final bubbleBg = isDark
+        ? AppColorsDark.chatBubbleOther
+        : _AppColors.bubblePartner;
     final textColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
     final timeColor = isDark ? AppColorsDark.textHint : _AppColors.stone400;
 
@@ -1441,7 +1473,9 @@ class _ReceivedMessage extends StatelessWidget {
                     shape: CaptureProtectedImageShape.circle,
                     fit: BoxFit.cover,
                     backgroundColor: avatarBg,
-                    placeholderIconColor: isDark ? AppColorsDark.textHint : _AppColors.stone400,
+                    placeholderIconColor: isDark
+                        ? AppColorsDark.textHint
+                        : _AppColors.stone400,
                     placeholderIconSize: 20,
                   ),
                 ),
@@ -1506,8 +1540,12 @@ class _SentMessage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bubbleBg = isDark ? AppColorsDark.chatBubbleMine : _AppColors.bubbleUser;
-    final bubbleBorder = isDark ? AppColorsDark.border : const Color(0xFFEFECE8);
+    final bubbleBg = isDark
+        ? AppColorsDark.chatBubbleMine
+        : _AppColors.bubbleUser;
+    final bubbleBorder = isDark
+        ? AppColorsDark.border
+        : const Color(0xFFEFECE8);
     final textColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
     final timeColor = isDark ? AppColorsDark.textHint : _AppColors.stone400;
 
@@ -1601,9 +1639,15 @@ class _PromiseRequestMessage extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? AppColorsDark.surface : CupertinoColors.white;
     final cardBorder = isDark ? AppColorsDark.border : _AppColors.stone200;
-    final textMainColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
-    final textSubColor = isDark ? AppColorsDark.textSecondary : _AppColors.textSubtle;
-    final rejectBg = isDark ? AppColorsDark.surfaceVariant : _AppColors.stone100;
+    final textMainColor = isDark
+        ? AppColorsDark.textPrimary
+        : _AppColors.textMain;
+    final textSubColor = isDark
+        ? AppColorsDark.textSecondary
+        : _AppColors.textSubtle;
+    final rejectBg = isDark
+        ? AppColorsDark.surfaceVariant
+        : _AppColors.stone100;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -1800,7 +1844,9 @@ class _PromiseConfirmedBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     if (message.shouldHideAsExpired) return const SizedBox.shrink();
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textMainColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final textMainColor = isDark
+        ? AppColorsDark.textPrimary
+        : _AppColors.textMain;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -1917,9 +1963,15 @@ class _PromiseCompletedBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF1A2922) : const Color(0xFFEAF5EE);
-    final borderColor = isDark ? const Color(0xFF2A4A34) : const Color(0xFFC7E5D0);
-    final greenTitle = isDark ? const Color(0xFF66BB6A) : const Color(0xFF2E7D4F);
-    final textMainColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final borderColor = isDark
+        ? const Color(0xFF2A4A34)
+        : const Color(0xFFC7E5D0);
+    final greenTitle = isDark
+        ? const Color(0xFF66BB6A)
+        : const Color(0xFF2E7D4F);
+    final textMainColor = isDark
+        ? AppColorsDark.textPrimary
+        : _AppColors.textMain;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -1996,9 +2048,15 @@ class _PromiseInProgressBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF2A2314) : const Color(0xFFFFF7E8);
-    final borderColor = isDark ? const Color(0xFF4A3A1E) : const Color(0xFFF0D7A6);
-    final amberTitle = isDark ? const Color(0xFFFFB74D) : const Color(0xFF9A6500);
-    final textMainColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final borderColor = isDark
+        ? const Color(0xFF4A3A1E)
+        : const Color(0xFFF0D7A6);
+    final amberTitle = isDark
+        ? const Color(0xFFFFB74D)
+        : const Color(0xFF9A6500);
+    final textMainColor = isDark
+        ? AppColorsDark.textPrimary
+        : _AppColors.textMain;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -2837,11 +2895,15 @@ class _InputBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final gradientBase = isDark ? AppColorsDark.background : _AppColors.backgroundLight;
+    final gradientBase = isDark
+        ? AppColorsDark.background
+        : _AppColors.backgroundLight;
     final inputBg = isDark ? AppColorsDark.surface : CupertinoColors.white;
     final inputBorder = isDark ? AppColorsDark.border : _AppColors.stone100;
     final iconColor = isDark ? AppColorsDark.textHint : _AppColors.stone400;
-    final placeholderColor = isDark ? AppColorsDark.textHint : _AppColors.stone400;
+    final placeholderColor = isDark
+        ? AppColorsDark.textHint
+        : _AppColors.stone400;
     final textColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
     final sendBg = isDark ? AppColorsDark.primary : _AppColors.sendButton;
 

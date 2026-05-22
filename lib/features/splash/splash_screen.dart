@@ -47,12 +47,14 @@ class _SplashScreenState extends State<SplashScreen> {
           ).pushNamedAndRemoveUntil(routeName, (route) => false);
           return;
         }
+        if (!mounted) return;
         Navigator.of(context).pushReplacementNamed(RouteNames.terms);
         return;
       }
 
       final exists = await _authService.kakaoUserExists(kakaoUserId);
       if (!exists) {
+        if (!mounted) return;
         Navigator.of(context).pushReplacementNamed(RouteNames.terms);
         return;
       }

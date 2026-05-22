@@ -7,8 +7,10 @@ import '../../../services/ask_service.dart';
 import '../../../services/interaction_service.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/storage_service.dart';
+import '../../../services/chat_profile_photo_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/constants/photo_blur_constants.dart';
+import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
 import '../../chat/models/chat_room_data.dart';
 import '../../chat/services/chat_service.dart';
@@ -81,6 +83,30 @@ class _ResolvedProfile {
     final merged = <String>[...interests, ...keywords];
     return merged.where((e) => e.trim().isNotEmpty).toSet().toList();
   }
+
+  _ResolvedProfile copyWithImageUrls(List<String> value) {
+    return _ResolvedProfile(
+      id: id,
+      name: name,
+      age: age,
+      birthYearText: birthYearText,
+      university: university,
+      major: major,
+      matchPercent: matchPercent,
+      aboutMe: aboutMe,
+      imageUrls: value,
+      interests: interests,
+      keywords: keywords,
+      mbti: mbti,
+      heightText: heightText,
+      relationship: relationship,
+      drinking: drinking,
+      smoking: smoking,
+      exercise: exercise,
+      loveLanguages: loveLanguages,
+      profileQa: profileQa,
+    );
+  }
 }
 
 class AiMatchProfileScreen extends StatefulWidget {
@@ -114,6 +140,8 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
   final RecEventService _recEventService = RecEventService();
   final AskService _askService = AskService();
   final ChatService _chatService = ChatService();
+  final ChatProfilePhotoService _chatProfilePhotoService =
+      ChatProfilePhotoService();
   final ProfilePhotoAccessService _photoAccessService =
       ProfilePhotoAccessService();
 
@@ -143,6 +171,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
     if (!mounted) return;
     setState(() => _currentUserId = uid);
     await _loadPhotoAccess();
+    await _loadChatRealPhotoIfAllowed();
     // detail_open recEvent
     if (uid != null && uid.isNotEmpty) {
       final targetId =
@@ -188,6 +217,33 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
     if (!mounted) return;
     setState(() {
       _isPhotoBlurUnlocked = isUnlocked;
+    });
+  }
+
+  Future<void> _loadChatRealPhotoIfAllowed() async {
+    final chatRoomId = widget.args?.chatRoomId ?? '';
+    final targetUserId = _profile?.id ?? widget.args?.userId ?? '';
+    if (widget.args?.isPreview == true ||
+        chatRoomId.isEmpty ||
+        targetUserId.isEmpty ||
+        _profile == null) {
+      return;
+    }
+
+    final fallbackAvatarUrl = _profile!.imageUrls.isNotEmpty
+        ? _profile!.imageUrls.first
+        : '';
+    final result = await _chatProfilePhotoService.getChatProfilePhoto(
+      chatRoomId: chatRoomId,
+      targetUid: targetUserId,
+      fallbackAvatarUrl: fallbackAvatarUrl,
+    );
+    if (!mounted || _profile == null || result.imageUrl.isEmpty) return;
+    setState(() {
+      _profile = _profile!.copyWithImageUrls([result.imageUrl]);
+      if (result.isRealPhoto) {
+        _isPhotoBlurUnlocked = true;
+      }
     });
   }
 
@@ -397,14 +453,12 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
           final myOnboarding = myProfile?['onboarding'] is Map
               ? Map<String, dynamic>.from(myProfile!['onboarding'] as Map)
               : <String, dynamic>{};
-          final myPhotoUrls = myOnboarding['photoUrls'] is List
-              ? (myOnboarding['photoUrls'] as List).whereType<String>().toList()
-              : <String>[];
+          final myAvatarUrl = ProfileDisplayImageResolver.resolve(myProfile);
 
           final fromSnapshot = _askService.buildProfileSnapshot(
             uid: uid,
             nickname: myOnboarding['nickname']?.toString(),
-            profileImageUrl: myPhotoUrls.isNotEmpty ? myPhotoUrls.first : null,
+            profileImageUrl: myAvatarUrl.isNotEmpty ? myAvatarUrl : null,
             universityName: myOnboarding['university']?.toString(),
           );
 
@@ -517,9 +571,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
           final myOnboarding = myProfile?['onboarding'] is Map
               ? Map<String, dynamic>.from(myProfile!['onboarding'] as Map)
               : <String, dynamic>{};
-          final myPhotoUrls = myOnboarding['photoUrls'] is List
-              ? (myOnboarding['photoUrls'] as List).whereType<String>().toList()
-              : <String>[];
+          final myAvatarUrl = ProfileDisplayImageResolver.resolve(myProfile);
 
           final roomId = _chatService.buildDirectRoomId(uid, targetId);
 
@@ -529,9 +581,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
             partnerId: targetId,
             currentUserName: myOnboarding['nickname']?.toString() ?? '',
             partnerName: _profile?.name ?? '',
-            currentUserAvatarUrl: myPhotoUrls.isNotEmpty
-                ? myPhotoUrls.first
-                : null,
+            currentUserAvatarUrl: myAvatarUrl.isNotEmpty ? myAvatarUrl : null,
             partnerAvatarUrl: _profile?.imageUrls.isNotEmpty == true
                 ? _profile!.imageUrls.first
                 : null,
@@ -748,10 +798,10 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
           ? Map<String, dynamic>.from(lifestyleRaw)
           : <String, dynamic>{};
 
-      final photoUrlsRaw = onboarding['photoUrls'];
-      final photoUrls = photoUrlsRaw is List
-          ? photoUrlsRaw.whereType<String>().where((e) => e.isNotEmpty).toList()
-          : <String>[];
+      final displayAvatarUrl = ProfileDisplayImageResolver.resolve(user);
+      final displayImageUrls = displayAvatarUrl.isNotEmpty
+          ? <String>[displayAvatarUrl]
+          : (seed?.imageUrls ?? const <String>[]);
 
       final interestRaw = onboarding['interests'];
       final interests = interestRaw is List
@@ -832,9 +882,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
         aboutMe: onboardingIntro.isNotEmpty
             ? onboardingIntro
             : (seed?.bio ?? ''),
-        imageUrls: photoUrls.isNotEmpty
-            ? photoUrls
-            : (seed?.imageUrls ?? const []),
+        imageUrls: displayImageUrls,
         interests: interests,
         keywords: keywords,
         mbti: onboarding['mbti']?.toString() ?? '',
@@ -855,6 +903,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
         _isLoading = false;
       });
       await _loadPhotoAccess();
+      await _loadChatRealPhotoIfAllowed();
     } catch (e) {
       debugPrint('AiMatchProfileScreen load profile error: $e');
 

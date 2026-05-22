@@ -97,10 +97,26 @@ class _IdealLifestyleScreenState extends State<IdealLifestyleScreen> {
     final s = lifestyle['smoking']?.toString();
     final e = lifestyle['exercise']?.toString();
     final r = lifestyle['religion']?.toString();
-    if (d != null && d.isNotEmpty) { try { _drinking = DrinkingFrequency.values.firstWhere((v) => v.name == d); } catch (_) {} }
-    if (s != null && s.isNotEmpty) { try { _smoking = SmokingStatus.values.firstWhere((v) => v.name == s); } catch (_) {} }
-    if (e != null && e.isNotEmpty) { try { _exercise = ExerciseFrequency.values.firstWhere((v) => v.name == e); } catch (_) {} }
-    if (r != null && r.isNotEmpty) { try { _religion = Religion.values.firstWhere((v) => v.name == r); } catch (_) {} }
+    if (d != null && d.isNotEmpty) {
+      try {
+        _drinking = DrinkingFrequency.values.firstWhere((v) => v.name == d);
+      } catch (_) {}
+    }
+    if (s != null && s.isNotEmpty) {
+      try {
+        _smoking = SmokingStatus.values.firstWhere((v) => v.name == s);
+      } catch (_) {}
+    }
+    if (e != null && e.isNotEmpty) {
+      try {
+        _exercise = ExerciseFrequency.values.firstWhere((v) => v.name == e);
+      } catch (_) {}
+    }
+    if (r != null && r.isNotEmpty) {
+      try {
+        _religion = Religion.values.firstWhere((v) => v.name == r);
+      } catch (_) {}
+    }
     if (mounted) setState(() {});
   }
 
@@ -138,213 +154,221 @@ class _IdealLifestyleScreenState extends State<IdealLifestyleScreen> {
         await _handleBack();
       },
       child: Scaffold(
-      backgroundColor: _AppColors.backgroundLight,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Column(
-              children: [
-                // 헤더
-                _Header(
-                  currentStep: widget.currentStep,
-                  totalSteps: widget.totalSteps,
-                  onBack: _handleBack,
-                ),
-                // 메인 콘텐츠
-                Expanded(
-                  child: SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 100),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // 타이틀 섹션
-                        const _TitleSection(),
-                        const SizedBox(height: 40),
+        backgroundColor: _AppColors.backgroundLight,
+        body: SafeArea(
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  // 헤더
+                  _Header(
+                    currentStep: widget.currentStep,
+                    totalSteps: widget.totalSteps,
+                    onBack: _handleBack,
+                  ),
+                  // 메인 콘텐츠
+                  Expanded(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(24, 8, 24, 100),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // 타이틀 섹션
+                          const _TitleSection(),
+                          const SizedBox(height: 40),
 
-                        // 음주 섹션
-                        _Section(
-                          title: '술은 얼마나 자주 드세요?',
-                          child: Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            children: [
-                              _SelectionChip(
-                                label: '전혀 안 함',
-                                isSelected: _drinking == DrinkingFrequency.none,
-                                onTap: () =>
-                                    _updateDrinking(DrinkingFrequency.none),
-                              ),
-                              _SelectionChip(
-                                label: '가끔',
-                                isSelected:
-                                    _drinking == DrinkingFrequency.sometimes,
-                                onTap: () => _updateDrinking(
-                                  DrinkingFrequency.sometimes,
+                          // 음주 섹션
+                          _Section(
+                            title: '술은 얼마나 자주 드세요?',
+                            child: Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: [
+                                _SelectionChip(
+                                  label: '전혀 안 함',
+                                  isSelected:
+                                      _drinking == DrinkingFrequency.none,
+                                  onTap: () =>
+                                      _updateDrinking(DrinkingFrequency.none),
                                 ),
-                              ),
-                              _SelectionChip(
-                                label: '주 1-2회',
-                                isSelected:
-                                    _drinking == DrinkingFrequency.weekly1_2,
-                                onTap: () => _updateDrinking(
-                                  DrinkingFrequency.weekly1_2,
+                                _SelectionChip(
+                                  label: '가끔',
+                                  isSelected:
+                                      _drinking == DrinkingFrequency.sometimes,
+                                  onTap: () => _updateDrinking(
+                                    DrinkingFrequency.sometimes,
+                                  ),
                                 ),
-                              ),
-                              _SelectionChip(
-                                label: '자주 즐김',
-                                isSelected:
-                                    _drinking == DrinkingFrequency.often,
-                                onTap: () =>
-                                    _updateDrinking(DrinkingFrequency.often),
-                              ),
-                            ],
+                                _SelectionChip(
+                                  label: '주 1-2회',
+                                  isSelected:
+                                      _drinking == DrinkingFrequency.weekly1_2,
+                                  onTap: () => _updateDrinking(
+                                    DrinkingFrequency.weekly1_2,
+                                  ),
+                                ),
+                                _SelectionChip(
+                                  label: '자주 즐김',
+                                  isSelected:
+                                      _drinking == DrinkingFrequency.often,
+                                  onTap: () =>
+                                      _updateDrinking(DrinkingFrequency.often),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
 
-                        // 흡연 섹션
-                        _Section(
-                          title: '흡연',
-                          child: Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            children: [
-                              _SelectionChip(
-                                label: '비흡연',
-                                isSelected: _smoking == SmokingStatus.nonSmoker,
-                                onTap: () =>
-                                    _updateSmoking(SmokingStatus.nonSmoker),
-                              ),
-                              _SelectionChip(
-                                label: '흡연',
-                                isSelected: _smoking == SmokingStatus.smoker,
-                                onTap: () =>
-                                    _updateSmoking(SmokingStatus.smoker),
-                              ),
-                              _SelectionChip(
-                                label: '금연 중',
-                                isSelected: _smoking == SmokingStatus.quitting,
-                                onTap: () =>
-                                    _updateSmoking(SmokingStatus.quitting),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        // 운동 섹션
-                        _Section(
-                          title: '운동 하시나요?',
-                          child: Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            children: [
-                              _SelectionChip(
-                                label: '매일 함',
-                                isSelected:
-                                    _exercise == ExerciseFrequency.daily,
-                                onTap: () =>
-                                    _updateExercise(ExerciseFrequency.daily),
-                              ),
-                              _SelectionChip(
-                                label: '가끔 함',
-                                isSelected:
-                                    _exercise == ExerciseFrequency.sometimes,
-                                onTap: () => _updateExercise(
-                                  ExerciseFrequency.sometimes,
+                          // 흡연 섹션
+                          _Section(
+                            title: '흡연',
+                            child: Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: [
+                                _SelectionChip(
+                                  label: '비흡연',
+                                  isSelected:
+                                      _smoking == SmokingStatus.nonSmoker,
+                                  onTap: () =>
+                                      _updateSmoking(SmokingStatus.nonSmoker),
                                 ),
-                              ),
-                              _SelectionChip(
-                                label: '숨쉬기만 함',
-                                isSelected:
-                                    _exercise ==
+                                _SelectionChip(
+                                  label: '흡연',
+                                  isSelected: _smoking == SmokingStatus.smoker,
+                                  onTap: () =>
+                                      _updateSmoking(SmokingStatus.smoker),
+                                ),
+                                _SelectionChip(
+                                  label: '금연 중',
+                                  isSelected:
+                                      _smoking == SmokingStatus.quitting,
+                                  onTap: () =>
+                                      _updateSmoking(SmokingStatus.quitting),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // 운동 섹션
+                          _Section(
+                            title: '운동 하시나요?',
+                            child: Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: [
+                                _SelectionChip(
+                                  label: '매일 함',
+                                  isSelected:
+                                      _exercise == ExerciseFrequency.daily,
+                                  onTap: () =>
+                                      _updateExercise(ExerciseFrequency.daily),
+                                ),
+                                _SelectionChip(
+                                  label: '가끔 함',
+                                  isSelected:
+                                      _exercise == ExerciseFrequency.sometimes,
+                                  onTap: () => _updateExercise(
+                                    ExerciseFrequency.sometimes,
+                                  ),
+                                ),
+                                _SelectionChip(
+                                  label: '숨쉬기만 함',
+                                  isSelected:
+                                      _exercise ==
+                                      ExerciseFrequency.breathingOnly,
+                                  onTap: () => _updateExercise(
                                     ExerciseFrequency.breathingOnly,
-                                onTap: () => _updateExercise(
-                                  ExerciseFrequency.breathingOnly,
+                                  ),
                                 ),
-                              ),
-                              _SelectionChip(
-                                label: '운동 매니아',
-                                isSelected:
-                                    _exercise == ExerciseFrequency.mania,
-                                onTap: () =>
-                                    _updateExercise(ExerciseFrequency.mania),
-                              ),
-                            ],
+                                _SelectionChip(
+                                  label: '운동 매니아',
+                                  isSelected:
+                                      _exercise == ExerciseFrequency.mania,
+                                  onTap: () =>
+                                      _updateExercise(ExerciseFrequency.mania),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
 
-                        // 종교 섹션
-                        _Section(
-                          title: '종교',
-                          isLast: true,
-                          child: Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            children: [
-                              _SelectionChip(
-                                label: '무교',
-                                isSelected: _religion == Religion.none,
-                                onTap: () => _updateReligion(Religion.none),
-                              ),
-                              _SelectionChip(
-                                label: '기독교',
-                                isSelected: _religion == Religion.christianity,
-                                onTap: () =>
-                                    _updateReligion(Religion.christianity),
-                              ),
-                              _SelectionChip(
-                                label: '천주교',
-                                isSelected: _religion == Religion.catholic,
-                                onTap: () => _updateReligion(Religion.catholic),
-                              ),
-                              _SelectionChip(
-                                label: '불교',
-                                isSelected: _religion == Religion.buddhism,
-                                onTap: () => _updateReligion(Religion.buddhism),
-                              ),
-                              _SelectionChip(
-                                label: '기타',
-                                isSelected: _religion == Religion.other,
-                                onTap: () => _updateReligion(Religion.other),
-                              ),
-                            ],
+                          // 종교 섹션
+                          _Section(
+                            title: '종교',
+                            isLast: true,
+                            child: Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: [
+                                _SelectionChip(
+                                  label: '무교',
+                                  isSelected: _religion == Religion.none,
+                                  onTap: () => _updateReligion(Religion.none),
+                                ),
+                                _SelectionChip(
+                                  label: '기독교',
+                                  isSelected:
+                                      _religion == Religion.christianity,
+                                  onTap: () =>
+                                      _updateReligion(Religion.christianity),
+                                ),
+                                _SelectionChip(
+                                  label: '천주교',
+                                  isSelected: _religion == Religion.catholic,
+                                  onTap: () =>
+                                      _updateReligion(Religion.catholic),
+                                ),
+                                _SelectionChip(
+                                  label: '불교',
+                                  isSelected: _religion == Religion.buddhism,
+                                  onTap: () =>
+                                      _updateReligion(Religion.buddhism),
+                                ),
+                                _SelectionChip(
+                                  label: '기타',
+                                  isSelected: _religion == Religion.other,
+                                  onTap: () => _updateReligion(Religion.other),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            // 하단 버튼
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _BottomButton(
-                onNext: () async {
-                  HapticFeedback.mediumImpact();
-                  await _saveCurrentIdealLifestyle();
-                  if (!mounted) return;
-                  if (widget.onNext != null) {
-                    widget.onNext!.call(
-                      _drinking,
-                      _smoking,
-                      _exercise,
-                      _religion,
-                    );
-                  } else {
-                    Navigator.of(context, rootNavigator: true)
-                        .pushReplacementNamed(RouteNames.welcomeTutorial);
-                  }
-                },
+                ],
               ),
-            ),
-          ],
+              // 하단 버튼
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: _BottomButton(
+                  onNext: () async {
+                    HapticFeedback.mediumImpact();
+                    await _saveCurrentIdealLifestyle();
+                    if (!context.mounted) return;
+                    if (widget.onNext != null) {
+                      widget.onNext!.call(
+                        _drinking,
+                        _smoking,
+                        _exercise,
+                        _religion,
+                      );
+                    } else {
+                      Navigator.of(
+                        context,
+                        rootNavigator: true,
+                      ).pushReplacementNamed(RouteNames.welcomeTutorial);
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
   }
 
   void _updateDrinking(DrinkingFrequency value) {

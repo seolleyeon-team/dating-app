@@ -19,6 +19,7 @@ from seolleyeon_meeting_common_v1 import (
     normalize_optional_str,
     stream_collection_documents,
 )
+from seolleyeon_rec_common_v3 import extract_display_avatar_url
 
 DEFAULT_EVENT_TEAM_SETUPS_COLLECTION = "eventTeamSetups"
 DEFAULT_MEETING_GROUPS_COLLECTION = "meetingGroups"
@@ -109,16 +110,10 @@ def _build_member_snapshot(
     profile_doc: Mapping[str, Any],
 ) -> Dict[str, Any]:
     onboarding = _read_onboarding(user_doc)
-    photo_urls = coerce_str_list(onboarding.get("photoUrls"))
     return {
         "uid": uid,
         "displayName": _first_non_empty(onboarding.get("nickname"), user_doc.get("nickname"), uid) or uid,
-        "photoUrl": _first_non_empty(
-            photo_urls[0] if photo_urls else None,
-            onboarding.get("profileImageUrl"),
-            onboarding.get("representativeImageUrl"),
-            user_doc.get("profileImageUrl"),
-        ),
+        "photoUrl": extract_display_avatar_url(dict(user_doc)),
         "universityId": _first_non_empty(
             onboarding.get("universityId"),
             user_doc.get("universityId"),

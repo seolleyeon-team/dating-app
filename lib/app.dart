@@ -38,16 +38,11 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider<ThemeProvider>(
-          create: (_) => ThemeProvider(),
-        ),
-        ChangeNotifierProvider<AuthProvider>(
-          create: (_) => AuthProvider(),
-        ),
+        ChangeNotifierProvider<ThemeProvider>(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider<AuthProvider>(create: (_) => AuthProvider()),
         ChangeNotifierProvider<CommunityProvider>(
-          create: (ctx) => CommunityProvider(
-            authProvider: ctx.read<AuthProvider>(),
-          ),
+          create: (ctx) =>
+              CommunityProvider(authProvider: ctx.read<AuthProvider>()),
         ),
       ],
       child: Consumer<ThemeProvider>(
@@ -134,23 +129,23 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
         primaryColor: SeolleyeonApp.primaryColor,
         brightness: Brightness.light,
         scaffoldBackgroundColor: SeolleyeonApp.backgroundColor,
-        textTheme: CupertinoThemeData(brightness: Brightness.light)
-            .textTheme
+        textTheme: CupertinoThemeData(brightness: Brightness.light).textTheme
             .copyWith(
               textStyle: CupertinoThemeData(brightness: Brightness.light)
                   .textTheme
                   .textStyle
                   .copyWith(fontFamily: SeolleyeonApp.fontFamily),
-              navTitleTextStyle: CupertinoThemeData(brightness: Brightness.light)
-                  .textTheme
-                  .navTitleTextStyle
-                  .copyWith(
+              navTitleTextStyle:
+                  CupertinoThemeData(
+                    brightness: Brightness.light,
+                  ).textTheme.navTitleTextStyle.copyWith(
                     fontFamily: SeolleyeonApp.fontFamily,
                     fontWeight: FontWeight.w600,
                   ),
-              navLargeTitleTextStyle: CupertinoThemeData(
-                brightness: Brightness.light,
-              ).textTheme.navLargeTitleTextStyle.copyWith(
+              navLargeTitleTextStyle:
+                  CupertinoThemeData(
+                    brightness: Brightness.light,
+                  ).textTheme.navLargeTitleTextStyle.copyWith(
                     fontFamily: SeolleyeonApp.fontFamily,
                     fontWeight: FontWeight.w700,
                   ),
@@ -162,9 +157,7 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
           TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
         },
       ),
-      extensions: const <ThemeExtension>[
-        SeolThemeColors.light,
-      ],
+      extensions: const <ThemeExtension>[SeolThemeColors.light],
     );
   }
 
@@ -243,8 +236,7 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
         brightness: Brightness.dark,
         scaffoldBackgroundColor: darkBg,
         barBackgroundColor: darkSurface.withValues(alpha: 0.9),
-        textTheme: CupertinoThemeData(brightness: Brightness.dark)
-            .textTheme
+        textTheme: CupertinoThemeData(brightness: Brightness.dark).textTheme
             .copyWith(
               textStyle: CupertinoThemeData(brightness: Brightness.dark)
                   .textTheme
@@ -261,9 +253,10 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
                     fontWeight: FontWeight.w600,
                     color: darkText,
                   ),
-              navLargeTitleTextStyle: CupertinoThemeData(
-                brightness: Brightness.dark,
-              ).textTheme.navLargeTitleTextStyle.copyWith(
+              navLargeTitleTextStyle:
+                  CupertinoThemeData(
+                    brightness: Brightness.dark,
+                  ).textTheme.navLargeTitleTextStyle.copyWith(
                     fontFamily: SeolleyeonApp.fontFamily,
                     fontWeight: FontWeight.w700,
                     color: darkText,
@@ -293,9 +286,7 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
           TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
         },
       ),
-      extensions: const <ThemeExtension>[
-        SeolThemeColors.dark,
-      ],
+      extensions: const <ThemeExtension>[SeolThemeColors.dark],
     );
   }
 }
@@ -305,7 +296,11 @@ TextTheme _applyFontWeight(TextTheme base) {
   TextStyle bump(TextStyle? s, int steps) {
     if (s == null) return const TextStyle();
     final w = s.fontWeight ?? FontWeight.w400;
-    final nextIndex = (w.index + steps).clamp(0, FontWeight.w900.index);
+    final nextValue = (w.value + (steps * 100)).clamp(
+      FontWeight.w100.value,
+      FontWeight.w900.value,
+    );
+    final nextIndex = (nextValue ~/ 100) - 1;
     return s.copyWith(fontWeight: FontWeight.values[nextIndex]);
   }
 
