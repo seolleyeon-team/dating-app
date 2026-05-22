@@ -3,17 +3,17 @@
     "platforms": {
       "android": {
         "default": {
-          "projectId": "seolleyeon",
-          "appId": "1:623093454373:android:33bcee0a14a1044b0251cc",
+          "projectId": "seolleyeon-final",
+          "appId": "1:810450765203:android:81ca13cb23027d875c9466",
           "fileOutput": "android/app/google-services.json"
         }
       },
       "dart": {
         "lib/firebase_options.dart": {
-          "projectId": "seolleyeon",
+          "projectId": "seolleyeon-final",
           "configurations": {
-            "android": "1:623093454373:android:33bcee0a14a1044b0251cc",
-            "web": "1:623093454373:web:57be6c4135b9027b0251cc"
+            "android": "1:810450765203:android:81ca13cb23027d875c9466",
+            "ios": "1:810450765203:ios:7e51bb82970a77145c9466"
           }
         }
       }
@@ -21,7 +21,6 @@
   },
   "functions": [
     {
-      "source": "functions",
       "codebase": "default",
       "ignore": [
         "node_modules",
@@ -29,7 +28,8 @@
         "firebase-debug.log",
         "firebase-debug.*.log",
         "*.local"
-      ]
+      ],
+      "source": "functions"
     }
   ],
   "hosting": {
@@ -39,76 +39,23 @@
       "**/.*",
       "**/node_modules/**"
     ],
-    "headers": [
-      {
-        "source": "/apple-app-site-association",
-        "headers": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ]
-      },
-      {
-        "source": "/assetlinks.json",
-        "headers": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ]
-      },
-      {
-        "source": "/.well-known/apple-app-site-association",
-        "headers": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ]
-      },
-      {
-        "source": "/.well-known/assetlinks.json",
-        "headers": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ]
-      }
-    ],
     "rewrites": [
       {
-        "source": "/.well-known/apple-app-site-association",
-        "destination": "/apple-app-site-association"
-      },
-      {
-        "source": "/.well-known/assetlinks.json",
-        "destination": "/assetlinks.json"
-      },
-      {
-        "source": "/invite/friend",
-        "destination": "/invite-friend.html"
-      },
-      {
-        "source": "/invite/friend/**",
-        "destination": "/invite-friend.html"
-      },
-      {
-        "source": "/auth/email-link",
-        "destination": "/index.html"
-      },
-      {
-        "source": "/auth/email-link/**",
+        "source": "**",
         "destination": "/index.html"
       }
     ]
   },
   "firestore": {
+    "database": "(default)",
+    "location": "asia-northeast3",
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
   "storage": {
     "rules": "storage.rules"
+  },
+  "auth": {
+    "providers": {}
   }
 }

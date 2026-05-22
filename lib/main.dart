@@ -13,21 +13,26 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart';
+import 'services/firebase_diagnostics.dart';
 import 'services/push_notification_service.dart';
 import 'services/windows_protocol_registration_stub.dart'
     if (dart.library.io) 'services/windows_protocol_registration_io.dart';
 import 'firebase_options.dart';
 import 'app.dart';
 import 'webview_web_stub.dart'
-    if (dart.library.html) 'webview_web_impl.dart' as webview_web;
+    if (dart.library.html) 'webview_web_impl.dart'
+    as webview_web;
 
 /// `true`이면 **release APK/AAB**에서도 Debug App Check provider 사용 (콘솔 디버그 토큰).
 /// 로컬에 release 설치해 테스트할 때 Play Integrity 403 방지용.
 /// 스토어 배포 빌드에서는 이 플래그를 켜지 말 것 (Play Integrity / App Attest 사용).
-const bool _forceAppCheckDebugProvider =
-    bool.fromEnvironment('FORCE_APP_CHECK_DEBUG', defaultValue: false);
-const MethodChannel _kakaoUtilChannel =
-    MethodChannel('com.yonsei.dating/kakao_util');
+const bool _forceAppCheckDebugProvider = bool.fromEnvironment(
+  'FORCE_APP_CHECK_DEBUG',
+  defaultValue: false,
+);
+const MethodChannel _kakaoUtilChannel = MethodChannel(
+  'com.yonsei.dating/kakao_util',
+);
 
 Future<bool> _shouldUseDebugAppCheckProvider() async {
   if (kIsWeb) return false;
@@ -72,6 +77,7 @@ void main() {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
+      FirebaseDiagnostics.logCurrentFirebaseApp('firebase_initialize_success');
 
       // App Check: Android/iOS 항상 활성화.
       // - 일반 debug/profile: Debug provider (!kReleaseMode)

@@ -141,7 +141,7 @@ python seolleyeon_meeting_eval_v1.py --firestore_project seolleyeon --date_key 2
 ### 1:1
 
 - **recEvents**: `recEvents/{userId}/events` (또는 레이아웃에 따라 상위 컬렉션) — open, like, nope 등
-- **users**: `users/{uid}` 의 `onboarding.photoUrls` 등 (CLIP용)
+- **private media collection**: private media docs store `sourcePhotos.gcsUri` for CLIP.
 
 ### 미팅 v1
 

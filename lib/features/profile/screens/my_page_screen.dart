@@ -19,6 +19,7 @@ import '../../../services/kakao_friend_invite_helper.dart';
 import '../../../services/friend_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 
 class MyPageScreen extends StatefulWidget {
@@ -73,14 +74,14 @@ class _MyPageScreenState extends State<MyPageScreen> {
       _friendsCountSubscription = _friendService
           .friendsStream(kakaoUserId)
           .listen(
-        (snapshot) {
-          if (!mounted) return;
-          setState(() => friendsCount = snapshot.size);
-        },
-        onError: (error) {
-          debugPrint('[MyPage] friends stream error: $error');
-        },
-      );
+            (snapshot) {
+              if (!mounted) return;
+              setState(() => friendsCount = snapshot.size);
+            },
+            onError: (error) {
+              debugPrint('[MyPage] friends stream error: $error');
+            },
+          );
     }
 
     setState(() => _currentUserId = kakaoUserId);
@@ -92,13 +93,12 @@ class _MyPageScreenState extends State<MyPageScreen> {
 
     final user = await _userService.getUserProfile(kakaoUserId);
     if (!mounted || user == null) return;
-    final canReadFriends = await _authService.ensureFirebaseSessionForVerifiedUser(
-      kakaoUserId,
-    );
+    final canReadFriends = await _authService
+        .ensureFirebaseSessionForVerifiedUser(kakaoUserId);
     final actualFriendsCount = canReadFriends
-        ? await _friendService.getFriendsCount(kakaoUserId).catchError(
-            (_) => (user['friendsCount'] as num?)?.toInt() ?? 0,
-          )
+        ? await _friendService
+              .getFriendsCount(kakaoUserId)
+              .catchError((_) => (user['friendsCount'] as num?)?.toInt() ?? 0)
         : (user['friendsCount'] as num?)?.toInt() ?? 0;
 
     final onboardingRaw = user['onboarding'];
@@ -106,14 +106,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
         ? Map<String, dynamic>.from(onboardingRaw)
         : <String, dynamic>{};
 
-    final photoUrlsRaw = onboarding['photoUrls'];
-    final onboardingPhotoUrls = photoUrlsRaw is List
-        ? photoUrlsRaw.whereType<String>().toList()
-        : <String>[];
-
-    final mainPhotoUrl = onboardingPhotoUrls.isNotEmpty
-        ? onboardingPhotoUrls.first
-        : null;
+    final mainPhotoUrl = ProfileDisplayImageResolver.resolve(user);
 
     setState(() {
       nickname = (onboarding['nickname']?.toString().isNotEmpty ?? false)
@@ -121,13 +114,8 @@ class _MyPageScreenState extends State<MyPageScreen> {
           : '닉네임';
       userName = nickname;
 
-      // 우선순위:
-      // 1) onboarding.photoUrls의 첫 번째 사진
-      // 2) 기존 profileImageUrl
-      // 3) null이면 defaultAvatarUrl 사용
-      avatarUrl = (mainPhotoUrl != null && mainPhotoUrl.isNotEmpty)
-          ? mainPhotoUrl
-          : user['profileImageUrl']?.toString();
+      // Public display image policy is resolved centrally.
+      avatarUrl = mainPhotoUrl.isNotEmpty ? mainPhotoUrl : null;
 
       receivedHearts = (user['receivedHearts'] as num?)?.toInt() ?? 0;
       friendsCount = actualFriendsCount;
@@ -172,10 +160,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
         right: 20,
         bottom: bottomOffset,
         child: IgnorePointer(
-          child: _InviteToast(
-            message: message,
-            isError: isError,
-          ),
+          child: _InviteToast(message: message, isError: isError),
         ),
       ),
     );
@@ -203,10 +188,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
       context: context,
       useRootNavigator: true,
       builder: (dialogContext) => CupertinoAlertDialog(
-        title: const Text(
-          '로그아웃',
-          style: TextStyle(fontFamily: 'Pretendard'),
-        ),
+        title: const Text('로그아웃', style: TextStyle(fontFamily: 'Pretendard')),
         content: const Text(
           '정말 로그아웃 하시겠습니까?',
           style: TextStyle(fontFamily: 'Pretendard'),
@@ -214,18 +196,12 @@ class _MyPageScreenState extends State<MyPageScreen> {
         actions: [
           CupertinoDialogAction(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text(
-              '취소',
-              style: TextStyle(fontFamily: 'Pretendard'),
-            ),
+            child: const Text('취소', style: TextStyle(fontFamily: 'Pretendard')),
           ),
           CupertinoDialogAction(
             isDestructiveAction: true,
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text(
-              '확인',
-              style: TextStyle(fontFamily: 'Pretendard'),
-            ),
+            child: const Text('확인', style: TextStyle(fontFamily: 'Pretendard')),
           ),
         ],
       ),
@@ -248,7 +224,9 @@ class _MyPageScreenState extends State<MyPageScreen> {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final scaffoldBg = isDark ? AppColorsDark.background : const Color(0xFFF9F9F9);
+    final scaffoldBg = isDark
+        ? AppColorsDark.background
+        : const Color(0xFFF9F9F9);
 
     return CupertinoPageScaffold(
       backgroundColor: scaffoldBg,
@@ -377,10 +355,7 @@ class _InviteToast extends StatelessWidget {
   final String message;
   final bool isError;
 
-  const _InviteToast({
-    required this.message,
-    required this.isError,
-  });
+  const _InviteToast({required this.message, required this.isError});
 
   @override
   Widget build(BuildContext context) {
@@ -389,7 +364,9 @@ class _InviteToast extends StatelessWidget {
       decoration: BoxDecoration(
         color: isError
             ? CupertinoColors.systemRed.withValues(alpha: 0.92)
-            : Theme.of(context).extension<SeolThemeColors>()!.gray800.withValues(alpha: 0.92),
+            : Theme.of(
+                context,
+              ).extension<SeolThemeColors>()!.gray800.withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -430,15 +407,15 @@ class _Header extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primary = Theme.of(context).colorScheme.primary;
     final bgColor = isDark ? AppColorsDark.surface : const Color(0xFFFFFFFF);
-    final textMain = isDark ? AppColorsDark.textPrimary : const Color(0xFF1A1A1A);
+    final textMain = isDark
+        ? AppColorsDark.textPrimary
+        : const Color(0xFF1A1A1A);
 
     return SafeArea(
       bottom: false,
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-        decoration: BoxDecoration(
-          color: bgColor.withValues(alpha: 0.8),
-        ),
+        decoration: BoxDecoration(color: bgColor.withValues(alpha: 0.8)),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -484,10 +461,7 @@ class _Header extends StatelessWidget {
                               decoration: BoxDecoration(
                                 color: primary,
                                 shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: bgColor,
-                                  width: 1.5,
-                                ),
+                                border: Border.all(color: bgColor, width: 1.5),
                               ),
                             ),
                           ),
@@ -548,11 +522,21 @@ class _ProfileCard extends StatelessWidget {
     final seol = Theme.of(context).extension<SeolThemeColors>()!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? AppColorsDark.surface : const Color(0xFFFFFFFF);
-    final textMain = isDark ? AppColorsDark.textPrimary : const Color(0xFF1A1A1A);
-    final textSub = isDark ? AppColorsDark.textSecondary : const Color(0xFF8E8E93);
-    final avatarRingInner = isDark ? AppColorsDark.surface : CupertinoColors.white;
-    final gradientA = isDark ? const Color(0xFF4A2040) : const Color(0xFFFBCFE8);
-    final gradientB = isDark ? const Color(0xFF352050) : const Color(0xFFE9D5FF);
+    final textMain = isDark
+        ? AppColorsDark.textPrimary
+        : const Color(0xFF1A1A1A);
+    final textSub = isDark
+        ? AppColorsDark.textSecondary
+        : const Color(0xFF8E8E93);
+    final avatarRingInner = isDark
+        ? AppColorsDark.surface
+        : CupertinoColors.white;
+    final gradientA = isDark
+        ? const Color(0xFF4A2040)
+        : const Color(0xFFFBCFE8);
+    final gradientB = isDark
+        ? const Color(0xFF352050)
+        : const Color(0xFFE9D5FF);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 24),
@@ -793,10 +777,7 @@ class _MenuList extends StatelessWidget {
               label: '프로필 편집',
               onTap: onEditProfile,
             ),
-            Container(
-              height: 1,
-              color: seol.gray100.withValues(alpha: 0.5),
-            ),
+            Container(height: 1, color: seol.gray100.withValues(alpha: 0.5)),
             _MenuItem(
               icon: CupertinoIcons.creditcard,
               iconBgColor: seol.purple50,
@@ -804,10 +785,7 @@ class _MenuList extends StatelessWidget {
               label: '머니 충전',
               onTap: onRecharge,
             ),
-            Container(
-              height: 1,
-              color: seol.gray100.withValues(alpha: 0.5),
-            ),
+            Container(height: 1, color: seol.gray100.withValues(alpha: 0.5)),
             _MenuItem(
               icon: CupertinoIcons.person_add,
               iconBgColor: seol.emerald50,
@@ -844,10 +822,12 @@ class _MenuItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return CupertinoButton(
       padding: EdgeInsets.zero,
-      onPressed: isLoading ? null : () {
-        HapticFeedback.selectionClick();
-        onTap?.call();
-      },
+      onPressed: isLoading
+          ? null
+          : () {
+              HapticFeedback.selectionClick();
+              onTap?.call();
+            },
       child: Container(
         padding: const EdgeInsets.all(16),
         child: Row(
@@ -869,7 +849,9 @@ class _MenuItem extends StatelessWidget {
                   fontFamily: 'Pretendard',
                   fontSize: 15,
                   fontWeight: FontWeight.w500,
-                  color: Theme.of(context).extension<SeolThemeColors>()!.gray800,
+                  color: Theme.of(
+                    context,
+                  ).extension<SeolThemeColors>()!.gray800,
                 ),
               ),
             ),
@@ -878,7 +860,9 @@ class _MenuItem extends StatelessWidget {
                 : Icon(
                     CupertinoIcons.chevron_right,
                     size: 20,
-                    color: Theme.of(context).extension<SeolThemeColors>()!.gray300,
+                    color: Theme.of(
+                      context,
+                    ).extension<SeolThemeColors>()!.gray300,
                   ),
           ],
         ),

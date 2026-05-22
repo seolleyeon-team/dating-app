@@ -47,13 +47,17 @@ from seolleyeon_rec_common_v3 import (
     collapse_pair_events,
     compute_clip_signal_confidence,
     compute_user_signal_stats,
+    filter_recommendation_items_for_display_ready,
     is_ai_profile,
+    load_avatar_display_status_from_firestore,
     load_events_from_csv,
     load_events_from_firestore,
     load_profile_index_from_firestore,
     load_user_genders_from_firestore,
+    load_users_with_private_source_photos_from_firestore,
     load_users_with_photos_from_firestore,
     passes_policy,
+    redact_private_image_ref,
     require_firestore,
 )
 
@@ -148,6 +152,7 @@ def export_to_firestore(
     algorithm_version: str,
     model_meta: Dict[str, Any],
     user_signal_meta: Optional[Dict[str, Dict[str, Any]]] = None,
+    candidate_skip_reasons: Optional[Dict[str, Dict[str, int]]] = None,
     database: Optional[str] = None,
 ) -> None:
     require_firestore()
@@ -167,6 +172,8 @@ def export_to_firestore(
         }
         if user_signal_meta and uid in user_signal_meta:
             payload["signal"] = user_signal_meta[uid]
+        if candidate_skip_reasons and uid in candidate_skip_reasons:
+            payload["candidateSkipReasons"] = candidate_skip_reasons[uid]
         bw.set(doc_ref, payload, merge=True)
 
     bw.close()
@@ -183,6 +190,21 @@ def main() -> int:
     p.add_argument("--device", type=str, default="auto")
     p.add_argument("--export_firestore", action="store_true", default=True)
     p.add_argument("--users_collection", type=str, default="users")
+    p.add_argument("--private_media_collection", type=str, default="userPrivate" "Media")
+    p.add_argument(
+        "--photo_source",
+        type=str,
+        default="private_gcs",
+        choices=["private_gcs", "legacy_onboarding_photo_urls"],
+    )
+    p.add_argument("--allow_legacy_photo_urls", action="store_true", default=False)
+    p.add_argument("--require_approved_avatar_for_candidates", dest="require_approved_avatar_for_candidates", action="store_true")
+    p.add_argument("--no_require_approved_avatar_for_candidates", dest="require_approved_avatar_for_candidates", action="store_false")
+    p.set_defaults(require_approved_avatar_for_candidates=True)
+    p.add_argument("--allow_missing_avatar_candidates", action="store_true", default=False)
+    p.add_argument("--display_ready_users_collection", type=str, default="users")
+    p.add_argument("--export_clip_embeddings", action="store_true", default=False)
+    p.add_argument("--clip_embeddings_collection", type=str, default="clip" "Embeddings")
     p.add_argument("--events_collection", type=str, default="recEvents")
     p.add_argument(
         "--events_layout",
@@ -227,13 +249,29 @@ def main() -> int:
     )
     negative_pref_weights = safe_json_update(DEFAULT_NEGATIVE_PREF_WEIGHTS, args.negative_pref_weights_json)
 
-    print("[1] Loading users with photos...")
-    uid_to_urls = load_users_with_photos_from_firestore(
-        args.firestore_project,
-        users_collection=args.users_collection,
-        database=args.firestore_database,
+    require_approved_avatar = bool(args.require_approved_avatar_for_candidates) and not bool(
+        args.allow_missing_avatar_candidates
     )
-    print(f"    Loaded {len(uid_to_urls)} users with photos")
+
+    print("[1] Loading CLIP source photos...")
+    if args.photo_source == "legacy_onboarding_photo_urls":
+        if not args.allow_legacy_photo_urls:
+            raise ValueError(
+                "--photo_source legacy_onboarding_photo_urls requires --allow_legacy_photo_urls"
+            )
+        print("[WARN] Loading deprecated users/{uid}.onboarding.photoUrls for migration/debug only.")
+        uid_to_urls = load_users_with_photos_from_firestore(
+            args.firestore_project,
+            users_collection=args.users_collection,
+            database=args.firestore_database,
+        )
+    else:
+        uid_to_urls = load_users_with_private_source_photos_from_firestore(
+            args.firestore_project,
+            private_media_collection=args.private_media_collection,
+            database=args.firestore_database,
+        )
+    print(f"    Loaded {len(uid_to_urls)} users with CLIP source photos")
     if len(uid_to_urls) < 2:
         print("[!] Not enough users with photos. Skipping CLIP export.")
         return 0
@@ -318,11 +356,38 @@ def main() -> int:
             vec, _ = embedder.embed_profile_mean(urls[:3], normalize=True)
             uid_to_vec[uid] = vec
         except Exception as ex:
-            print(f"    Skip {uid}: {ex}")
+            print(f"    Skip {uid}: {redact_private_image_ref(str(ex))}")
 
     if len(uid_to_vec) < 2:
         print("[!] Not enough embeddings. Skipping.")
         return 0
+
+    if args.export_clip_embeddings:
+        db = firestore.Client(project=args.firestore_project, database=args.firestore_database)
+        bw = db.bulk_writer()
+        for uid, vector in uid_to_vec.items():
+            if is_ai_profile(uid):
+                continue
+            source_photo_ids = [
+                os.path.splitext(os.path.basename(str(source).split("?", 1)[0]))[0]
+                for source in uid_to_urls.get(uid, [])
+                if str(source).startswith(("gs://", "gcs://"))
+            ]
+            bw.set(
+                db.document(f"{args.clip_embeddings_collection}/{uid}"),
+                {
+                    "vector": [float(x) for x in vector],
+                    "modelId": "openai/clip-vit-large-patch14",
+                    "embeddingVersion": "clip-vit-large-patch14_v1",
+                    "sourcePhotoIds": source_photo_ids,
+                    "normalized": True,
+                    "dims": len(vector),
+                    "updatedAt": firestore.SERVER_TIMESTAMP,
+                },
+                merge=True,
+            )
+        bw.close()
+        print(f"[clip embeddings] exported to {args.clip_embeddings_collection}")
 
     gender_by_uid = load_user_genders_from_firestore(
         args.firestore_project,
@@ -330,6 +395,15 @@ def main() -> int:
         database=args.firestore_database,
     )
     print(f"[gender] loaded from users/onboarding: {len(gender_by_uid)} users")
+
+    display_status: Dict[str, Dict[str, Any]] = {}
+    if require_approved_avatar:
+        display_status = load_avatar_display_status_from_firestore(
+            args.firestore_project,
+            users_collection=args.display_ready_users_collection,
+            database=args.firestore_database,
+        )
+        print(f"[display] loaded avatar display status for {len(display_status)} users")
 
     meta = None
     if args.apply_policy_filters:
@@ -349,6 +423,7 @@ def main() -> int:
 
     print("[3] Generating recommendations...")
     recs_to_export: Dict[str, List[Dict[str, Any]]] = {}
+    candidate_skip_reasons_by_uid: Dict[str, Dict[str, int]] = {}
 
     for user_id in tqdm(list(uid_to_vec.keys()), desc="recs"):
         if is_ai_profile(user_id):
@@ -441,11 +516,25 @@ def main() -> int:
                 ):
                     continue
 
-            items_out.append({
+            item = {
                 "uid": cand_uid,
                 "rank": len(items_out) + 1,
                 "score": float(scores[ii]),
-            })
+            }
+            filtered, skipped = filter_recommendation_items_for_display_ready(
+                [item],
+                display_status,
+                require_approved_avatar=require_approved_avatar,
+            )
+            if skipped:
+                user_skips = candidate_skip_reasons_by_uid.setdefault(user_id, {})
+                for reason, count in skipped.items():
+                    user_skips[reason] = user_skips.get(reason, 0) + count
+                continue
+            if not filtered:
+                continue
+            filtered[0]["rank"] = len(items_out) + 1
+            items_out.append(filtered[0])
             if len(items_out) >= topn:
                 break
 
@@ -489,6 +578,7 @@ def main() -> int:
             algorithm_version=algo_version,
             model_meta=model_meta,
             user_signal_meta=signal_meta_by_uid,
+            candidate_skip_reasons=candidate_skip_reasons_by_uid,
             database=args.firestore_database,
         )
         print("[export] CLIP done")

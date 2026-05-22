@@ -185,54 +185,54 @@ class _MajorSelectionScreenState extends State<MajorSelectionScreen> {
                     totalSteps: widget.totalSteps,
                     onBack: _handleBack,
                   ),
-                // 콘텐츠
-                Expanded(
-                  child: SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(16, 24, 16, 140),
-                    child: Column(
-                      children: [
-                        // 타이틀
-                        const _TitleSection(),
-                        const SizedBox(height: 32),
-                        // 옵션 그리드
-                        _OptionsGrid(
-                          options: _options,
-                          selectedMajor: _selectedMajor,
-                          onSelect: (major) {
-                            HapticFeedback.selectionClick();
-                            setState(() => _selectedMajor = major);
-                          },
-                        ),
-                      ],
+                  // 콘텐츠
+                  Expanded(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 24, 16, 140),
+                      child: Column(
+                        children: [
+                          // 타이틀
+                          const _TitleSection(),
+                          const SizedBox(height: 32),
+                          // 옵션 그리드
+                          _OptionsGrid(
+                            options: _options,
+                            selectedMajor: _selectedMajor,
+                            onSelect: (major) {
+                              HapticFeedback.selectionClick();
+                              setState(() => _selectedMajor = major);
+                            },
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          // 하단 버튼
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _BottomButtons(
-              bottomPadding: bottomPadding,
-              onNext: () async {
-                HapticFeedback.mediumImpact();
-                await _saveCurrentMajor();
-                if (!mounted) return;
-                if (widget.onNext != null) {
-                  widget.onNext!.call(_selectedMajor);
-                } else {
-                  Navigator.of(context).pushNamed(RouteNames.onboardingPhoto);
-                }
-              },
+            // 하단 버튼
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _BottomButtons(
+                bottomPadding: bottomPadding,
+                onNext: () async {
+                  HapticFeedback.mediumImpact();
+                  await _saveCurrentMajor();
+                  if (!context.mounted) return;
+                  if (widget.onNext != null) {
+                    widget.onNext!.call(_selectedMajor);
+                  } else {
+                    Navigator.of(context).pushNamed(RouteNames.onboardingPhoto);
+                  }
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
     );
   }
 }
@@ -545,10 +545,7 @@ class _BottomButtons extends StatelessWidget {
   final double bottomPadding;
   final VoidCallback onNext;
 
-  const _BottomButtons({
-    required this.bottomPadding,
-    required this.onNext,
-  });
+  const _BottomButtons({required this.bottomPadding, required this.onNext});
 
   @override
   Widget build(BuildContext context) {
@@ -576,10 +573,7 @@ class _BottomButtons extends StatelessWidget {
               color: _AppColors.primary,
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
-                const BoxShadow(
-                  color: Color(0xFFD62660),
-                  offset: Offset(0, 6),
-                ),
+                const BoxShadow(color: Color(0xFFD62660), offset: Offset(0, 6)),
                 BoxShadow(
                   color: CupertinoColors.black.withValues(alpha: 0.1),
                   blurRadius: 10,

@@ -32,7 +32,8 @@ class UserService {
       final data = {
         'kakaoUserId': kakaoUserId,
         'nickname': nickname,
-        'profileImageUrl': profileImageUrl,
+        'profileImageUrl': '',
+        'profileImageMode': 'avatar',
         'email': email,
         'createdAt': now,
         'lastLoginAt': now,
@@ -46,7 +47,8 @@ class UserService {
 
     final updateData = {
       'nickname': nickname,
-      'profileImageUrl': profileImageUrl,
+      'profileImageUrl': '',
+      'profileImageMode': 'avatar',
       'email': email,
       'lastLoginAt': now,
     };
@@ -175,12 +177,19 @@ class UserService {
       }
     }
 
-    mergedOnboarding['photoUrls'] = photoUrls;
+    mergedOnboarding.remove('photoUrls');
+    mergedOnboarding['sourcePhotoUploadStatus'] = 'pending_private_ingest';
+    mergedOnboarding['sourcePhotoUploadCount'] = photoUrls.length;
 
     await docRef.set({
+      'profileImageMode': 'avatar',
       'onboarding': mergedOnboarding,
       'onboardingUpdatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+    const legacyPhotoFieldName = 'photoUrls';
+    await docRef.update({
+      'onboarding.$legacyPhotoFieldName': FieldValue.delete(),
+    });
   }
 
   /// 온보딩 키워드/관심사 저장
@@ -300,8 +309,8 @@ class UserService {
     if (onboarding == null) return 1;
 
     if (onboarding['basicInfo'] == null) return 1;
-    if (onboarding['photoUrls'] == null ||
-        (onboarding['photoUrls'] as List).length < 2) {
+    final uploadedPhotoCount = onboarding['sourcePhotoUploadCount'];
+    if (uploadedPhotoCount is! num || uploadedPhotoCount < 2) {
       return 5;
     }
     if (onboarding['keywords'] == null) return 6;

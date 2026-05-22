@@ -43,6 +43,12 @@ import {
   PROMISE_REMINDER_QUEUE_PATH,
   type PromiseReminderTaskPayload,
 } from "./promiseReminder";
+import { createUploadAvatarSourcePhotoFunction } from "./avatarMedia";
+import {
+  createApproveAvatarCandidateFunction,
+  createGetAvatarJobCandidatesFunction,
+} from "./avatarApproval";
+import { createGetChatRealProfilePhotoFunction } from "./chatRealPhoto";
 
 // Firebase Admin 초기화
 initializeApp();
@@ -188,6 +194,64 @@ function readMap(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }
 
+function safeDecodeUriComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+export function isSafePublicMediaUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+
+  const decodedLower = safeDecodeUriComponent(trimmed).toLowerCase();
+  if (
+    decodedLower.startsWith("gs://") ||
+    decodedLower.startsWith("gcs://") ||
+    /seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp|chat-profile-photos)/.test(
+      decodedLower
+    ) ||
+    decodedLower.includes("x-goog-") ||
+    decodedLower.includes("x-amz-") ||
+    decodedLower.includes("googleaccessid") ||
+    decodedLower.includes("signature=") ||
+    decodedLower.includes("expires=") ||
+    decodedLower.includes("awsaccesskeyid") ||
+    decodedLower.includes("signedurl") ||
+    /\/source\//.test(decodedLower) ||
+    /\/jobs\//.test(decodedLower) ||
+    /\/candidates\//.test(decodedLower)
+  ) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const host = parsed.hostname.toLowerCase();
+    const path = safeDecodeUriComponent(parsed.pathname).toLowerCase();
+    const bucketFromVirtualHost = host.endsWith(".storage.googleapis.com")
+      ? host.replace(".storage.googleapis.com", "")
+      : "";
+    if (
+      /seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp|chat-profile-photos)/.test(
+        bucketFromVirtualHost
+      ) ||
+      /\/source\//.test(path) ||
+      /\/jobs\//.test(path) ||
+      /\/candidates\//.test(path)
+    ) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  return true;
+}
+
 function firstNonEmptyString(...values: unknown[]): string | null {
   for (const value of values) {
     const normalized = asStringOrNull(value);
@@ -216,17 +280,19 @@ function firstInteger(...values: unknown[]): number | null {
   return parsed == null ? null : Math.trunc(parsed);
 }
 
-function readPhotoUrl(userData: Record<string, unknown>): string | null {
+export function readSafePhotoUrl(userData: Record<string, unknown>): string | null {
   const onboarding = readMap(userData.onboarding);
-  const photoUrls = normalizeStringList(onboarding.photoUrls);
-  return (
-    photoUrls[0] ??
-    firstNonEmptyString(
-      onboarding.profileImageUrl,
-      onboarding.representativeImageUrl,
-      userData.profileImageUrl
-    )
-  );
+  const avatar = readMap(userData.avatar);
+  const approvedAvatarUrl = asStringOrNull(avatar.approvedAvatarUrl);
+  if (avatar.status === "approved" && isSafePublicMediaUrl(approvedAvatarUrl)) {
+    return approvedAvatarUrl;
+  }
+  const avatarUrls = normalizeStringList(onboarding.avatarUrls);
+  if (avatarUrls.length > 0) {
+    const firstAvatarUrl = avatarUrls[0];
+    return isSafePublicMediaUrl(firstAvatarUrl) ? firstAvatarUrl : null;
+  }
+  return null;
 }
 
 function truncateText(value: string | null, maxLength = 90): string | null {
@@ -251,7 +317,7 @@ function buildEventTeamMemberSnapshot(
   return {
     uid,
     displayName: firstNonEmptyString(onboarding.nickname, userData.nickname, uid) ?? uid,
-    photoUrl: readPhotoUrl(userData),
+    photoUrl: readSafePhotoUrl(userData),
     universityId: firstNonEmptyString(
       onboarding.universityId,
       userData.universityId,
@@ -814,12 +880,7 @@ async function getUserDisplayInfo(userId: string): Promise<{
     "유저"
   );
 
-  const avatarUrl =
-    asStringOrNull(
-      onboarding.profileImageUrl ??
-        onboarding.representativeImageUrl ??
-        data.profileImageUrl
-    ) ?? null;
+  const avatarUrl = readSafePhotoUrl(data);
 
   return {
     nickname,
@@ -1110,17 +1171,7 @@ function buildFriendProfileSnapshot(
 ): Record<string, unknown> {
   const onboardingRaw = data.onboarding;
   const onboarding = isRecord(onboardingRaw) ? onboardingRaw : {};
-  const photoUrlsRaw = onboarding.photoUrls;
-  const photoUrls = Array.isArray(photoUrlsRaw)
-    ? photoUrlsRaw.map((value) => asString(value)).filter((value) => value)
-    : [];
-
-  const profileImageUrl = asStringOrNull(
-    onboarding.profileImageUrl ??
-      onboarding.representativeImageUrl ??
-      (photoUrls.length > 0 ? photoUrls[0] : null) ??
-      data.profileImageUrl
-  );
+  const profileImageUrl = readSafePhotoUrl(data);
   const universityName = asStringOrNull(
     onboarding.university ?? data.universityName
   );
@@ -1170,12 +1221,24 @@ async function verifyKakaoAccessToken(
   return { userId };
 }
 
-function emailFromAuthToken(
+export function verifiedYonseiEmailFromAuthToken(
   token: Record<string, unknown> | undefined
 ): string | null {
   if (!token) return null;
+  if (token.email_verified !== true) return null;
   const raw = asNonEmptyString(token.email);
-  return raw ? raw.toLowerCase() : null;
+  const email = raw ? raw.toLowerCase() : null;
+  return email && email.endsWith("@yonsei.ac.kr") ? email : null;
+}
+
+export function buildKakaoUserShell(kakaoUserId: string): Record<string, unknown> {
+  return {
+    kakaoUserId,
+    profileImageUrl: "",
+    profileImageMode: "avatar",
+    createdAt: FieldValue.serverTimestamp(),
+    lastLoginAt: FieldValue.serverTimestamp(),
+  };
 }
 
 /**
@@ -1196,8 +1259,8 @@ async function resolveAuthedAppUser(
   let doc = await db.collection("users").doc(authUid).get();
 
   if (!doc.exists) {
-    const email = emailFromAuthToken(token);
-    if (email && email.endsWith("@yonsei.ac.kr")) {
+    const email = verifiedYonseiEmailFromAuthToken(token);
+    if (email) {
       const q = await db
         .collection("users")
         .where("studentEmail", "==", email)
@@ -1238,6 +1301,18 @@ async function resolveAuthedAppUser(
     profileSnapshot: buildFriendProfileSnapshot(userId, data),
   };
 }
+
+export const uploadAvatarSourcePhoto =
+  createUploadAvatarSourcePhotoFunction(db, resolveAuthedAppUser);
+
+export const getAvatarJobCandidates =
+  createGetAvatarJobCandidatesFunction(db, resolveAuthedAppUser);
+
+export const approveAvatarCandidate =
+  createApproveAvatarCandidateFunction(db, resolveAuthedAppUser);
+
+export const getChatRealProfilePhoto =
+  createGetChatRealProfilePhotoFunction(db, resolveAuthedAppUser);
 
 function getCallableData(request: {
   data?: unknown;
@@ -1333,14 +1408,17 @@ export const createFirebaseCustomToken = onCall(async (request) => {
   const userRef = db.collection("users").doc(kakaoUser.userId);
   const userSnap = await userRef.get();
 
-  if (!userSnap.exists) {
-    throw new HttpsError(
-      "failed-precondition",
-      "가입 정보를 찾을 수 없어요. 다시 로그인해주세요."
-    );
+  let userData: Record<string, unknown>;
+  if (userSnap.exists) {
+    userData = (userSnap.data() ?? {}) as Record<string, unknown>;
+  } else {
+    await userRef.set(buildKakaoUserShell(kakaoUser.userId), { merge: true });
+    userData = {};
+    logger.info("createFirebaseCustomToken created missing user shell", {
+      userId: kakaoUser.userId,
+    });
   }
 
-  const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
   const customToken = await getAuth().createCustomToken(kakaoUser.userId, {
     kakaoUserId: kakaoUser.userId,
   });

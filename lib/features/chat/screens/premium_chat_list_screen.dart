@@ -3,8 +3,6 @@
 // 경로: lib/features/chat/screens/chat_list_screen.dart
 // =============================================================================
 
-import 'dart:ui';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +11,7 @@ import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../router/route_names.dart';
 import '../../../services/storage_service.dart';
+import '../../../shared/widgets/chat_profile_photo_avatar.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 import '../models/chat_room_data.dart';
@@ -233,7 +232,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
     }
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final scaffoldBg = isDark ? AppColorsDark.background : CupertinoColors.white;
+    final scaffoldBg = isDark
+        ? AppColorsDark.background
+        : CupertinoColors.white;
 
     return CupertinoPageScaffold(
       backgroundColor: scaffoldBg,
@@ -309,7 +310,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                         );
                       }
 
-                      final seol = Theme.of(context).extension<SeolThemeColors>()!;
+                      final seol = Theme.of(
+                        context,
+                      ).extension<SeolThemeColors>()!;
                       return SliverToBoxAdapter(
                         child: Padding(
                           padding: const EdgeInsets.only(top: 80),
@@ -425,7 +428,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     ];
 
                     if (firestoreChats.isEmpty) {
-                      final seol = Theme.of(context).extension<SeolThemeColors>()!;
+                      final seol = Theme.of(
+                        context,
+                      ).extension<SeolThemeColors>()!;
                       return SliverToBoxAdapter(
                         child: Padding(
                           padding: const EdgeInsets.only(top: 80),
@@ -542,10 +547,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [
-                      scaffoldBg.withValues(alpha: 0),
-                      scaffoldBg,
-                    ],
+                    colors: [scaffoldBg.withValues(alpha: 0), scaffoldBg],
                   ),
                 ),
               ),
@@ -783,6 +785,9 @@ class _ChatListItem extends StatelessWidget {
           children: [
             _Avatar(
               imageUrl: chat.avatarUrl,
+              chatRoomId: chat.chatRoomId,
+              targetUid: chat.id,
+              useChatRealPhoto: !chat.isFakeAccountRoom,
               isOnline: chat.isOnline,
               hasGradientBorder: chat.hasGradientBorder,
               isGrayscale: chat.isGrayscale,
@@ -833,9 +838,7 @@ class _ChatListItem extends StatelessWidget {
                             fontWeight: chat.hasUnread
                                 ? FontWeight.w500
                                 : FontWeight.w400,
-                            color: chat.hasUnread
-                                ? seol.gray800
-                                : seol.gray400,
+                            color: chat.hasUnread ? seol.gray800 : seol.gray400,
                             height: 1.3,
                           ),
                         ),
@@ -876,12 +879,18 @@ class _ChatListItem extends StatelessWidget {
 // =============================================================================
 class _Avatar extends StatelessWidget {
   final String imageUrl;
+  final String? chatRoomId;
+  final String targetUid;
+  final bool useChatRealPhoto;
   final bool isOnline;
   final bool hasGradientBorder;
   final bool isGrayscale;
 
   const _Avatar({
     required this.imageUrl,
+    required this.targetUid,
+    this.chatRoomId,
+    this.useChatRealPhoto = false,
     this.isOnline = false,
     this.hasGradientBorder = false,
     this.isGrayscale = false,
@@ -892,6 +901,37 @@ class _Avatar extends StatelessWidget {
     final seol = Theme.of(context).extension<SeolThemeColors>()!;
     final safeImageUrl = imageUrl;
     final ringColor = seol.cardSurface;
+    final canUseChatRealPhoto =
+        useChatRealPhoto &&
+        (chatRoomId?.isNotEmpty ?? false) &&
+        targetUid.isNotEmpty;
+
+    Widget avatarImage({double size = 60}) {
+      if (canUseChatRealPhoto) {
+        return ChatProfilePhotoAvatar(
+          chatRoomId: chatRoomId!,
+          targetUid: targetUid,
+          fallbackImageUrl: safeImageUrl,
+          size: size,
+          grayscale: isGrayscale,
+          backgroundColor: seol.gray100,
+          placeholderIconColor: _AppColors.gray400,
+          placeholderIconSize: 28,
+        );
+      }
+      if (safeImageUrl.isEmpty) {
+        return Icon(CupertinoIcons.person_fill, color: seol.gray400, size: 28);
+      }
+      return CaptureProtectedImage(
+        imageUrl: safeImageUrl,
+        shape: CaptureProtectedImageShape.circle,
+        fit: BoxFit.cover,
+        grayscale: isGrayscale,
+        backgroundColor: seol.gray100,
+        placeholderIconColor: _AppColors.gray400,
+        placeholderIconSize: 28,
+      );
+    }
 
     Widget avatar = Container(
       width: 60,
@@ -902,21 +942,7 @@ class _Avatar extends StatelessWidget {
         color: seol.gray100,
       ),
       clipBehavior: Clip.antiAlias,
-      child: safeImageUrl.isEmpty
-          ? Icon(
-              CupertinoIcons.person_fill,
-              color: seol.gray400,
-              size: 28,
-            )
-          : CaptureProtectedImage(
-              imageUrl: safeImageUrl,
-              shape: CaptureProtectedImageShape.circle,
-              fit: BoxFit.cover,
-              grayscale: isGrayscale,
-              backgroundColor: seol.gray100,
-              placeholderIconColor: _AppColors.gray400,
-              placeholderIconSize: 28,
-            ),
+      child: avatarImage(),
     );
 
     if (hasGradientBorder) {
@@ -938,15 +964,7 @@ class _Avatar extends StatelessWidget {
             border: Border.all(color: ringColor, width: 2),
           ),
           clipBehavior: Clip.antiAlias,
-          child: CaptureProtectedImage(
-            imageUrl: safeImageUrl,
-            shape: CaptureProtectedImageShape.circle,
-            fit: BoxFit.cover,
-            grayscale: isGrayscale,
-            backgroundColor: seol.gray100,
-            placeholderIconColor: _AppColors.gray400,
-            placeholderIconSize: 28,
-          ),
+          child: avatarImage(size: 56),
         ),
       );
     }
@@ -972,5 +990,3 @@ class _Avatar extends StatelessWidget {
     );
   }
 }
-
-

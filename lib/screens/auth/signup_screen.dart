@@ -22,7 +22,6 @@ class SignupScreen extends StatelessWidget {
       debugPrint('Kakao login success');
       debugPrint('id: ${userInfo['id']}');
       debugPrint('nickname: ${userInfo['nickname']}');
-      debugPrint('profileImageUrl: ${userInfo['profileImageUrl']}');
 
       if (!context.mounted) return;
       if (!authProvider.isStudentVerified) {

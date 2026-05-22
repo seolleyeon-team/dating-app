@@ -2,6 +2,8 @@
 class MatchModel {
   final String id;
   final MatchedUser user;
+  // Legacy compatibility only. Do not use for public display.
+  // Use ProfileDisplayImageResolver or approved avatar fields instead.
   final List<String> photoUrls;
   final double matchScore;
   final List<String> commonInterests;

@@ -47,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--meeting_daily_recs_collection", default=DEFAULT_MEETING_DAILY_RECS_COLLECTION, type=str)
     parser.add_argument("--profile_index_collection", default=DEFAULT_PROFILE_INDEX_COLLECTION, type=str)
     parser.add_argument("--users_collection", default=DEFAULT_USERS_COLLECTION, type=str)
+    parser.add_argument("--private_media_collection", default="userPrivate" "Media", type=str)
     parser.add_argument("--rec_events_collection", default=DEFAULT_REC_EVENTS_COLLECTION, type=str)
     parser.add_argument("--group_ids", default="", type=str, help="Optional comma-separated actor groupIds")
     parser.add_argument("--topn", default=30, type=int)
@@ -61,6 +62,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--explore_pool_size", default=20, type=int)
     parser.add_argument("--dry_run", action="store_true")
     parser.add_argument("--algorithm_version", default=None, type=str)
+    parser.add_argument("--require_approved_avatar_for_candidates", dest="require_approved_avatar_for_candidates", action="store_true")
+    parser.add_argument("--no_require_approved_avatar_for_candidates", dest="require_approved_avatar_for_candidates", action="store_false")
+    parser.set_defaults(require_approved_avatar_for_candidates=True)
+    parser.add_argument("--allow_missing_avatar_candidates", action="store_true", default=False)
     return parser
 
 
@@ -157,11 +162,38 @@ def main() -> int:
     member_uids = list(dict.fromkeys(member_uids))
     profile_docs = load_documents_by_ids(db, args.profile_index_collection, member_uids)
     user_docs = load_documents_by_ids(db, args.users_collection, member_uids)
+    private_media_docs = load_documents_by_ids(db, args.private_media_collection, member_uids)
     member_profiles = {
-        uid: build_member_profile_view(uid, profile_docs.get(uid), user_docs.get(uid))
+        uid: build_member_profile_view(
+            uid,
+            profile_docs.get(uid),
+            user_docs.get(uid),
+            private_media_docs.get(uid),
+        )
         for uid in member_uids
         if uid in profile_docs or uid in user_docs
     }
+
+    require_avatar = bool(args.require_approved_avatar_for_candidates) and not bool(args.allow_missing_avatar_candidates)
+    if require_avatar:
+        before_count = len(records)
+        records = {
+            group_id: record
+            for group_id, record in records.items()
+            if all(member_profiles.get(uid) and member_profiles[uid].display_avatar_url for uid in record.member_uids)
+        }
+        actor_group_ids = [group_id for group_id in actor_group_ids if group_id in records]
+        log_struct(
+            "info",
+            "meeting_daily_avatar_gate",
+            before=before_count,
+            after=len(records),
+            excluded=before_count - len(records),
+            reason="missing_approved_avatar",
+        )
+        if not actor_group_ids:
+            log_struct("warning", "meeting_daily_no_actor_groups_after_avatar_gate")
+            return 0
 
     from seolleyeon_meeting_common_v1 import MemberEmbeddingCache
 

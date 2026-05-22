@@ -21,12 +21,17 @@ import re
 from dataclasses import dataclass
 from io import BytesIO
 from typing import List, Optional, Sequence, Tuple, Union
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, unquote, urlparse
 
 import requests
 import torch
 from PIL import Image
 from transformers import AutoModel, AutoProcessor
+
+try:
+    from google.cloud import storage
+except Exception:  # pragma: no cover - optional in local unit tests
+    storage = None
 
 
 # -----------------------------
@@ -39,6 +44,30 @@ DEFAULT_MODEL_ID = os.getenv("CLIP_MODEL_ID", "openai/clip-vit-large-patch14")
 DEFAULT_ALLOWED_HOSTS = os.getenv(
     "ALLOWED_IMAGE_HOSTS",
     "firebasestorage.googleapis.com,storage.googleapis.com"
+)
+DEFAULT_PRIVATE_SOURCE_PHOTO_BUCKET = "seolleyeon-private-" "source-photos"
+DEFAULT_AVATAR_TEMP_BUCKET = "seolleyeon-avatar-temp"
+SENSITIVE_HTTPS_BUCKET_MARKERS = (
+    DEFAULT_PRIVATE_SOURCE_PHOTO_BUCKET,
+    DEFAULT_AVATAR_TEMP_BUCKET,
+)
+SIGNED_URL_MARKERS = (
+    "X-Goog-",
+    "GoogleAccessId",
+    "Signature=",
+    "Expires=",
+    "AWSAccessKeyId",
+    "X-Amz-",
+)
+_SIGNED_QUERY_KEYS = {"googleaccessid", "signature", "expires", "awsaccesskeyid"}
+_SIGNED_QUERY_PREFIXES = ("x-goog-", "x-amz-")
+_SIGNED_RAW_RE = re.compile(
+    r"(?:^|[?&])(?:x-goog-[^=&]*|x-amz-[^=&]*|googleaccessid|signature|expires|awsaccesskeyid)=",
+    re.IGNORECASE,
+)
+DEFAULT_ALLOWED_GCS_IMAGE_BUCKETS = os.getenv(
+    "ALLOWED_GCS_IMAGE_BUCKETS",
+    DEFAULT_PRIVATE_SOURCE_PHOTO_BUCKET,
 )
 
 DEFAULT_MAX_IMAGE_BYTES = int(os.getenv("MAX_IMAGE_BYTES", str(5 * 1024 * 1024)))  # 5MB
@@ -85,6 +114,102 @@ def _parse_allowed_hosts(s: str) -> Optional[set]:
     return hosts or None
 
 
+def _parse_allowed_buckets(env_value: str) -> Optional[set]:
+    env_value = (env_value or "").strip()
+    if not env_value:
+        return None
+    buckets = {item.strip() for item in env_value.split(",") if item.strip()}
+    return buckets or None
+
+
+def _parse_gcs_uri(source: str) -> Tuple[str, str]:
+    parsed = urlparse(source)
+    if parsed.scheme not in {"gs", "gcs"}:
+        raise ValueError("GCS image source must start with gs:// or gcs://.")
+    bucket = (parsed.netloc or "").strip()
+    path = (parsed.path or "").lstrip("/")
+    if not bucket or not path:
+        raise ValueError("GCS image source must include both bucket and object path.")
+    if parsed.query or parsed.fragment:
+        raise ValueError("GCS image source must not include query string or fragment.")
+    return bucket, path
+
+
+def is_signed_or_sensitive_url(url: str) -> bool:
+    text = str(url or "").strip()
+    if not text:
+        return False
+
+    try:
+        parsed = urlparse(text)
+    except Exception:
+        parsed = None
+
+    lowered = unquote(text).lower()
+    if any(marker.lower() in lowered for marker in SENSITIVE_HTTPS_BUCKET_MARKERS):
+        return True
+
+    if any(marker.lower() in lowered for marker in SIGNED_URL_MARKERS):
+        return True
+
+    if _SIGNED_RAW_RE.search(text):
+        return True
+
+    if parsed is not None:
+        query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+        for key, _ in query_pairs:
+            lowered_key = key.lower()
+            if lowered_key in _SIGNED_QUERY_KEYS or lowered_key.startswith(_SIGNED_QUERY_PREFIXES):
+                return True
+
+        host = (parsed.netloc or "").lower()
+        path = unquote(parsed.path or "").lower()
+        if host in {"storage.googleapis.com", "firebasestorage.googleapis.com"} and "/source/" in path:
+            return True
+
+    return False
+
+
+def _load_image_from_gcs(
+    source: str,
+    *,
+    max_bytes: int,
+    allowed_buckets: Optional[set],
+    storage_client=None,
+) -> Image.Image:
+    bucket_name, object_path = _parse_gcs_uri(source)
+
+    if allowed_buckets is not None and bucket_name not in allowed_buckets:
+        raise ValueError(
+            f"Bucket not allowed: {bucket_name}. Set ALLOWED_GCS_IMAGE_BUCKETS env if needed."
+        )
+
+    if storage_client is None:
+        if storage is None:
+            raise RuntimeError("google-cloud-storage is not installed.")
+        storage_client = storage.Client()
+
+    blob = storage_client.bucket(bucket_name).blob(object_path)
+    if hasattr(blob, "exists") and not blob.exists():
+        raise FileNotFoundError(f"GCS image does not exist: gs://{bucket_name}/{object_path}")
+
+    if hasattr(blob, "reload"):
+        blob.reload()
+    size = getattr(blob, "size", None)
+    if size is not None:
+        try:
+            blob_size = int(size)
+        except (TypeError, ValueError):
+            blob_size = None
+        if blob_size is not None and blob_size > max_bytes:
+            raise ValueError(f"Image too large (blob size: {blob_size} > {max_bytes}).")
+
+    data = blob.download_as_bytes()
+    if len(data) > max_bytes:
+        raise ValueError(f"Image too large (downloaded {len(data)} > {max_bytes}).")
+    return Image.open(BytesIO(data)).convert("RGB")
+
+
 def _load_image_from_url(
     url: str,
     *,
@@ -95,6 +220,9 @@ def _load_image_from_url(
     # https 권장(서버 운영 시 필수급)
     if not url.startswith("https://"):
         raise ValueError("Only https:// URLs are allowed for safety (server-friendly).")
+
+    if is_signed_or_sensitive_url(url):
+        raise ValueError("Sensitive or signed image URL is not allowed.")
 
     parsed = urlparse(url)
     host = (parsed.netloc or "").lower()
@@ -130,7 +258,13 @@ def _load_image_from_url(
     return img
 
 
-def _load_image_from_path(path: str) -> Image.Image:
+def _load_image_from_path(path: str, *, max_bytes: int = DEFAULT_MAX_IMAGE_BYTES) -> Image.Image:
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        size = None
+    if size is not None and size > max_bytes:
+        raise ValueError(f"Image too large (file size: {size} > {max_bytes}).")
     img = Image.open(path).convert("RGB")
     return img
 
@@ -141,15 +275,23 @@ def load_image_any(
     timeout: float = DEFAULT_HTTP_TIMEOUT,
     max_bytes: int = DEFAULT_MAX_IMAGE_BYTES,
     allowed_hosts: Optional[set] = _parse_allowed_hosts(DEFAULT_ALLOWED_HOSTS),
+    allowed_gcs_buckets: Optional[set] = _parse_allowed_buckets(DEFAULT_ALLOWED_GCS_IMAGE_BUCKETS),
 ) -> Image.Image:
     """
     source:
       - 로컬 파일 경로
       - https URL
+      - gs:// or gcs:// private GCS URI
     """
+    if source.startswith(("gs://", "gcs://")):
+        return _load_image_from_gcs(
+            source,
+            max_bytes=max_bytes,
+            allowed_buckets=allowed_gcs_buckets,
+        )
     if source.startswith("https://"):
         return _load_image_from_url(source, timeout=timeout, max_bytes=max_bytes, allowed_hosts=allowed_hosts)
-    return _load_image_from_path(source)
+    return _load_image_from_path(source, max_bytes=max_bytes)
 
 
 def l2_normalize(x: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
@@ -359,18 +501,18 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s1 = sub.add_parser("embed", help="Embed one or more images (returns batch embeddings).")
-    s1.add_argument("--image", nargs="+", required=True, help="Image sources: local path or https URL. (space-separated)")
+    s1.add_argument("--image", nargs="+", required=True, help="Image sources: local path, https URL, or gs:// private GCS URI. (space-separated)")
     s1.add_argument("--no-normalize", action="store_true", help="Disable L2 normalization.")
     s1.set_defaults(func=cmd_embed)
 
     s2 = sub.add_parser("embed_profile_mean", help="Embed multiple images and mean-pool into one profile vector.")
-    s2.add_argument("--image", nargs="+", required=True, help="Image sources: local path or https URL. (space-separated)")
+    s2.add_argument("--image", nargs="+", required=True, help="Image sources: local path, https URL, or gs:// private GCS URI. (space-separated)")
     s2.add_argument("--no-normalize", action="store_true", help="Disable L2 normalization.")
     s2.set_defaults(func=cmd_embed_profile_mean)
 
     s3 = sub.add_parser("pref", help="Compute preference vector from like/nope images.")
-    s3.add_argument("--like", nargs="+", required=True, help="Like image sources (local path or https URL).")
-    s3.add_argument("--nope", nargs="+", required=True, help="Nope image sources (local path or https URL).")
+    s3.add_argument("--like", nargs="+", required=True, help="Like image sources (local path, https URL, or gs:// private GCS URI).")
+    s3.add_argument("--nope", nargs="+", required=True, help="Nope image sources (local path, https URL, or gs:// private GCS URI).")
     s3.set_defaults(func=cmd_pref)
 
     return p

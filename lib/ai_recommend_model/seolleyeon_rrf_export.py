@@ -26,6 +26,11 @@ try:
 except Exception:  # pragma: no cover
     firestore = None
 
+from seolleyeon_rec_common_v3 import (
+    filter_recommendation_items_for_display_ready,
+    load_avatar_display_status_from_firestore,
+)
+
 
 DEFAULT_SOURCE_WEIGHTS: Dict[str, float] = {
     "clip": 1.0,
@@ -275,6 +280,14 @@ def main() -> int:
     # optional requirement
     p.add_argument("--required_sources", type=str, default="",
                    help="Comma-separated sources that must exist to export a user, e.g. clip")
+    p.add_argument("--require_approved_avatar_for_candidates", dest="require_approved_avatar_for_candidates", action="store_true")
+    p.add_argument("--no_require_approved_avatar_for_candidates", dest="require_approved_avatar_for_candidates", action="store_false")
+    p.set_defaults(require_approved_avatar_for_candidates=True)
+    p.add_argument("--avatar_required_for_display", dest="avatar_required_for_display", action="store_true")
+    p.add_argument("--no_avatar_required_for_display", dest="avatar_required_for_display", action="store_false")
+    p.set_defaults(avatar_required_for_display=True)
+    p.add_argument("--display_ready_users_collection", type=str, default="users")
+    p.add_argument("--allow_missing_avatar_candidates", action="store_true", default=False)
 
     args = p.parse_args()
     require_firestore()
@@ -283,14 +296,28 @@ def main() -> int:
     source_names = [s.strip() for s in args.sources.split(",") if s.strip()]
     required_sources = {s.strip() for s in args.required_sources.split(",") if s.strip()}
     source_weights = parse_source_weights_json(args.source_weights_json)
+    require_approved_avatar = (
+        bool(args.require_approved_avatar_for_candidates)
+        and bool(args.avatar_required_for_display)
+        and not bool(args.allow_missing_avatar_candidates)
+    )
 
     db = firestore.Client(project=args.firestore_project, database=args.firestore_database)
+    display_status: Dict[str, Dict[str, Any]] = {}
+    if require_approved_avatar:
+        display_status = load_avatar_display_status_from_firestore(
+            args.firestore_project,
+            users_collection=args.display_ready_users_collection,
+            database=args.firestore_database,
+        )
+        print(f"[display] loaded avatar display status for {len(display_status):,} users")
 
     user_ids = [doc.id for doc in db.collection("modelRecs").list_documents()]
     print(f"[RRF] scanning users in modelRecs: {len(user_ids):,}")
 
     recs_to_export: Dict[str, List[Dict[str, Any]]] = {}
     merge_meta_by_uid: Dict[str, Dict[str, Any]] = {}
+    candidate_skip_reasons_by_uid: Dict[str, Dict[str, int]] = {}
 
     for uid in user_ids:
         source_docs: Dict[str, Dict[str, Any]] = {}
@@ -318,12 +345,22 @@ def main() -> int:
             topn=int(args.topn),
         )
 
-        if not merged:
+        filtered, skipped = filter_recommendation_items_for_display_ready(
+            merged,
+            display_status,
+            require_approved_avatar=require_approved_avatar,
+        )
+        if skipped:
+            candidate_skip_reasons_by_uid[uid] = skipped
+        for rank, item in enumerate(filtered, start=1):
+            item["rank"] = rank
+
+        if not filtered:
             continue
         if len(merge_meta.get("usedSources", [])) < int(args.min_sources_per_user):
             continue
 
-        recs_to_export[uid] = merged
+        recs_to_export[uid] = filtered
         merge_meta_by_uid[uid] = merge_meta
 
     print(f"[export] prepared RRF docs: {len(recs_to_export):,}")
@@ -354,6 +391,7 @@ def main() -> int:
             "topN": len(items),
             "items": items,
             "merge": merge_meta_by_uid.get(uid, {}),
+            "candidateSkipReasons": candidate_skip_reasons_by_uid.get(uid, {}),
         }
         bw.set(doc_ref, payload, merge=True)
 

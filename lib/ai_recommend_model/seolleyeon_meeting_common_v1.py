@@ -22,7 +22,12 @@ except Exception:  # pragma: no cover
     FieldFilter = None
 
 from seolleyeon_clip_embedder import SeolleyeonCLIPEmbedder
-from seolleyeon_rec_common_v3 import parse_firestore_like_ts
+from seolleyeon_rec_common_v3 import (
+    extract_display_avatar_url,
+    load_users_with_private_source_photos_from_docs,
+    parse_firestore_like_ts,
+    redact_private_image_ref,
+)
 
 
 KST = timezone(timedelta(hours=9))
@@ -71,7 +76,7 @@ def _json_safe_mapping(data: Mapping[str, Any]) -> Dict[str, Any]:
 
 def _json_safe_value(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
+        return redact_private_image_ref(value)
     if isinstance(value, datetime):
         if value.tzinfo is None:
             value = value.replace(tzinfo=UTC)
@@ -261,13 +266,8 @@ def _coerce_age_bound(value: Any) -> Optional[int]:
     return parsed if parsed > 0 else None
 
 
-def _extract_photo_urls(user_doc: Mapping[str, Any]) -> List[str]:
-    onboarding = user_doc.get("onboarding")
-    if isinstance(onboarding, Mapping):
-        urls = coerce_str_list(onboarding.get("photoUrls"))
-        if urls:
-            return urls
-    return coerce_str_list(user_doc.get("photoUrls"))
+def _extract_private_source_photo_refs(uid: str, private_media_doc: Mapping[str, Any]) -> List[str]:
+    return load_users_with_private_source_photos_from_docs({uid: dict(private_media_doc)}).get(uid, [])
 
 
 def _extract_tags(
@@ -311,6 +311,8 @@ class MemberProfileView:
     last_active_at: Optional[datetime]
     interest_tag_ids: List[str]
     lifestyle_tag_ids: List[str]
+    display_avatar_url: str
+    source_photo_refs: List[str]
     photo_urls: List[str]
 
 
@@ -318,6 +320,7 @@ def build_member_profile_view(
     uid: str,
     profile_doc: Optional[Mapping[str, Any]],
     user_doc: Optional[Mapping[str, Any]],
+    private_media_doc: Optional[Mapping[str, Any]] = None,
 ) -> MemberProfileView:
     profile_doc = profile_doc or {}
     user_doc = user_doc or {}
@@ -391,7 +394,8 @@ def build_member_profile_view(
         onboarding_keys=("lifestyleTagIds", "keywords"),
         user_keys=("lifestyleTagIds", "keywords"),
     )
-    photo_urls = _extract_photo_urls(user_doc)
+    display_avatar_url = extract_display_avatar_url(dict(user_doc))
+    source_photo_refs = _extract_private_source_photo_refs(uid, private_media_doc or {})
 
     return MemberProfileView(
         uid=uid,
@@ -408,7 +412,9 @@ def build_member_profile_view(
         last_active_at=last_active_at,
         interest_tag_ids=interest_tag_ids,
         lifestyle_tag_ids=lifestyle_tag_ids,
-        photo_urls=photo_urls,
+        display_avatar_url=display_avatar_url,
+        source_photo_refs=source_photo_refs,
+        photo_urls=source_photo_refs,
     )
 
 
@@ -583,6 +589,8 @@ def build_group_index_record(
         skip_reasons.append("member_not_active")
     if member_views and not all(view.is_profile_complete for view in member_views):
         skip_reasons.append("member_profile_incomplete")
+    if member_views and not all(view.display_avatar_url for view in member_views):
+        skip_reasons.append("missing_approved_avatar")
     if member_views and min(manners or [0.0]) < float(manner_min_threshold):
         skip_reasons.append("low_manner")
 

@@ -147,8 +147,6 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
-
     return Consumer<CommunityProvider>(
       builder: (context, provider, _) {
         final posts = provider.posts;
@@ -230,9 +228,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                     builder: (context) {
                                       final isDark =
                                           Theme.of(context).brightness ==
-                                              Brightness.dark;
-                                      final seol = Theme.of(context)
-                                          .extension<SeolThemeColors>()!;
+                                          Brightness.dark;
+                                      final seol = Theme.of(
+                                        context,
+                                      ).extension<SeolThemeColors>()!;
                                       final moreBg = isDark
                                           ? seol.cardSurface.withValues(
                                               alpha: 0.9,
@@ -258,18 +257,14 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                             decoration: BoxDecoration(
                                               color: moreBg,
                                               borderRadius:
-                                                  BorderRadius.circular(
-                                                20,
-                                              ),
+                                                  BorderRadius.circular(20),
                                               border: Border.all(
                                                 color: moreBorder,
                                               ),
                                               boxShadow: [
                                                 BoxShadow(
                                                   color: Colors.black
-                                                      .withValues(
-                                                    alpha: 0.05,
-                                                  ),
+                                                      .withValues(alpha: 0.05),
                                                   blurRadius: 8,
                                                   offset: const Offset(0, 2),
                                                 ),
@@ -342,11 +337,7 @@ class _BackgroundDecoration extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: isDark
-                  ? [
-                      seol.pink50,
-                      AppColorsDark.background,
-                      seol.purple50,
-                    ]
+                  ? [seol.pink50, AppColorsDark.background, seol.purple50]
                   : [
                       _AppColors.softPink,
                       Colors.white,
@@ -435,8 +426,7 @@ class _HeaderArea extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final seol = Theme.of(context).extension<SeolThemeColors>()!;
     final primary = Theme.of(context).colorScheme.primary;
-    final titleColor =
-        isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final titleColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
     final headerGlass = isDark
         ? seol.cardSurface.withValues(alpha: 0.75)
         : Colors.white.withValues(alpha: 0.7);
@@ -515,15 +505,13 @@ class _HeaderArea extends StatelessWidget {
                             color: isSelected
                                 ? (isDark ? seol.gray800 : _AppColors.textMain)
                                 : (isDark
-                                    ? seol.gray100.withValues(alpha: 0.85)
-                                    : Colors.white.withValues(alpha: 0.8)),
+                                      ? seol.gray100.withValues(alpha: 0.85)
+                                      : Colors.white.withValues(alpha: 0.8)),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                               color: isSelected
                                   ? Colors.transparent
-                                  : (isDark
-                                      ? seol.gray200
-                                      : Colors.white),
+                                  : (isDark ? seol.gray200 : Colors.white),
                             ),
                             boxShadow: [
                               BoxShadow(
@@ -545,8 +533,8 @@ class _HeaderArea extends StatelessWidget {
                                   : FontWeight.w500,
                               color: isSelected
                                   ? (isDark
-                                      ? AppColorsDark.background
-                                      : Colors.white)
+                                        ? AppColorsDark.background
+                                        : Colors.white)
                                   : titleColor,
                             ),
                           ),
@@ -656,12 +644,9 @@ class _PostCard extends StatelessWidget {
     final cardBg = isDark
         ? seol.cardSurface.withValues(alpha: 0.92)
         : _AppColors.cardBg;
-    final cardBorder =
-        isDark ? seol.gray200 : Colors.white;
-    final textMain =
-        isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
-    final textSub =
-        isDark ? AppColorsDark.textSecondary : _AppColors.textSub;
+    final cardBorder = isDark ? seol.gray200 : Colors.white;
+    final textMain = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final textSub = isDark ? AppColorsDark.textSecondary : _AppColors.textSub;
 
     return GestureDetector(
       onTap: () {
@@ -815,8 +800,7 @@ class _ActionIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final seol = Theme.of(context).extension<SeolThemeColors>()!;
-    final countColor =
-        isDark ? seol.sectionTitle : Colors.grey[500]!;
+    final countColor = isDark ? seol.sectionTitle : Colors.grey[500]!;
 
     return Row(
       children: [
@@ -845,19 +829,13 @@ class _EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primary = Theme.of(context).colorScheme.primary;
-    final titleColor =
-        isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
-    final subColor =
-        isDark ? AppColorsDark.textSecondary : _AppColors.textSub;
+    final titleColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final subColor = isDark ? AppColorsDark.textSecondary : _AppColors.textSub;
 
     return Center(
       child: Column(
         children: [
-          Icon(
-            CupertinoIcons.leaf_arrow_circlepath,
-            size: 44,
-            color: primary,
-          ),
+          Icon(CupertinoIcons.leaf_arrow_circlepath, size: 44, color: primary),
           const SizedBox(height: 12),
           Text(
             '아직 글이 없어요',
@@ -882,4 +860,3 @@ class _EmptyState extends StatelessWidget {
     );
   }
 }
-

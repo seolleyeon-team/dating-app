@@ -1,0 +1,1 @@
+"""Avatar model adapter implementations."""

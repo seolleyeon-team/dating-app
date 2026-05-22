@@ -13,6 +13,7 @@ import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/layouts/main_scaffold_args.dart';
 import '../../../utils/kakao_key_hash_util.dart';
+import '../services/kakao_login_firestore_bootstrap.dart';
 
 /// 카카오 인증 화면
 class KakaoAuthScreen extends StatefulWidget {
@@ -28,6 +29,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   final _storageService = StorageService();
   final _friendInviteService = FriendInviteService();
   final _userService = UserService();
+  late final KakaoLoginFirestoreBootstrap _firestoreBootstrap;
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -62,6 +64,10 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   @override
   void initState() {
     super.initState();
+    _firestoreBootstrap = KakaoLoginFirestoreBootstrap(
+      authService: _authService,
+      userService: _userService,
+    );
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -144,26 +150,6 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
     return true;
   }
 
-  Future<bool> _ensureUserShellIfMissing({
-    required String kakaoUserId,
-    required Map<String, dynamic> userInfo,
-  }) async {
-    final existedBeforeLogin = await _authService.kakaoUserExists(kakaoUserId);
-    if (existedBeforeLogin) {
-      return true;
-    }
-
-    await _userService.upsertKakaoUser(
-      kakaoUserId: kakaoUserId,
-      nickname: userInfo['nickname']?.toString(),
-      profileImageUrl: userInfo['profileImageUrl']?.toString(),
-      email: userInfo['email']?.toString(),
-    );
-
-    debugPrint('[KAKAO] recreated missing users/$kakaoUserId shell document');
-    return false;
-  }
-
   Future<void> _login() async {
     if (_isLoading) return;
 
@@ -181,12 +167,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       }
 
       await _storageService.saveKakaoUserId(kakaoUserId);
-      await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
-      final existedBeforeLogin = await _ensureUserShellIfMissing(
-        kakaoUserId: kakaoUserId,
-        userInfo: userInfo,
-      );
-      await _userService.setLastActivePlatform(
+      final existedBeforeLogin = await _firestoreBootstrap.bootstrap(
         kakaoUserId: kakaoUserId,
         platform: _currentPlatformLabel,
       );
@@ -346,12 +327,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         throw Exception('카카오 사용자 ID를 가져오지 못했습니다.');
       }
       await _storageService.saveKakaoUserId(kakaoUserId);
-      await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
-      final existedBeforeLogin = await _ensureUserShellIfMissing(
-        kakaoUserId: kakaoUserId,
-        userInfo: userInfo,
-      );
-      await _userService.setLastActivePlatform(
+      final existedBeforeLogin = await _firestoreBootstrap.bootstrap(
         kakaoUserId: kakaoUserId,
         platform: _currentPlatformLabel,
       );
