@@ -41,6 +41,9 @@ IDENTITY_MANIFEST_FILENAME = "identity_manifest.jsonl"
 COMPLETED_PENDING_FILENAME = "completed_pending_imagegen.jsonl"
 RESERVE_ACTIVATION_FILENAME = "reserve_activation_manifest.jsonl"
 RETRY_MANIFEST_FILENAME = "retry_manifest.jsonl"
+PENDING_JSON_EMPTY = "pending_json_empty"
+PENDING_JSON_ALL_ZERO = "pending_json_all_zero"
+PENDING_JSON_INVALID = "pending_json_invalid"
 
 ELIGIBLE_STATUSES = {
     "prepared",
@@ -109,6 +112,10 @@ def write_identity_manifest(root: Path | str | None, specs: Iterable[Mapping[str
                 "profileId": profile_id,
                 "gender": str(spec["gender"]),
                 "numericId": profile_number(profile_id),
+                "promptBuilderVersion": str(spec.get("promptBuilderVersion") or ""),
+                "promptTargetingVersion": str(spec.get("promptTargetingVersion") or ""),
+                "targetFaceType": str(spec.get("targetFaceType") or ""),
+                "targetLooksLevelBand": str(spec.get("targetLooksLevelBand") or ""),
                 "identityScope": "reserve" if is_reserve else "primary",
                 "isReserve": is_reserve,
                 "reserveStatus": "standby" if is_reserve else "",
@@ -138,13 +145,39 @@ def write_imagegen_queue(root: Path | str | None, rows: Iterable[Mapping[str, An
     return path
 
 
+def invalid_pending_payload(path: Path, reason: str, *, size_bytes: int = 0, detail: str = "") -> dict[str, Any]:
+    return {
+        "schemaVersion": "seolleyeon_pending_imagegen_invalid_v1",
+        "status": "invalid",
+        "resolved": False,
+        "invalid": True,
+        "reason": reason,
+        "pendingInvalidReason": reason,
+        "pendingPath": to_portable_path(path),
+        "sizeBytes": int(size_bytes),
+        "allZero": reason == PENDING_JSON_ALL_ZERO,
+        "detail": detail,
+    }
+
+
 def read_pending(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
-    text = path.read_text(encoding="utf-8-sig").strip()
+    raw = path.read_bytes()
+    if not raw:
+        return invalid_pending_payload(path, PENDING_JSON_EMPTY, size_bytes=0)
+    if all(byte == 0 for byte in raw):
+        return invalid_pending_payload(path, PENDING_JSON_ALL_ZERO, size_bytes=len(raw))
+    text = raw.decode("utf-8-sig", errors="replace").strip()
     if not text:
-        return None
-    return json.loads(text)
+        return invalid_pending_payload(path, PENDING_JSON_EMPTY, size_bytes=len(raw))
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return invalid_pending_payload(path, PENDING_JSON_INVALID, size_bytes=len(raw), detail=str(exc))
+    if not isinstance(payload, dict):
+        return invalid_pending_payload(path, PENDING_JSON_INVALID, size_bytes=len(raw), detail="pending JSON is not an object")
+    return payload
 
 
 def write_pending(path: Path, payload: Mapping[str, Any]) -> None:

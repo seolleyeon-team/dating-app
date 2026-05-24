@@ -59,6 +59,17 @@ Return exactly one JSON object with this shape:
       "observedFaceType": "cat_like|dog_like|hamster_like|bear_like|fox_like|deer_like|horse_like|mixed_neutral|unclear",
       "targetLooksLevelBand": "1.5-2.4|2.5-3.2|3.3-3.8|3.9-4.3|4.4-5.0|unknown",
       "observedLooksLevelBand": "1.5-2.4|2.5-3.2|3.3-3.8|3.9-4.3|4.4-5.0|unclear",
+      "targetHasEyewear": true,
+      "targetEyewearGroup": "none|glasses|unknown",
+      "targetEyewear": "none|thin_round_metal|black_acetate|soft_rectangular_metal|clear_frame|unknown",
+      "targetCanonicalEyewear": "none|thin_round_metal|black_acetate|soft_rectangular_metal|clear_frame|unknown",
+      "targetShotEyewearExpected": {
+        "face_card": "none|thin_round_metal|black_acetate|soft_rectangular_metal|clear_frame|unknown",
+        "silhouette_card": "none|thin_round_metal|black_acetate|soft_rectangular_metal|clear_frame|unknown",
+        "vibe_card": "none|thin_round_metal|black_acetate|soft_rectangular_metal|clear_frame|unknown"
+      },
+      "observedEyewearConsistency": "consistent|inconsistent|unclear",
+      "eyewearMismatchReason": "",
       "assetIds": {
         "face_card": "string|null",
         "silhouette_card": "string|null",
@@ -106,8 +117,21 @@ Evaluate:
 - hair color and broad hairstyle continuity, allowing normal styling variation
 - body/frame consistency where visible
 - whether the image feels like the same real student, not a newly generated unrelated person
+- whether the same canonical eyewear state is preserved across shots: glasses identities keep the same general frame type, and no-eyewear identities do not suddenly gain glasses unless explicit temporary-eyewear metadata allows it
+
+For fox_like identities, judge same-person and observed face type with clarified taxonomy:
+
+- `fox_like` means composed, restrained, slightly alert, with subtle narrow-eye or elongated-eye cues; it is not necessarily highly attractive and should not be upgraded in looks level just because the photo is clean.
+- Do not classify a restrained composed face as `dog_like` unless it clearly has warm/open/puppy-like approachability, rounder open eyes, and soft-cheek friendly warmth.
+- Do not classify a restrained composed face as `hamster_like` unless it clearly has compact rounded cute softness and small gentle proportions.
+- Use `mixed_neutral` only when no strong or clearly subtle type cue dominates; do not use it merely because fox_like cues are understated but visible.
+- Keep metadata mismatch strict for confident mismatch, but use `unclear`/`needs_review` rather than a confident rejection when taxonomy evidence is ambiguous.
 
 `faceToSilhouetteConsistency` and `faceToVibeConsistency` must be high enough for the identity to count. Do not hide uncertainty with a high score.
+
+Normal expression, gaze, pose, crop, clothing, or activity variation is acceptable when the same core facial anchors remain: face shape, eye impression, nose-mouth balance, skin tone, broad hairstyle/hair volume, grooming, apparent age range, and canonical eyewear/no-eyewear state. Reject or mark needs_review only when those anchors differ, are hidden, or are too small/far to compare. A vibe_card should be judged against the face_card as the canonical identity reference, not against identical expression or identical styling.
+
+If supplied metadata or assetQaDecisions indicate file QA is valid/passed/approved for all three assets, do not invent `file_qa_needs_review` as a reject reason. Use file-QA reasons only when an applied asset decision or explicit metadata field says file QA failed, missing, or needs_review. Same-person rejection reasons should be specific, e.g. `identity_mismatch_vibe_card`, `face_to_vibe_consistency_below_threshold`, `face_too_small_for_identity_match`, or `face_hidden_for_identity_match`.
 
 ## Asset Completeness
 
@@ -122,6 +146,7 @@ If a shot is missing, set its `assetDecisions` value to `missing`, include the s
 ## Decision Rules
 
 - `approved` only if all 3 shots are `approved` and `sameIdentity=true`.
+- `approved` only if eyewear is consistent with target metadata across all 3 approved assets.
 - `approved` only if `faceToSilhouetteConsistency >= 3.8`.
 - `approved` only if `faceToVibeConsistency >= 3.8`.
 - `needs_review` if identity consistency is uncertain.

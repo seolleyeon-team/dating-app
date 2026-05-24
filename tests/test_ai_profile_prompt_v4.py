@@ -151,10 +151,14 @@ class AiProfilePromptV4Tests(unittest.TestCase):
         self.assertIn(eyewear_text, prompts["face_card"])
         self.assertIn(eyewear_text, prompts["vibe_card"])
         self.assertIn(eyewear_text, prompts["silhouette_card"])
-        combined = "\n".join(prompts.values()).lower()
-        self.assertNotIn("sunglasses", combined)
-        self.assertNotIn("tinted lenses", combined)
-        self.assertNotIn("face-covering mask", combined)
+        positive = "\n".join(self.m.split_positive_and_negative_prompt(prompt)[0] for prompt in prompts.values()).lower()
+        negative = "\n".join(self.m.split_positive_and_negative_prompt(prompt)[1] for prompt in prompts.values()).lower()
+        self.assertNotIn("sunglasses", positive)
+        self.assertNotIn("tinted lenses", positive)
+        self.assertNotIn("face-covering mask", positive)
+        self.assertIn("sunglasses", negative)
+        self.assertIn("tinted lenses", negative)
+        self.assertIn("face-covering mask", negative)
 
     def test_no_glasses_prompt_does_not_add_positive_glasses(self):
         spec = next(spec for spec in self.full_specs if spec["accessories"]["eyewearGroup"] == "none")
@@ -178,7 +182,9 @@ class AiProfilePromptV4Tests(unittest.TestCase):
         self.assertIn(self.m.SEASON_VISUAL[spec["environment"]["season"]], vibe)
         self.assertIn("not a professional photoshoot", face)
         self.assertIn("no heavy winter coat hiding body shape", silhouette)
-        self.assertIn("not influencer content", vibe)
+        vibe_positive, vibe_negative = self.m.split_positive_and_negative_prompt(vibe)
+        self.assertIn("ordinary campus profile image", vibe_positive)
+        self.assertIn("influencer pose", vibe_negative)
 
     def test_season_prompt_constraints_remain_safe(self):
         winter = next(spec for spec in self.full_specs if spec["environment"]["season"] == "winter")
@@ -202,6 +208,26 @@ class AiProfilePromptV4Tests(unittest.TestCase):
         positive, _ = self.m.split_positive_and_negative_prompt(silhouette)
         self.assertIn(self.m.LOCATION_CATALOG["campus_walkway"]["scene"], positive)
         self.assertNotIn(self.m.LOCATION_CATALOG["small_exhibition"]["scene"], positive)
+
+    def test_vibe_mood_line_does_not_duplicate_location_scene(self):
+        spec = self.m.sample_spec("female", 10, seed=91)
+        spec["vibeActivity"] = "sitting in a quiet library lounge with a notebook and tablet on the table"
+        spec["location"] = deepcopy(self.m.LOCATION_CATALOG["local_park_near_campus"])
+        spec["location"]["locationType"] = "local_park_near_campus"
+
+        positive, _ = self.m.split_positive_and_negative_prompt(self.m.build_prompt(spec, "vibe_card"))
+        mood_section = positive.split("Mood and lifestyle:", 1)[1].split("Composition:", 1)[0].lower()
+        location_section = positive.split("Location:", 1)[1].split("Lighting and camera:", 1)[0].lower()
+
+        self.assertTrue(
+            any(activity.lower() in mood_section for activity in self.m.LOCATION_VIBE_ACTIVITIES["local_park_near_campus"])
+        )
+        self.assertNotIn("library lounge", mood_section)
+        self.assertNotIn("campus cafe", mood_section)
+        self.assertNotIn("campus path", mood_section)
+        self.assertNotIn("campus garden", mood_section)
+        self.assertIn("local park near campus", location_section)
+        self.assertEqual(positive.count("Location:"), 1)
 
     def test_positive_safety_scanner_distinguishes_negative_prompt(self):
         safe_negative = "Portrait in a campus cafe.\n\nAvoid: school uniform, swimsuit, bar, idol, influencer."
@@ -290,6 +316,8 @@ class AiProfilePromptV4Tests(unittest.TestCase):
             for col in (
                 "skinTone",
                 "eyewear",
+                "canonicalEyewear",
+                "shotEyewearExpected",
                 "season",
                 "locationType",
                 "fashionCategory",

@@ -14,6 +14,7 @@ from .config import (
     local_image_path,
     now_utc,
     pipeline_paths,
+    read_jsonl,
     rejected_attempt_path,
     to_portable_path,
     write_csv,
@@ -41,12 +42,65 @@ QA_FIELDS = (
     "updatedAt",
 )
 
+FILE_QA_FIELDS = (
+    "assetId",
+    "profileId",
+    "gender",
+    "shotType",
+    "qaStatus",
+    "visualQaStatus",
+    "localPath",
+    "finalPath",
+    "width",
+    "height",
+    "fileBytes",
+    "error",
+    "reasonCodes",
+    "updatedAt",
+)
+
 SUPPORTED_FORMATS = {"PNG", "JPEG", "JPG", "WEBP"}
 MIN_WIDTH = 512
 MIN_HEIGHT = 512
 MIN_FILE_BYTES = 1024
 MIN_ASPECT_RATIO = 0.55
 MAX_ASPECT_RATIO = 0.85
+CONTENT_SAMPLE_SIZE = (96, 144)
+NEAR_BLACK_MEAN_LUMA = 18.0
+NEAR_BLACK_DARK_FRACTION = 0.98
+LOW_DETAIL_STDDEV = 3.0
+LOW_DETAIL_CHANNEL_RANGE = 8
+
+
+def _image_content_reasons(path: Path) -> list[str]:
+    """Return deterministic file-level visual-content rejection reasons.
+
+    This intentionally does not try to perform semantic person detection. It only
+    catches hard file QA leaks that are structurally valid images but visually
+    unusable: all/near-black frames and flat near-empty canvases.
+    """
+    from PIL import Image, ImageStat
+
+    with Image.open(path) as content_image:
+        rgb = content_image.convert("RGB")
+        rgb.thumbnail(CONTENT_SAMPLE_SIZE)
+        gray = rgb.convert("L")
+        stat = ImageStat.Stat(gray)
+        extrema = gray.getextrema()
+        mean_luma = float(stat.mean[0]) if stat.mean else 0.0
+        stddev_luma = float(stat.stddev[0]) if stat.stddev else 0.0
+        histogram = gray.histogram()
+        total = max(1, sum(histogram))
+        dark_fraction = sum(histogram[: int(NEAR_BLACK_MEAN_LUMA) + 1]) / total
+        channel_extrema = rgb.getextrema()
+        max_channel_range = max((hi - lo) for lo, hi in channel_extrema)
+
+    reasons: list[str] = []
+    if mean_luma <= NEAR_BLACK_MEAN_LUMA or dark_fraction >= NEAR_BLACK_DARK_FRACTION:
+        reasons.append("near_black_or_no_visible_content")
+    elif stddev_luma < LOW_DETAIL_STDDEV and max_channel_range <= LOW_DETAIL_CHANNEL_RANGE and (extrema[1] - extrema[0]) <= LOW_DETAIL_CHANNEL_RANGE:
+        reasons.append("low_visual_detail_or_near_empty")
+    return reasons
 
 
 def _file_sha256(path: Path) -> str | None:
@@ -91,6 +145,8 @@ def inspect_image_detail(path: Path) -> dict[str, Any]:
             ratio = width / height
             if ratio < MIN_ASPECT_RATIO or ratio > MAX_ASPECT_RATIO:
                 reasons.append("bad_aspect_ratio")
+        if image_format in SUPPORTED_FORMATS and width >= MIN_WIDTH and height >= MIN_HEIGHT:
+            reasons.extend(_image_content_reasons(path))
         return {
             "ok": not reasons,
             "width": width,
@@ -202,6 +258,34 @@ def _manifest_integrity_issues(paths: Any, rows: list[dict[str, Any]]) -> dict[s
     return {asset_id: sorted(set(issues)) for asset_id, issues in issues_by_asset.items()}
 
 
+def _latest_rows_by_asset(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        asset_id = str(row.get("assetId") or "")
+        if asset_id:
+            latest[asset_id] = row
+    return latest
+
+
+def _file_complete_identity_rows(paths: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    latest_by_asset = _latest_rows_by_asset(rows)
+    by_profile: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in latest_by_asset.values():
+        profile_id = str(row.get("profileId") or "")
+        shot = str(row.get("shotType") or "")
+        if profile_id and shot in SHOT_ORDER:
+            by_profile.setdefault(profile_id, {})[shot] = row
+
+    selected: list[dict[str, Any]] = []
+    for profile_id in sorted(by_profile):
+        rows_by_shot = by_profile[profile_id]
+        if any(shot not in rows_by_shot for shot in SHOT_ORDER):
+            continue
+        if all(public_final_path(paths, rows_by_shot[shot]).exists() for shot in SHOT_ORDER):
+            selected.extend(rows_by_shot[shot] for shot in SHOT_ORDER)
+    return selected
+
+
 def qa_images(
     *,
     root: Path | str | None = None,
@@ -210,37 +294,79 @@ def qa_images(
     force: bool = False,
     approve_integrity_only: bool = False,
     copy_approved: bool = True,
+    only_file_complete_identities: bool = False,
+    asset_id: str | None = None,
+    force_empty: bool = False,
 ) -> dict[str, int]:
+    if approve_integrity_only:
+        raise ValueError("approve_integrity_only is disabled: file QA cannot approve assets or write visual QA manifests.")
     paths = pipeline_paths(root)
     ensure_base_dirs(paths)
     rows = load_generation_manifest(paths)
-    integrity_issues = _manifest_integrity_issues(paths, rows)
+    asset_scope = str(asset_id or "")
     default_statuses = {"recovered_pending_qa", "needs_manual_review"}
-    candidates = [
-        row
-        for row in rows
-        if (not shot_type or str(row.get("shotType")) == str(shot_type))
-        and (limit is not None or shot_type is not None or str(row.get("status") or "") in default_statuses)
-    ]
+    if asset_scope:
+        candidates = [row for row in rows if str(row.get("assetId") or "") == asset_scope]
+    elif only_file_complete_identities:
+        candidates = [
+            row
+            for row in _file_complete_identity_rows(paths, rows)
+            if not shot_type or str(row.get("shotType")) == str(shot_type)
+        ]
+    else:
+        candidates = [
+            row
+            for row in rows
+            if (not shot_type or str(row.get("shotType")) == str(shot_type))
+            and (limit is not None or shot_type is not None or str(row.get("status") or "") in default_statuses)
+        ]
     selected = candidates[:limit] if limit else candidates
+    if not selected and not force_empty:
+        counts = {
+            "checked": 0,
+            "approved": 0,
+            "file_qa_passed": 0,
+            "visual_qa_pending": 0,
+            "needs_manual_review": 0,
+            "rejected": 0,
+            "missing": 0,
+            "skipped_empty_scope": 1,
+        }
+        (paths.reports / "file_qa_report.json").parent.mkdir(parents=True, exist_ok=True)
+        summary = {
+            "counts": counts,
+            "rows": [],
+            "scope": {"assetId": asset_scope, "shotType": shot_type, "onlyFileCompleteIdentities": only_file_complete_identities},
+            "notWrittenReason": "empty_scope_without_force_empty",
+            "updatedAt": now_utc(),
+        }
+        (paths.reports / "file_qa_report.last_empty_scope.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        return counts
+    integrity_issues = _manifest_integrity_issues(paths, selected if only_file_complete_identities or asset_scope else rows)
     selected_ids = {str(row["assetId"]) for row in selected}
+    rows_to_check = selected if only_file_complete_identities else [row for row in rows if str(row["assetId"]) in selected_ids]
     report: list[dict[str, Any]] = []
     qa_manifest: list[dict[str, Any]] = []
-    vision_rows: list[dict[str, Any]] = []
-    counts = {"checked": 0, "approved": 0, "needs_manual_review": 0, "rejected": 0, "missing": 0}
+    counts = {
+        "checked": 0,
+        "approved": 0,
+        "file_qa_passed": 0,
+        "visual_qa_pending": 0,
+        "needs_manual_review": 0,
+        "rejected": 0,
+        "missing": 0,
+        "skipped_empty_scope": 0,
+    }
 
-    for row in rows:
+    for row in rows_to_check:
         if str(row["assetId"]) not in selected_ids:
             continue
         counts["checked"] += 1
+        path_keys = ("finalPath", "expectedFinalPath", "localPath", "rawPath") if only_file_complete_identities else ("localPath", "rawPath", "finalPath")
         local_path = next(
             (
                 path
-                for path in (
-                    Path(str(row.get("localPath") or "")),
-                    Path(str(row.get("rawPath") or "")),
-                    Path(str(row.get("finalPath") or "")),
-                )
+                for path in (Path(str(row.get(key) or "")) for key in path_keys)
                 if str(path) not in {"", "."}
             ),
             Path(str(row.get("localPath") or "")),
@@ -261,9 +387,11 @@ def qa_images(
         )
         final_path = public_final_path(paths, row)
         qa_status = "file_needs_review"
+        visual_qa_status = "visual_qa_pending"
 
         if not ok or reason_codes:
             qa_status = "missing" if "missing_image" in reason_codes else "file_rejected"
+            visual_qa_status = "visual_qa_blocked"
             row["status"] = qa_status
             row["error"] = error
             if qa_status == "file_rejected" and local_path.exists():
@@ -271,16 +399,13 @@ def qa_images(
                 if force or not rejected_path.exists():
                     shutil.copy2(local_path, rejected_path)
             counts["missing" if qa_status == "missing" else "rejected"] += 1
-        elif approve_integrity_only:
-            qa_status = "file_passed"
-            if copy_approved:
-                for target in (approved_path, approved_mirror_path, final_path):
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    if force or not target.exists():
-                        shutil.copy2(local_path, target)
-            row["status"] = "file_passed"
+        elif ok:
+            qa_status = "file_qa_passed"
+            row["status"] = "file_qa_passed"
+            row["visualQaStatus"] = visual_qa_status
             row["error"] = ""
-            counts["approved"] += 1
+            counts["file_qa_passed"] += 1
+            counts["visual_qa_pending"] += 1
         else:
             row["status"] = "file_needs_review"
             row["error"] = "Integrity passed; visual policy QA still requires manual review."
@@ -298,6 +423,7 @@ def qa_images(
                 "gender": row["gender"],
                 "shotType": row["shotType"],
                 "qaStatus": qa_status,
+                "visualQaStatus": visual_qa_status,
                 "localPath": to_portable_path(local_path),
                 "approvedPath": to_portable_path(approved_path),
                 "rejectedPath": to_portable_path(rejected_path),
@@ -320,39 +446,52 @@ def qa_images(
                 "qaStage": "file_qa",
                 "decision": qa_status,
                 "status": qa_status,
+                "visualQaStatus": visual_qa_status,
+                "nextStatus": visual_qa_status,
                 "reasons": reason_codes or [row.get("error") or "file_integrity_passed_visual_verdict_required"],
                 "updatedAt": now_utc(),
             }
         )
-        if ok:
-            vision_rows.append(
-                {
-                    "assetId": row["assetId"],
-                    "profileId": row["profileId"],
-                    "shotType": row["shotType"],
-                    "adultVisual": True,
-                    "photoRealism": 0,
-                    "campusRealism": 0,
-                    "brandFit": 0,
-                    "influencerRisk": 0,
-                    "childlikeRisk": 0,
-                    "schoolUniformRisk": 0,
-                    "sexualizationRisk": 0,
-                    "artifactRisk": 0,
-                    "shotTypeReadable": False,
-                    "decision": "needs_review",
-                    "reasons": ["file_integrity_passed_manual_visual_policy_review_required"],
-                }
-            )
 
-    write_csv(paths.reports / "qa_report.csv", report, QA_FIELDS)
-    write_csv(paths.reports / "asset_qa_report.csv", report, QA_FIELDS)
-    write_jsonl(paths.manifests / "qa_manifest.jsonl", qa_manifest)
-    write_jsonl(paths.manifests / "asset_qa_manifest.jsonl", qa_manifest)
-    write_jsonl(paths.reports / "vision_qa_report.jsonl", vision_rows)
-    (paths.reports / "qa_summary.json").write_text(json.dumps(counts, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_csv(paths.reports / "file_qa_report.csv", report, FILE_QA_FIELDS)
+    manifest_path = paths.manifests / "file_qa_manifest.jsonl"
+    if asset_scope:
+        existing_qa = [row for row in read_jsonl(manifest_path) if str(row.get("assetId") or "") != asset_scope]
+        write_jsonl(manifest_path, existing_qa + qa_manifest)
+    else:
+        write_jsonl(manifest_path, qa_manifest)
+    (paths.reports / "file_qa_report.json").write_text(json.dumps({"counts": counts, "rows": report, "scope": {"assetId": asset_scope, "shotType": shot_type, "onlyFileCompleteIdentities": only_file_complete_identities}}, ensure_ascii=False, indent=2), encoding="utf-8")
     write_generation_outputs(paths, rows)
     return counts
+
+
+def audit_file_qa_leakage(*, root: Path | str | None = None) -> dict[str, Any]:
+    paths = pipeline_paths(root)
+    suspicious: list[dict[str, Any]] = []
+    visual_manifest = paths.manifests / "asset_qa_manifest.jsonl"
+    for row in read_jsonl(visual_manifest):
+        schema = str(row.get("schemaVersion") or "")
+        qa_stage = str(row.get("qaStage") or "")
+        visual_type = str(row.get("visualVerdictQaType") or "")
+        if qa_stage == "file_qa" or schema == "seolleyeon_file_qa_manifest_v3" or (schema and "asset_qa" not in schema and not visual_type):
+            suspicious.append(
+                {
+                    "assetId": row.get("assetId", ""),
+                    "profileId": row.get("profileId", ""),
+                    "reason": "file_qa_row_in_visual_asset_qa_manifest",
+                }
+            )
+    result = {
+        "schemaVersion": "seolleyeon_file_qa_leakage_audit_v3",
+        "assetQaManifest": to_portable_path(visual_manifest),
+        "suspiciousRows": suspicious,
+        "suspiciousCount": len(suspicious),
+        "passed": not suspicious,
+        "updatedAt": now_utc(),
+    }
+    paths.reports.mkdir(parents=True, exist_ok=True)
+    (paths.reports / "file_qa_leakage_audit.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    return result
 
 
 def promote_approved_assets(
@@ -394,6 +533,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--shot_type", choices=["face_card", "silhouette_card", "vibe_card"], default=None)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--force-empty", "--force_empty", dest="force_empty", action="store_true", default=False)
     parser.add_argument("--approve_integrity_only", action="store_true")
     parser.add_argument("--no_copy_approved", action="store_true")
     return parser
@@ -408,6 +548,7 @@ def main(argv: list[str] | None = None) -> int:
         force=args.force,
         approve_integrity_only=args.approve_integrity_only,
         copy_approved=not args.no_copy_approved,
+        force_empty=args.force_empty,
     )
     print(counts)
     return 0

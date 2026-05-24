@@ -26,6 +26,7 @@ PENDING_RECOVERY_RETRY_SLEEP="${PENDING_RECOVERY_RETRY_SLEEP:-3}"
 TURN_TIMEOUT_SECONDS="${TURN_TIMEOUT_SECONDS:-0}"
 SLEEP_BETWEEN_TURNS="${SLEEP_BETWEEN_TURNS:-15}"
 ALLOW_PROMOTE_BACK_TO_CHUNK="${ALLOW_PROMOTE_BACK_TO_CHUNK:-0}"
+ALLOW_LEGACY_SUPERVISOR_RALPH_FALLBACK="${ALLOW_LEGACY_SUPERVISOR_RALPH_FALLBACK:-0}"
 PROMOTE_AFTER_IDENTITY_SUCCESS_TICKS="${PROMOTE_AFTER_IDENTITY_SUCCESS_TICKS:-8}"
 MIN_DEFICIT_IDENTITIES_FOR_CHUNK="${MIN_DEFICIT_IDENTITIES_FOR_CHUNK:-24}"
 ASSET_NO_PROGRESS_THRESHOLD="${ASSET_NO_PROGRESS_THRESHOLD:-2}"
@@ -134,13 +135,9 @@ try_reconcile_manual_review_flag() {
   if ! manual_review_check; then
     return 0
   fi
-  log "manual review flag exists; attempting safe bounded-chunk reconcile"
-  run_logged "$PYTHON_BIN" scripts/run_ai_image_pipeline_v3.py bounded-chunk-reconcile --root . --apply --clear-manual-flag-if-safe || true
-  if ! manual_review_check; then
-    log "manual review flag cleared by safe reconcile"
-    return 0
-  fi
-  log "manual review flag still requires attention after reconcile attempt"
+  log "manual review flag exists; supervisor will not clear it or continue generation"
+  run_logged "$PYTHON_BIN" scripts/run_ai_image_pipeline_v3.py bounded-chunk-status --root . || true
+  log "recommended next step: bounded-chunk-reconcile --root . --dry-run, or bounded-chunk-reset --root . --archive-current --dry-run when reset has been recommended"
   return 2
 }
 
@@ -505,13 +502,9 @@ run_bounded_chunk_tick() {
   run_logged "$PYTHON_BIN" scripts/run_ai_image_pipeline_v3.py bounded-chunk-validate-plan --root .
   rc=$?
   if [ "$rc" -ne 0 ]; then
-    log "current bounded chunk plan is missing, dry-run, stale, or non-executable; creating a fresh production plan"
-    run_logged "$PYTHON_BIN" scripts/run_ai_image_pipeline_v3.py bounded-chunk-plan --root . --production --force-replan --abandon-current
-    rc=$?
-    if [ "$rc" -ne 0 ]; then
-      log "bounded production plan creation failed rc=$rc"
-      return "$rc"
-    fi
+    log "current bounded chunk plan is missing, dry-run, stale, or non-executable; supervisor stops before generation"
+    run_logged "$PYTHON_BIN" scripts/run_ai_image_pipeline_v3.py bounded-chunk-status --root . || true
+    return "$rc"
   fi
 
   run_logged "$PYTHON_BIN" scripts/run_ai_image_pipeline_v3.py bounded-chunk-run --root .
@@ -680,9 +673,15 @@ main() {
       run_chunk_loop "$MAX_CHUNKS" 0
       ;;
     identity)
+      if [ "$ALLOW_LEGACY_SUPERVISOR_RALPH_FALLBACK" != "1" ]; then
+        stop_now 2 "MODE=identity is disabled by default; production supervisor may only use bounded executor routes"
+      fi
       run_identity_loop
       ;;
     asset)
+      if [ "$ALLOW_LEGACY_SUPERVISOR_RALPH_FALLBACK" != "1" ]; then
+        stop_now 2 "MODE=asset is disabled by default; production supervisor may only use bounded executor routes"
+      fi
       run_asset_loop
       ;;
     auto)
@@ -696,8 +695,8 @@ main() {
         if [ "$remaining" -gt 0 ]; then
           log "chunk mode verified; continuing up to $remaining additional chunks"
           if ! run_chunk_loop "$remaining" 0; then
-            log "post-verification chunk mode failed; falling back to identity mode"
-            log_mode_transition "chunk" "identity" "post_verification_chunk_failed"
+            log "post-verification chunk mode failed; stopping before legacy fallback"
+            exit 2
           fi
         fi
         if completion_check; then
@@ -705,16 +704,12 @@ main() {
           exit 0
         fi
       else
-        log "chunk mode did not pass unattended verification; falling back to identity mode"
-        log_mode_transition "chunk" "identity" "unattended_chunk_verification_failed"
+        log "chunk mode did not pass unattended verification; stopping before legacy fallback"
+        exit 2
       fi
 
-      if run_identity_loop; then
-        exit 0
-      fi
-      log "identity mode failed or stalled; falling back to asset mode"
-      log_mode_transition "identity" "asset" "identity_mode_failed_or_stalled"
-      run_asset_loop
+      log "auto mode finished bounded chunk attempts without completion; legacy identity/asset fallback disabled"
+      exit 1
       ;;
     *)
       stop_now 2 "unknown MODE=$MODE"

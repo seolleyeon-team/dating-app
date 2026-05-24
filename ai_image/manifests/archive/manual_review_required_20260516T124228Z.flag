@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "seolleyeon_active_visual_manual_review_v3",
+  "reason": "bounded_active_visual_qa_failed",
+  "details": {
+    "chunkId": "chunk_20260516T122149Z",
+    "error": "compact_visual_metadata_exceeds_prompt_budget: chunk_20260516T122149Z__chunk_20260516T122149Z_contact_sheet_female_face_card has 63927 chars; split the sheet before QA"
+  },
+  "updatedAt": "2026-05-16T12:29:58+00:00"
+}

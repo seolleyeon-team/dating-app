@@ -6,10 +6,12 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Mapping
 
-from .config import SHOT_ORDER, ensure_base_dirs, now_utc, pipeline_paths, to_portable_path, write_csv, write_jsonl
+from .config import SHOT_ORDER, ensure_base_dirs, now_utc, pipeline_paths, read_jsonl, to_portable_path, write_csv, write_jsonl
 from .distribution_targets import (
+    EYEWEAR_BUCKETS,
     FACE_TYPES,
     LOOKS_LEVEL_BANDS,
+    SEASONS,
     load_distribution_targets,
     normalize_face_type,
     target_face_type,
@@ -17,6 +19,7 @@ from .distribution_targets import (
     target_looks_level_band,
     validate_distribution_targets,
 )
+from .approval_evidence import evaluate_approved_identity_evidence
 from .retry_plan import APPROVED_STATUSES
 
 
@@ -37,7 +40,6 @@ COUNTABLE_LOOKS_BANDS = tuple(band for band in LOOKS_LEVEL_BANDS if band != "4.4
 VISUAL_DISTRIBUTION_AUDIT_CANDIDATES = (
     "visual_verdict/distribution_audit.json",
     "visual_verdict/latest_distribution_audit.json",
-    "visual_verdict/distribution_audit_apply.json",
 )
 
 
@@ -635,7 +637,7 @@ def _manual_flag_is_visual_distribution_only(flag: Path) -> bool:
     return False
 
 
-def audit_distribution(*, root: Path | str | None = None) -> dict[str, Any]:
+def audit_distribution(*, root: Path | str | None = None, write_outputs: bool = True) -> dict[str, Any]:
     paths = pipeline_paths(root)
     ensure_base_dirs(paths)
     targets = load_distribution_targets(root)
@@ -645,13 +647,17 @@ def audit_distribution(*, root: Path | str | None = None) -> dict[str, Any]:
     identity_rows, identity_errors = _read_json_records(paths.manifests / "identity_qa_manifest.jsonl", visual_key="identities")
     asset_rows, asset_errors = _read_json_records(paths.manifests / "asset_qa_manifest.jsonl", visual_key="assets")
     visual_distribution, visual_distribution_errors, visual_distribution_path = _visual_distribution_audit(paths)
+    visual_distribution_ignored_reasons: list[str] = []
+    if not visual_distribution_path and (paths.reports / "visual_verdict/distribution_audit_apply.json").exists():
+        visual_distribution_ignored_reasons.append("visual_distribution_audit_stale_after_identity_reapply")
     visual_json_errors = [*approved_errors, *identity_errors, *asset_errors, *visual_distribution_errors]
 
+    evidence = evaluate_approved_identity_evidence(root)
     approved_by_profile = _latest_by_key(approved_manifest_rows, "profileId")
     identity_by_profile = _latest_by_key(identity_rows, "profileId")
     assets_by_profile = group_by_profile(asset_rows)
     profile_ids = sorted(set(approved_by_profile) | set(identity_by_profile) | set(assets_by_profile))
-    identity_evaluations = [
+    visual_identity_evaluations = [
         evaluate_identity_from_visual_manifests(
             profile_id,
             identity_row=identity_by_profile.get(profile_id, {}),
@@ -660,11 +666,14 @@ def audit_distribution(*, root: Path | str | None = None) -> dict[str, Any]:
         )
         for profile_id in profile_ids
     ]
-    approved = [row for row in identity_evaluations if row["completeApproved"]]
+    identity_evaluations = evidence["evaluatedIdentities"] or visual_identity_evaluations
+    approved = [row for row in evidence["validIdentities"] if not row.get("isReserve")]
 
     gender_counts = Counter(str(row["gender"]) for row in approved)
     face_counts_global = Counter(str(row["countedFaceType"]) for row in approved)
     looks_counts_global = Counter(str(row["countedLooksLevelBand"]) for row in approved)
+    eyewear_counts_global = Counter(str(row.get("eyewearBucket") or "without_eyewear") for row in approved)
+    season_counts_global = Counter(str(row.get("season") or "") for row in approved)
     face_counts_by_gender = {
         gender: Counter(str(row["countedFaceType"]) for row in approved if row["gender"] == gender)
         for gender in ("female", "male")
@@ -673,13 +682,24 @@ def audit_distribution(*, root: Path | str | None = None) -> dict[str, Any]:
         gender: Counter(str(row["countedLooksLevelBand"]) for row in approved if row["gender"] == gender)
         for gender in ("female", "male")
     }
+    eyewear_counts_by_gender = {
+        gender: Counter(str(row.get("eyewearBucket") or "without_eyewear") for row in approved if row["gender"] == gender)
+        for gender in ("female", "male")
+    }
 
     report_rows: list[dict[str, Any]] = []
     report_rows.extend(_bucket_rows("global", "faceType", targets["faceTypeTargets"]["global"], face_counts_global, FACE_TYPES))
     report_rows.extend(_bucket_rows("global", "looksLevelBand", targets["looksLevelBandTargets"]["global"], looks_counts_global, LOOKS_LEVEL_BANDS))
+    if isinstance(targets.get("eyewearTargets"), Mapping):
+        report_rows.extend(_bucket_rows("global", "eyewear", targets["eyewearTargets"]["global"], eyewear_counts_global, EYEWEAR_BUCKETS))
+    if isinstance(targets.get("seasonTargets"), Mapping):
+        season_targets = targets["seasonTargets"].get("global", targets["seasonTargets"])
+        report_rows.extend(_bucket_rows("global", "season", season_targets, season_counts_global, SEASONS))
     for gender in ("female", "male"):
         report_rows.extend(_bucket_rows(gender, "faceType", targets["faceTypeTargets"][gender], face_counts_by_gender[gender], FACE_TYPES))
         report_rows.extend(_bucket_rows(gender, "looksLevelBand", targets["looksLevelBandTargets"][gender], looks_counts_by_gender[gender], LOOKS_LEVEL_BANDS))
+        if isinstance(targets.get("eyewearTargets"), Mapping):
+            report_rows.extend(_bucket_rows(gender, "eyewear", targets["eyewearTargets"][gender], eyewear_counts_by_gender[gender], EYEWEAR_BUCKETS))
 
     final_target = targets["finalTarget"]
     approved_complete_count = len(approved)
@@ -731,6 +751,35 @@ def audit_distribution(*, root: Path | str | None = None) -> dict[str, Any]:
         gender: _surplus_map(targets["looksLevelBandTargets"][gender], looks_counts_by_gender[gender], LOOKS_LEVEL_BANDS)
         for gender in ("female", "male")
     }
+    if isinstance(targets.get("eyewearTargets"), Mapping):
+        global_eyewear_counts = _count_map(eyewear_counts_global, EYEWEAR_BUCKETS)
+        global_eyewear_deficits = _deficit_map(targets["eyewearTargets"]["global"], eyewear_counts_global, EYEWEAR_BUCKETS)
+        global_eyewear_surpluses = _surplus_map(targets["eyewearTargets"]["global"], eyewear_counts_global, EYEWEAR_BUCKETS)
+        gender_eyewear_counts = {gender: _count_map(eyewear_counts_by_gender[gender], EYEWEAR_BUCKETS) for gender in ("female", "male")}
+        gender_eyewear_deficits = {
+            gender: _deficit_map(targets["eyewearTargets"][gender], eyewear_counts_by_gender[gender], EYEWEAR_BUCKETS)
+            for gender in ("female", "male")
+        }
+        gender_eyewear_surpluses = {
+            gender: _surplus_map(targets["eyewearTargets"][gender], eyewear_counts_by_gender[gender], EYEWEAR_BUCKETS)
+            for gender in ("female", "male")
+        }
+    else:
+        global_eyewear_counts = {}
+        global_eyewear_deficits = {}
+        global_eyewear_surpluses = {}
+        gender_eyewear_counts = {}
+        gender_eyewear_deficits = {}
+        gender_eyewear_surpluses = {}
+    if isinstance(targets.get("seasonTargets"), Mapping):
+        season_targets = targets["seasonTargets"].get("global", targets["seasonTargets"])
+        global_season_counts = _count_map(season_counts_global, SEASONS)
+        global_season_deficits = _deficit_map(season_targets, season_counts_global, SEASONS)
+        global_season_surpluses = _surplus_map(season_targets, season_counts_global, SEASONS)
+    else:
+        global_season_counts = {}
+        global_season_deficits = {}
+        global_season_surpluses = {}
 
     gender_identity_deficits = {
         "female": max(0, int(final_target["femaleApprovedIdentities"]) - int(gender_counts.get("female", 0))),
@@ -780,6 +829,15 @@ def audit_distribution(*, root: Path | str | None = None) -> dict[str, Any]:
         "genderLooksLevelBandCounts": gender_looks_counts,
         "genderLooksLevelBandDeficits": gender_looks_deficits,
         "genderLooksLevelBandSurpluses": gender_looks_surpluses,
+        "globalEyewearCounts": global_eyewear_counts,
+        "globalEyewearDeficits": global_eyewear_deficits,
+        "globalEyewearSurpluses": global_eyewear_surpluses,
+        "genderEyewearCounts": gender_eyewear_counts,
+        "genderEyewearDeficits": gender_eyewear_deficits,
+        "genderEyewearSurpluses": gender_eyewear_surpluses,
+        "globalSeasonCounts": global_season_counts,
+        "globalSeasonDeficits": global_season_deficits,
+        "globalSeasonSurpluses": global_season_surpluses,
     }
     visual_disagreements = _visual_disagreements(preliminary_audit, visual_distribution)
 
@@ -796,6 +854,8 @@ def audit_distribution(*, root: Path | str | None = None) -> dict[str, Any]:
         fail_conditions.append("maleApprovedIdentityCount_over_target")
     if counted_without_three_shots:
         fail_conditions.append("identity_counted_without_3_approved_shots")
+    if evidence["invalidApprovedIdentities"] or evidence["invalidApprovedAssets"]:
+        fail_conditions.append("approved_manifest_missing_file_backing")
     if visual_json_errors:
         fail_conditions.append("visual_verdict_json_invalid")
     if visual_disagreements:
@@ -804,7 +864,7 @@ def audit_distribution(*, root: Path | str | None = None) -> dict[str, Any]:
     passed = exact_distribution and exact_counts and not fail_conditions
     if passed:
         final_decision = "approved"
-    elif visual_json_errors or visual_disagreements or any(condition in fail_conditions for condition in ("bucket_surplus", "approved_4.4-5.0_identity")):
+    elif visual_json_errors or visual_disagreements or any(condition in fail_conditions for condition in ("bucket_surplus", "approved_4.4-5.0_identity", "approved_manifest_missing_file_backing")):
         final_decision = "needs_manual_review"
     elif any(int(row["deficit"]) > 0 for row in report_rows) or any(int(check["deficit"]) > 0 for check in count_checks.values()):
         final_decision = "needs_more_generation"
@@ -831,8 +891,14 @@ def audit_distribution(*, root: Path | str | None = None) -> dict[str, Any]:
         "countedWithoutThreeApprovedShots": counted_without_three_shots,
         "approvedIdentities": approved,
         "evaluatedIdentities": identity_evaluations,
+        "visualEvaluatedIdentities": visual_identity_evaluations,
+        "invalidApprovedIdentities": evidence["invalidApprovedIdentities"],
+        "invalidApprovedAssets": evidence["invalidApprovedAssets"],
+        "approvedManifestRows": evidence["approvedManifestRows"],
+        "approvedManifestRowsExcluded": len(evidence["invalidApprovedIdentities"]),
         "visualDistributionAuditPath": visual_distribution_path,
         "visualDistributionAuditDisagreements": visual_disagreements,
+        "visualDistributionAuditIgnoredReasons": visual_distribution_ignored_reasons,
         "visualJsonErrors": visual_json_errors,
         "failConditions": sorted(set(fail_conditions)),
         "exactDistributionMatch": exact_distribution,
@@ -841,17 +907,40 @@ def audit_distribution(*, root: Path | str | None = None) -> dict[str, Any]:
         "passed": passed,
         "updatedAt": now_utc(),
     }
-    (paths.reports / "distribution_audit.json").write_text(json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8")
-    (paths.reports / "latest_distribution_audit.json").write_text(json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8")
-    write_csv(paths.reports / "distribution_report.csv", report_rows, DISTRIBUTION_REPORT_FIELDS)
-    write_jsonl(paths.manifests / "approved_identity_manifest.jsonl", approved)
-    write_jsonl(paths.manifests / "rejected_identity_manifest.jsonl", [row for row in identity_evaluations if row["rejected"]])
-    write_jsonl(paths.manifests / "reserve_identity_manifest.jsonl", [row for row in identity_evaluations if row["isReserve"]])
+    if write_outputs:
+        (paths.reports / "distribution_audit.json").write_text(json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8")
+        (paths.reports / "latest_distribution_audit.json").write_text(json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_csv(paths.reports / "distribution_report.csv", report_rows, DISTRIBUTION_REPORT_FIELDS)
+        destructive_approved_wipe_blocked = bool(approved_manifest_rows) and not approved
+        if destructive_approved_wipe_blocked:
+            audit["manifestWriteGuards"] = {
+                "approvedIdentityManifestPreserved": True,
+                "reason": "computed_zero_approved_from_nonempty_manifest",
+                "previousApprovedIdentityRows": len(approved_manifest_rows),
+            }
+            (paths.reports / "distribution_audit.json").write_text(json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8")
+            (paths.reports / "latest_distribution_audit.json").write_text(json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8")
+        else:
+            write_jsonl(paths.manifests / "approved_identity_manifest.jsonl", approved)
+        rejected_by_profile = _latest_by_key(read_jsonl(paths.manifests / "rejected_identity_manifest.jsonl"), "profileId")
+        for row in identity_evaluations:
+            if row["rejected"]:
+                profile_id = str(row.get("profileId") or "")
+                if profile_id:
+                    rejected_by_profile[profile_id] = row
+        write_jsonl(paths.manifests / "rejected_identity_manifest.jsonl", [rejected_by_profile[key] for key in sorted(rejected_by_profile)])
+        write_jsonl(paths.manifests / "reserve_identity_manifest.jsonl", [row for row in identity_evaluations if row["isReserve"]])
     flag = paths.manifests / "manual_review_required.flag"
-    if visual_json_errors or visual_disagreements:
+    if write_outputs and (visual_json_errors or visual_disagreements):
         flag.write_text(json.dumps({"failConditions": audit["failConditions"], "visualJsonErrors": visual_json_errors, "visualDistributionAuditDisagreements": visual_disagreements}, ensure_ascii=False, indent=2), encoding="utf-8")
-    elif _manual_flag_is_visual_distribution_only(flag):
-        flag.unlink()
+    elif write_outputs and flag.exists():
+        try:
+            payload = json.loads(flag.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            payload = {}
+        stale_reasons = set(payload.get("failConditions") or []) | set(payload.get("failureReasons") or [])
+        if stale_reasons and stale_reasons <= {"python_visual_distribution_audit_disagree", "visual_verdict_json_invalid"}:
+            flag.unlink()
     return audit
 
 
@@ -862,12 +951,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--identity_manifest", default=None, help="Compatibility option; identity QA manifest path remains standardized.")
     parser.add_argument("--asset_qa_manifest", default=None, help="Compatibility option; asset QA manifest path remains standardized.")
     parser.add_argument("--out_dir", default=None, help="Compatibility option; reports are written under ai_image/reports.")
+    parser.add_argument("--read-only", "--read_only", dest="read_only", action="store_true", help="Compute without writing reports or manifest updates.")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    audit = audit_distribution(root=args.root)
+    audit = audit_distribution(root=args.root, write_outputs=not args.read_only)
     print(
         json.dumps(
             {

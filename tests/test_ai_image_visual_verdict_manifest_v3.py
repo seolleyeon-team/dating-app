@@ -5,8 +5,8 @@ from pathlib import Path
 
 
 class VisualVerdictManifestV3Tests(unittest.TestCase):
-    def _make_generation_rows(self, root: Path, profile: str = "female_001", *, shots=("face_card", "silhouette_card", "vibe_card")):
-        from scripts.ai_image_pipeline_v3.config import pipeline_paths
+    def _make_generation_rows(self, root: Path, profile: str = "female_001", *, shots=("face_card", "silhouette_card", "vibe_card"), backed: bool = True):
+        from scripts.ai_image_pipeline_v3.config import pipeline_paths, write_jsonl
         from scripts.ai_image_pipeline_v3.manifest import enrich_asset, write_generation_outputs
 
         paths = pipeline_paths(root)
@@ -28,6 +28,30 @@ class VisualVerdictManifestV3Tests(unittest.TestCase):
                 )
             )
         write_generation_outputs(paths, rows)
+        if backed:
+            from PIL import Image
+
+            write_jsonl(paths.manifests / "ai_profile_assets_v3.jsonl", rows)
+            file_qa_rows = []
+            for row in rows:
+                final_path = Path(row["finalPath"])
+                final_path.parent.mkdir(parents=True, exist_ok=True)
+                Image.new("RGB", (512, 768), color=(200, 200, 200)).save(final_path)
+                file_qa_rows.append(
+                    {
+                        "assetId": row["assetId"],
+                        "profileId": row["profileId"],
+                        "gender": row["gender"],
+                        "shotType": row["shotType"],
+                        "status": "file_qa_passed",
+                        "qaStatus": "file_qa_passed",
+                        "finalPath": row["finalPath"],
+                        "imagePath": row["finalPath"],
+                        "promptHash": row.get("promptHash", ""),
+                        "promptTargetingVersion": row.get("promptTargetingVersion", ""),
+                    }
+                )
+            write_jsonl(paths.manifests / "file_qa_manifest.jsonl", file_qa_rows)
         return paths, rows
 
     def _asset_review(self, asset: dict, **overrides):
@@ -282,6 +306,40 @@ class VisualVerdictManifestV3Tests(unittest.TestCase):
             self.assertEqual(audit["approvedCompleteIdentityCount"], 0)
             self.assertFalse(completion["passed"])
             self.assertIn("missing_visual_verdict", completion["failureReasons"])
+    def test_identity_apply_preserves_unrelated_existing_approved_manifest_rows(self):
+        from scripts.ai_image_pipeline_v3.config import pipeline_paths, write_jsonl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = pipeline_paths(root)
+            (paths.manifests).mkdir(parents=True, exist_ok=True)
+            write_jsonl(
+                paths.manifests / "approved_identity_manifest.jsonl",
+                [
+                    {
+                        "schemaVersion": "seolleyeon_approved_identity_manifest_v3",
+                        "profileId": "female_001",
+                        "gender": "female",
+                        "numericId": "001",
+                        "faceType": "deer_like",
+                        "looksLevelBand": "2.5-3.2",
+                        "observedFaceType": "deer_like",
+                        "observedLooksLevelBand": "2.5-3.2",
+                        "assetIds": {shot: f"female_001__{shot}__v001" for shot in ("face_card", "silhouette_card", "vibe_card")},
+                        "finalPaths": {},
+                        "finalCompleteIdentityDecision": "approved",
+                        "countsTowardDistribution": True,
+                    }
+                ],
+            )
+
+            self._make_generation_rows(root, profile="female_002")
+            self._apply_identity_reviews(root, [self._identity_review(profile="female_002", completeIdentityDecision="rejected", countsTowardDistribution=False)])
+            approved = [json.loads(line) for line in (paths.manifests / "approved_identity_manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+            rejected = [json.loads(line) for line in (paths.manifests / "rejected_identity_manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+
+            self.assertEqual([row["profileId"] for row in approved], ["female_001"])
+            self.assertEqual([row["profileId"] for row in rejected], ["female_002"])
 
 
 if __name__ == "__main__":

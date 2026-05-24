@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+
+def openai_image_api_allowed() -> bool:
+    return os.environ.get("ALLOW_OPENAI_IMAGE_API_FOR_AI_PROFILE") == "1"
 
 
 class OpenAIImageClient:
@@ -12,6 +17,11 @@ class OpenAIImageClient:
     """
 
     def __init__(self, *args: object, **kwargs: object) -> None:
+        if openai_image_api_allowed():
+            raise RuntimeError(
+                "ALLOW_OPENAI_IMAGE_API_FOR_AI_PROFILE=1 was set, but this compatibility shim still has no production route. "
+                "Use a separately reviewed implementation; bounded executor routes do not call this client."
+            )
         raise RuntimeError(
             "OpenAI Image API generation is disabled for this workflow. "
             "Use scripts/next_codex_imagegen_prompt_v3.py, built-in $imagegen, "

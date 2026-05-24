@@ -2,50 +2,48 @@
   "qaType": "seolleyeon_visual_verdict_identity_v3",
   "identities": [
     {
-      "profileId": "female_049",
+      "profileId": "female_020",
       "gender": "female",
-      "targetFaceType": "bear_like",
-      "observedFaceType": "bear_like",
+      "targetFaceType": "mixed_neutral",
+      "observedFaceType": "mixed_neutral",
       "targetLooksLevelBand": "3.3-3.8",
-      "observedLooksLevelBand": "2.5-3.2",
+      "observedLooksLevelBand": "3.3-3.8",
+      "targetHasEyewear": false,
+      "targetEyewearGroup": "none",
+      "targetEyewear": "none",
+      "targetCanonicalEyewear": "none",
+      "targetShotEyewearExpected": {
+        "face_card": "none",
+        "silhouette_card": "none",
+        "vibe_card": "none"
+      },
+      "observedEyewearConsistency": "consistent",
+      "eyewearMismatchReason": "",
       "assetIds": {
-        "face_card": "female_049__face_card__v001",
-        "silhouette_card": "female_049__silhouette_card__v001",
-        "vibe_card": "female_049__vibe_card__v001"
+        "face_card": "female_020__face_card__v001",
+        "silhouette_card": "female_020__silhouette_card__v001",
+        "vibe_card": "female_020__vibe_card__v001"
       },
       "assetDecisions": {
-        "face_card": "rejected",
-        "silhouette_card": "needs_review",
-        "vibe_card": "rejected"
+        "face_card": "approved",
+        "silhouette_card": "approved",
+        "vibe_card": "approved"
       },
       "faceToSilhouetteConsistency": 4.1,
-      "faceToVibeConsistency": 4.0,
+      "faceToVibeConsistency": 4.6,
       "sameIdentity": true,
-      "completeIdentityDecision": "rejected",
-      "countsTowardDistribution": false,
-      "failedShotTypes": [
-        "face_card",
-        "vibe_card"
-      ],
-      "retryShotTypes": [
-        "face_card",
-        "silhouette_card",
-        "vibe_card"
-      ],
-      "rejectReasons": [
-        "asset_rejected:face_card",
-        "asset_needs_review:silhouette_card",
-        "asset_rejected:vibe_card",
-        "metadata_mismatch:targetLooksLevelBand",
-        "metadata_mismatch:vibe_card_faceType"
-      ],
-      "notes": "All shots appear broadly same adult student, but asset QA rejects face and vibe for target metadata mismatch and silhouette remains uncertain."
+      "completeIdentityDecision": "approved",
+      "countsTowardDistribution": true,
+      "failedShotTypes": [],
+      "retryShotTypes": [],
+      "rejectReasons": [],
+      "notes": "All three approved assets read as the same adult no-eyewear identity with consistent neutral face type and looks band."
     }
   ],
   "summary": {
-    "approvedCompleteIdentities": 0,
+    "approvedCompleteIdentities": 1,
     "needsReviewIdentities": 0,
-    "rejectedIdentities": 1,
+    "rejectedIdentities": 0,
     "missingShotIdentities": 0,
     "identityMismatchCount": 0
   }

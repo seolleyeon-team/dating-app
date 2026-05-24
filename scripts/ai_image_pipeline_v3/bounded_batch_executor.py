@@ -15,8 +15,8 @@ from typing import Any, Callable, Mapping, Sequence
 
 from .active_visual_verdict_runner import run_active_visual_qa_all, write_manual_review_flag
 from .codex_imagegen import build_pending_payload, pending_path, read_pending, recover_pending_imagegen, write_pending
-from .config import MAX_ATTEMPTS, SHOT_ORDER, ensure_base_dirs, now_utc, pipeline_paths, read_jsonl, to_portable_path, write_jsonl
-from .contact_sheet import generate_chunk_contact_sheets, generate_grouped_contact_sheets, generate_identity_contact_sheets
+from .config import MAX_ATTEMPTS, SHOT_ORDER, ensure_base_dirs, now_utc, pipeline_paths, prompt_hash, read_jsonl, to_portable_path, write_jsonl
+from .contact_sheet import generate_chunk_contact_sheets, generate_grouped_contact_sheets, generate_identity_contact_sheets, generate_strict_chunk_contact_sheets
 from .distribution_audit import audit_distribution
 from .distribution_selection import select_distribution_buckets
 from .distribution_targets import target_face_type, target_looks_level_band
@@ -35,7 +35,8 @@ from .one_asset_transaction import (
 )
 from .pending_state import pending_is_resolved, pending_is_unresolved, pending_requires_recovery, resolved_pending_payload
 from .qa import inspect_image_detail
-from .retry_plan import APPROVED_STATUSES, attempt_count
+from .retry_plan import APPROVED_STATUSES, attempt_count, face_card_exhaustion
+from .prompt_source import load_prompt_module
 
 
 PLAN_SCHEMA_VERSION = "seolleyeon_bounded_chunk_plan_v3"
@@ -43,6 +44,7 @@ STATE_SCHEMA_VERSION = "seolleyeon_bounded_chunk_state_v3"
 REPORT_SCHEMA_VERSION = "seolleyeon_bounded_chunk_report_v3"
 ABANDONED_CHUNK_SCHEMA_VERSION = "seolleyeon_abandoned_chunk_manifest_v3"
 ASSET_QA_MANIFEST_SCHEMA_VERSION = "seolleyeon_asset_qa_manifest_v3"
+RESET_SCHEMA_VERSION = "seolleyeon_bounded_chunk_reset_v3"
 MAX_CHUNK_IDENTITIES = 24
 MAX_CHUNK_ASSETS = 72
 IMAGEGEN_RECOVERY_WAIT_SECONDS = 45.0
@@ -51,6 +53,7 @@ IMAGEGEN_RECOVERY_POLL_SECONDS = 1.5
 CHUNK_TERMINAL_STATUSES = {"finalized", "failed", "needs_manual_review"}
 EXECUTABLE_CHUNK_STATUSES = {"planned", "running", "generation_in_progress", "generation_paused"}
 ABANDONABLE_CHUNK_STATUSES = {"running", "generation_in_progress", "generation_paused", "failed"}
+RESETTABLE_CHUNK_STATUSES = {"needs_manual_review", "failed", "abandoned", "reset_required", "reset_recommended"}
 ASSET_TERMINAL_STATUSES = {
     "file_qa_passed",
     "visual_qa_approved",
@@ -71,6 +74,37 @@ RECOVERABLE_MANUAL_REVIEW_REASONS = {
     "bounded_recovery_failed",
     "unresolved_pending_imagegen",
 }
+RESET_MANIFEST_SNAPSHOT_FILES = (
+    "generation_manifest.jsonl",
+    "file_qa_manifest.jsonl",
+    "asset_qa_manifest.jsonl",
+    "identity_qa_manifest.jsonl",
+    "approved_identity_manifest.jsonl",
+    "rejected_identity_manifest.jsonl",
+    "needs_review_identity_manifest.jsonl",
+    "imagegen_queue.jsonl",
+    "asset_manifest.jsonl",
+    "identity_manifest.jsonl",
+    "ai_profile_assets_v3.jsonl",
+    "ai_profile_specs_v3.jsonl",
+)
+RESET_VISUAL_VERDICT_FILES = (
+    "asset_qa_latest.json",
+    "identity_qa_latest.json",
+    "distribution_audit_latest.json",
+    "asset_qa_apply_history.jsonl",
+    "identity_qa_apply_history.jsonl",
+    "distribution_audit_apply.json",
+)
+PLAN_TYPE_FULL_IDENTITY_GENERATION = "full_identity_generation"
+PLAN_TYPE_TARGETED_RETRY = "targeted_retry"
+PLAN_TYPE_PARTIAL_SALVAGE = "partial_salvage"
+PARTIAL_PLAN_TYPES = {PLAN_TYPE_TARGETED_RETRY, PLAN_TYPE_PARTIAL_SALVAGE}
+DEFAULT_REUSE_POLICY = {
+    "allowAssetReuse": False,
+    "allowSilhouetteReuseWithoutApprovedFaceAnchor": False,
+    "allowReuseFromRejectedIdentity": False,
+}
 
 
 class BoundedBatchExecutorError(RuntimeError):
@@ -88,6 +122,7 @@ class PlanValidationError(BoundedBatchExecutorError):
 class BoundedExecutorConfig:
     agent_cmd: str
     agent_mode: str
+    imagegen_surface: str
     timeout_sec: int
     max_asset_attempts: int
     allow_reserve_activation: bool
@@ -103,6 +138,9 @@ class BoundedExecutorConfig:
         agent_mode = str(values.get("BOUNDED_EXECUTOR_AGENT_MODE") or "exec").strip()
         if agent_mode != "exec":
             raise ValueError(f"Unsupported BOUNDED_EXECUTOR_AGENT_MODE: {agent_mode}")
+        imagegen_surface = str(values.get("BOUNDED_EXECUTOR_IMAGEGEN_SURFACE") or "parent").strip()
+        if imagegen_surface not in {"parent", "child"}:
+            raise ValueError(f"Unsupported BOUNDED_EXECUTOR_IMAGEGEN_SURFACE: {imagegen_surface}")
         reference_mode = str(values.get("BOUNDED_EXECUTOR_REFERENCE_MODE") or "path").strip()
         if reference_mode not in {"path", "image", "disabled"}:
             raise ValueError(f"Unsupported BOUNDED_EXECUTOR_REFERENCE_MODE: {reference_mode}")
@@ -115,6 +153,7 @@ class BoundedExecutorConfig:
         return cls(
             agent_cmd=str(values.get("BOUNDED_EXECUTOR_AGENT_CMD") or default_agent_cmd).strip() or default_agent_cmd,
             agent_mode=agent_mode,
+            imagegen_surface=imagegen_surface,
             timeout_sec=safe_timeout_sec,
             max_asset_attempts=int(values.get("BOUNDED_EXECUTOR_MAX_ASSET_ATTEMPTS") or str(MAX_ATTEMPTS)),
             allow_reserve_activation=str(values.get("BOUNDED_EXECUTOR_ALLOW_RESERVE_ACTIVATION") or "0") == "1",
@@ -409,6 +448,39 @@ def _target_looks(row: Mapping[str, Any]) -> str:
     return target_looks_level_band(row) or "unknown"
 
 
+def _normalize_has_eyewear_filter(value: Any) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text in {"1", "true", "yes", "y", "with", "with_eyewear", "glasses"}:
+        return True
+    if text in {"0", "false", "no", "n", "none", "without", "without_eyewear", "no_eyewear"}:
+        return False
+    raise ValueError(f"Unsupported has_eyewear filter: {value!r}")
+
+
+def _row_has_eyewear(row: Mapping[str, Any]) -> bool:
+    explicit = _normalize_has_eyewear_filter(row.get("hasEyewear"))
+    if explicit is not None:
+        return explicit
+    for key in ("eyewearGroup", "targetEyewearGroup", "shotEyewearExpected", "canonicalEyewear", "eyewear"):
+        text = str(row.get(key) or "").strip().lower()
+        if text and text not in {"none", "no_eyewear", "without_eyewear", "bare_face"}:
+            return True
+    return False
+
+
+def _row_eyewear_group(row: Mapping[str, Any]) -> str:
+    value = str(row.get("eyewearGroup") or row.get("targetEyewearGroup") or "").strip()
+    if value:
+        return value
+    return "glasses" if _row_has_eyewear(row) else "none"
+
+
 def _row_final_path(paths: Any, row: Mapping[str, Any]) -> Path:
     value = str(row.get("finalPath") or row.get("expectedFinalPath") or "")
     return Path(value).resolve() if value else public_final_path(paths, row)
@@ -431,6 +503,236 @@ def _asset_needs_generation(row: Mapping[str, Any]) -> bool:
     status = str(row.get("status") or "")
     if status in {"vision_approved", "identity_approved"} and _path_exists(row.get("finalPath")):
         return False
+    return True
+
+
+def _prompt_targeting_version(row: Mapping[str, Any]) -> str:
+    value = str(row.get("promptTargetingVersion") or "").strip()
+    if value:
+        return value
+    metadata = row.get("metadata")
+    if isinstance(metadata, Mapping):
+        return str(metadata.get("promptTargetingVersion") or "").strip()
+    return ""
+
+
+def _active_prompt_targeting_version() -> str:
+    module = load_prompt_module()
+    return str(getattr(module, "PROMPT_TARGETING_VERSION", "") or "").strip()
+
+
+def _prompt_evidence_matches_active_asset(active_row: Mapping[str, Any], evidence_row: Mapping[str, Any]) -> bool:
+    active_version = _prompt_targeting_version(active_row)
+    evidence_version = _prompt_targeting_version(evidence_row)
+    if active_version and evidence_version != active_version:
+        return False
+    active_hash = str(active_row.get("promptHash") or "")
+    evidence_hash = str(evidence_row.get("promptHash") or "")
+    if active_hash and evidence_hash != active_hash:
+        return False
+    return True
+
+
+def _active_asset_rows_by_id(root: Path | str | None = None) -> dict[str, dict[str, Any]]:
+    return {
+        str(row.get("assetId") or ""): dict(row)
+        for row in read_jsonl(asset_manifest_jsonl_path(root))
+        if row.get("assetId")
+    }
+
+
+def _active_generation_rows(root: Path | str | None = None) -> list[dict[str, Any]]:
+    active_assets = _active_asset_rows_by_id(root)
+    rows = load_generation_manifest(pipeline_paths(root))
+    if not active_assets:
+        return rows
+    return [
+        dict(row)
+        for row in rows
+        if str(row.get("assetId") or "") in active_assets
+        and _prompt_evidence_matches_active_asset(active_assets[str(row.get("assetId") or "")], row)
+    ]
+
+
+def _env_flag(name: str, default: str = "0") -> bool:
+    return str(os.environ.get(name) or default).strip() == "1"
+
+
+def _allow_partial_salvage_plan() -> bool:
+    return _env_flag("ALLOW_PARTIAL_SALVAGE_PLAN", "0")
+
+
+def _allow_reuse_from_rejected_identity() -> bool:
+    # This flag exists for explicit schema/config visibility, but the production
+    # safety policy is fail-closed: rejected identities are never reusable.
+    return False and _env_flag("ALLOW_REUSE_FROM_REJECTED_IDENTITY", "0")
+
+
+def _allow_silhouette_reuse_without_face_anchor() -> bool:
+    # This flag exists for explicit schema/config visibility, but the production
+    # safety policy is fail-closed: dependent shots always need an approved face.
+    return False and _env_flag("ALLOW_SILHOUETTE_REUSE_WITHOUT_FACE_ANCHOR", "0")
+
+
+def _normalize_decision(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    aliases = {
+        "asset_approved": "approved",
+        "visual_approved": "approved",
+        "vision_approved": "approved",
+        "identity_approved": "approved",
+        "file_qa_passed": "file_qa_passed",
+        "file_passed": "file_qa_passed",
+        "passed": "file_qa_passed",
+        "asset_needs_review": "needs_review",
+        "visual_needs_review": "needs_review",
+        "vision_needs_review": "needs_review",
+        "identity_needs_review": "needs_review",
+        "asset_rejected": "rejected",
+        "visual_rejected": "rejected",
+        "vision_rejected": "rejected",
+        "identity_rejected": "rejected",
+    }
+    return aliases.get(text, text)
+
+
+def _latest_by_key(rows: Sequence[Mapping[str, Any]], key: str) -> dict[str, dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        value = str(row.get(key) or "")
+        if value:
+            latest[value] = dict(row)
+    return latest
+
+
+def _asset_visual_decision(row: Mapping[str, Any]) -> str:
+    for key in ("finalDecision", "decision", "status", "visualDecision", "assetDecision"):
+        decision = _normalize_decision(row.get(key))
+        if decision:
+            return decision
+    return ""
+
+
+def _identity_qa_decision(row: Mapping[str, Any]) -> str:
+    for key in ("finalCompleteIdentityDecision", "completeIdentityDecision", "decision", "status"):
+        decision = _normalize_decision(row.get(key))
+        if decision:
+            return decision
+    return ""
+
+
+def _file_qa_passed(row: Mapping[str, Any]) -> bool:
+    for key in ("fileQaStatus", "fileQAStatus", "decision", "status", "qaStatus"):
+        if _normalize_decision(row.get(key)) == "file_qa_passed":
+            return True
+    return False
+
+
+def _generation_file_qa_passed(row: Mapping[str, Any]) -> bool:
+    if _file_qa_passed(row):
+        return True
+    status = str(row.get("status") or "").strip().lower()
+    visual_status = str(row.get("visualQaStatus") or row.get("visualQAStatus") or "").strip().lower()
+    return status == "file_needs_review" and visual_status in {"", "visual_qa_pending"}
+
+
+def _reuse_context(root: Path | str | None = None) -> dict[str, Any]:
+    paths = pipeline_paths(root)
+    asset_manifest_rows = read_jsonl(paths.manifests / "ai_profile_assets_v3.jsonl") + read_jsonl(paths.manifests / "asset_manifest.jsonl")
+    generation_rows = _active_generation_rows(root)
+    return {
+        "assetManifestByAssetId": _latest_by_key(asset_manifest_rows, "assetId"),
+        "generationByAssetId": _latest_by_key(generation_rows, "assetId"),
+        "fileQaByAssetId": _latest_by_key(read_jsonl(paths.manifests / "file_qa_manifest.jsonl"), "assetId"),
+        "assetQaByAssetId": _latest_by_key(read_jsonl(paths.manifests / "asset_qa_manifest.jsonl"), "assetId"),
+        "identityQaByProfileId": _latest_by_key(read_jsonl(paths.manifests / "identity_qa_manifest.jsonl"), "profileId"),
+        "abandonedProfileIds": {str(row.get("profileId") or "") for row in _abandoned_chunk_rows(root) if row.get("profileId")},
+    }
+
+
+def _reuse_context_mapping(context: Mapping[str, Any] | Path | str | None) -> Mapping[str, Any]:
+    if isinstance(context, Mapping):
+        return context
+    return _reuse_context(context)
+
+
+def _row_for_asset(context: Mapping[str, Any], asset_id: str) -> Mapping[str, Any]:
+    for key in ("assetManifestByAssetId", "generationByAssetId", "assetQaByAssetId"):
+        mapping = context.get(key)
+        if isinstance(mapping, Mapping) and isinstance(mapping.get(asset_id), Mapping):
+            return mapping[asset_id]
+    return {}
+
+
+def _asset_final_file_ok(row: Mapping[str, Any]) -> bool:
+    final_path = str(row.get("finalPath") or row.get("expectedFinalPath") or "")
+    if not final_path:
+        return False
+    detail = inspect_image_detail(Path(final_path))
+    return bool(detail.get("ok"))
+
+
+def is_asset_reusable_for_new_plan(asset_id: str, profile_id: str, shot_type: str, context: Mapping[str, Any] | Path | str | None) -> bool:
+    """Return whether a prior asset can be skipped in a new bounded production plan.
+
+    This is intentionally stricter than asset-level visual approval.  A rejected
+    identity poisons all of its assets for fresh production planning, and
+    dependent shots require a valid approved face-card anchor.
+    """
+    ctx = _reuse_context_mapping(context)
+    asset_manifest = ctx.get("assetManifestByAssetId") if isinstance(ctx.get("assetManifestByAssetId"), Mapping) else {}
+    if asset_id not in asset_manifest:
+        return False
+    active_asset = asset_manifest[asset_id]
+    generation_row = (ctx.get("generationByAssetId") or {}).get(asset_id, {}) if isinstance(ctx.get("generationByAssetId"), Mapping) else {}
+    if not generation_row or not _prompt_evidence_matches_active_asset(active_asset, generation_row):
+        return False
+    row = _row_for_asset(ctx, asset_id)
+    if str(row.get("profileId") or "") != profile_id or str(row.get("shotType") or "") != shot_type:
+        return False
+    if str(row.get("looksLevelBand") or target_looks_level_band(row) or "") == "4.4-5.0":
+        return False
+    if not _asset_final_file_ok(row):
+        return False
+    file_qa = (ctx.get("fileQaByAssetId") or {}).get(asset_id, {}) if isinstance(ctx.get("fileQaByAssetId"), Mapping) else {}
+    if file_qa and not _prompt_evidence_matches_active_asset(active_asset, file_qa):
+        return False
+    if not _file_qa_passed(file_qa):
+        return False
+    asset_qa = (ctx.get("assetQaByAssetId") or {}).get(asset_id, {}) if isinstance(ctx.get("assetQaByAssetId"), Mapping) else {}
+    if asset_qa and not _prompt_evidence_matches_active_asset(active_asset, asset_qa):
+        return False
+    if _asset_visual_decision(asset_qa) != "approved":
+        return False
+    if bool(asset_qa.get("metadataMismatch")):
+        return False
+    identity_qa = (ctx.get("identityQaByProfileId") or {}).get(profile_id, {}) if isinstance(ctx.get("identityQaByProfileId"), Mapping) else {}
+    identity_decision = _identity_qa_decision(identity_qa)
+    if identity_decision == "rejected":
+        return False
+    if identity_decision == "needs_review":
+        return False
+    if profile_id in set(ctx.get("abandonedProfileIds") or set()):
+        return False
+    if shot_type in DEPENDENT_SHOTS:
+        face_asset_id = f"{profile_id}__face_card__v001"
+        face_active_asset = asset_manifest.get(face_asset_id, {}) if isinstance(asset_manifest, Mapping) else {}
+        face_generation_row = (ctx.get("generationByAssetId") or {}).get(face_asset_id, {}) if isinstance(ctx.get("generationByAssetId"), Mapping) else {}
+        if not face_active_asset or not face_generation_row or not _prompt_evidence_matches_active_asset(face_active_asset, face_generation_row):
+            return False
+        face_row = _row_for_asset(ctx, face_asset_id)
+        face_file_qa = (ctx.get("fileQaByAssetId") or {}).get(face_asset_id, {}) if isinstance(ctx.get("fileQaByAssetId"), Mapping) else {}
+        face_asset_qa = (ctx.get("assetQaByAssetId") or {}).get(face_asset_id, {}) if isinstance(ctx.get("assetQaByAssetId"), Mapping) else {}
+        if face_file_qa and not _prompt_evidence_matches_active_asset(face_active_asset, face_file_qa):
+            return False
+        if face_asset_qa and not _prompt_evidence_matches_active_asset(face_active_asset, face_asset_qa):
+            return False
+        if not _asset_final_file_ok(face_row):
+            return False
+        if not _file_qa_passed(face_file_qa):
+            return False
+        if _asset_visual_decision(face_asset_qa) != "approved":
+            return False
     return True
 
 
@@ -602,6 +904,10 @@ def _materialize_asset(paths: Any, row: Mapping[str, Any], *, order: int, max_at
     attempt = int(row.get("attemptCount") or row.get("attempt") or 0)
     face_asset_id = f"{profile_id}__face_card__v001"
     final_path = _row_final_path(paths, row)
+    has_eyewear = _row_has_eyewear(row)
+    eyewear_group = _row_eyewear_group(row)
+    canonical_eyewear = str(row.get("canonicalEyewear") or row.get("eyewear") or ("none" if not has_eyewear else "")).strip()
+    shot_eyewear_expected = str(row.get("shotEyewearExpected") or canonical_eyewear or ("none" if not has_eyewear else "")).strip()
     return {
         "assetId": asset_id,
         "shotType": shot_type,
@@ -611,6 +917,16 @@ def _materialize_asset(paths: Any, row: Mapping[str, Any], *, order: int, max_at
         "maxAttempts": int(max_attempts),
         "prompt": prompt,
         "promptHash": str(row.get("promptHash") or ""),
+        "promptBuilderVersion": str(row.get("promptBuilderVersion") or ""),
+        "promptTargetingVersion": str(row.get("promptTargetingVersion") or ""),
+        "hasEyewear": has_eyewear,
+        "eyewearGroup": eyewear_group,
+        "eyewear": str(row.get("eyewear") or canonical_eyewear).strip(),
+        "canonicalEyewear": canonical_eyewear,
+        "eyewearConsistencyPolicy": str(row.get("eyewearConsistencyPolicy") or "").strip(),
+        "shotEyewearExpected": shot_eyewear_expected,
+        "temporaryEyewearAllowed": bool(row.get("temporaryEyewearAllowed")),
+        "temporaryEyewearApplied": bool(row.get("temporaryEyewearApplied")),
         "finalPath": to_portable_path(final_path),
         "rawPathPattern": to_portable_path(paths.raw / f"{asset_id}__attemptXX.png"),
         "legacyStoragePath": str(row.get("legacyStoragePath") or ""),
@@ -619,7 +935,125 @@ def _materialize_asset(paths: Any, row: Mapping[str, Any], *, order: int, max_at
     }
 
 
-def validate_chunk_plan(plan: Mapping[str, Any]) -> None:
+def _reuse_justification_map(plan: Mapping[str, Any]) -> dict[tuple[str, str], Mapping[str, Any]]:
+    values: list[Any] = list(plan.get("reuseJustifications") or [])
+    for identity in plan.get("identities", []) or []:
+        if isinstance(identity, Mapping):
+            values.extend(identity.get("reuseJustifications") or [])
+    result: dict[tuple[str, str], Mapping[str, Any]] = {}
+    for row in values:
+        if not isinstance(row, Mapping):
+            continue
+        profile_id = str(row.get("profileId") or "")
+        shot_type = str(row.get("shotType") or "")
+        if profile_id and shot_type:
+            result[(profile_id, shot_type)] = row
+    return result
+
+
+def _plan_missing_shots(plan: Mapping[str, Any]) -> list[dict[str, Any]]:
+    missing: list[dict[str, Any]] = []
+    for identity in plan.get("identities", []) or []:
+        if not isinstance(identity, Mapping):
+            continue
+        profile_id = str(identity.get("profileId") or "")
+        present = {str(asset.get("shotType") or "") for asset in identity.get("assets", []) or [] if isinstance(asset, Mapping)}
+        for shot_type in SHOT_ORDER:
+            if shot_type not in present:
+                missing.append({"profileId": profile_id, "shotType": shot_type, "assetId": f"{profile_id}__{shot_type}__v001"})
+    return missing
+
+
+def _validate_partial_plan_policy(
+    plan: Mapping[str, Any],
+    *,
+    root: Path | str | None = None,
+    selected_assets: int,
+) -> None:
+    identities = [identity for identity in plan.get("identities", []) or [] if isinstance(identity, Mapping)]
+    expected_assets = len(identities) * len(SHOT_ORDER)
+    declared_assets = int(plan.get("selectedAssetCount") or selected_assets)
+    if declared_assets != selected_assets:
+        raise PlanValidationError(
+            "selected_asset_count_mismatch",
+            "selectedAssetCount does not match the number of materialized plan assets.",
+            {"selectedAssetCount": declared_assets, "actualAssetCount": selected_assets},
+        )
+    missing = _plan_missing_shots(plan)
+    if not missing and selected_assets >= expected_assets:
+        return
+    reasons: list[str] = ["unsafe_partial_plan"]
+    if bool(plan.get("partialPlanAllowed")) is not True:
+        reasons.append("partial_plan_not_allowed")
+    if str(plan.get("planType") or "") not in PARTIAL_PLAN_TYPES:
+        reasons.append("partial_plan_not_allowed")
+    reuse_policy = plan.get("reusePolicy") if isinstance(plan.get("reusePolicy"), Mapping) else {}
+    if bool(reuse_policy.get("allowReuseFromRejectedIdentity")):
+        reasons.append("reuse_from_rejected_identity")
+    if bool(reuse_policy.get("allowSilhouetteReuseWithoutApprovedFaceAnchor")):
+        reasons.append("silhouette_reuse_without_approved_face_anchor")
+    justifications = _reuse_justification_map(plan)
+    context = _reuse_context(root) if root is not None else {}
+    partial_details: list[dict[str, Any]] = []
+    for item in missing:
+        profile_id = str(item["profileId"])
+        shot_type = str(item["shotType"])
+        justification = justifications.get((profile_id, shot_type), {})
+        detail = dict(item)
+        if not justification:
+            reasons.append("omitted_asset_without_reuse_justification")
+            if shot_type in DEPENDENT_SHOTS:
+                reasons.append("silhouette_reuse_without_approved_face_anchor")
+        else:
+            detail["reuseJustification"] = dict(justification)
+            if justification.get("allowed") is not True:
+                reasons.append("omitted_asset_without_reuse_justification")
+            if str(justification.get("identityQaStatus") or "") == "rejected":
+                reasons.append("reuse_from_rejected_identity")
+            if shot_type in DEPENDENT_SHOTS and justification.get("faceAnchorApproved") is not True:
+                reasons.append("silhouette_reuse_without_approved_face_anchor")
+            if str(justification.get("sourceChunkStatus") or "") in {"archived", "reset", "needs_manual_review"} and str(justification.get("reason") or "") != "operator_approved_reuse":
+                reasons.append("archived_chunk_asset_reuse_not_allowed")
+        if context:
+            identity_qa = (context.get("identityQaByProfileId") or {}).get(profile_id, {}) if isinstance(context.get("identityQaByProfileId"), Mapping) else {}
+            identity_decision = _identity_qa_decision(identity_qa)
+            detail["identityQaStatus"] = identity_decision or "none"
+            if identity_decision == "rejected":
+                reasons.append("reuse_from_rejected_identity")
+            if shot_type in DEPENDENT_SHOTS:
+                face_asset_id = f"{profile_id}__face_card__v001"
+                face_asset_qa = (context.get("assetQaByAssetId") or {}).get(face_asset_id, {}) if isinstance(context.get("assetQaByAssetId"), Mapping) else {}
+                face_file_qa = (context.get("fileQaByAssetId") or {}).get(face_asset_id, {}) if isinstance(context.get("fileQaByAssetId"), Mapping) else {}
+                face_anchor_approved = _asset_visual_decision(face_asset_qa) == "approved" and _file_qa_passed(face_file_qa)
+                detail["faceAnchorAssetId"] = face_asset_id
+                detail["faceAnchorApproved"] = face_anchor_approved
+                if not face_anchor_approved:
+                    reasons.append("silhouette_reuse_without_approved_face_anchor")
+        partial_details.append(detail)
+    unique_reasons = list(dict.fromkeys(reasons))
+    priority = [
+        "reuse_from_rejected_identity",
+        "silhouette_reuse_without_approved_face_anchor",
+        "omitted_asset_without_reuse_justification",
+        "partial_plan_not_allowed",
+        "archived_chunk_asset_reuse_not_allowed",
+        "selected_asset_count_mismatch",
+        "unsafe_partial_plan",
+    ]
+    reason_code = next((reason for reason in priority if reason in unique_reasons), unique_reasons[0])
+    raise PlanValidationError(
+        reason_code,
+        "Unsafe partial bounded chunk plan.",
+        {
+            "reasons": unique_reasons,
+            "partialIdentities": partial_details,
+            "selectedAssetCount": selected_assets,
+            "expectedAssetCount": expected_assets,
+        },
+    )
+
+
+def validate_chunk_plan(plan: Mapping[str, Any], *, root: Path | str | None = None) -> None:
     if plan.get("schemaVersion") != PLAN_SCHEMA_VERSION:
         raise PlanValidationError("current_plan_not_executable", f"Unexpected bounded chunk plan schema: {plan.get('schemaVersion')}")
     identities = plan.get("identities")
@@ -630,6 +1064,7 @@ def validate_chunk_plan(plan: Mapping[str, Any]) -> None:
     asset_ids: set[str] = set()
     final_paths: set[str] = set()
     selected_assets = 0
+    active_prompt_targeting_version = _active_prompt_targeting_version()
     for identity in identities:
         if not isinstance(identity, Mapping):
             raise PlanValidationError("current_plan_not_executable", "Bounded chunk plan identities[] must contain objects.")
@@ -638,6 +1073,14 @@ def validate_chunk_plan(plan: Mapping[str, Any]) -> None:
         assets = identity.get("assets")
         if not isinstance(assets, list):
             raise PlanValidationError("current_plan_not_executable", "Bounded chunk plan identity requires assets[].")
+        face_asset = next((asset for asset in assets if isinstance(asset, Mapping) and str(asset.get("shotType") or "") == "face_card"), {})
+        exhausted_face = face_card_exhaustion([face_asset], max_attempts=int(face_asset.get("maxAttempts") or plan.get("maxAttempts") or MAX_ATTEMPTS))
+        if exhausted_face:
+            raise PlanValidationError(
+                "face_card_max_attempts_exhausted",
+                f"Bounded chunk plan includes exhausted face_card asset: {exhausted_face['assetId']}",
+                {"reasons": ["face_card_max_attempts_exhausted"], "candidate": exhausted_face},
+            )
         sorted_assets = sorted(assets, key=lambda item: int(item.get("order") or 99))
         shot_order = [str(asset.get("shotType") or "") for asset in sorted_assets]
         if shot_order != sorted(shot_order, key=lambda shot: SHOT_ORDER.index(shot) if shot in SHOT_ORDER else 99):
@@ -664,8 +1107,21 @@ def validate_chunk_plan(plan: Mapping[str, Any]) -> None:
                 raise PlanValidationError("current_plan_not_executable", f"Missing prompt for bounded chunk asset: {asset_id}")
             if not asset.get("promptHash"):
                 raise PlanValidationError("current_plan_not_executable", f"Missing promptHash for bounded chunk asset: {asset_id}")
+            if active_prompt_targeting_version and str(asset.get("promptTargetingVersion") or "") != active_prompt_targeting_version:
+                raise PlanValidationError(
+                    "stale_prompt_targeting_version",
+                    f"Bounded chunk asset promptTargetingVersion does not match active prompt builder: {asset_id}",
+                    {
+                        "assetId": asset_id,
+                        "assetPromptTargetingVersion": str(asset.get("promptTargetingVersion") or ""),
+                        "activePromptTargetingVersion": active_prompt_targeting_version,
+                    },
+                )
+            if str(asset.get("promptHash") or "") != prompt_hash(str(asset.get("prompt") or "")):
+                raise PlanValidationError("stale_prompt_hash", f"promptHash does not match prompt for bounded chunk asset: {asset_id}", {"assetId": asset_id})
     if selected_assets > int(plan.get("maxAssets") or MAX_CHUNK_ASSETS):
         raise PlanValidationError("plan_asset_limit_exceeded", "Bounded chunk plan exceeds maxAssets.")
+    _validate_partial_plan_policy(plan, root=root, selected_assets=selected_assets)
 
 
 def _write_plan_and_state(root: Path | str | None, plan: Mapping[str, Any], *, archive_existing: bool = False) -> dict[str, Any]:
@@ -724,6 +1180,13 @@ def create_chunk_plan(
     abandon_current: bool = False,
     abandon_reason: str = "fresh_production_replan_after_distribution_audit",
     max_attempts: int = MAX_ATTEMPTS,
+    face_type: str | None = None,
+    looks_level_band: str | None = None,
+    gender: str | None = None,
+    has_eyewear: Any = None,
+    eyewear_group: str | None = None,
+    require_eyewear_mix: bool = False,
+    require_focused_match: bool = False,
 ) -> dict[str, Any]:
     paths = pipeline_paths(root)
     ensure_base_dirs(paths)
@@ -736,19 +1199,36 @@ def create_chunk_plan(
     replacement_chunk_id = _replacement_chunk_id(root)
     should_abandon_current = plan_mode == "production" and abandon_current and _current_chunk_abandonable(root)
     excluded_profiles = _current_plan_profile_ids(root) if should_abandon_current else set()
+    focus_face_type = str(face_type or "").strip()
+    focus_looks_level_band = str(looks_level_band or "").strip()
+    focus_gender = str(gender or "").strip()
+    try:
+        focus_has_eyewear = _normalize_has_eyewear_filter(has_eyewear)
+    except ValueError as exc:
+        raise PlanValidationError("invalid_focused_filter", str(exc), {"hasEyewear": has_eyewear}) from exc
+    focus_eyewear_group = str(eyewear_group or "").strip()
     selection = select_distribution_buckets(
         root=root,
         refresh_audit=refresh_audit,
         max_identities=max_identities,
         max_attempts=max_attempts,
         exclude_profile_ids=excluded_profiles,
+        face_type=face_type,
+        looks_level_band=looks_level_band,
+        gender=gender,
+        has_eyewear=focus_has_eyewear,
+        eyewear_group=eyewear_group,
+        require_eyewear_mix=require_eyewear_mix,
     )
+    allow_partial_salvage = plan_mode == "production" and _allow_partial_salvage_plan()
+    reuse_context = _reuse_context(root) if allow_partial_salvage else {}
     audit = _load_latest_audit(root)
     capacity = _capacity_from_audit(audit)
-    all_rows = load_generation_manifest(paths)
+    all_rows = _active_generation_rows(root)
     rows_by_profile = _group_by_profile(all_rows)
     selected: list[dict[str, Any]] = []
     selected_asset_count = 0
+    reuse_justifications: list[dict[str, Any]] = []
 
     for selected_identity in selection.get("selectedIdentities", []):
         profile_id = str(selected_identity.get("profileId") or "")
@@ -759,15 +1239,43 @@ def create_chunk_plan(
         gender = str(anchor.get("gender") or "")
         face_type = _target_face(anchor)
         looks_band = _target_looks(anchor)
+        identity_has_eyewear = _row_has_eyewear(anchor)
+        identity_eyewear_group = _row_eyewear_group(anchor)
         if gender not in {"female", "male"} or not _has_capacity(capacity, gender, face_type, looks_band):
             continue
         by_shot = {str(row.get("shotType") or ""): row for row in profile_rows}
         materialized_assets: list[dict[str, Any]] = []
+        identity_reuse_justifications: list[dict[str, Any]] = []
         for index, shot_type in enumerate(SHOT_ORDER, start=1):
             row = by_shot.get(shot_type)
             if not row:
                 raise BoundedBatchExecutorError(f"Selected identity lacks required shot {shot_type}: {profile_id}")
-            if _asset_needs_generation(row):
+            should_generate = True
+            if plan_mode == "dry_run":
+                should_generate = _asset_needs_generation(row)
+            elif allow_partial_salvage and is_asset_reusable_for_new_plan(str(row.get("assetId") or ""), profile_id, shot_type, reuse_context):
+                should_generate = False
+                asset_id = str(row.get("assetId") or "")
+                identity_qa = (reuse_context.get("identityQaByProfileId") or {}).get(profile_id, {}) if isinstance(reuse_context.get("identityQaByProfileId"), Mapping) else {}
+                face_asset_id = f"{profile_id}__face_card__v001" if shot_type in DEPENDENT_SHOTS else None
+                face_asset_qa = (reuse_context.get("assetQaByAssetId") or {}).get(face_asset_id or "", {}) if isinstance(reuse_context.get("assetQaByAssetId"), Mapping) else {}
+                justification = {
+                    "assetId": asset_id,
+                    "profileId": profile_id,
+                    "shotType": shot_type,
+                    "reason": "valid_face_anchor_salvage" if shot_type in DEPENDENT_SHOTS else "operator_approved_reuse",
+                    "fileQaPassed": True,
+                    "assetVisualQaApproved": True,
+                    "identityQaStatus": _identity_qa_decision(identity_qa) or "none",
+                    "faceAnchorAssetId": face_asset_id,
+                    "faceAnchorApproved": _asset_visual_decision(face_asset_qa) == "approved" if face_asset_id else True,
+                    "sourceChunkId": str(row.get("chunkId") or ""),
+                    "sourceChunkStatus": str(row.get("chunkStatus") or ""),
+                    "allowed": True,
+                }
+                reuse_justifications.append(justification)
+                identity_reuse_justifications.append(justification)
+            if should_generate:
                 materialized_assets.append(_materialize_asset(paths, row, order=index, max_attempts=max_attempts))
         if not materialized_assets:
             continue
@@ -783,13 +1291,66 @@ def create_chunk_plan(
                 "numericId": str(anchor.get("numericId") or _profile_number(profile_id)),
                 "targetFaceType": face_type,
                 "targetLooksLevelBand": looks_band,
+                "hasEyewear": identity_has_eyewear,
+                "eyewearGroup": identity_eyewear_group,
+                "eyewear": str(anchor.get("eyewear") or "").strip(),
+                "canonicalEyewear": str(anchor.get("canonicalEyewear") or "").strip(),
                 "source": source,
                 "status": "planned",
                 "assets": materialized_assets,
+                "reuseJustifications": identity_reuse_justifications,
             }
         )
         if len(selected) >= max_identities:
             break
+
+    focused_enabled = bool(
+        focus_face_type
+        or focus_looks_level_band
+        or focus_gender
+        or focus_has_eyewear is not None
+        or focus_eyewear_group
+        or require_eyewear_mix
+    )
+    if require_focused_match and focused_enabled:
+        focused_failures: list[dict[str, Any]] = []
+        for identity in selected:
+            if focus_face_type and str(identity.get("targetFaceType") or "") != focus_face_type:
+                focused_failures.append({"profileId": identity.get("profileId"), "reason": "face_type_mismatch"})
+            if focus_looks_level_band and str(identity.get("targetLooksLevelBand") or "") != focus_looks_level_band:
+                focused_failures.append({"profileId": identity.get("profileId"), "reason": "looks_level_band_mismatch"})
+            if focus_gender and str(identity.get("gender") or "") != focus_gender:
+                focused_failures.append({"profileId": identity.get("profileId"), "reason": "gender_mismatch"})
+            if focus_has_eyewear is not None and bool(identity.get("hasEyewear")) != focus_has_eyewear:
+                focused_failures.append({"profileId": identity.get("profileId"), "reason": "has_eyewear_mismatch"})
+            if focus_eyewear_group and str(identity.get("eyewearGroup") or "") != focus_eyewear_group:
+                focused_failures.append({"profileId": identity.get("profileId"), "reason": "eyewear_group_mismatch"})
+        if require_eyewear_mix and not (
+            any(bool(identity.get("hasEyewear")) for identity in selected)
+            and any(not bool(identity.get("hasEyewear")) for identity in selected)
+        ):
+            focused_failures.append({"reason": "eyewear_mix_missing"})
+        expected_assets = len(selected) * len(SHOT_ORDER)
+        if focused_failures or len(selected) < max_identities or selected_asset_count != expected_assets:
+            raise PlanValidationError(
+                "focused_selection_insufficient_candidates",
+                "Focused bounded chunk selection could not produce a complete strict-match plan.",
+                {
+                    "focusedFilters": {
+                        "faceType": focus_face_type,
+                        "looksLevelBand": focus_looks_level_band,
+                        "gender": focus_gender,
+                        "hasEyewear": focus_has_eyewear,
+                        "eyewearGroup": focus_eyewear_group,
+                        "requireEyewearMix": bool(require_eyewear_mix),
+                    },
+                    "selectedIdentityCount": len(selected),
+                    "requestedIdentityCount": max_identities,
+                    "selectedAssetCount": selected_asset_count,
+                    "expectedAssetCount": expected_assets,
+                    "focusedFailures": focused_failures,
+                },
+            )
 
     chunk_id = replacement_chunk_id
     plan = {
@@ -799,6 +1360,15 @@ def create_chunk_plan(
         "updatedAt": now_utc(),
         "dryRun": bool(dry_run),
         "planMode": plan_mode,
+        "planType": PLAN_TYPE_PARTIAL_SALVAGE if reuse_justifications else PLAN_TYPE_FULL_IDENTITY_GENERATION,
+        "partialPlanAllowed": bool(reuse_justifications),
+        "reusePolicy": {
+            **DEFAULT_REUSE_POLICY,
+            "allowAssetReuse": bool(reuse_justifications),
+            "allowSilhouetteReuseWithoutApprovedFaceAnchor": _allow_silhouette_reuse_without_face_anchor(),
+            "allowReuseFromRejectedIdentity": _allow_reuse_from_rejected_identity(),
+        },
+        "reuseJustifications": reuse_justifications,
         "executable": not dry_run,
         "status": "dry_run" if dry_run else "planned",
         "maxIdentities": max_identities,
@@ -806,6 +1376,18 @@ def create_chunk_plan(
         "selectedIdentityCount": len(selected),
         "selectedAssetCount": selected_asset_count,
         "selectionSource": "latest_distribution_audit",
+        "focusedSelection": {
+            "enabled": focused_enabled,
+            "faceType": focus_face_type,
+            "looksLevelBand": focus_looks_level_band,
+            "gender": focus_gender,
+            "hasEyewear": focus_has_eyewear,
+            "eyewearGroup": focus_eyewear_group,
+            "requireEyewearMix": bool(require_eyewear_mix),
+            "containsEyewearIdentity": any(bool(identity.get("hasEyewear")) for identity in selected),
+            "containsNoEyewearIdentity": any(not bool(identity.get("hasEyewear")) for identity in selected),
+            "strictFocusedMatch": bool(require_focused_match),
+        },
         "root": to_portable_path(paths.root),
         "targetsJson": to_portable_path(target_config_path(root)),
         "distributionAuditJson": to_portable_path(latest_distribution_audit_path(root)),
@@ -815,12 +1397,13 @@ def create_chunk_plan(
         "inputMtimes": _input_mtimes(root),
         "allowedBuckets": selection.get("allowedBuckets", []),
         "forbiddenBuckets": selection.get("forbiddenBuckets", []),
+        "skippedExhaustedCandidates": selection.get("skippedExhaustedCandidates", []),
         "remainingDeficitsAtPlanTime": _remaining_deficits(audit),
         "identities": selected,
         "initialProgress": _progress_snapshot(root),
     }
     plan["planHash"] = _plan_hash(plan)
-    validate_chunk_plan(plan)
+    validate_chunk_plan(plan, root=root)
     if plan_mode == "production" and not selected and not _completion_passed(root):
         flag = write_manual_review_flag(root, "no_deficit_assets_available", {"chunkId": chunk_id})
         raise PlanValidationError("no_deficit_assets_available", "Distribution deficits remain, but no eligible bounded chunk assets are available.", {"manualReviewFlag": to_portable_path(flag)})
@@ -977,9 +1560,13 @@ def validate_current_chunk_plan(*, root: Path | str | None = None, strict: bool 
         reasons.append("current_plan_not_executable")
         reason_code = reason_code or "current_plan_not_executable"
     try:
-        validate_chunk_plan(plan)
+        validate_chunk_plan(plan, root=root)
     except PlanValidationError as exc:
-        reasons.append(exc.reason_code)
+        detail_reasons = exc.details.get("reasons") if isinstance(exc.details, Mapping) else None
+        if isinstance(detail_reasons, Sequence) and not isinstance(detail_reasons, (str, bytes)):
+            reasons.extend(str(reason) for reason in detail_reasons)
+        else:
+            reasons.append(exc.reason_code)
         reason_code = reason_code or exc.reason_code
     manual_flag = pipeline_paths(root).manifests / "manual_review_required.flag"
     if manual_flag.exists():
@@ -1426,6 +2013,7 @@ def run_child_command_with_tree_timeout(
     errors: str | None = "replace",
     timeout: int | float | None = None,
     shell: bool = False,
+    env: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     if shell:
         raise ValueError("child commands must run with shell=False")
@@ -1440,6 +2028,7 @@ def run_child_command_with_tree_timeout(
         encoding=encoding,
         errors=errors,
         shell=False,
+        env=dict(env) if env is not None else None,
     )
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
@@ -1484,6 +2073,18 @@ def build_agent_args(
     return args
 
 
+def child_agent_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    values = dict(env or os.environ)
+    for key in (
+        "CODEX_SANDBOX_NETWORK_DISABLED",
+        "CODEX_DISABLE_TOOLS",
+        "CODEX_TOOLS_DISABLED",
+        "CODEX_IMAGEGEN_DISABLED",
+    ):
+        values.pop(key, None)
+    return values
+
+
 def build_one_asset_child_prompt(
     asset: Mapping[str, Any],
     *,
@@ -1492,7 +2093,7 @@ def build_one_asset_child_prompt(
 ) -> str:
     reference_rule = "- Use attached face_card as same-person reference.\n- The attached face_card image is the authoritative identity anchor.\n" if reference_path else ""
     return (
-        "Generate exactly one image using Codex internal Image Gen.\n\n"
+        "Invoke the built-in $imagegen tool exactly once to create one image using Codex internal Image Gen.\n\n"
         "Asset:\n"
         f"- assetId: {asset.get('assetId')}\n"
         f"- profileId: {asset.get('profileId')}\n"
@@ -1500,6 +2101,7 @@ def build_one_asset_child_prompt(
         f"- attempt: {asset.get('attempt')}\n\n"
         "Rules:\n"
         f"{reference_rule}"
+        "- Use $imagegen explicitly; do not answer with text-only planning.\n"
         "- Generate one image only.\n"
         "- Canvas geometry is mandatory: portrait 2:3 aspect ratio, ideally 1024x1536.\n"
         "- The image width must be roughly 55% to 85% of its height; avoid ultra-tall 9:19/phone-screenshot framing.\n"
@@ -1513,6 +2115,60 @@ def build_one_asset_child_prompt(
         "Mandatory output geometry reminder: portrait 2:3, ideally 1024x1536; width/height must be between 0.55 and 0.85 for file QA.\n\n"
         f"{generation_prompt}\n"
     )
+
+
+def _write_parent_imagegen_handoff(
+    root: Path | str | None,
+    plan: Mapping[str, Any],
+    pending_payload: Mapping[str, Any],
+    prompt: str,
+    *,
+    reference_path: Path | None = None,
+) -> dict[str, str]:
+    asset_id = str(pending_payload.get("assetId") or "")
+    attempt = int(pending_payload.get("attempt") or 0)
+    handoff_dir = chunk_report_dir(root, str(plan["chunkId"])) / "parent_imagegen_handoffs"
+    handoff_dir.mkdir(parents=True, exist_ok=True)
+    prompt_path = handoff_dir / f"{asset_id}_attempt{attempt}.prompt.txt"
+    report_path = handoff_dir / f"{asset_id}_attempt{attempt}.json"
+    parent_prompt = (
+        "Use the Codex built-in image_gen tool exactly once for this pending Seolleyeon asset.\n"
+        "Do not use OpenAI Image API, Batch API, or OPENAI_API_KEY.\n"
+        "After the image is generated, recover it according to pending-imagegen.json before continuing.\n\n"
+        f"pendingPath: {to_portable_path(pending_path(root))}\n"
+        f"assetId: {pending_payload.get('assetId')}\n"
+        f"profileId: {pending_payload.get('profileId')}\n"
+        f"shotType: {pending_payload.get('shotType')}\n"
+        f"attempt: {pending_payload.get('attempt')}\n"
+        f"expectedRawPath: {pending_payload.get('expectedRawPath')}\n"
+        f"expectedFinalPath: {pending_payload.get('expectedFinalPath')}\n"
+        f"referenceImagePath: {to_portable_path(reference_path) if reference_path else ''}\n\n"
+        "Image generation instruction for the parent surface:\n\n"
+        f"{prompt}\n"
+    )
+    prompt_path.write_text(parent_prompt, encoding="utf-8")
+    report = {
+        "schemaVersion": "seolleyeon_parent_imagegen_handoff_v1",
+        "chunkId": str(plan["chunkId"]),
+        "assetId": asset_id,
+        "profileId": str(pending_payload.get("profileId") or ""),
+        "shotType": str(pending_payload.get("shotType") or ""),
+        "attempt": attempt,
+        "pendingPath": to_portable_path(pending_path(root)),
+        "promptPath": to_portable_path(prompt_path),
+        "expectedRawPath": str(pending_payload.get("expectedRawPath") or ""),
+        "expectedFinalPath": str(pending_payload.get("expectedFinalPath") or ""),
+        "referenceImagePath": to_portable_path(reference_path) if reference_path else "",
+        "nextCommands": [
+            "Use the parent Codex/Hermes imagegen surface with the promptPath.",
+            "python scripts/run_ai_image_pipeline_v3.py pending-status --root .",
+            "python scripts/recover_pending_imagegen_v3.py --root .",
+            "python scripts/run_ai_image_pipeline_v3.py bounded-chunk-resume --root .",
+        ],
+        "createdAt": now_utc(),
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {"promptPath": to_portable_path(prompt_path), "reportPath": to_portable_path(report_path)}
 
 
 def build_one_asset_prompt(asset_row: Mapping[str, Any], pending_payload: Mapping[str, Any]) -> str:
@@ -1631,6 +2287,110 @@ def _update_generation_row_pending(root: Path | str | None, pending_payload: Map
             )
         updated.append(out)
     write_generation_outputs(paths, updated)
+
+
+def _restore_generation_row_after_infrastructure_failure(
+    root: Path | str | None,
+    *,
+    asset_id: str,
+    previous_attempt: int,
+    failed_attempt: int,
+    reason: str,
+    stdout_path: Path | None = None,
+    stderr_path: Path | None = None,
+) -> None:
+    paths = pipeline_paths(root)
+    rows = load_generation_manifest(paths)
+    updated: list[dict[str, Any]] = []
+    for row in rows:
+        out = dict(row)
+        if str(out.get("assetId") or "") == asset_id:
+            out.update(
+                {
+                    "status": "imagegen_infrastructure_blocked",
+                    "attempt": int(previous_attempt),
+                    "attemptCount": int(previous_attempt),
+                    "lastInfrastructureFailureAttempt": int(failed_attempt),
+                    "lastInfrastructureFailureReason": reason,
+                    "error": reason,
+                    "updatedAt": now_utc(),
+                }
+            )
+            if stdout_path is not None:
+                out["lastInfrastructureFailureStdoutLog"] = to_portable_path(stdout_path)
+            if stderr_path is not None:
+                out["lastInfrastructureFailureStderrLog"] = to_portable_path(stderr_path)
+        updated.append(out)
+    write_generation_outputs(paths, updated)
+
+
+def _block_for_imagegen_infrastructure_failure(
+    root: Path | str | None,
+    plan: dict[str, Any],
+    state: dict[str, Any],
+    *,
+    asset_id: str,
+    profile_id: str,
+    shot_type: str,
+    previous_attempt: int,
+    failed_attempt: int,
+    reason: str,
+    command: Sequence[str],
+    return_code: int,
+    stdout_path: Path | None = None,
+    stderr_path: Path | None = None,
+) -> None:
+    _replace_plan_asset(plan, asset_id, {"attempt": int(previous_attempt), "attemptCount": int(previous_attempt)})
+    _restore_generation_row_after_infrastructure_failure(
+        root,
+        asset_id=asset_id,
+        previous_attempt=previous_attempt,
+        failed_attempt=failed_attempt,
+        reason=reason,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
+    )
+    _clear_pending_after_failed_call(root, reason)
+    flag = write_manual_review_flag(
+        root,
+        "imagegen_infrastructure_failure",
+        {
+            "assetId": asset_id,
+            "profileId": profile_id,
+            "shotType": shot_type,
+            "failedAttempt": int(failed_attempt),
+            "preservedAttemptCount": int(previous_attempt),
+            "reason": reason,
+            "returnCode": int(return_code),
+            "stdoutLog": to_portable_path(stdout_path) if stdout_path is not None else "",
+            "stderrLog": to_portable_path(stderr_path) if stderr_path is not None else "",
+        },
+    )
+    _transition_asset(
+        root,
+        plan,
+        state,
+        asset_id,
+        "imagegen_infrastructure_blocked",
+        profile_id=profile_id,
+        shot_type=shot_type,
+        reason=reason,
+        command=command,
+        return_code=return_code,
+        output_path=to_portable_path(flag),
+    )
+    _append_event(
+        root,
+        str(plan["chunkId"]),
+        event_type="manual_review_flag_written",
+        profile_id=profile_id,
+        asset_id=asset_id,
+        shot_type=shot_type,
+        reason="imagegen_infrastructure_failure",
+        output_path=to_portable_path(flag),
+    )
+    _transition_chunk(root, plan, state, "needs_manual_review", reason="imagegen_infrastructure_failure")
+    raise BoundedBatchExecutorError("imagegen_infrastructure_failure")
 
 
 def _latest_generation_asset(root: Path | str | None, asset_id: str) -> dict[str, Any]:
@@ -1972,6 +2732,42 @@ def _file_qa_recovered_asset(
     return True
 
 
+def _sync_file_qa_passed_asset_from_manifest(
+    root: Path | str | None,
+    plan: dict[str, Any],
+    state: dict[str, Any],
+    *,
+    asset_id: str,
+    profile_id: str,
+    shot_type: str,
+    reason: str,
+) -> bool:
+    latest_row = _latest_generation_asset(root, asset_id)
+    final_path = str(latest_row.get("finalPath") or latest_row.get("expectedFinalPath") or "")
+    if not latest_row or not _generation_file_qa_passed(latest_row) or not _path_exists(final_path):
+        return False
+    attempt_count = int(latest_row.get("attemptCount") or latest_row.get("attempt") or 0)
+    updates: dict[str, Any] = {"status": "file_qa_passed"}
+    if attempt_count:
+        updates.update({"attempt": attempt_count, "attemptCount": attempt_count})
+    _replace_plan_asset(plan, asset_id, updates)
+    if str((state.get("assetStates") or {}).get(asset_id) or "") != "file_qa_passed":
+        _transition_asset(
+            root,
+            plan,
+            state,
+            asset_id,
+            "file_qa_passed",
+            profile_id=profile_id,
+            shot_type=shot_type,
+            reason=reason,
+            output_path=final_path,
+        )
+    else:
+        _save_plan_state(root, plan, state)
+    return True
+
+
 def _process_asset(
     root: Path | str | None,
     plan: dict[str, Any],
@@ -2007,6 +2803,16 @@ def _process_asset(
     generation_row = _latest_generation_asset(root, asset_id)
     if not generation_row:
         raise BoundedBatchExecutorError(f"Planned asset not found in generation manifest: {asset_id}")
+    if _sync_file_qa_passed_asset_from_manifest(
+        root,
+        plan,
+        state,
+        asset_id=asset_id,
+        profile_id=profile_id,
+        shot_type=shot_type,
+        reason="manifest_file_qa_passed_resume",
+    ):
+        return True
     existing_state = str((state.get("assetStates") or {}).get(asset_id) or "")
     if existing_state in {"imagegen_called", "recovered", "file_qa_failed"} and pending_is_resolved(read_pending(pending_path(root))):
         if _file_qa_recovered_asset(
@@ -2020,8 +2826,10 @@ def _process_asset(
             reason="resume_from_resolved_pending",
         ):
             return True
-    agent_bin = _resolve_agent_binary(config, root=root, which_func=which_func)
-    if reference_path is not None:
+    agent_bin = ""
+    if config.imagegen_surface == "child":
+        agent_bin = _resolve_agent_binary(config, root=root, which_func=which_func)
+    if reference_path is not None and config.imagegen_surface == "child":
         try:
             reference_image_arg_mode = _resolve_reference_image_arg_mode(
                 root,
@@ -2040,6 +2848,7 @@ def _process_asset(
 
     while current_attempt < max_attempts:
         _pending_guard(root, recover_func=recover_func)
+        previous_attempt = current_attempt
         current_attempt += 1
         _replace_plan_asset(plan, asset_id, {"attempt": current_attempt})
         pending_file = pending_path(root)
@@ -2066,8 +2875,6 @@ def _process_asset(
         _update_generation_row_pending(root, pending_payload)
         _transition_asset(root, plan, state, asset_id, "pending_imagegen", profile_id=profile_id, shot_type=shot_type, reason="pending_written")
 
-        child_guard = snapshot_forbidden_files(root)
-        child_backup = backup_forbidden_files(root, child_guard, chunk_id=str(plan["chunkId"]), asset_id=asset_id, attempt=current_attempt)
         generation_prompt = str(pending_payload.get("prompt") or "")
         prompt = build_one_asset_child_prompt(
             {
@@ -2079,6 +2886,23 @@ def _process_asset(
             generation_prompt=generation_prompt,
             reference_path=str(pending_payload.get("referenceImagePath") or "") or None,
         )
+        if config.imagegen_surface == "parent":
+            handoff = _write_parent_imagegen_handoff(root, plan, pending_payload, prompt, reference_path=reference_path)
+            _append_event(
+                root,
+                str(plan["chunkId"]),
+                event_type="parent_imagegen_handoff_written",
+                profile_id=profile_id,
+                asset_id=asset_id,
+                shot_type=shot_type,
+                reason="parent_managed_imagegen_required",
+                output_path=handoff["promptPath"],
+            )
+            _transition_chunk(root, plan, state, "generation_paused", reason="parent_managed_imagegen_required")
+            raise BoundedBatchExecutorError("parent_managed_imagegen_required")
+
+        child_guard = snapshot_forbidden_files(root)
+        child_backup = backup_forbidden_files(root, child_guard, chunk_id=str(plan["chunkId"]), asset_id=asset_id, attempt=current_attempt)
         workspace = child_workspace_path(root, str(plan["chunkId"]), asset_id, current_attempt)
         command = build_agent_args(
             prompt,
@@ -2107,11 +2931,12 @@ def _process_asset(
                 errors="replace",
                 timeout=config.timeout_sec,
                 shell=False,
+                env=child_agent_env(),
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             _mark_pending_imagegen_status(root, "imagegen_process_returned", processReturnedAt=now_utc(), processException=str(exc))
             _append_event(root, str(plan["chunkId"]), event_type="imagegen_child_returned", profile_id=profile_id, asset_id=asset_id, shot_type=shot_type, reason="agent_exception", return_code=127)
-            stdout_path, _stderr_path = _log_command_output(root, str(plan["chunkId"]), asset_id, current_attempt, "", str(exc), command)
+            stdout_path, stderr_path = _log_command_output(root, str(plan["chunkId"]), asset_id, current_attempt, "", str(exc), command)
             violations = detect_forbidden_mutations(root, child_guard)
             if violations:
                 _handle_child_forbidden_mutation(root, plan, state, asset_id=asset_id, profile_id=profile_id, shot_type=shot_type, violations=violations, backup=child_backup)
@@ -2160,21 +2985,21 @@ def _process_asset(
                     return True
             except Exception:
                 pass
-            _clear_pending_after_failed_call(root, "agent_command_failed_before_recovery")
-            _transition_asset(
+            _block_for_imagegen_infrastructure_failure(
                 root,
                 plan,
                 state,
-                asset_id,
-                "imagegen_called",
+                asset_id=asset_id,
                 profile_id=profile_id,
                 shot_type=shot_type,
-                reason="agent_exception",
+                previous_attempt=previous_attempt,
+                failed_attempt=current_attempt,
+                reason="imagegen_child_timeout_or_agent_exception_no_image",
                 command=command,
                 return_code=127,
-                output_path=to_portable_path(stdout_path),
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
             )
-            continue
 
         stdout_path, _stderr_path = _log_command_output(root, str(plan["chunkId"]), asset_id, current_attempt, result.stdout or "", result.stderr or "", command)
         _mark_pending_imagegen_status(root, "imagegen_process_returned", processReturnedAt=now_utc(), returnCode=int(result.returncode), stdoutLog=to_portable_path(stdout_path))
@@ -2477,13 +3302,13 @@ def run_bounded_chunk(
     ensure_base_dirs(paths)
     manual_flag = paths.manifests / "manual_review_required.flag"
     if manual_flag.exists():
-        auto_reconcile = _auto_reconcile_existing_manual_flag(root, file_qa_func=file_qa_func)
-        if manual_flag.exists():
-            status = {"status": "needs_manual_review", "manualReviewFlag": to_portable_path(manual_flag)}
-            if auto_reconcile.get("attempted"):
-                status["autoReconcile"] = auto_reconcile
-                status["reasonCode"] = str(auto_reconcile.get("reason") or "manual_review_required")
-            return status
+        return {
+            "status": "needs_manual_review",
+            "reasonCode": "manual_review_required",
+            "manualReviewFlag": to_portable_path(manual_flag),
+            "canRun": False,
+            "recommendedAction": "Run bounded-chunk-status and bounded-chunk-reconcile --dry-run; do not resume generation until manual review is resolved.",
+        }
     if not config.active_visual_qa:
         flag = write_manual_review_flag(root, "active_visual_qa_disabled_for_bounded_chunk", {"stage": "bounded_chunk_run_precheck"})
         return {"status": "needs_manual_review", "reasonCode": "current_plan_not_executable", "manualReviewFlag": to_portable_path(flag)}
@@ -2556,6 +3381,20 @@ def run_bounded_chunk(
                         continue
                 status = bounded_chunk_status(root=root)
                 status["reasonCode"] = str(exc)
+                if str(exc) == "parent_managed_imagegen_required":
+                    pending_payload = read_pending(pending_path(root))
+                    handoff_dir = chunk_report_dir(root, str(status.get("chunkId") or "")) / "parent_imagegen_handoffs"
+                    asset_attempt = f"{pending_payload.get('assetId')}_attempt{int(pending_payload.get('attempt') or 0)}"
+                    status.update(
+                        {
+                            "status": "awaiting_parent_imagegen",
+                            "canRun": False,
+                            "pendingPath": to_portable_path(pending_path(root)),
+                            "handoffPromptPath": to_portable_path(handoff_dir / f"{asset_attempt}.prompt.txt"),
+                            "handoffReportPath": to_portable_path(handoff_dir / f"{asset_attempt}.json"),
+                            "recommendedAction": "Use the parent Codex/Hermes imagegen surface with the handoff prompt, recover pending-imagegen, then resume the bounded chunk.",
+                        }
+                    )
                 if str(exc) == "child_forbidden_mutation":
                     status["autoReconcile"] = auto_reconcile
                 return status
@@ -2593,6 +3432,30 @@ def _planned_asset_entries(plan: Mapping[str, Any]) -> list[tuple[Mapping[str, A
         for asset in identity.get("assets", []) or []:
             entries.append((identity, asset))
     return entries
+
+
+def _reconcile_file_qa_complete_from_manifest(root: Path | str | None, plan: dict[str, Any], state: dict[str, Any]) -> bool:
+    entries = _planned_asset_entries(plan)
+    if not entries:
+        return False
+    for identity, asset in entries:
+        if not _sync_file_qa_passed_asset_from_manifest(
+            root,
+            plan,
+            state,
+            asset_id=str(asset.get("assetId") or ""),
+            profile_id=str(identity.get("profileId") or ""),
+            shot_type=str(asset.get("shotType") or ""),
+            reason="manifest_file_qa_passed_qa_reconcile",
+        ):
+            return False
+    for identity in plan.get("identities", []) or []:
+        profile_id = str(identity.get("profileId") or "")
+        if profile_id:
+            _transition_identity(root, plan, state, profile_id, "assets_complete", reason="manifest_file_qa_passed_qa_reconcile")
+    _transition_chunk(root, plan, state, "generation_complete", reason="manifest_file_qa_passed_qa_reconcile")
+    _transition_chunk(root, plan, state, "file_qa_complete", reason="manifest_file_qa_passed_qa_reconcile")
+    return True
 
 
 def _refresh_distribution_stale_plan_after_reconcile(root: Path | str | None, plan: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
@@ -2686,12 +3549,449 @@ def _sanitize_asset_qa_manifest_for_reconcile(
     return result
 
 
+def _extra_generation_assets_not_in_manifest(root: Path | str | None) -> list[dict[str, Any]]:
+    paths = pipeline_paths(root)
+    asset_ids: set[str] = set()
+    for name in ("ai_profile_assets_v3.jsonl", "asset_manifest.jsonl"):
+        for row in read_jsonl(paths.manifests / name):
+            asset_id = str(row.get("assetId") or "")
+            if asset_id:
+                asset_ids.add(asset_id)
+    extras: list[dict[str, Any]] = []
+    for row in load_generation_manifest(paths):
+        asset_id = str(row.get("assetId") or "")
+        if asset_id and asset_id not in asset_ids:
+            extras.append(
+                {
+                    "assetId": asset_id,
+                    "profileId": row.get("profileId", ""),
+                    "shotType": row.get("shotType", ""),
+                    "localPath": row.get("localPath", ""),
+                    "finalPath": row.get("finalPath", ""),
+                    "status": row.get("status", ""),
+                    "classification": "extra_generation_asset_not_in_asset_manifest",
+                    "countsTowardApproval": False,
+                }
+            )
+    return extras
+
+
+def _quarantine_extra_generation_assets(root: Path | str | None, extras: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    paths = pipeline_paths(root)
+    quarantined: list[dict[str, Any]] = []
+    for row in extras:
+        asset_id = str(row.get("assetId") or "")
+        for key in ("localPath", "finalPath"):
+            source = Path(str(row.get(key) or ""))
+            if not source.exists() or not source.is_file():
+                continue
+            target = paths.ai_image / "quarantine" / f"{asset_id}__{source.name}"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                quarantined.append({"assetId": asset_id, "source": to_portable_path(source), "target": to_portable_path(target), "status": "already_quarantined"})
+                continue
+            shutil.move(str(source), str(target))
+            quarantined.append({"assetId": asset_id, "source": to_portable_path(source), "target": to_portable_path(target), "status": "quarantined"})
+    return quarantined
+
+
+def _reset_archive_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _unique_directory(path: Path) -> Path:
+    if not path.exists():
+        return path
+    for index in range(2, 1000):
+        candidate = path.with_name(f"{path.name}_{index}")
+        if not candidate.exists():
+            return candidate
+    raise BoundedBatchExecutorError(f"Could not allocate unique archive directory for {path}")
+
+
+def _copy_file_if_exists(source: Path, destination: Path) -> dict[str, Any]:
+    row = {
+        "source": to_portable_path(source),
+        "destination": to_portable_path(destination),
+        "exists": source.exists() and source.is_file(),
+        "copied": False,
+    }
+    if row["exists"]:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        row["copied"] = True
+    return row
+
+
+def _copy_tree_if_exists(source: Path, destination: Path) -> dict[str, Any]:
+    row = {
+        "source": to_portable_path(source),
+        "destination": to_portable_path(destination),
+        "exists": source.exists() and source.is_dir(),
+        "copied": False,
+    }
+    if row["exists"]:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source, destination, dirs_exist_ok=True)
+        row["copied"] = True
+    return row
+
+
+def _manual_flag_payload(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    text = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return {"reason": text.splitlines()[0].strip() if text.strip() else "manual_review_required", "rawText": text}
+    return dict(payload) if isinstance(payload, Mapping) else {"reason": "manual_review_required", "rawValue": payload}
+
+
+def _append_reset_manual_flag_reason(root: Path | str | None, *, chunk_id: str, reset_report_path: Path) -> bool:
+    flag = pipeline_paths(root).manifests / "manual_review_required.flag"
+    if not flag.exists():
+        return False
+    payload = _manual_flag_payload(flag)
+    previous_reason = str(payload.get("reason") or payload.get("reasonCode") or "manual_review_required")
+    reasons: list[str] = []
+    for value in payload.get("reasons", []) if isinstance(payload.get("reasons"), Sequence) and not isinstance(payload.get("reasons"), (str, bytes)) else []:
+        reason = str(value or "").strip()
+        if reason and reason not in reasons:
+            reasons.append(reason)
+    for reason in (previous_reason, "current_chunk_archived_reset_pending_new_plan"):
+        if reason and reason not in reasons:
+            reasons.append(reason)
+    details = dict(payload.get("details") or {}) if isinstance(payload.get("details"), Mapping) else {}
+    details.update(
+        {
+            "archivedChunkId": chunk_id,
+            "resetStatus": "current_chunk_archived_reset_pending_new_plan",
+            "resetReportPath": to_portable_path(reset_report_path),
+        }
+    )
+    updated = {
+        "schemaVersion": "seolleyeon_active_visual_manual_review_v3",
+        "reason": previous_reason,
+        "reasons": reasons,
+        "details": details,
+        "updatedAt": now_utc(),
+    }
+    flag.write_text(json.dumps(updated, ensure_ascii=False, indent=2), encoding="utf-8")
+    return True
+
+
+def _clear_manual_flag_after_reset_if_safe(root: Path | str | None) -> dict[str, Any]:
+    flag = pipeline_paths(root).manifests / "manual_review_required.flag"
+    result = {
+        "requested": True,
+        "cleared": False,
+        "safe": False,
+        "reasonsIfNotCleared": [],
+        "completionFailureReasonsAfterClear": [],
+    }
+    if pending_is_unresolved(read_pending(pending_path(root))):
+        result["reasonsIfNotCleared"].append("pending_unresolved")
+        return result
+    if current_plan_path(root).exists() or current_state_path(root).exists():
+        result["reasonsIfNotCleared"].append("active_current_chunk_still_present")
+        return result
+    if not flag.exists():
+        result["safe"] = True
+        return result
+    original = flag.read_text(encoding="utf-8", errors="replace")
+    flag.unlink()
+    try:
+        from .completion import completion_check
+
+        completion = completion_check(root=root)
+    except Exception as exc:  # noqa: BLE001 - restore the flag on any uncertainty.
+        flag.write_text(original, encoding="utf-8")
+        result["reasonsIfNotCleared"].append(f"completion_check_failed:{exc}")
+        return result
+    failures = set(str(reason) for reason in completion.get("failureReasons", []))
+    result["completionFailureReasonsAfterClear"] = sorted(failures)
+    allowed_failures = {"distribution_mismatch"}
+    if (
+        not current_plan_path(root).exists()
+        and not current_state_path(root).exists()
+        and int(completion.get("approvedCompleteIdentities") or 0) == 0
+        and int(completion.get("approvedImages") or 0) == 0
+    ):
+        allowed_failures.add("missing_visual_verdict")
+    if completion.get("passed") or not failures or (failures - allowed_failures):
+        flag.write_text(original, encoding="utf-8")
+        result["reasonsIfNotCleared"].append("completion_not_limited_to_distribution_mismatch")
+        return result
+    result["safe"] = True
+    result["cleared"] = True
+    return result
+
+
+def _copy_extra_generation_assets_to_quarantine(root: Path | str | None, extras: Sequence[Mapping[str, Any]], *, chunk_id: str, stamp: str) -> list[dict[str, Any]]:
+    paths = pipeline_paths(root)
+    quarantine_dir = paths.ai_image / "quarantine" / f"{chunk_id}_extras_{stamp}"
+    copied: list[dict[str, Any]] = []
+    for row in extras:
+        asset_id = str(row.get("assetId") or "")
+        for key in ("localPath", "finalPath"):
+            source = Path(str(row.get(key) or ""))
+            if not source.exists() or not source.is_file():
+                continue
+            destination = quarantine_dir / asset_id / source.name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if not destination.exists():
+                shutil.copy2(source, destination)
+                status = "copied_to_quarantine_original_preserved"
+            else:
+                status = "already_copied_original_preserved"
+            copied.append({"assetId": asset_id, "source": to_portable_path(source), "target": to_portable_path(destination), "status": status})
+    return copied
+
+
+def _planned_reset_archive_items(
+    root: Path | str | None,
+    *,
+    chunk_id: str,
+    reports_archive_dir: Path,
+    manifest_archive_dir: Path,
+) -> dict[str, list[dict[str, Any]]]:
+    paths = pipeline_paths(root)
+    files_to_archive = [
+        {
+            "source": to_portable_path(current_plan_path(root)),
+            "destination": to_portable_path(reports_archive_dir / "active_pointers" / "current_chunk_plan.json"),
+            "exists": current_plan_path(root).exists(),
+            "kind": "active_pointer",
+        },
+        {
+            "source": to_portable_path(current_state_path(root)),
+            "destination": to_portable_path(reports_archive_dir / "active_pointers" / "current_chunk_state.json"),
+            "exists": current_state_path(root).exists(),
+            "kind": "active_pointer",
+        },
+        {
+            "source": to_portable_path(pending_path(root)),
+            "destination": to_portable_path(reports_archive_dir / "active_pointers" / "pending-imagegen.json"),
+            "exists": pending_path(root).exists(),
+            "kind": "active_pointer",
+        },
+        {
+            "source": to_portable_path(chunk_report_dir(root, chunk_id)),
+            "destination": to_portable_path(reports_archive_dir / "chunk_reports"),
+            "exists": chunk_report_dir(root, chunk_id).exists(),
+            "kind": "chunk_report_tree",
+        },
+    ]
+    visual_dir = paths.reports / "visual_verdict"
+    for filename in RESET_VISUAL_VERDICT_FILES:
+        source = visual_dir / filename
+        files_to_archive.append(
+            {
+                "source": to_portable_path(source),
+                "destination": to_portable_path(reports_archive_dir / "visual_verdict" / filename),
+                "exists": source.exists(),
+                "kind": "visual_verdict",
+            }
+        )
+    parts_dir = visual_dir / "parts"
+    files_to_archive.append(
+        {
+            "source": to_portable_path(parts_dir),
+            "destination": to_portable_path(reports_archive_dir / "visual_verdict" / "parts"),
+            "exists": parts_dir.exists(),
+            "kind": "visual_verdict_parts",
+        }
+    )
+    for log_path in sorted(paths.logs.rglob(f"*{chunk_id}*")) if paths.logs.exists() else []:
+        if log_path.is_file():
+            files_to_archive.append(
+                {
+                    "source": to_portable_path(log_path),
+                    "destination": to_portable_path(reports_archive_dir / "logs" / log_path.name),
+                    "exists": True,
+                    "kind": "chunk_log",
+                }
+            )
+    manifest_snapshots = [
+        {
+            "source": to_portable_path(paths.manifests / filename),
+            "destination": to_portable_path(manifest_archive_dir / filename),
+            "exists": (paths.manifests / filename).exists(),
+            "kind": "manifest_snapshot",
+        }
+        for filename in RESET_MANIFEST_SNAPSHOT_FILES
+    ]
+    return {"filesToArchive": files_to_archive, "manifestSnapshotsToArchive": manifest_snapshots}
+
+
+def bounded_chunk_reset(
+    *,
+    root: Path | str | None = None,
+    archive_current: bool = False,
+    dry_run: bool = False,
+    clear_manual_flag_if_safe: bool = False,
+    quarantine_extra: bool = False,
+    force: bool = False,
+) -> dict[str, Any]:
+    paths = pipeline_paths(root)
+    ensure_base_dirs(paths)
+    stamp = _reset_archive_stamp()
+    plan_path = current_plan_path(root)
+    state_path = current_state_path(root)
+    plan: dict[str, Any] = {}
+    state: dict[str, Any] = {}
+    reasons_if_unsafe: list[str] = []
+    if not archive_current:
+        reasons_if_unsafe.append("archive_current_required")
+    if not plan_path.exists():
+        reasons_if_unsafe.append("current_chunk_plan_missing")
+    else:
+        try:
+            plan = read_current_plan(root)
+        except Exception as exc:  # noqa: BLE001 - malformed active pointers are unsafe to reset silently.
+            reasons_if_unsafe.append(f"current_chunk_plan_unreadable:{exc}")
+    if not state_path.exists():
+        reasons_if_unsafe.append("current_chunk_state_missing")
+    else:
+        try:
+            state = read_current_state(root)
+        except Exception as exc:  # noqa: BLE001
+            reasons_if_unsafe.append(f"current_chunk_state_unreadable:{exc}")
+    chunk_id = str(plan.get("chunkId") or state.get("chunkId") or "unknown_chunk")
+    status_before = str(state.get("status") or plan.get("status") or "")
+    reports_archive_dir = _unique_directory(paths.reports / "chunks" / "archive" / f"{chunk_id}_{stamp}")
+    manifest_archive_dir = _unique_directory(paths.manifests / "archive" / f"{chunk_id}_reset_{stamp}")
+    pending_payload = read_pending(pending_path(root))
+    pending_status = str(pending_payload.get("status") or "absent") if pending_payload else "absent"
+    if pending_payload and pending_is_unresolved(pending_payload):
+        reasons_if_unsafe.append("pending_unresolved")
+    if plan and state:
+        plan_chunk_id = str(plan.get("chunkId") or "")
+        state_chunk_id = str(state.get("chunkId") or "")
+        if plan_chunk_id and state_chunk_id and plan_chunk_id != state_chunk_id:
+            reasons_if_unsafe.append("current_chunk_plan_state_mismatch")
+        status = status_before
+        if not force and status not in RESETTABLE_CHUNK_STATUSES:
+            if bool(plan.get("executable")) and status in EXECUTABLE_CHUNK_STATUSES:
+                reasons_if_unsafe.append("active_executable_chunk_not_resettable")
+            else:
+                reasons_if_unsafe.append(f"chunk_status_not_resettable:{status or 'missing'}")
+    planned_items = _planned_reset_archive_items(root, chunk_id=chunk_id, reports_archive_dir=reports_archive_dir, manifest_archive_dir=manifest_archive_dir)
+    before_snapshot = _progress_snapshot(root)
+    extras = _extra_generation_assets_not_in_manifest(root)
+    safe_to_apply = not reasons_if_unsafe
+    report_path = chunk_report_dir(root, chunk_id) / ("reset_dry_run_report.json" if dry_run else "reset_report.json")
+    current_pointers_to_reset = [
+        row for row in planned_items["filesToArchive"] if row.get("kind") == "active_pointer" and row.get("exists")
+    ]
+    report: dict[str, Any] = {
+        "schemaVersion": RESET_SCHEMA_VERSION,
+        "chunkId": chunk_id,
+        "dryRun": bool(dry_run),
+        "archiveCurrent": bool(archive_current),
+        "statusBefore": status_before,
+        "resetDecision": "archive_preserving_reset",
+        "createdAt": now_utc(),
+        "safeToApply": safe_to_apply,
+        "reasonsIfUnsafe": reasons_if_unsafe,
+        "filesToArchive": planned_items["filesToArchive"],
+        "manifestSnapshotsToArchive": planned_items["manifestSnapshotsToArchive"],
+        "currentPointersToReset": current_pointers_to_reset,
+        "pendingStatus": pending_status,
+        "manualFlagAction": "left_present" if (paths.manifests / "manual_review_required.flag").exists() else "absent",
+        "extraAssetsAction": "copy_to_quarantine_original_preserved" if quarantine_extra else "left_in_place",
+        "extraGenerationAssets": extras,
+        "approvalCountWouldChange": False,
+        "distributionCountWouldChange": False,
+        "approvalCountBefore": int(before_snapshot.get("approvedIdentityCount") or 0),
+        "distributionCountBefore": int(before_snapshot.get("approvedAssetCount") or 0),
+        "generatedFilesPreserved": True,
+        "approvedCountChanged": False,
+        "distributionCountChanged": False,
+        "manualFlagCleared": False,
+        "reportPath": to_portable_path(report_path),
+        "archivedReportsDir": to_portable_path(reports_archive_dir),
+        "archivedManifestSnapshotDir": to_portable_path(manifest_archive_dir),
+        "nextRecommendedCommand": "python scripts/run_ai_image_pipeline_v3.py bounded-chunk-reset --root . --archive-current" if dry_run and safe_to_apply else "",
+    }
+    if dry_run:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_json(report_path, report)
+        return report
+    if not safe_to_apply:
+        report.update({"status": "failed"})
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_json(report_path, report)
+        return report
+
+    reports_archive_dir.mkdir(parents=True, exist_ok=True)
+    manifest_archive_dir.mkdir(parents=True, exist_ok=True)
+    archived_files: list[dict[str, Any]] = []
+    active_pointer_dir = reports_archive_dir / "active_pointers"
+    for pointer in current_pointers_to_reset:
+        source = Path(str(pointer["source"]))
+        destination = Path(str(pointer["destination"]))
+        if source.exists():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source), str(destination))
+            archived_files.append({**pointer, "archived": True})
+    chunk_dir = chunk_report_dir(root, chunk_id)
+    archived_files.append(_copy_tree_if_exists(chunk_dir, reports_archive_dir / "chunk_reports"))
+    visual_dir = paths.reports / "visual_verdict"
+    for filename in RESET_VISUAL_VERDICT_FILES:
+        archived_files.append(_copy_file_if_exists(visual_dir / filename, reports_archive_dir / "visual_verdict" / filename))
+    archived_files.append(_copy_tree_if_exists(visual_dir / "parts", reports_archive_dir / "visual_verdict" / "parts"))
+    for log_path in sorted(paths.logs.rglob(f"*{chunk_id}*")) if paths.logs.exists() else []:
+        if log_path.is_file():
+            archived_files.append(_copy_file_if_exists(log_path, reports_archive_dir / "logs" / log_path.name))
+    manifest_archives: list[dict[str, Any]] = []
+    for filename in RESET_MANIFEST_SNAPSHOT_FILES:
+        manifest_archives.append(_copy_file_if_exists(paths.manifests / filename, manifest_archive_dir / filename))
+    quarantined_files: list[dict[str, Any]] = []
+    if quarantine_extra and extras:
+        quarantined_files = _copy_extra_generation_assets_to_quarantine(root, extras, chunk_id=chunk_id, stamp=stamp)
+    reset_report_path = chunk_report_dir(root, chunk_id) / "reset_report.json"
+    manual_flag_appended = _append_reset_manual_flag_reason(root, chunk_id=chunk_id, reset_report_path=reset_report_path)
+    clear_result = {"requested": bool(clear_manual_flag_if_safe), "cleared": False, "safe": False, "reasonsIfNotCleared": []}
+    if clear_manual_flag_if_safe:
+        clear_result = _clear_manual_flag_after_reset_if_safe(root)
+    after_snapshot = _progress_snapshot(root)
+    approved_count_changed = int(before_snapshot.get("approvedIdentityCount") or 0) != int(after_snapshot.get("approvedIdentityCount") or 0)
+    distribution_count_changed = int(before_snapshot.get("approvedAssetCount") or 0) != int(after_snapshot.get("approvedAssetCount") or 0)
+    archived_plan_path = active_pointer_dir / "current_chunk_plan.json"
+    archived_state_path = active_pointer_dir / "current_chunk_state.json"
+    report.update(
+        {
+            "status": "reset",
+            "archivedPlanPath": to_portable_path(archived_plan_path) if archived_plan_path.exists() else "",
+            "archivedStatePath": to_portable_path(archived_state_path) if archived_state_path.exists() else "",
+            "archivedPendingPath": to_portable_path(active_pointer_dir / "pending-imagegen.json") if (active_pointer_dir / "pending-imagegen.json").exists() else "",
+            "archivedFiles": archived_files,
+            "manifestSnapshotsArchived": manifest_archives,
+            "quarantinedFiles": quarantined_files,
+            "manualFlagReasonAppended": manual_flag_appended,
+            "manualFlagClearResult": clear_result,
+            "manualFlagCleared": bool(clear_result.get("cleared")),
+            "approvedCountChanged": approved_count_changed,
+            "distributionCountChanged": distribution_count_changed,
+            "approvalCountAfter": int(after_snapshot.get("approvedIdentityCount") or 0),
+            "distributionCountAfter": int(after_snapshot.get("approvedAssetCount") or 0),
+            "nextRecommendedAction": "create_fresh_production_plan_after_manual_flag_resolution",
+        }
+    )
+    _append_event(root, chunk_id, event_type="chunk_reset", from_status=status_before, to_status="reset", reason="archive_preserving_reset", output_path=to_portable_path(reset_report_path))
+    _write_json(reset_report_path, report)
+    return report
+
+
 def reconcile_bounded_chunk(
     *,
     root: Path | str | None = None,
     dry_run: bool = True,
     apply: bool = False,
     clear_manual_flag_if_safe: bool = False,
+    quarantine_extra: bool = False,
     file_qa_func: Callable[..., Mapping[str, int]] = file_qa_single_asset,
 ) -> dict[str, Any]:
     paths = pipeline_paths(root)
@@ -2699,6 +3999,8 @@ def reconcile_bounded_chunk(
     state = read_current_state(root)
     chunk_id = str(plan.get("chunkId") or "")
     pending_payload = read_pending(pending_path(root))
+    planned_entries = _planned_asset_entries(plan)
+    planned_by_asset = {str(asset.get("assetId") or ""): (identity, asset) for identity, asset in planned_entries}
     report: dict[str, Any] = {
         "schemaVersion": "seolleyeon_bounded_chunk_reconcile_v3",
         "chunkId": chunk_id,
@@ -2714,7 +4016,14 @@ def reconcile_bounded_chunk(
         "fileQaFailedAssets": 0,
         "quarantinedFiles": [],
         "unknownFiles": [],
+        "extraGenerationAssetsNotInManifest": [],
+        "extraGenerationAssetCount": 0,
+        "quarantineExtraRequested": bool(quarantine_extra),
         "pendingStatus": "",
+        "resolvedPendingReconciled": False,
+        "resolvedPendingMismatch": [],
+        "finalizedFailedPendingAssetId": "",
+        "finalizedFailedPendingSkipped": False,
         "manualFlagCanClear": False,
         "reasonsIfCannotClear": [],
         "stateChanged": False,
@@ -2722,11 +4031,46 @@ def reconcile_bounded_chunk(
         "planInputRefresh": {"applied": False},
         "reportPath": to_portable_path(chunk_report_dir(root, chunk_id) / "reconcile_report.json"),
     }
+    extras = _extra_generation_assets_not_in_manifest(root)
+    report["extraGenerationAssetsNotInManifest"] = extras
+    report["extraGenerationAssetCount"] = len(extras)
+    if extras:
+        report["reasonsIfCannotClear"].append("extra_generation_assets_not_in_asset_manifest")
     report["assetQaManifestSanitization"] = _sanitize_asset_qa_manifest_for_reconcile(root, chunk_id=chunk_id, apply=bool(apply and not dry_run))
     if pending_payload:
         report["pendingStatus"] = str(pending_payload.get("status") or "")
+        if pending_is_resolved(pending_payload) and (
+            str(pending_payload.get("status") or "") == "failed"
+            or str(pending_payload.get("recoveryStatus") or "") in {"not_recoverable", "failed"}
+            or str(pending_payload.get("resolutionMode") or "") == "finalize_failed"
+        ):
+            report["finalizedFailedPendingAssetId"] = str(pending_payload.get("assetId") or "")
     if pending_payload and pending_is_unresolved(pending_payload):
         report["reasonsIfCannotClear"].append("pending_unresolved")
+    elif pending_payload and pending_is_resolved(pending_payload):
+        pending_mismatches: list[str] = []
+        pending_asset_id = str(pending_payload.get("assetId") or "")
+        pending_chunk_id = str(pending_payload.get("chunkId") or "")
+        if pending_asset_id not in planned_by_asset:
+            pending_mismatches.append("asset_not_in_current_plan")
+        if pending_chunk_id and chunk_id and pending_chunk_id != chunk_id:
+            pending_mismatches.append("chunk_mismatch")
+        if pending_asset_id in planned_by_asset:
+            _identity, planned_asset = planned_by_asset[pending_asset_id]
+            planned_final = Path(str(planned_asset.get("finalPath") or ""))
+            pending_final_value = str(pending_payload.get("expectedFinalPath") or pending_payload.get("finalPath") or "")
+            pending_final = Path(pending_final_value) if pending_final_value else Path()
+            if pending_final_value and planned_final:
+                try:
+                    if pending_final.resolve() != planned_final.resolve():
+                        pending_mismatches.append("final_path_mismatch")
+                except OSError:
+                    pending_mismatches.append("final_path_invalid")
+        if pending_mismatches:
+            report["resolvedPendingMismatch"] = sorted(set(pending_mismatches))
+            report["reasonsIfCannotClear"].append("resolved_pending_mismatch")
+        else:
+            report["resolvedPendingReconciled"] = True
     manual_flag = paths.manifests / "manual_review_required.flag"
     if manual_flag.exists():
         reason = str(report["manualReviewReason"] or "")
@@ -2735,8 +4079,11 @@ def reconcile_bounded_chunk(
         else:
             report["reasonsIfCannotClear"].append(f"manual_flag_reason_not_recoverable:{reason}")
 
-    for identity, asset in _planned_asset_entries(plan):
+    for identity, asset in planned_entries:
         asset_id = str(asset.get("assetId") or "")
+        if asset_id and asset_id == str(report.get("finalizedFailedPendingAssetId") or ""):
+            report["finalizedFailedPendingSkipped"] = True
+            continue
         profile_id = str(identity.get("profileId") or "")
         shot_type = str(asset.get("shotType") or "")
         row = _latest_generation_asset(root, asset_id)
@@ -2747,6 +4094,17 @@ def reconcile_bounded_chunk(
         else:
             continue
         detail = inspect_image_detail(final_path)
+        ok = bool(detail.get("ok"))
+        if ok:
+            report["fileQaPassedAssets"] += 1
+        else:
+            report["fileQaFailedAssets"] += 1
+        report["reconciledAssets"].append({"assetId": asset_id, "fileQaPassed": ok, "finalPath": to_portable_path(final_path)})
+
+        asset_status = str((state.get("assetStates") or {}).get(asset_id) or asset.get("status") or "")
+        if ok and asset_status == "file_qa_passed" and _generation_file_qa_passed(row):
+            continue
+
         attempt = int(row.get("attemptCount") or row.get("attempt") or asset.get("attempt") or 1)
         raw_path = Path(str(row.get("expectedRawPath") or row.get("localPath") or asset.get("rawPathPattern") or ""))
         if "attemptXX" in str(raw_path):
@@ -2765,12 +4123,6 @@ def reconcile_bounded_chunk(
         }
         receipt_path = transaction_receipt_path(root, chunk_id, asset_id, attempt)
         receipt = build_receipt_from_existing_file(root=root, expected=expected)
-        ok = bool(detail.get("ok"))
-        if ok:
-            report["fileQaPassedAssets"] += 1
-        else:
-            report["fileQaFailedAssets"] += 1
-        report["reconciledAssets"].append({"assetId": asset_id, "fileQaPassed": ok, "finalPath": to_portable_path(final_path)})
         if not receipt_path.exists():
             report["reconstructedReceipts"].append(to_portable_path(receipt_path))
         if apply and not dry_run:
@@ -2808,6 +4160,15 @@ def reconcile_bounded_chunk(
                 _transition_asset(root, plan, state, asset_id, "file_qa_failed", profile_id=profile_id, shot_type=shot_type, reason="reconcile_file_qa_failed")
             report["stateChanged"] = True
 
+    if apply and not dry_run and not manual_flag.exists() and not pending_is_unresolved(pending_payload):
+        asset_states = state.get("assetStates") if isinstance(state.get("assetStates"), Mapping) else {}
+        has_remaining_planned = any(str(value) == "planned" for value in asset_states.values())
+        has_active_blocker = any(str(value) in {"pending_imagegen", "imagegen_called", "recovered", "file_qa_failed"} for value in asset_states.values())
+        if has_remaining_planned and not has_active_blocker and str(state.get("status") or "") in {"needs_manual_review", "failed"}:
+            _transition_chunk(root, plan, state, "running", reason="terminal_failed_asset_continue_after_reconcile")
+            report["chunkStatusRestored"] = True
+            report["stateChanged"] = True
+
     if manual_flag.exists() and report["manualReviewReason"] in {"bounded_recovery_failed", "one_asset_receipt_missing_or_invalid_requires_reconcile"} and int(report["plannedExistingFiles"]) <= 0:
         report["reasonsIfCannotClear"].append("no_reconcilable_final_files")
 
@@ -2828,17 +4189,36 @@ def reconcile_bounded_chunk(
             report["stateChanged"] = True
     elif manual_flag.exists():
         report["manualFlagCleared"] = False
+    if apply and not dry_run and quarantine_extra and extras:
+        report["quarantinedFiles"].extend(_quarantine_extra_generation_assets(root, extras))
     report_path = chunk_report_dir(root, chunk_id) / "reconcile_report.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report
 
 
-def _call_active_visual(active_visual_func: Callable[..., Mapping[str, Any]], *, root: Path | str | None, chunk_id: str) -> Mapping[str, Any]:
+def _call_active_visual(
+    active_visual_func: Callable[..., Mapping[str, Any]],
+    *,
+    root: Path | str | None,
+    chunk_id: str,
+    strict_chunk_scope: bool = False,
+    asset_whitelist: Path | str | None = None,
+    contact_sheet_index: Path | str | None = None,
+) -> Mapping[str, Any]:
     try:
-        return active_visual_func(root=root, chunk_id=chunk_id)
+        return active_visual_func(
+            root=root,
+            chunk_id=chunk_id,
+            strict_chunk_scope=strict_chunk_scope,
+            asset_whitelist=asset_whitelist,
+            contact_sheet_index=contact_sheet_index,
+        )
     except TypeError:
-        return active_visual_func(root=root)
+        try:
+            return active_visual_func(root=root, chunk_id=chunk_id)
+        except TypeError:
+            return active_visual_func(root=root)
 
 
 def run_bounded_chunk_qa(
@@ -2851,17 +4231,24 @@ def run_bounded_chunk_qa(
     plan = read_current_plan(root)
     state = read_current_state(root)
     if str(state.get("status") or "") not in {"file_qa_complete", "generation_complete", "active_visual_qa_running"}:
-        raise BoundedBatchExecutorError("Bounded chunk cannot run active visual QA before file QA completes.")
+        if not _reconcile_file_qa_complete_from_manifest(root, plan, state):
+            raise BoundedBatchExecutorError("Bounded chunk cannot run active visual QA before file QA completes.")
+        state = read_current_state(root)
     if not config.active_visual_qa:
         flag = write_manual_review_flag(root, "active_visual_qa_disabled_for_bounded_chunk", {"chunkId": plan["chunkId"]})
         _transition_chunk(root, plan, state, "needs_manual_review", reason="active_visual_qa_disabled")
         return {"status": "needs_manual_review", "manualReviewFlag": to_portable_path(flag)}
-    generate_grouped_contact_sheets(root=root, stage=str(plan["chunkId"]))
-    generate_identity_contact_sheets(root=root)
-    generate_chunk_contact_sheets(root=root, chunk_size=MAX_CHUNK_IDENTITIES)
+    strict_sheets = generate_strict_chunk_contact_sheets(root=root, chunk_id=str(plan["chunkId"]))
     _transition_chunk(root, plan, state, "active_visual_qa_running")
     try:
-        result = _call_active_visual(active_visual_func, root=root, chunk_id=str(plan["chunkId"]))
+        result = _call_active_visual(
+            active_visual_func,
+            root=root,
+            chunk_id=str(plan["chunkId"]),
+            strict_chunk_scope=True,
+            asset_whitelist=strict_sheets.get("assetWhitelistPath"),
+            contact_sheet_index=strict_sheets.get("contactSheetIndexPath"),
+        )
     except Exception as exc:  # noqa: BLE001 - strict visual QA failure forces manual review.
         flag = write_manual_review_flag(root, "bounded_active_visual_qa_failed", {"chunkId": plan["chunkId"], "error": str(exc)})
         _transition_chunk(root, plan, state, "needs_manual_review", reason=f"active_visual_qa_failed:{exc}")
@@ -2910,6 +4297,7 @@ def bounded_chunk_status(*, root: Path | str | None = None) -> dict[str, Any]:
         "planPath": to_portable_path(current_plan_path(root)),
         "statePath": to_portable_path(current_state_path(root)),
         "manualReviewRequired": (paths.manifests / "manual_review_required.flag").exists(),
+        "manualReviewReason": _manual_review_reason(root),
         "isDryRun": False,
         "isExecutable": False,
         "isStale": False,
@@ -2917,6 +4305,8 @@ def bounded_chunk_status(*, root: Path | str | None = None) -> dict[str, Any]:
         "abandonable": _current_chunk_abandonable(root),
         **_abandoned_chunk_summary(root),
         "canRun": bool(validation.get("canRun")),
+        "reasonCode": validation.get("reasonCode", ""),
+        "reasons": list(validation.get("reasons") or []),
         "validation": validation,
         "updatedAt": now_utc(),
     }
@@ -2952,7 +4342,7 @@ def bounded_chunk_status(*, root: Path | str | None = None) -> dict[str, Any]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Deterministic bounded Seolleyeon Codex internal Image Gen chunk executor.")
-    parser.add_argument("command", choices=["plan", "run", "resume", "status", "validate-plan", "reconcile", "qa", "finalize"])
+    parser.add_argument("command", choices=["plan", "run", "resume", "status", "validate-plan", "reconcile", "reset", "qa", "finalize"])
     parser.add_argument("--root", default=None)
     parser.add_argument("--max_identities", type=int, default=MAX_CHUNK_IDENTITIES)
     parser.add_argument("--max_assets", type=int, default=MAX_CHUNK_ASSETS)
@@ -2961,9 +4351,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--production", "--no-dry-run", "--execute", dest="production", action="store_true")
     parser.add_argument("--force-replan", "--force_replan", dest="force_replan", action="store_true")
     parser.add_argument("--abandon-current", "--abandon_current", dest="abandon_current", action="store_true")
+    parser.add_argument("--face_type", "--face-type", dest="face_type", default="")
+    parser.add_argument("--looks_level_band", "--looks-level-band", dest="looks_level_band", default="")
+    parser.add_argument("--gender", dest="gender", default="")
+    parser.add_argument("--has_eyewear", "--has-eyewear", dest="has_eyewear", default="")
+    parser.add_argument("--eyewear_group", "--eyewear-group", dest="eyewear_group", default="")
+    parser.add_argument("--require-eyewear-mix", "--require_eyewear_mix", dest="require_eyewear_mix", action="store_true", default=False)
+    parser.add_argument("--require-focused-match", "--require_focused_match", "--strict-focus", dest="require_focused_match", action="store_true")
     parser.add_argument("--reason", default="fresh_production_replan_after_distribution_audit")
     parser.add_argument("--apply", dest="apply", action="store_true")
+    parser.add_argument("--quarantine-extra", "--quarantine_extra", dest="quarantine_extra", action="store_true")
     parser.add_argument("--clear-manual-flag-if-safe", "--clear_manual_flag_if_safe", dest="clear_manual_flag_if_safe", action="store_true")
+    parser.add_argument("--archive-current", "--archive_current", dest="archive_current", action="store_true")
+    parser.add_argument("--force", dest="force", action="store_true")
     return parser
 
 
@@ -2981,6 +4381,13 @@ def main(argv: list[str] | None = None) -> int:
                 force_replan=args.force_replan,
                 abandon_current=args.abandon_current,
                 abandon_reason=args.reason,
+                face_type=args.face_type,
+                looks_level_band=args.looks_level_band,
+                gender=args.gender,
+                has_eyewear=args.has_eyewear,
+                eyewear_group=args.eyewear_group,
+                require_eyewear_mix=args.require_eyewear_mix,
+                require_focused_match=args.require_focused_match,
             )
         elif args.command == "run":
             result = run_bounded_chunk(root=args.root)
@@ -2991,7 +4398,22 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "validate-plan":
             result = validate_current_chunk_plan(root=args.root, strict=False)
         elif args.command == "reconcile":
-            result = reconcile_bounded_chunk(root=args.root, dry_run=args.dry_run or not args.apply, apply=args.apply, clear_manual_flag_if_safe=args.clear_manual_flag_if_safe)
+            result = reconcile_bounded_chunk(
+                root=args.root,
+                dry_run=args.dry_run or not args.apply,
+                apply=args.apply,
+                clear_manual_flag_if_safe=args.clear_manual_flag_if_safe,
+                quarantine_extra=getattr(args, "quarantine_extra", False),
+            )
+        elif args.command == "reset":
+            result = bounded_chunk_reset(
+                root=args.root,
+                archive_current=args.archive_current,
+                dry_run=args.dry_run,
+                clear_manual_flag_if_safe=args.clear_manual_flag_if_safe,
+                quarantine_extra=getattr(args, "quarantine_extra", False),
+                force=args.force,
+            )
         elif args.command == "qa":
             result = run_bounded_chunk_qa(root=args.root)
         else:

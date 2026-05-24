@@ -245,9 +245,8 @@ def _command_for_mode(
     if config.execution_mode == "bounded-run":
         return (config.python_bin, str(script), "bounded-chunk-run", "--root", str(config.root))
     if config.execution_mode == "autopilot":
-        return (
-            _resolve_bash_binary(config.bash_bin, which_func=which_func, bash_candidates=bash_candidates),
-            str(config.root / "scripts" / "codex_imagegen_chunk_autopilot_v3.sh"),
+        raise HermesWrapperError(
+            "execution mode 'autopilot' is deprecated and disabled; production image generation must use bounded-run."
         )
     raise HermesWrapperError(f"unsupported execution mode: {config.execution_mode}")
 

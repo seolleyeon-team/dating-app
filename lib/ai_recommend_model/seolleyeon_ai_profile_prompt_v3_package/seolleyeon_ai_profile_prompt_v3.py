@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import random
 import re
@@ -56,7 +57,9 @@ GENDERS: Tuple[Gender, ...] = ("female", "male")
 SHOT_TYPES: Tuple[ShotType, ...] = ("face_card", "silhouette_card", "vibe_card")
 SCHEMA_VERSION = "ai_profile_image_v3"
 PROMPT_BUILDER_VERSION = "ai_profile_prompt_v4"
+PROMPT_TARGETING_VERSION = "face_type_looks_level_targeting_v22"
 METADATA_VERSION = "ai_profile_image_v4_compatible"
+RARE_EYEWEAR_VARIATION_RATE = 0.0
 
 FACE_TYPE_ORDER: Tuple[str, ...] = (
     "cat_like",
@@ -148,41 +151,96 @@ FACE_TYPE_WEIGHTS: Dict[str, float] = {
 
 FACE_TYPE_VISUAL: Dict[str, str] = {
     "cat_like": (
-        "almond-shaped eyes, slightly lifted outer eye corners, a composed expression, "
-        "a defined but not sharp jawline"
+        "almond-shaped eyes with slightly lifted outer corners, composed chic calm expression, "
+        "moderately defined jawline, balanced cheek fullness, not as narrow or intense as fox-like; "
+        "slightly sharper, neat, alert impression; avoid turning into mixed_neutral; avoid overly cute large-eye style"
     ),
     "dog_like": (
-        "rounder medium eyes, soft cheeks, a gentle approachable expression, "
-        "a warm relaxed smile"
+        "rounder eyes, soft cheeks, warm approachable expression, soft jawline, "
+        "friendly adult student impression without puppy-like exaggeration or childlike cues; "
+        "warm, approachable, rounded friendly impression; avoid deer_like long delicate face; avoid bear_like heavy square fullness; "
+        "for low-band targets, dog_like warmth must stay plain, low-polish, and not upgraded by neat grooming or confident campus portrait styling"
     ),
     "hamster_like": (
-        "a compact rounded face, fuller cheeks, a small soft nose, "
-        "a warm and gentle expression"
+        "compact rounded adult face, fuller cheeks, smaller soft nose impression, "
+        "warm gentle presence, explicitly mature and not baby-faced or childlike; "
+        "soft cheeks, compact and gentle impression; avoid babyface / childlike; adult proportions; "
+        "especially in vibe_card, keep adult university-age signals and never let rounded softness read as underage"
     ),
     "bear_like": (
-        "a stable warm impression, slightly broader facial structure, "
-        "thicker natural brows, a calm grounded expression"
+        "broader warm facial structure, grounded stable impression, thicker natural brows, "
+        "soft sturdy jaw and cheek presence, calm reliable expression, avoid delicate deer-like oval softness; "
+        "grounded, soft-solid impression; avoid deer_like delicate narrowness; avoid dog_like overly puppyish cuteness"
     ),
     "fox_like": (
-        "slightly narrow eyes, a refined face line, a subtle chic expression, "
-        "a clean medium nose bridge"
+        "subtle composed fox-like impression, slightly alert but ordinary campus face, "
+        "slightly narrow eyes with restrained facial angularity, less round friendly softness than dog_like, "
+        "calm composed expression rather than openly puppyish warmth, "
+        "one or two visible but understated fox_like cues should remain present so the face does not collapse into mixed_neutral, "
+        "avoid compact hamster-like cheek softness and avoid small rounded cute impression, "
+        "natural non-glossy skin impression, no dramatic eye enlargement, no slim V-line jaw; "
+        "fox_like does not mean highly attractive; fox_like does not mean celebrity/idol styling; "
+        "fox_like should remain within the assigned looksLevelBand; "
+        "avoid dog_like warm puppy impression, avoid round friendly puppy-like eyes, "
+        "avoid overly soft cheeks and bubbly approachability, avoid cute dog-like warmth; "
+        "avoid hamster_like compact round cuteness, avoid losing all fox_like cues into mixed_neutral balance; "
+        "avoid deer_like elegant softness, avoid sharp handsome transformation, avoid over-level public-figure polish, "
+        "avoid model-like refinement"
     ),
     "deer_like": (
-        "a soft oval face, medium-large calm eyes, a delicate jawline, "
-        "a gentle quiet expression"
+        "soft oval face, medium-large calm eyes, delicate jawline, gentle quiet expression, "
+        "calm intellectual mood, not the default for every soft face; gentle, calm, softer delicate impression; "
+        "not automatically more attractive; avoid taking over other faceTypes"
     ),
     "horse_like": (
-        "a slightly longer face proportion, a higher nose bridge, defined cheekbones, "
-        "an elegant mature expression"
+        "longer mature face proportion, higher nose bridge impression, defined cheekbones, "
+        "elegant adult impression, realistic and not caricatured; longer facial impression, mature and calm; "
+        "avoid caricature; adult grounded proportions"
     ),
     "mixed_neutral": (
-        "balanced natural facial proportions, medium eyes, a soft defined jawline, "
-        "a calm sincere expression"
+        "balanced everyday facial proportions, medium eyes, softly defined jawline, "
+        "ordinary real student profile impression, no single face-type cue dominates, avoid drifting into deer-like by default; "
+        "balanced ordinary mixed impression; no strong animal-type cue; avoid drifting to deer_like attractiveness"
     ),
     "neutral_mixed": (
-        "balanced natural facial proportions, medium eyes, a soft defined jawline, "
-        "a calm sincere expression"
+        "balanced everyday facial proportions, medium eyes, softly defined jawline, "
+        "ordinary real student profile impression, no single face-type cue dominates, avoid drifting into deer-like by default; "
+        "balanced ordinary mixed impression; no strong animal-type cue; avoid drifting to deer_like attractiveness"
     ),
+}
+
+LOOKS_LEVEL_BAND_VISUALS: Dict[str, str] = {
+    "1.5-2.4": (
+        "ordinary natural real student look, mild asymmetry acceptable, casual profile quality, "
+        "not visually striking, not highly polished, do not improve the person above this band; "
+        "very ordinary, plain, realistic everyday campus face; natural asymmetry; ordinary skin texture; "
+        "no refined jawline; no large bright eyes; preserve a sincere and kind impression without attractiveness upgrade"
+    ),
+    "2.5-3.2": (
+        "average to mildly pleasant everyday appearance, not attractive enough for 3.3-3.8, "
+        "ordinary common campus profile impression with ordinary facial proportions, "
+        "natural grooming with modest approachable realism, not highly styled; "
+        "no dramatic facial refinement; no refined jawline; no noticeably sharp nose bridge; "
+        "no enlarged bright eyes; no glossy smooth skin; no model-like symmetry; "
+        "ordinary student realism with small natural asymmetry and everyday skin texture; "
+        "keep facial attractiveness clearly below 3.3-3.8; "
+        "do not let styling, lighting, or camera polish raise the perceived looks band; "
+        "mild sincere impression is okay, but do not upgrade attractiveness; "
+        "ordinary student realism is more important than attractiveness"
+    ),
+    "3.3-3.8": (
+        "clearly attractive but realistic, balanced features and clean grooming, "
+        "still ordinary enough for a real university student, no idealized symmetry or public-figure polish; "
+        "neat and pleasant but still realistic; mildly attractive but not model-like; natural campus profile tone; "
+        "avoid over-sharpened jaw, perfect symmetry, heavy retouching"
+    ),
+    "3.9-4.3": (
+        "noticeably attractive and polished yet plausible as a real university student, use restraint, "
+        "no idealized V-line jaw, no glossy skin, no stage-like styling; "
+        "clearly attractive but still grounded and non-public-figure; trust-based profile realism; "
+        "no 4.4-5.0 over-level public-figure look; no commercial photoshoot; no extreme beauty filter"
+    ),
+    "4.4-5.0": "forbidden over-level band for final approved dataset",
 }
 
 FACE_SHAPE_VISUAL: Dict[str, str] = {
@@ -421,22 +479,168 @@ FULL_BODY_OUTFITS: Dict[Gender, List[str]] = {
     ],
 }
 
+# Fallback only: normal vibe_card prompts sample from LOCATION_VIBE_ACTIVITIES.
 VIBE_ACTIVITIES: Dict[Gender, List[str]] = {
     "female": [
-        "sitting by a window in a quiet campus cafe, reading lecture notes with a warm drink nearby",
-        "walking slowly on a tree-lined campus path while holding a few books",
-        "standing in a small exhibition space and looking at a framed artwork",
-        "sitting in a quiet library lounge with a notebook and tablet on the table",
-        "standing near a campus garden with a relaxed sincere expression",
+        "standing with relaxed posture, calm everyday profile mood",
+        "holding a simple tote or notebook, sincere ordinary student mood",
+        "looking ahead naturally with a gentle expression, quiet lifestyle mood",
     ],
     "male": [
-        "sitting by a window in a quiet campus cafe, reviewing lecture notes with a warm drink nearby",
-        "walking naturally on a tree-lined campus path with a backpack",
-        "standing near an outdoor campus basketball court after a casual game, holding a water bottle",
-        "sitting in a quiet library lounge with a notebook and laptop on the table",
-        "standing near a campus garden with a relaxed sincere expression",
+        "standing with relaxed posture, calm everyday profile mood",
+        "holding a simple tote or notebook, sincere ordinary student mood",
+        "looking ahead naturally with a gentle expression, quiet lifestyle mood",
     ],
 }
+
+LOCATION_VIBE_ACTIVITIES: Dict[str, List[str]] = {
+    "campus_walkway": [
+        "walking slowly with a canvas tote and a few notebooks, relaxed everyday student mood",
+        "pausing beside a quiet path with a gentle expression, calm between-classes moment",
+        "holding a light jacket while looking ahead naturally, sincere campus-day profile mood",
+    ],
+    "campus_cafe": [
+        "reviewing a small notebook with a warm drink nearby, calm focused mood",
+        "sitting at a small table with a phone screen turned away, quiet everyday break",
+        "organizing study materials beside a simple cup, soft natural campus-cafe mood",
+    ],
+    "library_lounge": [
+        "reading lecture notes with a few books nearby, quiet academic mood",
+        "looking up from a notebook with a calm thoughtful expression, focused study break",
+        "arranging papers and a pen on the table, sincere low-key study mood",
+    ],
+    "lecture_building_hallway": [
+        "holding a folder and standing naturally near a quiet hallway wall, between-classes mood",
+        "checking a closed notebook while waiting calmly, ordinary lecture-day profile mood",
+        "walking with a backpack strap held lightly, relaxed academic routine mood",
+    ],
+    "student_union_lounge": [
+        "sitting in a shared lounge chair with a notebook nearby, calm everyday student mood",
+        "standing near neutral lounge seating with a relaxed sincere expression, casual campus moment",
+        "sorting small study items in a public lounge area, natural low-pressure profile mood",
+    ],
+    "small_exhibition": [
+        "looking thoughtfully at a simple abstract artwork, quiet cultural interest mood",
+        "standing near a neutral display wall with a calm expression, understated exhibition visit mood",
+        "holding a small plain brochure with no readable text, soft reflective profile mood",
+    ],
+    "bookstore_near_campus": [
+        "browsing a shelf with book spines softly unreadable, calm curious mood",
+        "holding one closed book at waist level, quiet bookstore profile moment",
+        "standing near a simple bookshelf with a gentle expression, thoughtful everyday mood",
+    ],
+    "local_park_near_campus": [
+        "sitting on a simple park bench with a tote beside them, peaceful afternoon mood",
+        "walking along a quiet path with relaxed shoulders, calm outdoor profile mood",
+        "standing near soft greenery while holding a light jacket, sincere everyday mood",
+    ],
+    "campus_garden": [
+        "walking beside low greenery with a calm expression, soft campus garden mood",
+        "standing near plants with relaxed posture, quiet fresh-air profile moment",
+        "holding a notebook lightly while looking toward the path, gentle student-life mood",
+    ],
+    "campus_sports_court": [
+        "resting after a casual activity with a plain water bottle, healthy ordinary mood",
+        "standing near the side of a quiet court in modest casual clothes, relaxed active-day mood",
+        "holding a light jacket after a casual walk, natural sporty campus mood",
+    ],
+    "quiet_study_room": [
+        "reviewing notes at a clean desk with a closed laptop nearby, calm academic mood",
+        "writing briefly in a notebook with a focused but relaxed expression, quiet study mood",
+        "organizing stationery and papers on a simple desk, sincere student routine mood",
+    ],
+    "dorm_common_lounge": [
+        "sitting in a shared common lounge with a book nearby, calm residential student mood",
+        "standing near neutral lounge furniture with a gentle expression, ordinary shared-space mood",
+        "holding a warm drink in a public common area, relaxed low-key profile mood",
+    ],
+    "neutral_outdoor_street_near_campus": [
+        "walking along a quiet street with a simple tote, natural everyday profile mood",
+        "standing near a low wall with soft background blur, calm casual street moment",
+        "looking ahead while holding a light outerwear layer, relaxed near-campus mood",
+    ],
+    "seaside_walk": [
+        "walking slowly near a simple railing with a light jacket, calm breezy profile mood",
+        "standing with the horizon softly behind them, relaxed sincere outdoor mood",
+        "sitting on a simple bench near the water with modest casual styling, peaceful everyday mood",
+    ],
+    "safe_mirror_snapshot": [
+        "standing in front of a clean full-length mirror with the phone not covering the face, natural outfit-check mood",
+        "adjusting a jacket lightly while facing a neutral mirror, calm ordinary profile moment",
+        "taking a simple mirror snapshot with relaxed posture and visible face, understated everyday mood",
+    ],
+    "forest_bench": [
+        "sitting on a wooden bench under soft trees with a small book nearby, quiet reflective mood",
+        "resting with a tote beside them and relaxed shoulders, calm forest-path profile mood",
+        "looking across a peaceful walking path from a bench, gentle nature-day mood",
+    ],
+    "casual_restaurant_table": [
+        "sitting at a simple table with a modest meal plate nearby, warm everyday dining mood",
+        "holding a glass of water beside a small dish, calm natural restaurant moment",
+        "looking relaxed with food softly in the foreground, sincere casual meal profile mood",
+    ],
+    "amusement_park_daytime": [
+        "walking through a bright daytime walkway with attractions softly blurred behind, cheerful but calm mood",
+        "standing near a simple fence with relaxed posture, lighthearted everyday outing mood",
+        "holding a small plain snack cup, gentle casual amusement-day mood",
+    ],
+    "travel_destination_casual": [
+        "standing on a quiet unfamiliar street with a small crossbody bag, calm travel-day profile mood",
+        "resting near a simple railing while looking at the scenery, natural low-key travel mood",
+        "walking through a quiet local park or neighborhood path, relaxed everyday trip moment",
+    ],
+    "flower_viewing_path": [
+        "walking beside a flower-lined path with relaxed shoulders, soft spring outing mood",
+        "standing near blooming flowers with a gentle expression, calm natural profile moment",
+        "sitting near a flower bed with a light cardigan or jacket, quiet seasonal outing mood",
+    ],
+}
+
+VIBE_LOCATION_WEIGHTS: Dict[str, float] = {
+    "campus_walkway": 10.0,
+    "campus_cafe": 9.0,
+    "library_lounge": 8.0,
+    "lecture_building_hallway": 7.0,
+    "student_union_lounge": 7.0,
+    "quiet_study_room": 8.0,
+    "bookstore_near_campus": 5.0,
+    "local_park_near_campus": 6.0,
+    "campus_garden": 6.0,
+    "neutral_outdoor_street_near_campus": 5.0,
+    "small_exhibition": 3.0,
+    "dorm_common_lounge": 4.0,
+    "campus_sports_court": 3.0,
+    "seaside_walk": 2.0,
+    "forest_bench": 3.0,
+    "flower_viewing_path": 3.0,
+    "safe_mirror_snapshot": 1.0,
+    "casual_restaurant_table": 2.0,
+    "amusement_park_daytime": 1.0,
+    "travel_destination_casual": 1.0,
+}
+
+LEGACY_VIBE_ACTIVITY_REWRITES: Dict[str, str] = {
+    "sitting by a window in a quiet campus cafe, reading lecture notes with a warm drink nearby": "reading lecture notes with a warm drink nearby, calm focused study mood",
+    "walking slowly on a tree-lined campus path while holding a few books": "walking slowly while holding a few books, relaxed everyday campus mood",
+    "standing in a small exhibition space and looking at a framed artwork": "looking thoughtfully at a framed artwork, quiet cultural interest mood",
+    "sitting in a quiet library lounge with a notebook and tablet on the table": "reviewing notes with a notebook and tablet nearby, calm academic mood",
+    "standing near a campus garden with a relaxed sincere expression": "standing with a relaxed sincere expression, gentle everyday mood",
+    "sitting by a window in a quiet campus cafe, reviewing lecture notes with a warm drink nearby": "reviewing lecture notes with a warm drink nearby, calm focused study mood",
+    "walking naturally on a tree-lined campus path with a backpack": "walking naturally with a backpack, relaxed everyday campus mood",
+    "standing near an outdoor campus basketball court after a casual game, holding a water bottle": "resting after a casual activity while holding a water bottle, healthy ordinary mood",
+    "sitting in a quiet library lounge with a notebook and laptop on the table": "reviewing notes with a notebook and laptop nearby, calm academic mood",
+}
+
+VIBE_ACTIVITY_LOCATION_PATTERN = re.compile(
+    r"\b("
+    r"campus cafe|study lounge|campus path|tree-lined campus path|small exhibition space|"
+    r"library lounge|campus garden|outdoor campus basketball court|campus sports court|"
+    r"local park|bookstore|lecture building hallway|student union lounge|dorm common lounge|"
+    r"neutral outdoor street|seaside|beachside|mirror|forest|restaurant|amusement park|"
+    r"travel|flower-lined"
+    r")\b",
+    re.IGNORECASE,
+)
 
 VIBE_LOCATIONS: List[str] = [
     "quiet campus cafe or study lounge, warm neutral interior, no brand logos, no readable text",
@@ -493,7 +697,7 @@ TEMPERATURE_VISUAL: Dict[str, str] = {
 
 LOCATION_CATALOG: Dict[str, Dict[str, Any]] = {
     "campus_walkway": {
-        "scene": "quiet tree-lined university walkway with neutral buildings, no visible school logo, no readable text",
+        "scene": "quiet tree-lined university walkway with neutral buildings and a non-identifying background",
         "allowedShots": ["silhouette_card", "vibe_card"],
         "privacyRisk": "low",
         "logoTextRisk": "low",
@@ -501,7 +705,7 @@ LOCATION_CATALOG: Dict[str, Dict[str, Any]] = {
         "notes": "safe open campus path with non-identifiable background",
     },
     "campus_cafe": {
-        "scene": "quiet campus cafe or study lounge, warm neutral interior, no visible logo, no readable text",
+        "scene": "quiet campus cafe or study lounge with warm neutral interior",
         "allowedShots": ["face_card", "vibe_card"],
         "privacyRisk": "low",
         "logoTextRisk": "low",
@@ -509,7 +713,7 @@ LOCATION_CATALOG: Dict[str, Dict[str, Any]] = {
         "notes": "ordinary study-friendly cafe setting",
     },
     "library_lounge": {
-        "scene": "calm library lounge or study area, no visible school name, no readable text",
+        "scene": "calm library lounge or study area with neutral academic interior",
         "allowedShots": ["face_card", "vibe_card"],
         "privacyRisk": "low",
         "logoTextRisk": "low",
@@ -517,7 +721,7 @@ LOCATION_CATALOG: Dict[str, Dict[str, Any]] = {
         "notes": "quiet academic interior",
     },
     "lecture_building_hallway": {
-        "scene": "neutral lecture building hallway with soft daylight, no visible school name, no readable text",
+        "scene": "neutral lecture building hallway with soft daylight and uncluttered walls",
         "allowedShots": ["silhouette_card", "vibe_card"],
         "privacyRisk": "medium",
         "logoTextRisk": "medium",
@@ -525,7 +729,7 @@ LOCATION_CATALOG: Dict[str, Dict[str, Any]] = {
         "notes": "requires no visible logo, no readable text, no identifiable school name",
     },
     "student_union_lounge": {
-        "scene": "student union lounge with neutral seating and soft daylight, no visible logo, no readable text",
+        "scene": "student union lounge with neutral seating and soft daylight",
         "allowedShots": ["face_card", "vibe_card"],
         "privacyRisk": "medium",
         "logoTextRisk": "medium",
@@ -533,7 +737,7 @@ LOCATION_CATALOG: Dict[str, Dict[str, Any]] = {
         "notes": "requires no visible logo, no readable text, no identifiable school name",
     },
     "small_exhibition": {
-        "scene": "small local exhibition space near campus, neutral walls, no readable artwork labels or text",
+        "scene": "small local exhibition space near campus with neutral walls and softly blurred displays",
         "allowedShots": ["vibe_card"],
         "privacyRisk": "low",
         "logoTextRisk": "low",
@@ -541,7 +745,7 @@ LOCATION_CATALOG: Dict[str, Dict[str, Any]] = {
         "notes": "quiet cultural visit without readable labels",
     },
     "bookstore_near_campus": {
-        "scene": "small independent bookstore near campus with neutral shelves, no readable covers or signs",
+        "scene": "small independent bookstore near campus with neutral shelves and softly blurred book spines",
         "allowedShots": ["vibe_card"],
         "privacyRisk": "medium",
         "logoTextRisk": "medium",
@@ -557,7 +761,7 @@ LOCATION_CATALOG: Dict[str, Dict[str, Any]] = {
         "notes": "ordinary near-campus outdoor setting",
     },
     "campus_garden": {
-        "scene": "quiet campus garden with soft greenery, no visible school logo, no readable text",
+        "scene": "quiet campus garden with soft greenery and a non-identifying background",
         "allowedShots": ["silhouette_card", "vibe_card"],
         "privacyRisk": "low",
         "logoTextRisk": "low",
@@ -565,7 +769,7 @@ LOCATION_CATALOG: Dict[str, Dict[str, Any]] = {
         "notes": "calm garden setting",
     },
     "campus_sports_court": {
-        "scene": "outdoor campus sports court after casual activity, no team marks, no readable text",
+        "scene": "outdoor campus sports court after casual activity with a simple uncluttered background",
         "allowedShots": ["vibe_card"],
         "privacyRisk": "medium",
         "logoTextRisk": "medium",
@@ -573,7 +777,7 @@ LOCATION_CATALOG: Dict[str, Dict[str, Any]] = {
         "notes": "casual after-activity only, no visible logo, no readable text, no body-focused pose",
     },
     "quiet_study_room": {
-        "scene": "quiet study room with neutral desk area, no visible school name, no readable text",
+        "scene": "quiet study room with neutral desk area and simple academic atmosphere",
         "allowedShots": ["face_card", "vibe_card"],
         "privacyRisk": "medium",
         "logoTextRisk": "medium",
@@ -581,7 +785,7 @@ LOCATION_CATALOG: Dict[str, Dict[str, Any]] = {
         "notes": "requires no visible logo, no readable text, no identifiable school name",
     },
     "dorm_common_lounge": {
-        "scene": "shared dorm common lounge with neutral seating, no private bedroom details, no readable text",
+        "scene": "shared dorm common lounge with neutral seating and public residential-study atmosphere",
         "allowedShots": ["vibe_card"],
         "privacyRisk": "medium",
         "logoTextRisk": "medium",
@@ -596,6 +800,190 @@ LOCATION_CATALOG: Dict[str, Dict[str, Any]] = {
         "seasonCompatibility": ["spring", "summer", "autumn", "winter"],
         "notes": "requires no visible logo, no readable text, no identifiable shop name",
     },
+    "seaside_walk": {
+        "scene": "quiet seaside walkway or beachside path with the sea softly in the background, modest casual clothes and calm daytime mood",
+        "allowedShots": ["vibe_card"],
+        "privacyRisk": "medium",
+        "logoTextRisk": "medium",
+        "seasonCompatibility": ["spring", "summer", "autumn"],
+        "notes": "modest casual clothes, no swimsuit, no pool, no beach party, no body-focused styling, no nightlife",
+    },
+    "safe_mirror_snapshot": {
+        "scene": "clean neutral full-length mirror in a simple public-safe hallway or studio-like corner, face visible, phone held low enough not to cover the face, soft natural indoor lighting",
+        "allowedShots": ["vibe_card"],
+        "privacyRisk": "medium",
+        "logoTextRisk": "medium",
+        "seasonCompatibility": ["spring", "summer", "autumn", "winter"],
+        "notes": "phone must not cover face, no bathroom, no gym, no bedroom, no private intimate room, no visible phone logo",
+    },
+    "forest_bench": {
+        "scene": "quiet forest park bench or tree-lined walking path with soft natural greenery and a non-identifiable background",
+        "allowedShots": ["vibe_card"],
+        "privacyRisk": "low",
+        "logoTextRisk": "low",
+        "seasonCompatibility": ["spring", "summer", "autumn"],
+        "notes": "calm ordinary nature-day mood, no dark isolated forest, no horror or fantasy styling, face and body remain visible",
+    },
+    "casual_restaurant_table": {
+        "scene": "small casual restaurant or simple dining table with modest food and a neutral interior, person remains the subject",
+        "allowedShots": ["vibe_card"],
+        "privacyRisk": "medium",
+        "logoTextRisk": "medium",
+        "seasonCompatibility": ["spring", "summer", "autumn", "winter"],
+        "notes": "food can appear but person remains subject, no alcohol, no bar, no readable menu, no visible logo",
+    },
+    "amusement_park_daytime": {
+        "scene": "daytime amusement park walkway with attractions softly blurred in the background, lighthearted calm outing mood",
+        "allowedShots": ["vibe_card"],
+        "privacyRisk": "medium",
+        "logoTextRisk": "medium",
+        "seasonCompatibility": ["spring", "summer", "autumn"],
+        "notes": "lighthearted but calm, no mascot, no children featured, no readable signs, no visible logo, no crowd-focused background",
+    },
+    "travel_destination_casual": {
+        "scene": "quiet overseas-style local street, park, or neighborhood path with generic travel atmosphere and non-identifiable background",
+        "allowedShots": ["vibe_card"],
+        "privacyRisk": "medium",
+        "logoTextRisk": "medium",
+        "seasonCompatibility": ["spring", "summer", "autumn", "winter"],
+        "notes": "generic travel mood only, no famous landmark, no flags, no readable signs, no luxury hotel, no tourist influencer style",
+    },
+    "flower_viewing_path": {
+        "scene": "flower-lined park path or garden walkway with seasonal flowers and natural profile-like framing",
+        "allowedShots": ["vibe_card"],
+        "privacyRisk": "low",
+        "logoTextRisk": "low",
+        "seasonCompatibility": ["spring", "autumn"],
+        "notes": "soft seasonal outing mood, no wedding-like staging, no influencer photoshoot, no excessive romantic fantasy mood, no readable signs",
+    },
+}
+
+LOCATION_MEDIUM_RISK_NEGATIVE_CONSTRAINTS: Tuple[str, ...] = (
+    "visible logo",
+    "brand logo",
+    "readable text",
+    "identifiable location",
+)
+
+LOCATION_NEGATIVE_CONSTRAINTS: Dict[str, Tuple[str, ...]] = {
+    "campus_walkway": (
+        "visible school logo",
+        "readable text",
+    ),
+    "campus_cafe": (
+        "visible logo",
+        "readable text",
+    ),
+    "library_lounge": (
+        "visible school name",
+        "readable text",
+    ),
+    "lecture_building_hallway": (
+        "visible school name",
+        "readable text",
+        "identifiable school name",
+    ),
+    "student_union_lounge": (
+        "visible logo",
+        "readable text",
+        "identifiable school name",
+    ),
+    "small_exhibition": (
+        "readable artwork labels",
+        "readable text",
+    ),
+    "bookstore_near_campus": (
+        "readable covers",
+        "readable signs",
+        "visible logo",
+    ),
+    "local_park_near_campus": (
+        "identifiable personal information",
+    ),
+    "campus_garden": (
+        "visible school logo",
+        "readable text",
+    ),
+    "campus_sports_court": (
+        "visible logo",
+        "team marks",
+        "readable text",
+        "body-focused pose",
+    ),
+    "quiet_study_room": (
+        "visible school name",
+        "readable text",
+    ),
+    "dorm_common_lounge": (
+        "private bedroom details",
+        "private intimate room",
+        "readable text",
+    ),
+    "neutral_outdoor_street_near_campus": (
+        "visible logo",
+        "readable text",
+        "identifiable shop name",
+    ),
+    "seaside_walk": (
+        "swimsuit",
+        "bikini",
+        "pool",
+        "beach party",
+        "revealing outfit",
+        "body-focused styling",
+    ),
+    "safe_mirror_snapshot": (
+        "bathroom",
+        "gym",
+        "bedroom",
+        "bathroom mirror",
+        "gym mirror",
+        "bedroom mirror",
+        "private intimate room",
+        "locker room",
+        "flash glare",
+        "visible phone brand",
+        "phone logo",
+    ),
+    "forest_bench": (
+        "dark isolated forest",
+        "horror mood",
+        "fantasy forest",
+        "hidden face",
+        "hidden body",
+    ),
+    "casual_restaurant_table": (
+        "alcohol",
+        "bar",
+        "readable menu",
+        "brand logo",
+        "pub",
+        "nightclub",
+    ),
+    "amusement_park_daytime": (
+        "visible logo",
+        "brand logo",
+        "mascot",
+        "children featured",
+        "readable signs",
+        "influencer pose",
+        "crowd-focused background",
+    ),
+    "travel_destination_casual": (
+        "famous landmark",
+        "flags",
+        "national symbols",
+        "readable signs",
+        "luxury hotel",
+        "tourist influencer style",
+        "identifiable location",
+    ),
+    "flower_viewing_path": (
+        "influencer photoshoot",
+        "wedding-like staging",
+        "excessive romantic fantasy mood",
+        "readable signs",
+    ),
 }
 
 SAFE_FASHION_CATALOG: Dict[Gender, Dict[str, Dict[str, Any]]] = {
@@ -903,6 +1291,7 @@ QA_CHECKLIST: List[str] = [
     "vibe_readable_for_vibe_card",
     "metadata_matches_image",
     "identity_consistent_across_shots",
+    "eyewear_consistent_across_shots",
 ]
 
 
@@ -1097,32 +1486,303 @@ def storage_paths(profile_id: str, shot_type: Optional[ShotType] = None) -> Dict
 
 def looks_level_to_visual(level: float) -> str:
     """Translate internal looksLevel into non-gamified visual language."""
-    level = float(level)
-    if level < 2.0:
-        return (
-            "ordinary and natural real student look, mild facial asymmetry allowed, "
-            "not polished or model-like"
+    band = looks_level_band(float(level))
+    return LOOKS_LEVEL_BAND_VISUALS.get(band, LOOKS_LEVEL_BAND_VISUALS["2.5-3.2"])
+
+
+def face_type_target_visual(face_type: Any) -> str:
+    """Return the canonical visual geometry block for a faceType target."""
+    canonical = _canonical_face_type(face_type)
+    return FACE_TYPE_VISUAL.get(canonical, FACE_TYPE_VISUAL["mixed_neutral"])
+
+
+def looks_level_band_target_visual(band: Any) -> str:
+    """Return the canonical visual calibration block for a looksLevelBand target."""
+    key = str(band or "2.5-3.2")
+    return LOOKS_LEVEL_BAND_VISUALS.get(key, LOOKS_LEVEL_BAND_VISUALS["2.5-3.2"])
+
+
+def build_face_type_target_block(spec: Mapping[str, Any], shot_type: ShotType = "face_card") -> str:
+    face = spec.get("face", {}) if isinstance(spec.get("face"), Mapping) else {}
+    face_type = _canonical_face_type(face.get("faceType", "mixed_neutral"))
+    block = face_type_target_visual(face_type)
+    if shot_type == "face_card" and face_type == "fox_like":
+        block += (
+            "; face_card comparison guard: fox_like should not be interpreted as dog_like; "
+            "keep fox_like cues subtle and composed; do not soften into a rounded puppy-like friendly look; "
+            "do not compact into hamster_like rounded cuteness; do not become fully mixed_neutral; "
+            "keep restrained angularity without making the person more attractive"
         )
-    if level < 3.0:
-        return (
-            "neat and likable impression, naturally balanced features, "
-            "casual grooming without looking staged"
+    if shot_type == "face_card" and face_type == "cat_like":
+        band = str(face.get("looksLevelBand") or looks_level_band(float(face.get("looksLevel", 3.0))))
+        if band == "1.5-2.4":
+            block += (
+                "; cat_like 1.5-2.4 low-band no-upgrade lock: keep only a plain low-band cat_like cue, "
+                "subtle almond-eye lift without neat fox_like polish; do not convert ordinary cat_like into fox_like neatness; "
+                "do not make the face sharper, cleaner, brighter-eyed, or more composed than a very ordinary campus student; "
+                "v22 face-card cat_like low-band hard lock: face_card itself must not read bear_like, hamster_like, mixed_neutral, or 2.5-3.2; "
+                "avoid broad jaw, thick brows, sturdy fullness, compact rounded cuteness, balanced neutral prettiness, and black-acetate intellectual neatness upgrading the face; "
+                "keep a visibly plain adult cat_like almond-eye cue with low polish and below-average ordinariness"
+            )
+        if band == "3.9-4.3":
+            block += (
+                "; face_card high-band cat_like guard: preserve clearly cat_like almond-eye lift, composed alert neatness, "
+                "and slightly sharper clean structure so it does not soften into deer_like; keep it in 3.9-4.3 with neat campus polish, "
+                "but avoid influencer, celebrity, model, idol, luxury, or beauty-filter styling"
+            )
+    return (
+        f"Target faceType {face_type}: {block}. "
+        "Use these as visible facial-geometry cues, not just a label; keep the target distinct from neighboring types."
+    )
+
+
+def build_face_card_depolish_block(spec: Mapping[str, Any]) -> str:
+    face = spec.get("face", {}) if isinstance(spec.get("face"), Mapping) else {}
+    band = str(face.get("looksLevelBand") or looks_level_band(float(face.get("looksLevel", 3.0))))
+    parts = [
+        "Face-card no-upgrade calibration: ordinary smartphone-like profile framing",
+        "very ordinary phone camera profile feel",
+        "flatter everyday lighting",
+        "no portrait-style depth",
+        "no dramatic catchlights",
+        "no polished dating-profile crop",
+        "facial realism over styling",
+        "soft plain lighting without studio-beauty effect",
+        "natural skin texture",
+        "slight everyday imperfection",
+        "no high-end portrait retouching",
+        "no beauty-filter glow",
+        "no commercial headshot style",
+        "no social-media profile polish",
+        "no face slimming",
+        "no jaw sharpening",
+        "no eye enlargement",
+        "no nose refinement",
+        "no glossy skin",
+        "no professional headshot polish",
+        "no public-figure or model expression",
+        "no observed looksLevelBand upward drift",
+    ]
+    if band == "2.5-3.2":
+        parts.extend([
+            "if target looksLevelBand is 2.5-3.2, do not let observed appearance enter 3.3-3.8",
+            "maintain average-to-mildly-pleasant appearance even if clothing, location, or lighting is neat",
+            "neat styling must not raise facial attractiveness",
+        ])
+    face_type_for_depolish = _canonical_face_type(face.get("faceType", "mixed_neutral"))
+    if face_type_for_depolish == "deer_like" and band == "2.5-3.2":
+        parts.extend([
+            "v22 deer_like 2.5-3.2 face-card no-upgrade lock",
+            "gentle deer_like calmness must not read as above-average 3.3-3.8 elegance",
+            "avoid confident portrait expression, refined delicate jawline, bright attractive eyes, soft golden glow, and polished cafe/profile styling",
+            "keep deer_like softness ordinary, modest, and only average-to-mildly-pleasant",
+        ])
+    if face_type_for_depolish == "cat_like" and band == "1.5-2.4":
+        parts.extend([
+            "v22 cat_like low-band face-card anti-bear/hamster lock",
+            "black acetate or neat styling must not make the face smarter, sturdier, rounder, cuter, or 2.5-3.2",
+            "avoid bear_like broad jaw and thick-brow sturdiness",
+            "avoid hamster_like compact rounded cuteness",
+            "preserve plain almond-eye cat_like cues with low-band ordinariness",
+        ])
+    if face_type_for_depolish == "dog_like" and band == "1.5-2.4":
+        parts.extend([
+            "v22 dog_like low-band adult-boundary lock",
+            "the face must read clearly adult university age, not borderline youthful or teen-like",
+            "use mature adult proportions, adult jaw/neck/shoulder cues, and restrained adult grooming while staying plain 1.5-2.4",
+            "avoid babyface softness, school-age styling, cute puppy expression, and youthful rounded proportions",
+        ])
+    if face_type_for_depolish == "dog_like" and band in {"1.5-2.4", "2.5-3.2"}:
+        parts.extend([
+            "dog_like warmth must remain ordinary and must not act as an attractiveness upgrade",
+            "friendly warmth must stay ordinary, low-key, and unpolished",
+            "for 1.5-2.4 dog_like, keep grooming, lighting, and pose so plain that QA still reads low-band rather than 2.5-3.2",
+            "confident campus portrait styling must not make a low-band dog_like face look average-mildly pleasant",
+            "avoid polished warmth",
+            "avoid bright attractive smile",
+            "avoid cute or handsome read",
+            "avoid refined skin or refined face shape",
+        ])
+    return "; ".join(parts) + "."
+
+
+def build_looks_level_target_block(spec: Mapping[str, Any], shot_type: ShotType = "face_card") -> str:
+    face = spec.get("face", {}) if isinstance(spec.get("face"), Mapping) else {}
+    level = float(face.get("looksLevel", 3.0))
+    band = str(face.get("looksLevelBand") or looks_level_band(level))
+    band_visual = looks_level_band_target_visual(band)
+    face_type = _canonical_face_type(face.get("faceType", "mixed_neutral"))
+    guard = ""
+    if face_type == "fox_like" and band == "2.5-3.2":
+        strength = "Target-specific face_card guard" if shot_type == "face_card" else "Combined fox_like 2.5-3.2 guard"
+        guard = (
+            f" {strength}: keep the fox_like impression subtle and composed, but ordinary; "
+            "do not soften it into dog_like puppy warmth and do not sharpen it into model-like attractiveness; "
+            "do not compress it into hamster_like rounded cuteness and do not flatten it into mixed_neutral when subtle fox_like cues are visible; "
+            "preserve one or two understated fox_like cues such as slightly narrow eyes or a restrained alert expression without increasing attractiveness; "
+            "avoid dog_like puppy warmth; avoid deer_like elegant softness; avoid sharp handsome transformation; "
+            "avoid compact hamster-like softness; avoid fully balanced mixed_neutral face; "
+            "avoid model-like profile; preserve the average-to-mildly-pleasant 2.5-3.2 band; "
+            "do not let camera, lighting, styling, or pose raise it into 3.3-3.8."
         )
-    if level < 4.0:
-        return (
-            "realistic attractive appearance, balanced facial symmetry, "
-            "clear natural skin, well-kept but not influencer-like"
+        if shot_type == "vibe_card":
+            guard += (
+                " v21 fox_like 2.5-3.2 vibe no-upgrade lock: lifestyle context must not turn restrained fox_like into clearly attractive 3.3-3.8; "
+                "avoid bookstore/cafe polish, flattering golden light, neat jacket styling, confident profile pose, and composed cinematic mood when they raise attractiveness; "
+                "keep the activity secondary, ordinary, and slightly unpolished so QA still chooses 2.5-3.2."
+            )
+    if face_type == "dog_like" and band in {"1.5-2.4", "2.5-3.2"}:
+        if band == "1.5-2.4":
+            dog_guard = (
+                " Combined dog_like 1.5-2.4 guard: friendly does not mean cute or handsome; "
+                "friendly does not mean higher attractiveness; very ordinary, plain, low-key, not conventionally attractive; "
+                "warm approachable expression must stay unpolished and ordinary; avoid polished warmth; "
+                "avoid bright attractive smile; avoid refined skin; avoid refined face shape; avoid large bright eyes; "
+                "v15 dog_like low-band anti-overread: neat grooming, clean lighting, steady posture, or confident campus portrait styling must not be enough to read 2.5-3.2; "
+                "v16 dog_like low-band no-polish rescue: keep the face deliberately plain enough that QA should still choose 1.5-2.4 over 2.5-3.2; "
+                "use flatter everyday light, modest expression, mild asymmetry, ordinary skin texture, slightly imperfect grooming, and no likable portrait polish while keeping adult Korean university realism; "
+                "v19 dog_like 1.5-2.4 full-shot hard lock: every shot, including face_card, must read below average, plain, and non-polished; "
+                "QA must not read bear_like sturdiness, neat average appeal, or 2.5-3.2 mild pleasantness; "
+                "keep dog_like cues as soft round eyes and approachable warmth only, without broad jaw, thick-brow sturdy bear_like structure, confident neatness, or cute/handsome charm; "
+                "use visibly ordinary facial asymmetry, flatter skin texture, modest non-smiling expression, and unremarkable grooming so the face stays 1.5-2.4; "
+                "preserve sincere campus realism without upgrading beyond 1.5-2.4."
+                " v22 dog_like low-band age safety lock: every shot must read as a clearly adult university student, not borderline youthful; "
+                "keep adult facial proportions, mature enough neck/jaw/shoulder cues, restrained adult grooming, and no cute puppy-like teenage softness while preserving the 1.5-2.4 plain band."
+            )
+            if shot_type in {"silhouette_card", "vibe_card"}:
+                dog_guard += (
+                    " Dependent-shot dog_like 1.5-2.4 lock: keep the referenced face visibly in the 1.5-2.4 band even in full-body, campus, or activity context; "
+                    "do not let outfit, posture, outdoor lighting, glasses, or friendly action upgrade the dependent shot into 2.5-3.2; "
+                    "match the face_card's plain low-band ordinariness exactly."
+                )
+            if shot_type == "vibe_card":
+                dog_guard += (
+                    " v16 dog_like low-band vibe no-upgrade lock: the lifestyle activity is quiet and ordinary, not a polished confident campus portrait; "
+                    "activity context, outfit, location, and candid posture must not add average-pleasant appeal; "
+                    "keep rounded friendly dog_like anchors low-key, with no longer mature horse_like elongation and no attractiveness upgrade from candid context. "
+                    "v18 dog_like 1.5-2.4 vibe strict plainness lock: QA must still choose 1.5-2.4 for the vibe_card, not 2.5-3.2; "
+                    "avoid any neat outfit-check, mirror/selfie, cafe, lounge, or campus activity that makes the person read average-to-mildly-pleasant; "
+                    "use plain expression, flatter everyday lighting, ordinary phone snapshot texture, unstyled low-key grooming, mild asymmetry, and no warm polished smile; "
+                    "v19 dog_like low-band vibe hard reject avoidance: do not use lounge-chair, notebook, cafe, clean crew-neck, short wool coat, or any tidy lifestyle setup that reads neat likable 2.5-3.2; "
+                    "prefer plainer, less flattering campus context, neutral ordinary clothing, subdued posture, and an everyday unposed face where dog_like warmth is visible but not cute, handsome, sturdy, or polished; "
+                    "the activity must feel secondary and unflattering enough to preserve the face_card's low-band ordinariness while remaining adult, realistic, and trustworthy."
+                )
+            accessories = spec.get("accessories", {}) if isinstance(spec.get("accessories"), Mapping) else {}
+            if shot_type == "silhouette_card" and shot_eyewear_expected(accessories, shot_type) != "none":
+                dog_guard += (
+                    " dog_like eyewear silhouette low-band lock: glasses must not make the face read smarter, neater, or 2.5-3.2; "
+                    "plain low-band dog_like ordinariness remains visible behind the glasses; "
+                    "keep warm expression ordinary and unpolished even while eyewear remains clearly visible."
+                )
+        else:
+            dog_guard = (
+                " Combined dog_like 2.5-3.2 guard: average or mildly pleasant only; "
+                "warmth must not raise looksLevelBand into 3.3-3.8; friendly warmth must stay ordinary; "
+                "do not push warmth into cute, handsome, polished, or highly attractive; "
+                "keep ordinary student proportions, ordinary skin texture, and below-3.3 facial attractiveness."
+            )
+        guard += dog_guard
+    if face_type == "cat_like" and band == "1.5-2.4":
+        guard += (
+            " cat_like 1.5-2.4 low-band no-upgrade lock: plain low-band cat_like with mild almond-eye cue only; "
+            "do not convert ordinary cat_like into fox_like neatness, deer_like delicacy, or 2.5-3.2 neat everyday appeal; "
+            "do not let neat styling read as 2.5-3.2 or 3.3-3.8; "
+            "keep mild asymmetry, ordinary skin texture, small imperfections, and low-key campus realism across this shot. "
+            "v13 cat_like 1.5-2.4 reject-neatness lock: a clean campus outfit or sincere expression must not raise observedLooksLevelBand above 1.5-2.4; "
+            "prefer plainer facial balance over likable polish; preserve ordinary asymmetry, flatter light, and non-refined eye-mouth balance. "
+            "v22 cat_like low-band all-shot anti-misread lock: QA must not choose bear_like, hamster_like, mixed_neutral, or 2.5-3.2; "
+            "avoid broad sturdy jaw, thick brows, heavy lower face, compact cheek cuteness, rounded hamster softness, and balanced neutral prettiness; "
+            "black-acetate glasses must remain only an identity accessory and must not add intellectual neatness or average appeal."
+        )
+        if shot_type in {"silhouette_card", "vibe_card"}:
+            guard += (
+                " v18 cat_like low-band dependent-shot lock: match the face_card's very ordinary 1.5-2.4 cat_like ordinariness exactly; "
+                "QA must still choose 1.5-2.4 rather than 2.5-3.2; "
+                "do not let neat outfit, calm activity, or campus lighting create average-pleasant appeal; "
+                "preserve subtle almond-eye cat_like cue without converting to dog_like, bear_like, or mixed_neutral; "
+                "do not let dependent-shot distance, relaxed expression, or lifestyle context hide the low-band cat_like face."
+            )
+            if shot_type == "silhouette_card":
+                guard += (
+                    " v21 cat_like 1.5-2.4 silhouette no-upgrade lock: the full-body shot must still read low-band, not mixed_neutral 2.5-3.2; "
+                    "avoid neat everyday outfit, clean posture, flattering distance, or balanced neutral face that raises the silhouette into average appeal; "
+                    "keep plain low-band cat_like asymmetry and unpolished face readable even while preserving body silhouette."
+                )
+        accessories = spec.get("accessories", {}) if isinstance(spec.get("accessories"), Mapping) else {}
+        if shot_type == "silhouette_card" and shot_eyewear_expected(accessories, shot_type) != "none":
+            guard += (
+                " v13 cat_like eyewear silhouette double lock: thin round metal glasses stay visible without making the face read neater; "
+                "do not let glasses, library context, or clean styling upgrade the face into 2.5-3.2; "
+                "keep the referenced low-band cat_like face plain behind the required visible frames."
+            )
+    if face_type == "cat_like" and band == "3.9-4.3" and shot_type in {"silhouette_card", "vibe_card"}:
+        guard += (
+            " v21 cat_like 3.9-4.3 dependent no-undershoot lock: dependent shots must preserve high-band cat_like polish and should not fall to 3.3-3.8; "
+            "keep composed almond-eye lift, alert neatness, and slightly sharper clean structure visible despite lifestyle context or full-body distance; "
+            "avoid small-face uncertainty, overly casual styling, flat light, or relaxed pose that makes QA lower the band while still avoiding celebrity/influencer 4.4-5.0."
+        )
+    if face_type == "mixed_neutral" and band == "3.3-3.8":
+        guard += (
+            " Mixed_neutral 3.3-3.8 guard: keep the face balanced and neutral, but clearly within the 3.3-3.8 mildly-attractive campus band; "
+            "do not undershoot into 2.5-3.2 ordinary/plain; maintain neat grooming, balanced feature harmony, and moderate polish; "
+            "avoid celebrity, influencer, model, luxury, or over-retouched styling while preserving above-average but sincere student realism."
+        )
+        if shot_type == "silhouette_card":
+            guard += (
+                " v20 mixed_neutral 3.3-3.8 silhouette no-undershoot lock: the full-body shot must still read as 3.3-3.8, not neat everyday 2.5-3.2; "
+                "preserve the face_card's moderate polish, balanced feature harmony, clean grooming, and mildly attractive campus impression in the visible face; "
+                "do not let distance, side angle, flat lighting, casual pose, or outfit reduce the face into ordinary/plain 2.5-3.2."
+            )
+    if shot_type in {"silhouette_card", "vibe_card"} and face_type == "hamster_like" and band == "2.5-3.2":
+        guard += (
+            " Dependent-shot hamster_like 2.5-3.2 identity lock: keep the referenced compact rounded adult face and fuller-cheek hamster_like impression visible; "
+            "do not sharpen into fox_like, do not slim the face, do not raise the dependent shot into 3.3-3.8, and do not let black acetate glasses or standing posture create a smarter sharper higher-band read; "
+            "match the face_card's average-to-mildly-pleasant 2.5-3.2 ordinariness exactly."
+        )
+        if shot_type == "silhouette_card":
+            guard += (
+                " v16 hamster_like silhouette compact-round lock: preserve compact rounded same-person cues from the face_card, including fuller cheeks, soft small-nose impression, and gentle adult roundedness; "
+                "do not broaden into bear_like, do not widen the jaw, and do not make the brows or posture feel sturdy; "
+                "avoid broad jaw, thick brows, sturdy bear_like fullness, or grounded heavy facial structure while keeping the full-body silhouette readable."
+            )
+        if shot_type == "vibe_card":
+            guard += (
+                " v12 hamster_like vibe anti-bear lock: do not broaden into bear_like grounded fullness; "
+                "keep compact rounded adult cheeks visible in the lifestyle context; "
+                "activity and posture must not make the face broader or sturdier; "
+                "avoid thick-browed, broad-jawed, solid bear_like reinterpretation. "
+                "v15 hamster_like vibe adult-boundary lock: rounded softness must remain clearly adult university age; "
+                "include mature-enough styling and proportions, no babyface emphasis, no teenager cues, and no underage interpretation while keeping soft hamster_like cues. "
+                "v21 hamster_like 2.5-3.2 vibe no-upgrade lock: rounded compact softness must not become cute, polished, or clearly attractive 3.3-3.8 in lifestyle context; "
+                "avoid flattering cafe/bookstore/garden activity, warm polished smile, clean outfit showcase, and soft beauty lighting that upgrades the face; "
+                "keep the vibe ordinary, phone-snapshot-like, mildly pleasant at most, and anchored to the face_card's 2.5-3.2 ordinariness."
+            )
+    if shot_type == "silhouette_card" and face_type == "deer_like" and band == "3.3-3.8":
+        guard += (
+            " Silhouette deer_like 3.3-3.8 readability lock: keep the soft oval face, calm medium-large eyes, delicate jawline, and gentle quiet deer_like impression readable at full-body distance; "
+            "do not flatten into mixed_neutral, do not obscure the face, and keep enough facial pixels for target faceType verification without turning it into a headshot. "
+            "v20 deer_like silhouette face-angle lock: never use a side-facing silhouette when deer_like faceType must be judged; use front-facing or mild three-quarter face angle with both eyes/nose-mouth balance readable; "
+            "do not let body silhouette priority, walking pose, winter layers, or profile angle make the face type unclear; keep the face large and clear enough for QA to choose deer_like confidently."
+        )
+    if face_type == "deer_like" and band == "2.5-3.2" and shot_type == "face_card":
+        guard += (
+            " v22 deer_like 2.5-3.2 face-card no-upgrade lock: deer_like calmness must stay ordinary and must not become elegant 3.3-3.8; "
+            "avoid confident attractive direct gaze, refined delicate jawline, bright large eyes, soft golden-hour portrait glow, and polished profile framing; "
+            "keep the face average-to-mildly-pleasant only, with modest grooming, flatter light, small natural asymmetry, and no above-average campus appeal."
         )
     return (
-        "noticeably attractive but still realistic, refined natural grooming, "
-        "not a polished media profile, not a photoshoot model"
+        f"Target looksLevelBand {band} with internal level {level:.1f}: {band_visual}. "
+        "LooksLevel means realism, grooming, feature balance, and polish level; do not beautify beyond the target band. "
+        "Level lock: match the assigned looksLevelBand exactly; do not upgrade the face; do not change looksLevelBand upward."
+        f"{guard}"
+
     )
 
 
 def face_to_visual(face: Mapping[str, Any]) -> str:
     face_type = _canonical_face_type(face.get("faceType", "mixed_neutral"))
     parts = [
-        FACE_TYPE_VISUAL.get(face_type, FACE_TYPE_VISUAL["mixed_neutral"]),
+        face_type_target_visual(face_type),
         _visual(FACE_SHAPE_VISUAL, face.get("faceShape")),
         _visual(EYE_SIZE_VISUAL, face.get("eyeSize")),
         _visual(EYE_TILT_VISUAL, face.get("eyeTilt")),
@@ -1204,6 +1864,86 @@ def eyewear_prompt_text(accessories: Mapping[str, Any], *, include_none: bool = 
     return ""
 
 
+def canonical_eyewear_key(accessories: Mapping[str, Any]) -> str:
+    if accessories.get("eyewearGroup") == "glasses":
+        return str(accessories.get("canonicalEyewear") or accessories.get("eyewear") or "thin_round_metal")
+    return "none"
+
+
+def shot_eyewear_expected(accessories: Mapping[str, Any], shot_type: ShotType) -> str:
+    temporary = accessories.get("temporaryEyewearForShot") if isinstance(accessories.get("temporaryEyewearForShot"), Mapping) else {}
+    if bool(temporary.get(shot_type)):
+        return str(accessories.get("temporaryEyewear") or "thin_round_metal")
+    return canonical_eyewear_key(accessories)
+
+
+def temporary_eyewear_allowed(accessories: Mapping[str, Any], shot_type: ShotType) -> bool:
+    temporary = accessories.get("temporaryEyewearForShot") if isinstance(accessories.get("temporaryEyewearForShot"), Mapping) else {}
+    return bool(temporary.get(shot_type))
+
+
+def canonical_eyewear_clause(spec: Mapping[str, Any], shot_type: ShotType) -> str:
+    accessories = spec.get("accessories", {}) if isinstance(spec.get("accessories"), Mapping) else {}
+    expected = shot_eyewear_expected(accessories, shot_type)
+    if expected != "none":
+        eyewear = _visual(EYEWEAR_VISUAL, expected)
+        exact_eyewear = "clear-frame glasses" if expected == "clear_frame" else eyewear
+        fine_frame_lock = ""
+        if expected in {"soft_rectangular_metal", "thin_round_metal", "clear_frame"}:
+            fine_frame_lock = (
+                " v16 required eyewear persistence lock: same-person eyewear consistency is mandatory; "
+                "soft or thin frames must remain readable enough that QA can point to frame outline, bridge, and temple arm; "
+                "do not let lighting, distance, side angle, activity, or transparent/metal color make required glasses disappear; "
+            )
+        if shot_type == "face_card":
+            return f"wearing the same {exact_eyewear} assigned to this identity, same frame style for this identity, frames visible enough to verify identity consistency, eyes clearly visible, natural lens reflection only"
+        if shot_type == "silhouette_card":
+            return (
+                f"wearing the same {exact_eyewear} from the face_card; preserve the assigned {eyewear}; "
+                "frames visible enough to verify identity consistency; do not remove glasses in this shot; "
+                f"{fine_frame_lock}"
+                "face and eyewear remain readable; do not let full-body framing make glasses unreadable; eyes clearly visible; "
+                "v14 silhouette eyewear readability lock: glasses are a required identity feature in this silhouette_card; "
+                f"full-body framing must still show the {exact_eyewear}; use a three-quarter crop close enough that the frames are plainly readable; "
+                "if the frames would be too small, crop closer rather than removing them; do not approve a no-glasses silhouette for this identity; "
+                "front or three-quarter face angle only; avoid rear, far-profile, tiny-face, or backlit crops that hide transparent or metal frames; "
+                "for clear-frame or thin metal eyewear, add crisp edge highlights and visible temple arms so QA can read the assigned frame style; "
+                "v15 clear-frame silhouette readability lock: transparent frames must have visible lens rims, bridge, and temple arms against the face/background; "
+                "choose a readable front or three-quarter upper-body/full-body crop, never a tiny face, pure side profile, shadowed face, or backlit frame that blends away; "
+                "clear-frame eyewear is successful only when QA can point to both lenses and at least one temple arm; "
+                "not translucent eyewear that disappears into skin tone or background"
+            )
+        return f"wearing the same {exact_eyewear} from the face_card; preserve the assigned {eyewear}; frames visible enough to verify identity consistency; do not remove glasses in this shot; {fine_frame_lock}face and eyewear remain readable; location or activity must not remove eyewear; environmental context secondary to identity and eyewear consistency; eyes clearly visible, natural lens reflection only"
+    if shot_type == "face_card":
+        return "natural face, clear unobstructed eyes, natural eye area"
+    if shot_type == "silhouette_card":
+        return "natural face continuity from the face_card; if the face is visible, keep eyes unobstructed"
+    return "natural face continuity from the face_card, clear unobstructed eyes, no added eye accessories"
+
+
+def eyewear_negative_constraints(spec: Mapping[str, Any], shot_type: ShotType) -> str:
+    accessories = spec.get("accessories", {}) if isinstance(spec.get("accessories"), Mapping) else {}
+    expected = shot_eyewear_expected(accessories, shot_type)
+    if expected != "none":
+        constraints = [
+            "sunglasses",
+            "tinted lenses",
+            "lens glare hiding eyes",
+            "different frame style",
+            "face-covering mask",
+        ]
+    else:
+        constraints = [
+            "glasses",
+            "eyeglasses",
+            "spectacles",
+            "sunglasses",
+            "tinted lenses",
+            "face-covering mask",
+        ]
+    return "Eyewear-specific avoid: " + "; ".join(constraints) + "."
+
+
 def environment_to_visual(environment: Mapping[str, Any]) -> str:
     return _join_nonempty([
         _visual(SEASON_VISUAL, environment.get("season")),
@@ -1216,19 +1956,90 @@ def environment_to_visual(environment: Mapping[str, Any]) -> str:
 def location_scene(spec: Mapping[str, Any], shot_type: Optional[ShotType] = None) -> str:
     location = spec.get("location", {}) if isinstance(spec.get("location"), Mapping) else {}
     location_type = str(location.get("locationType") or "campus_walkway")
+    effective_type, entry = _effective_location_type_and_entry(spec, shot_type)
+    use_spec_scene = effective_type == location_type
+    scene = str(location.get("scene") or entry["scene"]) if use_spec_scene else str(entry["scene"])
+    return scene
+
+
+def _effective_location_type_and_entry(
+    spec: Mapping[str, Any],
+    shot_type: Optional[ShotType] = None,
+) -> Tuple[str, Mapping[str, Any]]:
+    location = spec.get("location", {}) if isinstance(spec.get("location"), Mapping) else {}
+    location_type = str(location.get("locationType") or "campus_walkway")
     entry = LOCATION_CATALOG.get(location_type, LOCATION_CATALOG["campus_walkway"])
-    allowed = entry.get("allowedShots", [])
-    use_spec_scene = True
-    if shot_type and shot_type not in allowed:
+    if shot_type and shot_type not in entry.get("allowedShots", []):
         fallback_type = "campus_cafe" if shot_type == "face_card" else "campus_walkway"
         if shot_type == "vibe_card" and location_type == "small_exhibition":
             fallback_type = "small_exhibition"
+        location_type = fallback_type
         entry = LOCATION_CATALOG[fallback_type]
-        use_spec_scene = False
-    scene = str(location.get("scene") or entry["scene"]) if use_spec_scene else str(entry["scene"])
-    if location.get("privacyRisk") == "medium" or location.get("logoTextRisk") == "medium":
-        scene = f"{scene}, no visible logo, no readable text, no identifiable school name"
-    return scene
+    return location_type, entry
+
+
+def location_negative_constraints(spec: Mapping[str, Any], shot_type: Optional[ShotType] = None) -> str:
+    location_type, entry = _effective_location_type_and_entry(spec, shot_type)
+    constraints: List[str] = []
+    if entry.get("privacyRisk") == "medium" or entry.get("logoTextRisk") == "medium":
+        constraints.extend(LOCATION_MEDIUM_RISK_NEGATIVE_CONSTRAINTS)
+    constraints.extend(LOCATION_NEGATIVE_CONSTRAINTS.get(location_type, ()))
+    if not constraints:
+        return ""
+    deduped = list(dict.fromkeys(constraints))
+    return "Location-specific avoid: " + "; ".join(deduped) + "."
+
+
+def _normalize_activity_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip())
+
+
+def _activity_set_for_location(location_type: str) -> set[str]:
+    return {_normalize_activity_text(activity) for activity in LOCATION_VIBE_ACTIVITIES.get(location_type, [])}
+
+
+def vibe_activity_matches_location(location_type: str, activity: Any) -> bool:
+    normalized = _normalize_activity_text(activity)
+    return bool(normalized and normalized in _activity_set_for_location(location_type))
+
+
+def sample_vibe_activity_for_location(location_type: str, gender: Gender, rng: random.Random) -> str:
+    activities = LOCATION_VIBE_ACTIVITIES.get(str(location_type))
+    if activities:
+        return _pick(rng, activities)
+    return _pick(rng, VIBE_ACTIVITIES[gender])
+
+
+def normalize_vibe_activity_for_location(
+    activity: Any,
+    location_type: str,
+    gender: Gender,
+    rng: random.Random,
+) -> str:
+    normalized = _normalize_activity_text(activity)
+    rewritten = LEGACY_VIBE_ACTIVITY_REWRITES.get(normalized, normalized)
+    if vibe_activity_matches_location(location_type, rewritten):
+        return rewritten
+    if rewritten and location_type not in LOCATION_VIBE_ACTIVITIES and not VIBE_ACTIVITY_LOCATION_PATTERN.search(rewritten):
+        return rewritten
+    return sample_vibe_activity_for_location(location_type, gender, rng)
+
+
+def vibe_activity_prompt_text(spec: Mapping[str, Any], gender: Gender) -> str:
+    seed = int(spec.get("identitySeed", 0))
+    location = spec.get("location", {}) if isinstance(spec.get("location"), Mapping) else {}
+    location_type = str(location.get("locationType") or "campus_walkway")
+    rng = random.Random(seed + 500)
+    normalized = normalize_vibe_activity_for_location(spec.get("vibeActivity"), location_type, gender, rng)
+    if vibe_activity_matches_location(location_type, normalized):
+        return normalized
+    if not VIBE_ACTIVITY_LOCATION_PATTERN.search(normalized):
+        return normalized
+    clauses = [part.strip() for part in normalized.split(",") if part.strip()]
+    kept = [part for part in clauses if not VIBE_ACTIVITY_LOCATION_PATTERN.search(part)]
+    if kept:
+        return ", ".join(kept)
+    return sample_vibe_activity_for_location(location_type, gender, rng)
 
 
 def fashion_upper_outfit(fashion: Mapping[str, Any]) -> str:
@@ -1291,21 +2102,107 @@ def subject_block(spec: Mapping[str, Any]) -> str:
     )
 
 
-def identity_consistency_block(spec: Mapping[str, Any]) -> str:
+def broad_face_identity_visual(face_type: Any) -> str:
+    canonical = _canonical_face_type(face_type)
+    if canonical == "fox_like":
+        return "same broad fox_like impression, subtle composed slightly narrow eyes, restrained ordinary face structure, not dog_like warmth, not hamster_like compact round cuteness, not fully mixed_neutral"
+    if canonical == "dog_like":
+        return "same broad dog_like warm approachable rounded friendly impression and soft ordinary face structure, not long mature horse_like elongation"
+    if canonical == "deer_like":
+        return "same broad deer_like soft oval and calm gentle impression"
+    if canonical == "bear_like":
+        return "same broad bear_like grounded warm facial structure"
+    if canonical == "cat_like":
+        return "same broad cat_like composed almond-eye impression"
+    if canonical == "hamster_like":
+        return "same broad hamster_like compact rounded adult face impression"
+    if canonical == "horse_like":
+        return "same broad horse_like longer mature face impression"
+    return "same broad balanced mixed_neutral face impression"
+
+
+def build_silhouette_face_readability_lock(spec: Mapping[str, Any]) -> str:
+    """Additional v11 lock for dependent full-body shots where face-type drift was observed."""
+    face = spec.get("face", {}) if isinstance(spec.get("face"), Mapping) else {}
+    face_type = _canonical_face_type(face.get("faceType", "mixed_neutral"))
+    band = str(face.get("looksLevelBand") or looks_level_band(float(face.get("looksLevel", 3.0))))
+    parts = [
+        "v11 silhouette face readability lock: keep the target faceType cues visible even in the three-quarter/full-body crop",
+        "the face should be large and frontal enough for faceType and same-person verification, while body silhouette remains readable",
+        "copy the face_card's broad facial structure, looksLevelBand, age, hairstyle, grooming, skin tone, and eyewear state before adapting pose or outfit",
+        "do not let distance, posture, outdoor light, face accessories, or outfit create a new sharper/slimmer/higher-band person",
+    ]
+    if face_type == "hamster_like" and band == "2.5-3.2":
+        parts.extend([
+            "hamster_like lock: preserve compact rounded adult face and fuller cheeks from the face_card",
+            "avoid fox_like narrowness, sharp alert eyes, slimmer jaw, or 3.3-3.8 upgrade",
+        ])
+    if face_type == "deer_like" and band == "3.3-3.8":
+        parts.extend([
+            "deer_like lock: preserve soft oval face, calm medium-large eyes, delicate jawline, and gentle quiet expression",
+            "avoid collapsing into mixed_neutral because the face is too small or indistinct",
+        ])
+    if face_type == "cat_like" and band == "3.9-4.3":
+        parts.extend([
+            "cat_like high-band lock: preserve composed almond-eye lift and neat sharper alert cues",
+            "avoid deer_like gentle-soft undershoot while still avoiding celebrity, idol, influencer, or beauty-filter polish",
+        ])
+    return "; ".join(parts) + "."
+
+
+def build_identity_consistency_block(spec: Mapping[str, Any], shot_type: ShotType = "vibe_card") -> str:
     face = spec.get("face", {}) if isinstance(spec.get("face"), Mapping) else {}
     hair = spec.get("hair", {}) if isinstance(spec.get("hair"), Mapping) else {}
     skin = spec.get("skin", {}) if isinstance(spec.get("skin"), Mapping) else {}
     accessories = spec.get("accessories", {}) if isinstance(spec.get("accessories"), Mapping) else {}
-    face_type = FACE_TYPE_VISUAL.get(_canonical_face_type(face.get("faceType", "mixed_neutral")), FACE_TYPE_VISUAL["mixed_neutral"])
+    face_type = broad_face_identity_visual(face.get("faceType", "mixed_neutral"))
     hair_desc = hair_to_visual(hair)
     skin_desc = _visual(SKIN_TONE_VISUAL, skin.get("tone"), "same natural Korean skin tone")
-    eyewear_desc = ""
-    if accessories.get("eyewearGroup") == "glasses":
-        eyewear_desc = f", same {_visual(EYEWEAR_VISUAL, accessories.get('eyewear'))}, eyes clearly visible with no glare"
+    eyewear_desc = canonical_eyewear_clause(spec, shot_type)
+    if shot_type == "silhouette_card":
+        face_guidance = (
+            "keep same broad face impression, skin tone, hairstyle, and eyewear if present; "
+            "keep identity eyewear state consistent; "
+            "face occupies enough pixels to confirm same person; "
+            "keep identity-readable facial detail without turning the full-body shot into a close portrait"
+        )
+    else:
+        face_guidance = (
+            "canonical face_card same-person lock: use the attached face_card as the authoritative identity anchor; "
+            "same broad face-type impression and recognizable facial structure; "
+            "same face shape, eye impression, nose-mouth balance, skin tone, hairstyle, hair volume, and grooming; "
+            "face visible enough for identity matching, not a distant lifestyle figure"
+        )
+    if shot_type == "vibe_card" and _canonical_face_type(face.get("faceType", "mixed_neutral")) == "fox_like":
+        face_guidance += (
+            "; preserve the same subtle fox_like cues from the face_card; keep face visible enough to read the slightly narrow composed eye impression; "
+            "avoid over-smiling into dog_like warmth; avoid overly soft cheeks or hamster_like compact cuteness; do not shrink the face too much; "
+            "preserve one or two understated fox_like cues even in the lifestyle setting"
+        )
+    if shot_type == "vibe_card" and _canonical_face_type(face.get("faceType", "mixed_neutral")) == "dog_like":
+        face_guidance += (
+            "; v15 dog_like vibe identity lock: preserve the face_card's rounded friendly dog_like anchors, soft cheeks, rounder eyes, and soft jawline; "
+            "do not elongate into horse_like mature long-face structure; do not replace the canonical dog_like face with a different lifestyle face; "
+            "natural candid variation is allowed only after the same dog_like face remains recognizable"
+        )
+    if shot_type == "vibe_card":
+        face_guidance += (
+            "; v18 vibe face-type readability lock: do not use a downward-looking or object-first pose; "
+            "face angle must remain front-facing or mild three-quarter, with eyes and nose-mouth balance visible; "
+            "face-type evidence must be readable enough for QA to verify the target faceType and looksLevelBand; "
+            "activity, cup, book, phone, laptop, hands, hair, or gaze must not cover the face or turn the image into an object-focused lifestyle shot"
+        )
     return (
-        "same person as the canonical portrait, same general facial structure, "
-        f"{face_type}, same {skin_desc}, same {hair_desc}, same natural grooming{eyewear_desc}, same adult visual age"
+        "same person as the canonical portrait, "
+        f"{face_guidance}: {face_type}, same {skin_desc}, same {hair_desc}, "
+        f"same natural grooming, {eyewear_desc}, preserve the same eyewear or no-eyewear state, same adult visual age, "
+        "no beauty upgrade across shots, do not change looksLevelBand upward, no body or face beauty upgrade; "
+        "environmental context is secondary to identity, and location or activity must not alter facial identity"
     )
+
+
+def identity_consistency_block(spec: Mapping[str, Any]) -> str:
+    return build_identity_consistency_block(spec, "vibe_card")
 
 
 # -----------------------------------------------------------------------------
@@ -1337,19 +2234,35 @@ def build_prompt(spec: Mapping[str, Any], shot_type: ShotType, *, _skip_validati
     hair_desc = hair_to_visual(hair)
     styling_desc = styling_to_visual(styling)
     eyewear_desc = eyewear_prompt_text(accessories)
+    eyewear_positive_text = canonical_eyewear_clause(shot_spec, shot_type)
+    eyewear_avoid_text = eyewear_negative_constraints(shot_spec, shot_type)
     special_note = special_case_note(shot_spec, shot_type)
 
-    vibe_activity = shot_spec.get("vibeActivity") or _pick(random.Random(int(shot_spec.get("identitySeed", 0)) + 500), VIBE_ACTIVITIES[gender])
+    vibe_activity = vibe_activity_prompt_text(shot_spec, gender)
     vibe_location = location_scene(shot_spec, "vibe_card")
     location_text = location_scene(shot_spec, shot_type)
+    location_avoid_text = location_negative_constraints(shot_spec, shot_type)
+    vibe_location_avoid_text = location_negative_constraints(shot_spec, "vibe_card")
     season_text = environment_to_visual(environment)
     realism_text = photo_realism_block(photo)
+    face_target_text = build_face_type_target_block(shot_spec, shot_type)
+    looks_target_text = build_looks_level_target_block(shot_spec, shot_type)
+    face_card_depolish_text = build_face_card_depolish_block(shot_spec)
+    targeting_version_text = f"Prompt targeting version: {PROMPT_TARGETING_VERSION}."
 
     if shot_type == "face_card":
-        eyewear_line = f"\nEyewear:\n{eyewear_desc}.\n" if eyewear_desc else ""
+        eyewear_line = f"\nEyewear consistency:\n{eyewear_positive_text}.\n"
         special_line = f"\nSpecial safe variation:\n{special_note}.\n" if special_note else ""
         return f"""
 {subject}
+
+Target metadata:
+{targeting_version_text}
+{face_target_text}
+{looks_target_text}
+
+Anti-overbeautification and face-card camera calibration:
+{face_card_depolish_text}
 
 Face details:
 {face_to_visual(face)}, {skin_to_visual(skin)}.
@@ -1370,16 +2283,41 @@ Rules:
 one image only, no text in image, no watermark, no visible logo, adult Korean university student, realistic, calm, trustworthy, ordinary campus profile image.
 
 {COMMON_NEGATIVE}
+{eyewear_avoid_text}
+{location_avoid_text}
 """.strip()
 
     if shot_type == "silhouette_card":
-        eyewear_line = f" Same {_visual(EYEWEAR_VISUAL, accessories.get('eyewear'))} if the face is visible." if eyewear_desc else ""
+        eyewear_line = f" {eyewear_positive_text}."
         special_line = f"\nSpecial safe variation:\n{special_note}.\n" if special_note else ""
+        silhouette_identity_rule = (
+            "show three-quarter body or full body, but keep the face clearly visible and identity-readable; "
+            "use a front-facing or mild three-quarter face angle, not a strict side profile; "
+            "keep the face large enough to recognize the same person from the face_card; "
+            "body proportions remain readable, but identity consistency is still required; "
+            "do not use strict side-profile; do not use far-distance full-body shot; "
+            "avoid back view; avoid face turned too far away; avoid tiny face; "
+            "avoid face hidden by hair, scarf, hat, hand, phone, bag, or shadow; "
+            "avoid extreme distance from camera or environmental shot where body is readable but face is too small"
+        )
+        silhouette_readability_lock = build_silhouette_face_readability_lock(shot_spec)
         return f"""
 {subject}
 
+Target metadata:
+{targeting_version_text}
+{face_target_text}
+{looks_target_text}
+{silhouette_readability_lock}
+
+Identity consistency:
+{build_identity_consistency_block(shot_spec, "silhouette_card")}.
+
 Body and silhouette:
 {body_to_visual(body)}. Full outfit shows the overall silhouette with modest coverage and no body-focused styling, bottom visible: {bool(fashion.get("bottomVisible"))}, silhouette readable: {bool(fashion.get("silhouetteReadable"))}.{eyewear_line}
+
+Eyewear consistency:
+{eyewear_positive_text}.
 
 Full outfit:
 {fashion_to_visual(fashion, full=True)}.
@@ -1388,7 +2326,7 @@ Season and environment:
 {season_text}.
 
 Composition:
-three-quarter body or full-body photo, {photo.get("pose")}, body proportions readable, no oversized padding, no heavy winter coat hiding body shape, no extreme wide-angle distortion, camera at chest height, enough space around the body, face and posture remain learnable.
+use the existing face_card as the identity reference, three-quarter body or full-body photo, {photo.get("pose")}, {silhouette_identity_rule}, body proportions readable, no oversized padding, no heavy winter coat hiding body shape, no extreme wide-angle distortion, camera at chest height, enough space around the body, avoid waist-up portrait, avoid head-and-shoulders crop, avoid close-up crop, avoid face-only framing, face and posture remain learnable.
 
 Location:
 {location_text}.
@@ -1397,19 +2335,25 @@ Lighting and camera:
 {realism_text}.
 
 Rules:
-one image only, no text in image, no watermark, no visible logo, adult Korean university student, readable modest outfit, authentic campus profile image.
+one image only, exactly one adult subject, no text in image, no watermark, no visible logo, no crowd-focused background, adult Korean university student, readable modest outfit, authentic campus profile image. If outerwear is present, keep it light enough that the body silhouette remains readable.
 
 {COMMON_NEGATIVE}
+{eyewear_avoid_text}
+{location_avoid_text}
 """.strip()
 
     # vibe_card
-    eyewear_line = f"\nEyewear consistency:\nPreserve the same {_visual(EYEWEAR_VISUAL, accessories.get('eyewear'))}; eyes remain clearly visible with no glare.\n" if eyewear_desc else ""
+    eyewear_line = f"\nEyewear consistency:\n{eyewear_positive_text}.\n"
     special_line = f"\nSpecial safe variation:\n{special_note}.\n" if special_note else ""
     return f"""
 {subject}
 
+Target metadata:
+{targeting_version_text}
+{looks_target_text}
+
 Identity consistency:
-{identity_consistency_block(shot_spec)}.
+{build_identity_consistency_block(shot_spec, "vibe_card")}.
 {eyewear_line}
 Season and setting:
 {season_text}.
@@ -1418,7 +2362,7 @@ Mood and lifestyle:
 {vibe_activity}, {_visual(FASHION_VISUAL, fashion.get("category"))}, calm, sincere, trust-based campus relationship platform mood, quiet everyday activity, face recognizable.
 
 Composition:
-half-body or environmental portrait, {photo.get("pose")}, relaxed shoulders, gentle expression, more environmental context while preserving identity consistency.
+half-body or environmental portrait, {photo.get("pose")}, relaxed shoulders, gentle expression, front-facing or mild three-quarter face angle, no strict side profile, no back view, no face hidden by props, hair, hands, phone, bag, or shadow, face occupies enough pixels to compare with the face_card, environmental context stays secondary to identity consistency.
 
 Location:
 {vibe_location}.
@@ -1427,9 +2371,12 @@ Lighting and camera:
 {realism_text}.
 
 Rules:
-one image only, no text in image, no watermark, no visible logo, adult Korean university student, realistic, calm, trustworthy, ordinary campus profile image, not influencer content.
+one image only, exactly one adult subject clearly visible, adult Korean university student, realistic, calm, trustworthy, ordinary campus profile image. Keep the person as the main subject, not the place or object. Use the activity as a natural everyday moment with a sincere, unstaged social profile feel. The background may show context, but it stays subtle, uncluttered, and non-identifying. Preserve the same person from the face_card reference, including broad face impression, face shape, eye impression, nose-mouth balance, skin tone, general hairstyle, hair volume, grooming, and eyewear when present or no-eyewear when absent. Do not let location, activity, expression, gaze, or pose create a different facial identity. Do not beautify beyond the target looksLevelBand.
 
 {COMMON_NEGATIVE}
+{eyewear_avoid_text}
+Vibe-card avoid: visible logo; brand logo; readable signs; readable text; watermark; influencer pose; crowd-focused background; extra people as subjects.
+{vibe_location_avoid_text}
 """.strip()
 
 
@@ -1439,9 +2386,14 @@ def build_asset_record(spec: Mapping[str, Any], shot_type: ShotType) -> Dict[str
     paths = storage_paths(profile_id, shot_type)
     metadata = identity_metadata_summary(normalized)
     fashion = normalized["fashion"]
+    accessories = normalized["accessories"]
+    expected_eyewear = shot_eyewear_expected(accessories, shot_type)
+    temporary_allowed = temporary_eyewear_allowed(accessories, shot_type)
+    prompt = build_prompt(normalized, shot_type)
     return {
         "schemaVersion": SCHEMA_VERSION,
         "promptBuilderVersion": PROMPT_BUILDER_VERSION,
+        "promptTargetingVersion": PROMPT_TARGETING_VERSION,
         "metadataVersion": METADATA_VERSION,
         "profileId": profile_id,
         "assetId": f"{profile_id}__{shot_type}__v001",
@@ -1449,7 +2401,8 @@ def build_asset_record(spec: Mapping[str, Any], shot_type: ShotType) -> Dict[str
         "shotType": shot_type,
         "legacyStoragePath": paths["legacy"],
         "storagePath": paths["storagePath"],
-        "prompt": build_prompt(normalized, shot_type),
+        "prompt": prompt,
+        "promptHash": hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:24],
         "negative": COMMON_NEGATIVE,
         "metadata": normalized,
         "skinTone": metadata["skinTone"],
@@ -1457,6 +2410,16 @@ def build_asset_record(spec: Mapping[str, Any], shot_type: ShotType) -> Dict[str
         "eyewear": metadata["eyewear"],
         "eyewearGroup": metadata["eyewearGroup"],
         "hasEyewear": metadata["hasEyewear"],
+        "canonicalEyewear": metadata["canonicalEyewear"],
+        "eyewearConsistencyPolicy": metadata["eyewearConsistencyPolicy"],
+        "shotEyewearExpected": expected_eyewear,
+        "temporaryEyewearAllowed": temporary_allowed,
+        "temporaryEyewearApplied": temporary_allowed,
+        "targetHasEyewear": bool(expected_eyewear != "none"),
+        "targetEyewearGroup": "glasses" if expected_eyewear != "none" else "none",
+        "targetEyewear": expected_eyewear,
+        "targetCanonicalEyewear": metadata["canonicalEyewear"],
+        "targetShotEyewearExpected": expected_eyewear,
         "season": metadata["season"],
         "weather": metadata["weather"],
         "timeOfDay": metadata["timeOfDay"],
@@ -1672,6 +2635,11 @@ def sample_accessory_spec(gender: Gender, rng: random.Random, eyewear_group: Opt
         "eyewear": eyewear,
         "eyewearGroup": eyewear_group,
         "hasEyewear": eyewear_group == "glasses",
+        "canonicalEyewear": eyewear,
+        "eyewearConsistencyPolicy": "same_across_all_shots",
+        "temporaryEyewearForShot": {},
+        "temporaryEyewearAllowed": False,
+        "temporaryEyewearApplied": False,
         "hat": _pick(rng, ["none", "none", "none", "simple_cap", "beanie"]),
         "bag": _pick(rng, ["canvas_tote", "backpack", "shoulder_bag", "none"]),
         "jewelry": _pick(rng, ["none", "none", "minimal_silver", "simple_watch"]),
@@ -1701,6 +2669,19 @@ def _environment_for_season(season: str, rng: random.Random) -> Dict[str, Any]:
     }
 
 
+def _pick_location_candidate(
+    rng: random.Random,
+    candidates: Sequence[Tuple[str, Mapping[str, Any]]],
+    shot_type: Optional[ShotType],
+) -> Tuple[str, Mapping[str, Any]]:
+    if shot_type == "vibe_card":
+        keys = [location_type for location_type, _ in candidates]
+        weights = [float(VIBE_LOCATION_WEIGHTS.get(location_type, 1.0)) for location_type in keys]
+        selected = rng.choices(list(range(len(candidates))), weights=weights, k=1)[0]
+        return candidates[selected]
+    return candidates[rng.randrange(len(candidates))]
+
+
 def sample_location_spec(gender: Gender, rng: random.Random, shot_type: Optional[ShotType] = None) -> Dict[str, Any]:
     _ = gender
     candidates = [
@@ -1710,7 +2691,7 @@ def sample_location_spec(gender: Gender, rng: random.Random, shot_type: Optional
     ]
     if not candidates:
         candidates = [("campus_walkway", LOCATION_CATALOG["campus_walkway"])]
-    location_type, entry = candidates[rng.randrange(len(candidates))]
+    location_type, entry = _pick_location_candidate(rng, candidates, shot_type)
     return {
         "locationType": location_type,
         "scene": entry["scene"],
@@ -1736,7 +2717,7 @@ def _sample_location_for_season(
     ]
     if not candidates:
         return sample_location_spec(gender, rng, shot_type)
-    location_type, entry = candidates[rng.randrange(len(candidates))]
+    location_type, entry = _pick_location_candidate(rng, candidates, shot_type)
     return {
         "locationType": location_type,
         "scene": entry["scene"],
@@ -1846,9 +2827,13 @@ def apply_safe_special_case_overrides(spec: Mapping[str, Any], shot_type: ShotTy
         out["location"] = sample_location_spec(str(out["gender"]), rng, "vibe_card")  # type: ignore[arg-type]
         out["location"]["locationType"] = "small_exhibition"
         out["location"]["scene"] = LOCATION_CATALOG["small_exhibition"]["scene"]
+        out["vibeActivity"] = sample_vibe_activity_for_location("small_exhibition", str(out["gender"]), rng)  # type: ignore[arg-type]
+        out["vibeLocation"] = out["location"]["scene"]
     if case_type == "campus_sports_after_activity":
         out["location"] = dict(LOCATION_CATALOG["campus_sports_court"])
         out["location"]["locationType"] = "campus_sports_court"
+        out["vibeActivity"] = sample_vibe_activity_for_location("campus_sports_court", str(out["gender"]), rng)  # type: ignore[arg-type]
+        out["vibeLocation"] = out["location"]["scene"]
     out["fashion"] = fashion
     return out
 
@@ -1875,9 +2860,12 @@ def sample_spec(gender: Gender, numeric_id: int, *, seed: Optional[int] = None, 
     photo = sample_photo_spec(gender, rng)
     special_case = sample_special_case_spec(gender, rng, season=environment["season"])
 
+    vibe_activity = sample_vibe_activity_for_location(str(location["locationType"]), gender, rng)
+
     spec: Dict[str, Any] = {
         "schemaVersion": SCHEMA_VERSION,
         "promptBuilderVersion": PROMPT_BUILDER_VERSION,
+        "promptTargetingVersion": PROMPT_TARGETING_VERSION,
         "metadataVersion": METADATA_VERSION,
         "profileId": profile_id,
         "gender": gender,
@@ -1899,7 +2887,7 @@ def sample_spec(gender: Gender, numeric_id: int, *, seed: Optional[int] = None, 
             "faceCard": fashion_upper_outfit(fashion) or _pick(rng, FACE_CARD_OUTFITS[gender]),
             "fullBody": fashion_full_outfit(fashion) or _pick(rng, FULL_BODY_OUTFITS[gender]),
         },
-        "vibeActivity": _pick(rng, VIBE_ACTIVITIES[gender]),
+        "vibeActivity": vibe_activity,
         "vibeLocation": location["scene"],
         "storagePaths": storage_paths(profile_id),
         "shotPlan": [
@@ -1931,6 +2919,7 @@ def identity_metadata_summary(spec: Mapping[str, Any]) -> Dict[str, Any]:
     special = spec.get("specialCase", {}) if isinstance(spec.get("specialCase"), Mapping) else {}
     return {
         "promptBuilderVersion": PROMPT_BUILDER_VERSION,
+        "promptTargetingVersion": PROMPT_TARGETING_VERSION,
         "metadataVersion": METADATA_VERSION,
         "faceType": _canonical_face_type(face.get("faceType")),
         "looksLevel": float(face.get("looksLevel", 3.0)),
@@ -1940,6 +2929,10 @@ def identity_metadata_summary(spec: Mapping[str, Any]) -> Dict[str, Any]:
         "eyewear": accessories.get("eyewear"),
         "eyewearGroup": accessories.get("eyewearGroup"),
         "hasEyewear": bool(accessories.get("hasEyewear")),
+        "canonicalEyewear": canonical_eyewear_key(accessories),
+        "eyewearConsistencyPolicy": accessories.get("eyewearConsistencyPolicy"),
+        "temporaryEyewearAllowed": bool(accessories.get("temporaryEyewearAllowed")),
+        "temporaryEyewearApplied": bool(accessories.get("temporaryEyewearApplied")),
         "season": environment.get("season"),
         "weather": environment.get("weather"),
         "timeOfDay": environment.get("timeOfDay"),
@@ -2080,6 +3073,11 @@ def assign_environment_for_batch(
             "faceCard": fashion_upper_outfit(out[index]["fashion"]),
             "fullBody": fashion_full_outfit(out[index]["fashion"]),
         }
+        out[index]["vibeActivity"] = sample_vibe_activity_for_location(
+            str(out[index]["location"]["locationType"]),
+            gender,
+            rng,
+        )
         out[index]["vibeLocation"] = out[index]["location"]["scene"]
         out[index]["specialCase"] = sample_special_case_spec(gender, rng, season=season)
         _sync_metadata(out[index])
@@ -2169,6 +3167,7 @@ def audit_prompt_distribution(specs: Sequence[Mapping[str, Any]]) -> Dict[str, A
                     mismatches.append(f"{section}.{key}: expected {value}, got {observed.get(key, 0)}")
     return {
         "promptBuilderVersion": PROMPT_BUILDER_VERSION,
+        "promptTargetingVersion": PROMPT_TARGETING_VERSION,
         "metadataVersion": METADATA_VERSION,
         "countingUnit": "identity",
         "identityCount": total,
@@ -2181,12 +3180,18 @@ def audit_prompt_distribution(specs: Sequence[Mapping[str, Any]]) -> Dict[str, A
 
 def audit_asset_distribution(asset_records: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     asset_counts: Counter[str] = Counter()
+    shot_expected_counts: Counter[str] = Counter()
     profile_to_eyewear: Dict[str, str] = {}
+    temporary_variation_count = 0
     for asset in asset_records:
         group = str(asset.get("eyewearGroup") or "none")
         key = "with_eyewear" if group == "glasses" else "without_eyewear"
         asset_counts[key] += 1
         profile_to_eyewear[str(asset.get("profileId"))] = key
+        expected = str(asset.get("shotEyewearExpected") or asset.get("eyewear") or "none")
+        shot_expected_counts["with_eyewear" if expected != "none" else "without_eyewear"] += 1
+        if bool(asset.get("temporaryEyewearApplied")):
+            temporary_variation_count += 1
     identity_counts = Counter(profile_to_eyewear.values())
     return {
         "countingUnit": {"assets": "image", "identities": "identity"},
@@ -2194,6 +3199,8 @@ def audit_asset_distribution(asset_records: Sequence[Mapping[str, Any]]) -> Dict
         "identityCount": len(profile_to_eyewear),
         "eyewearAssetCounts": dict(asset_counts),
         "eyewearIdentityCounts": dict(identity_counts),
+        "shotEyewearExpectedCounts": dict(shot_expected_counts),
+        "temporaryEyewearVariationCount": temporary_variation_count,
     }
 
 
@@ -2252,8 +3259,29 @@ def _term_pattern(term: str) -> re.Pattern[str]:
 
 
 def _is_negated_context(text: str, start: int) -> bool:
-    prefix = text[max(0, start - 36) : start].lower()
-    return bool(re.search(r"(avoid|no|not|never|without|free of|blocked|forbidden)\s+([\w -]+\s+){0,4}$", prefix))
+    prefix = text[max(0, start - 96) : start].lower()
+    clause = re.split(r"[.;\n]", prefix)[-1]
+    negation_markers = (
+        "avoid",
+        "no ",
+        "not ",
+        "never",
+        "without",
+        "free of",
+        "blocked",
+        "forbidden",
+        "does not mean",
+        "do not use",
+        "do not imply",
+    )
+    if any(marker in clause for marker in negation_markers):
+        return True
+    return bool(
+        re.search(
+            r"(avoid|no|not|never|without|free of|blocked|forbidden|does not mean|do not use|do not imply)\s+([\w /-]+\s+){0,6}$",
+            prefix,
+        )
+    )
 
 
 def scan_prompt_for_banned_terms(prompt: str, *, include_negative: bool = False) -> List[str]:
@@ -2292,6 +3320,12 @@ def validate_catalog_safety() -> None:
             raise ValueError(f"LOCATION_CATALOG.{key} has unsupported allowedShots")
         rows.append((f"LOCATION_CATALOG.{key}.scene", str(value.get("scene", ""))))
         rows.append((f"LOCATION_CATALOG.{key}.notes", str(value.get("notes", ""))))
+        if "vibe_card" in value.get("allowedShots", []):
+            activities = LOCATION_VIBE_ACTIVITIES.get(key, [])
+            if len(activities) < 3:
+                raise ValueError(f"LOCATION_VIBE_ACTIVITIES.{key} must define at least three activities")
+            for index, activity in enumerate(activities):
+                rows.append((f"LOCATION_VIBE_ACTIVITIES.{key}[{index}]", str(activity)))
     required_fashion_fields = {
         "outerwear",
         "tops",
@@ -2335,6 +3369,7 @@ def normalize_spec_defaults(spec: Mapping[str, Any]) -> Dict[str, Any]:
     rng = random.Random(identity_seed)
     out.setdefault("schemaVersion", SCHEMA_VERSION)
     out.setdefault("promptBuilderVersion", PROMPT_BUILDER_VERSION)
+    out["promptTargetingVersion"] = str(out.get("promptTargetingVersion") or PROMPT_TARGETING_VERSION)
     out.setdefault("metadataVersion", METADATA_VERSION)
     out.setdefault("profileId", profile_id)
     out.setdefault("visualAge", 22)
@@ -2381,6 +3416,16 @@ def normalize_spec_defaults(spec: Mapping[str, Any]) -> Dict[str, Any]:
     accessories.setdefault("eyewearGroup", "none")
     accessories.setdefault("eyewear", "none" if accessories.get("eyewearGroup") == "none" else "thin_round_metal")
     accessories.setdefault("hasEyewear", accessories.get("eyewearGroup") == "glasses")
+    if accessories.get("eyewearGroup") == "none":
+        accessories["canonicalEyewear"] = "none"
+    elif accessories.get("canonicalEyewear") in (None, "", "none"):
+        accessories["canonicalEyewear"] = accessories.get("eyewear")
+    else:
+        accessories.setdefault("canonicalEyewear", accessories.get("eyewear"))
+    accessories.setdefault("eyewearConsistencyPolicy", "same_across_all_shots")
+    accessories.setdefault("temporaryEyewearForShot", {})
+    accessories.setdefault("temporaryEyewearAllowed", False)
+    accessories.setdefault("temporaryEyewearApplied", False)
     accessories.setdefault("hat", "none")
     accessories.setdefault("bag", "canvas_tote")
     accessories.setdefault("jewelry", "none")
@@ -2394,9 +3439,10 @@ def normalize_spec_defaults(spec: Mapping[str, Any]) -> Dict[str, Any]:
     out["environment"] = environment
 
     location = dict(out["location"])
-    location_type = str(location.get("locationType") or "campus_walkway")
-    entry = LOCATION_CATALOG.get(location_type, LOCATION_CATALOG["campus_walkway"])
-    location.setdefault("locationType", location_type if location_type in LOCATION_CATALOG else "campus_walkway")
+    raw_location_type = str(location.get("locationType") or "campus_walkway")
+    entry_type = raw_location_type if raw_location_type in LOCATION_CATALOG else "campus_walkway"
+    entry = LOCATION_CATALOG[entry_type]
+    location["locationType"] = raw_location_type
     location.setdefault("scene", entry["scene"])
     location.setdefault("privacyRisk", entry["privacyRisk"])
     location.setdefault("logoTextRisk", entry["logoTextRisk"])
@@ -2438,8 +3484,13 @@ def normalize_spec_defaults(spec: Mapping[str, Any]) -> Dict[str, Any]:
     shot_outfits.setdefault("faceCard", fashion_upper_outfit(fashion))
     shot_outfits.setdefault("fullBody", fashion_full_outfit(fashion))
     out["shotOutfits"] = shot_outfits
-    out.setdefault("vibeActivity", _pick(rng, VIBE_ACTIVITIES[gender]))  # type: ignore[index]
-    out.setdefault("vibeLocation", location["scene"])
+    out["vibeActivity"] = normalize_vibe_activity_for_location(
+        out.get("vibeActivity"),
+        str(location["locationType"]),
+        gender,  # type: ignore[arg-type]
+        rng,
+    )
+    out["vibeLocation"] = location["scene"]
     out.setdefault("storagePaths", storage_paths(str(out["profileId"])))
     out.setdefault(
         "shotPlan",
@@ -2553,8 +3604,20 @@ def validate_spec(spec: Mapping[str, Any], *, strict: bool = False) -> None:
         raise ValueError("eyewear must be a glasses style when eyewearGroup is glasses")
     if accessories.get("eyewear") not in EYEWEAR_VISUAL:
         raise ValueError("eyewear is not supported")
+    if accessories.get("canonicalEyewear") not in EYEWEAR_VISUAL:
+        raise ValueError("canonicalEyewear is not supported")
+    if accessories.get("eyewearGroup") == "none" and accessories.get("canonicalEyewear") != "none":
+        raise ValueError("canonicalEyewear must be none when eyewearGroup is none")
+    if accessories.get("eyewearGroup") == "glasses" and accessories.get("canonicalEyewear") != accessories.get("eyewear"):
+        raise ValueError("canonicalEyewear must match eyewear for eyewear identities")
     if bool(accessories.get("hasEyewear")) != (accessories.get("eyewearGroup") == "glasses"):
         raise ValueError("accessories.hasEyewear must match eyewearGroup")
+    if str(accessories.get("eyewearConsistencyPolicy") or "") != "same_across_all_shots":
+        raise ValueError("accessories.eyewearConsistencyPolicy must be same_across_all_shots")
+    if not isinstance(accessories.get("temporaryEyewearForShot"), Mapping):
+        raise ValueError("accessories.temporaryEyewearForShot must be an object")
+    if RARE_EYEWEAR_VARIATION_RATE <= 0 and any(bool(accessories.get("temporaryEyewearForShot", {}).get(shot)) for shot in SHOT_TYPES):
+        raise ValueError("temporary eyewear variation is disabled")
     if accessories.get("hat") not in {"none", "simple_cap", "beanie"}:
         raise ValueError("accessories.hat is not supported")
     if accessories.get("bag") not in {"canvas_tote", "backpack", "shoulder_bag", "none"}:
@@ -2581,6 +3644,9 @@ def validate_spec(spec: Mapping[str, Any], *, strict: bool = False) -> None:
             raise ValueError(f"location missing required key: {key}")
     if not set(location.get("allowedShots", [])) <= set(SHOT_TYPES):
         raise ValueError("location.allowedShots contains unsupported shot types")
+    if "vibe_card" in LOCATION_CATALOG[str(location.get("locationType"))].get("allowedShots", []):
+        if not vibe_activity_matches_location(str(location.get("locationType")), normalized.get("vibeActivity")):
+            raise ValueError("vibeActivity must match location.locationType")
     if fashion.get("category") not in SAFE_FASHION_CATALOG[normalized["gender"]]:
         raise ValueError("fashion.category is not supported")
     for key in ["palette", "outerwear", "top", "bottom", "shoes", "bag", "fit", "material", "bottomVisible", "silhouetteReadable", "modest"]:
@@ -2628,6 +3694,8 @@ def write_asset_csv(path: Path, asset_records: Sequence[Mapping[str, Any]]) -> N
         "shotType",
         "legacyStoragePath",
         "storagePath",
+        "promptTargetingVersion",
+        "promptHash",
         "prompt",
         "faceType",
         "looksLevelBand",
@@ -2635,6 +3703,11 @@ def write_asset_csv(path: Path, asset_records: Sequence[Mapping[str, Any]]) -> N
         "eyewear",
         "eyewearGroup",
         "hasEyewear",
+        "canonicalEyewear",
+        "eyewearConsistencyPolicy",
+        "shotEyewearExpected",
+        "temporaryEyewearAllowed",
+        "temporaryEyewearApplied",
         "season",
         "locationType",
         "fashionCategory",

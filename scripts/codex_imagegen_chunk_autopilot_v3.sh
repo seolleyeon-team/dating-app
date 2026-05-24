@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
+printf '%s\n' "scripts/codex_imagegen_chunk_autopilot_v3.sh is deprecated for production AI profile generation."
+printf '%s\n' "Use scripts/run_ai_image_pipeline_v3.py bounded-chunk-status, bounded-chunk-reconcile, and bounded-chunk-run instead."
+exit 2
+
 ROOT="${AI_IMAGE_ROOT:-.}"
 ROOT="$(cd "$ROOT" && pwd -P)"
 PYTHON_BIN="${PYTHON_BIN:-python}"

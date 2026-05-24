@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "seolleyeon_active_visual_manual_review_v3",
+  "reason": "bounded_active_visual_qa_failed",
+  "reasons": [
+    "bounded_active_visual_qa_failed",
+    "current_chunk_archived_reset_pending_new_plan"
+  ],
+  "details": {
+    "chunkId": "chunk_20260513T202934Z",
+    "restoredAfterDistributionAuditSideEffect": true,
+    "note": "Manual review flag preserved because this operator task did not authorize clearing it.",
+    "archivedChunkId": "chunk_20260513T202934Z",
+    "resetStatus": "current_chunk_archived_reset_pending_new_plan",
+    "resetReportPath": "C:/Users/Mickey/StudioProjects/dating-app-ai_profile_image/ai_image/reports/chunks/chunk_20260513T202934Z/reset_report.json"
+  },
+  "updatedAt": "2026-05-14T22:00:31+00:00"
+}

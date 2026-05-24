@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "seolleyeon_active_visual_manual_review_v3",
+  "reason": "compact_visual_metadata_exceeds_prompt_budget",
+  "details": {
+    "qaSlug": "asset_qa",
+    "sheetId": "existing_file_complete_qa_20260524T1224Z__existing_file_complete_qa_20260524T1224Z_contact_sheet_female_face_card",
+    "metadataChars": 85160,
+    "budgetChars": 20000
+  },
+  "updatedAt": "2026-05-24T12:36:15+00:00"
+}

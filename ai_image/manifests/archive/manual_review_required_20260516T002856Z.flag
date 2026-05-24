@@ -1,0 +1,19 @@
+{
+  "failConditions": [
+    "python_visual_distribution_audit_disagree"
+  ],
+  "visualJsonErrors": [],
+  "visualDistributionAuditDisagreements": [
+    "approvedCompleteIdentityCount",
+    "approvedImageCount",
+    "femaleApprovedIdentityCount",
+    "globalFaceTypeCounts",
+    "globalFaceTypeDeficits",
+    "globalLooksLevelBandCounts",
+    "globalLooksLevelBandDeficits",
+    "genderFaceTypeCounts.female",
+    "genderFaceTypeDeficits.female",
+    "genderLooksLevelBandCounts.female",
+    "genderLooksLevelBandDeficits.female"
+  ]
+}

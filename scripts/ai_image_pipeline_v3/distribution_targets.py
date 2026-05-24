@@ -20,6 +20,8 @@ FACE_TYPES = (
     "mixed_neutral",
 )
 LOOKS_LEVEL_BANDS = ("1.5-2.4", "2.5-3.2", "3.3-3.8", "3.9-4.3", "4.4-5.0")
+EYEWEAR_BUCKETS = ("with_eyewear", "without_eyewear")
+SEASONS = ("spring", "summer", "autumn", "winter")
 FACE_TYPE_ALIASES = {
     "neutral_mixed": "mixed_neutral",
     "mixed_neutral": "mixed_neutral",
@@ -72,6 +74,18 @@ DEFAULT_DISTRIBUTION_TARGETS: dict[str, Any] = {
         "global": {"1.5-2.4": 36, "2.5-3.2": 108, "3.3-3.8": 72, "3.9-4.3": 24, "4.4-5.0": 0},
         "female": {"1.5-2.4": 18, "2.5-3.2": 54, "3.3-3.8": 36, "3.9-4.3": 12, "4.4-5.0": 0},
         "male": {"1.5-2.4": 18, "2.5-3.2": 54, "3.3-3.8": 36, "3.9-4.3": 12, "4.4-5.0": 0},
+    },
+    "eyewearTargets": {
+        "global": {"with_eyewear": 36, "without_eyewear": 204},
+        "female": {"with_eyewear": 12, "without_eyewear": 108},
+        "male": {"with_eyewear": 24, "without_eyewear": 96},
+        "reserve": {
+            "female": {"with_eyewear": 2, "without_eyewear": 18},
+            "male": {"with_eyewear": 4, "without_eyewear": 16},
+        },
+    },
+    "seasonTargets": {
+        "global": {"spring": 60, "summer": 53, "autumn": 79, "winter": 48},
     },
     "rules": {
         "countOnlyApprovedCompleteIdentities": True,
@@ -175,3 +189,15 @@ def validate_distribution_targets(targets: Mapping[str, Any]) -> None:
         for group in ("global", "female", "male"):
             if group not in targets[section]:
                 raise ValueError(f"Distribution targets missing {section}.{group}.")
+    if "eyewearTargets" in targets:
+        for group in ("global", "female", "male"):
+            if group not in targets["eyewearTargets"]:
+                raise ValueError(f"Distribution targets missing eyewearTargets.{group}.")
+            for bucket in EYEWEAR_BUCKETS:
+                if bucket not in targets["eyewearTargets"][group]:
+                    raise ValueError(f"Distribution targets missing eyewearTargets.{group}.{bucket}.")
+    if "seasonTargets" in targets:
+        season_targets = targets["seasonTargets"].get("global", targets["seasonTargets"])
+        for season in SEASONS:
+            if season not in season_targets:
+                raise ValueError(f"Distribution targets missing seasonTargets.global.{season}.")

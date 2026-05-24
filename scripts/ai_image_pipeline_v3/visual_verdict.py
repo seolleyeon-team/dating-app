@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .config import SHOT_ORDER, ensure_base_dirs, now_utc, pipeline_paths, profile_number, read_jsonl, to_portable_path, write_jsonl
+from .approval_evidence import resolve_file_qa_evidence
 from .distribution_audit import audit_distribution
 from .distribution_targets import normalize_face_type, target_face_type, target_looks_level_band
 from .manifest import load_generation_manifest, write_generation_outputs
@@ -153,6 +154,17 @@ def _load_visual_items(
         qa_type = str(top_level.get("qaType") or "")
         if qa_type != expected_qa_type:
             raise ValueError(f"Unexpected qaType: {qa_type or '<missing>'}")
+        checked_value = top_level.get("checked")
+        summary = top_level.get("summary") if isinstance(top_level.get("summary"), Mapping) else {}
+        if checked_value is None:
+            checked_value = summary.get("checked")
+        if checked_value is not None and not allow_empty:
+            try:
+                if int(checked_value) <= 0:
+                    raise ValueError("visual-verdict input has checked:0")
+            except (TypeError, ValueError) as exc:
+                if isinstance(exc, ValueError) and str(exc) == "visual-verdict input has checked:0":
+                    raise
         if item_key is None:
             return [top_level], top_level, path
         items = top_level.get(item_key)
@@ -227,6 +239,7 @@ def _asset_hard_reject_reasons(review: Mapping[str, Any]) -> list[str]:
         reasons.append("shotTypeReadable_false")
     if str(review.get("observedLooksLevelBand") or "") == "4.4-5.0":
         reasons.append("over_level_4.4-5.0")
+    reasons.extend(_eyewear_hard_reject_reasons(review))
     return reasons
 
 
@@ -236,8 +249,114 @@ def _normalized_mismatch_fields(fields: Any) -> set[str]:
         "observedFaceType": "faceType",
         "targetLooksLevelBand": "looksLevelBand",
         "observedLooksLevelBand": "looksLevelBand",
+        "targetHasEyewear": "eyewear",
+        "observedHasEyewear": "eyewear",
+        "targetEyewearGroup": "eyewear",
+        "observedEyewearGroup": "eyewear",
+        "targetEyewear": "eyewear",
+        "observedEyewear": "eyewear",
+        "targetShotEyewearExpected": "eyewear",
+        "eyewearMismatch": "eyewear",
     }
     return {mapping.get(field, field) for field in _json_list(fields)}
+
+
+def _target_eyewear_expected(asset: Mapping[str, Any]) -> str:
+    expected = str(asset.get("targetShotEyewearExpected") or asset.get("shotEyewearExpected") or asset.get("canonicalEyewear") or asset.get("eyewear") or "none").strip()
+    return expected or "none"
+
+
+def _target_has_eyewear(asset: Mapping[str, Any]) -> bool:
+    if "targetHasEyewear" in asset:
+        return _as_bool(asset.get("targetHasEyewear"))
+    expected = _target_eyewear_expected(asset)
+    if expected != "none":
+        return True
+    return _as_bool(asset.get("hasEyewear")) or str(asset.get("eyewearGroup") or "") == "glasses"
+
+
+def _target_eyewear_group(asset: Mapping[str, Any]) -> str:
+    group = str(asset.get("targetEyewearGroup") or asset.get("eyewearGroup") or "").strip()
+    if group:
+        return group
+    return "glasses" if _target_has_eyewear(asset) else "none"
+
+
+def _temporary_eyewear_allowed(asset: Mapping[str, Any]) -> bool:
+    return _as_bool(asset.get("temporaryEyewearAllowed")) or _as_bool(asset.get("temporaryEyewearApplied"))
+
+
+def _observed_has_eyewear(review: Mapping[str, Any]) -> bool | None:
+    if "observedHasEyewear" not in review:
+        return None
+    if review.get("observedHasEyewear") in (None, ""):
+        return None
+    return _as_bool(review.get("observedHasEyewear"))
+
+
+def _observed_eyewear_group(review: Mapping[str, Any]) -> str:
+    return str(review.get("observedEyewearGroup") or "").strip()
+
+
+def _eyewear_hard_reject_reasons(review: Mapping[str, Any]) -> list[str]:
+    observed_values = " ".join(
+        str(review.get(key) or "")
+        for key in ("observedEyewearGroup", "observedEyewear", "eyewearMismatchReason")
+    ).lower()
+    reasons: list[str] = []
+    if "sunglasses" in observed_values:
+        reasons.append("eyewear_sunglasses")
+    if "tinted" in observed_values:
+        reasons.append("eyewear_tinted_lenses")
+    if "face-covering mask" in observed_values or "face covering mask" in observed_values:
+        reasons.append("face_covering_mask")
+    return sorted(set(reasons))
+
+
+def _eyewear_mismatch(
+    *,
+    review: Mapping[str, Any],
+    generation_asset: Mapping[str, Any],
+) -> tuple[bool, list[str], list[str]]:
+    fields: set[str] = set()
+    reasons: list[str] = []
+    observed_has = _observed_has_eyewear(review)
+    observed_group = _observed_eyewear_group(review)
+    target_has = _target_has_eyewear(generation_asset)
+    target_group = _target_eyewear_group(generation_asset)
+    target_expected = _target_eyewear_expected(generation_asset)
+    temporary_allowed = _temporary_eyewear_allowed(generation_asset)
+    mismatch = _as_bool(review.get("eyewearMismatch"))
+
+    if _as_bool(review.get("eyewearReadable"), default=True) is False:
+        reasons.append("eyewear_not_readable")
+    if observed_has is None:
+        return mismatch, sorted(fields), sorted(set(reasons))
+    if target_has and not observed_has:
+        mismatch = True
+        fields.add("eyewear")
+        reasons.append("required_eyewear_missing")
+    if target_has and observed_has:
+        if observed_group and observed_group not in {"glasses", "unclear"}:
+            mismatch = True
+            fields.add("eyewear")
+            reasons.append(f"unexpected_eyewear_group:{observed_group}")
+        observed_eyewear = str(review.get("observedEyewear") or "").strip()
+        if observed_eyewear and observed_eyewear not in {"unclear", "other", target_expected}:
+            mismatch = True
+            fields.add("eyewear")
+            reasons.append("different_eyewear_frame")
+    if not target_has and observed_has and not temporary_allowed:
+        mismatch = True
+        fields.add("eyewear")
+        reasons.append("unexpected_eyewear_present")
+    if target_group == "none" and observed_group == "glasses" and not temporary_allowed:
+        mismatch = True
+        fields.add("eyewear")
+        reasons.append("unexpected_eyewear_group:glasses")
+    if review.get("eyewearMismatchReason"):
+        reasons.append(str(review.get("eyewearMismatchReason")))
+    return mismatch, sorted(fields), sorted(set(reasons))
 
 
 def _asset_mismatch(
@@ -269,6 +388,10 @@ def _asset_mismatch(
     elif generation_asset.get("shotType") and str(review.get("shotType") or "") != str(generation_asset.get("shotType") or ""):
         mismatch = True
         fields.add("shotType")
+    eyewear_mismatch, eyewear_fields, _eyewear_reasons = _eyewear_mismatch(review=review, generation_asset=generation_asset)
+    if eyewear_mismatch:
+        mismatch = True
+        fields.update(eyewear_fields or ["eyewear"])
     return mismatch, sorted(fields)
 
 
@@ -282,6 +405,28 @@ def _asset_record(
 ) -> dict[str, Any]:
     _require_keys(review, ASSET_REQUIRED_KEYS, "asset")
     asset_id = str(review.get("assetId") or "")
+    if not generation_asset:
+        raise ValueError(f"Unknown assetId in asset QA payload: {asset_id}")
+    for key in ("assetId", "profileId", "gender", "shotType"):
+        expected = str(generation_asset.get(key) or "")
+        observed = str(review.get(key) or "")
+        if expected and observed and observed != "unknown" and expected != observed:
+            raise ValueError(f"Asset QA {asset_id} {key} mismatch: expected {expected}, got {observed}")
+
+    source_target_face = normalize_face_type(generation_asset.get("targetFaceType") or target_face_type(generation_asset))
+    returned_target_face = normalize_face_type(review.get("targetFaceType") or "")
+    if source_target_face and source_target_face != "unknown":
+        if not returned_target_face or returned_target_face == "unknown":
+            raise ValueError(f"visual_qa_target_metadata_unknown: {asset_id} targetFaceType expected {source_target_face}")
+        if returned_target_face != source_target_face:
+            raise ValueError(f"visual_qa_target_metadata_mismatch: {asset_id} targetFaceType expected {source_target_face}, got {returned_target_face}")
+    source_target_looks = str(generation_asset.get("targetLooksLevelBand") or target_looks_level_band(generation_asset) or "").strip()
+    returned_target_looks = str(review.get("targetLooksLevelBand") or "").strip()
+    if source_target_looks and source_target_looks != "unknown":
+        if not returned_target_looks or returned_target_looks == "unknown":
+            raise ValueError(f"visual_qa_target_metadata_unknown: {asset_id} targetLooksLevelBand expected {source_target_looks}")
+        if returned_target_looks != source_target_looks:
+            raise ValueError(f"visual_qa_target_metadata_mismatch: {asset_id} targetLooksLevelBand expected {source_target_looks}, got {returned_target_looks}")
     profile_id = str(review.get("profileId") or generation_asset.get("profileId") or "")
     numeric_id = _safe_numeric_id(profile_id)
     target_face = normalize_face_type(review.get("targetFaceType") or generation_asset.get("targetFaceType") or target_face_type(generation_asset))
@@ -290,6 +435,7 @@ def _asset_record(
     observed_looks = str(review.get("observedLooksLevelBand") or "unclear")
     original_decision = _normalize_decision(review.get("decision"))
     hard_reject_reasons = _asset_hard_reject_reasons(review)
+    eyewear_mismatch, eyewear_mismatch_fields, eyewear_reasons = _eyewear_mismatch(review=review, generation_asset=generation_asset)
     metadata_mismatch, mismatch_fields = _asset_mismatch(
         review=review,
         generation_asset=generation_asset,
@@ -298,6 +444,9 @@ def _asset_record(
         target_looks=target_looks,
         observed_looks=observed_looks,
     )
+    if eyewear_mismatch:
+        metadata_mismatch = True
+        mismatch_fields = sorted(set([*mismatch_fields, *(eyewear_mismatch_fields or ["eyewear"])]))
 
     needs_review_reasons: list[str] = []
     if observed_face == "unclear":
@@ -312,6 +461,7 @@ def _asset_record(
         needs_review_reasons.append("numericId_unparseable")
     if metadata_mismatch:
         needs_review_reasons.append("metadata_mismatch")
+    needs_review_reasons.extend(eyewear_reasons)
 
     if hard_reject_reasons:
         final_decision = "rejected"
@@ -336,6 +486,19 @@ def _asset_record(
         "targetLooksLevelBand": target_looks,
         "observedLooksLevelBand": observed_looks,
         "looksLevelConfidence": _as_float(review.get("looksLevelConfidence")) if _as_float(review.get("looksLevelConfidence")) is not None else 0.0,
+        "targetHasEyewear": _target_has_eyewear(generation_asset),
+        "targetEyewearGroup": _target_eyewear_group(generation_asset),
+        "targetEyewear": str(generation_asset.get("targetEyewear") or generation_asset.get("eyewear") or _target_eyewear_expected(generation_asset)),
+        "targetCanonicalEyewear": str(generation_asset.get("targetCanonicalEyewear") or generation_asset.get("canonicalEyewear") or _target_eyewear_expected(generation_asset)),
+        "targetShotEyewearExpected": _target_eyewear_expected(generation_asset),
+        "observedHasEyewear": _observed_has_eyewear(review),
+        "observedEyewearGroup": _observed_eyewear_group(review) or ("unclear" if _observed_has_eyewear(review) is None else "none"),
+        "observedEyewear": str(review.get("observedEyewear") or ("unclear" if _observed_has_eyewear(review) is None else "none")),
+        "eyewearReadable": _as_bool(review.get("eyewearReadable"), default=True),
+        "eyewearMismatch": eyewear_mismatch,
+        "eyewearMismatchReason": "; ".join(eyewear_reasons),
+        "temporaryEyewearAllowed": _temporary_eyewear_allowed(generation_asset),
+        "temporaryEyewearApplied": _as_bool(generation_asset.get("temporaryEyewearApplied")),
         "adultVisual": _as_bool(review.get("adultVisual")),
         "photoRealism": _as_float(review.get("photoRealism")) if _as_float(review.get("photoRealism")) is not None else 0.0,
         "campusRealism": _as_float(review.get("campusRealism")) if _as_float(review.get("campusRealism")) is not None else 0.0,
@@ -464,14 +627,32 @@ def _identity_metadata_mismatch(review: Mapping[str, Any], asset_records: list[M
         if _as_bool(asset.get("metadataMismatch")):
             mismatch = True
             fields.update(_normalized_mismatch_fields(asset.get("mismatchFields")))
+        target_has = _target_has_eyewear(asset)
+        observed_has = _observed_has_eyewear(asset)
+        if observed_has is None:
+            continue
+        if target_has and not observed_has:
+            mismatch = True
+            fields.add("eyewear")
+        if not target_has and observed_has and not _as_bool(asset.get("temporaryEyewearAllowed")):
+            mismatch = True
+            fields.add("eyewear")
+        target_expected = str(asset.get("targetShotEyewearExpected") or "none")
+        observed_eyewear = str(asset.get("observedEyewear") or "")
+        if target_has and observed_eyewear and observed_eyewear not in {"unclear", "other", target_expected}:
+            mismatch = True
+            fields.add("eyewear")
     return mismatch, sorted(fields)
 
 
 def _identity_record(
     review: Mapping[str, Any],
     *,
+    active_asset_by_id: Mapping[str, Mapping[str, Any]],
     asset_by_id: Mapping[str, Mapping[str, Any]],
     generation_by_asset: Mapping[str, Mapping[str, Any]],
+    file_qa_by_asset: Mapping[str, Mapping[str, Any]],
+    root: Path | str | None,
     source_json: Path,
     applied_at: str,
 ) -> dict[str, Any]:
@@ -479,6 +660,8 @@ def _identity_record(
     profile_id = str(review.get("profileId") or "")
     numeric_id = _safe_numeric_id(profile_id)
     asset_ids = _asset_ids_from_review(review)
+    if not any(str(row.get("profileId") or "") == profile_id for row in generation_by_asset.values()):
+        raise ValueError(f"Unknown identity in identity QA payload: {profile_id}")
     asset_records = [asset_by_id[asset_id] for asset_id in asset_ids.values() if asset_id in asset_by_id]
     missing_asset_qa = [shot for shot, asset_id in asset_ids.items() if not asset_id or asset_id not in asset_by_id]
     asset_final_decisions = {
@@ -494,6 +677,7 @@ def _identity_record(
 
     reject_reasons = set(_json_list(review.get("rejectReasons")))
     needs_review_reasons: set[str] = set()
+    file_qa_evidence: dict[str, dict[str, Any]] = {}
     propagated_hard_reject = any(_as_bool(asset.get("hardReject")) for asset in asset_records)
 
     if any(not asset_ids.get(shot) for shot in SHOT_ORDER):
@@ -501,6 +685,39 @@ def _identity_record(
     for shot in missing_asset_qa:
         needs_review_reasons.add(f"asset_qa_missing:{shot}")
     for shot in SHOT_ORDER:
+        asset_id = asset_ids.get(shot, "")
+        generation_asset = generation_by_asset.get(asset_id, {})
+        if asset_id and generation_asset:
+            if str(generation_asset.get("profileId") or "") != profile_id:
+                raise ValueError(f"Identity QA {profile_id} references asset from another profile: {asset_id}")
+            if str(generation_asset.get("shotType") or "") != shot:
+                raise ValueError(f"Identity QA {profile_id} references wrong shot for {shot}: {asset_id}")
+        final_path_value = str(generation_asset.get("finalPath") or generation_asset.get("expectedFinalPath") or "")
+        final_path = Path(final_path_value)
+        if final_path_value and not final_path.is_absolute():
+            final_path = pipeline_paths(root).root / final_path
+        if not final_path_value or not final_path.exists():
+            needs_review_reasons.add(f"final_file_missing:{shot}")
+        file_qa = file_qa_by_asset.get(asset_id, {})
+        evidence = resolve_file_qa_evidence(
+            root,
+            asset_id,
+            active_asset=active_asset_by_id.get(asset_id, {}),
+            generation_row=generation_asset,
+            file_qa_row=file_qa,
+            expected_profile_id=profile_id,
+            expected_shot_type=shot,
+        )
+        file_qa_evidence[shot] = evidence
+        if not evidence["ok"]:
+            needs_review_reasons.add(f"file_qa_missing:{shot}")
+            for reason in evidence.get("reasons", []):
+                if reason == "prompt_hash_mismatch":
+                    needs_review_reasons.add(f"prompt_hash_mismatch:{shot}")
+                elif reason == "prompt_targeting_version_mismatch":
+                    needs_review_reasons.add(f"prompt_targeting_version_mismatch:{shot}")
+                elif reason in {"file_qa_missing_in_manifest", "file_qa_status_mismatch", "final_path_mismatch"}:
+                    needs_review_reasons.add(f"{reason}:{shot}")
         visual_decision = _normalize_decision(visual_asset_decisions.get(shot) or "missing")
         if visual_decision != "approved":
             needs_review_reasons.add(f"visual_asset_decision_not_approved:{shot}")
@@ -529,6 +746,8 @@ def _identity_record(
         needs_review_reasons.add("observedLooksLevelBand_unclear")
     if metadata_mismatch:
         needs_review_reasons.add("metadata_mismatch")
+    if "eyewear" in mismatch_fields:
+        needs_review_reasons.add("eyewear_inconsistent")
     if original_decision == "needs_review":
         needs_review_reasons.add("visual_verdict_needs_review")
     if not _as_bool(review.get("countsTowardDistribution")):
@@ -552,6 +771,11 @@ def _identity_record(
         for shot, asset_id in asset_ids.items()
     }
     counts_toward = final_decision == "approved"
+    first_generation_asset = next((generation_by_asset.get(str(asset_ids.get(shot) or ""), {}) for shot in SHOT_ORDER if generation_by_asset.get(str(asset_ids.get(shot) or ""), {})), {})
+    observed_eyewear_values = {
+        shot: asset_by_id.get(str(asset_ids.get(shot) or ""), {}).get("observedEyewear")
+        for shot in SHOT_ORDER
+    }
     return {
         "schemaVersion": "seolleyeon_identity_qa_manifest_v3",
         "profileId": profile_id,
@@ -561,9 +785,21 @@ def _identity_record(
         "observedFaceType": normalize_face_type(review.get("observedFaceType") or "unclear"),
         "targetLooksLevelBand": str(review.get("targetLooksLevelBand") or "unknown"),
         "observedLooksLevelBand": str(review.get("observedLooksLevelBand") or "unclear"),
+        "targetHasEyewear": _target_has_eyewear(first_generation_asset),
+        "targetEyewearGroup": _target_eyewear_group(first_generation_asset),
+        "targetEyewear": str(first_generation_asset.get("targetEyewear") or first_generation_asset.get("eyewear") or _target_eyewear_expected(first_generation_asset)),
+        "targetCanonicalEyewear": str(first_generation_asset.get("targetCanonicalEyewear") or first_generation_asset.get("canonicalEyewear") or _target_eyewear_expected(first_generation_asset)),
+        "targetShotEyewearExpected": {
+            shot: _target_eyewear_expected(generation_by_asset.get(str(asset_ids.get(shot) or ""), {}))
+            for shot in SHOT_ORDER
+        },
+        "observedEyewearConsistency": "inconsistent" if "eyewear" in mismatch_fields else str(review.get("observedEyewearConsistency") or "consistent"),
+        "observedEyewearByShot": observed_eyewear_values,
+        "eyewearMismatchReason": "; ".join(sorted(reason for reason in needs_review_reasons if "eyewear" in reason)),
         "assetIds": asset_ids,
         "assetDecisions": asset_final_decisions,
         "assetFinalDecisions": asset_final_decisions,
+        "fileQaEvidence": file_qa_evidence,
         "finalPaths": final_paths,
         "faceToSilhouetteConsistency": face_to_silhouette if face_to_silhouette is not None else 0.0,
         "faceToVibeConsistency": face_to_vibe if face_to_vibe is not None else 0.0,
@@ -603,13 +839,63 @@ def _approved_identity_record(identity: Mapping[str, Any], *, generation_by_asse
         "looksLevelBand": identity.get("observedLooksLevelBand", ""),
         "observedFaceType": identity.get("observedFaceType", ""),
         "observedLooksLevelBand": identity.get("observedLooksLevelBand", ""),
+        "hasEyewear": identity.get("targetHasEyewear", False),
+        "eyewearGroup": identity.get("targetEyewearGroup", "none"),
+        "eyewear": identity.get("targetEyewear", "none"),
+        "canonicalEyewear": identity.get("targetCanonicalEyewear", "none"),
+        "observedEyewearConsistency": identity.get("observedEyewearConsistency", ""),
         "assetIds": {shot: str(asset_ids.get(shot) or "") for shot in SHOT_ORDER},
+        "fileQaEvidence": identity.get("fileQaEvidence", {}),
         "finalPaths": final_paths,
         "finalCompleteIdentityDecision": identity.get("finalCompleteIdentityDecision", ""),
         "countsTowardDistribution": True,
         "metadataMismatch": False,
         "appliedAt": identity.get("appliedAt", now_utc()),
     }
+
+
+def _identity_has_strict_approval_backing(
+    identity: Mapping[str, Any],
+    *,
+    active_asset_by_id: Mapping[str, Mapping[str, Any]],
+    asset_by_id: Mapping[str, Mapping[str, Any]],
+    generation_by_asset: Mapping[str, Mapping[str, Any]],
+    file_qa_by_asset: Mapping[str, Mapping[str, Any]],
+    root: Path | str | None,
+) -> bool:
+    if identity.get("finalCompleteIdentityDecision") != "approved":
+        return False
+    if identity.get("countsTowardDistribution") is not True:
+        return False
+    if _as_bool(identity.get("metadataMismatch")):
+        return False
+    if identity.get("observedLooksLevelBand") == "4.4-5.0":
+        return False
+    profile_id = str(identity.get("profileId") or "")
+    asset_ids = identity.get("assetIds") if isinstance(identity.get("assetIds"), Mapping) else {}
+    if set(asset_ids) != set(SHOT_ORDER):
+        return False
+    for shot in SHOT_ORDER:
+        asset_id = str(asset_ids.get(shot) or "")
+        if not asset_id:
+            return False
+        asset_qa = asset_by_id.get(asset_id, {})
+        if _normalize_decision(asset_qa.get("finalDecision") or "missing") != "approved":
+            return False
+        if _as_bool(asset_qa.get("metadataMismatch")):
+            return False
+        evidence = resolve_file_qa_evidence(
+            root,
+            asset_id,
+            active_asset=active_asset_by_id.get(asset_id, {}),
+            generation_row=generation_by_asset.get(asset_id, {}),
+            file_qa_row=file_qa_by_asset.get(asset_id, {}),
+            expected_profile_id=profile_id,
+            expected_shot_type=shot,
+        )
+        if not evidence["ok"]:
+            return False
+    return True
 
 
 def apply_identity_qa(
@@ -635,16 +921,27 @@ def apply_identity_qa(
     applied_at = now_utc()
     asset_manifest_path = Path(asset_qa_manifest).resolve() if asset_qa_manifest else asset_qa_manifest_path(root)
     asset_by_id = _latest_by_key(read_jsonl(asset_manifest_path), "assetId")
+    active_asset_by_id = _latest_by_key(
+        read_jsonl(paths.manifests / "ai_profile_assets_v3.jsonl") + read_jsonl(paths.manifests / "asset_manifest.jsonl"),
+        "assetId",
+    )
     generation_by_asset = {str(row.get("assetId") or ""): dict(row) for row in load_generation_manifest(paths)}
+    file_qa_by_asset = _latest_by_key(read_jsonl(paths.manifests / "file_qa_manifest.jsonl"), "assetId")
     output_manifest = identity_qa_manifest_path(root, out_manifest)
     manifest_by_profile = _latest_by_key(read_jsonl(output_manifest), "profileId")
+    existing_approved_by_profile = _latest_by_key(read_jsonl(paths.manifests / "approved_identity_manifest.jsonl"), "profileId")
+    existing_rejected_by_profile = _latest_by_key(read_jsonl(paths.manifests / "rejected_identity_manifest.jsonl"), "profileId")
+    existing_needs_review_by_profile = _latest_by_key(read_jsonl(paths.manifests / "needs_review_identity_manifest.jsonl"), "profileId")
     applied_records: list[dict[str, Any]] = []
 
     for review in reviews:
         record = _identity_record(
             review,
+            active_asset_by_id=active_asset_by_id,
             asset_by_id=asset_by_id,
             generation_by_asset=generation_by_asset,
+            file_qa_by_asset=file_qa_by_asset,
+            root=root,
             source_json=source_path,
             applied_at=applied_at,
         )
@@ -669,16 +966,41 @@ def apply_identity_qa(
     write_jsonl(output_manifest, ordered)
     _append_history(root, "identity_qa_apply_history.jsonl", applied_records)
 
-    approved_records = [
+    applied_profile_ids = {str(row.get("profileId") or "") for row in applied_records if row.get("profileId")}
+    current_approved_records = [
         _approved_identity_record(row, generation_by_asset=generation_by_asset)
         for row in ordered
-        if row.get("finalCompleteIdentityDecision") == "approved"
-        and row.get("countsTowardDistribution") is True
-        and not _as_bool(row.get("metadataMismatch"))
-        and row.get("observedLooksLevelBand") != "4.4-5.0"
+        if _identity_has_strict_approval_backing(
+            row,
+            active_asset_by_id=active_asset_by_id,
+            asset_by_id=asset_by_id,
+            generation_by_asset=generation_by_asset,
+            file_qa_by_asset=file_qa_by_asset,
+            root=root,
+        )
     ]
-    rejected_records = [row for row in ordered if row.get("finalCompleteIdentityDecision") == "rejected"]
-    needs_review_records = [row for row in ordered if row.get("finalCompleteIdentityDecision") == "needs_review"]
+    approved_by_profile = dict(existing_approved_by_profile)
+    rejected_by_profile = dict(existing_rejected_by_profile)
+    needs_review_by_profile = dict(existing_needs_review_by_profile)
+    for profile_id in applied_profile_ids:
+        approved_by_profile.pop(profile_id, None)
+        rejected_by_profile.pop(profile_id, None)
+        needs_review_by_profile.pop(profile_id, None)
+    for row in current_approved_records:
+        profile_id = str(row.get("profileId") or "")
+        if profile_id:
+            approved_by_profile[profile_id] = row
+    for row in ordered:
+        profile_id = str(row.get("profileId") or "")
+        if not profile_id or profile_id not in applied_profile_ids:
+            continue
+        if row.get("finalCompleteIdentityDecision") == "rejected":
+            rejected_by_profile[profile_id] = row
+        elif row.get("finalCompleteIdentityDecision") == "needs_review":
+            needs_review_by_profile[profile_id] = row
+    approved_records = [approved_by_profile[key] for key in sorted(approved_by_profile)]
+    rejected_records = [rejected_by_profile[key] for key in sorted(rejected_by_profile)]
+    needs_review_records = [needs_review_by_profile[key] for key in sorted(needs_review_by_profile)]
     write_jsonl(paths.manifests / "approved_identity_manifest.jsonl", approved_records)
     write_jsonl(paths.manifests / "rejected_identity_manifest.jsonl", rejected_records)
     write_jsonl(paths.manifests / "needs_review_identity_manifest.jsonl", needs_review_records)

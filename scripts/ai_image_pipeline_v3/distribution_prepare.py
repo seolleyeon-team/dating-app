@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .distribution_targets import (
+    EYEWEAR_BUCKETS,
     FACE_TYPES,
     LOOKS_LEVEL_BANDS,
+    SEASONS,
     load_distribution_targets,
     looks_level_band,
     normalize_face_type,
@@ -64,6 +66,44 @@ def _annotate_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _season_targets(targets: Mapping[str, Any]) -> Mapping[str, int] | None:
+    section = targets.get("seasonTargets")
+    if not isinstance(section, Mapping):
+        return None
+    if isinstance(section.get("global"), Mapping):
+        return section["global"]  # type: ignore[return-value]
+    return section  # type: ignore[return-value]
+
+
+def _eyewear_targets(targets: Mapping[str, Any], *, reserve: bool = False) -> Mapping[str, Any] | None:
+    section = targets.get("eyewearTargets")
+    if not isinstance(section, Mapping):
+        return None
+    if reserve and isinstance(section.get("reserve"), Mapping):
+        return section["reserve"]  # type: ignore[return-value]
+    return section
+
+
+def _apply_optional_exact_targets(
+    module: Any,
+    specs: list[dict[str, Any]],
+    *,
+    targets: Mapping[str, Any],
+    seed: int,
+    reserve: bool = False,
+) -> list[dict[str, Any]]:
+    out = specs
+    out = [dict(spec) for spec in module.assign_face_type_groups_for_batch(out, targets["faceTypeTargets"], seed + (11 if not reserve else 511))]
+    out = [dict(spec) for spec in module.assign_looks_level_bands_for_batch(out, targets["looksLevelBandTargets"], seed + (101 if not reserve else 601))]
+    eyewear = _eyewear_targets(targets, reserve=reserve)
+    if eyewear:
+        out = [dict(spec) for spec in module.assign_eyewear_groups_for_batch(out, eyewear, seed + (202 if not reserve else 702))]
+    seasons = _season_targets(targets)
+    if seasons:
+        out = [dict(spec) for spec in module.assign_environment_for_batch(out, seasons, seed + (303 if not reserve else 803))]
+    return [_annotate_spec(spec) for spec in out]
+
+
 def sample_matching_spec(
     *,
     module: Any,
@@ -101,20 +141,10 @@ def build_controlled_specs(
 ) -> list[dict[str, Any]]:
     _ = root
     module = load_prompt_module()
-    plan = pair_plan(face_targets, looks_targets)
-    if len(plan) != int(count):
-        raise ValueError(f"Controlled plan for {gender} produced {len(plan)} specs, expected {count}.")
+    del face_targets, looks_targets
     return [
-        sample_matching_spec(
-            module=module,
-            gender=gender,
-            numeric_id=int(start) + index,
-            desired_face_type=face_type,
-            desired_looks_band=looks_band,
-            seed=int(seed) + index * 17,
-            id_width=id_width,
-        )
-        for index, (face_type, looks_band) in enumerate(plan)
+        _annotate_spec(module.sample_spec(gender, int(start) + index, seed=int(seed) + int(start) + index * 17, id_width=id_width))
+        for index in range(int(count))
     ]
 
 
@@ -135,6 +165,7 @@ def build_distribution_controlled_asset_records(
     targets = load_distribution_targets(root)
     face_targets = targets["faceTypeTargets"]
     looks_targets = targets["looksLevelBandTargets"]
+    module = load_prompt_module()
     specs: list[dict[str, Any]] = []
     specs.extend(
         build_controlled_specs(
@@ -187,6 +218,8 @@ def build_distribution_controlled_asset_records(
                 looks_targets=scaled_targets(looks_targets["male"], count=reserve_male_count, order=LOOKS_LEVEL_BANDS),
             )
         )
+    specs = _apply_optional_exact_targets(module, specs, targets=targets, seed=seed, reserve=False)
+    reserve_specs = _apply_optional_exact_targets(module, reserve_specs, targets=targets, seed=seed, reserve=True)
     for spec in reserve_specs:
         spec["identityScope"] = "reserve"
         spec["isReserve"] = True
@@ -206,9 +239,39 @@ def build_distribution_controlled_asset_records(
 def distribution_counts(specs: list[Mapping[str, Any]]) -> dict[str, dict[str, int]]:
     face_counts: Counter[str] = Counter()
     looks_counts: Counter[str] = Counter()
+    eyewear_counts: Counter[str] = Counter()
+    gender_eyewear_counts: Counter[str] = Counter()
+    season_counts: Counter[str] = Counter()
     for spec in specs:
         if bool(spec.get("isReserve")):
             continue
+        accessories = spec.get("accessories") if isinstance(spec.get("accessories"), Mapping) else {}
+        environment = spec.get("environment") if isinstance(spec.get("environment"), Mapping) else {}
+        gender = str(spec.get("gender") or "")
+        eyewear_bucket = "with_eyewear" if accessories.get("eyewearGroup") == "glasses" or accessories.get("hasEyewear") is True else "without_eyewear"
         face_counts[str(spec.get("targetFaceType") or "")] += 1
         looks_counts[str(spec.get("targetLooksLevelBand") or "")] += 1
-    return {"faceType": dict(face_counts), "looksLevelBand": dict(looks_counts)}
+        eyewear_counts[eyewear_bucket] += 1
+        if gender:
+            gender_eyewear_counts[f"{gender}_{eyewear_bucket}"] += 1
+        season_counts[str(environment.get("season") or "")] += 1
+    for bucket in FACE_TYPES:
+        face_counts.setdefault(bucket, 0)
+    for bucket in LOOKS_LEVEL_BANDS:
+        looks_counts.setdefault(bucket, 0)
+    for bucket in EYEWEAR_BUCKETS:
+        eyewear_counts.setdefault(bucket, 0)
+    for gender in ("female", "male"):
+        for bucket in EYEWEAR_BUCKETS:
+            gender_eyewear_counts.setdefault(f"{gender}_{bucket}", 0)
+    for season in SEASONS:
+        season_counts.setdefault(season, 0)
+    gender_eyewear_counts["total_with_eyewear"] = eyewear_counts["with_eyewear"]
+    gender_eyewear_counts["total_without_eyewear"] = eyewear_counts["without_eyewear"]
+    return {
+        "faceType": dict(face_counts),
+        "looksLevelBand": dict(looks_counts),
+        "eyewear": dict(eyewear_counts),
+        "genderEyewear": dict(gender_eyewear_counts),
+        "season": dict(season_counts),
+    }

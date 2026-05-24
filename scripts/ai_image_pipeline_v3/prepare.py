@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import json
+from collections import Counter
 from dataclasses import dataclass
+from typing import Any, Mapping
 from pathlib import Path
 
 from .config import (
@@ -15,11 +18,12 @@ from .config import (
     RESERVE_MALE_COUNT,
     ensure_base_dirs,
     pipeline_paths,
+    prompt_hash,
     write_csv,
     write_jsonl,
 )
 from .codex_imagegen import write_identity_manifest, write_imagegen_queue
-from .distribution_prepare import build_distribution_controlled_asset_records
+from .distribution_prepare import build_distribution_controlled_asset_records, distribution_counts
 from .distribution_targets import load_distribution_targets, write_default_distribution_targets
 from .identity import build_counted_reserved_specs, build_reserved_specs
 from .manifest import enrich_asset, load_generation_manifest, merge_manifest_rows, write_generation_outputs
@@ -35,6 +39,127 @@ class PrepareResult:
     imagegen_queue_jsonl: Path
     manifest_jsonl: Path
     status_csv: Path
+
+
+def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(dict(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _write_markdown(path: Path, report: Mapping[str, Any]) -> None:
+    lines = [
+        "# prepare-720 dry-run report",
+        "",
+        f"- specs: {report.get('specs')}",
+        f"- assets: {report.get('assets')}",
+        f"- identities: {report.get('identityCount')}",
+        f"- primary identities: {report.get('primaryIdentities')}",
+        f"- reserve identities: {report.get('reserveIdentities')}",
+        f"- primary assets: {report.get('primaryAssets')}",
+        f"- reserve assets: {report.get('reserveAssets')}",
+        f"- promptTargetingVersion counts: {report.get('promptTargetingVersionCounts')}",
+        f"- promptHash missing: {report.get('promptHashMissing')}",
+        f"- promptHash mismatches: {report.get('promptHashMismatches')}",
+        f"- positive forbidden term count: {report.get('positivePromptForbiddenTermCount')}",
+        f"- no active writes: {report.get('noActiveWrites')}",
+        "",
+        "## distribution",
+        "```json",
+        json.dumps(report.get("distributionCounts", {}), ensure_ascii=False, indent=2, sort_keys=True),
+        "```",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _positive_prompt_forbidden_summary(assets: list[Mapping[str, Any]]) -> dict[str, Any]:
+    # Keep this scanner intentionally narrow: it looks for explicit forbidden styling/setting tokens
+    # in the positive prompt text emitted for generation. Prompt-builder tests cover negated safety text.
+    forbidden = (
+        "school uniform",
+        "idol trainee",
+        "celebrity lookalike",
+        "nightclub",
+        "swimsuit",
+        "lingerie",
+        "luxury hotel",
+        "neon party",
+        "watermark",
+    )
+    hits: list[dict[str, str]] = []
+    for asset in assets:
+        prompt = str(asset.get("prompt") or "")
+        positive_prompt = prompt.split("\n\nAvoid:", 1)[0].lower()
+        for term in forbidden:
+            index = positive_prompt.find(term)
+            if index == -1:
+                continue
+            prefix = positive_prompt[max(0, index - 24):index]
+            if any(negation in prefix for negation in ("no ", "without ", "not ")):
+                continue
+            hits.append({"assetId": str(asset.get("assetId") or ""), "term": term})
+    return {"forbiddenTerms": list(forbidden), "count": len(hits), "hits": hits[:50]}
+
+
+def _build_prepare_dry_run_report(
+    *,
+    root: Path | str | None,
+    selected_specs: list[Mapping[str, Any]],
+    selected_assets: list[Mapping[str, Any]],
+    enriched: list[Mapping[str, Any]],
+) -> tuple[Path, Path, dict[str, Any]]:
+    paths = pipeline_paths(root)
+    audit_dir = paths.reports / "pipeline_audit"
+    json_path = audit_dir / "prepare_720_dry_run_latest.json"
+    md_path = audit_dir / "prepare_720_dry_run_latest.md"
+    primary_specs = [spec for spec in selected_specs if not bool(spec.get("isReserve"))]
+    reserve_specs = [spec for spec in selected_specs if bool(spec.get("isReserve"))]
+    primary_assets = [asset for asset in selected_assets if not bool(asset.get("isReserve"))]
+    reserve_assets = [asset for asset in selected_assets if bool(asset.get("isReserve"))]
+    version_counts = Counter(str(asset.get("promptTargetingVersion") or "") for asset in selected_assets)
+    current_prompt_targeting_version = str(
+        (enriched[0].get("promptTargetingVersion") if enriched else "")
+        or (selected_assets[0].get("promptTargetingVersion") if selected_assets else "")
+        or ""
+    )
+    missing_version_count = sum(1 for asset in selected_assets if not asset.get("promptTargetingVersion"))
+    hash_missing = sum(1 for asset in enriched if not asset.get("promptHash"))
+    hash_mismatches = sum(1 for asset in enriched if str(asset.get("promptHash") or "") != prompt_hash(str(asset.get("prompt") or "")))
+    positive_scan = _positive_prompt_forbidden_summary(selected_assets)
+    report: dict[str, Any] = {
+        "dryRun": True,
+        "noActiveWrites": True,
+        "specs": len(selected_specs),
+        "assets": len(selected_assets),
+        "identityCount": len({str(spec.get("profileId")) for spec in selected_specs}),
+        "primaryIdentities": len(primary_specs),
+        "reserveIdentities": len(reserve_specs),
+        "primaryAssets": len(primary_assets),
+        "reserveAssets": len(reserve_assets),
+        "promptTargetingVersionCounts": dict(version_counts),
+        "currentPromptTargetingVersion": current_prompt_targeting_version,
+        "missingPromptTargetingVersion": missing_version_count,
+        "oldVersionCount": sum(
+            count
+            for version, count in version_counts.items()
+            if version and current_prompt_targeting_version and version != current_prompt_targeting_version
+        ),
+        "promptHashMissing": hash_missing,
+        "promptHashMismatches": hash_mismatches,
+        "distributionCounts": distribution_counts(list(selected_specs)),
+        "positivePromptForbiddenTermCount": positive_scan["count"],
+        "positivePromptForbiddenScan": positive_scan,
+        "v4PromptMetadataValidation": {
+            "passed": missing_version_count == 0 and hash_missing == 0 and hash_mismatches == 0,
+            "silhouetteIdentityReadableLanguagePresent": any("identity-readable" in str(asset.get("prompt") or "").lower() or "recognizable same adult" in str(asset.get("prompt") or "").lower() for asset in selected_assets if asset.get("shotType") == "silhouette_card"),
+            "foxLikeMidBandGuardPresent": any(str(asset.get("targetFaceType") or "") == "fox_like" and str(asset.get("targetLooksLevelBand") or "") == "2.5-3.2" for asset in selected_assets),
+        },
+        "reportPath": str(json_path),
+        "markdownReportPath": str(md_path),
+    }
+    _write_json(json_path, report)
+    _write_markdown(md_path, report)
+    return json_path, md_path, report
 
 
 def prepare_assets(
@@ -64,8 +189,9 @@ def prepare_assets(
     distribution_targets: bool = True,
 ) -> PrepareResult:
     paths = pipeline_paths(root)
-    ensure_base_dirs(paths)
-    write_default_distribution_targets(root)
+    if not dry_run:
+        ensure_base_dirs(paths)
+        write_default_distribution_targets(root)
     targets = load_distribution_targets(root)
     use_distribution_control = (
         distribution_targets
@@ -161,8 +287,12 @@ def prepare_assets(
         )
         for row in selected_assets
     ]
-    existing = [] if replace_manifest else load_generation_manifest(paths)
-    merged = enriched if replace_manifest else merge_manifest_rows(existing, enriched, force=force)
+    if dry_run:
+        existing = []
+        merged = list(enriched)
+    else:
+        existing = [] if replace_manifest else load_generation_manifest(paths)
+        merged = enriched if replace_manifest else merge_manifest_rows(existing, enriched, force=force)
     selected_asset_ids = {str(row["assetId"]) for row in enriched}
     if replace_manifest:
         merged = [row for row in merged if str(row.get("assetId")) in selected_asset_ids]
@@ -170,6 +300,23 @@ def prepare_assets(
     specs_jsonl = paths.manifests / "ai_profile_specs_v3.jsonl"
     assets_jsonl = paths.manifests / "ai_profile_assets_v3.jsonl"
     assets_csv = paths.manifests / "ai_profile_assets_v3.csv"
+    if dry_run:
+        dry_json, _dry_md, _dry_report = _build_prepare_dry_run_report(
+            root=root,
+            selected_specs=list(selected_specs),
+            selected_assets=list(selected_assets),
+            enriched=list(enriched),
+        )
+        return PrepareResult(
+            specs_count=len(selected_specs),
+            asset_count=len(selected_assets),
+            assets_jsonl=dry_json,
+            identity_manifest_jsonl=dry_json,
+            imagegen_queue_jsonl=dry_json,
+            manifest_jsonl=dry_json,
+            status_csv=dry_json.with_suffix(".md"),
+        )
+
     reserve_profile_ids = {str(asset.get("profileId")) for asset in selected_assets if bool(asset.get("isReserve"))}
     identity_jsonl = write_identity_manifest(
         root,

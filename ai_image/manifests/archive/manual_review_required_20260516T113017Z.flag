@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "seolleyeon_active_visual_manual_review_v3",
+  "reason": "imagegen_infrastructure_failure",
+  "reasons": [
+    "imagegen_infrastructure_failure",
+    "current_chunk_archived_reset_pending_new_plan"
+  ],
+  "details": {
+    "assetId": "female_055__face_card__v001",
+    "profileId": "female_055",
+    "shotType": "face_card",
+    "failedAttempt": 2,
+    "preservedAttemptCount": 1,
+    "reason": "imagegen_child_timeout_or_agent_exception_no_image",
+    "returnCode": 127,
+    "stdoutLog": "C:/Users/Mickey/StudioProjects/dating-app-ai_profile_image/ai_image/reports/chunks/chunk_20260516T013456Z/logs/female_055__face_card__v001_attempt2.stdout.txt",
+    "stderrLog": "C:/Users/Mickey/StudioProjects/dating-app-ai_profile_image/ai_image/reports/chunks/chunk_20260516T013456Z/logs/female_055__face_card__v001_attempt2.stderr.txt",
+    "archivedChunkId": "chunk_20260516T013456Z",
+    "resetStatus": "current_chunk_archived_reset_pending_new_plan",
+    "resetReportPath": "C:/Users/Mickey/StudioProjects/dating-app-ai_profile_image/ai_image/reports/chunks/chunk_20260516T013456Z/reset_report.json"
+  },
+  "updatedAt": "2026-05-16T11:22:08+00:00"
+}

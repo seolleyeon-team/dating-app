@@ -56,6 +56,19 @@ Return exactly one JSON object with this shape:
       "targetLooksLevelBand": "1.5-2.4|2.5-3.2|3.3-3.8|3.9-4.3|4.4-5.0|unknown",
       "observedLooksLevelBand": "1.5-2.4|2.5-3.2|3.3-3.8|3.9-4.3|4.4-5.0|unclear",
       "looksLevelConfidence": 0.0,
+      "targetHasEyewear": true,
+      "targetEyewearGroup": "none|glasses|unknown",
+      "targetEyewear": "none|thin_round_metal|black_acetate|soft_rectangular_metal|clear_frame|unknown",
+      "targetCanonicalEyewear": "none|thin_round_metal|black_acetate|soft_rectangular_metal|clear_frame|unknown",
+      "targetShotEyewearExpected": "none|thin_round_metal|black_acetate|soft_rectangular_metal|clear_frame|unknown",
+      "observedHasEyewear": true,
+      "observedEyewearGroup": "none|glasses|sunglasses|tinted_lenses|unclear",
+      "observedEyewear": "none|thin_round_metal|black_acetate|soft_rectangular_metal|clear_frame|other|sunglasses|tinted_lenses|unclear",
+      "eyewearReadable": true,
+      "eyewearMismatch": false,
+      "eyewearMismatchReason": "",
+      "temporaryEyewearAllowed": false,
+      "temporaryEyewearApplied": false,
       "adultVisual": true,
       "photoRealism": 0.0,
       "campusRealism": 0.0,
@@ -88,13 +101,13 @@ Use numbers from `0.0` to `5.0` for realism/risk scores. Use confidence values f
 ## Face Type Classification
 
 - `cat_like`: almond-shaped eyes, slightly lifted outer eye corners, composed or chic expression, moderate-to-defined jawline.
-- `dog_like`: rounder eyes, soft cheeks, gentle approachable expression, friendly warmth.
-- `hamster_like`: compact rounded face, fuller cheeks, smaller soft nose impression, adult warm/cute, not childlike.
+- `dog_like`: rounder open eyes, soft cheeks, gentle approachable expression, warm/open/puppy-like approachability. Do not use `dog_like` for a restrained composed face that only has mild softness but still shows fox_like alertness.
+- `hamster_like`: compact rounded face, fuller cheeks, smaller soft nose impression, adult warm/cute rounded compactness, not childlike. Do not use `hamster_like` for a non-compact composed face with visible narrow-eye or restrained fox_like cues.
 - `bear_like`: stable grounded impression, broader facial structure, thicker natural brows, calm reliable warmth.
-- `fox_like`: slightly narrow or elongated eyes, refined nose bridge, elongated or slim face line, subtle chic expression.
+- `fox_like`: composed, restrained, slightly alert impression; subtle narrow-eye or elongated-eye impression; restrained facial angularity may be mild; not necessarily highly attractive; not automatically 3.3-3.8 or above. Distinguish from `dog_like` warmth/open puppy-like approachability and from `hamster_like` compact rounded cuteness. If clear subtle fox_like cues are visible, do not classify as `mixed_neutral` merely because the cues are understated.
 - `deer_like`: soft oval face, medium-large calm eyes, delicate jawline, gentle quiet expression.
 - `horse_like`: longer face proportion, higher nose bridge, more defined cheekbones, elegant mature impression.
-- `mixed_neutral`: balanced everyday impression with no single dominant face type.
+- `mixed_neutral`: balanced everyday impression with no single dominant face type. Use only when no strong or clearly subtle type cue dominates; do not use merely because a fox_like face is ordinary or understated when visible fox_like cues exist.
 - `unclear`: visual evidence is not strong enough to classify.
 
 Classify `observedFaceType` from the image only. Do not copy `targetFaceType` unless the visual evidence supports it.
@@ -102,8 +115,8 @@ Classify `observedFaceType` from the image only. Do not copy `targetFaceType` un
 ## Looks Level Classification
 
 - `1.5-2.4`: ordinary natural real student look, mild asymmetry acceptable, not highly polished.
-- `2.5-3.2`: neat and likable, everyday realistic, natural grooming.
-- `3.3-3.8`: clearly attractive but realistic, balanced features, clean grooming, not influencer-like.
+- `2.5-3.2`: neat and likable, everyday realistic, natural grooming. This band can still be clean, presentable, well-lit, and sincere; do not upgrade solely because image quality, lighting, or styling is clean.
+- `3.3-3.8`: clearly attractive but realistic, balanced features, clean grooming, not influencer-like. Use this over `2.5-3.2` only when facial attractiveness itself is clearly above average, not merely because the photo is sharp, neat, or well exposed.
 - `3.9-4.3`: noticeably attractive but still plausible as a real university student; must not be celebrity/model-like.
 - `4.4-5.0`: too idealized, celebrity/model/idol/influencer-level, over-polished.
 - `unclear`: visual evidence is not strong enough to classify.
@@ -133,10 +146,16 @@ Reject or mark `needs_review` if `observedLooksLevelBand` is `4.4-5.0`.
 
 ## Metadata Mismatch Rules
 
+Set `metadataMismatch` to `true` when confidence is high enough; keep mismatch rejection strict for confident visual evidence. Do not weaken these rules, but do not treat ambiguous taxonomy as a confident mismatch.
+
 Set `metadataMismatch` to `true` when:
 
 - `targetFaceType` differs from `observedFaceType` and `faceTypeConfidence >= 0.70`.
 - `targetLooksLevelBand` differs from `observedLooksLevelBand` and `looksLevelConfidence >= 0.70`.
+- `targetHasEyewear=true` but no eyewear is visible, or the visible frame type differs from `targetEyewearGroup` / `targetShotEyewearExpected`.
+- `targetHasEyewear=false` but glasses are visible and `temporaryEyewearAllowed` is not true for that shot.
+
+Hard reject sunglasses, tinted lenses, or a face-covering mask. If eyewear is too small, hidden, or unreadable while it is required, mark `eyewearReadable=false`, set `decision` to `needs_review` or `rejected`, and explain in `eyewearMismatchReason`.
 
 When mismatch is true, add the field names to `mismatchFields`, for example `["targetFaceType"]` or `["targetFaceType", "targetLooksLevelBand"]`.
 

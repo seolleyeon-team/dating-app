@@ -53,10 +53,11 @@ def enrich_asset(
     final_path = public_final_path(paths, row)
     approved_path = approved_asset_path(paths, row)
     rejected_path = rejected_attempt_path(paths, str(row["assetId"]), 1)
-    image_path.parent.mkdir(parents=True, exist_ok=True)
-    final_path.parent.mkdir(parents=True, exist_ok=True)
-    approved_path.parent.mkdir(parents=True, exist_ok=True)
-    rejected_path.parent.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+        approved_path.parent.mkdir(parents=True, exist_ok=True)
+        rejected_path.parent.mkdir(parents=True, exist_ok=True)
     reference_asset_id = ""
     reference_local_path = ""
     if row.get("shotType") != "face_card":
@@ -100,7 +101,6 @@ def enrich_asset(
         }
     )
     return row
-
 
 def load_generation_manifest(paths: PipelinePaths) -> list[dict[str, Any]]:
     return sorted(read_jsonl(manifest_path(paths)), key=shot_sort_key)

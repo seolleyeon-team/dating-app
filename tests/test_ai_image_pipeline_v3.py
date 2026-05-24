@@ -8,14 +8,17 @@ from unittest.mock import patch
 
 class AiImagePipelineV3Tests(unittest.TestCase):
     def _write_exact_visual_fixture(self, root: Path, *, mutate: str | None = None) -> None:
-        from scripts.ai_image_pipeline_v3.config import write_jsonl
+        from scripts.ai_image_pipeline_v3.config import pipeline_paths, write_jsonl
         from scripts.ai_image_pipeline_v3.distribution_targets import DEFAULT_DISTRIBUTION_TARGETS, write_default_distribution_targets
+        from scripts.ai_image_pipeline_v3.manifest import enrich_asset, write_generation_outputs
 
         write_default_distribution_targets(root=root, force=True)
         manifests = root / "ai_image" / "manifests"
         manifests.mkdir(parents=True, exist_ok=True)
         identities = []
         assets = []
+        season_sequence = [season for season, count in DEFAULT_DISTRIBUTION_TARGETS["seasonTargets"]["global"].items() for _ in range(count)]
+        eyewear_seen_by_gender = {"female": 0, "male": 0}
         index = 0
         for gender in ("female", "male"):
             face_targets = DEFAULT_DISTRIBUTION_TARGETS["faceTypeTargets"][gender]
@@ -24,6 +27,10 @@ class AiImagePipelineV3Tests(unittest.TestCase):
             looks = [band for band, count in looks_targets.items() for _ in range(count)]
             for number, (face_type, band) in enumerate(zip(faces, looks), start=1):
                 profile_id = f"{gender}_{number:03d}"
+                eyewear_seen_by_gender[gender] += 1
+                with_eyewear_target = int(DEFAULT_DISTRIBUTION_TARGETS["eyewearTargets"][gender]["with_eyewear"])
+                eyewear_bucket = "with_eyewear" if eyewear_seen_by_gender[gender] <= with_eyewear_target else "without_eyewear"
+                season = season_sequence[index]
                 identity = {
                     "profileId": profile_id,
                     "gender": gender,
@@ -33,6 +40,8 @@ class AiImagePipelineV3Tests(unittest.TestCase):
                     "targetLooksLevelBand": band,
                     "observedLooksLevelBand": band,
                     "looksLevelConfidence": 0.9,
+                    "eyewearBucket": eyewear_bucket,
+                    "season": season,
                     "assetDecisions": {"face_card": "approved", "silhouette_card": "approved", "vibe_card": "approved"},
                     "completeIdentityDecision": "approved",
                     "countsTowardDistribution": True,
@@ -64,6 +73,10 @@ class AiImagePipelineV3Tests(unittest.TestCase):
                             "targetLooksLevelBand": band,
                             "observedLooksLevelBand": identity["observedLooksLevelBand"],
                             "looksLevelConfidence": 0.9,
+                            "eyewearBucket": identity["eyewearBucket"],
+                            "hasEyewear": identity["eyewearBucket"] == "with_eyewear",
+                            "eyewearGroup": "glasses" if identity["eyewearBucket"] == "with_eyewear" else "none",
+                            "season": identity["season"],
                             "decision": "approved" if asset_decision == "approved" else asset_decision,
                             "metadataMismatch": bool(identity.get("metadataMismatch")),
                         }
@@ -71,6 +84,83 @@ class AiImagePipelineV3Tests(unittest.TestCase):
                 index += 1
         write_jsonl(manifests / "identity_qa_manifest.jsonl", identities)
         write_jsonl(manifests / "asset_qa_manifest.jsonl", assets)
+
+        paths = pipeline_paths(root)
+        generation_rows = [
+            enrich_asset(
+                {
+                    "profileId": asset["profileId"],
+                    "assetId": asset["assetId"],
+                    "gender": asset["gender"],
+                    "shotType": asset["shotType"],
+                    "targetFaceType": asset["targetFaceType"],
+                    "targetLooksLevelBand": asset["targetLooksLevelBand"],
+                    "prompt": "p",
+                },
+                paths,
+                status="file_qa_passed",
+            )
+            for asset in assets
+        ]
+        write_generation_outputs(paths, generation_rows)
+        write_jsonl(manifests / "ai_profile_assets_v3.jsonl", generation_rows)
+        generation_by_asset = {row["assetId"]: row for row in generation_rows}
+        try:
+            from PIL import Image
+
+            sample = paths.root / "ai_image" / "fixture_sample.png"
+            sample.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (512, 768), color=(200, 200, 200)).save(sample)
+            image_bytes = sample.read_bytes()
+        except Exception:
+            image_bytes = b""
+        file_qa_rows = []
+        for row in generation_rows:
+            final_path = Path(row["finalPath"])
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+            if image_bytes:
+                final_path.write_bytes(image_bytes)
+            file_qa_rows.append(
+                {
+                    "assetId": row["assetId"],
+                    "profileId": row["profileId"],
+                    "gender": row["gender"],
+                    "shotType": row["shotType"],
+                    "status": "file_qa_passed",
+                    "qaStatus": "file_qa_passed",
+                    "finalPath": row["finalPath"],
+                    "imagePath": row["finalPath"],
+                    "promptHash": row.get("promptHash", ""),
+                    "promptTargetingVersion": row.get("promptTargetingVersion", ""),
+                }
+            )
+        write_jsonl(manifests / "file_qa_manifest.jsonl", file_qa_rows)
+        approved_rows = []
+        for identity in identities:
+            profile_id = identity["profileId"]
+            asset_ids = {shot: f"{profile_id}__{shot}__v001" for shot in ("face_card", "silhouette_card", "vibe_card")}
+            approved_rows.append(
+                {
+                    "schemaVersion": "seolleyeon_approved_identity_manifest_v3",
+                    "profileId": profile_id,
+                    "gender": identity["gender"],
+                    "numericId": profile_id.split("_", 1)[1],
+                    "faceType": identity["observedFaceType"],
+                    "looksLevelBand": identity["observedLooksLevelBand"],
+                    "observedFaceType": identity["observedFaceType"],
+                    "observedLooksLevelBand": identity["observedLooksLevelBand"],
+                    "eyewearBucket": identity["eyewearBucket"],
+                    "hasEyewear": identity["eyewearBucket"] == "with_eyewear",
+                    "eyewearGroup": "glasses" if identity["eyewearBucket"] == "with_eyewear" else "none",
+                    "season": identity["season"],
+                    "assetIds": asset_ids,
+                    "finalPaths": {shot: generation_by_asset[asset_id]["finalPath"] for shot, asset_id in asset_ids.items()},
+                    "finalCompleteIdentityDecision": identity["completeIdentityDecision"],
+                    "countsTowardDistribution": True,
+                    "metadataMismatch": bool(identity.get("metadataMismatch")),
+                }
+            )
+        write_jsonl(manifests / "approved_identity_manifest.jsonl", approved_rows)
 
     def _write_generation_rows(self, root: Path, rows: list[dict]) -> None:
         from scripts.ai_image_pipeline_v3.config import write_jsonl
@@ -523,7 +613,7 @@ class AiImagePipelineV3Tests(unittest.TestCase):
             self.assertFalse(gate["passed"])
             self.assertIn("qa_needs_manual_review", gate["reasons"])
 
-    def test_distribution_audit_counts_only_visual_approved_complete_identities(self) -> None:
+    def test_distribution_audit_does_not_count_unbacked_visual_approved_complete_identities(self) -> None:
         from scripts.ai_image_pipeline_v3.distribution_audit import audit_distribution
         from scripts.ai_image_pipeline_v3.distribution_targets import write_default_distribution_targets
 
@@ -571,11 +661,11 @@ class AiImagePipelineV3Tests(unittest.TestCase):
 
             audit = audit_distribution(root=root)
 
-            self.assertEqual(audit["approvedCompleteIdentityCount"], 1)
-            self.assertEqual(audit["approvedImageCount"], 3)
-            self.assertEqual(audit["femaleApprovedIdentityCount"], 1)
-            self.assertEqual(audit["globalFaceTypeCounts"]["cat_like"], 1)
-            self.assertEqual(audit["globalLooksLevelBandCounts"]["2.5-3.2"], 1)
+            self.assertEqual(audit["approvedCompleteIdentityCount"], 0)
+            self.assertEqual(audit["approvedImageCount"], 0)
+            self.assertEqual(audit["femaleApprovedIdentityCount"], 0)
+            self.assertEqual(audit["globalFaceTypeCounts"]["cat_like"], 0)
+            self.assertEqual(audit["globalLooksLevelBandCounts"]["2.5-3.2"], 0)
             self.assertTrue((root / "ai_image" / "reports" / "distribution_report.csv").exists())
             self.assertTrue((root / "ai_image" / "reports" / "distribution_audit.json").exists())
             self.assertTrue((root / "ai_image" / "reports" / "latest_distribution_audit.json").exists())
@@ -958,9 +1048,10 @@ class AiImagePipelineV3Tests(unittest.TestCase):
             write_generation_outputs(paths, rows)
 
             counts = qa_images(root=root, limit=3)
-            with (paths.reports / "qa_report.csv").open("r", encoding="utf-8", newline="") as report_file:
+            with (paths.reports / "file_qa_report.csv").open("r", encoding="utf-8", newline="") as report_file:
                 report = list(csv.DictReader(report_file))
             reason_text = " ".join(row["reasonCodes"] for row in report)
+
 
             self.assertEqual(counts["rejected"], 3)
             self.assertIn("bad_aspect_ratio", reason_text)
@@ -989,13 +1080,14 @@ class AiImagePipelineV3Tests(unittest.TestCase):
                 rows.append(row)
             write_generation_outputs(paths, rows)
 
-            qa_counts = qa_images(root=root, limit=3, approve_integrity_only=True)
+            qa_counts = qa_images(root=root, limit=3)
             completion = completion_check(root=root)
 
-            self.assertEqual(qa_counts["approved"], 3)
-            self.assertTrue((root / "ai_image" / "approved" / "female" / "001" / "face_card.png").exists())
-            self.assertTrue((root / "ai_image" / "approved" / "female_001__face_card__v001.png").exists())
-            self.assertFalse(completion["passed"])
+            self.assertEqual(qa_counts["file_qa_passed"], 3)
+            self.assertEqual(qa_counts["visual_qa_pending"], 3)
+            self.assertFalse((root / "ai_image" / "approved" / "female" / "001" / "face_card.png").exists())
+            self.assertFalse((root / "ai_image" / "approved" / "female_001__face_card__v001.png").exists())
+
             self.assertIn("missing_visual_verdict", completion["failureReasons"])
 
     def test_cli_dispatcher_and_supervisor_helpers(self) -> None:

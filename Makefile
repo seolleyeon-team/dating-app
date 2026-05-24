@@ -1,6 +1,6 @@
 export CODEX_GENERATED_IMAGES_DIR ?= $(HOME)/.codex/generated_images
 
-.PHONY: ai-image-dry-run ai-image-prepare-smoke ai-image-prepare-pilot ai-image-prepare-720 ai-image-next ai-image-next-distribution-chunk ai-image-recover ai-image-qa ai-image-file-qa ai-image-retry ai-image-summary ai-image-contact-sheets ai-image-visual-asset-qa-instructions ai-image-visual-identity-qa-instructions ai-image-visual-distribution-audit-instructions ai-image-apply-visual-asset-qa ai-image-apply-visual-identity-qa ai-image-apply-visual-distribution-audit ai-image-distribution-audit ai-image-completion-check ai-image-bounded-chunk-plan ai-image-bounded-chunk-run ai-image-bounded-chunk-resume ai-image-bounded-chunk-status ai-image-bounded-chunk-qa ai-image-bounded-chunk-finalize ai-image-autopilot-chunks-720 ai-image-supervisor-720 ai-image-supervisor-chunk-only ai-image-supervisor-identity-only ai-image-supervisor-asset-only
+.PHONY: ai-image-dry-run ai-image-prepare-smoke ai-image-prepare-pilot ai-image-prepare-720 ai-image-next ai-image-next-distribution-chunk ai-image-recover ai-image-qa ai-image-file-qa ai-image-file-qa-leakage-audit ai-image-retry ai-image-summary ai-image-contact-sheets ai-image-visual-asset-qa-instructions ai-image-visual-identity-qa-instructions ai-image-visual-distribution-audit-instructions ai-image-apply-visual-asset-qa ai-image-apply-visual-identity-qa ai-image-apply-visual-distribution-audit ai-image-distribution-audit ai-image-completion-check ai-image-bounded-chunk-plan ai-image-bounded-chunk-run ai-image-bounded-chunk-resume ai-image-bounded-chunk-status ai-image-bounded-chunk-reconcile-dry-run ai-image-bounded-chunk-qa ai-image-bounded-chunk-finalize ai-image-autopilot-chunks-720 ai-image-supervisor-720 ai-image-supervisor-status-720 ai-image-supervisor-status-chunk-only ai-image-supervisor-status-identity-only ai-image-supervisor-status-asset-only ai-image-supervisor-chunk-only ai-image-supervisor-identity-only ai-image-supervisor-asset-only
 
 ai-image-dry-run:
 	python scripts/prepare_ai_image_assets_v3.py --root . --female_count 1 --male_count 0 --reserve_female_count 0 --reserve_male_count 0 --limit 3 --dry_run --replace_manifest --force
@@ -30,6 +30,9 @@ ai-image-recover:
 
 ai-image-file-qa:
 	python scripts/run_ai_image_pipeline_v3.py file-qa --root .
+
+ai-image-file-qa-leakage-audit:
+	python scripts/run_ai_image_pipeline_v3.py file-qa-leakage-audit --root .
 
 ai-image-qa: ai-image-file-qa
 
@@ -78,6 +81,9 @@ ai-image-bounded-chunk-resume:
 ai-image-bounded-chunk-status:
 	python scripts/run_ai_image_pipeline_v3.py bounded-chunk-status --root .
 
+ai-image-bounded-chunk-reconcile-dry-run:
+	python scripts/run_ai_image_pipeline_v3.py bounded-chunk-reconcile --root . --dry-run
+
 ai-image-bounded-chunk-qa:
 	python scripts/run_ai_image_pipeline_v3.py bounded-chunk-qa --root .
 
@@ -85,16 +91,33 @@ ai-image-bounded-chunk-finalize:
 	python scripts/run_ai_image_pipeline_v3.py bounded-chunk-finalize --root .
 
 ai-image-autopilot-chunks-720:
-	python scripts/run_hermes_image_pipeline_v3.py --root . --execution-mode autopilot --allow-real-imagegen
+	@echo "Deprecated unsafe route: use bounded chunk commands only (bounded-chunk-status / bounded-chunk-reconcile / bounded-chunk-run)."
+	@exit 2
 
 ai-image-supervisor-720:
+	@echo "Deprecated ambiguous target: use ai-image-supervisor-status-720 for status-only output."
+	@exit 2
+
+ai-image-supervisor-status-720:
 	python scripts/run_ai_image_pipeline_v3.py supervisor-720 --root .
 
 ai-image-supervisor-chunk-only:
+	@echo "Deprecated ambiguous target: use ai-image-supervisor-status-chunk-only for status-only output."
+	@exit 2
+
+ai-image-supervisor-status-chunk-only:
 	python scripts/run_ai_image_pipeline_v3.py supervisor-chunk-only --root .
 
 ai-image-supervisor-identity-only:
+	@echo "Deprecated ambiguous target: use ai-image-supervisor-status-identity-only for status-only output."
+	@exit 2
+
+ai-image-supervisor-status-identity-only:
 	python scripts/run_ai_image_pipeline_v3.py supervisor-identity-only --root .
 
 ai-image-supervisor-asset-only:
+	@echo "Deprecated ambiguous target: use ai-image-supervisor-status-asset-only for status-only output."
+	@exit 2
+
+ai-image-supervisor-status-asset-only:
 	python scripts/run_ai_image_pipeline_v3.py supervisor-asset-only --root .

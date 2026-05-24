@@ -32,7 +32,7 @@ def pending_is_unresolved(payload: Mapping[str, Any] | None) -> bool:
 def pending_unresolved_reason(payload: Mapping[str, Any] | None) -> str:
     if not payload:
         return ""
-    return str(payload.get("assetId") or pending_status(payload) or "pending-imagegen.json")
+    return str(payload.get("pendingInvalidReason") or payload.get("reason") or payload.get("assetId") or pending_status(payload) or "pending-imagegen.json")
 
 
 def resolved_pending_payload(payload: Mapping[str, Any], **extra: Any) -> dict[str, Any]:

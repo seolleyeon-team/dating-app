@@ -38,6 +38,23 @@ def _default_visual_json(root: Path | str | None, command: str, explicit: str | 
     return str(base / relative)
 
 
+def _prepare_file_complete_scope(
+    root: Path | str | None,
+    chunk_id: str | None,
+    asset_whitelist: str | None,
+    contact_sheet_index: str | None,
+) -> tuple[str | None, str | None]:
+    if not chunk_id:
+        raise SystemExit("--chunk_id is required with --only-file-complete-identities")
+    from .contact_sheet import generate_file_complete_identity_contact_sheets
+
+    result = generate_file_complete_identity_contact_sheets(root=root, chunk_id=chunk_id)
+    return (
+        asset_whitelist or str(result["assetWhitelistPath"]),
+        contact_sheet_index or str(result["contactSheetIndexPath"]),
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Cross-platform Seolleyeon AI image pipeline dispatcher.")
     parser.add_argument("command", choices=[
@@ -45,6 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
         "normalize-manifest-paths",
         "recover",
         "file-qa",
+        "file-qa-leakage-audit",
         "contact-sheets",
         "visual-asset-qa-instructions",
         "visual-identity-qa-instructions",
@@ -54,9 +72,11 @@ def build_parser() -> argparse.ArgumentParser:
         "apply-visual-distribution-audit",
         "distribution-audit",
         "completion-check",
+        "clear-manual-review",
         "pending-status",
         "resolve-pending",
         "clear-cancelled-pending",
+        "finalize-pending",
         "active-visual-probe",
         "active-visual-asset-qa",
         "active-visual-identity-qa",
@@ -68,12 +88,14 @@ def build_parser() -> argparse.ArgumentParser:
         "bounded-chunk-status",
         "bounded-chunk-validate-plan",
         "bounded-chunk-reconcile",
+        "bounded-chunk-reset",
         "bounded-chunk-qa",
         "bounded-chunk-finalize",
         "bounded-chunk-e2e-smoke",
         "bounded-identity-worker",
         "bounded-identity-parallel-run",
         "hermes-wrapper",
+        "hermes-one-asset-loop",
         "supervisor-720",
         "supervisor-chunk-only",
         "supervisor-identity-only",
@@ -96,25 +118,63 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bash-bin", "--bash_bin", dest="bash_bin", default="bash")
     parser.add_argument("--chunk_id", default=None)
     parser.add_argument("--max_identities", type=int, default=24)
-    parser.add_argument("--max_assets", type=int, default=72)
+    parser.add_argument("--max-assets", "--max_assets", dest="max_assets", type=int, default=72)
     parser.add_argument("--reason", default="")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--force-empty", "--force_empty", dest="force_empty", action="store_true", default=False)
     parser.add_argument("--dry-run", "--dry_run", dest="dry_run", action="store_true", default=False)
     parser.add_argument("--production", "--no-dry-run", "--execute", dest="production", action="store_true", default=False)
     parser.add_argument("--force-replan", "--force_replan", dest="force_replan", action="store_true", default=False)
     parser.add_argument("--abandon-current", "--abandon_current", dest="abandon_current", action="store_true", default=False)
+    parser.add_argument("--archive-current", "--archive_current", dest="archive_current", action="store_true", default=False)
+    parser.add_argument("--face_type", "--face-type", dest="face_type", default="")
+    parser.add_argument("--looks_level_band", "--looks-level-band", dest="looks_level_band", default="")
+    parser.add_argument("--gender", dest="gender", default="")
+    parser.add_argument("--has_eyewear", "--has-eyewear", dest="has_eyewear", default="")
+    parser.add_argument("--eyewear_group", "--eyewear-group", dest="eyewear_group", default="")
+    parser.add_argument("--require-eyewear-mix", "--require_eyewear_mix", dest="require_eyewear_mix", action="store_true", default=False)
+    parser.add_argument("--require-focused-match", "--require_focused_match", "--strict-focus", dest="require_focused_match", action="store_true", default=False)
     parser.add_argument("--agent-cmd", "--agent_cmd", dest="agent_cmd", default=None)
     parser.add_argument("--identity-id", "--identity_id", dest="identity_id", default="e2e_identity_001")
     parser.add_argument("--worker-id", "--worker_id", dest="worker_id", default="")
     parser.add_argument("--workers", type=int, default=3)
     parser.add_argument("--fixture", action="store_true", default=False)
     parser.add_argument("--fixture-fail-shot", "--fixture_fail_shot", dest="fixture_fail_shot", default="")
-    parser.add_argument("--asset-id", "--asset_id", dest="asset_id", default="")
+    parser.add_argument("--asset-id", "--asset_id", "--assetId", dest="asset_id", default="")
     parser.add_argument("--keep-artifacts", "--keep_artifacts", dest="keep_artifacts", action="store_true", default=False)
     parser.add_argument("--no-restore", "--no_restore", dest="no_restore", action="store_true", default=False)
     parser.add_argument("--preflight-only", "--preflight_only", dest="preflight_only", action="store_true", default=False)
     parser.add_argument("--apply", dest="apply", action="store_true", default=False)
+    parser.add_argument("--read-only", "--read_only", dest="read_only", action="store_true", default=False)
+    parser.add_argument("--quarantine-extra", "--quarantine_extra", dest="quarantine_extra", action="store_true", default=False)
     parser.add_argument("--clear-manual-flag-if-safe", "--clear_manual_flag_if_safe", dest="clear_manual_flag_if_safe", action="store_true", default=False)
+    parser.add_argument("--strict-chunk-scope", "--strict_chunk_scope", dest="strict_chunk_scope", action="store_true", default=False)
+    parser.add_argument("--asset-whitelist", "--asset_whitelist", dest="asset_whitelist", default=None)
+    parser.add_argument("--contact-sheet-index", "--contact_sheet_index", dest="contact_sheet_index", default=None)
+    parser.add_argument("--only-file-complete-identities", "--only_file_complete_identities", dest="only_file_complete_identities", action="store_true", default=False)
+    parser.add_argument("--failed", dest="failed", action="store_true", default=False)
+    parser.add_argument("--mode", choices=["smoke", "chunk", "target", "once"], default="once")
+    parser.add_argument("--target-approved-identities", "--target_approved_identities", dest="target_approved_identities", type=int, default=240)
+    parser.add_argument("--target-approved-images", "--target_approved_images", dest="target_approved_images", type=int, default=720)
+    parser.add_argument("--allow-imagegen", "--allow_imagegen", dest="allow_imagegen", action="store_true", default=False)
+    parser.add_argument("--once", dest="once", action="store_true", default=False)
+    parser.add_argument("--max-cycles", "--max_cycles", dest="max_cycles", type=int, default=None)
+    parser.add_argument("--max-runtime-minutes", "--max_runtime_minutes", dest="max_runtime_minutes", type=float, default=10.0)
+    parser.add_argument("--max-pending-attempts", "--max_pending_attempts", dest="max_pending_attempts", type=int, default=3)
+    parser.add_argument("--retry-delay-seconds", "--retry_delay_seconds", dest="retry_delay_seconds", type=float, default=2.0)
+    parser.add_argument("--auto-resolve-pending", "--auto_resolve_pending", dest="auto_resolve_pending", action="store_true", default=True)
+    parser.add_argument("--no-auto-resolve-pending", dest="auto_resolve_pending", action="store_false")
+    parser.add_argument("--auto-reconcile", "--auto_reconcile", dest="auto_reconcile", action="store_true", default=True)
+    parser.add_argument("--no-auto-reconcile", dest="auto_reconcile", action="store_false")
+    parser.add_argument("--fail-asset-after-max-retries", "--fail_asset_after_max_retries", dest="fail_asset_after_max_retries", action="store_true", default=True)
+    parser.add_argument("--no-fail-asset-after-max-retries", dest="fail_asset_after_max_retries", action="store_false")
+    parser.add_argument("--stop-on-manual-flag", "--stop_on_manual_flag", dest="stop_on_manual_flag", action="store_true", default=True)
+    parser.add_argument("--no-stop-on-manual-flag", dest="stop_on_manual_flag", action="store_false")
+    parser.add_argument("--stop-on-hard-blocker", "--stop_on_hard_blocker", dest="stop_on_hard_blocker", action="store_true", default=True)
+    parser.add_argument("--no-stop-on-hard-blocker", dest="stop_on_hard_blocker", action="store_false")
+    parser.add_argument("--write-report", "--write_report", dest="write_report", action="store_true", default=True)
+    parser.add_argument("--no-write-report", dest="write_report", action="store_false")
+    parser.add_argument("--resume", dest="resume", action="store_true", default=False)
     return parser
 
 
@@ -133,10 +193,26 @@ def main(argv: list[str] | None = None) -> int:
         _print_json(result.as_json())
         return 0 if result.status != "failed" else 2
 
+    if command == "hermes-one-asset-loop":
+        from .hermes_one_asset_loop import config_from_args, run_loop
+
+        result = run_loop(config_from_args(args))
+        _print_json(result)
+        return 0 if result.get("result") not in {"LOOP_FAILED", "LOOP_STOPPED_HARD_BLOCKER"} else 2
+
     if command == "prepare-720":
         from .prepare import prepare_assets
 
-        result = prepare_assets(root=args.root, female_count=120, male_count=120, reserve_female_count=20, reserve_male_count=20, force=args.force)
+        result = prepare_assets(
+            root=args.root,
+            female_count=120,
+            male_count=120,
+            reserve_female_count=20,
+            reserve_male_count=20,
+            dry_run=args.dry_run,
+            force=args.force,
+            replace_manifest=args.force,
+        )
         _print_json(
             {
                 "specs": result.specs_count,
@@ -165,13 +241,33 @@ def main(argv: list[str] | None = None) -> int:
     if command == "file-qa":
         from .qa import qa_images
 
-        _print_json(qa_images(root=args.root, force=args.force))
+        if args.asset_id:
+            _print_json(qa_images(root=args.root, force=args.force, only_file_complete_identities=args.only_file_complete_identities, asset_id=args.asset_id, force_empty=args.force_empty))
+        else:
+            _print_json(qa_images(root=args.root, force=args.force, only_file_complete_identities=args.only_file_complete_identities, force_empty=args.force_empty))
         return 0
 
-    if command == "contact-sheets":
-        from .contact_sheet import generate_grouped_contact_sheets
+    if command == "file-qa-leakage-audit":
+        from .qa import audit_file_qa_leakage
 
-        results = generate_grouped_contact_sheets(root=args.root, stage="pilot")
+        result = audit_file_qa_leakage(root=args.root)
+        _print_json(result)
+        return 0 if result["passed"] else 2
+
+    if command == "contact-sheets":
+        from .contact_sheet import generate_file_complete_identity_contact_sheets, generate_grouped_contact_sheets, generate_strict_chunk_contact_sheets
+
+        if args.strict_chunk_scope:
+            if not args.chunk_id:
+                _print_json({"status": "failed", "error": "--chunk_id is required with --strict_chunk_scope"})
+                return 2
+            if args.only_file_complete_identities:
+                result = generate_file_complete_identity_contact_sheets(root=args.root, chunk_id=args.chunk_id)
+            else:
+                result = generate_strict_chunk_contact_sheets(root=args.root, chunk_id=args.chunk_id, asset_whitelist=args.asset_whitelist)
+            _print_json({key: [str(item) for item in value] if isinstance(value, list) else str(value) if isinstance(value, Path) else value for key, value in result.items()})
+            return 0
+        results = generate_grouped_contact_sheets(root=args.root, stage=args.chunk_id or "pilot")
         _print_json({"outputs": [str(result.output_path) for result in results], "imageCount": sum(result.image_count for result in results)})
         return 0
 
@@ -201,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
     if command == "distribution-audit":
         from .distribution_audit import audit_distribution
 
-        audit = audit_distribution(root=args.root)
+        audit = audit_distribution(root=args.root, write_outputs=not args.read_only)
         _print_json(
             {
                 "passed": audit["passed"],
@@ -218,6 +314,13 @@ def main(argv: list[str] | None = None) -> int:
         result = completion_check(root=args.root)
         _print_json(result)
         return 0 if result["passed"] else 1
+
+    if command == "clear-manual-review":
+        from .manual_review import clear_manual_review
+
+        result = clear_manual_review(root=args.root, reason=args.reason)
+        _print_json(result)
+        return 0 if result.get("cleared") else 2
 
     if command == "pending-status":
         if args.asset_id:
@@ -242,6 +345,22 @@ def main(argv: list[str] | None = None) -> int:
         _print_json(clear_cancelled_pending(root=args.root, pending=args.pending, reason=args.reason or "cancelled_pending_clear"))
         return 0
 
+    if command == "finalize-pending":
+        from .pending_admin import finalize_pending_failed
+
+        if not args.failed:
+            _print_json({"status": "failed", "error": "finalize-pending requires --failed"})
+            return 2
+        _print_json(
+            finalize_pending_failed(
+                root=args.root,
+                pending=args.pending,
+                asset_id=args.asset_id,
+                reason=args.reason or "pending_image_not_recoverable",
+            )
+        )
+        return 0
+
     if command == "active-visual-probe":
         from .active_visual_verdict_runner import probe_codex_image_input
 
@@ -251,26 +370,34 @@ def main(argv: list[str] | None = None) -> int:
 
     if command == "active-visual-asset-qa":
         from .active_visual_verdict_runner import run_active_visual_asset_qa
+        if args.only_file_complete_identities:
+            args.asset_whitelist, args.contact_sheet_index = _prepare_file_complete_scope(args.root, args.chunk_id, args.asset_whitelist, args.contact_sheet_index)
 
-        _print_json(run_active_visual_asset_qa(root=args.root, chunk_id=args.chunk_id))
+        _print_json(run_active_visual_asset_qa(root=args.root, chunk_id=args.chunk_id, strict_chunk_scope=args.strict_chunk_scope, asset_whitelist=args.asset_whitelist, contact_sheet_index=args.contact_sheet_index))
         return 0
 
     if command == "active-visual-identity-qa":
         from .active_visual_verdict_runner import run_active_visual_identity_qa
+        if args.only_file_complete_identities:
+            args.asset_whitelist, args.contact_sheet_index = _prepare_file_complete_scope(args.root, args.chunk_id, args.asset_whitelist, args.contact_sheet_index)
 
-        _print_json(run_active_visual_identity_qa(root=args.root, chunk_id=args.chunk_id))
+        _print_json(run_active_visual_identity_qa(root=args.root, chunk_id=args.chunk_id, strict_chunk_scope=args.strict_chunk_scope, asset_whitelist=args.asset_whitelist, contact_sheet_index=args.contact_sheet_index))
         return 0
 
     if command == "active-visual-distribution-qa":
         from .active_visual_verdict_runner import run_active_visual_distribution_qa
+        if args.only_file_complete_identities:
+            args.asset_whitelist, args.contact_sheet_index = _prepare_file_complete_scope(args.root, args.chunk_id, args.asset_whitelist, args.contact_sheet_index)
 
-        _print_json(run_active_visual_distribution_qa(root=args.root, chunk_id=args.chunk_id))
+        _print_json(run_active_visual_distribution_qa(root=args.root, chunk_id=args.chunk_id, strict_chunk_scope=args.strict_chunk_scope, asset_whitelist=args.asset_whitelist, contact_sheet_index=args.contact_sheet_index))
         return 0
 
     if command == "active-visual-qa-all":
         from .active_visual_verdict_runner import run_active_visual_qa_all
+        if args.only_file_complete_identities:
+            args.asset_whitelist, args.contact_sheet_index = _prepare_file_complete_scope(args.root, args.chunk_id, args.asset_whitelist, args.contact_sheet_index)
 
-        _print_json(run_active_visual_qa_all(root=args.root, chunk_id=args.chunk_id))
+        _print_json(run_active_visual_qa_all(root=args.root, chunk_id=args.chunk_id, strict_chunk_scope=args.strict_chunk_scope, asset_whitelist=args.asset_whitelist, contact_sheet_index=args.contact_sheet_index))
         return 0
 
     if command == "bounded-chunk-e2e-smoke":
@@ -333,6 +460,7 @@ def main(argv: list[str] | None = None) -> int:
             BoundedBatchExecutorError,
             PlanValidationError,
             bounded_chunk_status,
+            bounded_chunk_reset,
             create_chunk_plan,
             finalize_bounded_chunk,
             reconcile_bounded_chunk,
@@ -354,6 +482,13 @@ def main(argv: list[str] | None = None) -> int:
                         force_replan=args.force_replan,
                         abandon_current=args.abandon_current,
                         abandon_reason=args.reason or "fresh_production_replan_after_distribution_audit",
+                        face_type=args.face_type,
+                        looks_level_band=args.looks_level_band,
+                        gender=args.gender,
+                        has_eyewear=args.has_eyewear,
+                        eyewear_group=args.eyewear_group,
+                        require_eyewear_mix=args.require_eyewear_mix,
+                        require_focused_match=args.require_focused_match,
                     )
                 )
                 return 0
@@ -379,8 +514,27 @@ def main(argv: list[str] | None = None) -> int:
             _print_json(result)
             return 0 if result.get("valid") else 2
         if command == "bounded-chunk-reconcile":
-            _print_json(reconcile_bounded_chunk(root=args.root, dry_run=args.dry_run or not args.apply, apply=args.apply, clear_manual_flag_if_safe=args.clear_manual_flag_if_safe))
+            _print_json(
+                reconcile_bounded_chunk(
+                    root=args.root,
+                    dry_run=args.dry_run or not args.apply,
+                    apply=args.apply,
+                    clear_manual_flag_if_safe=args.clear_manual_flag_if_safe,
+                    quarantine_extra=args.quarantine_extra,
+                )
+            )
             return 0
+        if command == "bounded-chunk-reset":
+            result = bounded_chunk_reset(
+                root=args.root,
+                archive_current=args.archive_current,
+                dry_run=args.dry_run,
+                clear_manual_flag_if_safe=args.clear_manual_flag_if_safe,
+                quarantine_extra=args.quarantine_extra,
+                force=args.force,
+            )
+            _print_json(result)
+            return 0 if result.get("status") not in {"failed"} else 2
         if command == "bounded-chunk-qa":
             _print_json(run_bounded_chunk_qa(root=args.root))
             return 0

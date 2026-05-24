@@ -1,0 +1,8 @@
+{
+  "reason": "pending_json_all_zero",
+  "originalPath": "ai_image/manifests/pending-imagegen.json",
+  "sizeBytes": 5908,
+  "allZero": true,
+  "archivedAt": "2026-05-17T19:03:05.898514Z",
+  "noImageGenerationRun": true
+}

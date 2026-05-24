@@ -64,6 +64,38 @@
       "4.4-5.0": 0
     }
   },
+  "eyewearTargets": {
+    "global": {
+      "with_eyewear": 36,
+      "without_eyewear": 204
+    },
+    "female": {
+      "with_eyewear": 12,
+      "without_eyewear": 108
+    },
+    "male": {
+      "with_eyewear": 24,
+      "without_eyewear": 96
+    },
+    "reserve": {
+      "female": {
+        "with_eyewear": 2,
+        "without_eyewear": 18
+      },
+      "male": {
+        "with_eyewear": 4,
+        "without_eyewear": 16
+      }
+    }
+  },
+  "seasonTargets": {
+    "global": {
+      "spring": 60,
+      "summer": 53,
+      "autumn": 79,
+      "winter": 48
+    }
+  },
   "rules": {
     "countOnlyApprovedCompleteIdentities": true,
     "doNotCountNeedsReview": true,

@@ -21,6 +21,7 @@ class ActiveVisualVerdictRunnerV3Tests(unittest.TestCase):
 
     def _write_fixture(self, root: Path) -> None:
         from scripts.ai_image_pipeline_v3.config import write_jsonl
+        from PIL import Image
 
         prompts = root / "ai_image" / "prompts"
         prompts.mkdir(parents=True, exist_ok=True)
@@ -34,10 +35,11 @@ class ActiveVisualVerdictRunnerV3Tests(unittest.TestCase):
         final_dir = root / "ai_image" / "female" / "001"
         final_dir.mkdir(parents=True, exist_ok=True)
         rows = []
+        file_qa_rows = []
         for shot in ("face_card", "silhouette_card", "vibe_card"):
             image_path = final_dir / f"{shot}.png"
-            image_path.write_bytes(b"not decoded by active runner tests")
-            rows.append(
+            Image.new("RGB", (512, 768), (42, 84, 126)).save(image_path)
+            row = (
                 {
                     "assetId": f"female_001__{shot}__v001",
                     "profileId": "female_001",
@@ -51,9 +53,23 @@ class ActiveVisualVerdictRunnerV3Tests(unittest.TestCase):
                     "status": "recovered",
                 }
             )
+            rows.append(row)
+            file_qa_rows.append(
+                {
+                    "assetId": row["assetId"],
+                    "profileId": row["profileId"],
+                    "gender": row["gender"],
+                    "shotType": shot,
+                    "qaStage": "file_qa",
+                    "status": "file_qa_passed",
+                    "decision": "file_qa_passed",
+                }
+            )
         manifests = root / "ai_image" / "manifests"
         manifests.mkdir(parents=True, exist_ok=True)
         write_jsonl(manifests / "generation_manifest.jsonl", rows)
+        write_jsonl(manifests / "ai_profile_assets_v3.jsonl", rows)
+        write_jsonl(manifests / "file_qa_manifest.jsonl", file_qa_rows)
 
         sheets = root / "ai_image" / "reports" / "contact_sheets"
         (sheets / "identities").mkdir(parents=True, exist_ok=True)
