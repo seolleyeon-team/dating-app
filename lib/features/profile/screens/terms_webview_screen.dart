@@ -102,7 +102,7 @@ class TermsWebViewScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    '서비스 이용약관, 개인정보 처리방침, 카카오 이름 및 전화번호 수집·이용 동의 내용을 확인할 수 있어요.',
+                    '서비스 이용약관, 개인정보 처리방침, 본인인증 정보 수집·이용 동의 내용을 확인할 수 있어요.',
                     style: TextStyle(
                       fontFamily: 'Pretendard',
                       fontSize: 14,

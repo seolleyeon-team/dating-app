@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../../router/route_names.dart';
+import '../../services/adult_verification_service.dart';
 import '../../services/auth_service.dart';
 import '../../providers/auth_provider.dart';
 
@@ -10,13 +12,31 @@ class SignupScreen extends StatelessWidget {
   Future<void> _handleKakaoLogin(BuildContext context) async {
     final authService = AuthService();
     final authProvider = context.read<AuthProvider>();
+    final adultVerificationService = AdultVerificationService();
 
     try {
+      if (!await adultVerificationService.hasPendingKakaoLoginSession()) {
+        if (!context.mounted) return;
+        Navigator.of(
+          context,
+        ).pushReplacementNamed(RouteNames.adultVerification);
+        return;
+      }
+
       final userInfo = await authService.loginWithKakao();
 
       final kakaoUserId = userInfo['id']?.toString();
       if (kakaoUserId != null) {
         await authProvider.setKakaoLogin(kakaoUserId, userInfo: userInfo);
+        final verificationResult = await adultVerificationService
+            .verifyPendingSessionAfterLogin();
+        if (!verificationResult.isVerified) {
+          if (!context.mounted) return;
+          Navigator.of(
+            context,
+          ).pushReplacementNamed(RouteNames.adultVerification);
+          return;
+        }
       }
 
       debugPrint('Kakao login success');

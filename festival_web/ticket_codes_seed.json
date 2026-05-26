@@ -1,0 +1,107 @@
+{
+  "projectId": "seolleyeon-festival",
+  "note": "6자리 영문+숫자 입장 코드 20개. QR URL을 생성기에 넣으면 바로 인증됩니다.",
+  "generatedAt": "2026-05-26T16:46:18.095Z",
+  "tickets": [
+    {
+      "code": "5G8TGG",
+      "normalizedCode": "5G8TGG",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/5G8TGG"
+    },
+    {
+      "code": "N5PX9B",
+      "normalizedCode": "N5PX9B",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/N5PX9B"
+    },
+    {
+      "code": "U299QH",
+      "normalizedCode": "U299QH",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/U299QH"
+    },
+    {
+      "code": "Q8KSRC",
+      "normalizedCode": "Q8KSRC",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/Q8KSRC"
+    },
+    {
+      "code": "UPL8LC",
+      "normalizedCode": "UPL8LC",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/UPL8LC"
+    },
+    {
+      "code": "ADJ5BC",
+      "normalizedCode": "ADJ5BC",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/ADJ5BC"
+    },
+    {
+      "code": "66SN46",
+      "normalizedCode": "66SN46",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/66SN46"
+    },
+    {
+      "code": "D643Y7",
+      "normalizedCode": "D643Y7",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/D643Y7"
+    },
+    {
+      "code": "R2QBGN",
+      "normalizedCode": "R2QBGN",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/R2QBGN"
+    },
+    {
+      "code": "RRX9K8",
+      "normalizedCode": "RRX9K8",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/RRX9K8"
+    },
+    {
+      "code": "MB654H",
+      "normalizedCode": "MB654H",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/MB654H"
+    },
+    {
+      "code": "HXDE4H",
+      "normalizedCode": "HXDE4H",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/HXDE4H"
+    },
+    {
+      "code": "MU23SU",
+      "normalizedCode": "MU23SU",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/MU23SU"
+    },
+    {
+      "code": "SQ3FKV",
+      "normalizedCode": "SQ3FKV",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/SQ3FKV"
+    },
+    {
+      "code": "T2284S",
+      "normalizedCode": "T2284S",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/T2284S"
+    },
+    {
+      "code": "5PBCEN",
+      "normalizedCode": "5PBCEN",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/5PBCEN"
+    },
+    {
+      "code": "94WKZH",
+      "normalizedCode": "94WKZH",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/94WKZH"
+    },
+    {
+      "code": "6LNMEQ",
+      "normalizedCode": "6LNMEQ",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/6LNMEQ"
+    },
+    {
+      "code": "87PUJD",
+      "normalizedCode": "87PUJD",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/87PUJD"
+    },
+    {
+      "code": "EFHDVF",
+      "normalizedCode": "EFHDVF",
+      "qrUrl": "https://seolleyeon-festival.web.app/r/EFHDVF"
+    }
+  ]
+}

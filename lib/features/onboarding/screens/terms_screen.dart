@@ -75,11 +75,16 @@ class _TermsScreenState extends State<TermsScreen> {
     ),
     TermsItem(
       id: LegalTexts.kakaoNamePhoneConsent.id,
-      label: '이름 및 전화번호 수집·이용 동의',
+      label: '본인인증 정보 수집·이용 동의',
       isRequired: true,
       hasDetail: true,
     ),
-    TermsItem(id: 'ageOver18', label: '만 18세 이상입니다', isRequired: true),
+    TermsItem(
+      id: LegalTexts.ageOver20Consent.id,
+      label: '연 나이 20세 이상입니다',
+      isRequired: true,
+      hasDetail: true,
+    ),
   ];
 
   bool _isSubmitting = false;
@@ -169,7 +174,7 @@ class _TermsScreenState extends State<TermsScreen> {
       await StorageService().savePendingLegalConsents();
       HapticFeedback.mediumImpact();
       if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed(RouteNames.kakaoAuth);
+      Navigator.of(context).pushReplacementNamed(RouteNames.adultVerification);
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);
@@ -358,7 +363,7 @@ class _Headline extends StatelessWidget {
             ),
           ),
           child: const Text(
-            '이름과 전화번호는 카카오 로그인 과정에서 제공받을 수 있으며, 실사용자 확인, 중복 가입 방지, 신고 및 제재 대응 등 안전한 서비스 운영을 위해 사용됩니다.',
+            '이름, 휴대전화번호, 생년월일 및 본인인증 결과는 본인확인기관 기반 본인인증 과정에서 확인·수집될 수 있으며, 실사용자 확인, 성인 여부 확인, 중복 가입 방지, 신고 및 분쟁 대응 등 안전한 서비스 운영을 위해 사용됩니다.',
             style: TextStyle(
               fontFamily: 'Pretendard',
               fontSize: 14,

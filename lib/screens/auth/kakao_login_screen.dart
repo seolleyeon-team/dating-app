@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_typography.dart';
 import '../../providers/auth_provider.dart';
+import '../../router/route_names.dart';
+import '../../services/adult_verification_service.dart';
 import '../../services/auth_service.dart';
 
 class KakaoLoginScreen extends StatelessWidget {
@@ -13,13 +15,31 @@ class KakaoLoginScreen extends StatelessWidget {
   Future<void> _handleKakaoLogin(BuildContext context) async {
     final authService = AuthService();
     final authProvider = context.read<AuthProvider>();
+    final adultVerificationService = AdultVerificationService();
 
     try {
+      if (!await adultVerificationService.hasPendingKakaoLoginSession()) {
+        if (!context.mounted) return;
+        Navigator.of(
+          context,
+        ).pushReplacementNamed(RouteNames.adultVerification);
+        return;
+      }
+
       final userInfo = await authService.loginWithKakao();
 
       final kakaoUserId = userInfo['id']?.toString();
       if (kakaoUserId != null) {
         await authProvider.setKakaoLogin(kakaoUserId, userInfo: userInfo);
+        final verificationResult = await adultVerificationService
+            .verifyPendingSessionAfterLogin();
+        if (!verificationResult.isVerified) {
+          if (!context.mounted) return;
+          Navigator.of(
+            context,
+          ).pushReplacementNamed(RouteNames.adultVerification);
+          return;
+        }
       }
 
       if (!context.mounted) return;
@@ -95,10 +115,7 @@ class KakaoLoginScreen extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 14),
-                        const Text(
-                          '카카오로 계속하기',
-                          style: AppTypography.h3,
-                        ),
+                        const Text('카카오로 계속하기', style: AppTypography.h3),
                         const SizedBox(height: 6),
                         const Text(
                           '로그인 후 연세 메일 인증과 기본 정보를 입력하게 됩니다.',
@@ -109,8 +126,9 @@ class KakaoLoginScreen extends StatelessWidget {
                           width: double.infinity,
                           height: 52,
                           child: ElevatedButton(
-                            onPressed:
-                                isLoading ? null : () => _handleKakaoLogin(context),
+                            onPressed: isLoading
+                                ? null
+                                : () => _handleKakaoLogin(context),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.primary,
                               foregroundColor: Colors.white,
@@ -133,7 +151,9 @@ class KakaoLoginScreen extends StatelessWidget {
                         const SizedBox(height: 10),
                         Center(
                           child: TextButton(
-                            onPressed: isLoading ? null : () => context.go('/welcome'),
+                            onPressed: isLoading
+                                ? null
+                                : () => context.go('/welcome'),
                             child: const Text(
                               '처음으로',
                               style: TextStyle(color: AppColors.textSecondary),
@@ -153,4 +173,3 @@ class KakaoLoginScreen extends StatelessWidget {
     );
   }
 }
-
