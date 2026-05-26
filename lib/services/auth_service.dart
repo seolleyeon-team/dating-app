@@ -237,6 +237,12 @@ class AuthService {
     return await _userService.isInitialSetupComplete(kakaoUserId);
   }
 
+  Future<bool> isAdultVerified(String kakaoUserId) async {
+    final profile = await _userService.getUserProfile(kakaoUserId);
+    return profile?['adultVerified'] == true &&
+        profile?['realNameVerified'] == true;
+  }
+
   Future<Map<String, dynamic>?> getUserProfile(String kakaoUserId) async {
     return await _userService.getUserProfile(kakaoUserId);
   }

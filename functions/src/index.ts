@@ -24,6 +24,7 @@ import {
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onTaskDispatched } from "firebase-functions/v2/tasks";
+import { defineSecret } from "firebase-functions/params";
 import * as logger from "firebase-functions/logger";
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
@@ -50,6 +51,9 @@ const db = getFirestore();
 const FRIEND_INVITE_HOST = "seolleyeon.web.app";
 const FRIEND_INVITE_PATH = "/invite/friend";
 const FRIEND_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+const PORTONE_API_SECRET = defineSecret("PORTONE_API_SECRET");
+const PORTONE_STORE_ID = "store-ec95a751-307e-4b85-97bd-7c6fa0bbe0e2";
+const ADULT_VERIFICATION_PROVIDER = "kg_inicis_via_portone_test";
 
 // 전역 옵션
 setGlobalOptions({
@@ -95,6 +99,68 @@ function asDate(v: unknown): Date | null {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
   return null;
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function normalizeDigits(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.replace(/\D/g, "");
+  return normalized.length > 0 ? normalized : null;
+}
+
+function getKstFullYear(now = new Date()): number {
+  return new Date(now.getTime() + 9 * 60 * 60 * 1000).getUTCFullYear();
+}
+
+function readBirthYear(customer: Record<string, unknown>): number | null {
+  const directYear = firstInteger(customer.birthYear);
+  if (directYear != null && directYear >= 1900) return directYear;
+
+  const birthDate = firstNonEmptyString(
+    customer.birthDate,
+    customer.birthdate,
+    customer.dateOfBirth
+  );
+  const digits = normalizeDigits(birthDate);
+  if (!digits || digits.length < 4) return null;
+  const year = Number(digits.slice(0, 4));
+  return Number.isFinite(year) && year >= 1900 ? year : null;
+}
+
+function isAdultByKoreanYear(birthYear: number, now = new Date()): boolean {
+  return getKstFullYear(now) - birthYear >= 19;
+}
+
+function readPortOneCustomer(
+  verification: Record<string, unknown>
+): Record<string, unknown> {
+  const verifiedCustomer = readMap(verification.verifiedCustomer);
+  if (Object.keys(verifiedCustomer).length > 0) return verifiedCustomer;
+
+  const customer = readMap(verification.customer);
+  if (Object.keys(customer).length > 0) return customer;
+
+  return readMap(verification.requestedCustomer);
+}
+
+function readPortOneVerificationPayload(
+  body: Record<string, unknown>
+): Record<string, unknown> {
+  const nested = readMap(body.identityVerification);
+  return Object.keys(nested).length > 0 ? nested : body;
+}
+
+function getPortOneSecret(): string {
+  const fromEnv = asNonEmptyString(process.env.PORTONE_API_SECRET);
+  if (fromEnv) return fromEnv;
+  try {
+    return PORTONE_API_SECRET.value();
+  } catch {
+    return "";
+  }
 }
 
 function buildDirectRoomId(userA: string, userB: string): string {
@@ -1403,6 +1469,284 @@ export const createFirebaseCustomToken = onCall(async (request) => {
     isStudentVerified: userData.isStudentVerified === true,
   };
 });
+
+async function fetchPortOneIdentityVerification(
+  identityVerificationId: string,
+  apiSecret: string
+): Promise<Record<string, unknown>> {
+  const response = await fetch(
+    `https://api.portone.io/identity-verifications/${encodeURIComponent(
+      identityVerificationId
+    )}`,
+    {
+      method: "GET",
+      headers: {
+        "Authorization": `PortOne ${apiSecret}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  const rawBody = await response.text();
+  let parsed: unknown = {};
+  if (rawBody.trim().length > 0) {
+    try {
+      parsed = JSON.parse(rawBody);
+    } catch {
+      parsed = { message: rawBody };
+    }
+  }
+
+  if (!response.ok) {
+    logger.warn("PortOne identity verification lookup failed", {
+      status: response.status,
+      identityVerificationId,
+      body: parsed,
+    });
+    throw new HttpsError(
+      "failed-precondition",
+      "포트원 본인인증 결과를 확인하지 못했어요."
+    );
+  }
+
+  if (!isRecord(parsed)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "포트원 본인인증 응답 형식이 올바르지 않아요."
+    );
+  }
+
+  return readPortOneVerificationPayload(parsed);
+}
+
+async function assertIdentityVerificationNotReused(
+  uid: string,
+  identityVerificationId: string
+): Promise<void> {
+  const reused = await db
+    .collection("userPrivateVerifications")
+    .where("identityVerificationId", "==", identityVerificationId)
+    .limit(1)
+    .get();
+
+  if (!reused.empty && reused.docs[0].id !== uid) {
+    throw new HttpsError(
+      "already-exists",
+      "이미 다른 계정에 연결된 본인인증 세션입니다."
+    );
+  }
+}
+
+async function assertUniqueIdentityNotReused(
+  uid: string,
+  ciHash: string | null,
+  diHash: string | null,
+  uniqueKeyHash: string | null
+): Promise<void> {
+  const checks = [
+    ["ciHash", ciHash],
+    ["diHash", diHash],
+    ["uniqueKeyHash", uniqueKeyHash],
+  ] as const;
+
+  for (const [field, value] of checks) {
+    if (!value) continue;
+    const snap = await db
+      .collection("userPrivateVerifications")
+      .where(field, "==", value)
+      .limit(1)
+      .get();
+    if (!snap.empty && snap.docs[0].id !== uid) {
+      throw new HttpsError(
+        "already-exists",
+        "이미 다른 계정에 연결된 본인인증 정보입니다."
+      );
+    }
+  }
+}
+
+export const verifyAdultIdentityAfterLogin = onCall(
+  { secrets: [PORTONE_API_SECRET] },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Firebase 로그인이 필요해요.");
+    }
+
+    const data = getCallableData(request);
+    const identityVerificationId = asNonEmptyString(
+      data.identityVerificationId
+    );
+    const identityVerificationTxId =
+      asNonEmptyString(data.identityVerificationTxId) ?? null;
+
+    if (!identityVerificationId) {
+      throw new HttpsError(
+        "invalid-argument",
+        "identityVerificationId가 필요합니다."
+      );
+    }
+
+    const isEmulator = process.env.FUNCTIONS_EMULATOR === "true";
+    const isMock = identityVerificationId.startsWith("mock-");
+    const apiSecret = getPortOneSecret();
+
+    if (!apiSecret && !(isEmulator && isMock)) {
+      throw new HttpsError(
+        "failed-precondition",
+        "PORTONE_API_SECRET 서버 Secret이 설정되지 않았습니다."
+      );
+    }
+
+    await assertIdentityVerificationNotReused(uid, identityVerificationId);
+
+    const verification = isEmulator && isMock
+      ? {
+        status: "VERIFIED",
+        id: identityVerificationId,
+        verifiedCustomer: {
+          name: "개발용 테스트",
+          phoneNumber: "01012345678",
+          birthDate: "20000101",
+          ci: `mock-ci-${uid}`,
+          di: `mock-di-${uid}`,
+        },
+      }
+      : await fetchPortOneIdentityVerification(identityVerificationId, apiSecret);
+
+    const status = asString(verification.status, "");
+    if (status !== "VERIFIED") {
+      await db.collection("users").doc(uid).set(
+        {
+          adultVerified: false,
+          realNameVerified: false,
+          registrationStatus: "adult_verification_required",
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      throw new HttpsError(
+        "failed-precondition",
+        "완료된 본인인증 결과가 아니에요."
+      );
+    }
+
+    const returnedStoreId = firstNonEmptyString(
+      verification.storeId,
+      readMap(verification.store).id
+    );
+    if (returnedStoreId && returnedStoreId !== PORTONE_STORE_ID) {
+      throw new HttpsError(
+        "failed-precondition",
+        "본인인증 상점 정보가 설레연 테스트 채널과 일치하지 않아요."
+      );
+    }
+
+    const customer = readPortOneCustomer(verification);
+    const name = firstNonEmptyString(customer.name, customer.fullName);
+    const phoneNumber = normalizeDigits(
+      firstNonEmptyString(customer.phoneNumber, customer.phone)
+    );
+    const birthYear = readBirthYear(customer);
+    const birthDate = firstNonEmptyString(
+      customer.birthDate,
+      customer.birthdate,
+      customer.dateOfBirth,
+      birthYear == null ? null : String(birthYear)
+    );
+    const ci = firstNonEmptyString(customer.ci, customer.CI);
+    const di = firstNonEmptyString(customer.di, customer.DI);
+    const uniqueKey = firstNonEmptyString(
+      customer.id,
+      customer.uniqueKey,
+      customer.uniqueIdentifier,
+      ci,
+      di
+    );
+
+    if (!name || !phoneNumber || birthYear == null || !uniqueKey) {
+      throw new HttpsError(
+        "failed-precondition",
+        "본인인증 결과의 필수 항목을 확인하지 못했어요."
+      );
+    }
+
+    const phoneLast4 = phoneNumber.slice(-4);
+    const ciHash = ci ? sha256Hex(ci) : null;
+    const diHash = di ? sha256Hex(di) : null;
+    const uniqueKeyHash = sha256Hex(uniqueKey);
+    const adult = isAdultByKoreanYear(birthYear);
+
+    await assertUniqueIdentityNotReused(uid, ciHash, diHash, uniqueKeyHash);
+
+    const userRef = db.collection("users").doc(uid);
+    const privateRef = db.collection("userPrivateVerifications").doc(uid);
+    const now = FieldValue.serverTimestamp();
+
+    await db.runTransaction(async (tx) => {
+      const userSnap = await tx.get(userRef);
+      if (!userSnap.exists) {
+        throw new HttpsError(
+          "failed-precondition",
+          "사용자 계정을 찾을 수 없어요."
+        );
+      }
+
+      tx.set(
+        privateRef,
+        {
+          name,
+          phoneNumber,
+          birthDate,
+          ciHash,
+          diHash,
+          uniqueKeyHash,
+          provider: ADULT_VERIFICATION_PROVIDER,
+          identityVerificationId,
+          identityVerificationTxId,
+          verificationStatus: adult ? "adult_verified" : "under_age",
+          verifiedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      tx.set(
+        userRef,
+        {
+          adultVerified: adult,
+          realNameVerified: adult,
+          adultVerifiedAt: adult ? now : FieldValue.delete(),
+          verificationProvider: ADULT_VERIFICATION_PROVIDER,
+          registrationStatus: adult
+            ? "adult_verified"
+            : "adult_verification_under_age",
+          birthYear,
+          phoneLast4,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+    });
+
+    if (!adult) {
+      throw new HttpsError(
+        "permission-denied",
+        "설레연은 연 나이 20세 이상만 이용할 수 있어요."
+      );
+    }
+
+    return {
+      success: true,
+      adultVerified: true,
+      realNameVerified: true,
+      status: "adult_verified",
+      birthYear,
+      phoneLast4,
+    };
+  }
+);
 
 export const createFirebaseCustomTokenFromEmailLinkToken = onCall(
   async (request) => {
@@ -2718,6 +3062,48 @@ export const onChatMessageCreated = onDocumentCreated(
     logger.info("Chat push sent", {
       roomId,
       senderId,
+      targets: targetUserIds,
+    });
+  }
+);
+
+export const onFestivalChatMessageCreated = onDocumentCreated(
+  "festivalChatRooms/{roomId}/messages/{messageId}",
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+
+    const roomId = event.params.roomId;
+    const message = snap.data();
+    const senderUid = asString(message.senderUid ?? "");
+    if (!senderUid) return;
+
+    const roomSnap = await db.collection("festivalChatRooms").doc(roomId).get();
+    if (!roomSnap.exists) return;
+
+    const room = (roomSnap.data() ?? {}) as Record<string, unknown>;
+    const participantUids = asStringArray(room.participantUids);
+    const targetUserIds = participantUids.filter((uid) => uid !== senderUid);
+    if (targetUserIds.length === 0) return;
+
+    const participantProfiles = readMap(room.participantProfiles);
+    const senderTicketId = asString(message.senderTicketId ?? "");
+    const senderProfile = readMap(participantProfiles[senderTicketId]);
+    const senderName = asString(senderProfile.name, "새 메시지");
+    const body = asString(message.text ?? "메시지가 도착했어요.").trim();
+
+    await sendPushToUsers(targetUserIds, {
+      title: senderName,
+      body: body || "메시지가 도착했어요.",
+      data: {
+        type: "festival_chat",
+        roomId,
+      },
+    });
+
+    logger.info("Festival chat push sent", {
+      roomId,
+      senderUid,
       targets: targetUserIds,
     });
   }

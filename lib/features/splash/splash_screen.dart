@@ -82,6 +82,7 @@ class _SplashScreenState extends State<SplashScreen> {
       }
 
       final isVerified = await _authService.isStudentVerified(kakaoUserId);
+      final isAdultVerified = await _authService.isAdultVerified(kakaoUserId);
       final isInitialSetupComplete = await _authService.isInitialSetupComplete(
         kakaoUserId,
       );
@@ -95,6 +96,14 @@ class _SplashScreenState extends State<SplashScreen> {
           RouteNames.studentVerification,
           (route) => false,
         );
+        return;
+      }
+
+      if (!isAdultVerified) {
+        if (!mounted) return;
+        Navigator.of(
+          context,
+        ).pushReplacementNamed(RouteNames.adultVerification);
         return;
       }
 

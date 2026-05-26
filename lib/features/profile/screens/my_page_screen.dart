@@ -313,6 +313,15 @@ class _MyPageScreenState extends State<MyPageScreen> {
                 ),
               ),
               SliverToBoxAdapter(
+                child: _HeartBalanceCard(
+                  balance: 20,
+                  onRecharge: () => Navigator.of(
+                    context,
+                    rootNavigator: true,
+                  ).pushNamed(RouteNames.heartCharge),
+                ),
+              ),
+              SliverToBoxAdapter(
                 child: _MenuList(
                   onEditProfile: () async {
                     await Navigator.of(
@@ -799,7 +808,7 @@ class _MenuList extends StatelessWidget {
               icon: CupertinoIcons.creditcard,
               iconBgColor: seol.purple50,
               iconColor: seol.purple500,
-              label: '머니 충전',
+              label: '하트 충전',
               onTap: onRecharge,
             ),
             Container(height: 1, color: seol.gray100.withValues(alpha: 0.5)),
@@ -889,6 +898,96 @@ class _MenuItem extends StatelessWidget {
                       context,
                     ).extension<SeolThemeColors>()!.gray300,
                   ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HeartBalanceCard extends StatelessWidget {
+  final int balance;
+  final VoidCallback? onRecharge;
+
+  const _HeartBalanceCard({required this.balance, this.onRecharge});
+
+  @override
+  Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: seol.cardSurface,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: CupertinoColors.black.withValues(alpha: 0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: seol.pink50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(CupertinoIcons.heart_fill, size: 23, color: primary),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '보유 하트',
+                    style: TextStyle(
+                      fontFamily: 'Pretendard',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: seol.gray400,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '$balance개',
+                    style: TextStyle(
+                      fontFamily: 'Pretendard',
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: seol.gray800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              minimumSize: Size.zero,
+              borderRadius: BorderRadius.circular(999),
+              color: primary,
+              onPressed: () {
+                HapticFeedback.selectionClick();
+                onRecharge?.call();
+              },
+              child: const Text(
+                '충전',
+                style: TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: CupertinoColors.white,
+                ),
+              ),
+            ),
           ],
         ),
       ),

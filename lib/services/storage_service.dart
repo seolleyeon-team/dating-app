@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/legal_texts.dart';
+import 'adult_verification_result.dart';
 
 class StorageService {
   static const String _userIdKey = 'user_id';
@@ -21,6 +22,8 @@ class StorageService {
   static const String _pendingFriendInviteTokenKey = 'pending_friend_invite';
   static const String _eventTeamSetupIdKeyPrefix = 'event_team_setup_id_';
   static const String _pendingLegalConsentsKey = 'pending_legal_consents';
+  static const String _pendingAdultVerificationResultKey =
+      'pending_adult_verification_result';
   static const String _pendingRejoinRestrictionNoticeKey =
       'pending_rejoin_restriction_notice';
 
@@ -206,6 +209,7 @@ class StorageService {
         'termsOfService': true,
         'privacyPolicy': true,
         'kakaoNamePhone': true,
+        'ageOver20': true,
         'ageOver18': true,
         'agreedAtClientIso': DateTime.now().toUtc().toIso8601String(),
         'version': LegalTexts.version,
@@ -228,6 +232,35 @@ class StorageService {
   Future<void> clearPendingLegalConsents() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_pendingLegalConsentsKey);
+  }
+
+  Future<void> savePendingAdultVerificationResult(
+    AdultVerificationResult result,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _pendingAdultVerificationResultKey,
+      jsonEncode(result.toJson()),
+    );
+  }
+
+  Future<AdultVerificationResult?> getPendingAdultVerificationResult() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_pendingAdultVerificationResultKey);
+    if (raw == null || raw.trim().isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, dynamic>
+          ? AdultVerificationResult.fromJson(decoded)
+          : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> clearPendingAdultVerificationResult() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_pendingAdultVerificationResultKey);
   }
 
   Future<void> savePendingRejoinRestrictionNotice() async {
