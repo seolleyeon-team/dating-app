@@ -35,13 +35,13 @@ class PromptTargetingV22ProductQaRegressionTests(unittest.TestCase):
         spec["accessories"]["canonicalEyewear"] = "none"
         return self.m.normalize_spec_defaults(spec)
 
-    def test_prompt_targeting_version_is_v22_and_hash_changes_from_v21(self):
+    def test_prompt_targeting_version_is_current_and_hash_changes_from_v22(self):
         spec = self._base_spec(face_type="cat_like", band="1.5-2.4")
-        self.assertEqual(self.m.PROMPT_TARGETING_VERSION, "face_type_looks_level_targeting_v22")
+        self.assertEqual(self.m.PROMPT_TARGETING_VERSION, "face_type_looks_level_targeting_v23")
         baseline = self.m.build_asset_record(spec, "vibe_card")
         original = self.m.PROMPT_TARGETING_VERSION
         try:
-            self.m.PROMPT_TARGETING_VERSION = "face_type_looks_level_targeting_v21"
+            self.m.PROMPT_TARGETING_VERSION = "face_type_looks_level_targeting_v22"
             old = self.m.build_asset_record(spec, "vibe_card")
         finally:
             self.m.PROMPT_TARGETING_VERSION = original

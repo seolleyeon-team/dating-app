@@ -134,6 +134,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--eyewear_group", "--eyewear-group", dest="eyewear_group", default="")
     parser.add_argument("--require-eyewear-mix", "--require_eyewear_mix", dest="require_eyewear_mix", action="store_true", default=False)
     parser.add_argument("--require-focused-match", "--require_focused_match", "--strict-focus", dest="require_focused_match", action="store_true", default=False)
+    parser.add_argument("--activate-reserve", "--activate_reserve", dest="activate_reserve", action="store_true", default=False)
     parser.add_argument("--agent-cmd", "--agent_cmd", dest="agent_cmd", default=None)
     parser.add_argument("--identity-id", "--identity_id", dest="identity_id", default="e2e_identity_001")
     parser.add_argument("--worker-id", "--worker_id", dest="worker_id", default="")
@@ -489,6 +490,7 @@ def main(argv: list[str] | None = None) -> int:
                         eyewear_group=args.eyewear_group,
                         require_eyewear_mix=args.require_eyewear_mix,
                         require_focused_match=args.require_focused_match,
+                        activate_reserve=args.activate_reserve,
                     )
                 )
                 return 0

@@ -1187,6 +1187,7 @@ def create_chunk_plan(
     eyewear_group: str | None = None,
     require_eyewear_mix: bool = False,
     require_focused_match: bool = False,
+    activate_reserve: bool = False,
 ) -> dict[str, Any]:
     paths = pipeline_paths(root)
     ensure_base_dirs(paths)
@@ -1219,6 +1220,7 @@ def create_chunk_plan(
         has_eyewear=focus_has_eyewear,
         eyewear_group=eyewear_group,
         require_eyewear_mix=require_eyewear_mix,
+        activate_reserve=activate_reserve,
     )
     allow_partial_salvage = plan_mode == "production" and _allow_partial_salvage_plan()
     reuse_context = _reuse_context(root) if allow_partial_salvage else {}
@@ -1387,6 +1389,11 @@ def create_chunk_plan(
             "containsEyewearIdentity": any(bool(identity.get("hasEyewear")) for identity in selected),
             "containsNoEyewearIdentity": any(not bool(identity.get("hasEyewear")) for identity in selected),
             "strictFocusedMatch": bool(require_focused_match),
+        },
+        "reserveActivation": {
+            "enabled": bool(activate_reserve),
+            "selectedReserveIdentities": [identity["profileId"] for identity in selected if str(identity.get("source") or "") == "reserve"],
+            "selectedReserveIdentityCount": sum(1 for identity in selected if str(identity.get("source") or "") == "reserve"),
         },
         "root": to_portable_path(paths.root),
         "targetsJson": to_portable_path(target_config_path(root)),
@@ -4358,6 +4365,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--eyewear_group", "--eyewear-group", dest="eyewear_group", default="")
     parser.add_argument("--require-eyewear-mix", "--require_eyewear_mix", dest="require_eyewear_mix", action="store_true", default=False)
     parser.add_argument("--require-focused-match", "--require_focused_match", "--strict-focus", dest="require_focused_match", action="store_true")
+    parser.add_argument("--activate-reserve", "--activate_reserve", dest="activate_reserve", action="store_true", default=False)
     parser.add_argument("--reason", default="fresh_production_replan_after_distribution_audit")
     parser.add_argument("--apply", dest="apply", action="store_true")
     parser.add_argument("--quarantine-extra", "--quarantine_extra", dest="quarantine_extra", action="store_true")
@@ -4388,6 +4396,7 @@ def main(argv: list[str] | None = None) -> int:
                 eyewear_group=args.eyewear_group,
                 require_eyewear_mix=args.require_eyewear_mix,
                 require_focused_match=args.require_focused_match,
+                activate_reserve=args.activate_reserve,
             )
         elif args.command == "run":
             result = run_bounded_chunk(root=args.root)

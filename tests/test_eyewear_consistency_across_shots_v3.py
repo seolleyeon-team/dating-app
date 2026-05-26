@@ -35,7 +35,7 @@ class EyewearConsistencyAcrossShotsV3Tests(unittest.TestCase):
 
     def test_prompt_targeting_version_bumped_to_v15_and_hash_changes(self):
         spec = self._spec_with_eyewear()
-        self.assertEqual(self.m.PROMPT_TARGETING_VERSION, "face_type_looks_level_targeting_v22")
+        self.assertEqual(self.m.PROMPT_TARGETING_VERSION, "face_type_looks_level_targeting_v24")
         baseline = self.m.build_asset_record(spec, "face_card")
         original = self.m.PROMPT_TARGETING_VERSION
         try:

@@ -42,7 +42,7 @@ class PromptTargetingV14ControlledRegressionTest(unittest.TestCase):
         return self.m.normalize_spec_defaults(spec)
 
     def test_prompt_targeting_version_is_v15(self):
-        self.assertEqual(self.m.PROMPT_TARGETING_VERSION, "face_type_looks_level_targeting_v22")
+        self.assertEqual(self.m.PROMPT_TARGETING_VERSION, "face_type_looks_level_targeting_v23")
 
     def test_cat_like_low_band_all_shots_prevent_ordinary_to_neat_upgrade(self):
         spec = self._base_spec(face_type="cat_like", band="1.5-2.4", has_eyewear=False)

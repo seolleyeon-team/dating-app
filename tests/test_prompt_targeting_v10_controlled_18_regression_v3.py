@@ -42,7 +42,7 @@ class PromptTargetingV10Controlled18RegressionTest(unittest.TestCase):
         return spec
 
     def test_prompt_targeting_version_is_v11(self):
-        self.assertEqual(self.m.PROMPT_TARGETING_VERSION, "face_type_looks_level_targeting_v22")
+        self.assertEqual(self.m.PROMPT_TARGETING_VERSION, "face_type_looks_level_targeting_v23")
 
     def test_dog_like_low_band_dependent_shots_get_extra_lock(self):
         spec = self._base_spec(face_type="dog_like", band="1.5-2.4", has_eyewear=True)

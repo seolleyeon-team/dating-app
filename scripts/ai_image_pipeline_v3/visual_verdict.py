@@ -392,6 +392,13 @@ def _asset_mismatch(
     if eyewear_mismatch:
         mismatch = True
         fields.update(eyewear_fields or ["eyewear"])
+    shot_type = str(generation_asset.get("shotType") or review.get("shotType") or "")
+    if shot_type != "vibe_card" and fields == {"locationType"}:
+        # The identity-level manifest stores the vibe_card locationType for distribution/audit.
+        # face_card and silhouette_card may intentionally use neutral fallback scenes, so a
+        # visual-QA locationType-only note must not reject otherwise valid non-vibe assets.
+        fields.discard("locationType")
+        mismatch = False
     return mismatch, sorted(fields)
 
 

@@ -197,6 +197,7 @@ def select_distribution_buckets(
     has_eyewear: Any = None,
     eyewear_group: str | None = None,
     require_eyewear_mix: bool = False,
+    activate_reserve: bool = False,
 ) -> dict[str, Any]:
     paths = pipeline_paths(root)
     ensure_base_dirs(paths)
@@ -233,7 +234,9 @@ def select_distribution_buckets(
             continue
         if focus_gender and gender != focus_gender:
             continue
-        if not bool(anchor.get("activeForTarget", True)):
+        active_for_target = bool(anchor.get("activeForTarget", True))
+        is_reserve = bool(anchor.get("isReserve")) or str(anchor.get("identityScope") or "") == "reserve"
+        if not active_for_target and not (activate_reserve and is_reserve):
             continue
         if _identity_complete(profile_rows, identity_qa_by_profile.get(profile_id)):
             continue
@@ -279,6 +282,8 @@ def select_distribution_buckets(
                 "eyewear": str(anchor.get("eyewear") or "").strip(),
                 "canonicalEyewear": str(anchor.get("canonicalEyewear") or "").strip(),
                 "shotStatuses": {str(row.get("shotType") or ""): str(row.get("status") or "") for row in profile_rows},
+                "source": "reserve" if not active_for_target and is_reserve else "primary",
+                "reserveActivation": bool(not active_for_target and is_reserve and activate_reserve),
             }
         )
         if len(allowed_identities) >= max_identities and not require_eyewear_mix:
@@ -340,6 +345,7 @@ def select_distribution_buckets(
             "hasEyewear": focus_has_eyewear,
             "eyewearGroup": focus_eyewear_group,
             "requireEyewearMix": bool(require_eyewear_mix),
+            "activateReserve": bool(activate_reserve),
         },
         "deficitSets": {
             scope: {dimension: sorted(values) for dimension, values in dimensions.items()}
@@ -361,6 +367,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--has_eyewear", "--has-eyewear", dest="has_eyewear", default="")
     parser.add_argument("--eyewear_group", "--eyewear-group", dest="eyewear_group", default="")
     parser.add_argument("--require-eyewear-mix", "--require_eyewear_mix", dest="require_eyewear_mix", action="store_true", default=False)
+    parser.add_argument("--activate-reserve", "--activate_reserve", dest="activate_reserve", action="store_true", default=False)
     return parser
 
 
@@ -374,6 +381,7 @@ def main(argv: list[str] | None = None) -> int:
         has_eyewear=args.has_eyewear,
         eyewear_group=args.eyewear_group,
         require_eyewear_mix=args.require_eyewear_mix,
+        activate_reserve=args.activate_reserve,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

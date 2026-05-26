@@ -42,7 +42,7 @@ class PromptTargetingV11SilhouetteRegressionTest(unittest.TestCase):
         return spec
 
     def test_prompt_targeting_version_is_v11(self):
-        self.assertEqual(self.m.PROMPT_TARGETING_VERSION, "face_type_looks_level_targeting_v22")
+        self.assertEqual(self.m.PROMPT_TARGETING_VERSION, "face_type_looks_level_targeting_v23")
 
     def test_silhouette_includes_face_type_target_and_v11_readability_lock(self):
         spec = self._base_spec(face_type="hamster_like", band="2.5-3.2", has_eyewear=True)

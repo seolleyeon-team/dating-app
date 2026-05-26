@@ -57,7 +57,7 @@ GENDERS: Tuple[Gender, ...] = ("female", "male")
 SHOT_TYPES: Tuple[ShotType, ...] = ("face_card", "silhouette_card", "vibe_card")
 SCHEMA_VERSION = "ai_profile_image_v3"
 PROMPT_BUILDER_VERSION = "ai_profile_prompt_v4"
-PROMPT_TARGETING_VERSION = "face_type_looks_level_targeting_v22"
+PROMPT_TARGETING_VERSION = "face_type_looks_level_targeting_v24"
 METADATA_VERSION = "ai_profile_image_v4_compatible"
 RARE_EYEWEAR_VARIATION_RATE = 0.0
 
@@ -1538,6 +1538,7 @@ def build_face_type_target_block(spec: Mapping[str, Any], shot_type: ShotType = 
 
 def build_face_card_depolish_block(spec: Mapping[str, Any]) -> str:
     face = spec.get("face", {}) if isinstance(spec.get("face"), Mapping) else {}
+    gender = str(spec.get("gender") or "")
     band = str(face.get("looksLevelBand") or looks_level_band(float(face.get("looksLevel", 3.0))))
     parts = [
         "Face-card no-upgrade calibration: ordinary smartphone-like profile framing",
@@ -1603,11 +1604,61 @@ def build_face_card_depolish_block(spec: Mapping[str, Any]) -> str:
             "avoid cute or handsome read",
             "avoid refined skin or refined face shape",
         ])
+    if gender == "female" and face_type_for_depolish in {"fox_like", "bear_like"} and band == "1.5-2.4":
+        parts.extend([
+            "v23 female low-band face-card no-upgrade lock",
+            "face_card must remain visibly 1.5-2.4 plain, ordinary, and below-average despite clean campus setting",
+            "avoid attractive profile framing, flattering glow, neat lovable polish, bright composed eyes, refined skin, slimmed jaw, and curated dating-profile expression",
+            "use flatter phone-camera light, modest non-smiling expression, natural asymmetry, everyday texture, and unremarkable grooming while staying clearly adult",
+        ])
+    if gender == "female" and face_type_for_depolish == "fox_like" and band == "1.5-2.4":
+        parts.extend([
+            "v23 female fox_like low-band face-card lock",
+            "keep only restrained low-band fox_like cues without elegant 3.3-3.8 polish",
+            "avoid composed model-like narrow eyes, refined delicate jawline, cinematic bookstore/cafe attractiveness, and any neat fox-like upgrade",
+        ])
+    if gender == "female" and face_type_for_depolish == "bear_like" and band == "1.5-2.4":
+        parts.extend([
+            "v23 female bear_like low-band anti-cute lock",
+            "bear_like should feel grounded and broad-soft but not compact hamster_like cuteness",
+            "avoid neat lovable polish, cute rounded hamster cheeks, bright approachable charm, and average-pleasant 2.5-3.2 appeal",
+        ])
+    if gender == "female" and face_type_for_depolish == "mixed_neutral" and band == "2.5-3.2":
+        parts.extend([
+            "v23 female mixed_neutral 2.5-3.2 face-card balance lock",
+            "mixed_neutral must stay balanced and average-to-mildly-pleasant, not deer_like refined or 3.3-3.8 attractive",
+            "avoid elongated delicate elegance, large calm deer_like eyes, refined jawline, soft golden portrait glow, and above-average neatness",
+        ])
+    if gender == "female" and face_type_for_depolish == "dog_like" and band == "3.3-3.8":
+        parts.extend([
+            "v23 female dog_like 3.3-3.8 face-card no-undershoot lock",
+            "face_card must preserve clean approachable 3.3-3.8 campus polish and not fall to ordinary 2.5-3.2",
+            "keep gentle dog_like warmth, soft round eyes, balanced grooming, and mild above-average harmony while avoiding influencer, celebrity, idol, or 4.4-5.0 polish",
+        ])
+    if gender == "male" and face_type_for_depolish == "fox_like" and band == "1.5-2.4":
+        parts.extend([
+            "v24 male fox_like low-band face-card no-upgrade lock",
+            "keep only a restrained ordinary fox_like cue while the face remains plainly 1.5-2.4 and below average",
+            "avoid neat composed attractiveness, handsome narrow-eye polish, refined jawline, flattering campus portrait light, and 2.5-3.2 average appeal",
+        ])
+    if face_type_for_depolish == "horse_like" and band == "2.5-3.2":
+        parts.extend([
+            "v24 horse_like 2.5-3.2 face-card no-upgrade lock",
+            "horse_like length and mature structure must stay average-to-mildly-pleasant only, not sharp 3.3-3.8 handsome",
+            "avoid high nose-bridge glamor, refined cheekbones, slim jaw polish, confident model-like gaze, and flattering cinematic light",
+        ])
+    if face_type_for_depolish == "bear_like" and band == "3.9-4.3":
+        parts.extend([
+            "v24 bear_like 3.9-4.3 face-card no-undershoot lock",
+            "bear_like must remain noticeably attractive 3.9-4.3 while staying real and avoiding public-figure polish",
+            "preserve grounded broad-soft structure, thicker natural brows, clean grooming, and confident but sincere campus polish without collapsing to mixed_neutral/deer_like 3.3-3.8",
+        ])
     return "; ".join(parts) + "."
 
 
 def build_looks_level_target_block(spec: Mapping[str, Any], shot_type: ShotType = "face_card") -> str:
     face = spec.get("face", {}) if isinstance(spec.get("face"), Mapping) else {}
+    gender = str(spec.get("gender") or "")
     level = float(face.get("looksLevel", 3.0))
     band = str(face.get("looksLevelBand") or looks_level_band(level))
     band_visual = looks_level_band_target_visual(band)
@@ -1631,6 +1682,80 @@ def build_looks_level_target_block(spec: Mapping[str, Any], shot_type: ShotType 
                 "avoid bookstore/cafe polish, flattering golden light, neat jacket styling, confident profile pose, and composed cinematic mood when they raise attractiveness; "
                 "keep the activity secondary, ordinary, and slightly unpolished so QA still chooses 2.5-3.2."
             )
+    if gender == "female" and face_type in {"fox_like", "bear_like"} and band == "1.5-2.4":
+        guard += (
+            " v23 female 1.5-2.4 all-shot no-upgrade lock: every shot must remain plainly below-average and unpolished, not neat, cute, elegant, or average-pleasant; "
+            "campus setting, clothing, lighting, and activity must not upgrade observedLooksLevelBand into 2.5-3.2 or 3.3-3.8; "
+            "use ordinary phone-snapshot realism, flatter everyday light, modest expression, natural asymmetry, visible skin texture, and unremarkable grooming while keeping adult university realism."
+        )
+        if shot_type in {"silhouette_card", "vibe_card"}:
+            guard += (
+                " v23 female low-band dependent-shot no-upgrade lock: match the face_card's 1.5-2.4 ordinariness exactly in dependent shots; "
+                "do not let full-body distance, campus garden, hallway, bookstore, cafe, outfit, posture, or lifestyle action create a prettier 2.5-3.2/3.3-3.8 read; "
+                "keep the face visible enough for QA while the context stays secondary, ordinary, non-cinematic, and not curated."
+            )
+        if shot_type == "vibe_card":
+            guard += (
+                " v23 female low-band vibe phone-snapshot lock: vibe_card must feel like an ordinary unflattering phone snapshot, not a lifestyle profile photo; "
+                "avoid flattering cafe/bookstore polish, warm cinematic light, clean outfit showcase, confident candid pose, cute smile, and any sincere-but-pretty dating-card mood."
+            )
+    if gender == "female" and face_type == "fox_like" and band == "1.5-2.4":
+        guard += (
+            " v23 female fox_like 1.5-2.4 guard: keep subtle fox_like cues restrained and low-band without elegant refinement; "
+            "QA should not read the result as polished fox_like 3.3-3.8; avoid sharp composed beauty, refined narrow-eye attractiveness, slim delicate jaw, and cinematic profile mood."
+        )
+    if gender == "male" and face_type == "fox_like" and band == "1.5-2.4":
+        guard += (
+            " v24 male fox_like 1.5-2.4 all-shot no-upgrade lock: preserve subtle fox_like cues but keep the person plainly below-average, ordinary, and unpolished; "
+            "QA must not upgrade observedLooksLevelBand into 2.5-3.2 or 3.3-3.8 because of composed expression, campus styling, adult grooming, or flattering light; "
+            "avoid handsome narrow-eye polish, refined jaw/nose structure, neat intellectual styling, cinematic cafe/bookstore mood, and confident profile-pose appeal."
+        )
+        if shot_type in {"silhouette_card", "vibe_card"}:
+            guard += (
+                " v24 male fox_like low-band dependent-shot lock: dependent shots must match the face_card's plain 1.5-2.4 ordinariness exactly; "
+                "keep the face large and front/mild-three-quarter enough for QA while avoiding lifestyle context that makes the same face read average-pleasant; "
+                "location, activity, outfit, posture, and same-person reference must not add neatness or polish."
+            )
+    if gender == "female" and face_type == "bear_like" and band == "1.5-2.4":
+        guard += (
+            " v23 female bear_like 1.5-2.4 anti-hamster/no-cute guard: preserve grounded broad-soft bear_like structure without compact hamster_like roundness; "
+            "avoid cute lovable cheeks, neat average appeal, bright friendly charm, and polished warmth that would read 2.5-3.2."
+        )
+    if gender == "female" and face_type == "mixed_neutral" and band == "2.5-3.2" and shot_type == "face_card":
+        guard += (
+            " v23 female mixed_neutral 2.5-3.2 face-card no-upgrade lock: keep balanced mixed_neutral average-to-mildly-pleasant, not deer_like and not 3.3-3.8; "
+            "avoid deer_like elongated softness, delicate refined elegance, large bright calm eyes, soft oval glamour, golden portrait glow, and above-average neatness; "
+            "the face should remain neutral-balanced with ordinary proportions and modest grooming."
+        )
+    if gender == "female" and face_type == "dog_like" and band == "3.3-3.8" and shot_type == "face_card":
+        guard += (
+            " v23 female dog_like 3.3-3.8 face-card no-undershoot lock: face_card must clearly remain 3.3-3.8 with gentle dog_like warmth, soft round eyes, clean balanced grooming, and mild above-average campus harmony; "
+            "do not flatten it into ordinary 2.5-3.2 or dull phone ID lighting, but also avoid influencer, celebrity, idol, model, beauty-filter, or 4.4-5.0 polish."
+        )
+    if gender == "female" and face_type == "horse_like" and band == "2.5-3.2" and shot_type in {"silhouette_card", "vibe_card"}:
+        guard += (
+            " v23 female horse_like dependent-shot identity lock: preserve the face_card's longer/elegant horse_like structure in silhouette and vibe shots; "
+            "keep enough face pixels and a front or mild three-quarter angle so the same longer face, mature jaw/neck balance, and restrained horse_like anchors remain readable; "
+            "do not soften into deer_like delicacy, compact into hamster_like roundness, or replace the face with a different lifestyle identity; "
+            "dependent shots must stay same-person with face_card while remaining average-to-mildly-pleasant 2.5-3.2."
+        )
+    if face_type == "horse_like" and band == "2.5-3.2":
+        guard += (
+            " v24 horse_like 2.5-3.2 no-upgrade lock: horse_like maturity must not become sharp handsome 3.3-3.8; "
+            "keep longer face cues ordinary and average-to-mildly-pleasant, with modest grooming, flatter everyday light, natural asymmetry, and no refined cheekbone/nose/jaw polish; "
+            "QA should still choose 2.5-3.2 even when posture, campus setting, or same-person reference looks composed."
+        )
+        if shot_type in {"silhouette_card", "vibe_card"}:
+            guard += (
+                " v24 horse_like dependent no-upgrade lock: dependent shots must not upgrade the face_card through flattering distance, clean outfit, or mature pose; "
+                "preserve the same ordinary horse_like identity while keeping the face readable enough for QA."
+            )
+    if face_type == "bear_like" and band == "3.9-4.3":
+        guard += (
+            " v24 bear_like 3.9-4.3 no-undershoot lock: preserve noticeably attractive bear_like grounded structure and natural brow/cheek strength; "
+            "do not let dependent-shot distance, soft expression, casual outfit, or lifestyle context collapse the face into mixed_neutral, deer_like, or 3.3-3.8; "
+            "stay real and campus-based while avoiding public-figure or curated-social polish and keeping the assigned 3.9-4.3 polish."
+        )
     if face_type == "dog_like" and band in {"1.5-2.4", "2.5-3.2"}:
         if band == "1.5-2.4":
             dog_guard = (

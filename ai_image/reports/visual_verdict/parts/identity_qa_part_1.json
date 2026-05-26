@@ -2,49 +2,58 @@
   "qaType": "seolleyeon_visual_verdict_identity_v3",
   "identities": [
     {
-      "profileId": "female_020",
-      "gender": "female",
-      "targetFaceType": "mixed_neutral",
-      "observedFaceType": "mixed_neutral",
-      "targetLooksLevelBand": "3.3-3.8",
-      "observedLooksLevelBand": "3.3-3.8",
-      "targetHasEyewear": false,
-      "targetEyewearGroup": "none",
-      "targetEyewear": "none",
-      "targetCanonicalEyewear": "none",
+      "profileId": "male_125",
+      "gender": "male",
+      "targetFaceType": "horse_like",
+      "observedFaceType": "horse_like",
+      "targetLooksLevelBand": "2.5-3.2",
+      "observedLooksLevelBand": "2.5-3.2",
+      "targetHasEyewear": true,
+      "targetEyewearGroup": "glasses",
+      "targetEyewear": "soft_rectangular_metal",
+      "targetCanonicalEyewear": "soft_rectangular_metal",
       "targetShotEyewearExpected": {
-        "face_card": "none",
-        "silhouette_card": "none",
-        "vibe_card": "none"
+        "face_card": "soft_rectangular_metal",
+        "silhouette_card": "soft_rectangular_metal",
+        "vibe_card": "soft_rectangular_metal"
       },
-      "observedEyewearConsistency": "consistent",
-      "eyewearMismatchReason": "",
+      "observedEyewearConsistency": "inconsistent",
+      "eyewearMismatchReason": "Required soft rectangular metal glasses are missing in silhouette_card.",
       "assetIds": {
-        "face_card": "female_020__face_card__v001",
-        "silhouette_card": "female_020__silhouette_card__v001",
-        "vibe_card": "female_020__vibe_card__v001"
+        "face_card": "male_125__face_card__v001",
+        "silhouette_card": "male_125__silhouette_card__v001",
+        "vibe_card": "male_125__vibe_card__v001"
       },
       "assetDecisions": {
         "face_card": "approved",
-        "silhouette_card": "approved",
+        "silhouette_card": "rejected",
         "vibe_card": "approved"
       },
-      "faceToSilhouetteConsistency": 4.1,
-      "faceToVibeConsistency": 4.6,
-      "sameIdentity": true,
-      "completeIdentityDecision": "approved",
-      "countsTowardDistribution": true,
-      "failedShotTypes": [],
-      "retryShotTypes": [],
-      "rejectReasons": [],
-      "notes": "All three approved assets read as the same adult no-eyewear identity with consistent neutral face type and looks band."
+      "faceToSilhouetteConsistency": 3.6,
+      "faceToVibeConsistency": 4.4,
+      "sameIdentity": false,
+      "completeIdentityDecision": "rejected",
+      "countsTowardDistribution": false,
+      "failedShotTypes": [
+        "silhouette_card"
+      ],
+      "retryShotTypes": [
+        "silhouette_card"
+      ],
+      "rejectReasons": [
+        "asset_rejected_silhouette_card",
+        "missing_required_eyewear",
+        "eyewear_inconsistent",
+        "face_to_silhouette_consistency_below_threshold"
+      ],
+      "notes": "Face and vibe read as the same adult male student, but silhouette is rejected because required glasses are absent and identity consistency is below threshold."
     }
   ],
   "summary": {
-    "approvedCompleteIdentities": 1,
+    "approvedCompleteIdentities": 0,
     "needsReviewIdentities": 0,
-    "rejectedIdentities": 0,
+    "rejectedIdentities": 1,
     "missingShotIdentities": 0,
-    "identityMismatchCount": 0
+    "identityMismatchCount": 1
   }
 }

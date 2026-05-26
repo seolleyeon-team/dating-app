@@ -1,1 +1,1 @@
-"""Project utility scripts package."""
+"""Local project scripts package for test imports."""

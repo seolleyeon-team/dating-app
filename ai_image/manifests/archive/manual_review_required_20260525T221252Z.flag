@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "seolleyeon_active_visual_manual_review_v3",
+  "reason": "asset_qa_codex_subprocess_failed",
+  "details": {
+    "returncode": 1
+  },
+  "updatedAt": "2026-05-25T20:40:13+00:00"
+}

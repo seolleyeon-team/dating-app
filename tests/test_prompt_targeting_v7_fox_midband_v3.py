@@ -7,7 +7,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 PROMPT_PATH = ROOT / "lib" / "ai_recommend_model" / "seolleyeon_ai_profile_prompt_v3_package" / "seolleyeon_ai_profile_prompt_v3.py"
-EXPECTED_VERSION = "face_type_looks_level_targeting_v22"
+EXPECTED_VERSION = "face_type_looks_level_targeting_v23"
 OLD_VERSION = "face_type_looks_level_targeting_v6"
 
 

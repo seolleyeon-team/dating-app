@@ -42,7 +42,7 @@ class PromptTargetingV9EyewearDogLowBandV3Tests(unittest.TestCase):
 
     def test_prompt_targeting_version_bumped_to_v9_and_hash_changes_from_v8(self):
         spec = self._base_spec(has_eyewear=True)
-        self.assertEqual(self.m.PROMPT_TARGETING_VERSION, "face_type_looks_level_targeting_v22")
+        self.assertEqual(self.m.PROMPT_TARGETING_VERSION, "face_type_looks_level_targeting_v23")
         baseline = self.m.build_asset_record(spec, "vibe_card")
         original = self.m.PROMPT_TARGETING_VERSION
         try:

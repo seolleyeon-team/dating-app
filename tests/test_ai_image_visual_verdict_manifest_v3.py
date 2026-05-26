@@ -36,7 +36,8 @@ class VisualVerdictManifestV3Tests(unittest.TestCase):
             for row in rows:
                 final_path = Path(row["finalPath"])
                 final_path.parent.mkdir(parents=True, exist_ok=True)
-                Image.new("RGB", (512, 768), color=(200, 200, 200)).save(final_path)
+                image = Image.effect_noise((768, 1024), 64).convert("RGB")
+                image.save(final_path)
                 file_qa_rows.append(
                     {
                         "assetId": row["assetId"],
@@ -190,6 +191,40 @@ class VisualVerdictManifestV3Tests(unittest.TestCase):
                     manifest = [json.loads(line) for line in (paths.manifests / "asset_qa_manifest.jsonl").read_text(encoding="utf-8").splitlines()]
                     self.assertNotEqual(manifest[0]["finalDecision"], "approved")
                     self.assertFalse(manifest[0]["countsTowardIdentityQa"])
+
+    def test_non_vibe_location_type_mismatch_is_not_asset_rejecting_metadata_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths, rows = self._make_generation_rows(root, shots=("silhouette_card",))
+            review = self._asset_review(
+                rows[0],
+                metadataMismatch=True,
+                mismatchFields=["locationType"],
+                decision="approved",
+            )
+            counts = self._apply_asset_reviews(root, rows, [review])
+            manifest = [json.loads(line) for line in (paths.manifests / "asset_qa_manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(counts["approved"], 1)
+            self.assertEqual(manifest[0]["finalDecision"], "approved")
+            self.assertFalse(manifest[0]["metadataMismatch"])
+            self.assertEqual(manifest[0]["mismatchFields"], [])
+
+    def test_vibe_location_type_mismatch_remains_asset_metadata_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths, rows = self._make_generation_rows(root, shots=("vibe_card",))
+            review = self._asset_review(
+                rows[0],
+                metadataMismatch=True,
+                mismatchFields=["locationType"],
+                decision="approved",
+            )
+            counts = self._apply_asset_reviews(root, rows, [review])
+            manifest = [json.loads(line) for line in (paths.manifests / "asset_qa_manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(counts["needs_review"], 1)
+            self.assertEqual(manifest[0]["finalDecision"], "needs_review")
+            self.assertTrue(manifest[0]["metadataMismatch"])
+            self.assertEqual(manifest[0]["mismatchFields"], ["locationType"])
 
     def test_asset_invalid_empty_and_unknown_qatype_rejected(self):
         from scripts.ai_image_pipeline_v3.visual_verdict import apply_asset_qa

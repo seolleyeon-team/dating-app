@@ -1,1 +1,1 @@
-{"owner":"hermes","purpose":"autonomous_loop","startedAt":"2026-05-23T21:29:01+09:00","pid":"current-hermes-session","status":"active"}
+{"owner":"hermes","purpose":"autonomous_loop","startedAt":"2026-05-25T02:46:48+09:00","pid":"current-hermes-session","status":"active","note":"reacquired after stale/non-pid lock; no active codex/imagegen process found"}

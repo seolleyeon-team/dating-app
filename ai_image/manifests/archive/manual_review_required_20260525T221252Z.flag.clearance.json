@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "seolleyeon_manual_review_clearance_sidecar_v3",
+  "createdAt": "2026-05-25T22:13:34+00:00",
+  "originalReason": "asset_qa_codex_subprocess_failed",
+  "chunkId": "chunk_20260525T182139Z",
+  "clearReason": "transient_codex_active_visual_qa_subprocess_failed_ready_for_retry",
+  "pendingStatus": "resolved",
+  "fileQaPassedAssets": 18,
+  "selectedAssetCount": 18,
+  "whitelistPath": "C:/Users/Mickey/StudioProjects/dating-app-ai_profile_image/ai_image/reports/chunks/chunk_20260525T182139Z/file_complete_identity_whitelist.json",
+  "contactSheetIndexPath": "C:/Users/Mickey/StudioProjects/dating-app-ai_profile_image/ai_image/reports/chunks/chunk_20260525T182139Z/contact_sheets/file_complete_contact_sheet_index.json",
+  "approvedCountsBefore": {
+    "approvedCompleteIdentities": 74,
+    "approvedImages": 222
+  },
+  "approvedCountsAfter": {
+    "approvedCompleteIdentities": 74,
+    "approvedImages": 222
+  }
+}

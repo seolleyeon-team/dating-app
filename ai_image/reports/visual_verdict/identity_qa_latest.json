@@ -3,10 +3,259 @@
   "sheetId": "active_visual_identity_qa_merged",
   "identities": [
     {
-      "profileId": "female_020",
-      "gender": "female",
-      "targetFaceType": "mixed_neutral",
-      "observedFaceType": "mixed_neutral",
+      "profileId": "male_125",
+      "gender": "male",
+      "targetFaceType": "horse_like",
+      "observedFaceType": "horse_like",
+      "targetLooksLevelBand": "2.5-3.2",
+      "observedLooksLevelBand": "2.5-3.2",
+      "targetHasEyewear": true,
+      "targetEyewearGroup": "glasses",
+      "targetEyewear": "soft_rectangular_metal",
+      "targetCanonicalEyewear": "soft_rectangular_metal",
+      "targetShotEyewearExpected": {
+        "face_card": "soft_rectangular_metal",
+        "silhouette_card": "soft_rectangular_metal",
+        "vibe_card": "soft_rectangular_metal"
+      },
+      "observedEyewearConsistency": "inconsistent",
+      "eyewearMismatchReason": "Required soft rectangular metal glasses are missing in silhouette_card.",
+      "assetIds": {
+        "face_card": "male_125__face_card__v001",
+        "silhouette_card": "male_125__silhouette_card__v001",
+        "vibe_card": "male_125__vibe_card__v001"
+      },
+      "assetDecisions": {
+        "face_card": "approved",
+        "silhouette_card": "rejected",
+        "vibe_card": "approved"
+      },
+      "faceToSilhouetteConsistency": 3.6,
+      "faceToVibeConsistency": 4.4,
+      "sameIdentity": false,
+      "completeIdentityDecision": "rejected",
+      "countsTowardDistribution": false,
+      "failedShotTypes": [
+        "silhouette_card"
+      ],
+      "retryShotTypes": [
+        "silhouette_card"
+      ],
+      "rejectReasons": [
+        "asset_rejected_silhouette_card",
+        "missing_required_eyewear",
+        "eyewear_inconsistent",
+        "face_to_silhouette_consistency_below_threshold"
+      ],
+      "notes": "Face and vibe read as the same adult male student, but silhouette is rejected because required glasses are absent and identity consistency is below threshold."
+    },
+    {
+      "profileId": "male_126",
+      "gender": "male",
+      "targetFaceType": "fox_like",
+      "observedFaceType": "fox_like",
+      "targetLooksLevelBand": "1.5-2.4",
+      "observedLooksLevelBand": "2.5-3.2",
+      "targetHasEyewear": false,
+      "targetEyewearGroup": "none",
+      "targetEyewear": "none",
+      "targetCanonicalEyewear": "none",
+      "targetShotEyewearExpected": {
+        "face_card": "none",
+        "silhouette_card": "none",
+        "vibe_card": "none"
+      },
+      "observedEyewearConsistency": "consistent",
+      "eyewearMismatchReason": "",
+      "assetIds": {
+        "face_card": "male_126__face_card__v001",
+        "silhouette_card": "male_126__silhouette_card__v001",
+        "vibe_card": "male_126__vibe_card__v001"
+      },
+      "assetDecisions": {
+        "face_card": "rejected",
+        "silhouette_card": "rejected",
+        "vibe_card": "rejected"
+      },
+      "faceToSilhouetteConsistency": 4.0,
+      "faceToVibeConsistency": 4.2,
+      "sameIdentity": true,
+      "completeIdentityDecision": "rejected",
+      "countsTowardDistribution": false,
+      "failedShotTypes": [
+        "face_card",
+        "silhouette_card",
+        "vibe_card"
+      ],
+      "retryShotTypes": [
+        "face_card",
+        "silhouette_card",
+        "vibe_card"
+      ],
+      "rejectReasons": [
+        "asset_decision_rejected",
+        "looks_level_metadata_mismatch"
+      ],
+      "notes": "All three assets are applied rejected due looks level metadata mismatch; visually the shots appear same adult no-eyewear fox_like student."
+    },
+    {
+      "profileId": "male_127",
+      "gender": "male",
+      "targetFaceType": "dog_like",
+      "observedFaceType": "dog_like",
+      "targetLooksLevelBand": "3.3-3.8",
+      "observedLooksLevelBand": "2.5-3.2",
+      "targetHasEyewear": true,
+      "targetEyewearGroup": "glasses",
+      "targetEyewear": "clear_frame",
+      "targetCanonicalEyewear": "clear_frame",
+      "targetShotEyewearExpected": {
+        "face_card": "clear_frame",
+        "silhouette_card": "clear_frame",
+        "vibe_card": "clear_frame"
+      },
+      "observedEyewearConsistency": "inconsistent",
+      "eyewearMismatchReason": "Required clear-frame glasses are visible in face_card but missing or unreadable in silhouette_card and vibe_card.",
+      "assetIds": {
+        "face_card": "male_127__face_card__v001",
+        "silhouette_card": "male_127__silhouette_card__v001",
+        "vibe_card": "male_127__vibe_card__v001"
+      },
+      "assetDecisions": {
+        "face_card": "approved",
+        "silhouette_card": "rejected",
+        "vibe_card": "rejected"
+      },
+      "faceToSilhouetteConsistency": 3.2,
+      "faceToVibeConsistency": 3.3,
+      "sameIdentity": false,
+      "completeIdentityDecision": "rejected",
+      "countsTowardDistribution": false,
+      "failedShotTypes": [
+        "silhouette_card",
+        "vibe_card"
+      ],
+      "retryShotTypes": [
+        "silhouette_card",
+        "vibe_card"
+      ],
+      "rejectReasons": [
+        "asset_decision_rejected_silhouette_card",
+        "asset_decision_rejected_vibe_card",
+        "missing_required_eyewear_silhouette_card",
+        "missing_required_eyewear_vibe_card",
+        "eyewear_inconsistent",
+        "face_to_silhouette_consistency_below_threshold",
+        "face_to_vibe_consistency_below_threshold",
+        "looks_level_band_mismatch"
+      ],
+      "notes": "Face card has clear-frame glasses, but the other two shots lose required eyewear and read as lower-band/less consistent versions of the person."
+    },
+    {
+      "profileId": "male_128",
+      "gender": "male",
+      "targetFaceType": "horse_like",
+      "observedFaceType": "horse_like",
+      "targetLooksLevelBand": "2.5-3.2",
+      "observedLooksLevelBand": "3.3-3.8",
+      "targetHasEyewear": false,
+      "targetEyewearGroup": "none",
+      "targetEyewear": "none",
+      "targetCanonicalEyewear": "none",
+      "targetShotEyewearExpected": {
+        "face_card": "none",
+        "silhouette_card": "none",
+        "vibe_card": "none"
+      },
+      "observedEyewearConsistency": "consistent",
+      "eyewearMismatchReason": "",
+      "assetIds": {
+        "face_card": "male_128__face_card__v001",
+        "silhouette_card": "male_128__silhouette_card__v001",
+        "vibe_card": "male_128__vibe_card__v001"
+      },
+      "assetDecisions": {
+        "face_card": "rejected",
+        "silhouette_card": "rejected",
+        "vibe_card": "approved"
+      },
+      "faceToSilhouetteConsistency": 4.2,
+      "faceToVibeConsistency": 4.1,
+      "sameIdentity": true,
+      "completeIdentityDecision": "rejected",
+      "countsTowardDistribution": false,
+      "failedShotTypes": [
+        "face_card",
+        "silhouette_card"
+      ],
+      "retryShotTypes": [
+        "face_card",
+        "silhouette_card"
+      ],
+      "rejectReasons": [
+        "asset_rejected_face_card",
+        "asset_rejected_silhouette_card",
+        "metadata_mismatch_looksLevelBand",
+        "metadata_mismatch_locationType",
+        "observedLooksLevelBand_mismatch"
+      ],
+      "notes": "All shots appear to preserve the same no-eyewear adult male identity, but face_card and silhouette_card have applied asset QA rejection for metadata mismatch, and the observed looks band is above target."
+    },
+    {
+      "profileId": "male_129",
+      "gender": "male",
+      "targetFaceType": "bear_like",
+      "observedFaceType": "bear_like",
+      "targetLooksLevelBand": "3.9-4.3",
+      "observedLooksLevelBand": "3.3-3.8",
+      "targetHasEyewear": false,
+      "targetEyewearGroup": "none",
+      "targetEyewear": "none",
+      "targetCanonicalEyewear": "none",
+      "targetShotEyewearExpected": {
+        "face_card": "none",
+        "silhouette_card": "none",
+        "vibe_card": "none"
+      },
+      "observedEyewearConsistency": "consistent",
+      "eyewearMismatchReason": "",
+      "assetIds": {
+        "face_card": "male_129__face_card__v001",
+        "silhouette_card": "male_129__silhouette_card__v001",
+        "vibe_card": "male_129__vibe_card__v001"
+      },
+      "assetDecisions": {
+        "face_card": "rejected",
+        "silhouette_card": "rejected",
+        "vibe_card": "rejected"
+      },
+      "faceToSilhouetteConsistency": 4.0,
+      "faceToVibeConsistency": 3.9,
+      "sameIdentity": true,
+      "completeIdentityDecision": "rejected",
+      "countsTowardDistribution": false,
+      "failedShotTypes": [
+        "face_card",
+        "silhouette_card",
+        "vibe_card"
+      ],
+      "retryShotTypes": [
+        "face_card",
+        "silhouette_card",
+        "vibe_card"
+      ],
+      "rejectReasons": [
+        "asset_decision_rejected",
+        "metadata_mismatch",
+        "looks_level_band_mismatch"
+      ],
+      "notes": "All three applied asset QA decisions are rejected due metadata mismatches; visual identity appears broadly consistent, but observed looks level is lower than target."
+    },
+    {
+      "profileId": "male_130",
+      "gender": "male",
+      "targetFaceType": "cat_like",
+      "observedFaceType": "cat_like",
       "targetLooksLevelBand": "3.3-3.8",
       "observedLooksLevelBand": "3.3-3.8",
       "targetHasEyewear": false,
@@ -21,272 +270,38 @@
       "observedEyewearConsistency": "consistent",
       "eyewearMismatchReason": "",
       "assetIds": {
-        "face_card": "female_020__face_card__v001",
-        "silhouette_card": "female_020__silhouette_card__v001",
-        "vibe_card": "female_020__vibe_card__v001"
+        "face_card": "male_130__face_card__v001",
+        "silhouette_card": "male_130__silhouette_card__v001",
+        "vibe_card": "male_130__vibe_card__v001"
       },
       "assetDecisions": {
         "face_card": "approved",
-        "silhouette_card": "approved",
+        "silhouette_card": "rejected",
         "vibe_card": "approved"
-      },
-      "faceToSilhouetteConsistency": 4.1,
-      "faceToVibeConsistency": 4.6,
-      "sameIdentity": true,
-      "completeIdentityDecision": "approved",
-      "countsTowardDistribution": true,
-      "failedShotTypes": [],
-      "retryShotTypes": [],
-      "rejectReasons": [],
-      "notes": "All three approved assets read as the same adult no-eyewear identity with consistent neutral face type and looks band."
-    },
-    {
-      "profileId": "female_021",
-      "gender": "female",
-      "targetFaceType": "cat_like",
-      "observedFaceType": "cat_like",
-      "targetLooksLevelBand": "3.9-4.3",
-      "observedLooksLevelBand": "3.9-4.3",
-      "targetHasEyewear": false,
-      "targetEyewearGroup": "none",
-      "targetEyewear": "none",
-      "targetCanonicalEyewear": "none",
-      "targetShotEyewearExpected": {
-        "face_card": "none",
-        "silhouette_card": "none",
-        "vibe_card": "none"
-      },
-      "observedEyewearConsistency": "consistent",
-      "eyewearMismatchReason": "",
-      "assetIds": {
-        "face_card": "female_021__face_card__v001",
-        "silhouette_card": "female_021__silhouette_card__v001",
-        "vibe_card": "female_021__vibe_card__v001"
-      },
-      "assetDecisions": {
-        "face_card": "approved",
-        "silhouette_card": "approved",
-        "vibe_card": "approved"
-      },
-      "faceToSilhouetteConsistency": 4.2,
-      "faceToVibeConsistency": 4.7,
-      "sameIdentity": true,
-      "completeIdentityDecision": "approved",
-      "countsTowardDistribution": true,
-      "failedShotTypes": [],
-      "retryShotTypes": [],
-      "rejectReasons": [],
-      "notes": "All three approved assets appear to show the same adult Korean university student with consistent no-eyewear state, cat-like facial cues, and matching looks band."
-    },
-    {
-      "profileId": "female_022",
-      "gender": "female",
-      "targetFaceType": "dog_like",
-      "observedFaceType": "deer_like",
-      "targetLooksLevelBand": "1.5-2.4",
-      "observedLooksLevelBand": "3.9-4.3",
-      "targetHasEyewear": false,
-      "targetEyewearGroup": "none",
-      "targetEyewear": "none",
-      "targetCanonicalEyewear": "none",
-      "targetShotEyewearExpected": {
-        "face_card": "none",
-        "silhouette_card": "none",
-        "vibe_card": "none"
-      },
-      "observedEyewearConsistency": "consistent",
-      "eyewearMismatchReason": "",
-      "assetIds": {
-        "face_card": "female_022__face_card__v001",
-        "silhouette_card": "female_022__silhouette_card__v001",
-        "vibe_card": "female_022__vibe_card__v001"
-      },
-      "assetDecisions": {
-        "face_card": "rejected",
-        "silhouette_card": "needs_review",
-        "vibe_card": "rejected"
       },
       "faceToSilhouetteConsistency": 4.0,
-      "faceToVibeConsistency": 4.4,
+      "faceToVibeConsistency": 4.2,
       "sameIdentity": true,
-      "completeIdentityDecision": "rejected",
-      "countsTowardDistribution": false,
-      "failedShotTypes": [
-        "face_card",
-        "vibe_card"
-      ],
-      "retryShotTypes": [
-        "face_card",
-        "silhouette_card",
-        "vibe_card"
-      ],
-      "rejectReasons": [
-        "asset_rejected_face_card",
-        "asset_needs_review_silhouette_card",
-        "asset_rejected_vibe_card",
-        "target_face_type_mismatch",
-        "target_looks_level_band_mismatch"
-      ],
-      "notes": "All three shots appear likely same adult no-eyewear person, but applied asset QA rejects face and vibe for metadata mismatch and marks silhouette needs review."
-    },
-    {
-      "profileId": "female_023",
-      "gender": "female",
-      "targetFaceType": "dog_like",
-      "observedFaceType": "dog_like",
-      "targetLooksLevelBand": "2.5-3.2",
-      "observedLooksLevelBand": "2.5-3.2",
-      "targetHasEyewear": false,
-      "targetEyewearGroup": "none",
-      "targetEyewear": "none",
-      "targetCanonicalEyewear": "none",
-      "targetShotEyewearExpected": {
-        "face_card": "none",
-        "silhouette_card": "none",
-        "vibe_card": "none"
-      },
-      "observedEyewearConsistency": "unclear",
-      "eyewearMismatchReason": "",
-      "assetIds": {
-        "face_card": "female_023__face_card__v001",
-        "silhouette_card": "female_023__silhouette_card__v001",
-        "vibe_card": "female_023__vibe_card__v001"
-      },
-      "assetDecisions": {
-        "face_card": "approved",
-        "silhouette_card": "missing",
-        "vibe_card": "missing"
-      },
-      "faceToSilhouetteConsistency": 0.0,
-      "faceToVibeConsistency": 0.0,
-      "sameIdentity": false,
-      "completeIdentityDecision": "rejected",
-      "countsTowardDistribution": false,
-      "failedShotTypes": [
-        "silhouette_card",
-        "vibe_card"
-      ],
-      "retryShotTypes": [
-        "silhouette_card",
-        "vibe_card"
-      ],
-      "rejectReasons": [
-        "missing_silhouette_card",
-        "missing_vibe_card",
-        "face_to_silhouette_consistency_below_threshold",
-        "face_to_vibe_consistency_below_threshold"
-      ],
-      "notes": "Only face_card is visible and approved; silhouette_card and vibe_card are missing, so same-person identity consistency cannot be verified."
-    },
-    {
-      "profileId": "female_024",
-      "gender": "female",
-      "targetFaceType": "hamster_like",
-      "observedFaceType": "unclear",
-      "targetLooksLevelBand": "2.5-3.2",
-      "observedLooksLevelBand": "unclear",
-      "targetHasEyewear": false,
-      "targetEyewearGroup": "none",
-      "targetEyewear": "none",
-      "targetCanonicalEyewear": "none",
-      "targetShotEyewearExpected": {
-        "face_card": "none",
-        "silhouette_card": "none",
-        "vibe_card": "none"
-      },
-      "observedEyewearConsistency": "unclear",
-      "eyewearMismatchReason": "",
-      "assetIds": {
-        "face_card": "female_024__face_card__v001",
-        "silhouette_card": "female_024__silhouette_card__v001",
-        "vibe_card": "female_024__vibe_card__v001"
-      },
-      "assetDecisions": {
-        "face_card": "needs_review",
-        "silhouette_card": "missing",
-        "vibe_card": "needs_review"
-      },
-      "faceToSilhouetteConsistency": 0.0,
-      "faceToVibeConsistency": 0.0,
-      "sameIdentity": false,
       "completeIdentityDecision": "rejected",
       "countsTowardDistribution": false,
       "failedShotTypes": [
         "silhouette_card"
       ],
       "retryShotTypes": [
-        "face_card",
-        "silhouette_card",
-        "vibe_card"
+        "silhouette_card"
       ],
       "rejectReasons": [
-        "contact_sheet_has_no_images",
-        "silhouette_card_file_missing",
-        "observed_face_type_unclear",
-        "observed_looks_level_unclear",
-        "face_to_silhouette_consistency_below_threshold",
-        "face_to_vibe_consistency_below_threshold"
+        "asset_rejected_silhouette_card",
+        "metadata_mismatch_silhouette_card"
       ],
-      "notes": "Contact sheet contains no visible assets, and silhouette_card file QA is missing, so same-person identity cannot be verified."
-    },
-    {
-      "profileId": "female_025",
-      "gender": "female",
-      "targetFaceType": "bear_like",
-      "observedFaceType": "unclear",
-      "targetLooksLevelBand": "2.5-3.2",
-      "observedLooksLevelBand": "unclear",
-      "targetHasEyewear": false,
-      "targetEyewearGroup": "none",
-      "targetEyewear": "none",
-      "targetCanonicalEyewear": "none",
-      "targetShotEyewearExpected": {
-        "face_card": "none",
-        "silhouette_card": "none",
-        "vibe_card": "none"
-      },
-      "observedEyewearConsistency": "unclear",
-      "eyewearMismatchReason": "",
-      "assetIds": {
-        "face_card": "female_025__face_card__v001",
-        "silhouette_card": "female_025__silhouette_card__v001",
-        "vibe_card": "female_025__vibe_card__v001"
-      },
-      "assetDecisions": {
-        "face_card": "needs_review",
-        "silhouette_card": "needs_review",
-        "vibe_card": "needs_review"
-      },
-      "faceToSilhouetteConsistency": 0.0,
-      "faceToVibeConsistency": 0.0,
-      "sameIdentity": false,
-      "completeIdentityDecision": "needs_review",
-      "countsTowardDistribution": false,
-      "failedShotTypes": [
-        "face_card",
-        "silhouette_card",
-        "vibe_card"
-      ],
-      "retryShotTypes": [
-        "face_card",
-        "silhouette_card",
-        "vibe_card"
-      ],
-      "rejectReasons": [
-        "contact_sheet_no_images",
-        "file_qa_needs_review",
-        "observed_face_type_unclear",
-        "observed_looks_level_unclear",
-        "identity_consistency_unjudgeable"
-      ],
-      "notes": "Contact sheet contains no visible images, and all three assets have file_needs_review status; identity cannot be visually verified."
+      "notes": "All three shots appear to preserve the same no-eyewear adult male identity, but silhouette_card has an applied rejected asset decision for metadata mismatch, so the complete identity is rejected."
     }
   ],
   "summary": {
-    "approvedCompleteIdentities": 2,
-    "needsReviewIdentities": 1,
-    "rejectedIdentities": 3,
-    "missingShotIdentities": 2,
-    "identityMismatchCount": 3
+    "approvedCompleteIdentities": 0,
+    "needsReviewIdentities": 0,
+    "rejectedIdentities": 6,
+    "missingShotIdentities": 0,
+    "identityMismatchCount": 2
   }
 }

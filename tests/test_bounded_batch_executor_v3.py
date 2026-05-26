@@ -8,6 +8,12 @@ from pathlib import Path
 
 
 class BoundedBatchExecutorV3Tests(unittest.TestCase):
+    def _write_valid_test_image(self, path: Path) -> None:
+        from PIL import Image
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        Image.effect_noise((768, 1024), 64).convert("RGB").save(path)
+
     def _write_audit(self, root: Path, *, face_deficit: int = 120, looks_deficit: int = 120) -> None:
         reports = root / "ai_image" / "reports"
         reports.mkdir(parents=True, exist_ok=True)
@@ -573,7 +579,7 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
             plan_path.write_text(json.dumps(plan), encoding="utf-8")
             first_final = Path(old_plan["identities"][0]["assets"][0]["finalPath"])
             first_final.parent.mkdir(parents=True, exist_ok=True)
-            Image.new("RGB", (512, 768), (20, 40, 60)).save(first_final)
+            self._write_valid_test_image(first_final)
             self._write_audit(root, face_deficit=119, looks_deficit=119)
 
             status_before = bounded_chunk_status(root=root)
@@ -863,8 +869,7 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
             self._write_manifest(root, 1)
             create_chunk_plan(root=root)
             final = root / "ai_image" / "female" / "001" / "face_card.png"
-            final.parent.mkdir(parents=True, exist_ok=True)
-            Image.new("RGB", (512, 768), (20, 40, 60)).save(final)
+            self._write_valid_test_image(final)
             self._update_generation_row(
                 root,
                 "female_001__face_card__v001",
@@ -1104,7 +1109,7 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
                 color = tuple(40 + digest[index] % 160 for index in range(3))
                 for path in (raw, final):
                     path.parent.mkdir(parents=True, exist_ok=True)
-                    Image.new("RGB", (512, 768), color).save(path)
+                    self._write_valid_test_image(path)
                 receipt_path = Path(pending["expectedReceiptPath"])
                 receipt_path.parent.mkdir(parents=True, exist_ok=True)
                 reference_text = str(pending.get("referenceImagePath") or "")
@@ -1233,7 +1238,7 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
                 color = tuple(40 + digest[index] % 160 for index in range(3))
                 for path in (raw, final):
                     path.parent.mkdir(parents=True, exist_ok=True)
-                    Image.new("RGB", (512, 768), color).save(path)
+                    self._write_valid_test_image(path)
                 receipt_path = Path(pending["expectedReceiptPath"])
                 receipt_path.parent.mkdir(parents=True, exist_ok=True)
                 reference_text = str(pending.get("referenceImagePath") or "")
@@ -1315,8 +1320,7 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
             self._write_manifest(root, 1)
             plan = create_chunk_plan(root=root)
             final = root / "ai_image" / "female" / "001" / "face_card.png"
-            final.parent.mkdir(parents=True, exist_ok=True)
-            Image.new("RGB", (512, 768), (20, 40, 60)).save(final)
+            self._write_valid_test_image(final)
             flag = root / "ai_image" / "manifests" / "manual_review_required.flag"
             flag.write_text(json.dumps({"reason": "child_forbidden_mutation"}), encoding="utf-8")
             commands = []
@@ -1353,8 +1357,7 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
             self._write_manifest(root, 1)
             plan = create_chunk_plan(root=root)
             final = root / "ai_image" / "female" / "001" / "face_card.png"
-            final.parent.mkdir(parents=True, exist_ok=True)
-            Image.new("RGB", (512, 768), (20, 40, 60)).save(final)
+            self._write_valid_test_image(final)
             pending = {
                 "status": "recovered",
                 "resolved": True,
@@ -1403,8 +1406,7 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
             self._write_manifest(root, 1)
             plan = create_chunk_plan(root=root)
             final = root / "ai_image" / "female" / "001" / "face_card.png"
-            final.parent.mkdir(parents=True, exist_ok=True)
-            Image.new("RGB", (512, 768), (20, 40, 60)).save(final)
+            self._write_valid_test_image(final)
             flag = root / "ai_image" / "manifests" / "manual_review_required.flag"
             flag.write_text(json.dumps({"reason": "bounded_recovery_failed"}), encoding="utf-8")
 
@@ -1427,8 +1429,7 @@ class BoundedBatchExecutorV3Tests(unittest.TestCase):
             create_chunk_plan(root=root)
             self._write_audit(root, face_deficit=119, looks_deficit=119)
             final = root / "ai_image" / "female" / "001" / "face_card.png"
-            final.parent.mkdir(parents=True, exist_ok=True)
-            Image.new("RGB", (512, 768), (20, 40, 60)).save(final)
+            self._write_valid_test_image(final)
             manifest = root / "ai_image" / "manifests" / "asset_qa_manifest.jsonl"
             manifest.write_text(
                 '{"schemaVersion":"seolleyeon_asset_qa_manifest_v3","assetId":"visual"}\n'
