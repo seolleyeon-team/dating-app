@@ -4,17 +4,25 @@ from dataclasses import dataclass
 import os
 from typing import Any, Mapping, Optional, Sequence
 
+from avatar_generation.preview_policy import (
+    is_hard_reject,
+    is_preview_eligible,
+    is_soft_pass,
+)
+
 
 DEFAULT_INITIAL_CANDIDATE_COUNT = 4
 DEFAULT_EXTRA_CANDIDATE_COUNT = 4
 DEFAULT_MAX_CANDIDATE_COUNT = 8
 DEFAULT_PREVIEW_CANDIDATE_COUNT = 4
 DEFAULT_MIN_SAFE_BEFORE_EXTRA = 2
+DEFAULT_MIN_PREVIEW_CANDIDATE_COUNT = 1
 
 ENV_INITIAL_CANDIDATES = "AVATAR_INITIAL_CANDIDATE_COUNT"
 ENV_EXTRA_CANDIDATES = "AVATAR_EXTRA_CANDIDATE_COUNT"
 ENV_MAX_CANDIDATES = "AVATAR_MAX_TOTAL_CANDIDATES"
 ENV_PREVIEW_CANDIDATES = "AVATAR_PREVIEW_COUNT"
+ENV_MIN_PREVIEW_CANDIDATES = "AVATAR_MIN_PREVIEW_CANDIDATES"
 ENV_MIN_SAFE_BEFORE_EXTRA = "AVATAR_MIN_SAFE_CANDIDATES_BEFORE_EXTRA"
 ENV_PREVIEW_REQUIRE_FOUR = "AVATAR_PREVIEW_REQUIRE_FOUR"
 ENV_SOFT_PASS_FILL_ENABLED = "AVATAR_PREVIEW_FILL_WITH_SOFT_PASS"
@@ -26,6 +34,7 @@ LEGACY_ENV_ALIASES = {
     ENV_EXTRA_CANDIDATES: ("AVATAR_ADAPTIVE_EXTRA_CANDIDATES",),
     ENV_MAX_CANDIDATES: ("AVATAR_ADAPTIVE_MAX_CANDIDATES",),
     ENV_PREVIEW_CANDIDATES: ("AVATAR_ADAPTIVE_PREVIEW_CANDIDATES",),
+    ENV_MIN_PREVIEW_CANDIDATES: ("AVATAR_ADAPTIVE_MIN_PREVIEW_CANDIDATES",),
     ENV_MIN_SAFE_BEFORE_EXTRA: ("AVATAR_ADAPTIVE_MIN_SAFE_BEFORE_EXTRA",),
     ENV_SOFT_PASS_FILL_ENABLED: ("AVATAR_ADAPTIVE_SOFT_PASS_FILL_ENABLED",),
     ENV_NEEDS_REVIEW_LOW_RISK_ENABLED: ("AVATAR_ADAPTIVE_NEEDS_REVIEW_LOW_RISK_ENABLED",),
@@ -38,8 +47,9 @@ class AdaptiveGenerationPolicy:
     extra_candidate_count: int = DEFAULT_EXTRA_CANDIDATE_COUNT
     max_candidate_count: int = DEFAULT_MAX_CANDIDATE_COUNT
     preview_candidate_count: int = DEFAULT_PREVIEW_CANDIDATE_COUNT
+    min_preview_candidate_count: int = DEFAULT_MIN_PREVIEW_CANDIDATE_COUNT
     min_safe_before_extra: int = DEFAULT_MIN_SAFE_BEFORE_EXTRA
-    require_four_preview: bool = True
+    require_four_preview: bool = False
     soft_pass_fill_enabled: bool = True
     hard_reject_fill_enabled: bool = False
     needs_review_low_risk_enabled: bool = False
@@ -63,11 +73,15 @@ class AdaptiveGenerationPolicy:
                 ENV_PREVIEW_CANDIDATES,
                 DEFAULT_PREVIEW_CANDIDATE_COUNT,
             ),
+            min_preview_candidate_count=_read_int_env_any(
+                ENV_MIN_PREVIEW_CANDIDATES,
+                DEFAULT_MIN_PREVIEW_CANDIDATE_COUNT,
+            ),
             min_safe_before_extra=_read_int_env_any(
                 ENV_MIN_SAFE_BEFORE_EXTRA,
                 DEFAULT_MIN_SAFE_BEFORE_EXTRA,
             ),
-            require_four_preview=_read_bool_env_any(ENV_PREVIEW_REQUIRE_FOUR, True),
+            require_four_preview=_read_bool_env_any(ENV_PREVIEW_REQUIRE_FOUR, False),
             soft_pass_fill_enabled=_read_bool_env_any(ENV_SOFT_PASS_FILL_ENABLED, True),
             hard_reject_fill_enabled=_read_bool_env_any(ENV_HARD_REJECT_FILL_ENABLED, False),
             needs_review_low_risk_enabled=_read_bool_env_any(
@@ -187,68 +201,13 @@ def _counts_as_safe(
     candidate: Mapping[str, Any],
     policy: AdaptiveGenerationPolicy,
 ) -> bool:
-    if _is_hard_reject(candidate):
+    if is_hard_reject(candidate):
         return False
-    qa = _qa_doc(candidate)
-    status = str(candidate.get("status") or "").strip().lower()
-    if qa.get("previewAllowed") is True or status == "preview_ready":
-        return True
-    if policy.soft_pass_fill_enabled and _is_soft_pass(candidate):
-        return True
-    if policy.needs_review_low_risk_enabled and _is_needs_review_low_risk(candidate):
+    if is_preview_eligible(candidate) and (
+        not is_soft_pass(candidate) or policy.soft_pass_fill_enabled
+    ):
         return True
     return False
-
-
-def _is_hard_reject(candidate: Mapping[str, Any]) -> bool:
-    qa = _qa_doc(candidate)
-    return bool(qa.get("rejectReasons")) or str(
-        candidate.get("status") or ""
-    ).strip().lower() == "rejected"
-
-
-def _is_soft_pass(candidate: Mapping[str, Any]) -> bool:
-    qa = _qa_doc(candidate)
-    status = str(candidate.get("status") or "").strip().lower()
-    return (
-        status == "soft_pass"
-        or qa.get("softPass") is True
-        or qa.get("soft_pass") is True
-    )
-
-
-def _is_needs_review_low_risk(candidate: Mapping[str, Any]) -> bool:
-    qa = _qa_doc(candidate)
-    status = str(candidate.get("status") or "").strip().lower()
-    if status != "needs_review" and qa.get("requiresHumanReview") is not True:
-        return False
-    if bool(qa.get("rejectReasons")):
-        return False
-
-    pass_fields = ("adultQa", "privacyQa", "brandQa", "cropConsistency")
-    risk_fields = (
-        "childlikeRisk",
-        "beautificationRisk",
-        "identifiabilityRisk",
-        "uniqueMarkCopyRisk",
-        "logoTextWatermarkRisk",
-    )
-    return all(_status_is_pass(qa.get(field)) for field in pass_fields) and all(
-        _risk_is_low(qa.get(field)) for field in risk_fields
-    )
-
-
-def _qa_doc(candidate: Mapping[str, Any]) -> Mapping[str, Any]:
-    qa = candidate.get("qa")
-    return qa if isinstance(qa, Mapping) else {}
-
-
-def _status_is_pass(value: Any) -> bool:
-    return str(value or "").strip().lower() in {"pass", "passed", "ok", "low"}
-
-
-def _risk_is_low(value: Any) -> bool:
-    return str(value or "").strip().lower() in {"low", "none", "pass", "passed", "ok"}
 
 
 def _read_int_env(name: str, fallback: int) -> int:
@@ -289,6 +248,7 @@ __all__ = [
     "DEFAULT_INITIAL_CANDIDATE_COUNT",
     "DEFAULT_MAX_CANDIDATE_COUNT",
     "DEFAULT_MIN_SAFE_BEFORE_EXTRA",
+    "DEFAULT_MIN_PREVIEW_CANDIDATE_COUNT",
     "DEFAULT_PREVIEW_CANDIDATE_COUNT",
     "AdaptiveGenerationPolicy",
     "GenerationPlan",

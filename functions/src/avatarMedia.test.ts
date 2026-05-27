@@ -5,16 +5,20 @@ import {
   buildAvatarPayload,
   avatarPresentationGenderFromUserData,
   buildChatRealPhotoMetadata,
+  buildAvatarSourceRecoveryUserFields,
   buildClipPayload,
   buildCloudTaskHttpRequest,
   buildDeterministicCloudTaskName,
   buildDisabledChatRealPhotoMetadata,
   cloudTaskDispatchDeadlineSeconds,
   buildPrivateMediaPayload,
+  hasLockedAvatarSource,
   isCloudTasksAlreadyExistsError,
   planAvatarUploadState,
   queueMode,
+  shouldSupersedeAvatarJobStatus,
   summarizeQueueWriteState,
+  upsertSourcePhotoEntry,
 } from "./avatarMedia";
 
 function withEnv(env: Record<string, string | undefined>, run: () => void) {
@@ -41,11 +45,11 @@ function withEnv(env: Record<string, string | undefined>, run: () => void) {
   }
 }
 
-test("duplicate upload keeps preview_ready jobs out of queued writes", () => {
+test("duplicate preview_ready current upload returns existing preview state", () => {
   const plan = planAvatarUploadState({
     existingJobExists: true,
     existingJobStatus: "preview_ready",
-    userAvatar: { status: "queued" },
+    userAvatar: { status: "preview_ready" },
     duplicate: true,
   });
 
@@ -53,9 +57,10 @@ test("duplicate upload keeps preview_ready jobs out of queued writes", () => {
   assert.equal(plan.shouldEnqueue, false);
   assert.equal(plan.shouldSetUserAvatarQueued, false);
   assert.equal(plan.responseAvatarStatus, "preview_ready");
+  assert.equal(plan.responseMessage, "avatar_generation_preview_ready");
 });
 
-test("duplicate upload keeps completed jobs out of queued writes", () => {
+test("duplicate completed current upload does not create queued writes", () => {
   const plan = planAvatarUploadState({
     existingJobExists: true,
     existingJobStatus: "completed",
@@ -66,6 +71,7 @@ test("duplicate upload keeps completed jobs out of queued writes", () => {
   assert.equal(plan.shouldWriteQueuedJob, false);
   assert.equal(plan.shouldEnqueue, false);
   assert.equal(plan.responseAvatarStatus, "completed");
+  assert.equal(plan.responseMessage, "avatar_generation_completed");
 });
 
 test("duplicate queued dry-run job is re-enqueued after queue config is fixed", () => {
@@ -74,7 +80,7 @@ test("duplicate queued dry-run job is re-enqueued after queue config is fixed", 
     existingJobStatus: "queued",
     existingQueueMode: "dry_run",
     existingQueueStatus: "enqueued",
-    userAvatar: { status: "queued" },
+    userAvatar: {},
     duplicate: true,
   });
 
@@ -84,7 +90,7 @@ test("duplicate queued dry-run job is re-enqueued after queue config is fixed", 
   assert.equal(plan.responseAvatarStatus, "queued");
 });
 
-test("duplicate queued job with real enqueue is not enqueued again", () => {
+test("duplicate queued current upload is not enqueued again", () => {
   const plan = planAvatarUploadState({
     existingJobExists: true,
     existingJobStatus: "queued",
@@ -98,6 +104,7 @@ test("duplicate queued job with real enqueue is not enqueued again", () => {
   assert.equal(plan.shouldEnqueue, false);
   assert.equal(plan.shouldSetUserAvatarQueued, false);
   assert.equal(plan.responseAvatarStatus, "queued");
+  assert.equal(plan.responseMessage, "avatar_generation_queued");
 });
 
 test("approved avatar lock rejects duplicate upload without queue regression", () => {
@@ -119,11 +126,43 @@ test("approved avatar lock rejects duplicate upload without queue regression", (
   assert.equal(plan.approvedAvatarUrl, "https://cdn.example/avatar.png");
 });
 
-test("failed duplicate upload can deterministically reuse the stable job", () => {
+test("locked avatar source rejects duplicate upload without queue writes", () => {
+  const plan = planAvatarUploadState({
+    existingJobExists: true,
+    existingJobStatus: "preview_ready",
+    userAvatar: { status: "preview_ready" },
+    duplicate: true,
+    sourceLocked: true,
+  });
+
+  assert.equal(plan.shouldWriteQueuedJob, false);
+  assert.equal(plan.shouldEnqueue, false);
+  assert.equal(plan.shouldSetUserAvatarQueued, false);
+  assert.equal(plan.responseAvatarStatus, "preview_ready");
+  assert.equal(plan.responseMessage, "avatar_source_locked");
+});
+
+test("failed current avatar source remains locked against new upload bytes", () => {
   const plan = planAvatarUploadState({
     existingJobExists: true,
     existingJobStatus: "failed",
-    userAvatar: { status: "queued" },
+    userAvatar: { status: "failed" },
+    duplicate: false,
+    sourceLocked: true,
+  });
+
+  assert.equal(plan.shouldWriteQueuedJob, false);
+  assert.equal(plan.shouldEnqueue, false);
+  assert.equal(plan.shouldSetUserAvatarQueued, false);
+  assert.equal(plan.responseAvatarStatus, "failed");
+  assert.equal(plan.responseMessage, "avatar_source_locked");
+});
+
+test("explicit internal retry plan can requeue failed job only when source is not locked", () => {
+  const plan = planAvatarUploadState({
+    existingJobExists: true,
+    existingJobStatus: "failed",
+    userAvatar: { status: "failed" },
     duplicate: true,
   });
 
@@ -131,6 +170,7 @@ test("failed duplicate upload can deterministically reuse the stable job", () =>
   assert.equal(plan.shouldEnqueue, true);
   assert.equal(plan.shouldSetUserAvatarQueued, true);
   assert.equal(plan.responseAvatarStatus, "queued");
+  assert.equal(plan.responseMessage, "avatar_generation_queued");
 });
 
 test("approved user avatar lock prevents upload retry job writes", () => {
@@ -151,16 +191,17 @@ test("approved user avatar lock prevents upload retry job writes", () => {
 });
 
 test("cloud task names are deterministic per idempotency key", () => {
-  const queueName = "projects/p/locations/asia-northeast3/queues/avatar-generation";
+  const queueName =
+    "projects/p/locations/asia-northeast3/queues/avatar-generation";
   const first = buildDeterministicCloudTaskName(
     queueName,
     "avatar_generation",
-    "u1:src_abc:avatar_generation_v1"
+    "u1:src_abc:avatar_generation_v1",
   );
   const second = buildDeterministicCloudTaskName(
     queueName,
     "avatar_generation",
-    "u1:src_abc:avatar_generation_v1"
+    "u1:src_abc:avatar_generation_v1",
   );
 
   assert.equal(first, second);
@@ -207,12 +248,12 @@ test("queue payload builders include idempotency keys", () => {
     "u1",
     "src_abc",
     "gs://seolleyeon-private-source-photos/users/u1/source/src_abc.jpg",
-    "avatar_job_1"
+    "avatar_job_1",
   );
   const clip = buildClipPayload(
     "u1",
     "src_abc",
-    "gs://seolleyeon-private-source-photos/users/u1/source/src_abc.jpg"
+    "gs://seolleyeon-private-source-photos/users/u1/source/src_abc.jpg",
   );
 
   assert.equal(avatar.idempotencyKey, "u1:src_abc:avatar_generation_v1");
@@ -225,7 +266,7 @@ test("avatar payload normalizes onboarding gender for private worker guidance", 
     "src_abc",
     "gs://seolleyeon-private-source-photos/users/u1/source/src_abc.jpg",
     "avatar_job_1",
-    "여성"
+    "여성",
   );
 
   assert.equal(avatar.avatarPresentationGender, "female");
@@ -237,14 +278,14 @@ test("avatar presentation gender ignores non-onboarding profile gender", () => {
       gender: "female",
       onboarding: {},
     }),
-    "unknown"
+    "unknown",
   );
   assert.equal(
     avatarPresentationGenderFromUserData({
       gender: "female",
       onboarding: { gender: "male" },
     }),
-    "male"
+    "male",
   );
 });
 
@@ -256,7 +297,8 @@ test("approved avatar status locks upload even when approved url needs repair", 
     existingQueueStatus: "",
     userAvatar: {
       status: "approved",
-      approvedAvatarUrl: "gs://seolleyeon-final-private-source-photos/users/u/source/src.jpg",
+      approvedAvatarUrl:
+        "gs://seolleyeon-final-private-source-photos/users/u/source/src.jpg",
     },
     duplicate: false,
   });
@@ -266,6 +308,204 @@ test("approved avatar status locks upload even when approved url needs repair", 
   assert.equal(plan.responseAvatarStatus, "approved");
   assert.equal(plan.responseMessage, "avatar_already_approved");
   assert.equal(plan.approvedAvatarUrl, undefined);
+});
+
+test("approved avatar lock response suppresses private or signed url variants", () => {
+  const unsafeUrls = [
+    "https://storage.googleapis.com/seolleyeon-final-private-source-photos/users/u/source/src.jpg",
+    "https://seolleyeon-final-private-source-photos.storage.googleapis.com/users/u/source/src.jpg",
+    "https://storage.googleapis.com/seolleyeon-final-avatar-temp/jobs/job/candidates/c.jpg",
+    "https://seolleyeon-final-avatar-temp.storage.googleapis.com/jobs/job/candidates/c.jpg",
+    "https://storage.googleapis.com/seolleyeon-final-chat-profile-photos/users/u/chat/profile.jpg",
+    "https://cdn.example/avatar.png?x-goog-signature=abc",
+    "https://cdn.example/avatar.png?GoogleAccessId=abc",
+    "https://cdn.example/%2Fjobs%2Fjob%2Fcandidates%2Fc.jpg",
+    "https://cdn.example/users/u/source/src.jpg",
+    "not-a-url-but-signedUrl=true",
+  ];
+
+  for (const approvedAvatarUrl of unsafeUrls) {
+    const plan = planAvatarUploadState({
+      existingJobExists: false,
+      existingJobStatus: "",
+      existingQueueMode: "",
+      existingQueueStatus: "",
+      userAvatar: {
+        status: "approved",
+        approvedAvatarUrl,
+      },
+      duplicate: false,
+    });
+
+    assert.equal(plan.shouldWriteQueuedJob, false, approvedAvatarUrl);
+    assert.equal(plan.shouldEnqueue, false, approvedAvatarUrl);
+    assert.equal(plan.responseAvatarStatus, "approved", approvedAvatarUrl);
+    assert.equal(
+      plan.responseMessage,
+      "avatar_already_approved",
+      approvedAvatarUrl,
+    );
+    assert.equal(plan.approvedAvatarUrl, undefined, approvedAvatarUrl);
+  }
+});
+
+test("approved avatar url alone locks upload retries", () => {
+  const plan = planAvatarUploadState({
+    existingJobExists: false,
+    existingJobStatus: "",
+    userAvatar: {
+      approvedAvatarUrl: "https://cdn.example/avatar.png",
+    },
+    duplicate: false,
+  });
+
+  assert.equal(plan.shouldWriteQueuedJob, false);
+  assert.equal(plan.shouldEnqueue, false);
+  assert.equal(plan.responseAvatarStatus, "approved");
+  assert.equal(plan.responseMessage, "avatar_already_approved");
+});
+
+test("avatar source recovery user fields expose only safe job metadata", () => {
+  const fields = buildAvatarSourceRecoveryUserFields(
+    "avatar_job_abc123DEF_456",
+    3,
+  );
+
+  assert.deepEqual(fields, {
+    "onboarding.avatarGenerationJobId": "avatar_job_abc123DEF_456",
+    "onboarding.avatarSourceSelectionVersion": 3,
+  });
+  assert.equal(
+    Object.keys(fields).some((key) => key.includes("gcsUri")),
+    false,
+  );
+  assert.equal(
+    Object.keys(fields).some((key) => key.includes("sourcePhotoRefs")),
+    false,
+  );
+});
+
+test("avatar source recovery user fields reject unsafe job ids", () => {
+  assert.throws(
+    () => buildAvatarSourceRecoveryUserFields("avatar_job_bad/path", 3),
+    /jobId is not a safe path segment/,
+  );
+});
+
+test("new avatar source selection supersedes previous current source only", () => {
+  const updated = upsertSourcePhotoEntry(
+    [
+      {
+        photoId: "src_old",
+        status: "active",
+        avatarGenerationState: "current",
+        sha256: "old",
+      },
+      {
+        photoId: "src_clip_only",
+        status: "active",
+        avatarGenerationState: "superseded",
+        sha256: "clip",
+      },
+    ],
+    {
+      photoId: "src_new",
+      status: "active",
+      avatarGenerationState: "current",
+      sha256: "new",
+    },
+    "src_old",
+  );
+
+  assert.equal(
+    updated.find((entry) => entry.photoId === "src_old")?.avatarGenerationState,
+    "superseded",
+  );
+  assert.equal(
+    updated.find((entry) => entry.photoId === "src_new")?.avatarGenerationState,
+    "current",
+  );
+  assert.equal(
+    updated.filter((entry) => entry.avatarGenerationState === "current").length,
+    1,
+  );
+  assert.equal(
+    updated.find((entry) => entry.photoId === "src_clip_only")?.status,
+    "active",
+  );
+});
+
+test("same current source upload keeps current source current", () => {
+  const updated = upsertSourcePhotoEntry(
+    [
+      {
+        photoId: "src_same",
+        status: "active",
+        avatarGenerationState: "current",
+        uploadedAt: "original",
+      },
+    ],
+    {
+      photoId: "src_same",
+      status: "active",
+      avatarGenerationState: "current",
+      uploadedAt: "new",
+    },
+    "src_same",
+  );
+
+  assert.equal(updated.length, 1);
+  assert.equal(updated[0].avatarGenerationState, "current");
+  assert.equal(updated[0].uploadedAt, "original");
+});
+
+test("only non-terminal avatar jobs are superseded by a new current selection", () => {
+  assert.equal(shouldSupersedeAvatarJobStatus("queued"), true);
+  assert.equal(shouldSupersedeAvatarJobStatus("running"), true);
+  assert.equal(shouldSupersedeAvatarJobStatus("preview_ready"), true);
+  assert.equal(shouldSupersedeAvatarJobStatus("approved"), false);
+  assert.equal(shouldSupersedeAvatarJobStatus("failed"), false);
+  assert.equal(shouldSupersedeAvatarJobStatus("cancelled"), false);
+  assert.equal(shouldSupersedeAvatarJobStatus("superseded"), false);
+});
+
+test("private media payload stores current avatar source contract", () => {
+  const payload = buildPrivateMediaPayload(
+    [
+      {
+        photoId: "src_abc",
+        gcsUri:
+          "gs://seolleyeon-private-source-photos/users/u1/source/src_abc.jpg",
+        status: "active",
+        avatarGenerationState: "current",
+      },
+    ],
+    {
+      currentAvatarSourcePhotoId: "src_abc",
+      currentAvatarJobId: "avatar_job_abc",
+      avatarSourceSelectionVersion: 2,
+    },
+  );
+
+  assert.equal(payload.currentAvatarSourcePhotoId, "src_abc");
+  assert.equal(payload.currentAvatarJobId, "avatar_job_abc");
+  assert.equal(payload.avatarSourceSelectionVersion, 2);
+});
+
+test("avatar source lock requires both current source and current job ids", () => {
+  assert.equal(
+    hasLockedAvatarSource({
+      currentAvatarSourcePhotoId: "src_abc",
+      currentAvatarJobId: "avatar_job_abc",
+    }),
+    true,
+  );
+  assert.equal(
+    hasLockedAvatarSource({ currentAvatarSourcePhotoId: "src_abc" }),
+    false,
+  );
+  assert.equal(hasLockedAvatarSource({ currentAvatarJobId: "job_abc" }), false);
+  assert.equal(hasLockedAvatarSource(null), false);
 });
 
 test("private media payload records chat real-photo consent explicitly", () => {
@@ -279,22 +519,31 @@ test("private media payload records chat real-photo consent explicitly", () => {
     [
       {
         photoId: "src_abc",
-        gcsUri: "gs://seolleyeon-private-source-photos/users/u1/source/src_abc.jpg",
+        gcsUri:
+          "gs://seolleyeon-private-source-photos/users/u1/source/src_abc.jpg",
         status: "active",
       },
     ],
     {
       chatPartnerRealPhotoDisclosure: true,
       chatRealPhoto,
-    }
+    },
   );
 
   assert.equal(payload.photoConsent.chatPartnerRealPhotoDisclosure, true);
   assert.equal(payload.photoConsent.profileDisplayOriginalPhoto, false);
   assert.equal(payload.photoConsent.version, "photo_consent_v3");
   assert.equal(payload.chatRealPhoto.enabled, true);
-  assert.equal(payload.chatRealPhoto.storageBucket, "seolleyeon-chat-profile-photos");
-  assert.equal(payload.chatRealPhoto.gcsUri?.startsWith("gs://seolleyeon-chat-profile-photos/"), true);
+  assert.equal(
+    payload.chatRealPhoto.storageBucket,
+    "seolleyeon-chat-profile-photos",
+  );
+  assert.equal(
+    payload.chatRealPhoto.gcsUri?.startsWith(
+      "gs://seolleyeon-chat-profile-photos/",
+    ),
+    true,
+  );
 });
 
 test("disabled chat real-photo metadata contains no storage refs", () => {
@@ -314,7 +563,7 @@ test("production Cloud Tasks requires TASK_INVOKER_SERVICE_ACCOUNT", () => {
     "u1",
     "src_abc",
     "gs://seolleyeon-private-source-photos/users/u1/source/src_abc.jpg",
-    "avatar_job_1"
+    "avatar_job_1",
   );
 
   withEnv(
@@ -325,10 +574,14 @@ test("production Cloud Tasks requires TASK_INVOKER_SERVICE_ACCOUNT", () => {
     },
     () => {
       assert.throws(
-        () => buildCloudTaskHttpRequest("https://worker.example/tasks/avatar-generation", payload),
-        /TASK_INVOKER_SERVICE_ACCOUNT/
+        () =>
+          buildCloudTaskHttpRequest(
+            "https://worker.example/tasks/avatar-generation",
+            payload,
+          ),
+        /TASK_INVOKER_SERVICE_ACCOUNT/,
       );
-    }
+    },
   );
 });
 
@@ -340,7 +593,7 @@ test("production queue mode must be explicitly configured and cannot dry-run", (
     },
     () => {
       assert.throws(() => queueMode(), /explicitly configured/);
-    }
+    },
   );
 
   withEnv(
@@ -350,7 +603,7 @@ test("production queue mode must be explicitly configured and cannot dry-run", (
     },
     () => {
       assert.throws(() => queueMode(), /not allowed/);
-    }
+    },
   );
 
   withEnv(
@@ -360,7 +613,7 @@ test("production queue mode must be explicitly configured and cannot dry-run", (
     },
     () => {
       assert.equal(queueMode(), "cloud_tasks");
-    }
+    },
   );
 });
 
@@ -368,28 +621,29 @@ test("production Cloud Tasks HTTP target includes OIDC token", () => {
   const payload = buildClipPayload(
     "u1",
     "src_abc",
-    "gs://seolleyeon-private-source-photos/users/u1/source/src_abc.jpg"
+    "gs://seolleyeon-private-source-photos/users/u1/source/src_abc.jpg",
   );
 
   withEnv(
     {
       ENVIRONMENT: "production",
-      TASK_INVOKER_SERVICE_ACCOUNT: "task-invoker@example.iam.gserviceaccount.com",
+      TASK_INVOKER_SERVICE_ACCOUNT:
+        "task-invoker@example.iam.gserviceaccount.com",
       TASK_OIDC_AUDIENCE: "https://worker.example",
       ALLOW_INSECURE_WORKER_LOCAL: undefined,
     },
     () => {
       const request = buildCloudTaskHttpRequest(
         "https://worker.example/tasks/clip-embedding",
-        payload
+        payload,
       );
 
       assert.equal(
         request.oidcToken?.serviceAccountEmail,
-        "task-invoker@example.iam.gserviceaccount.com"
+        "task-invoker@example.iam.gserviceaccount.com",
       );
       assert.equal(request.oidcToken?.audience, "https://worker.example");
-    }
+    },
   );
 });
 
@@ -413,7 +667,7 @@ test("local insecure Cloud Tasks bypass requires explicit local flag", () => {
     "u1",
     "src_abc",
     "gs://seolleyeon-private-source-photos/users/u1/source/src_abc.jpg",
-    "avatar_job_1"
+    "avatar_job_1",
   );
 
   withEnv(
@@ -424,10 +678,14 @@ test("local insecure Cloud Tasks bypass requires explicit local flag", () => {
     },
     () => {
       assert.throws(
-        () => buildCloudTaskHttpRequest("http://127.0.0.1:8080/tasks/avatar-generation", payload),
-        /ALLOW_INSECURE_WORKER_LOCAL/
+        () =>
+          buildCloudTaskHttpRequest(
+            "http://127.0.0.1:8080/tasks/avatar-generation",
+            payload,
+          ),
+        /ALLOW_INSECURE_WORKER_LOCAL/,
       );
-    }
+    },
   );
 
   withEnv(
@@ -439,10 +697,10 @@ test("local insecure Cloud Tasks bypass requires explicit local flag", () => {
     () => {
       const request = buildCloudTaskHttpRequest(
         "http://127.0.0.1:8080/tasks/avatar-generation",
-        payload
+        payload,
       );
 
       assert.equal(request.oidcToken, undefined);
-    }
+    },
   );
 });

@@ -149,7 +149,13 @@ def _extract_faces(value: Any, image_size: tuple[int, int]) -> list[FaceRegion]:
     direct_face = _field(value, "face")
     primary_face = _field(value, "primaryFace") or _field(value, "primary_face")
     face_like = primary_face or direct_face or value
-    bbox_value = _field(face_like, "bbox") or _field(face_like, "boundingBox") or _field(face_like, "box")
+    bbox_value = (
+        _field(face_like, "bbox")
+        or _field(face_like, "boundingBox")
+        or _field(face_like, "box")
+        or _field(value, "primaryFaceBbox")
+        or _field(value, "primary_face_bbox")
+    )
     if bbox_value is None and face_like is not value:
         bbox_value = _field(value, "bbox") or _field(value, "boundingBox") or _field(value, "box")
 

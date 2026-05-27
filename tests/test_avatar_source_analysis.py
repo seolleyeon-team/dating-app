@@ -1,5 +1,6 @@
 import io
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -14,8 +15,11 @@ from avatar_generation.analysis import (  # noqa: E402
     FaceDetectorResult,
     SourceSafetyConfig,
     analyze_avatar_source_image,
+    DeterministicFallbackFaceDetector,
+    MediaPipeFaceDetector,
     redact_source_ref,
 )
+import avatar_generation.analysis.detectors as detectors  # noqa: E402
 import avatar_generation.analysis.source_analyzer as source_analyzer  # noqa: E402
 
 
@@ -66,14 +70,60 @@ def test_no_face_is_hard_rejected():
     assert doc["face"]["count"] == 0
 
 
-def test_multiple_faces_are_hard_rejected():
+def test_two_primary_sized_faces_are_hard_rejected():
     face = FaceDetection(bbox=(0.2, 0.2, 0.35, 0.35), confidence=0.95)
     result = _analyze([face, face])
     doc = result.to_document()
 
     assert doc["status"] == "rejected"
-    assert doc["rejectReasons"] == ["multiple_faces"]
+    assert doc["rejectReasons"] == ["multi_face_primary"]
     assert doc["face"]["count"] == 2
+    assert doc["largeSecondaryFaceCount"] == 1
+    assert doc["backgroundFaceRisk"] in {
+        "large_secondary_face",
+        "ambiguous_primary_face",
+    }
+
+
+def test_clear_primary_face_with_small_background_face_is_accepted():
+    primary = FaceDetection(
+        bbox=(0.24, 0.14, 0.48, 0.52),
+        confidence=0.96,
+        broad_traits={"face_shape": "oval"},
+    )
+    background = FaceDetection(bbox=(0.82, 0.16, 0.07, 0.07), confidence=0.78)
+
+    result = _analyze([background, primary])
+    doc = result.to_document()
+
+    assert doc["status"] == "accepted"
+    assert doc["hardReject"] is False
+    assert doc["rejectReasons"] == []
+    assert doc["face"]["count"] == 2
+    assert doc["face"]["areaRatio"] == primary.area_ratio
+    assert doc["primaryFaceBbox"] == [0.24, 0.14, 0.48, 0.52]
+    assert doc["primaryFaceConfidence"] == 0.96
+    assert doc["secondaryFaceCount"] == 1
+    assert doc["largeSecondaryFaceCount"] == 0
+    assert doc["backgroundFaceRisk"] == "secondary_background_face"
+    assert doc["backgroundNeutralizationRequired"] is True
+    assert result.broad_trait_hints == {"face_shape": "oval"}
+
+
+def test_ambiguous_primary_face_is_hard_rejected_when_score_margin_is_small():
+    config = SourceSafetyConfig(
+        min_face_area_ratio=0.04,
+        primary_face_min_score_margin=0.20,
+        reject_large_secondary_face=False,
+    )
+    left = FaceDetection(bbox=(0.18, 0.2, 0.28, 0.32), confidence=0.92)
+    right = FaceDetection(bbox=(0.54, 0.2, 0.28, 0.32), confidence=0.91)
+
+    doc = _analyze([left, right], config=config).to_document()
+
+    assert doc["status"] == "rejected"
+    assert doc["rejectReasons"] == ["ambiguous_primary_face"]
+    assert doc["backgroundFaceRisk"] == "ambiguous_primary_face"
 
 
 def test_single_large_visible_face_is_accepted():
@@ -101,6 +151,34 @@ def test_too_small_face_and_severe_occlusion_are_hard_rejected():
 
 def test_source_safety_default_min_face_ratio_matches_v3_policy():
     assert SourceSafetyConfig.from_env().min_face_area_ratio == 0.08
+
+
+def test_source_safety_config_reads_mediapipe_runtime_envs(monkeypatch):
+    monkeypatch.setenv("AVATAR_MEDIAPIPE_FACE_LANDMARKER_MODEL_PATH", "/models/face.task")
+    monkeypatch.setenv("AVATAR_MEDIAPIPE_ENABLED", "false")
+    monkeypatch.setenv("AVATAR_MEDIAPIPE_OUTPUT_BLENDSHAPES", "true")
+    monkeypatch.setenv("AVATAR_MEDIAPIPE_NUM_FACES", "3")
+    monkeypatch.setenv("AVATAR_MEDIAPIPE_MIN_DETECTION_CONFIDENCE", "0.72")
+    monkeypatch.setenv("AVATAR_MEDIAPIPE_MIN_PRESENCE_CONFIDENCE", "0.64")
+    monkeypatch.setenv("AVATAR_MEDIAPIPE_FAIL_CLOSED_IN_PRODUCTION", "true")
+    monkeypatch.setenv("AVATAR_PRIMARY_FACE_MIN_SCORE_MARGIN", "0.31")
+    monkeypatch.setenv("AVATAR_PRIMARY_FACE_MIN_RELATIVE_AREA", "0.06")
+    monkeypatch.setenv("AVATAR_ALLOW_SMALL_BACKGROUND_FACES_IF_REMOVED", "false")
+    monkeypatch.setenv("AVATAR_REJECT_LARGE_SECONDARY_FACE", "false")
+
+    config = SourceSafetyConfig.from_env()
+
+    assert config.mediapipe_face_landmarker_model_path == "/models/face.task"
+    assert config.mediapipe_enabled is False
+    assert config.mediapipe_output_blendshapes is True
+    assert config.mediapipe_num_faces == 3
+    assert config.mediapipe_min_detection_confidence == 0.72
+    assert config.mediapipe_min_presence_confidence == 0.64
+    assert config.mediapipe_fail_closed_in_production is True
+    assert config.primary_face_min_score_margin == 0.31
+    assert config.primary_face_min_relative_area == 0.06
+    assert config.allow_small_background_faces_if_removed is False
+    assert config.reject_large_secondary_face is False
 
 
 def test_corrupt_image_is_hard_rejected_without_detector_call():
@@ -148,6 +226,184 @@ def test_detector_failure_uses_deterministic_fallback(monkeypatch):
     assert doc["status"] == "rejected"
     assert doc["rejectReasons"] == ["no_face"]
     assert doc["detector"]["provider"] == "deterministic_fallback"
+
+
+def test_mediapipe_detector_uses_public_solution_import(monkeypatch):
+    fake_face_detection = SimpleNamespace(FaceDetection=object)
+    fake_mediapipe = SimpleNamespace(
+        solutions=SimpleNamespace(face_detection=fake_face_detection)
+    )
+    monkeypatch.setitem(sys.modules, "mediapipe", fake_mediapipe)
+
+    assert MediaPipeFaceDetector.is_available() is True
+    detector = MediaPipeFaceDetector(min_detection_confidence=0.6)
+
+    assert detector._mp_face_detection is fake_face_detection
+
+
+def test_check_mediapipe_available_accepts_tasks_face_runtime(monkeypatch):
+    fake_mediapipe = SimpleNamespace(
+        tasks=SimpleNamespace(
+            BaseOptions=object,
+            vision=SimpleNamespace(
+                FaceLandmarker=object,
+                FaceLandmarkerOptions=object,
+                RunningMode=SimpleNamespace(IMAGE="image"),
+            ),
+        )
+    )
+    monkeypatch.setitem(sys.modules, "mediapipe", fake_mediapipe)
+
+    assert detectors.check_mediapipe_available() is True
+
+
+def test_mediapipe_detector_uses_face_landmarker_tasks_api(monkeypatch, tmp_path):
+    class FakeBaseOptions:
+        def __init__(self, *, model_asset_path):
+            self.model_asset_path = model_asset_path
+
+    class FakeFaceLandmarkerOptions:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class FakeFaceLandmarker:
+        options = None
+
+        @classmethod
+        def create_from_options(cls, options):
+            cls.options = options
+            return cls()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def detect(self, image):
+            return SimpleNamespace(
+                face_landmarks=[
+                    [SimpleNamespace(x=0.20, y=0.25) for _ in range(478)]
+                ],
+                face_blendshapes=[
+                    [
+                        SimpleNamespace(category_name="mouthSmileLeft", score=0.9),
+                        SimpleNamespace(category_name="mouthSmileRight", score=0.9),
+                    ]
+                ],
+            )
+
+    class FakeImage:
+        def __init__(self, *, image_format, data):
+            self.image_format = image_format
+            self.data = data
+
+    fake_mediapipe = SimpleNamespace(
+        __version__="0.10.fake",
+        Image=FakeImage,
+        ImageFormat=SimpleNamespace(SRGB="srgb"),
+        tasks=SimpleNamespace(
+            BaseOptions=FakeBaseOptions,
+            vision=SimpleNamespace(
+                FaceLandmarker=FakeFaceLandmarker,
+                FaceLandmarkerOptions=FakeFaceLandmarkerOptions,
+                RunningMode=SimpleNamespace(IMAGE="image"),
+            ),
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "mediapipe", fake_mediapipe)
+    model_path = tmp_path / "face.task"
+    model_path.write_bytes(b"fake task model")
+
+    config = SourceSafetyConfig(
+        mediapipe_face_landmarker_model_path=str(model_path),
+        mediapipe_output_blendshapes=True,
+        mediapipe_num_faces=2,
+        mediapipe_min_detection_confidence=0.72,
+        mediapipe_min_presence_confidence=0.64,
+    )
+    detector = MediaPipeFaceDetector.from_config(config)
+    fake_landmarks = [
+        SimpleNamespace(x=0.20, y=0.25),
+        SimpleNamespace(x=0.70, y=0.25),
+        SimpleNamespace(x=0.70, y=0.80),
+        SimpleNamespace(x=0.20, y=0.80),
+    ]
+    fake_landmarks.extend(SimpleNamespace(x=0.45, y=0.50) for _ in range(474))
+    monkeypatch.setattr(
+        FakeFaceLandmarker,
+        "detect",
+        lambda self, image: SimpleNamespace(
+            face_landmarks=[fake_landmarks],
+            face_blendshapes=[
+                [
+                    SimpleNamespace(category_name="mouthSmileLeft", score=0.9),
+                    SimpleNamespace(category_name="mouthSmileRight", score=0.9),
+                ]
+            ],
+        ),
+    )
+    result = detector.detect(Image.open(io.BytesIO(_image_bytes())))
+
+    assert result.provider == "mediapipe"
+    assert result.provider_version == "0.10.fake"
+    assert result.faces[0].bbox == (0.2, 0.25, 0.5, 0.55)
+    assert result.faces[0].landmarks is None
+    assert result.faces[0].broad_traits["mouth_expression"] == "subtle_smile"
+    assert result.faces[0].blendshape_categories == {"blendshapes": "available"}
+    assert result.metadata == {
+        "runtime": "tasks_face",
+        "modelConfigured": True,
+        "modelAvailable": True,
+        "maxFaces": 2,
+        "blendshapesRequested": True,
+        "blendshapeFaceCount": 1,
+    }
+    assert FakeFaceLandmarker.options.kwargs["num_faces"] == 2
+    assert FakeFaceLandmarker.options.kwargs["min_face_detection_confidence"] == 0.72
+    assert FakeFaceLandmarker.options.kwargs["min_face_presence_confidence"] == 0.64
+    assert FakeFaceLandmarker.options.kwargs["output_face_blendshapes"] is True
+
+
+def test_build_default_face_detector_honors_mediapipe_disable(monkeypatch):
+    def fail_if_called(cls):
+        raise AssertionError("mediapipe availability should not be checked")
+
+    monkeypatch.setattr(MediaPipeFaceDetector, "is_available", classmethod(fail_if_called))
+    monkeypatch.setattr(
+        detectors.OpenCvHaarFaceDetector,
+        "is_available",
+        classmethod(lambda cls: False),
+    )
+
+    detector = detectors.build_default_face_detector(
+        SourceSafetyConfig(mediapipe_enabled=False)
+    )
+
+    assert isinstance(detector, DeterministicFallbackFaceDetector)
+
+
+def test_build_default_face_detector_fail_closed_skips_opencv(monkeypatch):
+    monkeypatch.setattr(
+        MediaPipeFaceDetector,
+        "is_available",
+        classmethod(lambda cls: False),
+    )
+
+    def fail_if_called(cls):
+        raise AssertionError("fail-closed mode should skip OpenCV fallback")
+
+    monkeypatch.setattr(
+        detectors.OpenCvHaarFaceDetector,
+        "is_available",
+        classmethod(fail_if_called),
+    )
+
+    detector = detectors.build_default_face_detector(
+        SourceSafetyConfig(mediapipe_fail_closed_in_production=True)
+    )
+
+    assert isinstance(detector, DeterministicFallbackFaceDetector)
 
 
 def test_schema_redacts_source_ref_and_does_not_persist_landmarks():

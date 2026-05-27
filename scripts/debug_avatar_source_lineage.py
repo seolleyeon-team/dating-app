@@ -15,16 +15,35 @@ def _hash_text(value: Any, *, length: int = 12) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:length]
 
 
-def _timestamp(value: Any) -> str:
+def _datetime(value: Any) -> datetime | None:
     if value is None:
-        return ""
-    if hasattr(value, "isoformat"):
-        return value.isoformat()
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
     if hasattr(value, "to_datetime"):
         try:
-            return value.to_datetime().isoformat()
+            parsed = value.to_datetime()
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
         except Exception:
-            return str(value)
+            return None
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(raw)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+def _timestamp(value: Any) -> str:
+    parsed = _datetime(value)
+    if parsed is not None:
+        return parsed.isoformat()
     return str(value)
 
 
@@ -35,6 +54,7 @@ def _safe_source_photo(entry: Mapping[str, Any]) -> dict[str, Any]:
         "storagePathHash": _hash_text(entry.get("storagePath")),
         "gcsUriHash": _hash_text(entry.get("gcsUri")),
         "status": str(entry.get("status") or ""),
+        "avatarGenerationState": str(entry.get("avatarGenerationState") or ""),
         "updatedAt": _timestamp(entry.get("updatedAt")),
     }
 
@@ -48,6 +68,7 @@ def _safe_job(doc_id: str, data: Mapping[str, Any]) -> dict[str, Any]:
         "uidHash": _hash_text(data.get("uid")),
         "sourcePhotoIdHashes": [_hash_text(value) for value in ids] if isinstance(ids, list) else [],
         "sourceRefHashes": [_hash_text(value) for value in refs] if isinstance(refs, list) else [],
+        "sourceSelectionVersion": data.get("avatarSourceSelectionVersion"),
         "queueStatus": str(data.get("queueStatus") or ""),
         "queueMode": str(data.get("queueMode") or ""),
         "createdAt": _timestamp(data.get("createdAt")),
@@ -80,6 +101,18 @@ def build_report(
         for entry in source_photos
         if isinstance(entry, Mapping)
     ] if isinstance(source_photos, list) else []
+    current_source_id = str(private_data.get("currentAvatarSourcePhotoId") or "")
+    current_job_id = str(private_data.get("currentAvatarJobId") or "")
+    current_source_ref_hash = ""
+    state_counts: dict[str, int] = {}
+    if isinstance(source_photos, list):
+        for entry in source_photos:
+            if not isinstance(entry, Mapping):
+                continue
+            state = str(entry.get("avatarGenerationState") or "missing")
+            state_counts[state] = state_counts.get(state, 0) + 1
+            if str(entry.get("photoId") or "") == current_source_id:
+                current_source_ref_hash = _hash_text(entry.get("gcsUri"))
 
     jobs: list[dict[str, Any]] = []
     if job_id:
@@ -88,30 +121,59 @@ def build_report(
             jobs.append(_safe_job(snap.id, snap.to_dict() or {}))
     else:
         cutoff = datetime.now(tz=timezone.utc) - timedelta(minutes=max(1, recent_minutes))
-        query = (
-            db.collection("avatarJobs")
-            .where("uid", "==", uid)
-            .where("createdAt", ">=", cutoff)
-            .limit(20)
-        )
+        query = db.collection("avatarJobs").where("uid", "==", uid).limit(50)
         for snap in query.stream():
-            jobs.append(_safe_job(snap.id, snap.to_dict() or {}))
+            data = snap.to_dict() or {}
+            created_at = _datetime(data.get("createdAt"))
+            updated_at = _datetime(data.get("updatedAt"))
+            if (
+                created_at is not None
+                and created_at < cutoff
+                and (updated_at is None or updated_at < cutoff)
+            ):
+                continue
+            jobs.append(_safe_job(snap.id, data))
 
     shared_ref_hashes: dict[str, int] = {}
+    mismatches: list[dict[str, Any]] = []
+    if not current_job_id or not current_source_id:
+        mismatches.append({
+            "reason": "missing_current_avatar_contract",
+            "currentJobPresent": bool(current_job_id),
+            "currentSourcePresent": bool(current_source_id),
+        })
     for job in jobs:
         for ref_hash in job.get("sourceRefHashes", []):
             if ref_hash:
                 shared_ref_hashes[ref_hash] = shared_ref_hashes.get(ref_hash, 0) + 1
+        job_is_current = job.get("jobIdHash") == _hash_text(current_job_id)
+        job_source_hashes = job.get("sourcePhotoIdHashes", [])
+        job_source_is_current = (
+            isinstance(job_source_hashes, list)
+            and _hash_text(current_source_id) in job_source_hashes
+        )
+        if job_is_current != job_source_is_current:
+            mismatches.append({
+                "jobIdHash": job.get("jobIdHash"),
+                "jobIsCurrent": job_is_current,
+                "jobSourceIsCurrent": job_source_is_current,
+            })
 
     return {
         "project": project,
         "uidHash": _hash_text(uid),
         "jobIdHash": _hash_text(job_id or ""),
         "recentMinutes": recent_minutes,
+        "currentAvatarSourcePhotoIdHash": _hash_text(current_source_id),
+        "currentAvatarJobIdHash": _hash_text(current_job_id),
+        "avatarSourceSelectionVersion": private_data.get("avatarSourceSelectionVersion"),
+        "currentSourceRefHash": current_source_ref_hash,
         "sourcePhotoCount": len(safe_sources),
+        "sourcePhotosByAvatarGenerationState": dict(sorted(state_counts.items())),
         "sourcePhotos": safe_sources,
         "avatarJobs": jobs,
         "sourceRefHashCountsInReport": shared_ref_hashes,
+        "currentContractMismatches": mismatches,
         "redacted": True,
     }
 

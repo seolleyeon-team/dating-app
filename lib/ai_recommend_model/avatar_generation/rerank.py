@@ -5,6 +5,13 @@ import os
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from avatar_generation.adaptive_generation import AdaptiveGenerationPolicy
+from avatar_generation.preview_policy import (
+    is_hard_pass,
+    is_hard_reject,
+    is_needs_review,
+    is_preview_eligible,
+    is_soft_pass,
+)
 
 
 ENV_RERANK_PROVIDER = "AVATAR_RERANK_PROVIDER"
@@ -129,18 +136,10 @@ def rerank_preview_candidates(
             "soft_pass",
             active_policy.preview_candidate_count,
         )
-    if active_policy.needs_review_low_risk_enabled:
-        _select_from_tier(
-            ranked,
-            metadata_by_candidate_id,
-            selected,
-            "needs_review",
-            active_policy.preview_candidate_count,
-        )
-
-    status = "preview_ready" if selected else "no_previewable"
+    min_preview_count = max(1, int(active_policy.min_preview_candidate_count))
+    status = "preview_ready" if len(selected) >= min_preview_count else "no_previewable"
     if (
-        selected
+        len(selected) >= min_preview_count
         and active_policy.require_four_preview
         and len(selected) < max(0, int(active_policy.preview_candidate_count))
     ):
@@ -202,15 +201,13 @@ def _rank_sort_key(item: _RankedCandidate) -> tuple[int, float, str]:
 
 
 def _selection_tier(candidate: Mapping[str, Any]) -> str:
-    if _is_hard_reject(candidate):
+    if is_hard_reject(candidate):
         return "hard_reject"
-    qa = _qa_doc(candidate)
-    status = str(candidate.get("status") or "").strip().lower()
-    if qa.get("previewAllowed") is True or status == "preview_ready":
+    if is_preview_eligible(candidate) and is_hard_pass(candidate):
         return "hard_pass"
-    if _is_soft_pass(candidate):
+    if is_preview_eligible(candidate) and is_soft_pass(candidate):
         return "soft_pass"
-    if _is_needs_review_low_risk(candidate):
+    if is_needs_review(candidate):
         return "needs_review"
     return "not_previewable"
 
@@ -257,6 +254,25 @@ def _base_scores(candidate: Mapping[str, Any]) -> Dict[str, Any]:
         value = candidate.get(key)
         if isinstance(value, Mapping):
             return dict(value)
+    qa = candidate.get("qa")
+    qa_doc = qa if isinstance(qa, Mapping) else {}
+    consistency = qa_doc.get("candidateTraitConsistency")
+    if not isinstance(consistency, Mapping):
+        debug = qa_doc.get("debug")
+        if isinstance(debug, Mapping):
+            consistency = debug.get("candidateTraitConsistency")
+    if isinstance(consistency, Mapping):
+        eyewear_match = str(consistency.get("eyewearMatch") or "").strip().lower()
+        if eyewear_match == "fail":
+            return {
+                "trait": -1.0,
+                "hairClothing": 0.0,
+                "brand": 0.0,
+                "privacyPenalty": 2.0,
+                "overall": -3.0,
+            }
+        if eyewear_match == "pass":
+            return {"trait": 0.25}
     return {}
 
 
@@ -292,57 +308,6 @@ def _metadata_with_tier(metadata: Mapping[str, Any], tier: str) -> dict[str, Any
 
 def _candidate_id(candidate: Mapping[str, Any]) -> str:
     return str(candidate.get("candidateId") or candidate.get("id") or "")
-
-
-def _is_hard_reject(candidate: Mapping[str, Any]) -> bool:
-    qa = _qa_doc(candidate)
-    return bool(qa.get("rejectReasons")) or str(
-        candidate.get("status") or ""
-    ).strip().lower() == "rejected"
-
-
-def _is_soft_pass(candidate: Mapping[str, Any]) -> bool:
-    qa = _qa_doc(candidate)
-    status = str(candidate.get("status") or "").strip().lower()
-    return (
-        status == "soft_pass"
-        or qa.get("softPass") is True
-        or qa.get("soft_pass") is True
-    )
-
-
-def _is_needs_review_low_risk(candidate: Mapping[str, Any]) -> bool:
-    qa = _qa_doc(candidate)
-    status = str(candidate.get("status") or "").strip().lower()
-    if status != "needs_review" and qa.get("requiresHumanReview") is not True:
-        return False
-    if bool(qa.get("rejectReasons")):
-        return False
-
-    pass_fields = ("adultQa", "privacyQa", "brandQa", "cropConsistency")
-    risk_fields = (
-        "childlikeRisk",
-        "beautificationRisk",
-        "identifiabilityRisk",
-        "uniqueMarkCopyRisk",
-        "logoTextWatermarkRisk",
-    )
-    return all(_status_is_pass(qa.get(field)) for field in pass_fields) and all(
-        _risk_is_low(qa.get(field)) for field in risk_fields
-    )
-
-
-def _qa_doc(candidate: Mapping[str, Any]) -> Mapping[str, Any]:
-    qa = candidate.get("qa")
-    return qa if isinstance(qa, Mapping) else {}
-
-
-def _status_is_pass(value: Any) -> bool:
-    return str(value or "").strip().lower() in {"pass", "passed", "ok", "low"}
-
-
-def _risk_is_low(value: Any) -> bool:
-    return str(value or "").strip().lower() in {"low", "none", "pass", "passed", "ok"}
 
 
 def _number(value: Any, fallback: float) -> float:

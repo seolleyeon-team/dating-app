@@ -29,18 +29,27 @@ void main() {
       'avatarStatus': 'queued',
       'message': 'avatar_generation_queued',
       'duplicate': true,
+      'sourceSelectionVersion': 3,
     });
 
     expect(result.jobId, 'avatar_job_abc123');
     expect(result.photoId, 'src_abc123');
     expect(result.avatarStatus, 'queued');
     expect(result.duplicate, isTrue);
+    expect(result.sourceSelectionVersion, 3);
   });
 
   test('approved avatar exception exposes safe Korean message', () {
     expect(
       const AvatarAlreadyApprovedException().toString(),
-      '이미 등록된 아바타가 있어요. 프로필 이미지는 삭제하거나 변경할 수 없어요.',
+      '아바타가 등록되어 있어요. 프로필 이미지는 삭제하거나 변경할 수 없어요.',
+    );
+  });
+
+  test('source locked exception exposes safe Korean message', () {
+    expect(
+      const AvatarSourceLockedException().toString(),
+      '아바타 생성이 시작되어 사진을 변경할 수 없어요.',
     );
   });
 }

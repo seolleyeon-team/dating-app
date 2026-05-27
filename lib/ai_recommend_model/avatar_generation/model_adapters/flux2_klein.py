@@ -18,6 +18,7 @@ from avatar_generation.worker import (
     image_to_png_bytes,
     load_source_image_from_gcs,
     parse_gcs_uri,
+    prepare_privacy_reference_image,
 )
 
 
@@ -86,6 +87,7 @@ class Flux2KleinAdapter:
 
         source_ref = parse_gcs_uri(request.source_photo_refs[0])
         source_image = load_source_image_from_gcs(self._storage(), source_ref)
+        privacy_reference_image = prepare_privacy_reference_image(source_image)
         candidates = self.plan_candidate_refs(request)
         generator = self._generator()
 
@@ -97,7 +99,7 @@ class Flux2KleinAdapter:
                 seed=seed,
             )
             image = generator.generate(
-                source_image=source_image,
+                source_image=privacy_reference_image,
                 prompt=prompt.positive,
                 avoid_prompt=prompt.provider_negative or prompt.negative,
                 seed=seed,

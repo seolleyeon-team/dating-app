@@ -32,7 +32,7 @@ DEFAULT_POLL_INTERVAL_SECONDS = 2
 DEFAULT_CONCURRENCY_PER_GPU = 1
 DEFAULT_CANDIDATES_PER_USER = 4
 
-TERMINAL_STATUSES = {"preview_ready", "approved", "cancelled"}
+TERMINAL_STATUSES = {"preview_ready", "approved", "cancelled", "superseded"}
 RETRYABLE_FAILED_FLAGS = ("retryable", "isRetryable", "errorRetryable")
 LEGACY_PROCESSING_FIELDS = {
     "attempt": "attempt",

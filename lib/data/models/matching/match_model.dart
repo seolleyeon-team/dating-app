@@ -41,7 +41,6 @@ class MatchModel {
     return {
       'id': id,
       'user': user.toJson(),
-      'photoUrls': photoUrls,
       'matchScore': matchScore,
       'commonInterests': commonInterests,
       'createdAt': createdAt.toIso8601String(),

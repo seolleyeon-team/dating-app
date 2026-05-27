@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from dataclasses import dataclass
 from typing import BinaryIO, List, Optional, Sequence, Union
 
 from PIL import Image
@@ -18,17 +19,32 @@ ImageInput = Union[bytes, bytearray, memoryview, BinaryIO, Image.Image]
 
 REJECT_NO_FACE = "no_face"
 REJECT_MULTIPLE_FACES = "multiple_faces"
+REJECT_MULTI_FACE_PRIMARY = "multi_face_primary"
+REJECT_AMBIGUOUS_PRIMARY_FACE = "ambiguous_primary_face"
 REJECT_FACE_TOO_SMALL = "face_too_small"
 REJECT_SEVERE_OCCLUSION = "severe_occlusion"
 REJECT_CORRUPT_IMAGE = "corrupt_image"
 
 REJECT_REASON_ORDER = (
     REJECT_NO_FACE,
+    REJECT_MULTI_FACE_PRIMARY,
+    REJECT_AMBIGUOUS_PRIMARY_FACE,
     REJECT_MULTIPLE_FACES,
     REJECT_FACE_TOO_SMALL,
     REJECT_SEVERE_OCCLUSION,
     REJECT_CORRUPT_IMAGE,
 )
+
+
+@dataclass(frozen=True)
+class FaceSelection:
+    primary_face: Optional[FaceDetection]
+    primary_score: Optional[float]
+    primary_score_margin: Optional[float]
+    secondary_face_count: int
+    large_secondary_face_count: int
+    background_face_risk: str
+    background_neutralization_required: bool
 
 
 def analyze_avatar_source_image(
@@ -59,7 +75,12 @@ def analyze_avatar_source_image(
     except Exception:
         detector_result = DeterministicFallbackFaceDetector().detect(image)
 
-    reasons = _source_reject_reasons(detector_result.faces, source_config)
+    face_selection = _select_primary_face(detector_result.faces, source_config)
+    reasons = _source_reject_reasons(
+        detector_result.faces,
+        source_config,
+        face_selection=face_selection,
+    )
     return _build_result(
         status="rejected" if reasons else "accepted",
         hard_reject=bool(reasons),
@@ -68,6 +89,7 @@ def analyze_avatar_source_image(
         image_width=detector_result.image_width,
         image_height=detector_result.image_height,
         detector_result=detector_result,
+        face_selection=face_selection,
         analysis_version=source_config.analysis_version,
     )
 
@@ -94,14 +116,33 @@ def _load_image(image_data: ImageInput) -> Optional[Image.Image]:
 def _source_reject_reasons(
     faces: Sequence[FaceDetection],
     config: SourceSafetyConfig,
+    *,
+    face_selection: FaceSelection,
 ) -> List[str]:
     if not faces:
         return [REJECT_NO_FACE]
-    if len(faces) > 1:
-        return [REJECT_MULTIPLE_FACES]
 
-    face = faces[0]
+    face = face_selection.primary_face
+    if face is None:
+        return [REJECT_AMBIGUOUS_PRIMARY_FACE]
+
     reasons = []
+    if (
+        face_selection.large_secondary_face_count > 0
+        and config.reject_large_secondary_face
+    ):
+        reasons.append(REJECT_MULTI_FACE_PRIMARY)
+    elif (
+        face_selection.secondary_face_count > 0
+        and not config.allow_small_background_faces_if_removed
+    ):
+        reasons.append(REJECT_MULTI_FACE_PRIMARY)
+    elif (
+        face_selection.secondary_face_count > 0
+        and (face_selection.primary_score_margin or 0.0)
+        < config.primary_face_min_score_margin
+    ):
+        reasons.append(REJECT_AMBIGUOUS_PRIMARY_FACE)
     if face.area_ratio < config.min_face_area_ratio:
         reasons.append(REJECT_FACE_TOO_SMALL)
     if (
@@ -110,6 +151,106 @@ def _source_reject_reasons(
     ):
         reasons.append(REJECT_SEVERE_OCCLUSION)
     return _ordered_reasons(reasons)
+
+
+def _select_primary_face(
+    faces: Sequence[FaceDetection],
+    config: SourceSafetyConfig,
+) -> FaceSelection:
+    if not faces:
+        return FaceSelection(
+            primary_face=None,
+            primary_score=None,
+            primary_score_margin=None,
+            secondary_face_count=0,
+            large_secondary_face_count=0,
+            background_face_risk="none",
+            background_neutralization_required=False,
+        )
+
+    scored = sorted(
+        ((_primary_face_score(face), face) for face in faces),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    primary_score, primary_face = scored[0]
+    secondary = scored[1:]
+    secondary_face_count = len(secondary)
+    large_secondary_face_count = sum(
+        1
+        for _score, face in secondary
+        if _is_large_secondary_face(face, primary_face, config)
+    )
+    margin = primary_score - secondary[0][0] if secondary else 1.0
+    background_face_risk = "none"
+    if large_secondary_face_count:
+        background_face_risk = "large_secondary_face"
+    elif secondary_face_count:
+        background_face_risk = "secondary_background_face"
+    if secondary_face_count and margin < config.primary_face_min_score_margin:
+        background_face_risk = "ambiguous_primary_face"
+
+    return FaceSelection(
+        primary_face=primary_face,
+        primary_score=primary_score,
+        primary_score_margin=margin,
+        secondary_face_count=secondary_face_count,
+        large_secondary_face_count=large_secondary_face_count,
+        background_face_risk=background_face_risk,
+        background_neutralization_required=secondary_face_count > 0,
+    )
+
+
+def _primary_face_score(face: FaceDetection) -> float:
+    confidence = _clamp01(face.confidence if face.confidence is not None else 0.5)
+    area = _clamp01(face.area_ratio / 0.18)
+    centrality = _face_centrality(face.bbox)
+    border = _border_clearance(face.bbox)
+    quality = (
+        1.0 - _clamp01(face.occlusion_score)
+        if face.occlusion_score is not None
+        else confidence
+    )
+    return round(
+        (0.30 * confidence)
+        + (0.30 * area)
+        + (0.25 * centrality)
+        + (0.10 * border)
+        + (0.05 * quality),
+        6,
+    )
+
+
+def _is_large_secondary_face(
+    face: FaceDetection,
+    primary_face: FaceDetection,
+    config: SourceSafetyConfig,
+) -> bool:
+    if face.area_ratio >= config.primary_face_min_relative_area:
+        return True
+    return face.area_ratio >= max(0.0, primary_face.area_ratio * 0.35)
+
+
+def _face_centrality(bbox: tuple[float, float, float, float]) -> float:
+    x, y, width, height = bbox
+    center_x = float(x) + (float(width) / 2.0)
+    center_y = float(y) + (float(height) / 2.0)
+    distance = ((abs(center_x - 0.5) / 0.5) + (abs(center_y - 0.5) / 0.5)) / 2.0
+    return _clamp01(1.0 - distance)
+
+
+def _border_clearance(bbox: tuple[float, float, float, float]) -> float:
+    x, y, width, height = bbox
+    right_margin = 1.0 - (float(x) + float(width))
+    bottom_margin = 1.0 - (float(y) + float(height))
+    margin = min(float(x), float(y), right_margin, bottom_margin)
+    return _clamp01(margin / 0.15)
+
+
+def _clamp01(value: Optional[float]) -> float:
+    if value is None:
+        return 0.0
+    return max(0.0, min(1.0, float(value)))
 
 
 def _ordered_reasons(reasons: Sequence[str]) -> List[str]:
@@ -127,9 +268,14 @@ def _build_result(
     image_height: Optional[int],
     detector_result: Optional[FaceDetectorResult],
     analysis_version: str,
+    face_selection: Optional[FaceSelection] = None,
 ) -> SourceAnalysisResult:
     faces = list(detector_result.faces) if detector_result else []
-    primary_face = faces[0] if len(faces) == 1 else None
+    primary_face = (
+        face_selection.primary_face
+        if face_selection is not None
+        else (faces[0] if len(faces) == 1 else None)
+    )
     return SourceAnalysisResult(
         status=status,
         hard_reject=hard_reject,
@@ -139,15 +285,42 @@ def _build_result(
         image_height=image_height,
         detector_provider=detector_result.provider if detector_result else "not_run",
         detector_version=detector_result.provider_version if detector_result else None,
+        model_availability=dict(detector_result.model_availability)
+        if detector_result
+        else {},
+        detector_metadata=dict(detector_result.metadata) if detector_result else {},
+        broad_trait_hints=dict(primary_face.broad_traits) if primary_face else {},
         face_count=len(faces),
         primary_face=primary_face,
+        primary_face_bbox=primary_face.bbox if primary_face else None,
+        primary_face_confidence=primary_face.confidence if primary_face else None,
+        primary_face_score=face_selection.primary_score if face_selection else None,
+        primary_face_score_margin=(
+            face_selection.primary_score_margin if face_selection else None
+        ),
+        secondary_face_count=(
+            face_selection.secondary_face_count if face_selection else 0
+        ),
+        large_secondary_face_count=(
+            face_selection.large_secondary_face_count if face_selection else 0
+        ),
+        background_face_risk=(
+            face_selection.background_face_risk if face_selection else "none"
+        ),
+        background_neutralization_required=(
+            face_selection.background_neutralization_required
+            if face_selection
+            else False
+        ),
         analysis_version=analysis_version,
     )
 
 
 __all__ = [
     "REJECT_CORRUPT_IMAGE",
+    "REJECT_AMBIGUOUS_PRIMARY_FACE",
     "REJECT_FACE_TOO_SMALL",
+    "REJECT_MULTI_FACE_PRIMARY",
     "REJECT_MULTIPLE_FACES",
     "REJECT_NO_FACE",
     "REJECT_SEVERE_OCCLUSION",

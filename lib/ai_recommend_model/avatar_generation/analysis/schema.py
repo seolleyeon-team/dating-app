@@ -15,6 +15,8 @@ class FaceDetection:
     confidence: Optional[float] = None
     occlusion_score: Optional[float] = None
     landmarks: Any = field(default=None, repr=False, compare=False)
+    broad_traits: Mapping[str, str] = field(default_factory=dict)
+    blendshape_categories: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def area_ratio(self) -> float:
@@ -44,13 +46,19 @@ class FaceDetectorResult:
     image_height: Optional[int]
     faces: Sequence[FaceDetection] = field(default_factory=list)
     provider_version: Optional[str] = None
+    model_availability: Mapping[str, str] = field(default_factory=dict)
+    metadata: Mapping[str, object] = field(default_factory=dict)
 
     def to_document(self) -> Dict[str, object]:
-        return {
+        document: Dict[str, object] = {
             "provider": self.provider,
             "providerVersion": self.provider_version,
             "faceCount": len(self.faces),
+            "modelAvailability": dict(self.model_availability),
         }
+        if self.metadata:
+            document["metadata"] = dict(self.metadata)
+        return document
 
 
 @dataclass(frozen=True)
@@ -63,13 +71,30 @@ class SourceAnalysisResult:
     image_height: Optional[int]
     detector_provider: str
     detector_version: Optional[str] = None
+    model_availability: Mapping[str, str] = field(default_factory=dict)
+    detector_metadata: Mapping[str, object] = field(default_factory=dict)
+    broad_trait_hints: Mapping[str, str] = field(default_factory=dict)
     face_count: int = 0
     primary_face: Optional[FaceDetection] = None
+    primary_face_bbox: Optional[BBox] = None
+    primary_face_confidence: Optional[float] = None
+    primary_face_score: Optional[float] = None
+    primary_face_score_margin: Optional[float] = None
+    secondary_face_count: int = 0
+    large_secondary_face_count: int = 0
+    background_face_risk: str = "none"
+    background_neutralization_required: bool = False
     analysis_version: str = DEFAULT_SOURCE_ANALYSIS_VERSION
     completed_at: Optional[str] = None
 
     def to_document(self) -> Dict[str, object]:
-        return {
+        detector: Dict[str, object] = {
+            "provider": self.detector_provider,
+            "providerVersion": self.detector_version,
+        }
+        if self.detector_metadata:
+            detector["metadata"] = dict(self.detector_metadata)
+        document: Dict[str, object] = {
             "analysisVersion": self.analysis_version,
             "completedAt": self.completed_at
             or datetime.now(tz=timezone.utc).isoformat(),
@@ -81,10 +106,11 @@ class SourceAnalysisResult:
                 "width": self.image_width,
                 "height": self.image_height,
             },
-            "detector": {
-                "provider": self.detector_provider,
-                "providerVersion": self.detector_version,
-            },
+            "detector": detector,
+            "modelAvailability": (
+                dict(self.model_availability)
+            ),
+            "broadTraitHints": dict(self.broad_trait_hints),
             "face": {
                 "count": self.face_count,
                 "areaRatio": (
@@ -101,7 +127,33 @@ class SourceAnalysisResult:
                     else self.primary_face.to_document()["occlusionScore"]
                 ),
             },
+            "secondaryFaceCount": int(self.secondary_face_count),
+            "largeSecondaryFaceCount": int(self.large_secondary_face_count),
+            "backgroundFaceRisk": self.background_face_risk,
+            "primaryFaceConfidence": (
+                None
+                if self.primary_face_confidence is None
+                else round(float(self.primary_face_confidence), 6)
+            ),
+            "primaryFaceScore": (
+                None
+                if self.primary_face_score is None
+                else round(float(self.primary_face_score), 6)
+            ),
+            "primaryFaceScoreMargin": (
+                None
+                if self.primary_face_score_margin is None
+                else round(float(self.primary_face_score_margin), 6)
+            ),
+            "backgroundNeutralizationRequired": bool(
+                self.background_neutralization_required
+            ),
         }
+        if self.primary_face_bbox is not None:
+            document["primaryFaceBbox"] = [
+                round(float(value), 3) for value in self.primary_face_bbox
+            ]
+        return document
 
 
 def face_detection_from_mapping(value: Mapping[str, Any]) -> FaceDetection:
@@ -115,6 +167,18 @@ def face_detection_from_mapping(value: Mapping[str, Any]) -> FaceDetection:
             value.get("occlusionScore", value.get("occlusion_score"))
         ),
         landmarks=value.get("landmarks"),
+        broad_traits=value.get("broadTraitHints", value.get("broad_traits", {}))
+        if isinstance(value.get("broadTraitHints", value.get("broad_traits", {})), Mapping)
+        else {},
+        blendshape_categories=value.get(
+            "blendshapeCategories",
+            value.get("blendshape_categories", {}),
+        )
+        if isinstance(
+            value.get("blendshapeCategories", value.get("blendshape_categories", {})),
+            Mapping,
+        )
+        else {},
     )
 
 

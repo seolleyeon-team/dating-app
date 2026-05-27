@@ -16,6 +16,9 @@ if str(AI_MODEL_DIR) not in sys.path:
 
 from avatar_generation.model_adapters.base import AvatarGenerationRequest
 from avatar_generation.model_adapters.flux2_klein import Flux2KleinAdapter
+from avatar_generation.trait_card import validate_trait_card_response
+import avatar_generation.worker as worker_module
+from avatar_generation.jobs import build_candidate_doc
 from avatar_generation.qa import AvatarQAResult
 from avatar_generation.seolleyeon_avatar_prompt_builder_v4 import (
     AvatarTraitCard as PromptAvatarTraitCard,
@@ -57,7 +60,7 @@ class FakeDocRef:
         self.collection = collection
         self.doc_id = doc_id
 
-    def get(self):
+    def get(self, **_kwargs):
         return FakeSnapshot(self.store.get(self.collection, {}).get(self.doc_id), self.doc_id)
 
     def set(self, data, merge=True):
@@ -69,6 +72,58 @@ class FakeDocRef:
 
     def update(self, data):
         self.set(data, merge=True)
+
+
+class FakeTransaction:
+    _codex_fake_transaction = True
+
+    def __init__(self, firestore):
+        self.firestore = firestore
+
+    def get(self, ref):
+        return ref.get()
+
+    def set(self, ref, data, merge=True):
+        hook = self.firestore.before_transaction_set
+        if hook is not None:
+            hook(ref, data)
+        current = ref.get().to_dict()
+        if str(current.get("status") or "") in {
+            "preview_ready",
+            "approved",
+            "cancelled",
+            "canceled",
+            "superseded",
+        }:
+            return f"terminal_skipped:{current.get('status')}"
+        return ref.set(data, merge=merge)
+
+
+class RecordingTransaction(FakeTransaction):
+    def __init__(self, firestore):
+        super().__init__(firestore)
+        self.ref_get_called_with_transaction = False
+        self.transaction_get_called = False
+        self.read_after_write = False
+        self._wrote = False
+
+    def get(self, ref):
+        self.transaction_get_called = True
+        return super().get(ref)
+
+    def set(self, ref, data, merge=True):
+        self._wrote = True
+        return super().set(ref, data, merge=merge)
+
+
+class RecordingDocRef(FakeDocRef):
+    def get(self, **kwargs):
+        transaction = kwargs.get("transaction")
+        if isinstance(transaction, RecordingTransaction):
+            transaction.ref_get_called_with_transaction = True
+            if transaction._wrote:
+                transaction.read_after_write = True
+        return super().get(**kwargs)
 
 
 class FakeCollection:
@@ -87,9 +142,34 @@ class FakeCollection:
 class FakeFirestore:
     def __init__(self, data):
         self.data = data
+        self.before_transaction_set = None
 
     def collection(self, name):
         return FakeCollection(self.data, name)
+
+
+class AtomicFakeFirestore(FakeFirestore):
+    def transaction(self):
+        return FakeTransaction(self)
+
+
+class RecordingCollection(FakeCollection):
+    def document(self, doc_id):
+        return RecordingDocRef(self.store, self.name, doc_id)
+
+
+class RecordingAtomicFakeFirestore(AtomicFakeFirestore):
+    def __init__(self, data):
+        super().__init__(data)
+        self.last_transaction = None
+
+    def collection(self, name):
+        return RecordingCollection(self.data, name)
+
+    def transaction(self):
+        self.last_transaction = RecordingTransaction(self)
+        return self.last_transaction
+
 
 
 class FakeBlob:
@@ -168,14 +248,19 @@ def _fake_firestore(payload=None):
             },
             "userPrivateMedia": {
                 payload["uid"]: {
+                    "currentAvatarSourcePhotoId": payload["sourcePhotoIds"][0],
+                    "currentAvatarJobId": payload["jobId"],
+                    "avatarSourceSelectionVersion": 1,
                     "photoConsent": {
                         "avatarGeneration": True,
                         "profileDisplayOriginalPhoto": False,
                     },
                     "sourcePhotos": [
                         {
+                            "photoId": payload["sourcePhotoIds"][0],
                             "gcsUri": payload["sourcePhotoRefs"][0],
                             "status": "active",
+                            "avatarGenerationState": "current",
                             "purpose": {"avatarGeneration": True},
                         }
                     ],
@@ -184,6 +269,14 @@ def _fake_firestore(payload=None):
             "avatarCandidates": {},
         }
     )
+
+
+def _fake_atomic_firestore(payload=None):
+    return AtomicFakeFirestore(_fake_firestore(payload).data)
+
+
+def _fake_recording_atomic_firestore(payload=None):
+    return RecordingAtomicFakeFirestore(_fake_firestore(payload).data)
 
 
 def _fake_storage():
@@ -243,6 +336,56 @@ def _needs_review_qa(_source_ref, _candidate_ref, _metadata):
     )
 
 
+def _soft_pass_qa(_source_ref, _candidate_ref, _metadata):
+    return AvatarQAResult(
+        adultQa="pass",
+        childlikeRisk="low",
+        privacyQa="pass",
+        brandQa="pass",
+        beautificationRisk="low",
+        cropConsistency="pass",
+        uniqueMarkCopyRisk="low",
+        logoTextWatermarkRisk="low",
+        identifiabilityRisk="low",
+        previewAllowed=False,
+        requiresHumanReview=False,
+        softPass=True,
+        softPassReasons=["test_soft_pass"],
+        qaVersion="test_soft_pass",
+    )
+
+
+def test_worker_source_reject_codes_map_to_user_guidance():
+    multi_face = {"rejectReasons": ["multi_face_primary"]}
+    face_too_small = {"rejectReasons": ["face_too_small"]}
+    background_risk = {"rejectReasons": ["background_text_logo_risk"]}
+
+    assert (
+        worker_module._source_reject_error_code(multi_face)
+        == "avatar_source_multi_face"
+    )
+    assert (
+        worker_module._source_reject_error_message(multi_face)
+        == "얼굴이 여러 명 감지됐어요. 혼자 나온 사진을 선택해주세요."
+    )
+    assert (
+        worker_module._source_reject_error_code(face_too_small)
+        == "avatar_source_face_too_small"
+    )
+    assert (
+        worker_module._source_reject_error_message(face_too_small)
+        == "얼굴이 너무 작게 보여요. 얼굴이 더 잘 보이는 사진을 선택해주세요."
+    )
+    assert (
+        worker_module._source_reject_error_code(background_risk)
+        == "avatar_background_text_logo_risky"
+    )
+    assert (
+        worker_module._source_reject_error_message(background_risk)
+        == "배경의 글자나 로고가 크게 보여요. 다른 사진을 권장해요."
+    )
+
+
 class FakeFluxGenerator:
     def __init__(self):
         self.calls = []
@@ -295,6 +438,8 @@ def test_prompt_contains_privacy_and_not_beautified_constraints():
     assert "not exact identity" in positive
     assert "ordinary adult university student" in positive
     assert "not beautified" in positive
+    assert "use simple neutral background" in positive
+    assert "do not preserve or recreate the original background" in positive
     assert "exact biometric face copy" in negative
     assert "beauty upgrade" in negative
 
@@ -502,6 +647,8 @@ def test_production_rejects_dry_run_mode(monkeypatch):
 def test_worker_dry_run_writes_four_preview_ready_candidates():
     payload = _payload()
     fs = _fake_firestore(payload)
+    fs.data["avatarJobs"][payload["jobId"]]["errorCode"] = "avatar_worker_deadline_exceeded"
+    fs.data["avatarJobs"][payload["jobId"]]["errorMessage"] = "stale previous retry error"
     st = _fake_storage()
 
     result = process_avatar_generation_payload(
@@ -516,8 +663,128 @@ def test_worker_dry_run_writes_four_preview_ready_candidates():
     assert result.preview_ready_count == 4
     assert len(fs.data["avatarCandidates"]) == 4
     assert fs.data["avatarJobs"][payload["jobId"]]["status"] == "preview_ready"
+    assert fs.data["avatarJobs"][payload["jobId"]]["errorCode"] == ""
+    assert fs.data["avatarJobs"][payload["jobId"]]["errorMessage"] == ""
     assert all(doc["qa"]["previewAllowed"] is True for doc in fs.data["avatarCandidates"].values())
     assert len(st.buckets["seolleyeon-avatar-temp"].blobs) == 4
+
+
+def test_worker_direct_terminal_guard_rejects_no_preview_and_review_statuses():
+    payload = parse_avatar_generation_payload(_payload())
+    for status in ("needs_review", "no_previewable_candidates"):
+        with pytest.raises(AvatarGenerationError, match="already complete"):
+            worker_module._assert_job_can_run(
+                {"uid": payload.uid, "status": status},
+                payload,
+            )
+
+
+def test_worker_respects_external_claim_deadline_before_expensive_work():
+    payload = _payload(job_id="avatar_job_external_deadline")
+    fs = _fake_firestore(payload)
+
+    with pytest.raises(AvatarGenerationError, match="deadline_exceeded"):
+        process_avatar_generation_payload(
+            payload,
+            firestore_client=fs,
+            storage_client=_fake_storage(),
+            qa_runner=_passing_qa,
+            mode="dry_run",
+            deadline=ClaimDeadline.from_timeout(5, safety_seconds=4),
+        )
+
+    job = fs.data["avatarJobs"][payload["jobId"]]
+    assert job["status"] == "failed"
+    assert job["errorCode"] == "avatar_worker_deadline_exceeded"
+
+
+def test_worker_supersedes_non_current_job_without_generation():
+    payload = _payload(job_id="avatar_job_old")
+    fs = _fake_firestore(payload)
+    fs.data["userPrivateMedia"][payload["uid"]]["currentAvatarJobId"] = "avatar_job_new"
+
+    result = process_avatar_generation_payload(
+        payload,
+        firestore_client=fs,
+        storage_client=_fake_storage(),
+        qa_runner=_passing_qa,
+        mode="dry_run",
+    )
+
+    assert result.status == "superseded"
+    assert fs.data["avatarJobs"][payload["jobId"]]["status"] == "superseded"
+    assert fs.data["avatarJobs"][payload["jobId"]]["errorCode"] == "avatar_job_superseded"
+    assert fs.data["avatarCandidates"] == {}
+
+
+def test_worker_supersedes_current_source_mismatch_without_generation():
+    payload = _payload(job_id="avatar_job_source_mismatch")
+    fs = _fake_firestore(payload)
+    fs.data["userPrivateMedia"][payload["uid"]]["currentAvatarSourcePhotoId"] = "src_other"
+
+    result = process_avatar_generation_payload(
+        payload,
+        firestore_client=fs,
+        storage_client=_fake_storage(),
+        qa_runner=_passing_qa,
+        mode="dry_run",
+    )
+
+    assert result.status == "superseded"
+    assert fs.data["avatarJobs"][payload["jobId"]]["status"] == "superseded"
+    assert fs.data["avatarCandidates"] == {}
+
+
+def test_worker_supersedes_selection_version_mismatch_without_generation():
+    payload = _payload(job_id="avatar_job_selection_version_mismatch")
+    fs = _fake_firestore(payload)
+    fs.data["avatarJobs"][payload["jobId"]]["avatarSourceSelectionVersion"] = 1
+    fs.data["userPrivateMedia"][payload["uid"]]["avatarSourceSelectionVersion"] = 2
+
+    result = process_avatar_generation_payload(
+        payload,
+        firestore_client=fs,
+        storage_client=_fake_storage(),
+        qa_runner=_passing_qa,
+        mode="dry_run",
+    )
+
+    job = fs.data["avatarJobs"][payload["jobId"]]
+    assert result.status == "superseded"
+    assert job["status"] == "superseded"
+    assert "selection_version_mismatch" in job["errorMessage"]
+    assert fs.data["avatarCandidates"] == {}
+
+
+def test_worker_recheck_prevents_stale_preview_ready_race():
+    payload = _payload(job_id="avatar_job_race")
+    fs = _fake_firestore(payload)
+    original_update = worker_module._update_job_status
+
+    def wrapped_update(firestore_client, job_id, update):
+        result = original_update(firestore_client, job_id, update)
+        if update.get("status") == "qa_pending":
+            fs.data["userPrivateMedia"][payload["uid"]]["currentAvatarJobId"] = "avatar_job_new"
+        return result
+
+    worker_module._update_job_status = wrapped_update
+    try:
+        result = process_avatar_generation_payload(
+            payload,
+            firestore_client=fs,
+            storage_client=_fake_storage(),
+            qa_runner=_passing_qa,
+            mode="dry_run",
+        )
+    finally:
+        worker_module._update_job_status = original_update
+
+    assert result.status == "superseded"
+    assert fs.data["avatarJobs"][payload["jobId"]]["status"] == "superseded"
+    assert all(
+        doc["status"] == "superseded"
+        for doc in fs.data["avatarCandidates"].values()
+    )
 
 
 def test_worker_trait_card_uses_job_onboarding_gender(monkeypatch):
@@ -538,6 +805,229 @@ def test_worker_trait_card_uses_job_onboarding_gender(monkeypatch):
     trait_card = fs.data["avatarJobs"][payload["jobId"]]["traitCard"]
     assert result.status == "preview_ready"
     assert trait_card["traitCard"]["avatar_presentation_gender"] == "female"
+
+
+def test_worker_trait_extraction_uses_source_but_flux_uses_privacy_reference(monkeypatch):
+    monkeypatch.setenv("AVATAR_TRAIT_EXTRACTION_ENABLED", "true")
+    monkeypatch.setenv("AVATAR_FACE_DETECTOR_ENABLED", "true")
+    captured = []
+    generated_refs = []
+    qa_metadata = []
+
+    class FakeSourceAnalysis:
+        hard_reject = False
+        broad_trait_hints = {}
+        primary_face = types.SimpleNamespace(bbox=(0.25, 0.25, 0.5, 0.5), confidence=0.98)
+
+        def to_document(self):
+            return {
+                "status": "accepted",
+                "hardReject": False,
+                "rejectReasons": [],
+                "primaryFaceBbox": [0.25, 0.25, 0.5, 0.5],
+                "backgroundNeutralizationRequired": True,
+            }
+
+    class FakeTraitAdapter:
+        def __init__(self, **_kwargs):
+            pass
+
+        def extract_traits(self, *, image, avatar_presentation_gender):
+            captured.append(image.copy())
+            return validate_trait_card_response(
+                json.dumps(
+                    {
+                        "schemaVersion": "seolleyeon_avatar_trait_card_v3",
+                        "privacySafe": True,
+                        "confidence": 0.9,
+                        "traitCard": {
+                            "visible_crop": "head_and_shoulders",
+                            "avatar_presentation_gender": avatar_presentation_gender,
+                        },
+                    }
+                )
+            )
+
+    class FakeGenerator:
+        def __init__(self, _model_id):
+            pass
+
+        def generate(self, *, source_image, prompt, avoid_prompt, seed):
+            generated_refs.append(source_image.copy())
+            return Image.new("RGB", (16, 16), color=(seed % 255, 80, 120))
+
+    monkeypatch.setattr(worker_module, "analyze_avatar_source_image", lambda *_args, **_kwargs: FakeSourceAnalysis())
+    monkeypatch.setattr(worker_module, "Florence2TraitExtractionAdapter", FakeTraitAdapter)
+    monkeypatch.setattr(worker_module, "Flux2KleinImageGenerator", FakeGenerator)
+    payload = _payload(job_id="avatar_job_trait_privacy_ref")
+    fs = _fake_firestore(payload)
+
+    def passing_qa_with_metadata(source_ref, candidate_ref, metadata):
+        qa_metadata.append(dict(metadata))
+        return _passing_qa(source_ref, candidate_ref, metadata)
+
+    result = process_avatar_generation_payload(
+        payload,
+        firestore_client=fs,
+        storage_client=_fake_storage(),
+        qa_runner=passing_qa_with_metadata,
+        mode="flux",
+    )
+
+    job = fs.data["avatarJobs"][payload["jobId"]]
+    assert result.status == "preview_ready"
+    assert captured
+    corner = captured[0].getpixel((0, 0))
+    assert all(abs(actual - expected) <= 5 for actual, expected in zip(corner, (128, 96, 80)))
+    assert generated_refs
+    generation_corner = generated_refs[0].getpixel((0, 0))
+    assert all(
+        abs(actual - expected) <= 5
+        for actual, expected in zip(generation_corner, (247, 242, 236))
+    )
+    assert job["referencePreprocess"]["backgroundNeutralized"] is True
+    assert job["traitExtraction"]["input"] == "source_image"
+    assert job["traitExtraction"]["backgroundNeutralized"] is False
+    assert qa_metadata
+    assert qa_metadata[0]["sourceAnalysis"]["backgroundNeutralizationRequired"] is True
+    assert qa_metadata[0]["referencePreprocess"]["backgroundNeutralized"] is True
+    assert "sourcePhotoRefs" not in json.dumps(qa_metadata[0])
+
+
+def test_worker_records_distinct_source_reference_hashes_per_job(monkeypatch):
+    monkeypatch.setenv("AVATAR_TRAIT_EXTRACTION_ENABLED", "false")
+
+    def run_with_color(job_id, color):
+        payload = _payload(job_id=job_id)
+        fs = _fake_firestore(payload)
+        st = FakeStorage(
+            {
+                "seolleyeon-private-source-photos": FakeBucket(
+                    {"users/u1/source/src_001.jpg": FakeBlob(_png_bytes(color))}
+                ),
+                "seolleyeon-avatar-temp": FakeBucket({}),
+            }
+        )
+        result = process_avatar_generation_payload(
+            payload,
+            firestore_client=fs,
+            storage_client=st,
+            qa_runner=_passing_qa,
+            mode="dry_run",
+        )
+        assert result.status == "preview_ready"
+        job = fs.data["avatarJobs"][payload["jobId"]]
+        candidate = next(iter(fs.data["avatarCandidates"].values()))
+        return job["sourceReferenceAudit"], candidate["generationParams"]
+
+    first_audit, first_generation = run_with_color(
+        "avatar_job_hash_source_a",
+        (120, 64, 48),
+    )
+    second_audit, second_generation = run_with_color(
+        "avatar_job_hash_source_b",
+        (48, 120, 180),
+    )
+
+    assert first_audit["sourceImageSha256Prefix"] != second_audit["sourceImageSha256Prefix"]
+    assert (
+        first_audit["privacyReferenceSha256Prefix"]
+        != second_audit["privacyReferenceSha256Prefix"]
+    )
+    assert first_generation["sourceReferenceAudit"]["jobId"] == "avatar_job_hash_source_a"
+    assert first_generation["promptHash"]
+    assert first_generation["candidateSeed"] == first_generation["generationKwargs"]["seed"]
+    assert "users/u1/source" not in json.dumps(first_generation)
+
+
+def test_worker_adds_candidate_eyewear_trait_to_qa_metadata(monkeypatch):
+    monkeypatch.setenv("AVATAR_TRAIT_EXTRACTION_ENABLED", "true")
+    monkeypatch.setenv("AVATAR_CANDIDATE_TRAIT_QA_ENABLED", "true")
+    monkeypatch.setenv("AVATAR_TRAIT_DRY_RUN", "false")
+    worker_module._TRAIT_ADAPTER_CACHE.clear()
+
+    def trait_payload(eyewear_present, confidence="high"):
+        return json.dumps(
+            {
+                "schemaVersion": "seolleyeon_avatar_trait_card_v3",
+                "privacySafe": True,
+                "confidence": 0.94,
+                "traitCard": {
+                    "visible_crop": "head_and_shoulders",
+                    "hair_length": "medium",
+                    "hair_volume": "medium",
+                    "hair_direction": "side_part",
+                    "hair_bangs": "side_bangs",
+                    "hair_color_range": "dark_brown",
+                    "eyewear_present": eyewear_present,
+                    "eyewear_style": "none"
+                    if eyewear_present == "no"
+                    else "rectangular_dark",
+                    "eyewear_confidence": confidence,
+                    "eyewear_source": "florence",
+                    "facial_hair_present": "no",
+                    "facial_hair_style": "none",
+                    "face_shape_category": "oval",
+                    "facial_feature_balance": "balanced",
+                    "eye_size_category": "medium",
+                    "eye_tilt_category": "neutral",
+                    "eye_shape_mood": "calm",
+                    "brow_thickness": "natural",
+                    "brow_shape": "natural",
+                    "nose_prominence": "medium",
+                    "nose_bridge_impression": "medium",
+                    "cheek_fullness": "moderate",
+                    "jaw_impression": "soft",
+                    "mouth_expression": "calm_closed",
+                    "mouth_fullness_category": "medium",
+                    "skin_tone_range": "natural_beige",
+                    "expression_mood": "calm",
+                    "clothing_category": "knit",
+                    "clothing_color": "gray",
+                    "avatar_presentation_gender": "unknown",
+                },
+            }
+        )
+
+    class FakeTraitAdapter:
+        calls = 0
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def extract_traits(self, *, image, avatar_presentation_gender):
+            FakeTraitAdapter.calls += 1
+            if FakeTraitAdapter.calls == 1:
+                return validate_trait_card_response(trait_payload("no"))
+            return validate_trait_card_response(trait_payload("yes"))
+
+    monkeypatch.setattr(worker_module, "Florence2TraitExtractionAdapter", FakeTraitAdapter)
+    captured_metadata = []
+    payload = _payload(job_id="avatar_job_candidate_eyewear_trait")
+    fs = _fake_firestore(payload)
+
+    def qa_runner(source_ref, candidate_ref, metadata):
+        captured_metadata.append(metadata)
+        return _passing_qa(source_ref, candidate_ref, metadata)
+
+    result = process_avatar_generation_payload(
+        payload,
+        firestore_client=fs,
+        storage_client=_fake_storage(),
+        qa_runner=qa_runner,
+        mode="dry_run",
+    )
+
+    assert result.status == "preview_ready"
+    assert FakeTraitAdapter.calls == 1 + payload["candidateCount"]
+    assert captured_metadata
+    first = captured_metadata[0]
+    assert first["sourceTraitCard"]["eyewear_present"] is False
+    assert first["sourceTraitCard"]["eyewear_confidence"] == "high"
+    assert first["candidateTraitCard"]["eyewear_present"] is True
+    assert first["candidateTraitCard"]["eyewear_confidence"] == "high"
+    assert first["candidateTraitExtraction"]["status"] == "available"
+    assert "sourcePhotoRefs" not in json.dumps(first)
 
 
 def test_worker_uses_env_avatar_temp_bucket(monkeypatch):
@@ -592,7 +1082,29 @@ def test_worker_records_job_cost_after_successful_dry_run(monkeypatch):
     assert job["cost"]["totalWorkerSeconds"] >= 0
     assert job["cost"]["estimatedUsd"] >= 0
     assert job["cost"]["pricingVersion"] == "worker-test-pricing"
-    assert set(job["cost"]["secondsByStage"]) >= {"loadSource", "generate", "uploadAndQa", "total"}
+    expected_stage_keys = {
+        "model_load_seconds",
+        "face_detect_seconds",
+        "trait_extract_seconds",
+        "preprocess_seconds",
+        "sam_seconds",
+        "generation_seconds",
+        "qa_seconds",
+        "rerank_seconds",
+        "upload_seconds",
+        "total_worker_seconds",
+    }
+    assert set(job["cost"]["secondsByStage"]) >= expected_stage_keys
+    assert job["cost"]["modelLoadSeconds"] == job["cost"]["secondsByStage"]["model_load_seconds"]
+    assert job["cost"]["faceDetectSeconds"] == job["cost"]["secondsByStage"]["face_detect_seconds"]
+    assert job["cost"]["traitExtractSeconds"] == job["cost"]["secondsByStage"]["trait_extract_seconds"]
+    assert job["cost"]["preprocessSeconds"] == job["cost"]["secondsByStage"]["preprocess_seconds"]
+    assert job["cost"]["samSeconds"] == job["cost"]["secondsByStage"]["sam_seconds"]
+    assert job["cost"]["generationSeconds"] == job["cost"]["secondsByStage"]["generation_seconds"]
+    assert job["cost"]["qaSeconds"] == job["cost"]["secondsByStage"]["qa_seconds"]
+    assert job["cost"]["rerankSeconds"] == job["cost"]["secondsByStage"]["rerank_seconds"]
+    assert job["cost"]["uploadSeconds"] == job["cost"]["secondsByStage"]["upload_seconds"]
+    assert job["cost"]["totalWorkerSeconds"] == job["cost"]["secondsByStage"]["total_worker_seconds"]
     assert job["costEstimateUsd"] == job["cost"]["estimatedUsd"]
     assert "sourcePhotoRefs" not in json.dumps(job["cost"])
 
@@ -728,7 +1240,7 @@ def test_worker_drain_claims_additional_jobs():
     assert result.status == "ok"
     assert result.processed_count == 2
     assert fs.data["avatarJobs"]["avatar_job_drain_1"]["status"] == "preview_ready"
-    assert fs.data["avatarJobs"]["avatar_job_drain_2"]["status"] == "preview_ready"
+    assert fs.data["avatarJobs"]["avatar_job_drain_2"]["status"] == "superseded"
     assert result.metrics["drainMode"] is True
 
 
@@ -832,17 +1344,18 @@ def test_worker_marks_job_failed_when_all_candidates_rejected():
         mode="dry_run",
     )
 
-    assert result.status == "failed"
+    assert result.status == "no_previewable_candidates"
     assert result.rejected_count == 8
     job = fs.data["avatarJobs"][payload["jobId"]]
-    assert job["status"] == "failed"
-    assert job["errorCode"] == "no_previewable_candidates"
+    assert job["status"] == "no_previewable_candidates"
+    assert job["errorCode"] == "too_identifiable_candidates"
     assert job["generationPlan"]["initialCount"] == 4
     assert job["generationPlan"]["extraCount"] == 4
     assert job["generationPlan"]["totalGenerated"] == 8
 
 
-def test_worker_requires_full_preview_count_when_policy_requires_four():
+def test_worker_requires_full_preview_count_when_policy_requires_four(monkeypatch):
+    monkeypatch.setenv("AVATAR_PREVIEW_REQUIRE_FOUR", "true")
     payload = _payload(job_id="avatar_job_partial_preview")
     fs = _fake_firestore(payload)
     st = _fake_storage()
@@ -879,6 +1392,221 @@ def test_worker_requires_full_preview_count_when_policy_requires_four():
         doc["rerank"]["selectedForPreview"] is False
         for doc in fs.data["avatarCandidates"].values()
     )
+
+
+def test_worker_allows_soft_pass_preview_when_min_preview_count_met(monkeypatch):
+    monkeypatch.setenv("AVATAR_PREVIEW_REQUIRE_FOUR", "false")
+    monkeypatch.setenv("AVATAR_MIN_PREVIEW_CANDIDATES", "1")
+    payload = _payload(job_id="avatar_job_soft_pass_preview")
+    fs = _fake_firestore(payload)
+    st = _fake_storage()
+
+    result = process_avatar_generation_payload(
+        payload,
+        firestore_client=fs,
+        storage_client=st,
+        qa_runner=_soft_pass_qa,
+        mode="dry_run",
+    )
+
+    assert result.status == "preview_ready"
+    assert result.preview_ready_count == 4
+    job = fs.data["avatarJobs"][payload["jobId"]]
+    assert job["status"] == "preview_ready"
+    assert job["generationPlan"]["softPassCount"] == 4
+    assert job["generationPlan"]["filledWithSoftPass"] is True
+    assert set(job["cost"]["secondsByStage"]) >= {
+        "model_load_seconds",
+        "face_detect_seconds",
+        "trait_extract_seconds",
+        "preprocess_seconds",
+        "sam_seconds",
+        "generation_seconds",
+        "qa_seconds",
+        "rerank_seconds",
+        "upload_seconds",
+        "total_worker_seconds",
+    }
+    assert all(
+        doc["status"] == "preview_ready" and doc["qa"]["previewAllowed"] is True
+        for doc in fs.data["avatarCandidates"].values()
+    )
+
+
+def test_worker_does_not_overwrite_cancelled_job_during_generation(monkeypatch):
+    monkeypatch.setenv("AVATAR_PREVIEW_REQUIRE_FOUR", "false")
+    payload = _payload(job_id="avatar_job_cancelled_mid_generation")
+    fs = _fake_firestore(payload)
+    st = _fake_storage()
+    cancelled = {"done": False}
+
+    def cancel_then_pass(source_ref, candidate_ref, metadata):
+        if not cancelled["done"]:
+            fs.data["avatarJobs"][payload["jobId"]]["status"] = "cancelled"
+            cancelled["done"] = True
+        return _passing_qa(source_ref, candidate_ref, metadata)
+
+    result = process_avatar_generation_payload(
+        payload,
+        firestore_client=fs,
+        storage_client=st,
+        qa_runner=cancel_then_pass,
+        mode="dry_run",
+    )
+
+    job = fs.data["avatarJobs"][payload["jobId"]]
+    assert result.status == "cancelled"
+    assert job["status"] == "cancelled"
+    assert "previewReadyAt" not in job
+
+
+def test_worker_terminal_guard_handles_status_flip_during_final_write(monkeypatch):
+    monkeypatch.setenv("AVATAR_PREVIEW_REQUIRE_FOUR", "false")
+    payload = _payload(job_id="avatar_job_cancelled_at_final_write")
+    fs = _fake_recording_atomic_firestore(payload)
+    st = _fake_storage()
+
+    def cancel_on_final_preview_update(ref, data):
+        if (
+            ref.collection == "avatarJobs"
+            and data.get("status") == "preview_ready"
+            and "previewReadyAt" in data
+        ):
+            fs.data["avatarJobs"][payload["jobId"]]["status"] = "cancelled"
+
+    fs.before_transaction_set = cancel_on_final_preview_update
+
+    result = process_avatar_generation_payload(
+        payload,
+        firestore_client=fs,
+        storage_client=st,
+        qa_runner=_passing_qa,
+        mode="dry_run",
+    )
+
+    job = fs.data["avatarJobs"][payload["jobId"]]
+    assert result.status == "cancelled"
+    assert job["status"] == "cancelled"
+    assert "previewReadyAt" not in job
+    assert fs.last_transaction.ref_get_called_with_transaction is True
+    assert fs.last_transaction.transaction_get_called is False
+    assert fs.last_transaction.read_after_write is False
+
+
+def test_worker_does_not_write_preview_ready_before_final_selection(monkeypatch):
+    monkeypatch.setenv("AVATAR_PREVIEW_REQUIRE_FOUR", "false")
+    payload = _payload(job_id="avatar_job_no_intermediate_preview_ready")
+    fs = _fake_firestore(payload)
+    st = _fake_storage()
+    written_statuses = []
+
+    original_set = FakeDocRef.set
+
+    def record_candidate_status(self, data, merge=True):
+        if self.collection == "avatarCandidates" and "status" in data:
+            written_statuses.append(data["status"])
+        return original_set(self, data, merge=merge)
+
+    monkeypatch.setattr(FakeDocRef, "set", record_candidate_status)
+
+    result = process_avatar_generation_payload(
+        payload,
+        firestore_client=fs,
+        storage_client=st,
+        qa_runner=_passing_qa,
+        mode="dry_run",
+    )
+
+    assert result.status == "preview_ready"
+    assert "preview_ready" in written_statuses
+    first_preview_ready = written_statuses.index("preview_ready")
+    assert written_statuses[:first_preview_ready] == [
+        "qa_pending",
+        "hard_pass",
+        "qa_pending",
+        "hard_pass",
+        "qa_pending",
+        "hard_pass",
+        "qa_pending",
+        "hard_pass",
+    ]
+
+
+def test_worker_does_not_preview_conflicting_qa_flags(monkeypatch):
+    monkeypatch.setenv("AVATAR_PREVIEW_REQUIRE_FOUR", "false")
+    payload = _payload(job_id="avatar_job_conflicting_qa_flags")
+    fs = _fake_firestore(payload)
+    st = _fake_storage()
+
+    def conflicting_qa(_source_ref, _candidate_ref, _metadata):
+        return AvatarQAResult(
+            adultQa="pass",
+            childlikeRisk="low",
+            privacyQa="pass",
+            brandQa="pass",
+            beautificationRisk="low",
+            cropConsistency="pass",
+            uniqueMarkCopyRisk="low",
+            logoTextWatermarkRisk="low",
+            identifiabilityRisk="low",
+            previewAllowed=True,
+            requiresHumanReview=True,
+            qaVersion="test_conflicting_review",
+        )
+
+    result = process_avatar_generation_payload(
+        payload,
+        firestore_client=fs,
+        storage_client=st,
+        qa_runner=conflicting_qa,
+        mode="dry_run",
+    )
+
+    assert result.status == "no_previewable_candidates"
+    assert result.preview_ready_count == 0
+    assert all(
+        doc["status"] not in {"preview_ready", "hard_pass"}
+        for doc in fs.data["avatarCandidates"].values()
+    )
+
+
+def test_candidate_doc_helper_uses_preview_policy():
+    default_doc = build_candidate_doc(
+        candidate_id="candidate_default",
+        job_id="job",
+        uid="u",
+        image_ref="gs://bucket/path.png",
+    )
+    passing_doc = build_candidate_doc(
+        candidate_id="candidate_pass",
+        job_id="job",
+        uid="u",
+        image_ref="gs://bucket/path.png",
+        qa=_passing_qa("", "", {}),
+    )
+    conflicting_doc = build_candidate_doc(
+        candidate_id="candidate_conflicting",
+        job_id="job",
+        uid="u",
+        image_ref="gs://bucket/path.png",
+        qa=AvatarQAResult(
+            adultQa="pass",
+            childlikeRisk="low",
+            privacyQa="pass",
+            brandQa="pass",
+            beautificationRisk="low",
+            cropConsistency="pass",
+            uniqueMarkCopyRisk="low",
+            logoTextWatermarkRisk="low",
+            identifiabilityRisk="low",
+            previewAllowed=True,
+            requiresHumanReview=True,
+        ),
+    )
+
+    assert default_doc["status"] == "needs_review"
+    assert passing_doc["status"] == "preview_ready"
+    assert conflicting_doc["status"] == "needs_review"
 
 
 def test_worker_failure_error_message_is_redacted(monkeypatch):
@@ -963,15 +1691,15 @@ def test_worker_marks_candidates_needs_review_after_qa():
         mode="dry_run",
     )
 
-    assert result.status == "needs_review"
+    assert result.status == "no_previewable_candidates"
     assert result.needs_review_count == 8
     assert all(
         doc["status"] == "needs_review"
         for doc in fs.data["avatarCandidates"].values()
     )
     job = fs.data["avatarJobs"][payload["jobId"]]
-    assert job["status"] == "needs_review"
-    assert job["errorCode"] == "requires_human_review"
+    assert job["status"] == "no_previewable_candidates"
+    assert job["errorCode"] == "qa_requires_review"
     assert job["generationPlan"]["initialCount"] == 4
     assert job["generationPlan"]["extraCount"] == 4
 
@@ -1081,12 +1809,18 @@ def test_smoke_script_dry_run_writes_redacted_report(tmp_path):
         text=True,
         capture_output=True,
         check=False,
+        timeout=60,
     )
 
     assert result.returncode == 0, result.stderr
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["mode"] == "dry_run"
-    assert report["result"]["status"] in {"preview_ready", "needs_review", "failed"}
+    assert report["result"]["status"] in {
+        "preview_ready",
+        "needs_review",
+        "failed",
+        "no_previewable_candidates",
+    }
     report_text = json.dumps(report)
     assert "users/u1/source/src_001.jpg" not in report_text
 
@@ -1112,6 +1846,7 @@ def test_staging_smoke_script_dry_run_command_writes_redacted_report(tmp_path):
         text=True,
         capture_output=True,
         check=False,
+        timeout=60,
     )
 
     assert result.returncode == 0, result.stderr

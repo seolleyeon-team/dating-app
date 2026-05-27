@@ -46,8 +46,8 @@ IAM/OIDC, warmup, queue, and cost gates pass.
 | `AVATAR_FLUX_GUIDANCE_SCALE` | `1.0` | `1.0` initially | V3 preferred FLUX guidance env; falls back to legacy guidance. |
 | `AVATAR_REFERENCE_PRIVACY_PREPROCESS` | enabled unless explicitly false | enabled | Downsamples/blurs reference before image-conditioned generation. |
 | `AVATAR_REFERENCE_PREPROCESS_MODE` | `region_aware_v1` conceptually | `region_aware_v1` | V3 region-aware preprocessing mode. |
-| `AVATAR_REFERENCE_FACE_EQUIVALENT_SIZE` | `32` | `32` | Face region abstraction size. |
-| `AVATAR_REFERENCE_FACE_BLUR_RADIUS` | `4.0` | `4.0` | Stronger blur for face region. |
+| `AVATAR_REFERENCE_FACE_EQUIVALENT_SIZE` | `32` | `64` | Face region abstraction size; staging uses 64px to avoid glasses-like eye smearing while still avoiding original-resolution reference input. |
+| `AVATAR_REFERENCE_FACE_BLUR_RADIUS` | `4.0` | `2.0` | Face-region blur; staging uses a lighter blur so no-glasses eyes are not collapsed into frame-like dark bands. |
 | `AVATAR_REFERENCE_NONFACE_EQUIVALENT_SIZE` | `96` | `96` | Non-face/style region abstraction size. |
 | `AVATAR_REFERENCE_NONFACE_BLUR_RADIUS` | `1.5` | `1.5` | Softer blur for hair/clothing/style region. |
 | `AVATAR_WORKER_ID` | `avatar-worker-{pid}` | service/revision-specific value optional | Used for drain lease owner. |
@@ -61,6 +61,13 @@ IAM/OIDC, warmup, queue, and cost gates pass.
 | `AVATAR_FACE_DETECTOR_ENABLED` | enabled in `flux`, disabled in local `dry_run` unless set | `true` | Runs source face/safety analysis before generation. |
 | `AVATAR_FACE_DETECTOR_PROVIDER` | `mediapipe` conceptually | `mediapipe` | Current implementation uses the default detector builder. |
 | `AVATAR_FACE_DETECTOR_MIN_CONFIDENCE` | `0.6` | `0.6` then tune | Alias for MediaPipe minimum confidence. |
+| `AVATAR_MEDIAPIPE_ENABLED` | `true` | `true` | Enables MediaPipe provider discovery. When disabled with fail-closed, source analysis rejects instead of silently weakening. |
+| `AVATAR_MEDIAPIPE_FACE_LANDMARKER_MODEL_PATH` | unset | baked local `.task` path when Face Landmarker is enabled | The worker must not download this asset per request. If absent, it falls back to public `mp.solutions.face_detection` when allowed. |
+| `AVATAR_MEDIAPIPE_OUTPUT_BLENDSHAPES` | `true` | `true` after model smoke | Blendshapes are used transiently for broad expression binning only; raw arrays are not stored. |
+| `AVATAR_MEDIAPIPE_NUM_FACES` | `2` | `2` | Allows single/multi-face source classification. |
+| `AVATAR_MEDIAPIPE_MIN_DETECTION_CONFIDENCE` | `0.6` | `0.6` then tune | Face Landmarker / MediaPipe detector confidence. |
+| `AVATAR_MEDIAPIPE_MIN_PRESENCE_CONFIDENCE` | `0.6` | `0.6` then tune | Face Landmarker presence threshold. |
+| `AVATAR_MEDIAPIPE_FAIL_CLOSED_IN_PRODUCTION` | `true` | `true` | Production should not quietly fall through to weak detection if MediaPipe is unavailable. |
 | `AVATAR_FACE_MIN_RELATIVE_SIZE` | `0.08` | tune after fixture calibration | Rejects tiny faces. |
 | `AVATAR_REJECT_MULTI_FACE` | true conceptually | `true` | Multi-face sources are hard rejected by source analysis. |
 | `AVATAR_REJECT_NO_FACE` | true conceptually | `true` | No-face sources are hard rejected by source analysis. |
@@ -73,6 +80,8 @@ IAM/OIDC, warmup, queue, and cost gates pass.
 | `AVATAR_TRAIT_DRY_RUN` | `true` in dry-run, false otherwise | `false` | Local-only smoke path. |
 | `AVATAR_TRAIT_REQUIRE_VALIDATED` | `true` | `true` | Requires deterministic validator pass. |
 | `AVATAR_TRAIT_QWEN_FALLBACK_ENABLED` | `false` | `false` | Optional, disabled by default. |
+| `AVATAR_TRAIT_USE_PRIVACY_REFERENCE` | `false` | `false` | Trait extraction runs on a resized local source image so small facial accessories such as glasses are not blurred away; FLUX still receives only the privacy-processed reference. |
+| `AVATAR_CANDIDATE_TRAIT_QA_ENABLED` | enabled in `flux`, disabled in local `dry_run` unless set | `true` | Re-runs safe categorical trait extraction on generated candidates only when source eyewear is known, so QA can reject invented or omitted glasses. |
 | `AVATAR_SAM_ENABLED` | `false` | `false` initially | Optional mask refinement only. |
 | `AVATAR_SAM_MODEL_ID` | `facebook/sam-vit-base` conceptually | optional | Use only with lazy loading and memory review. |
 | `AVATAR_SAM_LOAD_ON_DEMAND` | `true` conceptually | `true` | Do not load SAM at worker startup. |
@@ -81,9 +90,14 @@ IAM/OIDC, warmup, queue, and cost gates pass.
 | `AVATAR_MIN_SAFE_CANDIDATES_BEFORE_EXTRA` | `2` | `2` | Extra generation threshold. |
 | `AVATAR_MAX_TOTAL_CANDIDATES` | `8` | `8` | Max generated candidates per job. |
 | `AVATAR_PREVIEW_COUNT` | `4` | `4` | Final preview selection target. |
-| `AVATAR_PREVIEW_REQUIRE_FOUR` | `true` | `true` | Enforced in worker state transitions; jobs do not become `preview_ready` with fewer than `AVATAR_PREVIEW_COUNT` selected candidates. |
+| `AVATAR_MIN_PREVIEW_CANDIDATES` | `1` | `1` | Minimum safe/soft candidate count required for `preview_ready`. |
+| `AVATAR_PREVIEW_REQUIRE_FOUR` | `false` | `false` until QA calibration proves four safe candidates are consistently available | When true, jobs do not become `preview_ready` with fewer than `AVATAR_PREVIEW_COUNT` selected candidates. Privacy/safety is stricter than showing exactly four. |
 | `AVATAR_PREVIEW_FILL_WITH_SOFT_PASS` | `true` | `true` after QA review | Uses low-risk soft pass to fill preview. |
 | `AVATAR_PREVIEW_FILL_HARD_REJECT` | `false` | `false` | Must remain false. |
+| `AVATAR_QA_PHASH_NEAR_DUPLICATE_REJECT_THRESHOLD` | `0.985` | calibrate with fixtures | Strict near-duplicate guard for deterministic image similarity. |
+| `AVATAR_QA_PHASH_REVIEW_THRESHOLD` | `0.92` | calibrate with fixtures | Moderate perceptual similarity only adds review/debug evidence; it is not a face identity hard reject. |
+| `AVATAR_QA_ALLOW_PHASH_HARD_REJECT_ONLY_NEAR_DUPLICATE` | `true` | `true` | Prevents broad crop/color similarity from becoming `too_identifiable`. |
+| `AVATAR_QA_REQUIRE_RELIABLE_FACE_SIM_FOR_TOO_IDENTIFIABLE` | `true` | `true` | Requires reliable face similarity or near-duplicate evidence before hard rejecting as too identifiable. |
 | `AVATAR_RERANK_PROVIDER` | `deterministic_qa_tier` | `deterministic_qa_tier` until CLIP/DINO calibration is approved | Current production path uses deterministic QA tiers plus optional score hooks. Do not label a deployment as CLIP/DINO rerank unless the model hook is explicitly enabled and verified. |
 | `AVATAR_CLIP_MODEL_ID` | `openai/clip-vit-large-patch14` | same unless benchmarked | Reserved CLIP rerank model id for deployments that enable and verify the hook. |
 | `AVATAR_DINO_MODEL_ID` | `facebook/dinov2-base` | same unless benchmarked | Reserved DINOv2 rerank model id for deployments that enable and verify the hook. |

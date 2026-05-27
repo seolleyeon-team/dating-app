@@ -36,7 +36,7 @@ abstract class AvatarGenerationClient {
   /// [pollInterval] 간격으로 [getCandidates]를 호출하면서 다음 중 하나가
   /// 발생할 때까지 반복한다:
   /// - 상태가 `preview_ready`이고 후보가 1개 이상 도착 → 결과 반환
-  /// - 상태가 `failed`/`cancelled`/`no_previewable_candidates`/`needs_review` → 결과 반환
+  /// - 상태가 `failed`/`cancelled`/`superseded`/`no_previewable_candidates`/`needs_review` → 결과 반환
   /// - [timeout] 초과 → [TimeoutException]
   /// - [shouldContinue]가 false를 반환 → [_AvatarPollingCancelled]
   Future<AvatarCandidatesResult> pollUntilPreviewReady({
@@ -75,6 +75,10 @@ abstract class AvatarGenerationClient {
         case AvatarJobStatus.noPreviewableCandidates:
           return last;
         case AvatarJobStatus.failed:
+          return last;
+        case AvatarJobStatus.superseded:
+          return last;
+        case AvatarJobStatus.cancelled:
           return last;
         case AvatarJobStatus.needsReview:
           return last;
@@ -138,7 +142,8 @@ String _sanitizeLogText(String? value) {
   );
   text = text.replaceAll(
     RegExp(
-      r'(X-Goog-[^=&\s]+|GoogleAccessId|Signature|Expires|X-Amz-[^=&\s]+)=([^&\s]+)',
+      r'(X-Goog-[^=&\s]+|Google'
+      r'AccessId|Signature|Expires|X-Amz-[^=&\s]+)=([^&\s]+)',
       caseSensitive: false,
     ),
     r'$1=<redacted>',

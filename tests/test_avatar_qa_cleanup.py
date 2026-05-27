@@ -179,6 +179,48 @@ def test_qa_passes_only_low_risk_complete_signal_set():
     assert result.previewAllowed is True
     assert result.requiresHumanReview is False
     assert result.rejectReasons == []
+    doc = result.to_document()
+    assert doc["backgroundLeakageRisk"] == "low"
+    assert doc["secondaryFaceLeakageRisk"] == "low"
+    assert doc["textLogoWatermarkRisk"] == "low"
+    assert doc["cropIsolationQuality"] == "pass"
+
+
+def test_qa_rejects_generated_multi_face_background_text_and_bad_crop():
+    result = build_avatar_qa_from_signals(
+        {
+            "adultLike": True,
+            "childlikeScore": 0.1,
+            "faceSimilarityScore": 0.2,
+            "beautificationScore": 0.1,
+            "uniqueMarkCopied": False,
+            "logoTextWatermarkDetected": False,
+            "cropConsistent": True,
+            "brandFit": True,
+            "multipleFacesGenerated": True,
+            "secondaryPersonGenerated": True,
+            "originalBackgroundReproduced": True,
+            "schoolSignDetected": True,
+            "fullBodyInvented": True,
+            "primaryFaceConfidence": 0.87,
+        }
+    )
+    doc = result.to_document()
+
+    assert result.previewAllowed is False
+    assert result.requiresHumanReview is False
+    assert set(doc["rejectReasons"]) >= {
+        "multiple_faces_generated",
+        "secondary_person_generated",
+        "background_leakage",
+        "logo_text_watermark",
+        "crop_expanded_to_unseen_body",
+    }
+    assert doc["backgroundLeakageRisk"] == "high"
+    assert doc["secondaryFaceLeakageRisk"] == "high"
+    assert doc["textLogoWatermarkRisk"] == "high"
+    assert doc["cropIsolationQuality"] == "fail"
+    assert doc["primaryFaceConfidence"] == 0.87
 
 
 def test_qa_rejection_logic_does_not_store_raw_embeddings():
@@ -193,6 +235,48 @@ def test_qa_rejection_logic_does_not_store_raw_embeddings():
     assert "too_identifiable" in doc["rejectReasons"]
     assert "vector" not in doc
     assert "embedding" not in doc
+
+
+def test_qa_debug_sanitizer_removes_private_media_fields_and_values():
+    result = AvatarQAResult(
+        debug={
+            "sourcePhotoRef": "gs://seolleyeon-final-private-source-photos/users/u/source/a.jpg",
+            "sourcePhotoRefs": ["gs://seolleyeon-private-source-photos/users/u/source/b.jpg"],
+            "source_photo_refs": ["gs://seolleyeon-private-source-photos/users/u/source/c.jpg"],
+            "gcsUri": "gcs://seolleyeon-final-avatar-temp/users/u/candidate.png",
+            "gcs_uri": "gcs://seolleyeon-final-avatar-temp/users/u/candidate-2.png",
+            "signedUrl": "https://example.test/c.png?X-Goog-Signature=secret",
+            "signed_url": "https://example.test/d.png?X-Goog-Signature=secret",
+            "nested": {
+                "userPrivateMedia": "userPrivateMedia/u",
+                "user_private_media": "userPrivateMedia/u",
+                "clipEmbeddings": "clipEmbeddings/u",
+                "clip_embeddings": "clipEmbeddings/u",
+                "safeScore": 0.42,
+            },
+        }
+    )
+
+    doc = result.to_document()
+    serialized = json.dumps(doc["debug"], sort_keys=True).lower()
+
+    assert doc["debug"]["nested"]["safeScore"] == 0.42
+    for forbidden in (
+        "sourcephotoref",
+        "sourcephotorefs",
+        "source_photo_refs",
+        "gcsuri",
+        "gcs_uri",
+        "signedurl",
+        "signed_url",
+        "userprivatemedia",
+        "user_private_media",
+        "clipembeddings",
+        "clip_embeddings",
+        "seolleyeon-final-private-source-photos",
+        "x-goog-signature",
+    ):
+        assert forbidden not in serialized
 
 
 def test_run_avatar_candidate_qa_rejects_corrupt_candidate(tmp_path):
@@ -236,7 +320,7 @@ def test_run_avatar_candidate_qa_rejects_identical_source_and_candidate(tmp_path
     assert "too_identifiable" in result.rejectReasons
 
 
-def test_run_avatar_candidate_qa_rejects_high_similarity_candidate(tmp_path):
+def test_run_avatar_candidate_qa_does_not_hard_reject_perceptual_similarity_only(tmp_path):
     source = _pattern_image()
     candidate = source.copy()
     draw = ImageDraw.Draw(candidate)
@@ -247,9 +331,10 @@ def test_run_avatar_candidate_qa_rejects_high_similarity_candidate(tmp_path):
     result = run_avatar_candidate_qa(source_ref, candidate_ref, {})
 
     assert result.previewAllowed is False
-    assert result.requiresHumanReview is False
-    assert "too_identifiable" in result.rejectReasons
-    assert result.faceSimilarityScore is not None
+    assert result.requiresHumanReview is True
+    assert "too_identifiable" not in result.rejectReasons
+    assert result.faceSimilarityScore is None
+    assert result.debug["scores"]["perceptualSimilarityScore"] is not None
 
 
 def test_run_avatar_candidate_qa_marks_medium_similarity_for_review(tmp_path):
@@ -263,7 +348,8 @@ def test_run_avatar_candidate_qa_marks_medium_similarity_for_review(tmp_path):
     assert result.previewAllowed is False
     assert result.requiresHumanReview is True
     assert result.identifiabilityRisk == "medium"
-    assert result.faceSimilarityScore is not None
+    assert result.faceSimilarityScore is None
+    assert result.debug["scores"]["perceptualSimilarityScore"] is not None
     assert result.rejectReasons == []
 
 
@@ -299,6 +385,152 @@ def test_run_avatar_candidate_qa_model_unavailable_needs_review(tmp_path):
     assert result.childlikeRisk == "medium"
 
 
+def test_run_avatar_candidate_qa_uses_processed_reference_metadata(tmp_path):
+    source_ref = _save_png(tmp_path, "source.png", _pattern_image())
+    candidate_ref = _save_png(tmp_path, "candidate.png", _other_pattern_image())
+
+    result = run_avatar_candidate_qa(
+        source_ref,
+        candidate_ref,
+        {
+            "sourceAnalysis": {
+                "primaryFaceConfidence": 0.91,
+                "secondaryFaceCount": 1,
+                "backgroundNeutralizationRequired": True,
+            },
+            "referencePreprocess": {
+                "primaryCropApplied": True,
+                "cropType": "head_and_shoulders",
+                "backgroundNeutralized": True,
+                "backgroundNeutralization": {
+                    "secondaryFaceCount": 1,
+                    "secondaryFaceAction": "removed_with_background",
+                },
+            },
+            "qaSignals": {
+                "adultLike": True,
+                "brandFit": True,
+                "cropConsistent": True,
+                "logoTextWatermarkDetected": False,
+                "uniqueMarkCopied": False,
+                "faceSimilarityScore": 0.1,
+                "childlikeScore": 0.1,
+                "beautificationScore": 0.1,
+            },
+        },
+    )
+    doc = result.to_document()
+
+    assert doc["primaryFaceConfidence"] == 0.91
+    assert doc["backgroundLeakageRisk"] == "low"
+    assert doc["secondaryFaceLeakageRisk"] == "low"
+    assert doc["cropIsolationQuality"] == "pass"
+    assert doc["previewAllowed"] is True
+
+
+def test_run_avatar_candidate_qa_rejects_invented_eyewear_signal(tmp_path):
+    source_ref = _save_png(tmp_path, "source.png", _pattern_image())
+    candidate_ref = _save_png(tmp_path, "candidate.png", _other_pattern_image())
+
+    result = run_avatar_candidate_qa(
+        source_ref,
+        candidate_ref,
+        {
+            "sourceTraitCard": {
+                "eyewear_present": False,
+                "eyewear_confidence": "high",
+                "eyewear_style": "none",
+            },
+            "qaSignals": {
+                "adultLike": True,
+                "brandFit": True,
+                "cropConsistent": True,
+                "logoTextWatermarkDetected": False,
+                "uniqueMarkCopied": False,
+                "faceSimilarityScore": 0.1,
+                "childlikeScore": 0.1,
+                "beautificationScore": 0.1,
+                "candidateEyewearPresent": True,
+            },
+        },
+    )
+    doc = result.to_document()
+
+    assert doc["previewAllowed"] is False
+    assert "eyewear_invented_or_omitted" in doc["rejectReasons"]
+    assert doc["candidateTraitConsistency"]["eyewearMatch"] == "fail"
+    assert doc["candidateTraitConsistency"]["eyewearReason"] == "invented_eyewear_from_no_glasses_source"
+
+
+def test_run_avatar_candidate_qa_rejects_omitted_eyewear_trait_card(tmp_path):
+    source_ref = _save_png(tmp_path, "source.png", _pattern_image())
+    candidate_ref = _save_png(tmp_path, "candidate.png", _other_pattern_image())
+
+    result = run_avatar_candidate_qa(
+        source_ref,
+        candidate_ref,
+        {
+            "sourceTraitCard": {
+                "eyewear_present": True,
+                "eyewear_confidence": "high",
+                "eyewear_style": "rectangular",
+            },
+            "candidateTraitCard": {
+                "eyewear_present": False,
+                "eyewear_confidence": "high",
+                "eyewear_style": "none",
+            },
+            "qaSignals": {
+                "adultLike": True,
+                "brandFit": True,
+                "cropConsistent": True,
+                "logoTextWatermarkDetected": False,
+                "uniqueMarkCopied": False,
+                "faceSimilarityScore": 0.1,
+                "childlikeScore": 0.1,
+                "beautificationScore": 0.1,
+            },
+        },
+    )
+    doc = result.to_document()
+
+    assert doc["previewAllowed"] is False
+    assert "eyewear_invented_or_omitted" in doc["rejectReasons"]
+    assert doc["candidateTraitConsistency"]["eyewearMatch"] == "fail"
+    assert doc["candidateTraitConsistency"]["eyewearReason"] == "omitted_eyewear_from_glasses_source"
+
+
+def test_run_avatar_candidate_qa_keeps_unclear_source_eyewear_non_blocking(tmp_path):
+    source_ref = _save_png(tmp_path, "source.png", _pattern_image())
+    candidate_ref = _save_png(tmp_path, "candidate.png", _other_pattern_image())
+
+    result = run_avatar_candidate_qa(
+        source_ref,
+        candidate_ref,
+        {
+            "sourceTraitCard": {
+                "eyewear_present": None,
+                "eyewear_confidence": "unclear",
+            },
+            "qaSignals": {
+                "adultLike": True,
+                "brandFit": True,
+                "cropConsistent": True,
+                "logoTextWatermarkDetected": False,
+                "uniqueMarkCopied": False,
+                "faceSimilarityScore": 0.1,
+                "childlikeScore": 0.1,
+                "beautificationScore": 0.1,
+                "candidateEyewearPresent": True,
+            },
+        },
+    )
+    doc = result.to_document()
+
+    assert "eyewear_invented_or_omitted" not in doc["rejectReasons"]
+    assert doc["candidateTraitConsistency"]["eyewearMatch"] == "uncertain"
+
+
 def test_run_avatar_candidate_qa_dev_bypass_cannot_work_in_production(monkeypatch):
     monkeypatch.setenv("AVATAR_QA_ALLOW_DEV_BYPASS", "true")
     monkeypatch.setenv("ENVIRONMENT", "production")
@@ -327,7 +559,8 @@ def test_run_avatar_candidate_qa_staging_heuristic_preview_is_non_production_onl
 
     result = run_avatar_candidate_qa(source_ref, candidate_ref, {})
 
-    assert result.previewAllowed is True
+    assert result.previewAllowed is False
+    assert result.softPass is True
     assert result.requiresHumanReview is False
     assert result.qaVersion == "avatar_qa_v1_staging_heuristic_preview"
 

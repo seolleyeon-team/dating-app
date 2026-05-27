@@ -140,6 +140,28 @@ void main() {
     expect(url, '');
   });
 
+  test('virtual-hosted private buckets never return as display image', () {
+    const unsafeUrls = [
+      'https://seolleyeon-final-private-source-photos.storage.googleapis.com/users/u/source/src.jpg',
+      'https://seolleyeon-private-source-photos.storage.googleapis.com/users/u/source/src.jpg',
+      'https://seolleyeon-final-avatar-temp.storage.googleapis.com/users/u/jobs/j/candidates/c.png',
+      'https://seolleyeon-final-chat-profile-photos.storage.googleapis.com/users/u/chat/photo.jpg',
+    ];
+
+    for (final value in unsafeUrls) {
+      expect(
+        ProfileDisplayImageResolver.resolve({
+          'avatar': {'status': 'approved', 'approvedAvatarUrl': value},
+          'onboarding': {
+            'avatarUrls': [value],
+          },
+        }),
+        '',
+        reason: value,
+      );
+    }
+  });
+
   test('lower-case signed storage URLs never return as display image', () {
     final url = ProfileDisplayImageResolver.resolve({
       'avatar': {

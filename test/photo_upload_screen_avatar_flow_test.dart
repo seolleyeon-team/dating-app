@@ -7,6 +7,7 @@ import 'package:seolleyeon/features/onboarding/screens/photo_upload_screen.dart'
 import 'package:seolleyeon/features/onboarding/widgets/avatar_candidate_selection_dialog.dart';
 import 'package:seolleyeon/features/onboarding/widgets/avatar_candidate_tile.dart';
 import 'package:seolleyeon/features/onboarding/widgets/avatar_generation_error_banner.dart';
+import 'package:seolleyeon/features/onboarding/widgets/avatar_generation_messages.dart';
 import 'package:seolleyeon/features/onboarding/widgets/avatar_generation_models.dart';
 import 'package:seolleyeon/services/avatar_generation_client.dart';
 import 'package:seolleyeon/services/avatar_source_photo_service.dart';
@@ -18,6 +19,7 @@ class _ReadyAvatarClient extends AvatarGenerationClient {
 
   final int candidateCount;
   String? approvedCandidateId;
+  final List<String> polledJobIds = <String>[];
 
   @override
   Future<AvatarSourcePhotoUploadResult> uploadSourcePhoto({
@@ -46,6 +48,7 @@ class _ReadyAvatarClient extends AvatarGenerationClient {
     Duration timeout = const Duration(seconds: 150),
     bool Function()? shouldContinue,
   }) async {
+    polledJobIds.add(jobId);
     return _readyResult(jobId);
   }
 
@@ -103,6 +106,27 @@ class _NoPreviewableAvatarClient extends _ReadyAvatarClient {
       jobId: jobId,
       status: AvatarJobStatus.noPreviewableCandidates,
       candidates: const [],
+    );
+  }
+}
+
+class _SourceRejectedAvatarClient extends _ReadyAvatarClient {
+  _SourceRejectedAvatarClient(this.errorCode);
+
+  final String errorCode;
+
+  @override
+  Future<AvatarCandidatesResult> pollUntilPreviewReady({
+    required String jobId,
+    Duration pollInterval = const Duration(seconds: 2),
+    Duration timeout = const Duration(seconds: 150),
+    bool Function()? shouldContinue,
+  }) async {
+    return AvatarCandidatesResult(
+      jobId: jobId,
+      status: AvatarJobStatus.failed,
+      candidates: const [],
+      errorCode: errorCode,
     );
   }
 }
@@ -234,6 +258,32 @@ void main() {
       expect(advancedPhotos, hasLength(2));
     });
 
+    testWidgets('polls latest queued test job instead of first stale slot', (
+      tester,
+    ) async {
+      await _useMobileSurface(tester);
+      final client = _ReadyAvatarClient();
+
+      await tester.pumpWidget(
+        _harness(
+          client: client,
+          initialPhotos: [
+            AvatarSourcePhotoService.queuedSlotToken('job_stale'),
+            AvatarSourcePhotoService.queuedSlotToken('job_latest'),
+          ],
+          onNext: (_) {},
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(_nextButton());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(client.polledJobIds, ['job_latest']);
+      expect(_candidateDialog(), findsOneWidget);
+    });
+
     testWidgets(
       'single approved avatar can proceed without another queued source photo',
       (tester) async {
@@ -280,6 +330,20 @@ void main() {
       expect(find.text('잠김'), findsOneWidget);
     });
 
+    testWidgets('queued avatar source is locked and has no delete button', (
+      tester,
+    ) async {
+      await _useMobileSurface(tester);
+
+      await tester.pumpWidget(
+        _harness(client: _ReadyAvatarClient(), onNext: (_) {}),
+      );
+      await tester.pump();
+
+      expect(find.text(sourceLockedAvatarMessage), findsOneWidget);
+      expect(find.byIcon(Icons.close_rounded), findsNothing);
+    });
+
     testWidgets('failed generation leaves retryable error on photo screen', (
       tester,
     ) async {
@@ -301,6 +365,30 @@ void main() {
       expect(advanced, isFalse);
       expect(find.byType(AvatarCandidateSelectionDialog), findsNothing);
       expect(find.byType(AvatarGenerationErrorBanner), findsOneWidget);
+      expect(find.byIcon(Icons.close_rounded), findsNothing);
+      expect(find.text(sourceLockedAvatarMessage), findsOneWidget);
+      expect(find.text('다시 시도'), findsOneWidget);
+    });
+
+    testWidgets('source multi-face rejection shows exact guidance', (
+      tester,
+    ) async {
+      await _useMobileSurface(tester);
+
+      await tester.pumpWidget(
+        _harness(
+          client: _SourceRejectedAvatarClient('avatar_source_multi_face'),
+          onNext: (_) {},
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(_nextButton());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.byType(AvatarCandidateSelectionDialog), findsNothing);
+      expect(find.text(avatarSourceMultiFaceMessage), findsWidgets);
       expect(find.text('다시 시도'), findsOneWidget);
     });
 

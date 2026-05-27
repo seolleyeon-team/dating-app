@@ -16,6 +16,7 @@ import '../../../shared/utils/avatar_lock_policy.dart';
 import '../widgets/avatar_candidate_selection_dialog.dart';
 import '../widgets/avatar_generation_error_banner.dart';
 import '../widgets/avatar_generating_overlay.dart';
+import '../widgets/avatar_generation_messages.dart';
 import '../widgets/avatar_generation_models.dart';
 
 class _AppColors {
@@ -83,7 +84,11 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   bool _avatarFlowCancelled = false;
   bool _chatPartnerRealPhotoDisclosure = false;
   bool _avatarLocked = false;
+  bool _avatarSourceLocked = false;
   String _lockedApprovedAvatarUrl = '';
+  String? _activeAvatarJobId;
+  String? _activeAvatarSourcePhotoId;
+  int? _activeSourceSelectionVersion;
 
   int get _photoCount => _photos.where((p) => p != null).length;
 
@@ -100,6 +105,16 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       _avatarFlowState != AvatarOnboardingFlowState.idle &&
       _avatarFlowState != AvatarOnboardingFlowState.approved &&
       _avatarFlowState != AvatarOnboardingFlowState.failed;
+
+  bool get _hasStartedAvatarSourceLock =>
+      _avatarSourceLocked ||
+      (_activeAvatarJobId != null && _activeAvatarJobId!.isNotEmpty);
+
+  bool get _isSourceMutationBlocked =>
+      _avatarLocked ||
+      _hasStartedAvatarSourceLock ||
+      _isAvatarFlowActive ||
+      _isUploading.any((value) => value);
 
   bool get _isGenerating =>
       _avatarFlowState == AvatarOnboardingFlowState.uploadingSourcePhoto ||
@@ -133,6 +148,13 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       );
       _avatarLocked = firstSafeApproved.isNotEmpty;
       _lockedApprovedAvatarUrl = firstSafeApproved;
+      for (final value in initialPhotos.whereType<String>()) {
+        final queuedJobId = AvatarSourcePhotoService.queuedJobId(value);
+        if (queuedJobId != null && queuedJobId.isNotEmpty) {
+          _activeAvatarJobId = queuedJobId;
+          _avatarSourceLocked = true;
+        }
+      }
     } else {
       _loadExistingPhotos();
     }
@@ -151,8 +173,12 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     final data = await _users.getUserProfile(kakaoUserId);
     if (!mounted || data == null) return;
 
-    final lockState = avatarLockStateFromUserProfile(
-      Map<String, dynamic>.from(data),
+    final profile = Map<String, dynamic>.from(data);
+    final lockState = avatarLockStateFromUserProfile(profile);
+    final sourceLocked = avatarSourceLockedFromUserProfile(profile);
+    final sourceJobId = avatarSourceJobIdFromUserProfile(profile);
+    final sourceSelectionVersion = avatarSourceSelectionVersionFromUserProfile(
+      profile,
     );
     final onboarding = data['onboarding'];
     final avatarUrlsRaw = onboarding is Map ? onboarding['avatarUrls'] : null;
@@ -165,12 +191,22 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
     setState(() {
       _avatarLocked = lockState.isLocked;
+      _avatarSourceLocked = !lockState.isLocked && sourceLocked;
       _lockedApprovedAvatarUrl = lockState.approvedAvatarUrl;
+      if (_avatarSourceLocked && sourceJobId != null) {
+        _activeAvatarJobId = sourceJobId;
+        _activeSourceSelectionVersion = sourceSelectionVersion;
+      }
       for (int i = 0; i < _photos.length; i++) {
         _photos[i] = null;
       }
       for (int i = 0; i < avatarUrls.length && i < _photos.length; i++) {
         _photos[i] = avatarUrls[i];
+      }
+      if (_avatarSourceLocked &&
+          sourceJobId != null &&
+          !_photos.any(AvatarSourcePhotoService.isQueuedSlotToken)) {
+        _photos[0] = AvatarSourcePhotoService.queuedSlotToken(sourceJobId);
       }
     });
   }
@@ -181,13 +217,8 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       _showLockedAvatarMessage();
       return;
     }
-    if (_isAvatarFlowActive || _isUploading.any((value) => value)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('아바타 생성 중에는 사진을 변경할 수 없어요.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    if (_isSourceMutationBlocked) {
+      _showSourceLockedAvatarMessage();
       return;
     }
 
@@ -202,7 +233,16 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       }
 
       setState(() {
+        final replacedJobId = AvatarSourcePhotoService.queuedJobId(
+          _photos[index],
+        );
+        if (replacedJobId != null && replacedJobId == _activeAvatarJobId) {
+          _activeAvatarJobId = null;
+          _activeAvatarSourcePhotoId = null;
+          _activeSourceSelectionVersion = null;
+        }
         _isUploading[index] = true;
+        _avatarFlowCancelled = true;
       });
 
       final String? kakaoUserId = await _storage.getKakaoUserId();
@@ -230,12 +270,18 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         jobId: result.jobId,
         photoId: result.photoId,
         rawStatus: result.avatarStatus,
+        sourceSelectionVersion: result.sourceSelectionVersion,
       );
 
       if (!mounted) return;
 
       setState(() {
         _photos[index] = AvatarSourcePhotoService.queuedSlotToken(result.jobId);
+        _activeAvatarJobId = result.jobId;
+        _activeAvatarSourcePhotoId = result.photoId;
+        _activeSourceSelectionVersion = result.sourceSelectionVersion;
+        _avatarSourceLocked = true;
+        _avatarFlowCancelled = false;
         _isUploading[index] = false;
         _avatarGenerationError = null;
       });
@@ -245,11 +291,34 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
       setState(() {
         _isUploading[index] = false;
+        if (e is AvatarSourceLockedException) {
+          _avatarSourceLocked = true;
+          _avatarFlowCancelled = false;
+        }
       });
+      if (e is! AvatarSourceLockedException) {
+        await _loadExistingPhotos();
+        if (!mounted) return;
+      }
+
+      final lockMessage = e is AvatarAlreadyApprovedException
+          ? AvatarAlreadyApprovedException.message
+          : e is AvatarSourceLockedException
+          ? AvatarSourceLockedException.message
+          : null;
+      if (lockMessage != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(lockMessage),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('사진 업로드에 실패했어요: $e'),
+        const SnackBar(
+          content: Text('사진 업로드에 실패했어요. 잠시 후 다시 시도해주세요.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -262,16 +331,18 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       _showLockedAvatarMessage();
       return;
     }
-    if (_isAvatarFlowActive || _isUploading.any((value) => value)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('아바타 생성 중에는 사진을 삭제할 수 없어요.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    if (_isSourceMutationBlocked) {
+      _showSourceLockedAvatarMessage();
       return;
     }
     setState(() {
+      final removedJobId = AvatarSourcePhotoService.queuedJobId(_photos[index]);
+      if (removedJobId != null && removedJobId == _activeAvatarJobId) {
+        _activeAvatarJobId = null;
+        _activeAvatarSourcePhotoId = null;
+        _activeSourceSelectionVersion = null;
+        _avatarFlowCancelled = true;
+      }
       _photos[index] = null;
       _isUploading[index] = false;
       _avatarGenerationError = null;
@@ -282,6 +353,15 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(lockedAvatarMessage),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _showSourceLockedAvatarMessage() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(sourceLockedAvatarMessage),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -319,16 +399,20 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   }
 
   String? _findPrimaryAvatarJobId() {
-    for (final value in _photos) {
-      final jobId = AvatarSourcePhotoService.queuedJobId(value);
-      if (jobId != null && jobId.isNotEmpty) return jobId;
-    }
-    return null;
+    final jobId = _activeAvatarJobId;
+    return jobId == null || jobId.isEmpty ? null : jobId;
   }
 
   Future<void> _startAvatarGeneration() async {
     final jobId = _findPrimaryAvatarJobId();
     if (jobId == null) {
+      if (_hasStartedAvatarSourceLock) {
+        _failAvatarGeneration(
+          sourceLockedAvatarFailureMessage,
+          phase: 'avatar_source_locked_missing_job',
+        );
+        return;
+      }
       // 큐잉된 새 아바타 작업이 없으면 이미 승인된 아바타가 있다고 보고
       // 다음 단계로 이동한다. 백엔드가 onboarding.avatarUrls에 승인된 URL만
       // 기록하므로 이 경로는 재방문(이미 승인 완료) 시나리오에 해당한다.
@@ -344,7 +428,12 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       _candidates = const [];
       _avatarFlowState = AvatarOnboardingFlowState.generatingAvatar;
     });
-    _logAvatarFlow('avatar_poll_start', jobId: jobId);
+    _logAvatarFlow(
+      'avatar_poll_start',
+      jobId: jobId,
+      photoId: _activeAvatarSourcePhotoId,
+      sourceSelectionVersion: _activeSourceSelectionVersion,
+    );
 
     try {
       final result = await _avatarClient.pollUntilPreviewReady(
@@ -364,7 +453,10 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
       if (result.status == AvatarJobStatus.noPreviewableCandidates) {
         _failAvatarGeneration(
-          '안전한 아바타 후보를 만들지 못했어요. 다른 사진으로 다시 시도해주세요.',
+          avatarGenerationFailureMessage(
+            status: result.status,
+            errorCode: result.errorCode,
+          ),
           phase: 'avatar_poll_no_previewable_candidates',
           jobId: jobId,
         );
@@ -373,7 +465,10 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
       if (result.status == AvatarJobStatus.failed) {
         _failAvatarGeneration(
-          '안전한 아바타 후보를 만들지 못했어요. 다른 사진으로 다시 시도해주세요.',
+          avatarGenerationFailureMessage(
+            status: result.status,
+            errorCode: result.errorCode,
+          ),
           phase: 'avatar_poll_failed_status',
           jobId: jobId,
         );
@@ -382,8 +477,24 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
       if (result.status == AvatarJobStatus.needsReview) {
         _failAvatarGeneration(
-          '안전한 아바타 후보를 만들지 못했어요. 다른 사진으로 다시 시도해주세요.',
+          avatarGenerationFailureMessage(
+            status: result.status,
+            errorCode: result.errorCode,
+          ),
           phase: 'avatar_poll_needs_review',
+          jobId: jobId,
+        );
+        return;
+      }
+
+      if (result.status == AvatarJobStatus.superseded ||
+          result.status == AvatarJobStatus.cancelled) {
+        _failAvatarGeneration(
+          avatarGenerationFailureMessage(
+            status: result.status,
+            errorCode: result.errorCode,
+          ),
+          phase: 'avatar_poll_terminal_${result.status.name}',
           jobId: jobId,
         );
         return;
@@ -391,7 +502,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
       if (result.candidates.isEmpty) {
         _failAvatarGeneration(
-          '아바타 후보를 받지 못했어요. 다시 시도해주세요.',
+          avatarGenericEmptyCandidateMessage,
           phase: 'avatar_poll_empty_candidates',
           jobId: jobId,
         );
@@ -409,14 +520,14 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     } on TimeoutException {
       if (!mounted) return;
       _failAvatarGeneration(
-        '아바타 생성이 지연되고 있어요. 잠시 후 다시 시도해주세요.',
+        avatarGenerationDelayedMessage,
         phase: 'avatar_poll_timeout',
         jobId: jobId,
       );
     } catch (e) {
       if (!mounted) return;
       _failAvatarGeneration(
-        '아바타 생성에 실패했어요. 다시 시도해주세요.',
+        avatarGenerationFailedMessage,
         phase: 'avatar_poll_exception',
         jobId: jobId,
         error: e,
@@ -561,6 +672,9 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     setState(() {
       _avatarFlowState = AvatarOnboardingFlowState.failed;
       _avatarGenerationError = message;
+      if (_activeAvatarJobId != null && _activeAvatarJobId!.isNotEmpty) {
+        _avatarSourceLocked = true;
+      }
     });
     _showErrorSnack(message);
   }
@@ -573,6 +687,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     AvatarJobStatus? status,
     int? candidateCount,
     int? slotIndex,
+    int? sourceSelectionVersion,
     Object? error,
   }) {
     final parts = <String>['[AvatarFlow]', phase];
@@ -582,6 +697,9 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     if (status != null) parts.add('status=${status.name}');
     if (candidateCount != null) parts.add('candidateCount=$candidateCount');
     if (slotIndex != null) parts.add('slotIndex=$slotIndex');
+    if (sourceSelectionVersion != null) {
+      parts.add('sourceSelectionVersion=$sourceSelectionVersion');
+    }
     if (error != null) parts.add('error=${_redactError(error)}');
     debugPrint(parts.join(' '));
   }
@@ -611,7 +729,8 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     );
     text = text.replaceAll(
       RegExp(
-        r'(X-Goog-[^=&\s]+|GoogleAccessId|Signature|Expires|X-Amz-[^=&\s]+)=([^&\s]+)',
+        r'(X-Goog-[^=&\s]+|Google'
+        r'AccessId|Signature|Expires|X-Amz-[^=&\s]+)=([^&\s]+)',
         caseSensitive: false,
       ),
       r'$1=<redacted>',
@@ -745,9 +864,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
                                 isLocked:
                                     _avatarLocked &&
                                     _photos[index] == _lockedApprovedAvatarUrl,
-                                isDisabled:
-                                    _isAvatarFlowActive ||
-                                    _isUploading.any((value) => value),
+                                isDisabled: _isSourceMutationBlocked,
                                 onAdd: () => _addPhoto(index),
                                 onRemove: () => _removePhoto(index),
                               );
@@ -765,10 +882,31 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
                               ),
                             ),
                           ],
+                          if (!_avatarLocked &&
+                              _hasStartedAvatarSourceLock) ...[
+                            const SizedBox(height: 16),
+                            const Text(
+                              sourceLockedAvatarMessage,
+                              style: TextStyle(
+                                fontFamily: 'Pretendard',
+                                fontSize: 13,
+                                color: _AppColors.textSub,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 24),
                           _ChatRealPhotoConsentNotice(
                             value: _chatPartnerRealPhotoDisclosure,
                             onChanged: (value) {
+                              if (_avatarLocked) {
+                                _showLockedAvatarMessage();
+                                return;
+                              }
+                              if (_isSourceMutationBlocked) {
+                                _showSourceLockedAvatarMessage();
+                                return;
+                              }
                               setState(() {
                                 _chatPartnerRealPhotoDisclosure = value;
                               });
@@ -1053,7 +1191,7 @@ class _PhotoSlot extends StatelessWidget {
         photoUrl,
       );
       return GestureDetector(
-        onTap: (isLocked || isDisabled) ? null : onAdd,
+        onTap: isLocked ? null : onAdd,
         child: Stack(
           children: [
             Container(
@@ -1194,7 +1332,7 @@ class _PhotoSlot extends StatelessWidget {
     }
 
     return GestureDetector(
-      onTap: (isLocked || isDisabled) ? null : onAdd,
+      onTap: isLocked ? null : onAdd,
       child: Container(
         decoration: BoxDecoration(
           color: _AppColors.surfaceLight,

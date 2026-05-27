@@ -103,7 +103,7 @@ String _safePreviewMimeType(Object? value) {
 String _safePreviewUrl(String? value) {
   final url = (value ?? '').trim();
   if (url.isEmpty) return '';
-  final lower = url.toLowerCase();
+  final lower = _decodeForSafety(url).toLowerCase();
   if (lower.startsWith('gs://') || lower.startsWith('gcs://')) return '';
   if (lower.contains('x-goog-signature') ||
       lower.contains('x-goog-credential') ||
@@ -114,7 +114,7 @@ String _safePreviewUrl(String? value) {
     return '';
   }
   if (RegExp(
-        r'seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp)',
+        r'seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp|chat-profile-photos)',
       ).hasMatch(lower) ||
       lower.contains('/source/') ||
       lower.contains('/jobs/') ||
@@ -122,6 +122,14 @@ String _safePreviewUrl(String? value) {
     return '';
   }
   return url;
+}
+
+String _decodeForSafety(String value) {
+  try {
+    return Uri.decodeComponent(value);
+  } on FormatException {
+    return value;
+  }
 }
 
 /// 백엔드 작업 상태.
@@ -136,6 +144,8 @@ enum AvatarJobStatus {
   needsReview,
   approved,
   failed,
+  superseded,
+  cancelled,
   unknown,
 }
 
@@ -160,8 +170,12 @@ AvatarJobStatus avatarJobStatusFromString(String? raw) {
     case 'completed':
       return AvatarJobStatus.approved;
     case 'failed':
-    case 'cancelled':
       return AvatarJobStatus.failed;
+    case 'superseded':
+      return AvatarJobStatus.superseded;
+    case 'cancelled':
+    case 'canceled':
+      return AvatarJobStatus.cancelled;
     default:
       return AvatarJobStatus.unknown;
   }
@@ -172,11 +186,13 @@ class AvatarCandidatesResult {
   final String jobId;
   final AvatarJobStatus status;
   final List<AvatarCandidate> candidates;
+  final String errorCode;
 
   const AvatarCandidatesResult({
     required this.jobId,
     required this.status,
     required this.candidates,
+    this.errorCode = '',
   });
 
   factory AvatarCandidatesResult.fromMap(Map<String, dynamic> map) {
@@ -201,6 +217,7 @@ class AvatarCandidatesResult {
       jobId: jobId,
       status: status,
       candidates: candidates,
+      errorCode: map['errorCode']?.toString().trim() ?? '',
     );
   }
 }

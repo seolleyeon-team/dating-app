@@ -227,11 +227,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         else:
             mode = "flux" if args.real_gpu else "dry_run"
             with tempfile.TemporaryDirectory(prefix="avatar-staging-smoke-") as temp_dir:
+                fake_storage = _fake_storage(payload)
+
+                def qa_runner(source_ref: str, candidate_ref: str, metadata: Dict[str, Any]):
+                    qa_metadata = dict(metadata)
+                    qa_metadata["_storage_client"] = fake_storage
+                    return _smoke_qa(source_ref, candidate_ref, qa_metadata)
+
                 result = process_avatar_generation_payload(
                     payload,
                     firestore_client=_fake_firestore(payload),
-                    storage_client=_fake_storage(payload),
-                    qa_runner=_smoke_qa,
+                    storage_client=fake_storage,
+                    qa_runner=qa_runner,
                     mode=mode,
                     fixture_output_dir=Path(temp_dir) if args.dry_run else None,
                 )

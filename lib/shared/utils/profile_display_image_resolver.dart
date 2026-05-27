@@ -35,6 +35,11 @@ class ProfileDisplayImageResolver {
         decodedLowerValue.startsWith('gcs://')) {
       return false;
     }
+    if (RegExp(
+      r'seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp|chat-profile-photos)',
+    ).hasMatch(decodedLowerValue)) {
+      return false;
+    }
     if (decodedLowerValue.contains('x-goog-') ||
         decodedLowerValue.contains('x-amz-') ||
         decodedLowerValue.contains('googleaccessid') ||
@@ -44,10 +49,24 @@ class ProfileDisplayImageResolver {
         decodedLowerValue.contains('signedurl')) {
       return false;
     }
+    if (decodedLowerValue.contains('/source/') ||
+        decodedLowerValue.contains('/jobs/') ||
+        decodedLowerValue.contains('/candidates/')) {
+      return false;
+    }
     final uri = Uri.tryParse(value);
     if (uri == null) return false;
     final host = uri.host.toLowerCase();
     final path = Uri.decodeFull(uri.path).toLowerCase();
+    final bucketFromVirtualHost = host.endsWith('.storage.googleapis.com')
+        ? host.replaceFirst('.storage.googleapis.com', '')
+        : '';
+    if (bucketFromVirtualHost.isNotEmpty &&
+        RegExp(
+          r'seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp|chat-profile-photos)',
+        ).hasMatch(bucketFromVirtualHost)) {
+      return false;
+    }
     if ((host == 'storage.googleapis.com' ||
             host == 'firebasestorage.googleapis.com') &&
         (path.contains('/source/') ||

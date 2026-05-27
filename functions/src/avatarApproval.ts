@@ -68,6 +68,72 @@ function readMap(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }
 
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value.map((item) => asString(item)).filter((item) => item.length > 0),
+    ),
+  );
+}
+
+function safeDecodeUriComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function isSafePublicApprovedAvatarUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  const decodedLower = safeDecodeUriComponent(trimmed).toLowerCase();
+  if (
+    decodedLower.startsWith("gs://") ||
+    decodedLower.startsWith("gcs://") ||
+    /seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp|chat-profile-photos)/.test(
+      decodedLower,
+    ) ||
+    decodedLower.includes("x-goog-") ||
+    decodedLower.includes("x-amz-") ||
+    decodedLower.includes("googleaccessid") ||
+    decodedLower.includes("signature=") ||
+    decodedLower.includes("expires=") ||
+    decodedLower.includes("awsaccesskeyid") ||
+    decodedLower.includes("signedurl") ||
+    /\/source\//.test(decodedLower) ||
+    /\/jobs\//.test(decodedLower) ||
+    /\/candidates\//.test(decodedLower)
+  ) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const host = parsed.hostname.toLowerCase();
+    const path = safeDecodeUriComponent(parsed.pathname).toLowerCase();
+    const bucketFromVirtualHost = host.endsWith(".storage.googleapis.com")
+      ? host.replace(".storage.googleapis.com", "")
+      : "";
+    if (
+      /seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp|chat-profile-photos)/.test(
+        bucketFromVirtualHost,
+      ) ||
+      /\/source\//.test(path) ||
+      /\/jobs\//.test(path) ||
+      /\/candidates\//.test(path)
+    ) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  return true;
+}
+
 function requirePathSegment(value: string, label: string): string {
   const normalized = value.trim();
   if (!/^[A-Za-z0-9_-]+$/.test(normalized)) {
@@ -200,6 +266,136 @@ export function canPreviewCandidate(
   );
 }
 
+type AvatarCurrentJobContractResult =
+  | {
+      ok: true;
+      currentAvatarSourcePhotoId: string;
+    }
+  | {
+      ok: false;
+      errorCode: "avatar_job_superseded";
+      reason: string;
+    };
+
+function sourcePhotoIdsForJob(jobData: Record<string, unknown>): string[] {
+  const sourcePhotoIds = normalizeStringList(jobData.sourcePhotoIds);
+  const legacySourcePhotoId = asString(jobData.sourcePhotoId);
+  return legacySourcePhotoId && !sourcePhotoIds.includes(legacySourcePhotoId)
+    ? [...sourcePhotoIds, legacySourcePhotoId]
+    : sourcePhotoIds;
+}
+
+function currentSourceEntry(
+  privateData: Record<string, unknown>,
+  currentAvatarSourcePhotoId: string,
+): Record<string, unknown> | null {
+  const sourcePhotos = Array.isArray(privateData.sourcePhotos)
+    ? privateData.sourcePhotos
+    : [];
+  for (const entry of sourcePhotos) {
+    if (
+      isRecord(entry) &&
+      asString(entry.photoId) === currentAvatarSourcePhotoId
+    ) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+function numericValue(value: unknown): number | null {
+  const parsed =
+    typeof value === "number" ? value : value == null ? NaN : Number(value);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+}
+
+export function checkCurrentAvatarJobContract(params: {
+  jobId: string;
+  jobData: Record<string, unknown>;
+  privateData: Record<string, unknown>;
+}): AvatarCurrentJobContractResult {
+  const currentAvatarJobId = asString(params.privateData.currentAvatarJobId);
+  if (currentAvatarJobId !== params.jobId) {
+    return {
+      ok: false,
+      errorCode: "avatar_job_superseded",
+      reason: "current_job_mismatch",
+    };
+  }
+
+  const currentAvatarSourcePhotoId = asString(
+    params.privateData.currentAvatarSourcePhotoId,
+  );
+  if (!currentAvatarSourcePhotoId) {
+    return {
+      ok: false,
+      errorCode: "avatar_job_superseded",
+      reason: "missing_current_source",
+    };
+  }
+
+  if (
+    !sourcePhotoIdsForJob(params.jobData).includes(currentAvatarSourcePhotoId)
+  ) {
+    return {
+      ok: false,
+      errorCode: "avatar_job_superseded",
+      reason: "job_source_mismatch",
+    };
+  }
+
+  const sourceEntry = currentSourceEntry(
+    params.privateData,
+    currentAvatarSourcePhotoId,
+  );
+  if (
+    !sourceEntry ||
+    asString(sourceEntry.status) !== "active" ||
+    asString(sourceEntry.avatarGenerationState) !== "current"
+  ) {
+    return {
+      ok: false,
+      errorCode: "avatar_job_superseded",
+      reason: "source_not_current",
+    };
+  }
+
+  const privateSelectionVersion = numericValue(
+    params.privateData.avatarSourceSelectionVersion,
+  );
+  const jobSelectionVersion = numericValue(
+    params.jobData.avatarSourceSelectionVersion,
+  );
+  if (
+    privateSelectionVersion !== null &&
+    jobSelectionVersion !== null &&
+    privateSelectionVersion !== jobSelectionVersion
+  ) {
+    return {
+      ok: false,
+      errorCode: "avatar_job_superseded",
+      reason: "selection_version_mismatch",
+    };
+  }
+
+  return { ok: true, currentAvatarSourcePhotoId };
+}
+
+function assertCurrentAvatarJobContract(
+  result: AvatarCurrentJobContractResult,
+): asserts result is Extract<AvatarCurrentJobContractResult, { ok: true }> {
+  if (result.ok) return;
+  throw new HttpsError("failed-precondition", result.errorCode);
+}
+
+function isAvatarJobSupersededError(error: unknown): boolean {
+  return (
+    error instanceof HttpsError &&
+    error.code === "failed-precondition" &&
+    error.message.includes("avatar_job_superseded")
+  );
+}
+
 type AvatarApprovalStatePlan =
   | {
       action: "return_existing";
@@ -233,14 +429,15 @@ export function planAvatarApprovalState(
   const avatar = readMap(userData.avatar);
   const status = asString(avatar.status);
   const selectedCandidateId = asString(avatar.selectedCandidateId);
+  const approvedAvatarUrl = asString(avatar.approvedAvatarUrl);
   if (
     status === "approved" &&
     selectedCandidateId === candidateId &&
-    asString(avatar.approvedAvatarUrl)
+    isSafePublicApprovedAvatarUrl(approvedAvatarUrl)
   ) {
     return {
       action: "return_existing",
-      approvedAvatarUrl: asString(avatar.approvedAvatarUrl),
+      approvedAvatarUrl,
       avatarId: asString(avatar.avatarId),
       selectedCandidateId: candidateId,
       sourceJobId: asString(avatar.sourceJobId) || undefined,
@@ -327,6 +524,33 @@ async function runtimePreviewImagePayload(ref: GcsRef): Promise<{
   };
 }
 
+function safeAvatarJobErrorCode(value: unknown): string {
+  const raw = asString(value).trim();
+  return /^[a-z0-9_]{1,80}$/.test(raw) ? raw : "";
+}
+
+export function avatarPreviewResponseStatus(params: {
+  jobStatus: string;
+  currentContractOk: boolean;
+  candidateCount: number;
+  previewableCandidateCount: number;
+}): string {
+  if (
+    !params.currentContractOk &&
+    !["approved", "failed", "cancelled", "canceled"].includes(params.jobStatus)
+  ) {
+    return "superseded";
+  }
+  if (
+    params.jobStatus === "preview_ready" &&
+    params.candidateCount > 0 &&
+    params.previewableCandidateCount === 0
+  ) {
+    return "no_previewable_candidates";
+  }
+  return params.jobStatus;
+}
+
 export function createGetAvatarJobCandidatesFunction(
   firestore: Firestore,
   resolveUser: ResolveAvatarApiUser,
@@ -349,56 +573,78 @@ export function createGetAvatarJobCandidatesFunction(
       }
       const jobData = (jobSnap.data() ?? {}) as Record<string, unknown>;
       assertJobOwnedByUser(jobData, uid);
-
-      const candidateSnap = await firestore
-        .collection("avatarCandidates")
-        .where("jobId", "==", jobId)
-        .where("uid", "==", uid)
+      const jobStatus = asString(jobData.status);
+      const privateSnap = await firestore
+        .collection("userPrivateMedia")
+        .doc(uid)
         .get();
+      const currentContract = checkCurrentAvatarJobContract({
+        jobId,
+        jobData,
+        privateData: (privateSnap.data() ?? {}) as Record<string, unknown>,
+      });
+      const canReturnCandidates =
+        jobStatus === "preview_ready" && currentContract.ok;
+
+      const candidateDocs = canReturnCandidates
+        ? (
+            await firestore
+              .collection("avatarCandidates")
+              .where("jobId", "==", jobId)
+              .where("uid", "==", uid)
+              .get()
+          ).docs
+        : [];
 
       const nowMs = Date.now();
-      const candidates = await Promise.all(
-        candidateSnap.docs
-          .map((doc) => ({
-            id: doc.id,
-            data: (doc.data() ?? {}) as Record<string, unknown>,
-          }))
-          .filter(({ data: candidate }) =>
-            canPreviewCandidate(candidate, nowMs),
+      const candidates = canReturnCandidates
+        ? await Promise.all(
+            candidateDocs
+              .map((doc) => ({
+                id: doc.id,
+                data: (doc.data() ?? {}) as Record<string, unknown>,
+              }))
+              .filter(({ data: candidate }) =>
+                canPreviewCandidate(candidate, nowMs),
+              )
+              .map(async ({ id, data: candidate }) => {
+                const candidateId = asString(candidate.candidateId) || id;
+                const imageRef = assertTempCandidateRef(
+                  asString(candidate.imageRef),
+                );
+                return {
+                  candidateId,
+                  ...(await runtimePreviewImagePayload(imageRef)),
+                  qaSummary: {
+                    status: "pass",
+                  },
+                };
+              }),
           )
-          .map(async ({ id, data: candidate }) => {
-            const candidateId = asString(candidate.candidateId) || id;
-            const imageRef = assertTempCandidateRef(
-              asString(candidate.imageRef),
-            );
-            return {
-              candidateId,
-              ...(await runtimePreviewImagePayload(imageRef)),
-              qaSummary: {
-                status: "pass",
-              },
-            };
-          }),
-      );
-      const jobStatus = asString(jobData.status);
-      const responseStatus =
-        jobStatus === "preview_ready" &&
-        candidateSnap.docs.length > 0 &&
-        candidates.length === 0
-          ? "no_previewable_candidates"
-          : jobStatus;
+        : [];
+      const responseStatus = avatarPreviewResponseStatus({
+        jobStatus,
+        currentContractOk: currentContract.ok,
+        candidateCount: candidateDocs.length,
+        previewableCandidateCount: candidates.length,
+      });
+      const errorCode =
+        responseStatus === "superseded" && !currentContract.ok
+          ? currentContract.errorCode
+          : safeAvatarJobErrorCode(jobData.errorCode);
 
       logger.info("Avatar preview candidates fetched", {
         uid: logIdentifier("uid", uid),
         jobId: logIdentifier("job", jobId),
         status: responseStatus,
-        candidateCount: candidateSnap.docs.length,
+        candidateCount: candidateDocs.length,
         previewableCandidateCount: candidates.length,
       });
 
       return {
         jobId,
         status: responseStatus,
+        ...(errorCode ? { errorCode } : {}),
         candidates,
       };
     },
@@ -427,6 +673,7 @@ export function createApproveAvatarCandidateFunction(
         .collection("avatarCandidates")
         .doc(candidateId);
       const userRef = firestore.collection("users").doc(uid);
+      const privateRef = firestore.collection("userPrivateMedia").doc(uid);
 
       const [candidateSnap, userSnap] = await Promise.all([
         candidateRef.get(),
@@ -466,17 +713,27 @@ export function createApproveAvatarCandidateFunction(
       }
       const jobData = (jobSnap.data() ?? {}) as Record<string, unknown>;
       assertJobOwnedByUser(jobData, uid);
+      const privateSnap = await privateRef.get();
+      assertCurrentAvatarJobContract(
+        checkCurrentAvatarJobContract({
+          jobId,
+          jobData,
+          privateData: (privateSnap.data() ?? {}) as Record<string, unknown>,
+        }),
+      );
 
       const sourceImage = assertTempCandidateRef(
         asString(candidateData.imageRef),
       );
 
       const reservation = await firestore.runTransaction(async (tx) => {
-        const [freshCandidate, freshUser, freshJob] = await Promise.all([
-          tx.get(candidateRef),
-          tx.get(userRef),
-          tx.get(jobRef),
-        ]);
+        const [freshCandidate, freshUser, freshJob, freshPrivate] =
+          await Promise.all([
+            tx.get(candidateRef),
+            tx.get(userRef),
+            tx.get(jobRef),
+            tx.get(privateRef),
+          ]);
         if (!freshCandidate.exists || !freshUser.exists || !freshJob.exists) {
           throw new HttpsError(
             "failed-precondition",
@@ -495,6 +752,13 @@ export function createApproveAvatarCandidateFunction(
         const freshJobData = (freshJob.data() ?? {}) as Record<string, unknown>;
         assertCandidateOwnedByUser(freshCandidateData, uid);
         assertJobOwnedByUser(freshJobData, uid);
+        assertCurrentAvatarJobContract(
+          checkCurrentAvatarJobContract({
+            jobId,
+            jobData: freshJobData,
+            privateData: (freshPrivate.data() ?? {}) as Record<string, unknown>,
+          }),
+        );
 
         const plan = planAvatarApprovalState(freshUserData, candidateId);
         if (plan.action === "return_existing") {
@@ -623,11 +887,13 @@ export function createApproveAvatarCandidateFunction(
         });
 
         await firestore.runTransaction(async (tx) => {
-          const [freshCandidate, freshUser, freshJob] = await Promise.all([
-            tx.get(candidateRef),
-            tx.get(userRef),
-            tx.get(jobRef),
-          ]);
+          const [freshCandidate, freshUser, freshJob, freshPrivate] =
+            await Promise.all([
+              tx.get(candidateRef),
+              tx.get(userRef),
+              tx.get(jobRef),
+              tx.get(privateRef),
+            ]);
           if (!freshCandidate.exists || !freshUser.exists || !freshJob.exists) {
             throw new HttpsError(
               "failed-precondition",
@@ -649,6 +915,16 @@ export function createApproveAvatarCandidateFunction(
           >;
           assertCandidateOwnedByUser(freshCandidateData, uid);
           assertJobOwnedByUser(freshJobData, uid);
+          assertCurrentAvatarJobContract(
+            checkCurrentAvatarJobContract({
+              jobId,
+              jobData: freshJobData,
+              privateData: (freshPrivate.data() ?? {}) as Record<
+                string,
+                unknown
+              >,
+            }),
+          );
 
           const plan = planAvatarApprovalState(freshUserData, candidateId);
           if (plan.action === "return_existing") {
@@ -689,6 +965,9 @@ export function createApproveAvatarCandidateFunction(
               updatedAt: FieldValue.serverTimestamp(),
             },
             "onboarding.avatarUrls": [reservation.approvedAvatarUrl],
+            "onboarding.avatarGenerationJobId": FieldValue.delete(),
+            "onboarding.avatarSourceSelectionVersion": FieldValue.delete(),
+            "onboarding.sourcePhotoUploadStatus": FieldValue.delete(),
             "onboarding.photoUrls": writeLegacyOnboardingPhotoUrls()
               ? [reservation.approvedAvatarUrl]
               : FieldValue.delete(),
@@ -737,20 +1016,23 @@ export function createApproveAvatarCandidateFunction(
             );
           }
         }
-        await userRef.set(
-          {
-            avatar: {
-              status: "approval_copy_failed",
-              avatarId: reservation.avatarId,
-              selectedCandidateId: candidateId,
-              sourceJobId: jobId,
-              approvedAvatarStoragePath: reservation.approvedAvatarStoragePath,
+        if (!isAvatarJobSupersededError(error)) {
+          await userRef.set(
+            {
+              avatar: {
+                status: "approval_copy_failed",
+                avatarId: reservation.avatarId,
+                selectedCandidateId: candidateId,
+                sourceJobId: jobId,
+                approvedAvatarStoragePath:
+                  reservation.approvedAvatarStoragePath,
+                updatedAt: FieldValue.serverTimestamp(),
+              },
               updatedAt: FieldValue.serverTimestamp(),
             },
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true },
-        );
+            { merge: true },
+          );
+        }
         throw error;
       }
 
