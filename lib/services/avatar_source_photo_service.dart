@@ -11,6 +11,7 @@ class AvatarSourcePhotoUploadResult {
   final String avatarStatus;
   final String message;
   final bool duplicate;
+  final int? sourceSelectionVersion;
 
   const AvatarSourcePhotoUploadResult({
     required this.jobId,
@@ -18,6 +19,7 @@ class AvatarSourcePhotoUploadResult {
     required this.avatarStatus,
     required this.message,
     required this.duplicate,
+    this.sourceSelectionVersion,
   });
 
   factory AvatarSourcePhotoUploadResult.fromMap(Map<String, dynamic> data) {
@@ -27,6 +29,9 @@ class AvatarSourcePhotoUploadResult {
       avatarStatus: data['avatarStatus']?.toString() ?? '',
       message: data['message']?.toString() ?? '',
       duplicate: data['duplicate'] == true,
+      sourceSelectionVersion: int.tryParse(
+        data['sourceSelectionVersion']?.toString() ?? '',
+      ),
     );
   }
 }
@@ -34,7 +39,16 @@ class AvatarSourcePhotoUploadResult {
 class AvatarAlreadyApprovedException implements Exception {
   const AvatarAlreadyApprovedException();
 
-  static const message = '이미 등록된 아바타가 있어요. 프로필 이미지는 삭제하거나 변경할 수 없어요.';
+  static const message = '아바타가 등록되어 있어요. 프로필 이미지는 삭제하거나 변경할 수 없어요.';
+
+  @override
+  String toString() => message;
+}
+
+class AvatarSourceLockedException implements Exception {
+  const AvatarSourceLockedException();
+
+  static const message = '아바타 생성이 시작되어 사진을 변경할 수 없어요.';
 
   @override
   String toString() => message;
@@ -113,6 +127,10 @@ class AvatarSourcePhotoService {
       if (error.code == 'failed-precondition' &&
           (error.message ?? '').contains('avatar_already_approved')) {
         throw const AvatarAlreadyApprovedException();
+      }
+      if (error.code == 'failed-precondition' &&
+          (error.message ?? '').contains('avatar_source_locked')) {
+        throw const AvatarSourceLockedException();
       }
       rethrow;
     }

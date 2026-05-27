@@ -227,6 +227,56 @@ class Florence2TraitExtractionAdapter:
         def has_any(*needles: str) -> bool:
             return any(needle in text for needle in needles)
 
+        face_and_eyes_visible = has_any(
+            "face",
+            "portrait",
+            "head and shoulders",
+            "head-and-shoulders",
+            "eyes",
+            "eye",
+            "looking",
+            "person",
+        )
+        no_eyewear_phrase = has_any(
+            "without glasses",
+            "no glasses",
+            "no eyeglasses",
+            "no eyewear",
+            "not wearing glasses",
+            "bare eyes",
+            "unobstructed eyes",
+        )
+        eyewear_detected = has_any(
+            "glasses",
+            "eyeglasses",
+            "spectacles",
+            "eyewear",
+            "sunglasses",
+        ) and not no_eyewear_phrase
+        eyewear_present = "unclear"
+        eyewear_style = "unclear"
+        eyewear_confidence = "unclear"
+        eyewear_source = "florence"
+        if eyewear_detected:
+            eyewear_present = "yes"
+            eyewear_confidence = "high" if has_any("wearing glasses", "wearing eyeglasses", "sunglasses") else "medium"
+            if has_any("sunglasses"):
+                eyewear_style = "sunglasses"
+            elif has_any("clear frame", "clear-frame", "transparent frame"):
+                eyewear_style = "clear_frame"
+            elif has_any("round glasses", "round frame", "round-framed"):
+                eyewear_style = "round_dark" if has_any("black", "dark") else "round_metal"
+            elif has_any("rectangular glasses", "square glasses", "rectangular frame"):
+                eyewear_style = "rectangular_dark" if has_any("black", "dark") else "rectangular_metal"
+            elif has_any("metal frame", "thin frame", "wire frame"):
+                eyewear_style = "thin_metal"
+            else:
+                eyewear_style = "other_simple"
+        elif no_eyewear_phrase or face_and_eyes_visible:
+            eyewear_present = "no"
+            eyewear_style = "none"
+            eyewear_confidence = "high" if no_eyewear_phrase else "medium"
+
         hair_length = "unclear"
         if has_any("long hair", "long-haired"):
             hair_length = "long"
@@ -244,6 +294,32 @@ class Florence2TraitExtractionAdapter:
             hair_color = "brown"
         elif has_any("light brown hair"):
             hair_color = "light_brown"
+
+        hair_bangs = "unclear"
+        if has_any("curtain bangs"):
+            hair_bangs = "curtain_bangs"
+        elif has_any("side bangs"):
+            hair_bangs = "side_bangs"
+        elif has_any("full bangs", "straight bangs"):
+            hair_bangs = "full_bangs"
+        elif has_any("bangs", "fringe"):
+            hair_bangs = "soft_bangs"
+
+        facial_hair_present = "unclear"
+        facial_hair_style = "unclear"
+        if has_any("clean-shaven", "clean shaven", "no facial hair"):
+            facial_hair_present = "no"
+            facial_hair_style = "none"
+        elif has_any("stubble", "mustache", "moustache", "beard", "goatee"):
+            facial_hair_present = "yes"
+            if has_any("stubble"):
+                facial_hair_style = "stubble"
+            elif has_any("mustache", "moustache"):
+                facial_hair_style = "mustache"
+            elif has_any("goatee"):
+                facial_hair_style = "goatee"
+            else:
+                facial_hair_style = "short_beard"
 
         clothing_category = "unclear"
         for keyword, value in (
@@ -306,19 +382,29 @@ class Florence2TraitExtractionAdapter:
                 "hair_length": hair_length,
                 "hair_volume": "unclear",
                 "hair_direction": "unclear",
+                "hair_bangs": hair_bangs,
                 "hair_color_range": hair_color,
-                "eyewear_present": "yes" if has_any("glasses", "eyewear") else "unclear",
-                "eyewear_style": "unclear",
+                "eyewear_present": eyewear_present,
+                "eyewear_style": eyewear_style,
+                "eyewear_confidence": eyewear_confidence,
+                "eyewear_source": eyewear_source,
+                "facial_hair_present": facial_hair_present,
+                "facial_hair_style": facial_hair_style,
                 "face_shape_category": "unclear",
+                "facial_feature_balance": "unclear",
                 "eye_size_category": "unclear",
                 "eye_tilt_category": "unclear",
+                "eye_shape_mood": "unclear",
                 "brow_thickness": "unclear",
+                "brow_shape": "unclear",
                 "nose_prominence": "unclear",
+                "nose_bridge_impression": "unclear",
                 "cheek_fullness": "unclear",
                 "jaw_impression": "unclear",
                 "mouth_expression": "subtle_smile"
                 if has_any("smile", "smiling")
                 else "unclear",
+                "mouth_fullness_category": "unclear",
                 "skin_tone_range": "unclear",
                 "expression_mood": "calm"
                 if has_any("calm", "neutral")

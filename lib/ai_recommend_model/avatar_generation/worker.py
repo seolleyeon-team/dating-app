@@ -29,6 +29,10 @@ from avatar_generation.preprocessing import (
     preprocess_reference_image,
     validate_reference_preprocess_enabled_for_environment,
 )
+from avatar_generation.preview_policy import (
+    is_preview_eligible,
+    passes_absolute_preview_checks,
+)
 from avatar_generation.qa import AvatarQAResult, run_avatar_candidate_qa
 from avatar_generation.rerank import rerank_preview_candidates
 from avatar_generation.seolleyeon_avatar_prompt_builder_v4 import (
@@ -38,6 +42,7 @@ from avatar_generation.seolleyeon_avatar_prompt_builder_v4 import (
 from avatar_generation.storage import build_temp_candidate_ref, build_temp_candidate_path
 from avatar_generation.trait_card import (
     TraitCardValidationResult,
+    merge_trait_card_with_broad_hints,
     normalize_avatar_presentation_gender,
 )
 
@@ -60,8 +65,30 @@ DEFAULT_STEPS = 4
 DEFAULT_GUIDANCE_SCALE = 1.0
 DEFAULT_REFERENCE_PRIVACY_DOWNSAMPLE_SIZE = 96
 DEFAULT_REFERENCE_PRIVACY_BLUR_RADIUS = 1.5
+TERMINAL_JOB_STATUSES = {
+    "preview_ready",
+    "approved",
+    "cancelled",
+    "canceled",
+    "superseded",
+    "needs_review",
+    "no_previewable_candidates",
+}
+NORMALIZED_STAGE_COST_KEYS = (
+    ("model_load_seconds", "modelLoadSeconds"),
+    ("face_detect_seconds", "faceDetectSeconds"),
+    ("trait_extract_seconds", "traitExtractSeconds"),
+    ("preprocess_seconds", "preprocessSeconds"),
+    ("sam_seconds", "samSeconds"),
+    ("generation_seconds", "generationSeconds"),
+    ("qa_seconds", "qaSeconds"),
+    ("rerank_seconds", "rerankSeconds"),
+    ("upload_seconds", "uploadSeconds"),
+    ("total_worker_seconds", "totalWorkerSeconds"),
+)
 
 logger = logging.getLogger(__name__)
+_TRAIT_ADAPTER_CACHE: Dict[Tuple[Any, ...], Florence2TraitExtractionAdapter] = {}
 
 
 class AvatarGenerationError(RuntimeError):
@@ -108,6 +135,21 @@ class AvatarWorkerDeadline:
     def remaining_seconds(self) -> float:
         limit = min(self.max_request_seconds, self.max_job_seconds)
         return max(0.0, float(limit) - self.elapsed_seconds())
+
+    def capped_by_claim_deadline(
+        self,
+        deadline: Optional[ClaimDeadline],
+    ) -> "AvatarWorkerDeadline":
+        if deadline is None:
+            return self
+        remaining = deadline.remaining_seconds()
+        available = max(0, int(remaining - max(0, deadline.safety_seconds)))
+        return AvatarWorkerDeadline(
+            started_at=self.started_at,
+            max_request_seconds=min(self.max_request_seconds, available),
+            max_job_seconds=min(self.max_job_seconds, available),
+            soft_stop_margin_seconds=self.soft_stop_margin_seconds,
+        )
 
     def ensure_can_continue(self, stage: str, *, min_remaining_seconds: int = 0) -> None:
         required = max(0, min_remaining_seconds) + max(0, self.soft_stop_margin_seconds)
@@ -399,6 +441,14 @@ def _trait_extraction_enabled(run_mode: str) -> bool:
     return _bool_env_default("AVATAR_TRAIT_EXTRACTION_ENABLED", run_mode == "flux")
 
 
+def _candidate_trait_qa_enabled(run_mode: str) -> bool:
+    return _bool_env_default("AVATAR_CANDIDATE_TRAIT_QA_ENABLED", run_mode == "flux")
+
+
+def _trait_extraction_uses_privacy_reference() -> bool:
+    return _bool_env_default("AVATAR_TRAIT_USE_PRIVACY_REFERENCE", False)
+
+
 def _trait_require_validated() -> bool:
     return _bool_env_default("AVATAR_TRAIT_REQUIRE_VALIDATED", True)
 
@@ -433,6 +483,35 @@ def _reference_preprocess_config_from_env() -> ReferencePreprocessConfig:
         sam_model_path=os.environ.get("AVATAR_SAM_MODEL_PATH", "").strip() or None,
         sam_model_type=os.environ.get("AVATAR_SAM_MODEL_TYPE", "").strip() or "vit_b",
         sam_device=os.environ.get("AVATAR_SAM_DEVICE", "").strip() or None,
+        background_neutralization_enabled=_bool_env_default(
+            "AVATAR_BACKGROUND_NEUTRALIZATION_ENABLED",
+            True,
+        ),
+        background_neutral_color=os.environ.get(
+            "AVATAR_BACKGROUND_NEUTRAL_COLOR",
+            "#F7F2EC",
+        ).strip()
+        or "#F7F2EC",
+        secondary_face_blur_radius=_float_env(
+            "AVATAR_SECONDARY_FACE_BLUR_RADIUS",
+            12.0,
+            minimum=0.0,
+            maximum=48.0,
+        ),
+        background_blur_radius=_float_env(
+            "AVATAR_BACKGROUND_BLUR_RADIUS",
+            10.0,
+            minimum=0.0,
+            maximum=64.0,
+        ),
+        background_desaturate=_bool_env_default(
+            "AVATAR_BACKGROUND_DESATURATE",
+            True,
+        ),
+        background_text_logo_blur=_bool_env_default(
+            "AVATAR_BACKGROUND_TEXT_LOGO_BLUR",
+            True,
+        ),
         metadata_extra={
             "referencePreprocessVersion": "region_privacy_v1",
             "enabled": True,
@@ -605,6 +684,28 @@ def redact_error_message(value: Any) -> str:
     return text[:240]
 
 
+def _sha256_prefix_bytes(data: bytes, *, length: int = 16) -> str:
+    return hashlib.sha256(data).hexdigest()[:length]
+
+
+def _image_sha256_prefix(image: Image.Image) -> str:
+    return _sha256_prefix_bytes(image_to_png_bytes(image))
+
+
+def _json_sha256_prefix(value: Any) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    ).encode("utf-8")
+    return _sha256_prefix_bytes(encoded)
+
+
+def _text_sha256_prefix(value: str) -> str:
+    return _sha256_prefix_bytes(str(value or "").encode("utf-8"))
+
+
 def _doc_ref(client: Any, collection: str, doc_id: str) -> Any:
     col = client.collection(collection)
     if hasattr(col, "document"):
@@ -649,7 +750,7 @@ def _assert_job_can_run(job_doc: Optional[Dict[str, Any]], payload: AvatarGenera
         raise AvatarGenerationError("avatarJobs document was not found.")
     if str(job_doc.get("uid") or "") != payload.uid:
         raise AvatarGenerationError("avatarJobs uid does not match payload uid.")
-    if str(job_doc.get("status") or "") in {"preview_ready", "approved"}:
+    if str(job_doc.get("status") or "") in TERMINAL_JOB_STATUSES:
         raise AvatarGenerationError("Avatar job is already complete.")
 
 
@@ -709,10 +810,12 @@ class Flux2KleinImageGenerator:
     def __init__(self, model_id: str = FLUX2_KLEIN_MODEL_ID) -> None:
         self.model_id = model_id
         self._pipeline: Any = None
+        self.model_load_seconds_total = 0.0
 
     def _load_pipeline(self) -> Any:
         if self._pipeline is not None:
             return self._pipeline
+        started_at = time.perf_counter()
         try:
             import torch
             from diffusers import Flux2KleinPipeline
@@ -729,6 +832,10 @@ class Flux2KleinImageGenerator:
         elif hasattr(pipe, "enable_model_cpu_offload"):
             pipe.enable_model_cpu_offload()
         self._pipeline = pipe
+        self.model_load_seconds_total = round(
+            self.model_load_seconds_total + _elapsed_seconds(started_at),
+            3,
+        )
         return pipe
 
     def generate(
@@ -810,11 +917,14 @@ def generate_candidate_artifacts(
     trait_card: PromptAvatarTraitCard | None = None,
     privacy_reference_image: Optional[Image.Image] = None,
     reference_preprocess_metadata: Optional[Mapping[str, Any]] = None,
+    source_reference_audit: Optional[Mapping[str, Any]] = None,
     candidate_start_index: int = 0,
     candidate_count: Optional[int] = None,
+    seconds_by_stage: Optional[Dict[str, float]] = None,
 ) -> List[CandidateArtifact]:
     artifacts: List[CandidateArtifact] = []
     generator = get_flux2_klein_generator(payload.model_id) if mode == "flux" else None
+    model_load_seconds_before = _generator_model_load_seconds(generator)
     generation_reference = (
         privacy_reference_image
         or prepare_privacy_reference_image(source_image, source_analysis=source_analysis)
@@ -832,6 +942,7 @@ def generate_candidate_artifacts(
             candidate_count=total_count,
             seed=seed,
         )
+        prompt_hash = _text_sha256_prefix(prompt.positive)
         if mode == "flux":
             assert generator is not None
             image = generator.generate(
@@ -847,11 +958,12 @@ def generate_candidate_artifacts(
             job_id=payload.job_id,
             candidate_id=candidate_id,
         )
+        candidate_image_bytes = image_to_png_bytes(image)
         artifacts.append(
             CandidateArtifact(
                 candidate_id=candidate_id,
                 image_ref=image_ref,
-                image_bytes=image_to_png_bytes(image),
+                image_bytes=candidate_image_bytes,
                 seed=seed,
                 generation_params={
                     "modelId": payload.model_id,
@@ -865,10 +977,26 @@ def generate_candidate_artifacts(
                     "referencePreprocess": dict(reference_preprocess_metadata or {}),
                     "promptVersion": str(prompt.meta.get("prompt_version") or "seolleyeon_avatar_v4"),
                     "promptBuilder": "seolleyeon_avatar_prompt_builder_v4",
+                    "promptHash": prompt_hash,
+                    "candidateSeed": seed,
+                    "sourceReferenceAudit": dict(source_reference_audit or {}),
+                    "sourceImageSha256Prefix": (
+                        source_reference_audit or {}
+                    ).get("sourceImageSha256Prefix"),
+                    "privacyReferenceSha256Prefix": (
+                        source_reference_audit or {}
+                    ).get("privacyReferenceSha256Prefix"),
+                    "traitCardHash": (source_reference_audit or {}).get("traitCardHash"),
                     "promptMeta": dict(prompt.meta),
                     "generationKwargs": dict(prompt.generation_kwargs),
                 },
             )
+        )
+    if seconds_by_stage is not None and generator is not None:
+        _add_stage_seconds(
+            seconds_by_stage,
+            "model_load_seconds",
+            _generator_model_load_seconds(generator) - model_load_seconds_before,
         )
     return artifacts
 
@@ -894,9 +1022,19 @@ def _write_fixture_file(output_dir: Path, artifact: CandidateArtifact) -> None:
 
 
 def _candidate_status_from_qa(qa_doc: Mapping[str, Any]) -> str:
-    if qa_doc.get("previewAllowed") is True:
-        return "preview_ready"
+    candidate_for_gate = {"status": "hard_pass", "qa": qa_doc}
+    if qa_doc.get("rejectReasons"):
+        return "rejected"
     if qa_doc.get("requiresHumanReview") is True:
+        return "needs_review"
+    if qa_doc.get("previewAllowed") is True and passes_absolute_preview_checks(candidate_for_gate):
+        return "hard_pass"
+    if (
+        (qa_doc.get("softPass") is True or qa_doc.get("soft_pass") is True)
+        and passes_absolute_preview_checks({"status": "soft_pass", "qa": qa_doc})
+    ):
+        return "soft_pass"
+    if qa_doc.get("previewAllowed") is True or qa_doc.get("softPass") is True or qa_doc.get("soft_pass") is True:
         return "needs_review"
     return "rejected"
 
@@ -926,19 +1064,119 @@ def _candidate_doc(
     }
 
 
-def _update_job_status(firestore_client: Any, job_id: str, payload: Dict[str, Any]) -> None:
-    _set_doc(
-        _doc_ref(firestore_client, "avatarJobs", job_id),
-        {
-            **payload,
-            "updatedAt": SERVER_TIMESTAMP,
-        },
-        merge=True,
-    )
+def _update_job_status(firestore_client: Any, job_id: str, payload: Dict[str, Any]) -> str:
+    ref = _doc_ref(firestore_client, "avatarJobs", job_id)
+    update_payload = {
+        **payload,
+        "updatedAt": SERVER_TIMESTAMP,
+    }
+    transaction_factory = getattr(firestore_client, "transaction", None)
+    if callable(transaction_factory):
+        transaction = transaction_factory()
+        if (
+            firestore is not None
+            and hasattr(firestore, "transactional")
+            and not getattr(transaction, "_codex_fake_transaction", False)
+        ):
+            transactional = firestore.transactional(_update_job_status_transactional)
+            return str(transactional(transaction, ref, update_payload))
+        return str(_update_job_status_transactional(transaction, ref, update_payload))
+
+    current = _doc_to_dict(ref.get()) or {}
+    current_status = str(current.get("status") or "").strip()
+    if current_status in TERMINAL_JOB_STATUSES:
+        logger.info(
+            "Skipping avatar job status update because job is terminal: jobId=%s status=%s",
+            job_id,
+            current_status,
+        )
+        return current_status
+
+    _set_doc(ref, update_payload, merge=True)
+    return str(payload.get("status") or current_status)
+
+
+def _update_job_status_transactional(transaction: Any, ref: Any, payload: Dict[str, Any]) -> str:
+    snapshot = ref.get(transaction=transaction)
+    current = _doc_to_dict(snapshot) or {}
+    current_status = str(current.get("status") or "").strip()
+    if current_status in TERMINAL_JOB_STATUSES:
+        logger.info(
+            "Skipping avatar job status update because job is terminal: jobId=%s status=%s",
+            getattr(ref, "id", ""),
+            current_status,
+        )
+        return current_status
+
+    write_result = transaction.set(ref, payload, merge=True)
+    if isinstance(write_result, str) and write_result.startswith("terminal_skipped:"):
+        return write_result.split(":", 1)[1]
+    return str(payload.get("status") or current_status)
+
+
+def _update_job_status_if_not_terminal(
+    firestore_client: Any,
+    job_id: str,
+    payload: Dict[str, Any],
+) -> str:
+    return _update_job_status(firestore_client, job_id, payload)
 
 
 def _elapsed_seconds(started_at: float) -> float:
     return round(max(0.0, time.perf_counter() - started_at), 3)
+
+
+def _add_stage_seconds(seconds_by_stage: Dict[str, float], key: str, seconds: float) -> None:
+    seconds_by_stage[key] = round(
+        max(0.0, float(seconds_by_stage.get(key, 0.0))) + max(0.0, float(seconds)),
+        3,
+    )
+
+
+def _generator_model_load_seconds(generator: Any) -> float:
+    try:
+        return max(0.0, float(getattr(generator, "model_load_seconds_total", 0.0) or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _normalized_seconds_by_stage(
+    seconds_by_stage: Mapping[str, float],
+    *,
+    total_worker_seconds: float,
+) -> Dict[str, float]:
+    normalized = {
+        key: round(max(0.0, float(seconds_by_stage.get(key, 0.0) or 0.0)), 3)
+        for key, _cost_key in NORMALIZED_STAGE_COST_KEYS
+    }
+    if normalized["upload_seconds"] == 0.0:
+        normalized["upload_seconds"] = round(
+            max(0.0, float(seconds_by_stage.get("candidate_upload_seconds", 0.0) or 0.0)),
+            3,
+        )
+    if normalized["total_worker_seconds"] == 0.0:
+        normalized["total_worker_seconds"] = round(max(0.0, float(total_worker_seconds)), 3)
+    return normalized
+
+
+def _seconds_by_stage_document(
+    seconds_by_stage: Mapping[str, float],
+    *,
+    total_worker_seconds: float,
+) -> Dict[str, float]:
+    document = {
+        str(key): round(max(0.0, float(value)), 3)
+        for key, value in seconds_by_stage.items()
+    }
+    normalized = _normalized_seconds_by_stage(
+        seconds_by_stage,
+        total_worker_seconds=total_worker_seconds,
+    )
+    document.update(normalized)
+    document.setdefault("total_seconds", normalized["total_worker_seconds"])
+    document.setdefault("total", normalized["total_worker_seconds"])
+    document.setdefault("candidate_upload_seconds", normalized["upload_seconds"])
+    return document
 
 
 def _json_safe_cost_value(value: Any) -> Any:
@@ -962,15 +1200,28 @@ def _cost_document_for_job(
         estimated_at=datetime.now(tz=timezone.utc),
     )
     cost_estimate = _json_safe_cost_value(dict(estimate["costEstimate"]))
+    seconds_document = _seconds_by_stage_document(
+        seconds_by_stage,
+        total_worker_seconds=cost_estimate["durationSeconds"],
+    )
+    normalized_seconds = _normalized_seconds_by_stage(
+        seconds_document,
+        total_worker_seconds=cost_estimate["durationSeconds"],
+    )
     cost = {
         "candidateCount": int(candidate_count),
-        "totalWorkerSeconds": cost_estimate["durationSeconds"],
         "estimatedUsd": estimate["costEstimateUsd"],
         "pricingVersion": cost_estimate["pricingVersion"],
-        "secondsByStage": {key: round(max(0.0, float(value)), 3) for key, value in seconds_by_stage.items()},
+        "secondsByStage": seconds_document,
         "breakdown": dict(cost_estimate.get("breakdown") or {}),
         "estimatedAt": cost_estimate.get("estimatedAt"),
     }
+    cost.update(
+        {
+            cost_key: normalized_seconds[stage_key]
+            for stage_key, cost_key in NORMALIZED_STAGE_COST_KEYS
+        }
+    )
     return {
         "cost": cost,
         "costEstimateUsd": estimate["costEstimateUsd"],
@@ -1038,6 +1289,137 @@ def _ensure_source_refs_match_private_media(
         raise AvatarGenerationError("Payload sourcePhotoRefs do not match active private media refs.")
 
 
+def _current_source_entry(
+    private_doc: Optional[Dict[str, Any]],
+    source_photo_id: str,
+) -> Optional[Mapping[str, Any]]:
+    if not private_doc:
+        return None
+    source_photos = private_doc.get("sourcePhotos")
+    if not isinstance(source_photos, Sequence) or isinstance(source_photos, str):
+        return None
+    for entry in source_photos:
+        if isinstance(entry, Mapping) and str(entry.get("photoId") or "") == source_photo_id:
+            return entry
+    return None
+
+
+def _has_selection_version(value: Any) -> bool:
+    return value is not None and str(value).strip() != ""
+
+
+def _selection_version(value: Any) -> Optional[int]:
+    if not _has_selection_version(value):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _current_avatar_contract_mismatch(
+    job_doc: Optional[Dict[str, Any]],
+    private_doc: Optional[Dict[str, Any]],
+    payload: AvatarGenerationPayload,
+    source_refs: Sequence[GcsRef],
+) -> str:
+    if not job_doc:
+        return "missing_job"
+    if not private_doc:
+        return "missing_private_media"
+    current_job_id = str(private_doc.get("currentAvatarJobId") or "").strip()
+    current_source_id = str(private_doc.get("currentAvatarSourcePhotoId") or "").strip()
+    payload_source_id = payload.source_photo_ids[0] if payload.source_photo_ids else ""
+    job_source_ids = job_doc.get("sourcePhotoIds")
+    job_source_id = (
+        str(job_source_ids[0]).strip()
+        if isinstance(job_source_ids, Sequence)
+        and not isinstance(job_source_ids, str)
+        and job_source_ids
+        else ""
+    )
+    if current_job_id != payload.job_id:
+        return "current_job_mismatch"
+    job_selection_raw = job_doc.get("avatarSourceSelectionVersion")
+    private_selection_raw = private_doc.get("avatarSourceSelectionVersion")
+    if _has_selection_version(job_selection_raw) and _has_selection_version(private_selection_raw):
+        job_selection_version = _selection_version(job_selection_raw)
+        private_selection_version = _selection_version(private_selection_raw)
+        if (
+            job_selection_version is None
+            or private_selection_version is None
+            or job_selection_version != private_selection_version
+        ):
+            return "selection_version_mismatch"
+    if not current_source_id or payload_source_id != current_source_id:
+        return "current_source_mismatch"
+    if job_source_id and job_source_id != current_source_id:
+        return "job_source_mismatch"
+    if not source_refs or not source_refs[0].path.startswith(f"users/{payload.uid}/source/"):
+        return "source_path_uid_mismatch"
+    source_entry = _current_source_entry(private_doc, current_source_id)
+    if source_entry is None:
+        return "current_source_missing"
+    if source_entry.get("status") != "active":
+        return "current_source_not_active"
+    if source_entry.get("avatarGenerationState") != "current":
+        return "current_source_not_current"
+    if str(source_entry.get("gcsUri") or "").strip() != payload.source_photo_refs[0]:
+        return "current_source_ref_mismatch"
+    return ""
+
+
+def _mark_avatar_job_superseded(
+    firestore_client: Any,
+    payload: AvatarGenerationPayload,
+    reason: str,
+) -> AvatarGenerationResult:
+    _update_job_status(
+        firestore_client,
+        payload.job_id,
+        {
+            "status": "superseded",
+            "errorCode": "avatar_job_superseded",
+            "errorMessage": f"Avatar job is no longer current: {reason}.",
+        },
+    )
+    return AvatarGenerationResult(
+        job_id=payload.job_id,
+        uid=payload.uid,
+        status="superseded",
+        candidate_ids=[],
+        preview_ready_count=0,
+        rejected_count=0,
+        needs_review_count=0,
+    )
+
+
+def _mark_candidates_superseded(
+    firestore_client: Any,
+    candidate_ids: Sequence[str],
+) -> None:
+    for candidate_id in candidate_ids:
+        if not candidate_id:
+            continue
+        try:
+            _doc_ref(firestore_client, "avatarCandidates", candidate_id).set(
+                {
+                    "status": "superseded",
+                    "updatedAt": SERVER_TIMESTAMP,
+                },
+                merge=True,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to mark stale avatar candidate superseded.",
+                extra={
+                    "candidateIdHash": hashlib.sha256(candidate_id.encode("utf-8")).hexdigest()[:12],
+                    "errorType": type(exc).__name__,
+                    "error": redact_error_message(exc),
+                },
+            )
+
+
 def _avatar_presentation_gender_for_job(
     payload: AvatarGenerationPayload,
     job_doc: Optional[Mapping[str, Any]],
@@ -1063,9 +1445,33 @@ def _source_reject_error_code(analysis_doc: Mapping[str, Any]) -> str:
     }
     if "no_face" in reasons:
         return "avatar_source_no_face"
-    if "multiple_faces" in reasons:
+    if "multiple_faces" in reasons or "multi_face_primary" in reasons:
         return "avatar_source_multi_face"
+    if "ambiguous_primary_face" in reasons:
+        return "avatar_source_multi_face"
+    if "face_too_small" in reasons:
+        return "avatar_source_face_too_small"
+    if reasons & {
+        "background_text_logo_risk",
+        "background_logo_text_risk",
+        "school_sign_or_logo",
+        "large_background_text_logo",
+    }:
+        return "avatar_background_text_logo_risky"
     return "avatar_source_safety_rejected"
+
+
+def _source_reject_error_message(analysis_doc: Mapping[str, Any]) -> str:
+    error_code = _source_reject_error_code(analysis_doc)
+    if error_code == "avatar_source_multi_face":
+        return "얼굴이 여러 명 감지됐어요. 혼자 나온 사진을 선택해주세요."
+    if error_code == "avatar_source_face_too_small":
+        return "얼굴이 너무 작게 보여요. 얼굴이 더 잘 보이는 사진을 선택해주세요."
+    if error_code == "avatar_background_text_logo_risky":
+        return "배경의 글자나 로고가 크게 보여요. 다른 사진을 권장해요."
+    if error_code == "avatar_source_no_face":
+        return "얼굴이 잘 보이는 사진을 선택해주세요."
+    return "아바타를 만들기 어려운 사진이에요. 다른 사진을 선택해주세요."
 
 
 def _worker_error_code(exc: Exception) -> str:
@@ -1097,41 +1503,157 @@ def _resize_for_trait_extraction(image: Image.Image) -> Image.Image:
     return resized
 
 
+def _trait_adapter_for_env(run_mode: str) -> Florence2TraitExtractionAdapter:
+    key = (
+        os.environ.get("AVATAR_TRAIT_MODEL_ID", "").strip()
+        or "microsoft/Florence-2-large-ft",
+        _bool_env_default("AVATAR_TRAIT_DRY_RUN", run_mode == "dry_run"),
+        _bool_env_default("AVATAR_TRAIT_LOCAL_FILES_ONLY", True),
+        os.environ.get("AVATAR_TRAIT_ATTENTION_IMPLEMENTATION", "eager").strip()
+        or "eager",
+        os.environ.get("AVATAR_TRAIT_FLORENCE_TASK_PROMPT", "MORE_DETAILED_CAPTION").strip()
+        or "MORE_DETAILED_CAPTION",
+    )
+    adapter = _TRAIT_ADAPTER_CACHE.get(key)
+    if adapter is None:
+        adapter = Florence2TraitExtractionAdapter(
+            model_id=str(key[0]),
+            dry_run=bool(key[1]),
+            local_files_only=bool(key[2]),
+            attn_implementation=str(key[3]),
+            task_prompt=str(key[4]),
+        )
+        _TRAIT_ADAPTER_CACHE[key] = adapter
+    return adapter
+
+
 def _extract_trait_card_for_generation(
     image: Image.Image,
     *,
     run_mode: str,
     avatar_presentation_gender: str = "unknown",
+    broad_trait_hints: Optional[Mapping[str, Any]] = None,
 ) -> tuple[Optional[TraitCardValidationResult], Optional[PromptAvatarTraitCard]]:
     if not _trait_extraction_enabled(run_mode):
         return None, None
 
-    adapter = Florence2TraitExtractionAdapter(
-        model_id=os.environ.get("AVATAR_TRAIT_MODEL_ID", "").strip()
-        or "microsoft/Florence-2-large-ft",
-        dry_run=_bool_env_default("AVATAR_TRAIT_DRY_RUN", run_mode == "dry_run"),
-        local_files_only=_bool_env_default("AVATAR_TRAIT_LOCAL_FILES_ONLY", True),
-        attn_implementation=os.environ.get(
-            "AVATAR_TRAIT_ATTENTION_IMPLEMENTATION",
-            "eager",
-        ).strip()
-        or "eager",
-        task_prompt=os.environ.get(
-            "AVATAR_TRAIT_FLORENCE_TASK_PROMPT",
-            "MORE_DETAILED_CAPTION",
-        ).strip()
-        or "MORE_DETAILED_CAPTION",
-    )
+    adapter = _trait_adapter_for_env(run_mode)
     validation = adapter.extract_traits(
         image=_resize_for_trait_extraction(image),
         avatar_presentation_gender=avatar_presentation_gender,
     )
+    validation = merge_trait_card_with_broad_hints(validation, broad_trait_hints)
     if _trait_require_validated() and not validation.privacy_safe:
         raise AvatarGenerationError("avatar trait card did not pass privacy validation.")
     prompt_card = PromptAvatarTraitCard(
         **validation.trait_card.to_prompt_builder_dict()
     )
     return validation, prompt_card
+
+
+def _source_eyewear_needs_candidate_check(
+    source_trait_card: Mapping[str, Any],
+) -> bool:
+    present = source_trait_card.get("eyewear_present")
+    confidence = str(source_trait_card.get("eyewear_confidence") or "").strip().lower()
+    return present in {True, False} and confidence in {"medium", "high"}
+
+
+def _extract_candidate_trait_card_for_qa(
+    artifact: CandidateArtifact,
+    *,
+    run_mode: str,
+    avatar_presentation_gender: str,
+    source_trait_card: Mapping[str, Any],
+) -> Dict[str, Any]:
+    if not _candidate_trait_qa_enabled(run_mode):
+        return {}
+    if not _source_eyewear_needs_candidate_check(source_trait_card):
+        return {}
+    try:
+        with Image.open(io.BytesIO(artifact.image_bytes)) as image:
+            adapter = _trait_adapter_for_env(run_mode)
+            validation = adapter.extract_traits(
+                image=_resize_for_trait_extraction(image.convert("RGB")),
+                avatar_presentation_gender=avatar_presentation_gender,
+            )
+        return PromptAvatarTraitCard(
+            **validation.trait_card.to_prompt_builder_dict()
+        ).to_prompt_dict()
+    except Exception as exc:
+        logger.warning(
+            "Candidate trait QA extraction failed: %s: %s",
+            type(exc).__name__,
+            str(exc).splitlines()[0][:160],
+        )
+        return {}
+
+
+def _trait_extraction_input_metadata(
+    reference_preprocess_doc: Mapping[str, Any],
+    *,
+    using_privacy_reference: bool,
+) -> Dict[str, Any]:
+    neutralization = reference_preprocess_doc.get("backgroundNeutralization")
+    if not isinstance(neutralization, Mapping):
+        neutralization = {}
+    return {
+        "input": (
+            "privacy_processed_reference"
+            if using_privacy_reference
+            else "source_image"
+        ),
+        "primaryCropApplied": bool(reference_preprocess_doc.get("primaryCropApplied"))
+        if using_privacy_reference
+        else False,
+        "cropType": reference_preprocess_doc.get("cropType")
+        if using_privacy_reference
+        else None,
+        "backgroundNeutralized": bool(reference_preprocess_doc.get("backgroundNeutralized"))
+        if using_privacy_reference
+        else False,
+        "backgroundRiskNotes": {
+            "secondaryFaceCount": neutralization.get("secondaryFaceCount", 0),
+            "secondaryFaceAction": neutralization.get("secondaryFaceAction", "none"),
+            "textLogoRiskDetected": bool(neutralization.get("textLogoRiskDetected")),
+            "textLogoAction": neutralization.get("textLogoAction", "none"),
+        },
+    }
+
+
+def _candidate_qa_metadata(
+    payload: AvatarGenerationPayload,
+    artifact: CandidateArtifact,
+    *,
+    source_analysis_doc: Mapping[str, Any],
+    reference_preprocess_doc: Mapping[str, Any],
+    source_trait_card: Optional[Mapping[str, Any]] = None,
+    candidate_trait_card: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    metadata = {
+        "jobId": payload.job_id,
+        "uid": payload.uid,
+        "candidateId": artifact.candidate_id,
+        "modelId": payload.model_id,
+        "seed": artifact.seed,
+        "redactedSourceRef": redact_gcs_ref(payload.source_photo_refs[0]),
+        "sourceAnalysis": dict(source_analysis_doc or {}),
+        "referencePreprocess": dict(reference_preprocess_doc or {}),
+        "sourceTraitCard": dict(source_trait_card or {}),
+        "promptMeta": dict(artifact.generation_params.get("promptMeta") or {}),
+    }
+    if candidate_trait_card:
+        metadata["candidateTraitCard"] = dict(candidate_trait_card)
+        metadata["candidateTraitExtraction"] = {
+            "status": "available",
+            "input": "generated_candidate",
+        }
+    elif source_trait_card and _source_eyewear_needs_candidate_check(source_trait_card):
+        metadata["candidateTraitExtraction"] = {
+            "status": "unavailable",
+            "input": "generated_candidate",
+        }
+    return metadata
 
 
 def _prepare_reference_preprocess_for_generation(
@@ -1188,7 +1710,17 @@ def _apply_preview_selection(
         qa_doc = dict(summary.get("qa") or {})
         status = str(summary.get("status") or "rejected")
 
-        if candidate_id in selected_ids and allow_preview_selection:
+        candidate_for_gate = {
+            "candidateId": candidate_id,
+            "status": status,
+            "qa": qa_doc,
+            "rerank": rerank_doc,
+        }
+        if (
+            candidate_id in selected_ids
+            and allow_preview_selection
+            and is_preview_eligible(candidate_for_gate)
+        ):
             status = "preview_ready"
             qa_doc["previewAllowed"] = True
             qa_doc["selectedForPreview"] = True
@@ -1203,7 +1735,7 @@ def _apply_preview_selection(
             status = "not_selected"
             qa_doc["previewAllowed"] = False
             qa_doc["selectedForPreview"] = False
-        elif status == "needs_review":
+        elif status in {"needs_review", "soft_pass"}:
             needs_review += 1
         else:
             rejected += 1
@@ -1228,7 +1760,8 @@ def _has_required_preview_count(
     preview_ready_count: int,
     policy: AdaptiveGenerationPolicy,
 ) -> bool:
-    if preview_ready_count <= 0:
+    min_preview_count = max(1, int(policy.min_preview_candidate_count))
+    if preview_ready_count < min_preview_count:
         return False
     if not policy.require_four_preview:
         return True
@@ -1239,9 +1772,46 @@ def _preview_shortfall(
     preview_ready_count: int,
     policy: AdaptiveGenerationPolicy,
 ) -> int:
-    if not policy.require_four_preview:
-        return 0
-    return max(0, int(policy.preview_candidate_count) - int(preview_ready_count))
+    required = (
+        int(policy.preview_candidate_count)
+        if policy.require_four_preview
+        else max(1, int(policy.min_preview_candidate_count))
+    )
+    return max(0, required - int(preview_ready_count))
+
+
+def _no_previewable_reason_code(candidate_summaries: Sequence[Mapping[str, Any]]) -> str:
+    saw_needs_review = False
+    saw_too_identifiable = False
+    saw_background_text_logo = False
+    for summary in candidate_summaries:
+        qa_doc = summary.get("qa")
+        if not isinstance(qa_doc, Mapping):
+            continue
+        reasons = qa_doc.get("rejectReasons")
+        if isinstance(reasons, Sequence) and not isinstance(reasons, (str, bytes)):
+            if any(str(reason) == "too_identifiable" for reason in reasons):
+                saw_too_identifiable = True
+            if any(
+                str(reason) in {"logo_text_watermark", "background_leakage"}
+                for reason in reasons
+            ):
+                saw_background_text_logo = True
+        if (
+            qa_doc.get("textLogoWatermarkRisk") == "high"
+            or qa_doc.get("logoTextWatermarkRisk") == "high"
+            or qa_doc.get("backgroundLeakageRisk") == "high"
+        ):
+            saw_background_text_logo = True
+        if qa_doc.get("requiresHumanReview") is True:
+            saw_needs_review = True
+    if saw_too_identifiable:
+        return "too_identifiable_candidates"
+    if saw_background_text_logo:
+        return "avatar_background_text_logo_risky"
+    if saw_needs_review:
+        return "qa_requires_review"
+    return "no_safe_avatar_candidates"
 
 
 def _default_firestore_client(project: Optional[str] = None, database: Optional[str] = None) -> Any:
@@ -1272,14 +1842,28 @@ def process_avatar_generation_payload(
     firestore_project: Optional[str] = None,
     firestore_database: Optional[str] = None,
     metrics_hook: Optional[MetricHook] = None,
+    deadline: Optional[ClaimDeadline] = None,
 ) -> AvatarGenerationResult:
     job_started_at = time.perf_counter()
-    worker_deadline = AvatarWorkerDeadline.from_env()
+    worker_deadline = AvatarWorkerDeadline.from_env().capped_by_claim_deadline(deadline)
     seconds_by_stage: Dict[str, float] = {
         "loadSource": 0.0,
         "generate": 0.0,
         "uploadAndQa": 0.0,
+        "model_load_seconds": 0.0,
+        "source_load_seconds": 0.0,
+        "face_detect_seconds": 0.0,
+        "trait_extract_seconds": 0.0,
+        "preprocess_seconds": 0.0,
+        "sam_seconds": 0.0,
+        "generation_seconds": 0.0,
+        "candidate_upload_seconds": 0.0,
+        "upload_seconds": 0.0,
+        "qa_seconds": 0.0,
+        "rerank_seconds": 0.0,
         "total": 0.0,
+        "total_seconds": 0.0,
+        "total_worker_seconds": 0.0,
     }
     payload = parse_avatar_generation_payload(raw_payload)
     run_mode = resolve_worker_mode(mode)
@@ -1291,7 +1875,7 @@ def process_avatar_generation_payload(
     _assert_job_can_run(job_doc, payload)
     pause_reason = _generation_pause_reason()
     if pause_reason:
-        _update_job_status(
+        persisted_status = _update_job_status(
             fs,
             payload.job_id,
             {
@@ -1304,10 +1888,11 @@ def process_avatar_generation_payload(
                 },
             },
         )
+        result_status = persisted_status if persisted_status in TERMINAL_JOB_STATUSES else "failed"
         return AvatarGenerationResult(
             job_id=payload.job_id,
             uid=payload.uid,
-            status="failed",
+            status=result_status,
             candidate_ids=[],
             preview_ready_count=0,
             rejected_count=0,
@@ -1320,6 +1905,15 @@ def process_avatar_generation_payload(
     private_doc = _load_private_media_doc(fs, payload.uid)
     _assert_avatar_generation_consent(private_doc)
     _ensure_source_refs_match_private_media(private_doc, payload)
+    source_refs = validate_private_source_refs(payload.source_photo_refs)
+    current_mismatch = _current_avatar_contract_mismatch(
+        job_doc,
+        private_doc,
+        payload,
+        source_refs,
+    )
+    if current_mismatch:
+        return _mark_avatar_job_superseded(fs, payload, current_mismatch)
     _emit_metric(
         metrics_hook,
         "avatar_job_started",
@@ -1331,7 +1925,6 @@ def process_avatar_generation_payload(
         },
     )
 
-    source_refs = validate_private_source_refs(payload.source_photo_refs)
     _update_job_status(
         fs,
         payload.job_id,
@@ -1346,16 +1939,39 @@ def process_avatar_generation_payload(
         worker_deadline.ensure_can_continue("load_source", min_remaining_seconds=10)
         stage_started_at = time.perf_counter()
         source_image = load_source_image_from_gcs(st, source_refs[0])
-        seconds_by_stage["loadSource"] += _elapsed_seconds(stage_started_at)
+        source_image_hash_prefix = _image_sha256_prefix(source_image)
+        source_selection_version = _selection_version(
+            (job_doc or {}).get("avatarSourceSelectionVersion")
+        )
+        if source_selection_version is None:
+            source_selection_version = _selection_version(
+                (private_doc or {}).get("avatarSourceSelectionVersion")
+            )
+        source_reference_audit: Dict[str, Any] = {
+            "jobId": payload.job_id,
+            "uidHash": _text_sha256_prefix(payload.uid),
+            "sourcePhotoId": payload.source_photo_ids[0] if payload.source_photo_ids else "",
+            "sourceSelectionVersion": source_selection_version,
+            "sourceImageSha256Prefix": source_image_hash_prefix,
+            "cleanedSourceSha256Prefix": source_image_hash_prefix,
+            "privacyReferenceSha256Prefix": None,
+            "traitCardHash": None,
+            "promptHash": None,
+        }
+        elapsed = _elapsed_seconds(stage_started_at)
+        seconds_by_stage["loadSource"] += elapsed
+        seconds_by_stage["source_load_seconds"] += elapsed
 
         source_analysis = None
         source_analysis_doc: Dict[str, Any] = {}
         if _source_analysis_enabled(run_mode):
             worker_deadline.ensure_can_continue("source_analysis", min_remaining_seconds=10)
+            stage_started_at = time.perf_counter()
             source_analysis = analyze_avatar_source_image(
                 source_image,
                 source_ref=payload.source_photo_refs[0],
             )
+            seconds_by_stage["face_detect_seconds"] += _elapsed_seconds(stage_started_at)
             source_analysis_doc = source_analysis.to_document()
             _update_job_status(
                 fs,
@@ -1369,9 +1985,11 @@ def process_avatar_generation_payload(
                     "candidateIds": [],
                     "sourceAnalysis": source_analysis_doc,
                     "errorCode": _source_reject_error_code(source_analysis_doc),
-                    "errorMessage": "Source image was not usable for avatar generation.",
+                    "errorMessage": _source_reject_error_message(source_analysis_doc),
                 }
                 seconds_by_stage["total"] = _elapsed_seconds(job_started_at)
+                seconds_by_stage["total_seconds"] = seconds_by_stage["total"]
+                seconds_by_stage["total_worker_seconds"] = seconds_by_stage["total"]
                 final_update.update(
                     _cost_document_for_job(
                         duration_seconds=seconds_by_stage["total"],
@@ -1390,16 +2008,62 @@ def process_avatar_generation_payload(
                     needs_review_count=0,
                 )
 
+        stage_started_at = time.perf_counter()
+        privacy_reference_image, reference_preprocess_doc = (
+            _prepare_reference_preprocess_for_generation(
+                source_image,
+                source_analysis=source_analysis,
+                run_mode=run_mode,
+            )
+        )
+        preprocess_elapsed = _elapsed_seconds(stage_started_at)
+        seconds_by_stage["preprocess_seconds"] += preprocess_elapsed
+        source_reference_audit["privacyReferenceSha256Prefix"] = _image_sha256_prefix(
+            privacy_reference_image or source_image
+        )
+        if (
+            isinstance(reference_preprocess_doc, Mapping)
+            and isinstance(reference_preprocess_doc.get("sam"), Mapping)
+            and reference_preprocess_doc["sam"].get("enabled") is True
+        ):
+            seconds_by_stage["sam_seconds"] += preprocess_elapsed
+        if reference_preprocess_doc:
+            _update_job_status(
+                fs,
+                payload.job_id,
+                {
+                    "referencePreprocess": reference_preprocess_doc,
+                    "sourceReferenceAudit": source_reference_audit,
+                },
+            )
+
         trait_validation = None
         prompt_trait_card = None
+        source_trait_card_doc: Dict[str, Any] = {}
         if _trait_extraction_enabled(run_mode):
             try:
                 worker_deadline.ensure_can_continue("trait_extraction", min_remaining_seconds=20)
+                stage_started_at = time.perf_counter()
+                trait_uses_privacy_reference = (
+                    _trait_extraction_uses_privacy_reference()
+                    and privacy_reference_image is not None
+                )
+                trait_input_image = (
+                    privacy_reference_image
+                    if trait_uses_privacy_reference
+                    else source_image
+                )
                 trait_validation, prompt_trait_card = _extract_trait_card_for_generation(
-                    source_image,
+                    trait_input_image,
                     run_mode=run_mode,
                     avatar_presentation_gender=avatar_presentation_gender,
+                    broad_trait_hints=(
+                        source_analysis.broad_trait_hints
+                        if source_analysis is not None
+                        else None
+                    ),
                 )
+                seconds_by_stage["trait_extract_seconds"] += _elapsed_seconds(stage_started_at)
             except Exception as exc:
                 detail = str(exc).splitlines()[0][:200]
                 logger.warning(
@@ -1408,29 +2072,38 @@ def process_avatar_generation_payload(
                     detail,
                 )
                 raise AvatarGenerationError("avatar trait extraction failed.") from exc
+            trait_card_doc = (
+                trait_validation.to_dict()
+                if trait_validation is not None
+                else None
+            )
+            source_reference_audit["traitCardHash"] = (
+                _json_sha256_prefix(trait_card_doc)
+                if trait_card_doc is not None
+                else None
+            )
+            source_trait_card_doc = (
+                prompt_trait_card.to_prompt_dict()
+                if prompt_trait_card is not None
+                else {}
+            )
             _update_job_status(
                 fs,
                 payload.job_id,
                 {
-                    "traitCard": trait_validation.to_dict()
-                    if trait_validation is not None
-                    else None
+                    "traitCard": trait_card_doc,
+                    "traitExtraction": _trait_extraction_input_metadata(
+                        reference_preprocess_doc,
+                        using_privacy_reference=trait_uses_privacy_reference,
+                    ),
+                    "sourceReferenceAudit": source_reference_audit,
                 },
             )
 
-        privacy_reference_image, reference_preprocess_doc = (
-            _prepare_reference_preprocess_for_generation(
-                source_image,
-                source_analysis=source_analysis,
-                run_mode=run_mode,
-            )
+        logger.info(
+            "Avatar job source/reference audit",
+            extra={"sourceReferenceAudit": source_reference_audit},
         )
-        if reference_preprocess_doc:
-            _update_job_status(
-                fs,
-                payload.job_id,
-                {"referencePreprocess": reference_preprocess_doc},
-            )
 
         worker_deadline.ensure_can_continue("generate_initial", min_remaining_seconds=30)
         stage_started_at = time.perf_counter()
@@ -1439,6 +2112,7 @@ def process_avatar_generation_payload(
             max(1, int(payload.candidate_count)),
             max(1, int(policy.initial_candidate_count)),
         )
+        model_load_before = seconds_by_stage["model_load_seconds"]
         artifacts = generate_candidate_artifacts(
             payload,
             source_image,
@@ -1447,10 +2121,23 @@ def process_avatar_generation_payload(
             trait_card=prompt_trait_card,
             privacy_reference_image=privacy_reference_image,
             reference_preprocess_metadata=reference_preprocess_doc,
+            source_reference_audit=source_reference_audit,
             candidate_start_index=0,
             candidate_count=initial_count,
+            seconds_by_stage=seconds_by_stage,
         )
-        seconds_by_stage["generate"] += _elapsed_seconds(stage_started_at)
+        if artifacts:
+            source_reference_audit["promptHash"] = artifacts[0].generation_params.get("promptHash")
+            _update_job_status(
+                fs,
+                payload.job_id,
+                {"sourceReferenceAudit": source_reference_audit},
+            )
+        elapsed = _elapsed_seconds(stage_started_at)
+        model_load_delta = max(0.0, seconds_by_stage["model_load_seconds"] - model_load_before)
+        generation_elapsed = round(max(0.0, elapsed - model_load_delta), 3)
+        seconds_by_stage["generate"] += generation_elapsed
+        seconds_by_stage["generation_seconds"] += generation_elapsed
         _update_job_status(fs, payload.job_id, {"status": "qa_pending"})
 
         candidate_ids: List[str] = []
@@ -1465,6 +2152,7 @@ def process_avatar_generation_payload(
         stage_started_at = time.perf_counter()
         for artifact in artifacts:
             worker_deadline.ensure_can_continue("upload_and_qa", min_remaining_seconds=10)
+            upload_started_at = time.perf_counter()
             if fixture_output_dir is not None:
                 _write_fixture_file(fixture_output_dir, artifact)
             else:
@@ -1472,20 +2160,31 @@ def process_avatar_generation_payload(
 
             candidate_ref = _doc_ref(fs, "avatarCandidates", artifact.candidate_id)
             _set_doc(candidate_ref, _candidate_doc(payload, artifact, status="qa_pending"), merge=True)
+            upload_elapsed = _elapsed_seconds(upload_started_at)
+            seconds_by_stage["candidate_upload_seconds"] += upload_elapsed
+            seconds_by_stage["upload_seconds"] += upload_elapsed
 
+            qa_started_at = time.perf_counter()
+            candidate_trait_card_doc = _extract_candidate_trait_card_for_qa(
+                artifact,
+                run_mode=run_mode,
+                avatar_presentation_gender=avatar_presentation_gender,
+                source_trait_card=source_trait_card_doc,
+            )
             qa_result = qa_runner(
                 payload.source_photo_refs[0],
                 artifact.image_ref,
-                {
-                    "jobId": payload.job_id,
-                    "uid": payload.uid,
-                    "candidateId": artifact.candidate_id,
-                    "modelId": payload.model_id,
-                    "seed": artifact.seed,
-                    "redactedSourceRef": redact_gcs_ref(payload.source_photo_refs[0]),
-                },
+                _candidate_qa_metadata(
+                    payload,
+                    artifact,
+                    source_analysis_doc=source_analysis_doc,
+                    reference_preprocess_doc=reference_preprocess_doc,
+                    source_trait_card=source_trait_card_doc,
+                    candidate_trait_card=candidate_trait_card_doc,
+                ),
             )
             qa_doc = qa_result.to_document()
+            seconds_by_stage["qa_seconds"] += _elapsed_seconds(qa_started_at)
             candidate_status = _candidate_status_from_qa(qa_doc)
             _set_doc(
                 candidate_ref,
@@ -1513,6 +2212,7 @@ def process_avatar_generation_payload(
         ):
             worker_deadline.ensure_can_continue("generate_extra", min_remaining_seconds=30)
             stage_generate_extra_started_at = time.perf_counter()
+            model_load_before = seconds_by_stage["model_load_seconds"]
             extra_artifacts = generate_candidate_artifacts(
                 payload,
                 source_image,
@@ -1521,10 +2221,16 @@ def process_avatar_generation_payload(
                 trait_card=prompt_trait_card,
                 privacy_reference_image=privacy_reference_image,
                 reference_preprocess_metadata=reference_preprocess_doc,
+                source_reference_audit=source_reference_audit,
                 candidate_start_index=len(candidate_summaries),
                 candidate_count=extra_plan.candidate_count,
+                seconds_by_stage=seconds_by_stage,
             )
-            seconds_by_stage["generate"] += _elapsed_seconds(stage_generate_extra_started_at)
+            elapsed = _elapsed_seconds(stage_generate_extra_started_at)
+            model_load_delta = max(0.0, seconds_by_stage["model_load_seconds"] - model_load_before)
+            generation_elapsed = round(max(0.0, elapsed - model_load_delta), 3)
+            seconds_by_stage["generate"] += generation_elapsed
+            seconds_by_stage["generation_seconds"] += generation_elapsed
             generation_rounds.append(
                 {
                     "reason": extra_plan.reason,
@@ -1535,6 +2241,7 @@ def process_avatar_generation_payload(
 
             for artifact in extra_artifacts:
                 worker_deadline.ensure_can_continue("upload_and_qa_extra", min_remaining_seconds=10)
+                upload_started_at = time.perf_counter()
                 if fixture_output_dir is not None:
                     _write_fixture_file(fixture_output_dir, artifact)
                 else:
@@ -1542,20 +2249,31 @@ def process_avatar_generation_payload(
 
                 candidate_ref = _doc_ref(fs, "avatarCandidates", artifact.candidate_id)
                 _set_doc(candidate_ref, _candidate_doc(payload, artifact, status="qa_pending"), merge=True)
+                upload_elapsed = _elapsed_seconds(upload_started_at)
+                seconds_by_stage["candidate_upload_seconds"] += upload_elapsed
+                seconds_by_stage["upload_seconds"] += upload_elapsed
 
+                qa_started_at = time.perf_counter()
+                candidate_trait_card_doc = _extract_candidate_trait_card_for_qa(
+                    artifact,
+                    run_mode=run_mode,
+                    avatar_presentation_gender=avatar_presentation_gender,
+                    source_trait_card=source_trait_card_doc,
+                )
                 qa_result = qa_runner(
                     payload.source_photo_refs[0],
                     artifact.image_ref,
-                    {
-                        "jobId": payload.job_id,
-                        "uid": payload.uid,
-                        "candidateId": artifact.candidate_id,
-                        "modelId": payload.model_id,
-                        "seed": artifact.seed,
-                        "redactedSourceRef": redact_gcs_ref(payload.source_photo_refs[0]),
-                    },
+                    _candidate_qa_metadata(
+                        payload,
+                        artifact,
+                        source_analysis_doc=source_analysis_doc,
+                        reference_preprocess_doc=reference_preprocess_doc,
+                        source_trait_card=source_trait_card_doc,
+                        candidate_trait_card=candidate_trait_card_doc,
+                    ),
                 )
                 qa_doc = qa_result.to_document()
+                seconds_by_stage["qa_seconds"] += _elapsed_seconds(qa_started_at)
                 candidate_status = _candidate_status_from_qa(qa_doc)
                 _set_doc(
                     candidate_ref,
@@ -1577,11 +2295,13 @@ def process_avatar_generation_payload(
                 )
 
         seconds_by_stage["uploadAndQa"] += _elapsed_seconds(stage_started_at)
+        rerank_started_at = time.perf_counter()
         preview_ready, rejected, needs_review, rerank_doc = _apply_preview_selection(
             fs,
             candidate_summaries,
             policy=policy,
         )
+        seconds_by_stage["rerank_seconds"] += _elapsed_seconds(rerank_started_at)
         selected_preview_candidate_count = len(
             rerank_doc.get("selectedCandidateIds", [])
             if isinstance(rerank_doc.get("selectedCandidateIds"), list)
@@ -1602,6 +2322,12 @@ def process_avatar_generation_payload(
             if isinstance(metadata, Mapping)
             and metadata.get("selectionTier") == "hard_pass"
         )
+        soft_pass_count = sum(
+            1
+            for metadata in rerank_metadata.values()
+            if isinstance(metadata, Mapping)
+            and metadata.get("selectionTier") == "soft_pass"
+        )
         generation_plan = {
             "initialCount": initial_count,
             "extraCount": sum(
@@ -1609,13 +2335,16 @@ def process_avatar_generation_payload(
                 for round_doc in generation_rounds[1:]
             ),
             "totalGenerated": len(candidate_ids),
-            "safePassCount": hard_pass_count,
+            "safePassCount": hard_pass_count + soft_pass_count,
+            "hardPassCount": hard_pass_count,
+            "softPassCount": soft_pass_count,
             "previewCount": preview_ready,
             "filledWithSoftPass": filled_with_soft_pass,
             "qwenFallbackUsed": False,
             "rounds": generation_rounds,
             "policy": {
                 "previewCount": policy.preview_candidate_count,
+                "minPreviewCount": policy.min_preview_candidate_count,
                 "requireFourPreview": policy.require_four_preview,
                 "minSafeBeforeExtra": policy.min_safe_before_extra,
                 "fillWithSoftPass": policy.soft_pass_fill_enabled,
@@ -1636,34 +2365,43 @@ def process_avatar_generation_payload(
                 "previewReadyAt": SERVER_TIMESTAMP,
                 "candidateIds": candidate_ids,
                 "previewReadyCandidateCount": preview_ready,
+                "errorCode": "",
+                "errorMessage": "",
                 "generationPlan": generation_plan,
                 "previewRerank": rerank_doc,
             }
         elif preview_ready > 0 or needs_review > 0:
-            final_status = "needs_review"
+            rerank_status = str(rerank_doc.get("status") or "")
+            if rerank_status == "no_previewable":
+                final_status = "no_previewable_candidates"
+            else:
+                final_status = "needs_review"
             error_code = (
                 "requires_more_preview_candidates"
-                if rerank_doc.get("status") == "insufficient_preview_candidates"
-                else "requires_human_review"
+                if rerank_status == "insufficient_preview_candidates"
+                else _no_previewable_reason_code(candidate_summaries)
             )
             final_update = {
                 "status": final_status,
                 "candidateIds": candidate_ids,
                 "errorCode": error_code,
+                "errorMessage": "No avatar candidates are safe for preview yet.",
                 "generationPlan": generation_plan,
                 "previewRerank": rerank_doc,
             }
         else:
-            final_status = "failed"
+            final_status = "no_previewable_candidates"
             final_update = {
                 "status": final_status,
                 "candidateIds": candidate_ids,
-                "errorCode": "no_previewable_candidates",
+                "errorCode": _no_previewable_reason_code(candidate_summaries),
                 "errorMessage": "All generated avatar candidates were rejected by QA.",
                 "generationPlan": generation_plan,
                 "previewRerank": rerank_doc,
             }
         seconds_by_stage["total"] = _elapsed_seconds(job_started_at)
+        seconds_by_stage["total_seconds"] = seconds_by_stage["total"]
+        seconds_by_stage["total_worker_seconds"] = seconds_by_stage["total"]
         final_update.update(
             _cost_document_for_job(
                 duration_seconds=seconds_by_stage["total"],
@@ -1671,7 +2409,20 @@ def process_avatar_generation_payload(
                 seconds_by_stage=seconds_by_stage,
             )
         )
-        _update_job_status(fs, payload.job_id, final_update)
+        latest_job_doc = _load_job_doc(fs, payload.job_id)
+        latest_private_doc = _load_private_media_doc(fs, payload.uid)
+        latest_mismatch = _current_avatar_contract_mismatch(
+            latest_job_doc,
+            latest_private_doc,
+            payload,
+            source_refs,
+        )
+        if latest_mismatch:
+            _mark_candidates_superseded(fs, candidate_ids)
+            return _mark_avatar_job_superseded(fs, payload, latest_mismatch)
+        persisted_status = _update_job_status(fs, payload.job_id, final_update)
+        if persisted_status in TERMINAL_JOB_STATUSES and persisted_status != final_status:
+            final_status = persisted_status
         _emit_metric(
             metrics_hook,
             "avatar_job_completed",
@@ -1860,6 +2611,7 @@ def process_avatar_generation_batch_payload(
                 mode=mode,
                 fixture_output_dir=fixture_output_dir,
                 metrics_hook=metrics_hook,
+                deadline=deadline,
             )
             if result.job_id in completed_job_ids:
                 continue
@@ -1964,6 +2716,7 @@ def process_avatar_generation_drain(
                     mode=mode,
                     fixture_output_dir=fixture_output_dir,
                     metrics_hook=metrics_hook,
+                    deadline=active_deadline,
                 )
                 completed_job_ids.add(result.job_id)
                 results.append(result.to_dict())

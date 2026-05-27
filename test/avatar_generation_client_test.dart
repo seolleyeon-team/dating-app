@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:seolleyeon/features/onboarding/widgets/avatar_generation_messages.dart';
 import 'package:seolleyeon/features/onboarding/widgets/avatar_generation_models.dart';
 import 'package:seolleyeon/services/avatar_generation_client.dart';
 
@@ -35,26 +36,46 @@ void main() {
       expect(c.isValid, isFalse);
     });
 
-    test('rejects preview bytes with unsupported mime or oversized payload', () {
-      final validBytes = Uint8List.fromList([1, 2, 3]);
-      final unsupportedMime = AvatarCandidate.fromMap({
+    test('rejects encoded internal preview URL markers and private buckets', () {
+      final encodedCandidate = AvatarCandidate.fromMap({
         'candidateId': 'cand_abc',
-        'previewImageBase64': base64Encode(validBytes),
-        'previewMimeType': 'text/plain',
+        'previewUrl': 'https://cdn.example/%2Fjobs%2Fjob%2Fcandidates%2Fc.png',
       });
-      expect(unsupportedMime.previewBytes, isNull);
-      expect(unsupportedMime.isValid, isFalse);
+      final privateBucket = AvatarCandidate.fromMap({
+        'candidateId': 'cand_def',
+        'previewUrl':
+            'https://seolleyeon-final-chat-profile-photos.storage.googleapis.com/users/u/profile.jpg',
+      });
 
-      final oversized = AvatarCandidate.fromMap({
-        'candidateId': 'cand_abc',
-        'previewImageBase64': base64Encode(
-          Uint8List(AvatarCandidate.maxPreviewBytes + 1),
-        ),
-        'previewMimeType': 'image/jpeg',
-      });
-      expect(oversized.previewBytes, isNull);
-      expect(oversized.isValid, isFalse);
+      expect(encodedCandidate.previewUrl, isEmpty);
+      expect(encodedCandidate.isValid, isFalse);
+      expect(privateBucket.previewUrl, isEmpty);
+      expect(privateBucket.isValid, isFalse);
     });
+
+    test(
+      'rejects preview bytes with unsupported mime or oversized payload',
+      () {
+        final validBytes = Uint8List.fromList([1, 2, 3]);
+        final unsupportedMime = AvatarCandidate.fromMap({
+          'candidateId': 'cand_abc',
+          'previewImageBase64': base64Encode(validBytes),
+          'previewMimeType': 'text/plain',
+        });
+        expect(unsupportedMime.previewBytes, isNull);
+        expect(unsupportedMime.isValid, isFalse);
+
+        final oversized = AvatarCandidate.fromMap({
+          'candidateId': 'cand_abc',
+          'previewImageBase64': base64Encode(
+            Uint8List(AvatarCandidate.maxPreviewBytes + 1),
+          ),
+          'previewMimeType': 'image/jpeg',
+        });
+        expect(oversized.previewBytes, isNull);
+        expect(oversized.isValid, isFalse);
+      },
+    );
   });
 
   group('AvatarCandidatesResult', () {
@@ -81,21 +102,63 @@ void main() {
     });
 
     test('maps generation-failing job statuses explicitly', () {
-      for (final raw in const ['failed', 'cancelled']) {
+      final failed = AvatarCandidatesResult.fromMap({
+        'jobId': 'job',
+        'status': 'failed',
+        'candidates': const [],
+      });
+      expect(failed.status, AvatarJobStatus.failed);
+
+      for (final raw in const ['cancelled', 'canceled']) {
         final r = AvatarCandidatesResult.fromMap({
           'jobId': 'job',
           'status': raw,
           'candidates': const [],
         });
-        expect(r.status, AvatarJobStatus.failed, reason: 'for status=$raw');
+        expect(r.status, AvatarJobStatus.cancelled, reason: 'for status=$raw');
       }
+
+      final superseded = AvatarCandidatesResult.fromMap({
+        'jobId': 'job',
+        'status': 'superseded',
+        'errorCode': 'avatar_job_superseded',
+        'candidates': const [],
+      });
+      expect(superseded.status, AvatarJobStatus.superseded);
+      expect(superseded.errorCode, 'avatar_job_superseded');
 
       final noPreviewable = AvatarCandidatesResult.fromMap({
         'jobId': 'job',
         'status': 'no_previewable_candidates',
+        'errorCode': 'avatar_source_multi_face',
         'candidates': const [],
       });
       expect(noPreviewable.status, AvatarJobStatus.noPreviewableCandidates);
+      expect(noPreviewable.errorCode, 'avatar_source_multi_face');
+    });
+
+    test('maps source reject error codes to Korean guidance', () {
+      expect(
+        avatarGenerationFailureMessage(
+          status: AvatarJobStatus.failed,
+          errorCode: 'avatar_source_multi_face',
+        ),
+        '얼굴이 여러 명 감지됐어요. 혼자 나온 사진을 선택해주세요.',
+      );
+      expect(
+        avatarGenerationFailureMessage(
+          status: AvatarJobStatus.failed,
+          errorCode: 'avatar_source_face_too_small',
+        ),
+        '얼굴이 너무 작게 보여요. 얼굴이 더 잘 보이는 사진을 선택해주세요.',
+      );
+      expect(
+        avatarGenerationFailureMessage(
+          status: AvatarJobStatus.noPreviewableCandidates,
+          errorCode: 'avatar_background_text_logo_risky',
+        ),
+        '배경의 글자나 로고가 크게 보여요. 다른 사진을 권장해요.',
+      );
     });
 
     test('maps needs_review and completed statuses explicitly', () {

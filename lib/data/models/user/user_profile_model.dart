@@ -45,7 +45,6 @@ class UserProfileModel {
   Map<String, dynamic> toJson() {
     return {
       'userId': userId,
-      'photoUrls': photoUrls,
       'keywords': keywords,
       'profileQuestions': profileQuestions.map((e) => e.toJson()).toList(),
       'idealType': idealType?.toJson(),

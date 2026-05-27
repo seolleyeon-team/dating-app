@@ -20,11 +20,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     AVATAR_REFERENCE_NONFACE_EQUIVALENT_SIZE=96 \
     AVATAR_REFERENCE_NONFACE_BLUR_RADIUS=1.5 \
     AVATAR_FACE_MIN_RELATIVE_SIZE=0.08 \
+    AVATAR_FACE_DETECTOR_PROVIDER=mediapipe \
+    AVATAR_MEDIAPIPE_ENABLED=true \
+    AVATAR_MEDIAPIPE_FACE_LANDMARKER_MODEL_PATH=/app/models/face_landmarker.task \
+    AVATAR_MEDIAPIPE_OUTPUT_BLENDSHAPES=true \
+    AVATAR_MEDIAPIPE_NUM_FACES=2 \
+    AVATAR_MEDIAPIPE_MIN_DETECTION_CONFIDENCE=0.6 \
+    AVATAR_MEDIAPIPE_MIN_PRESENCE_CONFIDENCE=0.6 \
     AVATAR_INITIAL_CANDIDATE_COUNT=4 \
     AVATAR_EXTRA_CANDIDATE_COUNT=4 \
     AVATAR_MAX_TOTAL_CANDIDATES=8 \
     AVATAR_PREVIEW_COUNT=4 \
-    AVATAR_PREVIEW_REQUIRE_FOUR=true \
+    AVATAR_MIN_PREVIEW_CANDIDATES=1 \
+    AVATAR_PREVIEW_REQUIRE_FOUR=false \
     AVATAR_PREVIEW_FILL_WITH_SOFT_PASS=true \
     AVATAR_PREVIEW_FILL_HARD_REJECT=false \
     AVATAR_RERANK_PROVIDER=deterministic_qa_tier
@@ -44,6 +52,9 @@ RUN apt-get update \
 
 COPY requirements_avatar_worker.txt /app/requirements_avatar_worker.txt
 RUN pip install --no-cache-dir -r /app/requirements_avatar_worker.txt
+
+RUN mkdir -p /app/models \
+    && python -c "from pathlib import Path; import urllib.request; url='https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task'; target=Path('/app/models/face_landmarker.task'); urllib.request.urlretrieve(url, target); assert target.stat().st_size >= 1024 * 1024, 'Downloaded Face Landmarker asset is unexpectedly small.'"
 
 COPY lib/ai_recommend_model /app
 

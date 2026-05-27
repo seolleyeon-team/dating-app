@@ -10,6 +10,7 @@ from .schema import (
     avatar_trait_card_from_dict,
     trait_card_schema_dict,
 )
+from .mediapipe_binning import build_broad_trait_hints, merge_trait_card_with_broad_hints
 from .validator import normalize_avatar_presentation_gender, validate_trait_card_response
 
 __all__ = [
@@ -20,6 +21,8 @@ __all__ = [
     "AvatarTraitCard",
     "TraitCardValidationResult",
     "avatar_trait_card_from_dict",
+    "build_broad_trait_hints",
+    "merge_trait_card_with_broad_hints",
     "trait_card_schema_dict",
     "normalize_avatar_presentation_gender",
     "validate_trait_card_response",

@@ -112,19 +112,38 @@ class AvatarTraitCard:
         "pulled_back",
         "not_visible",
     ] | None = None
+    hair_bangs: Literal[
+        "none",
+        "light",
+        "full",
+        "soft_bangs",
+        "side_bangs",
+        "full_bangs",
+        "curtain_bangs",
+        "not_visible",
+    ] | None = None
     hair_color_range: Literal["black", "dark_brown", "brown", "light_brown", "dyed_warm", "not_visible"] | None = None
 
     eyewear_present: bool | None = None
-    eyewear_style: Literal["none", "round_black", "thin_metal", "rectangular", "clear_frame", "other_simple"] | None = None
+    eyewear_style: Literal["none", "round_black", "thin_metal", "rectangular", "clear_frame", "sunglasses", "other_simple"] | None = None
+    eyewear_confidence: Literal["low", "medium", "high", "unclear"] | None = None
+    eyewear_source: Literal["florence", "clip", "grounding_dino", "merged", "unclear"] | None = None
 
+    facial_hair_present: bool | None = None
+    facial_hair_style: Literal["none", "light_mustache", "mustache", "short_beard", "goatee", "stubble", "light_stubble", "not_visible"] | None = None
     face_shape_category: Literal["round", "oval", "long", "soft_square"] | None = None
+    facial_feature_balance: Literal["soft", "balanced", "defined"] | None = None
     eye_size_category: Literal["small", "medium", "medium_large"] | None = None
     eye_tilt_category: Literal["neutral", "slightly_upturned", "slightly_downturned"] | None = None
+    eye_shape_mood: Literal["neutral", "gentle", "slightly_upturned", "slightly_downturned", "soft", "calm", "focused"] | None = None
     brow_thickness: Literal["thin", "natural", "thick"] | None = None
+    brow_shape: Literal["straight", "soft_arch", "arched", "natural", "not_visible"] | None = None
     nose_prominence: Literal["soft", "medium", "defined"] | None = None
+    nose_bridge_impression: Literal["soft", "moderate", "medium", "defined"] | None = None
     cheek_fullness: Literal["low", "moderate", "full"] | None = None
     jaw_impression: Literal["soft", "moderate_defined", "broad_soft"] | None = None
     mouth_expression: Literal["neutral", "subtle_smile", "calm_closed"] | None = None
+    mouth_fullness_category: Literal["thin", "subtle", "medium", "full"] | None = None
 
     skin_tone_range: Literal["fair_warm", "natural_beige", "medium_warm", "sun_kissed"] | None = None
     expression_mood: Literal["calm", "gentle", "neutral", "focused"] | None = None
@@ -250,19 +269,28 @@ PROVIDER_CAPABILITIES: dict[Provider, ProviderCapability] = {
 
 _ALLOWED_VALUES: dict[str, set[Any]] = {
     "visible_crop": {"face_only", "head_and_shoulders", "upper_body", "full_body_visible"},
-    "hair_length": {"short", "medium", "long"},
+    "hair_length": {"very_short", "short", "medium", "long"},
     "hair_volume": {"low", "medium", "high"},
-    "hair_direction": {"side_part", "center_part", "forward_bangs", "natural_messy", "pulled_back", "not_visible"},
-    "hair_color_range": {"black", "dark_brown", "brown", "light_brown", "dyed_warm", "not_visible"},
-    "eyewear_style": {"none", "round_black", "thin_metal", "rectangular", "clear_frame", "other_simple"},
+    "hair_direction": {"side_part", "center_part", "forward_bangs", "swept_back", "natural_messy", "pulled_back", "not_visible"},
+    "hair_bangs": {"none", "light", "full", "soft_bangs", "side_bangs", "full_bangs", "curtain_bangs", "not_visible"},
+    "hair_color_range": {"black", "dark_brown", "brown", "light_brown", "dyed_light", "dyed_warm", "not_visible"},
+    "eyewear_style": {"none", "round_dark", "round_metal", "rectangular_dark", "rectangular_metal", "round_black", "thin_metal", "rectangular", "clear_frame", "sunglasses", "other_simple"},
+    "eyewear_confidence": {"low", "medium", "high", "unclear"},
+    "eyewear_source": {"florence", "clip", "grounding_dino", "merged", "unclear"},
+    "facial_hair_style": {"none", "light_mustache", "mustache", "short_beard", "goatee", "stubble", "light_stubble", "not_visible"},
     "face_shape_category": {"round", "oval", "long", "soft_square"},
+    "facial_feature_balance": {"soft", "balanced", "defined"},
     "eye_size_category": {"small", "medium", "medium_large"},
     "eye_tilt_category": {"neutral", "slightly_upturned", "slightly_downturned"},
+    "eye_shape_mood": {"neutral", "gentle", "slightly_upturned", "slightly_downturned", "soft", "calm", "focused"},
     "brow_thickness": {"thin", "natural", "thick"},
+    "brow_shape": {"straight", "soft_arch", "arched", "natural", "not_visible"},
     "nose_prominence": {"soft", "medium", "defined"},
+    "nose_bridge_impression": {"soft", "moderate", "medium", "defined"},
     "cheek_fullness": {"low", "moderate", "full"},
     "jaw_impression": {"soft", "moderate_defined", "broad_soft"},
     "mouth_expression": {"neutral", "subtle_smile", "calm_closed"},
+    "mouth_fullness_category": {"thin", "subtle", "medium", "full"},
     "skin_tone_range": {"fair_warm", "natural_beige", "medium_warm", "sun_kissed"},
     "expression_mood": {"calm", "gentle", "neutral", "focused"},
     "clothing_category": {"sweatshirt", "shirt", "polo", "jacket", "knit", "hoodie", "t_shirt", "not_visible"},
@@ -318,6 +346,8 @@ def validate_trait_card(trait_card: AvatarTraitCard) -> None:
 
     if trait_card.eyewear_present is False and trait_card.eyewear_style not in (None, "none"):
         raise ValueError("eyewear_style must be None or 'none' when eyewear_present is False")
+    if trait_card.facial_hair_present is False and trait_card.facial_hair_style not in (None, "none"):
+        raise ValueError("facial_hair_style must be None or 'none' when facial_hair_present is False")
 
 
 def avatar_trait_card_from_dict(raw: Mapping[str, Any]) -> AvatarTraitCard:
@@ -372,7 +402,7 @@ _CANDIDATE_VARIANTS: tuple[CandidateVariant, ...] = (
     CandidateVariant(
         key="hair_clothing_fidelity",
         privacy_level="more_private",
-        prompt_note="candidate 1: slightly stronger hairstyle, eyewear, crop, and clothing fidelity, with the same privacy limits.",
+        prompt_note="candidate 1: slightly stronger confirmed hairstyle, crop, and clothing fidelity, with the same privacy limits.",
         metadata={"identity_strength_target": 0.22, "biometric_abstraction_target": 0.75},
     ),
     CandidateVariant(
@@ -435,6 +465,8 @@ _QA_CHECKS: tuple[str, ...] = (
     "not_toy_or_mascot_like",
     "not_beautified_or_idol_like",
     "not_face_recognition_likeness",
+    "eyewear_presence_consistency",
+    "no_invented_eyewear_when_source_has_none",
     "no_exact_biometric_geometry",
     "no_unique_marks_copied",
     "visible_crop_respected",
@@ -457,6 +489,7 @@ _REJECT_REASONS: tuple[str, ...] = (
     "photorealistic_clone",
     "unique_marks_copied",
     "skin_texture_or_moles_copied",
+    "eyewear_invented_or_omitted",
     "exact_face_geometry_preserved",
     "crop_expanded_or_body_invented",
     "hands_or_lower_body_invented",
@@ -472,15 +505,77 @@ _REJECT_REASONS: tuple[str, ...] = (
 # Formatting helpers
 # ---------------------------------------------------------------------------
 
+def _confirmed_eyewear_state(trait_card: AvatarTraitCard | None) -> Literal["present", "none", "unclear"]:
+    if trait_card is None:
+        return "unclear"
+    confidence = trait_card.eyewear_confidence or "unclear"
+    if confidence not in {"medium", "high"}:
+        return "unclear"
+    if trait_card.eyewear_present is True:
+        return "present"
+    if trait_card.eyewear_present is False:
+        return "none"
+    return "unclear"
+
+
+def _prompt_trait_card_dict(trait_card: AvatarTraitCard) -> dict[str, Any]:
+    data = trait_card.to_prompt_dict()
+    if _confirmed_eyewear_state(trait_card) == "none":
+        return {
+            key: value
+            for key, value in data.items()
+            if not key.startswith("eyewear_")
+        }
+    return data
+
+
 def _format_trait_card(trait_card: AvatarTraitCard | None) -> str:
     if trait_card is None:
         return "No validated trait card provided; use only broad, visible, non-identifying categories from the privacy-processed reference."
 
     validate_trait_card(trait_card)
-    data = trait_card.to_prompt_dict()
+    data = _prompt_trait_card_dict(trait_card)
     return (
+        "Expanded trait-card fields are broad impression categories only; interpret "
+        "hair_bangs, facial_hair_present/style, facial_feature_balance, "
+        "eye_shape_mood, brow_shape, nose_bridge_impression, and "
+        "mouth_fullness_category without copying exact geometry.\n"
         "Trait card JSON, validated broad non-identifying categories only:\n"
         f"{json.dumps(data, ensure_ascii=False, sort_keys=True)}"
+    )
+
+
+def _eyewear_instruction(trait_card: AvatarTraitCard | None) -> str:
+    state = _confirmed_eyewear_state(trait_card)
+    if trait_card is not None and state == "present":
+        style = trait_card.eyewear_style or "broad visible frame style"
+        return (
+            "Eyewear: present. The avatar must wear eyewear with the same broad "
+            f"frame style ({style}). Do not omit glasses."
+        )
+    if state == "none":
+        return (
+            "Eye area: bare visible eyes. Keep the eye area simple, clear, "
+            "and unobstructed. Do not add any accessory around the eyes."
+        )
+    return "Eye area is unclear. Do not invent strong accessory details around the eyes."
+
+
+def _priority_eyewear_constraint(trait_card: AvatarTraitCard | None) -> str:
+    state = _confirmed_eyewear_state(trait_card)
+    if state == "present":
+        return (
+            "Critical eyewear constraint: the source shows eyewear. The avatar "
+            "must include eyewear and must not omit glasses."
+        )
+    if state == "none":
+        return (
+            "Critical eye-area constraint: draw clear bare eyes with no eye "
+            "accessory detail. Keep the eye area simple and unobstructed."
+        )
+    return (
+        "Critical eye-area constraint: source eye accessories are unclear; "
+        "do not invent strong details around the eyes."
     )
 
 
@@ -493,6 +588,31 @@ def _presentation_gender_text(trait_card: AvatarTraitCard | None) -> str:
     if gender == "non_binary":
         return "Use the user-provided onboarding gender only as broad presentation guidance: neutral ordinary adult university student avatar. Do not infer gender from the face, stereotype, sexualize, or alter age/body."
     return "No explicit onboarding gender guidance is available; keep a neutral ordinary adult university student presentation and do not infer gender from the face."
+
+
+def _privacy_text(privacy_level: PrivacyLevel, trait_card: AvatarTraitCard | None) -> str:
+    state = _confirmed_eyewear_state(trait_card)
+    if state == "present":
+        return _PRIVACY_TEXT[privacy_level]
+    if privacy_level == "balanced":
+        return "Medium broad resemblance only; keep mood, hairstyle, expression, clothing category, and broad facial impression, not exact identity."
+    if privacy_level == "more_private":
+        return "Prioritize lower re-identification risk; preserve mainly hairstyle, clothing color, and expression mood; generalize facial structure more strongly."
+    return _PRIVACY_TEXT[privacy_level]
+
+
+def _reference_use_line(trait_card: AvatarTraitCard | None) -> str:
+    state = _confirmed_eyewear_state(trait_card)
+    if state == "present":
+        eye_area = "confirmed eyewear only"
+    elif state == "none":
+        eye_area = "bare-eye state"
+    else:
+        eye_area = "eye-area mood only"
+    return (
+        "- the privacy-processed reference image for crop, general color, mood, "
+        f"hairstyle silhouette, {eye_area}, and clothing color/category"
+    )
 
 
 def _reference_mode_text(reference_mode: ReferenceMode) -> str:
@@ -516,14 +636,19 @@ def _build_positive_prompt(
 ) -> str:
     trait_text = _format_trait_card(trait_card)
     style_text = _STYLE_TEXT[style_mode]
-    privacy_text = _PRIVACY_TEXT[privacy_level]
+    privacy_text = _privacy_text(privacy_level, trait_card)
     crop_text = _CROP_TEXT[crop_policy]
     ref_text = _reference_mode_text(reference_mode)
     gender_text = _presentation_gender_text(trait_card)
+    eyewear_text = _eyewear_instruction(trait_card)
+    priority_eyewear_text = _priority_eyewear_constraint(trait_card)
+    reference_use_line = _reference_use_line(trait_card)
     variant_text = f" Candidate calibration: {candidate_note}" if candidate_note else ""
 
     # Compact by design: Flux2KleinPipeline commonly uses max_sequence_length=512.
     return f"""
+{priority_eyewear_text}
+
 Create one standalone privacy-preserving adult 3D avatar for a Seolleyeon profile, a trusted university relationship platform.
 
 Goal:
@@ -531,7 +656,7 @@ Represent only the user's broad visible impression, not exact identity or biomet
 The avatar should feel similar in mood and style to the reference, but should not be identifiable as the real person.
 
 Use:
-- the privacy-processed reference image for crop, general color, mood, hairstyle silhouette, eyewear presence, and clothing color/category
+{reference_use_line}
 - the trait card for broad non-identifying visual categories only
 
 Reference policy:
@@ -554,6 +679,9 @@ Do not enlarge eyes, shrink nose, slim face, sharpen jawline, improve symmetry, 
 Avatar presentation:
 {gender_text}
 
+Eye area:
+{eyewear_text}
+
 Crop:
 {crop_text}
 Do not invent unseen body parts, lower body, hands, accessories, logos, school names, brands, or background details.
@@ -561,6 +689,7 @@ Do not invent unseen body parts, lower body, hands, accessories, logos, school n
 Expression/background:
 calm closed-mouth expression or very subtle natural smile.
 simple warm off-white or quiet neutral background.
+Use simple neutral background. Do not preserve or recreate the original background.
 
 Trait card:
 {trait_text}
@@ -780,17 +909,25 @@ if __name__ == "__main__":
         hair_length="medium",
         hair_volume="medium",
         hair_direction="side_part",
+        hair_bangs="side_bangs",
         hair_color_range="dark_brown",
         eyewear_present=True,
         eyewear_style="thin_metal",
+        facial_hair_present=False,
+        facial_hair_style="none",
         face_shape_category="oval",
+        facial_feature_balance="balanced",
         eye_size_category="medium",
         eye_tilt_category="neutral",
+        eye_shape_mood="calm",
         brow_thickness="natural",
+        brow_shape="natural",
         nose_prominence="medium",
+        nose_bridge_impression="medium",
         cheek_fullness="moderate",
         jaw_impression="soft",
         mouth_expression="calm_closed",
+        mouth_fullness_category="medium",
         skin_tone_range="natural_beige",
         expression_mood="calm",
         clothing_category="knit",

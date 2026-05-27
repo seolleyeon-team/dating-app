@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from avatar_generation import FLUX2_KLEIN_MODEL_ID, FLUX2_KLEIN_VERSION
+from avatar_generation.preview_policy import is_preview_eligible, passes_absolute_preview_checks
 from avatar_generation.qa import AvatarQAResult
 from avatar_generation.storage import build_approved_avatar_ref
 
@@ -58,6 +59,21 @@ def build_candidate_doc(
     server_timestamp: Any = None,
 ) -> Dict[str, Any]:
     qa_doc = (qa or AvatarQAResult()).to_document()
+    if qa_doc.get("rejectReasons"):
+        status = "rejected"
+    elif qa_doc.get("requiresHumanReview") is True:
+        status = "needs_review"
+    elif qa_doc.get("previewAllowed") is True and is_preview_eligible(
+        {"status": "preview_ready", "qa": qa_doc}
+    ):
+        status = "preview_ready"
+    elif (
+        qa_doc.get("softPass") is True
+        and passes_absolute_preview_checks({"status": "soft_pass", "qa": qa_doc})
+    ):
+        status = "soft_pass"
+    else:
+        status = "needs_review"
     return {
         "candidateId": candidate_id,
         "jobId": job_id,
@@ -65,7 +81,7 @@ def build_candidate_doc(
         "imageRef": image_ref,
         "previewUrl": preview_url,
         "qa": qa_doc,
-        "status": "rejected" if qa_doc.get("rejectReasons") else "preview_ready",
+        "status": status,
         "createdAt": _timestamp(server_timestamp),
     }
 

@@ -282,6 +282,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   final List<String?> _photoSlots = List<String?>.filled(6, null);
   final List<bool> _photoUploading = List<bool>.filled(6, false);
   bool _avatarLocked = false;
+  bool _avatarSourceLocked = false;
   String _lockedApprovedAvatarUrl = '';
 
   String _selfIntroduction = '';
@@ -416,6 +417,14 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           ? photoUrlsRaw.whereType<String>().toList()
           : [];
       _avatarLocked = lockState.isLocked;
+      _avatarSourceLocked =
+          !lockState.isLocked &&
+          (avatarSourceLockedFromUserProfile(
+                data == null ? null : Map<String, dynamic>.from(data),
+              ) ||
+              photoUrls.any(
+                (url) => AvatarSourcePhotoService.isQueuedSlotToken(url),
+              ));
       _lockedApprovedAvatarUrl = lockState.approvedAvatarUrl;
       for (int i = 0; i < _photoSlots.length; i++) {
         _photoSlots[i] = i < photoUrls.length ? photoUrls[i] : null;
@@ -543,7 +552,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         context: context,
         builder: (context) => CupertinoAlertDialog(
           title: const Text('저장 실패'),
-          content: Text(e.toString()),
+          content: const Text('프로필 저장에 실패했어요. 잠시 후 다시 시도해주세요.'),
           actions: [
             CupertinoDialogAction(
               child: const Text('확인'),
@@ -982,6 +991,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       _showLockedAvatarDialog();
       return;
     }
+    if (_avatarSourceLocked ||
+        _photoSlots.any(AvatarSourcePhotoService.isQueuedSlotToken)) {
+      _showSourceLockedAvatarDialog();
+      return;
+    }
     final pickedFile = await _imagePicker.pickImage(
       source: ImageSource.gallery,
       imageQuality: 88,
@@ -1012,18 +1026,27 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       );
 
       if (!mounted) return;
-      setState(
-        () => _photoSlots[index] = AvatarSourcePhotoService.queuedSlotToken(
+      setState(() {
+        _photoSlots[index] = AvatarSourcePhotoService.queuedSlotToken(
           result.jobId,
-        ),
-      );
+        );
+        _avatarSourceLocked = true;
+      });
     } catch (e) {
       if (!mounted) return;
+      if (e is AvatarSourceLockedException) {
+        setState(() => _avatarSourceLocked = true);
+      }
+      final message = e is AvatarAlreadyApprovedException
+          ? AvatarAlreadyApprovedException.message
+          : e is AvatarSourceLockedException
+          ? AvatarSourceLockedException.message
+          : '사진 업로드에 실패했어요. 잠시 후 다시 시도해주세요.';
       showCupertinoDialog(
         context: context,
         builder: (context) => CupertinoAlertDialog(
           title: const Text('사진 업로드 실패'),
-          content: Text(e.toString()),
+          content: Text(message),
           actions: [
             CupertinoDialogAction(
               child: const Text('확인'),
@@ -1041,6 +1064,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     HapticFeedback.selectionClick();
     if (_avatarLocked) {
       _showLockedAvatarDialog();
+      return;
+    }
+    if (_avatarSourceLocked ||
+        _photoSlots.any(AvatarSourcePhotoService.isQueuedSlotToken)) {
+      _showSourceLockedAvatarDialog();
       return;
     }
     setState(() => _photoSlots[index] = null);
@@ -1061,6 +1089,22 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       builder: (context) => CupertinoAlertDialog(
         title: const Text('아바타 변경 불가'),
         content: const Text(lockedAvatarMessage),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('확인'),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSourceLockedAvatarDialog() {
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('아바타 생성 진행 중'),
+        content: const Text(sourceLockedAvatarMessage),
         actions: [
           CupertinoDialogAction(
             child: const Text('확인'),
@@ -1173,6 +1217,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                             photoUrls: _photoSlots,
                             isUploading: _photoUploading,
                             avatarLocked: _avatarLocked,
+                            sourceLocked:
+                                !_avatarLocked &&
+                                (_avatarSourceLocked ||
+                                    _photoSlots.any(
+                                      AvatarSourcePhotoService
+                                          .isQueuedSlotToken,
+                                    )),
                             lockedApprovedAvatarUrl: _lockedApprovedAvatarUrl,
                             onAddPhoto: _addPhoto,
                             onRemovePhoto: _removePhoto,
@@ -1270,6 +1321,7 @@ class _PhotoSection extends StatelessWidget {
   final List<String?> photoUrls;
   final List<bool> isUploading;
   final bool avatarLocked;
+  final bool sourceLocked;
   final String lockedApprovedAvatarUrl;
   final void Function(int index)? onAddPhoto;
   final void Function(int index)? onRemovePhoto;
@@ -1278,6 +1330,7 @@ class _PhotoSection extends StatelessWidget {
     required this.photoUrls,
     required this.isUploading,
     required this.avatarLocked,
+    required this.sourceLocked,
     required this.lockedApprovedAvatarUrl,
     this.onAddPhoto,
     this.onRemovePhoto,
@@ -1341,7 +1394,7 @@ class _PhotoSection extends StatelessWidget {
                       avatarLocked && photos[index] == lockedApprovedAvatarUrl;
                   return _PhotoItem(
                     imageUrl: photos[index]!,
-                    onRemove: lockedCell
+                    onRemove: (lockedCell || sourceLocked)
                         ? null
                         : () => onRemovePhoto?.call(index),
                     locked: lockedCell,
@@ -1350,7 +1403,7 @@ class _PhotoSection extends StatelessWidget {
                 }
                 return _AddPhotoButton(
                   isLoading: isLoading,
-                  onTap: avatarLocked ? null : () => onAddPhoto?.call(index),
+                  onTap: () => onAddPhoto?.call(index),
                 );
               }
 
@@ -1386,6 +1439,17 @@ class _PhotoSection extends StatelessWidget {
           if (avatarLocked) ...[
             const Text(
               lockedAvatarNotice,
+              style: TextStyle(
+                fontSize: 13,
+                color: _AppColors.textSub,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (!avatarLocked && sourceLocked) ...[
+            const Text(
+              sourceLockedAvatarMessage,
               style: TextStyle(
                 fontSize: 13,
                 color: _AppColors.textSub,

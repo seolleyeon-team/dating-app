@@ -175,6 +175,12 @@ def _build_payload(args: argparse.Namespace) -> Dict[str, Any]:
 def _fake_firestore(payload: Mapping[str, Any]) -> FakeFirestore:
     job_id = str(payload["jobId"])
     uid = str(payload["uid"])
+    source_photo_ids = payload.get("sourcePhotoIds")
+    source_photo_id = (
+        str(source_photo_ids[0])
+        if isinstance(source_photo_ids, list) and source_photo_ids
+        else "smoke_source_001"
+    )
     source_ref = str(payload["sourcePhotoRefs"][0])
     return FakeFirestore(
         {
@@ -183,18 +189,25 @@ def _fake_firestore(payload: Mapping[str, Any]) -> FakeFirestore:
                     "jobId": job_id,
                     "uid": uid,
                     "status": "queued",
+                    "sourcePhotoIds": [source_photo_id],
+                    "sourcePhotoRefs": [source_ref],
                 }
             },
             "userPrivateMedia": {
                 uid: {
+                    "currentAvatarSourcePhotoId": source_photo_id,
+                    "currentAvatarJobId": job_id,
+                    "avatarSourceSelectionVersion": 1,
                     "photoConsent": {
                         "avatarGeneration": True,
                         "profileDisplayOriginalPhoto": False,
                     },
                     "sourcePhotos": [
                         {
+                            "photoId": source_photo_id,
                             "gcsUri": source_ref,
                             "status": "active",
+                            "avatarGenerationState": "current",
                             "purpose": {"avatarGeneration": True},
                         }
                     ],
@@ -272,11 +285,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         if mode == "dry_run":
             with tempfile.TemporaryDirectory(prefix="avatar-worker-smoke-") as temp_dir:
+                fake_storage = _fake_storage(payload)
+
+                def qa_runner(source_ref: str, candidate_ref: str, metadata: Dict[str, Any]):
+                    qa_metadata = dict(metadata)
+                    qa_metadata["_storage_client"] = fake_storage
+                    return _smoke_qa(source_ref, candidate_ref, qa_metadata)
+
                 result = process_avatar_generation_payload(
                     payload,
                     firestore_client=_fake_firestore(payload),
-                    storage_client=_fake_storage(payload),
-                    qa_runner=_smoke_qa,
+                    storage_client=fake_storage,
+                    qa_runner=qa_runner,
                     mode=mode,
                     fixture_output_dir=Path(temp_dir),
                 )

@@ -19,7 +19,7 @@ DEFAULT_HARD_MONTHLY_GENERATION_LIMIT = 10000
 DEFAULT_SCENARIO_USERS = 1000
 DEFAULT_SCENARIO_CANDIDATES_PER_USER = 4
 
-GENERATED_STATUSES = {"preview_ready", "approved", "needs_review", "failed"}
+GENERATED_STATUSES = {"preview_ready", "approved", "needs_review", "failed", "no_previewable_candidates"}
 
 
 @dataclass(frozen=True)
@@ -408,13 +408,19 @@ def _snapshot_to_dict(snapshot: Any) -> Dict[str, Any]:
 
 
 def _job_cost_usd(job: Mapping[str, Any], *, config: AvatarCostConfig) -> float:
-    for key in ("costEstimateUsd", "generationCostUsd", "costUsd"):
+    for key in ("costEstimateUsd", "estimatedUsd", "generationCostUsd", "costUsd"):
         parsed = _optional_float(job.get(key))
         if parsed is not None:
             return _round_money(parsed)
+    cost = job.get("cost")
+    if isinstance(cost, Mapping):
+        for key in ("estimatedUsd", "costEstimateUsd", "generationCostUsd", "costUsd"):
+            parsed = _optional_float(cost.get(key))
+            if parsed is not None:
+                return _round_money(parsed)
     processing = job.get("processing")
     if isinstance(processing, Mapping):
-        for key in ("costEstimateUsd", "generationCostUsd", "costUsd"):
+        for key in ("costEstimateUsd", "estimatedUsd", "generationCostUsd", "costUsd"):
             parsed = _optional_float(processing.get(key))
             if parsed is not None:
                 return _round_money(parsed)
@@ -423,13 +429,25 @@ def _job_cost_usd(job: Mapping[str, Any], *, config: AvatarCostConfig) -> float:
 
 
 def _duration_seconds(job: Mapping[str, Any]) -> Optional[float]:
-    for key in ("durationSeconds", "runtimeSeconds", "gpuSeconds"):
+    for key in ("durationSeconds", "totalWorkerSeconds", "total_worker_seconds", "runtimeSeconds", "gpuSeconds"):
         parsed = _optional_float(job.get(key))
         if parsed is not None:
             return max(0.0, parsed)
+    cost = job.get("cost")
+    if isinstance(cost, Mapping):
+        for key in ("totalWorkerSeconds", "total_worker_seconds", "durationSeconds", "runtimeSeconds", "gpuSeconds"):
+            parsed = _optional_float(cost.get(key))
+            if parsed is not None:
+                return max(0.0, parsed)
+        seconds_by_stage = cost.get("secondsByStage")
+        if isinstance(seconds_by_stage, Mapping):
+            for key in ("total_worker_seconds", "totalWorkerSeconds", "total_seconds", "total"):
+                parsed = _optional_float(seconds_by_stage.get(key))
+                if parsed is not None:
+                    return max(0.0, parsed)
     processing = job.get("processing")
     if isinstance(processing, Mapping):
-        for key in ("durationSeconds", "runtimeSeconds", "gpuSeconds"):
+        for key in ("durationSeconds", "totalWorkerSeconds", "total_worker_seconds", "runtimeSeconds", "gpuSeconds"):
             parsed = _optional_float(processing.get(key))
             if parsed is not None:
                 return max(0.0, parsed)

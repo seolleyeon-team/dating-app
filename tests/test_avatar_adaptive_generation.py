@@ -10,6 +10,7 @@ from avatar_generation.adaptive_generation import (  # noqa: E402
     DEFAULT_EXTRA_CANDIDATE_COUNT,
     DEFAULT_INITIAL_CANDIDATE_COUNT,
     DEFAULT_MAX_CANDIDATE_COUNT,
+    DEFAULT_MIN_PREVIEW_CANDIDATE_COUNT,
     DEFAULT_MIN_SAFE_BEFORE_EXTRA,
     DEFAULT_PREVIEW_CANDIDATE_COUNT,
     AdaptiveGenerationPolicy,
@@ -28,10 +29,24 @@ def _candidate(
     qa=None,
     scores=None,
 ):
+    default_qa = {
+        "previewAllowed": True,
+        "requiresHumanReview": False,
+        "rejectReasons": [],
+        "adultQa": "pass",
+        "privacyQa": "pass",
+        "brandQa": "pass",
+        "cropConsistency": "pass",
+        "childlikeRisk": "low",
+        "beautificationRisk": "low",
+        "identifiabilityRisk": "low",
+        "uniqueMarkCopyRisk": "low",
+        "logoTextWatermarkRisk": "low",
+    }
     return {
         "candidateId": candidate_id,
         "status": status,
-        "qa": dict(qa or {"previewAllowed": True, "rejectReasons": []}),
+        "qa": dict(qa or default_qa),
         "scores": dict(scores or {}),
     }
 
@@ -57,6 +72,15 @@ def _soft_pass(candidate_id):
             "requiresHumanReview": False,
             "rejectReasons": [],
             "softPass": True,
+            "adultQa": "pass",
+            "privacyQa": "pass",
+            "brandQa": "pass",
+            "cropConsistency": "pass",
+            "childlikeRisk": "low",
+            "beautificationRisk": "low",
+            "identifiabilityRisk": "low",
+            "uniqueMarkCopyRisk": "low",
+            "logoTextWatermarkRisk": "low",
         },
     )
 
@@ -88,6 +112,7 @@ def test_policy_defaults_and_env_overrides(monkeypatch):
     assert DEFAULT_MAX_CANDIDATE_COUNT == 8
     assert DEFAULT_PREVIEW_CANDIDATE_COUNT == 4
     assert DEFAULT_MIN_SAFE_BEFORE_EXTRA == 2
+    assert DEFAULT_MIN_PREVIEW_CANDIDATE_COUNT == 1
 
     default_policy = AdaptiveGenerationPolicy.from_env()
     assert default_policy.initial_candidate_count == 4
@@ -95,7 +120,8 @@ def test_policy_defaults_and_env_overrides(monkeypatch):
     assert default_policy.max_candidate_count == 8
     assert default_policy.preview_candidate_count == 4
     assert default_policy.min_safe_before_extra == 2
-    assert default_policy.require_four_preview is True
+    assert default_policy.min_preview_candidate_count == 1
+    assert default_policy.require_four_preview is False
     assert default_policy.soft_pass_fill_enabled is True
     assert default_policy.hard_reject_fill_enabled is False
     assert default_policy.needs_review_low_risk_enabled is False
@@ -104,6 +130,8 @@ def test_policy_defaults_and_env_overrides(monkeypatch):
     monkeypatch.setenv("AVATAR_EXTRA_CANDIDATE_COUNT", "2")
     monkeypatch.setenv("AVATAR_MAX_TOTAL_CANDIDATES", "5")
     monkeypatch.setenv("AVATAR_PREVIEW_COUNT", "3")
+    monkeypatch.setenv("AVATAR_MIN_PREVIEW_CANDIDATES", "2")
+    monkeypatch.setenv("AVATAR_PREVIEW_REQUIRE_FOUR", "true")
     monkeypatch.setenv("AVATAR_MIN_SAFE_CANDIDATES_BEFORE_EXTRA", "1")
     monkeypatch.setenv("AVATAR_PREVIEW_FILL_WITH_SOFT_PASS", "false")
     monkeypatch.setenv("AVATAR_PREVIEW_FILL_WITH_NEEDS_REVIEW_LOW_RISK", "1")
@@ -113,6 +141,8 @@ def test_policy_defaults_and_env_overrides(monkeypatch):
     assert env_policy.extra_candidate_count == 2
     assert env_policy.max_candidate_count == 5
     assert env_policy.preview_candidate_count == 3
+    assert env_policy.min_preview_candidate_count == 2
+    assert env_policy.require_four_preview is True
     assert env_policy.min_safe_before_extra == 1
     assert env_policy.soft_pass_fill_enabled is False
     assert env_policy.needs_review_low_risk_enabled is True
@@ -169,10 +199,10 @@ def test_hard_reject_is_never_selected_for_preview():
         policy=AdaptiveGenerationPolicy(),
     )
 
-    assert result.status == "insufficient_preview_candidates"
+    assert result.status == "preview_ready"
     assert result.selected_candidate_ids == ["pass_1", "pass_2"]
-    assert result.metadata_by_candidate_id["pass_1"]["selectedForPreview"] is False
-    assert result.metadata_by_candidate_id["pass_2"]["selectedForPreview"] is False
+    assert result.metadata_by_candidate_id["pass_1"]["selectedForPreview"] is True
+    assert result.metadata_by_candidate_id["pass_2"]["selectedForPreview"] is True
     rejected_metadata = result.metadata_by_candidate_id["reject_1"]
     assert rejected_metadata["selectionTier"] == "hard_reject"
     assert rejected_metadata["selectedForPreview"] is False
@@ -215,9 +245,73 @@ def test_needs_review_low_risk_requires_configuration():
         candidates,
         policy=AdaptiveGenerationPolicy(needs_review_low_risk_enabled=True),
     )
-    assert enabled.status == "insufficient_preview_candidates"
-    assert enabled.selected_candidate_ids == ["review_1"]
+    assert enabled.status == "no_previewable"
+    assert enabled.selected_candidate_ids == []
+    assert enabled.metadata_by_candidate_id["review_1"]["selectionTier"] == "needs_review"
     assert enabled.metadata_by_candidate_id["review_1"]["selectedForPreview"] is False
+
+
+def test_soft_pass_requires_absolute_privacy_safety_checks():
+    malformed_soft = _candidate(
+        "soft_bad",
+        status="soft_pass",
+        qa={
+            "previewAllowed": False,
+            "requiresHumanReview": False,
+            "rejectReasons": [],
+            "softPass": True,
+            "adultQa": "pass",
+            "privacyQa": "needs_review",
+            "brandQa": "pass",
+            "cropConsistency": "pass",
+            "childlikeRisk": "low",
+            "beautificationRisk": "low",
+            "identifiabilityRisk": "medium",
+            "uniqueMarkCopyRisk": "low",
+            "logoTextWatermarkRisk": "low",
+        },
+    )
+
+    result = rerank_preview_candidates(
+        [malformed_soft],
+        policy=AdaptiveGenerationPolicy(soft_pass_fill_enabled=True),
+    )
+
+    assert result.status == "no_previewable"
+    assert result.selected_candidate_ids == []
+    assert result.metadata_by_candidate_id["soft_bad"]["selectionTier"] == "needs_review"
+    assert result.metadata_by_candidate_id["soft_bad"]["selectedForPreview"] is False
+
+
+def test_conflicting_needs_review_flags_cannot_be_previewed():
+    conflicting = _candidate(
+        "conflicting_review",
+        status="needs_review",
+        qa={
+            "previewAllowed": True,
+            "requiresHumanReview": True,
+            "rejectReasons": [],
+            "adultQa": "pass",
+            "privacyQa": "pass",
+            "brandQa": "pass",
+            "cropConsistency": "pass",
+            "childlikeRisk": "low",
+            "beautificationRisk": "low",
+            "identifiabilityRisk": "low",
+            "uniqueMarkCopyRisk": "low",
+            "logoTextWatermarkRisk": "low",
+        },
+    )
+
+    result = rerank_preview_candidates(
+        [conflicting],
+        policy=AdaptiveGenerationPolicy(),
+    )
+
+    assert result.status == "no_previewable"
+    assert result.selected_candidate_ids == []
+    assert result.metadata_by_candidate_id["conflicting_review"]["selectionTier"] == "needs_review"
+    assert result.metadata_by_candidate_id["conflicting_review"]["selectedForPreview"] is False
 
 
 def test_no_previewable_when_no_acceptable_candidates():
