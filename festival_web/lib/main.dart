@@ -22,6 +22,12 @@ import 'festival_push_service.dart';
 import 'firebase_options.dart';
 import 'mobile_web_keyboard.dart';
 import 'festival_event_schedule.dart';
+import 'avatar/avatar_candidate_dialog.dart';
+import 'avatar/avatar_display_resolver.dart';
+import 'avatar/avatar_generating_overlay.dart';
+import 'avatar/avatar_generation_client.dart';
+import 'avatar/avatar_generation_models.dart';
+import 'avatar/avatar_photo_input.dart';
 import 'recommendation/festival_recommendation_engine.dart';
 import 'recommendation/festival_taste_affinity.dart';
 
@@ -247,29 +253,6 @@ String _formatChatTime(Object? value) {
   return '${local.month}/${local.day}';
 }
 
-String? _contentTypeForFileName(String fileName) {
-  final lowerName = fileName.toLowerCase();
-  if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
-    return 'image/jpeg';
-  }
-  if (lowerName.endsWith('.png')) return 'image/png';
-  if (lowerName.endsWith('.webp')) return 'image/webp';
-  if (lowerName.endsWith('.gif')) return 'image/gif';
-  if (lowerName.endsWith('.heic')) return 'image/heic';
-  if (lowerName.endsWith('.heif')) return 'image/heif';
-  return null;
-}
-
-String _extensionForContentType(String contentType, String fileName) {
-  final lowerName = fileName.toLowerCase();
-  if (contentType == 'image/png' || lowerName.endsWith('.png')) return 'png';
-  if (contentType == 'image/webp' || lowerName.endsWith('.webp')) return 'webp';
-  if (contentType == 'image/gif' || lowerName.endsWith('.gif')) return 'gif';
-  if (contentType == 'image/heic' || lowerName.endsWith('.heic')) return 'heic';
-  if (contentType == 'image/heif' || lowerName.endsWith('.heif')) return 'heif';
-  return 'jpg';
-}
-
 class FestivalSession {
   final String uid;
   final String ticketId;
@@ -310,20 +293,17 @@ class FestivalBackendException implements Exception {
   String toString() => message;
 }
 
-class UploadedProfilePhoto {
-  final String downloadUrl;
-  final String storagePath;
-  final String contentType;
-  final String originalName;
-  final int sizeBytes;
-
-  const UploadedProfilePhoto({
-    required this.downloadUrl,
-    required this.storagePath,
-    required this.contentType,
-    required this.originalName,
-    required this.sizeBytes,
-  });
+String _avatarContentTypeForFileName(String fileName, String? mimeType) {
+  final normalized = (mimeType ?? '').trim().toLowerCase();
+  if (normalized == 'image/jpeg' ||
+      normalized == 'image/png' ||
+      normalized == 'image/webp') {
+    return normalized;
+  }
+  final lower = fileName.toLowerCase().trim();
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  return 'image/jpeg';
 }
 
 class ProfileDraft {
@@ -359,6 +339,7 @@ class ProfileDraft {
 
   factory ProfileDraft.fromMap(Map<String, dynamic> data) {
     final mbti = data['mbti'] as String? ?? 'ENFP';
+    final avatarUrl = FestivalAvatarDisplayResolver.resolve(data);
     return ProfileDraft(
       nickname: data['nickname'] as String? ?? '',
       gender: data['gender'] as String? ?? '',
@@ -367,10 +348,10 @@ class ProfileDraft {
       age: data['age'] is int ? data['age'] as int : 22,
       mbti: mbti.length == 4 ? mbti : 'ENFP',
       intro: data['intro'] as String? ?? '',
-      hasPhoto: (data['photoUrl'] as String?)?.trim().isNotEmpty == true,
-      photoUrl: data['photoUrl'] as String?,
-      photoStoragePath: data['photoStoragePath'] as String?,
-      photoContentType: data['photoContentType'] as String?,
+      hasPhoto: avatarUrl.isNotEmpty,
+      photoUrl: avatarUrl.isEmpty ? null : avatarUrl,
+      photoStoragePath: null,
+      photoContentType: null,
       photoOriginalName: data['photoOriginalName'] as String?,
       photoSizeBytes: data['photoSizeBytes'] is int
           ? data['photoSizeBytes'] as int
@@ -391,8 +372,7 @@ class FestivalBackend {
       FestivalEventScheduleService(FirebaseFirestore.instance);
   FestivalSession? _session;
 
-  Stream<FestivalEventSchedule?> watchEventSchedule() =>
-      _eventSchedule.watch();
+  Stream<FestivalEventSchedule?> watchEventSchedule() => _eventSchedule.watch();
 
   Future<FestivalEventSchedule?> loadEventSchedule() => _eventSchedule.load();
 
@@ -683,48 +663,6 @@ class FestivalBackend {
     }, SetOptions(merge: true));
   }
 
-  Future<UploadedProfilePhoto> uploadProfilePhoto(XFile photo) async {
-    final activeSession = _requireSession();
-    final bytes = await photo.readAsBytes();
-    if (bytes.isEmpty) {
-      throw const FestivalBackendException('사진 파일을 다시 선택해주세요.');
-    }
-    if (bytes.length > 8 * 1024 * 1024) {
-      throw const FestivalBackendException('사진은 8MB 이하로 올려주세요.');
-    }
-
-    final contentType =
-        photo.mimeType ?? _contentTypeForFileName(photo.name) ?? 'image/jpeg';
-    final extension = _extensionForContentType(contentType, photo.name);
-    final storagePath =
-        'festivalProfiles/${activeSession.ticketId}/${activeSession.uid}/profile.$extension';
-    final reference = _storage.ref(storagePath);
-
-    try {
-      await reference.putData(
-        bytes,
-        SettableMetadata(
-          contentType: contentType,
-          customMetadata: {
-            'ticketId': activeSession.ticketId,
-            'uid': activeSession.uid,
-            'originalName': photo.name,
-          },
-        ),
-      );
-      final downloadUrl = await reference.getDownloadURL();
-      return UploadedProfilePhoto(
-        downloadUrl: downloadUrl,
-        storagePath: storagePath,
-        contentType: contentType,
-        originalName: photo.name,
-        sizeBytes: bytes.length,
-      );
-    } on FirebaseException catch (error) {
-      throw FestivalBackendException(_storageMessage(error));
-    }
-  }
-
   Future<void> recordTasteSwipe({
     required int index,
     required TasteCardData card,
@@ -960,9 +898,7 @@ class FestivalBackend {
     if (refreshOnServer) {
       final schedule = await _eventSchedule.load();
       if (schedule?.enabled == true) {
-        throw const FestivalBackendException(
-          '이벤트 모드에서는 추천이 일정에 맞춰 일괄 공개됩니다.',
-        );
+        throw const FestivalBackendException('이벤트 모드에서는 추천이 일정에 맞춰 일괄 공개됩니다.');
       }
       await _requestServerRecommendationRefresh();
     }
@@ -1071,17 +1007,25 @@ class FestivalBackend {
   }
 
   Future<void> _ensureFestivalEmbeddingsSeeded() async {
-    final aiSample = await _db.collection('festivalAiEmbeddings').doc('f1').get();
+    final aiSample = await _db
+        .collection('festivalAiEmbeddings')
+        .doc('f1')
+        .get();
     if (aiSample.exists) return;
 
-    debugPrint('[FestivalBackend] festivalAiEmbeddings missing — running seed…');
+    debugPrint(
+      '[FestivalBackend] festivalAiEmbeddings missing — running seed…',
+    );
     try {
-      final seedCallable = FirebaseFunctions.instanceFor(
-        region: 'asia-northeast3',
-      ).httpsCallable(
-        'seedFestivalEmbeddings',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 540)),
-      );
+      final seedCallable =
+          FirebaseFunctions.instanceFor(
+            region: 'asia-northeast3',
+          ).httpsCallable(
+            'seedFestivalEmbeddings',
+            options: HttpsCallableOptions(
+              timeout: const Duration(seconds: 540),
+            ),
+          );
       final result = await seedCallable.call();
       debugPrint('[FestivalBackend] seedFestivalEmbeddings: $result');
     } on FirebaseFunctionsException catch (e) {
@@ -1101,12 +1045,16 @@ class FestivalBackend {
       await _ensureFestivalEmbeddingsSeeded();
       final callable = FirebaseFunctions.instanceFor(region: 'asia-northeast3')
           .httpsCallable(
-        'refreshFestivalRecommendations',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 120)),
-      );
+            'refreshFestivalRecommendations',
+            options: HttpsCallableOptions(
+              timeout: const Duration(seconds: 120),
+            ),
+          );
       await callable.call();
     } on FirebaseFunctionsException catch (e) {
-      debugPrint('[FestivalBackend] callable error: ${e.code} ${e.message} ${e.details}');
+      debugPrint(
+        '[FestivalBackend] callable error: ${e.code} ${e.message} ${e.details}',
+      );
       throw FestivalBackendException(
         e.message?.isNotEmpty == true
             ? '추천 계산에 실패했어요. ${e.message}'
@@ -1455,14 +1403,14 @@ class FestivalBackend {
     final department = data['department'] as String?;
     final studentAffiliation = data['studentAffiliation'] as String?;
     final mbti = data['mbti'] as String?;
-    final photoUrl = data['photoUrl'] as String?;
+    final photoUrl = FestivalAvatarDisplayResolver.resolve(data);
     return nickname?.trim().isNotEmpty == true &&
         gender?.trim().isNotEmpty == true &&
         department?.trim().isNotEmpty == true &&
         studentAffiliation?.trim().isNotEmpty == true &&
         data['age'] is int &&
         mbti?.trim().length == 4 &&
-        (data['hasPhoto'] == true || photoUrl?.trim().isNotEmpty == true);
+        photoUrl.trim().isNotEmpty;
   }
 
   int? _readSwipeIndex(Map<String, dynamic> data, String docId) {
@@ -1488,16 +1436,6 @@ class FestivalBackend {
     return '입장 코드 확인에 실패했어요. ${error.message ?? ''}'.trim();
   }
 
-  String _storageMessage(FirebaseException error) {
-    if (error.code == 'unauthorized') {
-      return '사진 업로드 권한이 없어요. Storage 규칙과 입장 인증을 확인해주세요.';
-    }
-    if (error.code == 'object-not-found' || error.code == 'bucket-not-found') {
-      return 'Firebase Storage가 아직 준비되지 않았어요.';
-    }
-    return '사진 업로드에 실패했어요. ${error.message ?? ''}'.trim();
-  }
-
   String _progressMessage(FirebaseException error) {
     if (error.code == 'permission-denied') {
       return '저장된 진행 상태를 읽을 권한이 없어요. 입장 코드를 다시 확인해주세요.';
@@ -1510,10 +1448,20 @@ class FestivalBackend {
     return 'festival_${ids[0]}_${ids[1]}';
   }
 
+  Map<String, Object?>? _approvedAvatarSnapshot(String? photoUrl) {
+    final safeUrl = photoUrl?.trim() ?? '';
+    if (safeUrl.isEmpty ||
+        !FestivalAvatarDisplayResolver.isSafeDisplayUrl(safeUrl)) {
+      return null;
+    }
+    return {'status': 'approved', 'approvedAvatarUrl': safeUrl};
+  }
+
   Map<String, Object?> _chatProfileSnapshot(
     String ticketId,
     Map<String, dynamic> data,
   ) {
+    final photoUrl = FestivalAvatarDisplayResolver.resolve(data);
     return {
       'id': ticketId,
       'name': data['nickname'] as String? ?? '익명',
@@ -1523,7 +1471,8 @@ class FestivalBackend {
       'studentAffiliation': data['studentAffiliation'] as String?,
       'mbti': data['mbti'] as String? ?? '',
       'intro': data['intro'] as String? ?? '',
-      'photoUrl': data['photoUrl'] as String?,
+      'photoUrl': photoUrl.isEmpty ? null : photoUrl,
+      'avatar': _approvedAvatarSnapshot(photoUrl),
     };
   }
 
@@ -1540,6 +1489,7 @@ class FestivalBackend {
       'mbti': profile.mbti,
       'intro': profile.intro,
       'photoUrl': profile.photoUrl,
+      'avatar': _approvedAvatarSnapshot(profile.photoUrl),
     };
   }
 }
@@ -1647,6 +1597,7 @@ class FestivalProfile {
     required List<Color> colors,
   }) {
     final data = doc.data() ?? <String, dynamic>{};
+    final photoUrl = FestivalAvatarDisplayResolver.resolve(data);
     return FestivalProfile(
       id: doc.id,
       name: (data['nickname'] as String?)?.trim().isNotEmpty == true
@@ -1665,7 +1616,7 @@ class FestivalProfile {
       matchPercent: matchPercent,
       tags: const [],
       colors: colors,
-      photoUrl: data['photoUrl'] as String?,
+      photoUrl: photoUrl.isEmpty ? null : photoUrl,
     );
   }
 
@@ -3229,20 +3180,25 @@ class _SignupScreenState extends State<SignupScreen>
   final _intro = TextEditingController();
   final _introFocusNode = FocusNode();
   final ImagePicker _imagePicker = ImagePicker();
+  final FestivalAvatarGenerationClient _avatarClient =
+      FestivalAvatarGenerationClient();
 
   Timer? _draftDebounce;
   String _gender = '';
   int _age = 22;
-  bool _hasPhoto = false;
   bool _isPickingPhoto = false;
   bool _isUploadingPhoto = false;
+  bool _isGeneratingAvatar = false;
+  bool _isApprovingAvatar = false;
+  bool _avatarSourceLocked = false;
   bool _isLoadingDraft = true;
   XFile? _profilePhoto;
   Uint8List? _profilePhotoBytes;
-  UploadedProfilePhoto? _uploadedProfilePhoto;
-  Future<UploadedProfilePhoto>? _profilePhotoUpload;
+  String? _activeAvatarJobId;
+  String? _activeAvatarSourcePhotoId;
+  int? _activeAvatarSourceSelectionVersion;
+  List<AvatarCandidate> _avatarCandidates = const [];
   String? _restoredPhotoUrl;
-  String? _restoredPhotoStoragePath;
   String? _restoredPhotoContentType;
   String? _restoredPhotoOriginalName;
   int? _restoredPhotoSizeBytes;
@@ -3258,7 +3214,23 @@ class _SignupScreenState extends State<SignupScreen>
   bool get _isProfileTasteLocked =>
       _eventSchedule?.isProfileTasteLocked() ?? false;
 
-  bool get _canGoNext {
+  bool get _hasApprovedAvatar => _restoredPhotoUrl?.trim().isNotEmpty == true;
+
+  bool get _hasActiveAvatarSource =>
+      _activeAvatarSourcePhotoId?.trim().isNotEmpty == true ||
+      _activeAvatarSourceSelectionVersion != null;
+
+  bool get _isAvatarBusy =>
+      _isUploadingPhoto || _isGeneratingAvatar || _isApprovingAvatar;
+
+  bool get _canStartAvatarGeneration =>
+      _profilePhoto != null &&
+      _profilePhotoBytes != null &&
+      !_avatarSourceLocked &&
+      !_hasApprovedAvatar &&
+      !_isAvatarBusy;
+
+  bool get _hasRequiredProfileFields {
     return _nickname.text.trim().isNotEmpty &&
         _gender.isNotEmpty &&
         _department.text.trim().isNotEmpty &&
@@ -3266,9 +3238,13 @@ class _SignupScreenState extends State<SignupScreen>
         _age >= 19 &&
         _mbti.length == 4 &&
         _mbti.every((letter) => letter.isNotEmpty) &&
-        _hasPhoto &&
         _notificationReady;
   }
+
+  bool get _canStartAvatarFlow =>
+      _hasRequiredProfileFields && _canStartAvatarGeneration;
+
+  bool get _canGoNext => _hasRequiredProfileFields && _hasApprovedAvatar;
 
   @override
   void initState() {
@@ -3327,9 +3303,7 @@ class _SignupScreenState extends State<SignupScreen>
         while (_mbti.length < 4) {
           _mbti.add(['E', 'N', 'F', 'P'][_mbti.length]);
         }
-        _hasPhoto = draft.hasPhoto;
         _restoredPhotoUrl = draft.photoUrl;
-        _restoredPhotoStoragePath = draft.photoStoragePath;
         _restoredPhotoContentType = draft.photoContentType;
         _restoredPhotoOriginalName = draft.photoOriginalName;
         _restoredPhotoSizeBytes = draft.photoSizeBytes;
@@ -3383,8 +3357,7 @@ class _SignupScreenState extends State<SignupScreen>
   String _draftSignature() => jsonEncode(_profileDraftData());
 
   Map<String, Object?> _profileDraftData() {
-    final uploadedPhoto = _uploadedProfilePhoto;
-    final photoUrl = uploadedPhoto?.downloadUrl ?? _restoredPhotoUrl;
+    final photoUrl = _restoredPhotoUrl;
     return {
       'nickname': _nickname.text.trim(),
       'gender': _gender,
@@ -3393,15 +3366,15 @@ class _SignupScreenState extends State<SignupScreen>
       'age': _age,
       'mbti': _mbti.join(),
       'hasPhoto': photoUrl?.trim().isNotEmpty == true,
-      'photoMode': 'firebase_storage',
+      'photoMode': photoUrl?.trim().isNotEmpty == true ? 'avatar' : null,
       'photoUrl': photoUrl,
-      'photoStoragePath':
-          uploadedPhoto?.storagePath ?? _restoredPhotoStoragePath,
-      'photoContentType':
-          uploadedPhoto?.contentType ?? _restoredPhotoContentType,
-      'photoOriginalName':
-          uploadedPhoto?.originalName ?? _restoredPhotoOriginalName,
-      'photoSizeBytes': uploadedPhoto?.sizeBytes ?? _restoredPhotoSizeBytes,
+      'photoStoragePath': null,
+      'photoContentType': _restoredPhotoContentType,
+      'photoOriginalName': _restoredPhotoOriginalName,
+      'photoSizeBytes': _restoredPhotoSizeBytes,
+      'avatar': photoUrl?.trim().isNotEmpty == true
+          ? {'status': 'approved', 'approvedAvatarUrl': photoUrl}
+          : null,
       'intro': _intro.text.trim(),
     };
   }
@@ -3453,7 +3426,12 @@ class _SignupScreenState extends State<SignupScreen>
   }
 
   Future<void> _pickProfilePhoto() async {
-    if (_isPickingPhoto || _isSavingProfile) return;
+    if (_isPickingPhoto || _isSavingProfile || _isAvatarBusy) return;
+    if (_avatarSourceLocked || _hasApprovedAvatar) {
+      showAppSnack(context, avatarSourceLockedMessage);
+      return;
+    }
+
     HapticFeedback.selectionClick();
     setState(() => _isPickingPhoto = true);
 
@@ -3469,28 +3447,32 @@ class _SignupScreenState extends State<SignupScreen>
         showAppSnack(context, '사진 파일을 다시 선택해주세요.');
         return;
       }
-      if (bytes.length > 8 * 1024 * 1024) {
+      if (bytes.length > 10 * 1024 * 1024) {
         if (!mounted) return;
-        showAppSnack(context, '사진은 8MB 이하로 올려주세요.');
+        showAppSnack(context, '이미지는 10MB 이하로 올려주세요.');
         return;
       }
+
+      final contentType = _avatarContentTypeForFileName(
+        pickedPhoto.name,
+        pickedPhoto.mimeType,
+      );
 
       if (!mounted) return;
       setState(() {
         _profilePhoto = pickedPhoto;
         _profilePhotoBytes = bytes;
-        _hasPhoto = true;
-        _uploadedProfilePhoto = null;
         _restoredPhotoUrl = null;
-        _restoredPhotoStoragePath = null;
-        _restoredPhotoContentType = null;
+        _restoredPhotoContentType = contentType;
         _restoredPhotoOriginalName = pickedPhoto.name;
         _restoredPhotoSizeBytes = bytes.length;
-        _profilePhotoUpload = null;
+        _activeAvatarJobId = null;
+        _activeAvatarSourcePhotoId = null;
+        _activeAvatarSourceSelectionVersion = null;
+        _avatarCandidates = const [];
       });
 
       await _saveProfileDraft(force: true);
-      unawaited(_uploadSelectedPhotoInBackground(pickedPhoto));
     } catch (_) {
       if (!mounted) return;
       showAppSnack(context, '사진 선택에 실패했어요. 다시 선택해주세요.');
@@ -3501,75 +3483,222 @@ class _SignupScreenState extends State<SignupScreen>
     }
   }
 
-  Future<void> _uploadSelectedPhotoInBackground(XFile photo) async {
-    final upload = FestivalBackend.instance.uploadProfilePhoto(photo);
-    _profilePhotoUpload = upload;
-    if (mounted) {
-      setState(() => _isUploadingPhoto = true);
+  Future<void> _removeProfilePhoto() async {
+    if (_avatarSourceLocked || _hasApprovedAvatar || _isAvatarBusy) {
+      showAppSnack(context, avatarSourceLockedMessage);
+      return;
     }
 
-    try {
-      final uploadedPhoto = await upload;
-      if (!mounted || _profilePhotoUpload != upload) return;
-      setState(() {
-        _uploadedProfilePhoto = uploadedPhoto;
-        _restoredPhotoUrl = uploadedPhoto.downloadUrl;
-        _restoredPhotoStoragePath = uploadedPhoto.storagePath;
-        _restoredPhotoContentType = uploadedPhoto.contentType;
-        _restoredPhotoOriginalName = uploadedPhoto.originalName;
-        _restoredPhotoSizeBytes = uploadedPhoto.sizeBytes;
-        _isUploadingPhoto = false;
-      });
-      await _saveProfileDraft(force: true);
-    } catch (_) {
-      if (!mounted || _profilePhotoUpload != upload) return;
-      setState(() {
-        _profilePhotoUpload = null;
-        _isUploadingPhoto = false;
-      });
-      showAppSnack(context, '사진은 선택됐어요. 다음 단계에서 다시 저장해볼게요.');
-    }
+    HapticFeedback.selectionClick();
+    setState(() {
+      _profilePhoto = null;
+      _profilePhotoBytes = null;
+      _restoredPhotoUrl = null;
+      _restoredPhotoContentType = null;
+      _restoredPhotoOriginalName = null;
+      _restoredPhotoSizeBytes = null;
+      _activeAvatarJobId = null;
+      _activeAvatarSourcePhotoId = null;
+      _activeAvatarSourceSelectionVersion = null;
+      _avatarCandidates = const [];
+    });
+    await _saveProfileDraft(force: true);
   }
 
   Future<void> _continueToTaste() async {
-    if (!_canGoNext || _isSavingProfile) return;
+    if (_isSavingProfile || _isProfileTasteLocked) return;
+    if (_hasApprovedAvatar && _canGoNext) {
+      await _saveApprovedAvatarProfileAndContinue();
+      return;
+    }
+    if (_canStartAvatarFlow) {
+      await _startAvatarGeneration();
+      return;
+    }
+    showAppSnack(context, '프로필 정보와 알림 설정, 아바타로 만들 사진을 확인해주세요.');
+  }
+
+  Future<void> _startAvatarGeneration() async {
+    final photo = _profilePhoto;
+    final bytes = _profilePhotoBytes;
+    if (photo == null || bytes == null) {
+      showAppSnack(context, '아바타로 만들 사진을 먼저 선택해주세요.');
+      return;
+    }
+
+    HapticFeedback.selectionClick();
+    _draftDebounce?.cancel();
+    setState(() {
+      _avatarSourceLocked = true;
+      _isUploadingPhoto = true;
+      _avatarCandidates = const [];
+    });
+
+    try {
+      final upload = await _avatarClient.uploadAvatarSourcePhoto(
+        bytes: bytes,
+        fileName: photo.name,
+        contentType:
+            _restoredPhotoContentType ??
+            _avatarContentTypeForFileName(photo.name, photo.mimeType),
+      );
+      if (!mounted) return;
+
+      final jobId = upload.jobId;
+      setState(() {
+        _activeAvatarJobId = jobId;
+        _activeAvatarSourcePhotoId = upload.photoId;
+        _activeAvatarSourceSelectionVersion = upload.sourceSelectionVersion;
+        _isUploadingPhoto = false;
+        _isGeneratingAvatar = true;
+      });
+
+      final result = await _avatarClient.pollUntilPreviewReady(
+        jobId,
+        shouldContinue: () => mounted && _activeAvatarJobId == jobId,
+      );
+      if (!mounted || _activeAvatarJobId != jobId) return;
+
+      setState(() {
+        _isGeneratingAvatar = false;
+        _avatarCandidates = result.candidates;
+      });
+
+      if (result.status == AvatarJobStatus.previewReady &&
+          _avatarCandidates.isNotEmpty) {
+        await _showAvatarCandidatesDialog(_avatarCandidates);
+        return;
+      }
+
+      showAppSnack(context, _messageForAvatarStatus(result.status));
+    } on AvatarGenerationClientException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isUploadingPhoto = false;
+        _isGeneratingAvatar = false;
+        if (error.code == 'avatar_already_approved') {
+          _avatarSourceLocked = true;
+        }
+      });
+      showAppSnack(context, error.userMessage);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isUploadingPhoto = false;
+        _isGeneratingAvatar = false;
+      });
+      showAppSnack(context, avatarGenericFailureMessage);
+    }
+  }
+
+  String _messageForAvatarStatus(AvatarJobStatus status) {
+    switch (status) {
+      case AvatarJobStatus.noPreviewableCandidates:
+      case AvatarJobStatus.needsReview:
+        return avatarNoPreviewableMessage;
+      case AvatarJobStatus.superseded:
+      case AvatarJobStatus.cancelled:
+        return avatarSourceLockedMessage;
+      case AvatarJobStatus.approved:
+        return avatarAlreadyApprovedMessage;
+      case AvatarJobStatus.failed:
+      case AvatarJobStatus.queued:
+      case AvatarJobStatus.running:
+      case AvatarJobStatus.qaPending:
+      case AvatarJobStatus.previewReady:
+      case AvatarJobStatus.unknown:
+        return avatarGenericFailureMessage;
+    }
+  }
+
+  Future<void> _showAvatarCandidatesDialog(
+    List<AvatarCandidate> candidates,
+  ) async {
+    if (candidates.isEmpty || !mounted) return;
+
+    final approved = await showDialog<AvatarApprovalResult>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        var dialogApproving = false;
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            void approve(String candidateId) {
+              if (dialogApproving) return;
+              setDialogState(() => dialogApproving = true);
+              if (mounted) {
+                setState(() => _isApprovingAvatar = true);
+              }
+              unawaited(() async {
+                try {
+                  final result = await _avatarClient.approveAvatarCandidate(
+                    candidateId,
+                  );
+                  if (!mounted) return;
+                  if (!dialogContext.mounted) return;
+                  Navigator.of(dialogContext).pop(result);
+                } on AvatarGenerationClientException catch (error) {
+                  if (!mounted) return;
+                  setState(() => _isApprovingAvatar = false);
+                  setDialogState(() => dialogApproving = false);
+                  _showAvatarError(error.userMessage);
+                } catch (_) {
+                  if (!mounted) return;
+                  setState(() => _isApprovingAvatar = false);
+                  setDialogState(() => dialogApproving = false);
+                  _showAvatarError(avatarGenericFailureMessage);
+                }
+              }());
+            }
+
+            return AvatarCandidateSelectionDialog(
+              candidates: candidates,
+              approving: dialogApproving,
+              onApprove: approve,
+            );
+          },
+        );
+      },
+    );
+
+    if (approved != null) {
+      await _completeApprovedAvatar(approved);
+    } else if (mounted) {
+      setState(() => _isApprovingAvatar = false);
+    }
+  }
+
+  void _showAvatarError(String message) {
+    if (!mounted) return;
+    showAppSnack(context, message);
+  }
+
+  Future<void> _completeApprovedAvatar(AvatarApprovalResult approved) async {
+    if (!mounted) return;
+    setState(() {
+      _restoredPhotoUrl = approved.approvedAvatarUrl;
+      _avatarSourceLocked = true;
+      _isApprovingAvatar = false;
+      _isGeneratingAvatar = false;
+      _isUploadingPhoto = false;
+    });
+    await _saveProfileDraft(force: true);
+    await _saveApprovedAvatarProfileAndContinue();
+  }
+
+  Future<void> _saveApprovedAvatarProfileAndContinue() async {
+    final approvedAvatarUrl = _restoredPhotoUrl?.trim() ?? '';
+    if (approvedAvatarUrl.isEmpty) {
+      showAppSnack(context, '프로필에 사용할 아바타를 먼저 선택해주세요.');
+      return;
+    }
+    if (_isSavingProfile) return;
 
     HapticFeedback.selectionClick();
     setState(() => _isSavingProfile = true);
 
     try {
       _draftDebounce?.cancel();
-      UploadedProfilePhoto? uploadedPhoto = _uploadedProfilePhoto;
-      final pendingUpload = _profilePhotoUpload;
-      final photoToUpload = _profilePhoto;
-      if (uploadedPhoto == null && photoToUpload != null) {
-        setState(() => _isUploadingPhoto = true);
-        if (pendingUpload != null) {
-          try {
-            uploadedPhoto = await pendingUpload;
-          } catch (_) {
-            uploadedPhoto = null;
-          }
-        }
-        uploadedPhoto ??= await FestivalBackend.instance.uploadProfilePhoto(
-          photoToUpload,
-        );
-        if (!mounted) return;
-        setState(() {
-          _uploadedProfilePhoto = uploadedPhoto;
-          _restoredPhotoUrl = uploadedPhoto?.downloadUrl;
-          _restoredPhotoStoragePath = uploadedPhoto?.storagePath;
-          _restoredPhotoContentType = uploadedPhoto?.contentType;
-          _restoredPhotoOriginalName = uploadedPhoto?.originalName;
-          _restoredPhotoSizeBytes = uploadedPhoto?.sizeBytes;
-          _isUploadingPhoto = false;
-        });
-      }
-
-      if (uploadedPhoto == null && _restoredPhotoUrl == null) {
-        throw const FestivalBackendException('프로필 사진을 다시 선택해주세요.');
-      }
-
       await FestivalBackend.instance.saveProfile({
         'nickname': _nickname.text.trim(),
         'gender': _gender,
@@ -3577,16 +3706,17 @@ class _SignupScreenState extends State<SignupScreen>
         'studentAffiliation': _studentAffiliation,
         'age': _age,
         'mbti': _mbti.join(),
-        'hasPhoto': _hasPhoto,
-        'photoMode': 'firebase_storage',
-        'photoUrl': uploadedPhoto?.downloadUrl ?? _restoredPhotoUrl,
-        'photoStoragePath':
-            uploadedPhoto?.storagePath ?? _restoredPhotoStoragePath,
-        'photoContentType':
-            uploadedPhoto?.contentType ?? _restoredPhotoContentType,
-        'photoOriginalName':
-            uploadedPhoto?.originalName ?? _restoredPhotoOriginalName,
-        'photoSizeBytes': uploadedPhoto?.sizeBytes ?? _restoredPhotoSizeBytes,
+        'hasPhoto': true,
+        'photoMode': 'avatar',
+        'photoUrl': approvedAvatarUrl,
+        'photoStoragePath': null,
+        'photoContentType': _restoredPhotoContentType,
+        'photoOriginalName': _restoredPhotoOriginalName,
+        'photoSizeBytes': _restoredPhotoSizeBytes,
+        'avatar': {
+          'status': 'approved',
+          'approvedAvatarUrl': approvedAvatarUrl,
+        },
         'intro': _intro.text.trim(),
       });
 
@@ -3603,10 +3733,7 @@ class _SignupScreenState extends State<SignupScreen>
       );
     } finally {
       if (mounted) {
-        setState(() {
-          _isSavingProfile = false;
-          _isUploadingPhoto = false;
-        });
+        setState(() => _isSavingProfile = false);
       }
     }
   }
@@ -3656,388 +3783,258 @@ class _SignupScreenState extends State<SignupScreen>
       resizeToAvoidBottomInset: false,
       keyboardResizeFactor: _introFocusNode.hasFocus ? 0.33 : 0,
       bottomBarKeyboardPaddingFactor: _introFocusNode.hasFocus ? 0.33 : 0,
-      child: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const StepHeader(
-              current: 1,
-              total: 2,
-              title: '매칭에 필요한 정보만 받을게요',
-              subtitle: '축제 종료 후 별도 보관 정책에 따라 정리되는 일회성 프로필이에요.',
-            ),
-            if (_isProfileTasteLocked) ...[
-              const SizedBox(height: 16),
-              SoftCard(
-                color: AppColors.blush,
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  '프로필 작성이 ${_eventSchedule!.formatClockKst(_eventSchedule!.profileTasteLockAt)}에 마감되었어요.',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    height: 1.4,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.primary,
+      child: Stack(
+        children: [
+          SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const StepHeader(
+                  current: 1,
+                  total: 2,
+                  title: '매칭에 필요한 정보만 받을게요',
+                  subtitle: '축제 종료 후 별도 보관 정책에 따라 정리되는 일회성 프로필이에요.',
+                ),
+                if (_isProfileTasteLocked) ...[
+                  const SizedBox(height: 16),
+                  SoftCard(
+                    color: AppColors.blush,
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      '프로필 작성이 ${_eventSchedule!.formatClockKst(_eventSchedule!.profileTasteLockAt)}에 마감되었어요.',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        height: 1.4,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 20),
+                AppTextField(
+                  controller: _nickname,
+                  label: '닉네임',
+                  hintText: '친구들이 부르는 이름',
+                ),
+                const SizedBox(height: 16),
+                FieldLabel(
+                  text: '성별',
+                  child: SegmentedOptions(
+                    values: const ['남성', '여성'],
+                    selected: _gender,
+                    onSelected: (value) {
+                      if (_gender == value) return;
+                      _updateDraftField(() => _gender = value);
+                    },
                   ),
                 ),
-              ),
-            ],
-            const SizedBox(height: 20),
-            AppTextField(
-              controller: _nickname,
-              label: '닉네임',
-              hintText: '친구들이 부르는 이름',
-            ),
-            const SizedBox(height: 16),
-            FieldLabel(
-              text: '성별',
-              child: SegmentedOptions(
-                values: const ['남성', '여성'],
-                selected: _gender,
-                onSelected: (value) {
-                  if (_gender == value) return;
-                  _updateDraftField(() => _gender = value);
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            AppTextField(
-              controller: _department,
-              label: '학과',
-              hintText: '예: 경영학과',
-            ),
-            const SizedBox(height: 16),
-            FieldLabel(
-              text: '소속',
-              child: StudentAffiliationOptions(
-                selected: _studentAffiliation,
-                onSelected: (value) {
-                  if (_studentAffiliation == value) return;
-                  HapticFeedback.selectionClick();
-                  _updateDraftField(() => _studentAffiliation = value);
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            FieldLabel(
-              text: '나이',
-              child: SoftCard(
-                padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
-                child: Column(
-                  children: [
-                    Row(
+                const SizedBox(height: 16),
+                AppTextField(
+                  controller: _department,
+                  label: '학과',
+                  hintText: '예: 경영학과',
+                ),
+                const SizedBox(height: 16),
+                FieldLabel(
+                  text: '소속',
+                  child: StudentAffiliationOptions(
+                    selected: _studentAffiliation,
+                    onSelected: (value) {
+                      if (_studentAffiliation == value) return;
+                      HapticFeedback.selectionClick();
+                      _updateDraftField(() => _studentAffiliation = value);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FieldLabel(
+                  text: '나이',
+                  child: SoftCard(
+                    padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
+                    child: Column(
                       children: [
-                        const Text(
-                          '연나이',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textSub,
-                          ),
-                        ),
-                        const Spacer(),
-                        Text(
-                          '$_age세',
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                            color: AppColors.primary,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        trackHeight: 4,
-                        activeTrackColor: AppColors.primary,
-                        inactiveTrackColor: AppColors.border,
-                        activeTickMarkColor: Colors.transparent,
-                        inactiveTickMarkColor: Colors.transparent,
-                        tickMarkShape: SliderTickMarkShape.noTickMark,
-                        thumbColor: AppColors.primary,
-                        overlayColor: AppColors.primary.withValues(alpha: 0.12),
-                      ),
-                      child: Slider(
-                        value: _age.toDouble(),
-                        min: 19,
-                        max: 29,
-                        divisions: 10,
-                        onChanged: (value) => _updateDraftField(() {
-                          _age = value.round();
-                        }),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            FieldLabel(
-              text: 'MBTI',
-              child: SoftCard(
-                color: AppColors.input,
-                padding: const EdgeInsets.all(6),
-                radius: 18,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: MbtiAxisSelector(
-                        top: 'E',
-                        bottom: 'I',
-                        selected: _mbti[0],
-                        onChanged: (value) {
-                          if (_mbti[0] == value) return;
-                          _updateDraftField(() => _mbti[0] = value);
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: MbtiAxisSelector(
-                        top: 'N',
-                        bottom: 'S',
-                        selected: _mbti[1],
-                        onChanged: (value) {
-                          if (_mbti[1] == value) return;
-                          _updateDraftField(() => _mbti[1] = value);
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: MbtiAxisSelector(
-                        top: 'F',
-                        bottom: 'T',
-                        selected: _mbti[2],
-                        onChanged: (value) {
-                          if (_mbti[2] == value) return;
-                          _updateDraftField(() => _mbti[2] = value);
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: MbtiAxisSelector(
-                        top: 'J',
-                        bottom: 'P',
-                        selected: _mbti[3],
-                        onChanged: (value) {
-                          if (_mbti[3] == value) return;
-                          _updateDraftField(() => _mbti[3] = value);
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            FieldLabel(
-              text: '사진',
-              child: GestureDetector(
-                onTap: _pickProfilePhoto,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  height: 170,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: _hasPhoto ? AppColors.blush : AppColors.input,
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(
-                      color: _hasPhoto ? AppColors.primary : AppColors.border,
-                    ),
-                  ),
-                  child: _profilePhotoBytes != null || _restoredPhotoUrl != null
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(21),
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              if (_profilePhotoBytes != null)
-                                Image.memory(
-                                  _profilePhotoBytes!,
-                                  fit: BoxFit.cover,
-                                )
-                              else
-                                Image.network(
-                                  _restoredPhotoUrl!,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return const ColoredBox(
-                                      color: AppColors.input,
-                                      child: Center(
-                                        child: Icon(
-                                          CupertinoIcons.photo,
-                                          color: AppColors.primary,
-                                          size: 34,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              DecoratedBox(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [
-                                      Colors.transparent,
-                                      Colors.black.withValues(alpha: 0.42),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              Positioned(
-                                left: 16,
-                                right: 16,
-                                bottom: 14,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _isUploadingPhoto
-                                          ? '프로필 사진 저장 중'
-                                          : (_restoredPhotoUrl != null
-                                                ? '프로필 사진 저장됨'
-                                                : '프로필 사진 선택됨'),
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      _profilePhoto?.name ??
-                                          _restoredPhotoOriginalName ??
-                                          '저장된 사진',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.82,
-                                        ),
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Positioned(
-                                top: 12,
-                                right: 12,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 7,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.42),
-                                    borderRadius: BorderRadius.circular(99),
-                                  ),
-                                  child: const Text(
-                                    '다시 선택',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              if (_isPickingPhoto || _isUploadingPhoto)
-                                const ColoredBox(
-                                  color: Color(0x66000000),
-                                  child: Center(
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        )
-                      : Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        Row(
                           children: [
-                            _isPickingPhoto
-                                ? const SizedBox(
-                                    width: 30,
-                                    height: 30,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 3,
-                                    ),
-                                  )
-                                : const Icon(
-                                    CupertinoIcons.photo,
-                                    color: AppColors.primary,
-                                    size: 34,
-                                  ),
-                            const SizedBox(height: 10),
                             const Text(
-                              '사진 선택',
+                              '연나이',
                               style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.textMain,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textSub,
                               ),
                             ),
-                            const SizedBox(height: 5),
-                            const Text(
-                              '앨범 또는 파일에서 프로필 사진을 골라주세요',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textSub,
+                            const Spacer(),
+                            Text(
+                              '$_age세',
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.primary,
                               ),
                             ),
                           ],
                         ),
+                        SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            trackHeight: 4,
+                            activeTrackColor: AppColors.primary,
+                            inactiveTrackColor: AppColors.border,
+                            activeTickMarkColor: Colors.transparent,
+                            inactiveTickMarkColor: Colors.transparent,
+                            tickMarkShape: SliderTickMarkShape.noTickMark,
+                            thumbColor: AppColors.primary,
+                            overlayColor: AppColors.primary.withValues(
+                              alpha: 0.12,
+                            ),
+                          ),
+                          child: Slider(
+                            value: _age.toDouble(),
+                            min: 19,
+                            max: 29,
+                            divisions: 10,
+                            onChanged: (value) => _updateDraftField(() {
+                              _age = value.round();
+                            }),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 16),
+                FieldLabel(
+                  text: 'MBTI',
+                  child: SoftCard(
+                    color: AppColors.input,
+                    padding: const EdgeInsets.all(6),
+                    radius: 18,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: MbtiAxisSelector(
+                            top: 'E',
+                            bottom: 'I',
+                            selected: _mbti[0],
+                            onChanged: (value) {
+                              if (_mbti[0] == value) return;
+                              _updateDraftField(() => _mbti[0] = value);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: MbtiAxisSelector(
+                            top: 'N',
+                            bottom: 'S',
+                            selected: _mbti[1],
+                            onChanged: (value) {
+                              if (_mbti[1] == value) return;
+                              _updateDraftField(() => _mbti[1] = value);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: MbtiAxisSelector(
+                            top: 'F',
+                            bottom: 'T',
+                            selected: _mbti[2],
+                            onChanged: (value) {
+                              if (_mbti[2] == value) return;
+                              _updateDraftField(() => _mbti[2] = value);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: MbtiAxisSelector(
+                            top: 'J',
+                            bottom: 'P',
+                            selected: _mbti[3],
+                            onChanged: (value) {
+                              if (_mbti[3] == value) return;
+                              _updateDraftField(() => _mbti[3] = value);
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FieldLabel(
+                  text: '사진',
+                  child: AvatarPhotoInput(
+                    hasLocalPhoto:
+                        _profilePhotoBytes != null || _hasApprovedAvatar,
+                    sourceLocked:
+                        _avatarSourceLocked ||
+                        _hasActiveAvatarSource ||
+                        _isGeneratingAvatar,
+                    approvedAvatarUrl: _restoredPhotoUrl ?? '',
+                    isBusy: _isPickingPhoto || _isAvatarBusy,
+                    fileName:
+                        _profilePhoto?.name ??
+                        _restoredPhotoOriginalName ??
+                        '선택한 사진',
+                    localPreviewBytes: _profilePhotoBytes,
+                    onPick: _pickProfilePhoto,
+                    onRemove: _removeProfilePhoto,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                AppTextField(
+                  controller: _intro,
+                  focusNode: _introFocusNode,
+                  label: '자기소개',
+                  hintText: '',
+                  minLines: 4,
+                  maxLines: 5,
+                  scrollPadding: const EdgeInsets.only(bottom: 180),
+                ),
+                const SizedBox(height: 12),
+                InfoBanner(
+                  icon: _notificationReady
+                      ? CupertinoIcons.bell_fill
+                      : CupertinoIcons.bell,
+                  text: _notificationReady
+                      ? '새 채팅 알림을 받을 준비가 됐어요.'
+                      : '새 채팅 알림을 받으려면 알림을 켜주세요.',
+                  color: _notificationReady
+                      ? AppColors.mint
+                      : AppColors.primary,
+                  actionText: _notificationReady
+                      ? null
+                      : (_isSyncingPush ? '확인 중' : '알림 켜기'),
+                  onAction: _isSyncingPush ? null : _enableNotifications,
+                ),
+                const SizedBox(height: 12),
+                const InfoBanner(
+                  icon: CupertinoIcons.timer,
+                  text: '19:30 이후에는 1차 추천 계산을 위해 프로필 수정이 잠시 잠겨요.',
+                  color: AppColors.blue,
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            AppTextField(
-              controller: _intro,
-              focusNode: _introFocusNode,
-              label: '자기소개',
-              hintText: '',
-              minLines: 4,
-              maxLines: 5,
-              scrollPadding: const EdgeInsets.only(bottom: 180),
-            ),
-            const SizedBox(height: 12),
-            InfoBanner(
-              icon: _notificationReady
-                  ? CupertinoIcons.bell_fill
-                  : CupertinoIcons.bell,
-              text: _notificationReady
-                  ? '새 채팅 알림을 받을 준비가 됐어요.'
-                  : '새 채팅 알림을 받으려면 알림을 켜주세요.',
-              color: _notificationReady ? AppColors.mint : AppColors.primary,
-              actionText: _notificationReady
-                  ? null
-                  : (_isSyncingPush ? '확인 중' : '알림 켜기'),
-              onAction: _isSyncingPush ? null : _enableNotifications,
-            ),
-            const SizedBox(height: 12),
-            const InfoBanner(
-              icon: CupertinoIcons.timer,
-              text: '19:30 이후에는 1차 추천 계산을 위해 프로필 수정이 잠시 잠겨요.',
-              color: AppColors.blue,
-            ),
-          ],
-        ),
+          ),
+          if (_isUploadingPhoto || _isGeneratingAvatar)
+            const Positioned.fill(child: AvatarGeneratingOverlay()),
+        ],
       ),
       bottomBar: PrimaryButton(
-        text: _isSavingProfile
-            ? (_isUploadingPhoto ? '사진 저장 중...' : '저장 중...')
-            : '다음',
-        onPressed: _canGoNext && !_isSavingProfile && !_isProfileTasteLocked
+        text: _isGeneratingAvatar || _isUploadingPhoto
+            ? '아바타 생성중...'
+            : (_isApprovingAvatar || _isSavingProfile
+                  ? '저장하는 중...'
+                  : (_hasApprovedAvatar ? '다음' : '아바타 만들기')),
+        onPressed:
+            !_isProfileTasteLocked &&
+                !_isSavingProfile &&
+                !_isAvatarBusy &&
+                (_canGoNext || _canStartAvatarFlow)
             ? _continueToTaste
             : null,
       ),
@@ -4328,7 +4325,9 @@ class _TasteTrainingScreenState extends State<TasteTrainingScreen>
         case FestivalNextStep.waiting:
           final route = await FestivalBackend.instance.matchesOrWaitingRoute();
           if (!mounted) return;
-          Navigator.of(context).pushNamedAndRemoveUntil(route, (route) => false);
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil(route, (route) => false);
       }
     } catch (error) {
       if (!mounted) return;
@@ -4943,7 +4942,10 @@ class _WaitingScreenState extends State<WaitingScreen> {
 
     final wait = schedule.timeUntilReveal();
     if (wait > Duration.zero) {
-      _revealTimer = Timer(wait + const Duration(milliseconds: 500), _goToMatches);
+      _revealTimer = Timer(
+        wait + const Duration(milliseconds: 500),
+        _goToMatches,
+      );
     }
   }
 
@@ -5097,7 +5099,9 @@ class _WaitingScreenState extends State<WaitingScreen> {
         : '20:00';
     final revealHeadline = '$revealClock에 추천 프로필이 공개돼요';
     final canOpenMatches =
-        schedule == null || !schedule.enabled || schedule.areRecommendationsRevealed();
+        schedule == null ||
+        !schedule.enabled ||
+        schedule.areRecommendationsRevealed();
     final wait = schedule?.timeUntilReveal() ?? Duration.zero;
     final countdown = wait == Duration.zero
         ? null
@@ -5163,11 +5167,17 @@ class _WaitingScreenState extends State<WaitingScreen> {
                   const SizedBox(height: 18),
                   Row(
                     children: [
-                      Expanded(child: TimeBox(label: '마감', value: lockClock)),
+                      Expanded(
+                        child: TimeBox(label: '마감', value: lockClock),
+                      ),
                       const SizedBox(width: 10),
-                      Expanded(child: TimeBox(label: '계산', value: batchClock)),
+                      Expanded(
+                        child: TimeBox(label: '계산', value: batchClock),
+                      ),
                       const SizedBox(width: 10),
-                      Expanded(child: TimeBox(label: '공개', value: revealClock)),
+                      Expanded(
+                        child: TimeBox(label: '공개', value: revealClock),
+                      ),
                     ],
                   ),
                 ],
@@ -5909,6 +5919,7 @@ FestivalProfile _festivalProfileFromChatSnapshot(
   String ticketId,
   Map<String, dynamic> data,
 ) {
+  final photoUrl = FestivalAvatarDisplayResolver.resolve(data);
   return FestivalProfile(
     id: ticketId,
     name: data['name'] as String? ?? '익명',
@@ -5925,7 +5936,7 @@ FestivalProfile _festivalProfileFromChatSnapshot(
     matchPercent: 86,
     tags: const [],
     colors: const [AppColors.primary, AppColors.blush],
-    photoUrl: data['photoUrl'] as String?,
+    photoUrl: photoUrl.isEmpty ? null : photoUrl,
   );
 }
 

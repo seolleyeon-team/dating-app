@@ -1,9 +1,15 @@
 import { setGlobalOptions } from "firebase-functions/v2";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import { HttpsError, type CallableRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import { initializeApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
+import { createUploadAvatarSourcePhotoFunction } from "./avatarMedia";
+import {
+  createApproveAvatarCandidateFunction,
+  createGetAvatarJobCandidatesFunction,
+} from "./avatarApproval";
 
 initializeApp();
 
@@ -26,6 +32,75 @@ function asString(v: unknown, fallback = ""): string {
 function asStringArray(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   return v.map((item) => asString(item, "").trim()).filter(Boolean);
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function readMap(v: unknown): Record<string, unknown> {
+  return isRecord(v) ? v : {};
+}
+
+function isExpiredTimestamp(v: unknown): boolean {
+  if (!(v instanceof Timestamp)) return false;
+  return v.toDate().getTime() <= Date.now();
+}
+
+async function resolveFestivalAvatarUser(
+  auth: CallableRequest<unknown>["auth"]
+): Promise<{ userId: string; email: string; data: Record<string, unknown> }> {
+  const uid = asString(auth?.uid ?? "").trim();
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "로그인이 필요해요.");
+  }
+
+  const sessionSnap = await db.collection("festivalSessions").doc(uid).get();
+  if (!sessionSnap.exists) {
+    throw new HttpsError(
+      "failed-precondition",
+      "입장 세션을 찾을 수 없어요."
+    );
+  }
+  const session = sessionSnap.data() ?? {};
+  if (isExpiredTimestamp(session.sessionExpiresAt)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "입장 세션이 만료되었어요."
+    );
+  }
+
+  const ticketId = asString(session.ticketId ?? session.code ?? "").trim();
+  const [profileSnap, ticketSnap, userSnap] = await Promise.all([
+    ticketId ? db.collection("festivalProfiles").doc(ticketId).get() : null,
+    ticketId ? db.collection("festivalTickets").doc(ticketId).get() : null,
+    db.collection("users").doc(uid).get(),
+  ]);
+  const ticketData = ticketSnap?.data() ?? {};
+  const draft = readMap(ticketData.profileDraft);
+  const profileData = profileSnap?.data() ?? draft;
+  const previousUserData = userSnap.data() ?? {};
+  const previousOnboarding = readMap(previousUserData.onboarding);
+  const gender = asString(profileData.gender ?? previousOnboarding.gender);
+
+  const userPatch: Record<string, unknown> = {
+    uid,
+    festivalTicketId: ticketId,
+    profileImageMode: "avatar",
+    onboarding: {
+      ...previousOnboarding,
+      ...(gender ? { gender } : {}),
+    },
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+
+  await db.collection("users").doc(uid).set(userPatch, { merge: true });
+  const mergedUserSnap = await db.collection("users").doc(uid).get();
+  return {
+    userId: uid,
+    email: "",
+    data: mergedUserSnap.data() ?? userPatch,
+  };
 }
 
 async function fetchFestivalPushTokens(uid: string): Promise<string[]> {
@@ -157,6 +232,15 @@ export {
   festivalEventScheduleTick,
   setFestivalEventScheduleHttp,
 } from "./festival_event_schedule";
+
+export const uploadAvatarSourcePhoto =
+  createUploadAvatarSourcePhotoFunction(db, resolveFestivalAvatarUser);
+
+export const getAvatarJobCandidates =
+  createGetAvatarJobCandidatesFunction(db, resolveFestivalAvatarUser);
+
+export const approveAvatarCandidate =
+  createApproveAvatarCandidateFunction(db, resolveFestivalAvatarUser);
 
 export const onFestivalChatMessageCreated = onDocumentCreated(
   "festivalChatRooms/{roomId}/messages/{messageId}",

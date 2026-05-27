@@ -33,13 +33,16 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onFestivalChatMessageCreated = exports.setFestivalEventScheduleHttp = exports.festivalEventScheduleTick = exports.seedFestivalEmbeddingsHttp = exports.seedFestivalEmbeddings = exports.onFestivalProfilePhotoUpdated = exports.refreshFestivalRecommendations = exports.onFestivalTasteCompleted = exports.onFestivalRecommendationJobCreated = exports.generateFestivalDailyRecommendations = void 0;
+exports.onFestivalChatMessageCreated = exports.approveAvatarCandidate = exports.getAvatarJobCandidates = exports.uploadAvatarSourcePhoto = exports.setFestivalEventScheduleHttp = exports.festivalEventScheduleTick = exports.seedFestivalEmbeddingsHttp = exports.seedFestivalEmbeddings = exports.onFestivalProfilePhotoUpdated = exports.refreshFestivalRecommendations = exports.onFestivalTasteCompleted = exports.onFestivalRecommendationJobCreated = exports.generateFestivalDailyRecommendations = void 0;
 const v2_1 = require("firebase-functions/v2");
 const firestore_1 = require("firebase-functions/v2/firestore");
+const https_1 = require("firebase-functions/v2/https");
 const logger = __importStar(require("firebase-functions/logger"));
 const app_1 = require("firebase-admin/app");
 const firestore_2 = require("firebase-admin/firestore");
 const messaging_1 = require("firebase-admin/messaging");
+const avatarMedia_1 = require("./avatarMedia");
+const avatarApproval_1 = require("./avatarApproval");
 (0, app_1.initializeApp)();
 const db = (0, firestore_2.getFirestore)();
 (0, v2_1.setGlobalOptions)({
@@ -59,6 +62,60 @@ function asStringArray(v) {
     if (!Array.isArray(v))
         return [];
     return v.map((item) => asString(item, "").trim()).filter(Boolean);
+}
+function isRecord(v) {
+    return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function readMap(v) {
+    return isRecord(v) ? v : {};
+}
+function isExpiredTimestamp(v) {
+    if (!(v instanceof firestore_2.Timestamp))
+        return false;
+    return v.toDate().getTime() <= Date.now();
+}
+async function resolveFestivalAvatarUser(auth) {
+    const uid = asString(auth?.uid ?? "").trim();
+    if (!uid) {
+        throw new https_1.HttpsError("unauthenticated", "로그인이 필요해요.");
+    }
+    const sessionSnap = await db.collection("festivalSessions").doc(uid).get();
+    if (!sessionSnap.exists) {
+        throw new https_1.HttpsError("failed-precondition", "입장 세션을 찾을 수 없어요.");
+    }
+    const session = sessionSnap.data() ?? {};
+    if (isExpiredTimestamp(session.sessionExpiresAt)) {
+        throw new https_1.HttpsError("failed-precondition", "입장 세션이 만료되었어요.");
+    }
+    const ticketId = asString(session.ticketId ?? session.code ?? "").trim();
+    const [profileSnap, ticketSnap, userSnap] = await Promise.all([
+        ticketId ? db.collection("festivalProfiles").doc(ticketId).get() : null,
+        ticketId ? db.collection("festivalTickets").doc(ticketId).get() : null,
+        db.collection("users").doc(uid).get(),
+    ]);
+    const ticketData = ticketSnap?.data() ?? {};
+    const draft = readMap(ticketData.profileDraft);
+    const profileData = profileSnap?.data() ?? draft;
+    const previousUserData = userSnap.data() ?? {};
+    const previousOnboarding = readMap(previousUserData.onboarding);
+    const gender = asString(profileData.gender ?? previousOnboarding.gender);
+    const userPatch = {
+        uid,
+        festivalTicketId: ticketId,
+        profileImageMode: "avatar",
+        onboarding: {
+            ...previousOnboarding,
+            ...(gender ? { gender } : {}),
+        },
+        updatedAt: firestore_2.FieldValue.serverTimestamp(),
+    };
+    await db.collection("users").doc(uid).set(userPatch, { merge: true });
+    const mergedUserSnap = await db.collection("users").doc(uid).get();
+    return {
+        userId: uid,
+        email: "",
+        data: mergedUserSnap.data() ?? userPatch,
+    };
 }
 async function fetchFestivalPushTokens(uid) {
     const snap = await db
@@ -168,6 +225,9 @@ Object.defineProperty(exports, "seedFestivalEmbeddingsHttp", { enumerable: true,
 var festival_event_schedule_1 = require("./festival_event_schedule");
 Object.defineProperty(exports, "festivalEventScheduleTick", { enumerable: true, get: function () { return festival_event_schedule_1.festivalEventScheduleTick; } });
 Object.defineProperty(exports, "setFestivalEventScheduleHttp", { enumerable: true, get: function () { return festival_event_schedule_1.setFestivalEventScheduleHttp; } });
+exports.uploadAvatarSourcePhoto = (0, avatarMedia_1.createUploadAvatarSourcePhotoFunction)(db, resolveFestivalAvatarUser);
+exports.getAvatarJobCandidates = (0, avatarApproval_1.createGetAvatarJobCandidatesFunction)(db, resolveFestivalAvatarUser);
+exports.approveAvatarCandidate = (0, avatarApproval_1.createApproveAvatarCandidateFunction)(db, resolveFestivalAvatarUser);
 exports.onFestivalChatMessageCreated = (0, firestore_1.onDocumentCreated)("festivalChatRooms/{roomId}/messages/{messageId}", async (event) => {
     const snap = event.data;
     if (!snap)
