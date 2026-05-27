@@ -469,6 +469,9 @@ exports.onFestivalTasteCompleted = (0, firestore_1.onDocumentUpdated)("festivalT
         return;
     if (before.tasteCompleted === true || after.tasteCompleted !== true)
         return;
+    const { isFestivalEventScheduleActive } = await Promise.resolve().then(() => __importStar(require("./festival_event_schedule")));
+    if (await isFestivalEventScheduleActive())
+        return;
     const ticketId = event.params.ticketId;
     const result = await generateRecommendationsForTicket(ticketId, "taste_completed");
     logger.info("Festival taste-completed recommendation", {

@@ -21,6 +21,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'festival_push_service.dart';
 import 'firebase_options.dart';
 import 'mobile_web_keyboard.dart';
+import 'festival_event_schedule.dart';
 import 'recommendation/festival_recommendation_engine.dart';
 import 'recommendation/festival_taste_affinity.dart';
 
@@ -386,7 +387,47 @@ class FestivalBackend {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseStorage _storage = FirebaseStorage.instance;
+  final FestivalEventScheduleService _eventSchedule =
+      FestivalEventScheduleService(FirebaseFirestore.instance);
   FestivalSession? _session;
+
+  Stream<FestivalEventSchedule?> watchEventSchedule() =>
+      _eventSchedule.watch();
+
+  Future<FestivalEventSchedule?> loadEventSchedule() => _eventSchedule.load();
+
+  /// 이벤트 모드에서 추천 공개 전이면 웨이팅 화면에 머물러야 함.
+  Future<bool> isWaitingForRecommendationReveal() async {
+    final schedule = await _eventSchedule.load();
+    return schedule != null &&
+        schedule.enabled &&
+        !schedule.areRecommendationsRevealed();
+  }
+
+  Future<String> matchesOrWaitingRoute() async {
+    if (await isWaitingForRecommendationReveal()) {
+      return AppRoutes.waiting;
+    }
+    return AppRoutes.matches;
+  }
+
+  Future<void> _ensureProfileTasteOpen() async {
+    final schedule = await _eventSchedule.load();
+    if (schedule != null && schedule.isProfileTasteLocked()) {
+      throw FestivalBackendException(
+        '프로필 작성·취향 학습이 ${schedule.formatClockKst(schedule.profileTasteLockAt)}에 마감되었어요.',
+      );
+    }
+  }
+
+  Future<void> _ensureRecommendationsRevealed() async {
+    final schedule = await _eventSchedule.load();
+    if (schedule != null && !schedule.areRecommendationsRevealed()) {
+      throw FestivalBackendException(
+        '추천 결과는 ${schedule.formatClockKst(schedule.recommendationsRevealAt)}에 공개됩니다.',
+      );
+    }
+  }
 
   bool get isAuthenticated => _session?.isActive ?? false;
   FestivalSession? get session => _session?.isActive == true ? _session : null;
@@ -589,6 +630,7 @@ class FestivalBackend {
   }
 
   Future<void> saveProfile(Map<String, Object?> profileData) async {
+    await _ensureProfileTasteOpen();
     final activeSession = _requireSession();
     final profileRef = _db
         .collection('festivalProfiles')
@@ -630,6 +672,7 @@ class FestivalBackend {
   }
 
   Future<void> saveProfileDraft(Map<String, Object?> draftData) async {
+    await _ensureProfileTasteOpen();
     final activeSession = _requireSession();
     await _db.collection('festivalTickets').doc(activeSession.ticketId).set({
       'code': activeSession.ticketId,
@@ -687,6 +730,7 @@ class FestivalBackend {
     required TasteCardData card,
     required bool liked,
   }) async {
+    await _ensureProfileTasteOpen();
     final activeSession = _requireSession();
     final swipeId = index.toString().padLeft(2, '0');
     await _db
@@ -751,6 +795,7 @@ class FestivalBackend {
     required int likedCount,
     required int total,
   }) async {
+    await _ensureProfileTasteOpen();
     final activeSession = _requireSession();
     final builder = FestivalTasteAffinityBuilder(_db);
     final affinity = await builder.buildForTicket(activeSession.ticketId);
@@ -766,7 +811,10 @@ class FestivalBackend {
       'tasteTotalCount': total,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
-    _runSilently(_refreshRecommendationsForTicket(activeSession.ticketId));
+    final schedule = await _eventSchedule.load();
+    if (schedule == null || !schedule.enabled) {
+      _runSilently(_refreshRecommendationsForTicket(activeSession.ticketId));
+    }
   }
 
   Future<void> _refreshRecommendationsForTicket(String ticketId) async {
@@ -862,15 +910,18 @@ class FestivalBackend {
 
       if (tasteCompleted) {
         if (ticketData['tasteCompleted'] != true) {
-          _runSilently(
-            ticketRef.set({
-              'tasteCompleted': true,
-              'tasteCompletedAt': FieldValue.serverTimestamp(),
-              'tasteLikedCount': likedCount,
-              'tasteTotalCount': _tasteCardCount,
-              'updatedAt': FieldValue.serverTimestamp(),
-            }, SetOptions(merge: true)),
-          );
+          final schedule = await _eventSchedule.load();
+          if (schedule == null || !schedule.isProfileTasteLocked()) {
+            _runSilently(
+              ticketRef.set({
+                'tasteCompleted': true,
+                'tasteCompletedAt': FieldValue.serverTimestamp(),
+                'tasteLikedCount': likedCount,
+                'tasteTotalCount': _tasteCardCount,
+                'updatedAt': FieldValue.serverTimestamp(),
+              }, SetOptions(merge: true)),
+            );
+          }
         }
         return FestivalOnboardingProgress(
           nextStep: FestivalNextStep.waiting,
@@ -894,6 +945,7 @@ class FestivalBackend {
   Future<RecommendationBundle> loadPersonalizedRecommendations({
     bool refreshOnServer = false,
   }) async {
+    await _ensureRecommendationsRevealed();
     final activeSession = _requireSession();
     final currentProfile = await _db
         .collection('festivalProfiles')
@@ -906,8 +958,13 @@ class FestivalBackend {
     }
 
     if (refreshOnServer) {
+      final schedule = await _eventSchedule.load();
+      if (schedule?.enabled == true) {
+        throw const FestivalBackendException(
+          '이벤트 모드에서는 추천이 일정에 맞춰 일괄 공개됩니다.',
+        );
+      }
       await _requestServerRecommendationRefresh();
-      // Server may have written new preference vectors — prefer fresh rec doc.
     }
 
     final targetGender = currentGender == '남성' ? '여성' : '남성';
@@ -3195,6 +3252,11 @@ class _SignupScreenState extends State<SignupScreen>
   bool _isSyncingPush = false;
   bool _notificationReady = false;
   String? _lastSavedDraftSignature;
+  FestivalEventSchedule? _eventSchedule;
+  StreamSubscription<FestivalEventSchedule?>? _scheduleSubscription;
+
+  bool get _isProfileTasteLocked =>
+      _eventSchedule?.isProfileTasteLocked() ?? false;
 
   bool get _canGoNext {
     return _nickname.text.trim().isNotEmpty &&
@@ -3218,6 +3280,12 @@ class _SignupScreenState extends State<SignupScreen>
     _introFocusNode.addListener(_handleIntroFocusChanged);
     unawaited(_loadProfileDraft());
     unawaited(_loadNotificationState());
+    _scheduleSubscription = FestivalBackend.instance
+        .watchEventSchedule()
+        .listen((schedule) {
+          if (!mounted) return;
+          setState(() => _eventSchedule = schedule);
+        });
   }
 
   void _handleIntroFocusChanged() {
@@ -3553,6 +3621,7 @@ class _SignupScreenState extends State<SignupScreen>
     _department.removeListener(_handleDraftFieldChanged);
     _intro.removeListener(_handleDraftFieldChanged);
     _introFocusNode.removeListener(_handleIntroFocusChanged);
+    _scheduleSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _nickname.dispose();
     _department.dispose();
@@ -3599,6 +3668,22 @@ class _SignupScreenState extends State<SignupScreen>
               title: '매칭에 필요한 정보만 받을게요',
               subtitle: '축제 종료 후 별도 보관 정책에 따라 정리되는 일회성 프로필이에요.',
             ),
+            if (_isProfileTasteLocked) ...[
+              const SizedBox(height: 16),
+              SoftCard(
+                color: AppColors.blush,
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  '프로필 작성이 ${_eventSchedule!.formatClockKst(_eventSchedule!.profileTasteLockAt)}에 마감되었어요.',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    height: 1.4,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
             AppTextField(
               controller: _nickname,
@@ -3952,7 +4037,9 @@ class _SignupScreenState extends State<SignupScreen>
         text: _isSavingProfile
             ? (_isUploadingPhoto ? '사진 저장 중...' : '저장 중...')
             : '다음',
-        onPressed: _canGoNext && !_isSavingProfile ? _continueToTaste : null,
+        onPressed: _canGoNext && !_isSavingProfile && !_isProfileTasteLocked
+            ? _continueToTaste
+            : null,
       ),
     );
   }
@@ -4239,9 +4326,9 @@ class _TasteTrainingScreenState extends State<TasteTrainingScreen>
             _resumeError = null;
           });
         case FestivalNextStep.waiting:
-          Navigator.of(
-            context,
-          ).pushNamedAndRemoveUntil(AppRoutes.matches, (route) => false);
+          final route = await FestivalBackend.instance.matchesOrWaitingRoute();
+          if (!mounted) return;
+          Navigator.of(context).pushNamedAndRemoveUntil(route, (route) => false);
       }
     } catch (error) {
       if (!mounted) return;
@@ -4811,6 +4898,132 @@ class WaitingScreen extends StatefulWidget {
 
 class _WaitingScreenState extends State<WaitingScreen> {
   bool _notificationReady = false;
+  bool _isLoggingOut = false;
+  FestivalEventSchedule? _eventSchedule;
+  StreamSubscription<FestivalEventSchedule?>? _scheduleSubscription;
+  Timer? _revealTimer;
+  Timer? _countdownTicker;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleSubscription = FestivalBackend.instance
+        .watchEventSchedule()
+        .listen(_handleScheduleUpdate);
+    unawaited(
+      FestivalBackend.instance.loadEventSchedule().then((schedule) {
+        if (!mounted) return;
+        _handleScheduleUpdate(schedule);
+      }),
+    );
+    unawaited(_loadNotificationState());
+  }
+
+  void _handleScheduleUpdate(FestivalEventSchedule? schedule) {
+    if (!mounted) return;
+    setState(() => _eventSchedule = schedule);
+    _revealTimer?.cancel();
+    _countdownTicker?.cancel();
+
+    if (schedule == null || !schedule.enabled) return;
+
+    if (schedule.areRecommendationsRevealed()) {
+      _goToMatches();
+      return;
+    }
+
+    _countdownTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      if (_eventSchedule?.areRecommendationsRevealed() == true) {
+        _goToMatches();
+        return;
+      }
+      setState(() {});
+    });
+
+    final wait = schedule.timeUntilReveal();
+    if (wait > Duration.zero) {
+      _revealTimer = Timer(wait + const Duration(milliseconds: 500), _goToMatches);
+    }
+  }
+
+  void _goToMatches() {
+    if (!mounted || _isLoggingOut) return;
+    Navigator.of(context).pushReplacementNamed(AppRoutes.matches);
+  }
+
+  Future<void> _confirmLogout() async {
+    if (_isLoggingOut) return;
+    HapticFeedback.selectionClick();
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppColors.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          title: const Text(
+            '로그아웃할까요?',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+          content: const Text(
+            '현재 기기에서 입장 코드 세션이 사라지고, 다시 이용하려면 코드를 다시 입력해야 해요.',
+            style: TextStyle(
+              height: 1.45,
+              color: AppColors.textSub,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('취소'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('로그아웃'),
+            ),
+          ],
+        );
+      },
+    );
+    if (shouldLogout != true) return;
+
+    _revealTimer?.cancel();
+    _countdownTicker?.cancel();
+    setState(() => _isLoggingOut = true);
+    try {
+      await FestivalBackend.instance.logout();
+      if (!mounted) return;
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil(AppRoutes.access, (route) => false);
+    } catch (_) {
+      if (!mounted) return;
+      showAppSnack(context, '로그아웃에 실패했어요. 잠시 후 다시 시도해주세요.');
+      setState(() => _isLoggingOut = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _revealTimer?.cancel();
+    _countdownTicker?.cancel();
+    _scheduleSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadNotificationState() async {
+    final status = await FestivalPushService.instance
+        .currentAuthorizationStatus();
+    if (!mounted) return;
+    setState(() {
+      _notificationReady =
+          status == AuthorizationStatus.authorized ||
+          status == AuthorizationStatus.provisional;
+    });
+  }
 
   void _showNotificationSheet() {
     showModalBottomSheet<void>(
@@ -4872,9 +5085,44 @@ class _WaitingScreenState extends State<WaitingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final schedule = _eventSchedule;
+    final lockClock = schedule != null
+        ? schedule.formatClockKst(schedule.profileTasteLockAt)
+        : '19:30';
+    final batchClock = schedule != null
+        ? schedule.formatClockKst(schedule.batchRecommendationsAt)
+        : '19:31';
+    final revealClock = schedule != null
+        ? schedule.formatClockKst(schedule.recommendationsRevealAt)
+        : '20:00';
+    final revealHeadline = '$revealClock에 추천 프로필이 공개돼요';
+    final canOpenMatches =
+        schedule == null || !schedule.enabled || schedule.areRecommendationsRevealed();
+    final wait = schedule?.timeUntilReveal() ?? Duration.zero;
+    final countdown = wait == Duration.zero
+        ? null
+        : (wait.inHours > 0
+              ? '${wait.inHours}시간 ${wait.inMinutes.remainder(60)}분'
+              : wait.inMinutes > 0
+              ? '${wait.inMinutes.remainder(60)}분 ${wait.inSeconds.remainder(60)}초'
+              : '${wait.inSeconds.remainder(60)}초');
+
     return AppScaffold(
       title: '오늘의 인연',
       showBack: false,
+      trailing: TextButton(
+        onPressed: _isLoggingOut ? null : _confirmLogout,
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.textSub,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Text(
+          _isLoggingOut ? '로그아웃 중…' : '로그아웃',
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+        ),
+      ),
       child: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
@@ -4892,18 +5140,20 @@ class _WaitingScreenState extends State<WaitingScreen> {
                     color: AppColors.primary,
                   ),
                   const SizedBox(height: 18),
-                  const Text(
-                    '20:00에 추천 프로필이 공개돼요',
-                    style: TextStyle(
+                  Text(
+                    revealHeadline,
+                    style: const TextStyle(
                       fontSize: 28,
                       height: 1.2,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
                   const SizedBox(height: 10),
-                  const Text(
-                    '지금까지 총 184명의 상대가 등록했어요. 더 많은 친구들에게 공유하면 나에게 더 잘 맞는 상대를 찾을 확률이 올라간답니다.',
-                    style: TextStyle(
+                  Text(
+                    schedule?.isInBatchWindow() == true
+                        ? '지금 CLIP으로 프로필·취향이 완료된 참가자들의 추천을 계산하고 있어요. $revealClock에 카드가 열려요.'
+                        : '프로필·AI 취향 입력이 $lockClock에 마감되고, $batchClock부터 CLIP 매칭이 시작돼요. $revealClock에 추천 카드가 공개됩니다.',
+                    style: const TextStyle(
                       fontSize: 15,
                       height: 1.55,
                       color: AppColors.textSub,
@@ -4912,18 +5162,12 @@ class _WaitingScreenState extends State<WaitingScreen> {
                   ),
                   const SizedBox(height: 18),
                   Row(
-                    children: const [
-                      Expanded(
-                        child: TimeBox(label: '마감', value: '19:30'),
-                      ),
-                      SizedBox(width: 10),
-                      Expanded(
-                        child: TimeBox(label: '계산', value: '19:40'),
-                      ),
-                      SizedBox(width: 10),
-                      Expanded(
-                        child: TimeBox(label: '공개', value: '20:00'),
-                      ),
+                    children: [
+                      Expanded(child: TimeBox(label: '마감', value: lockClock)),
+                      const SizedBox(width: 10),
+                      Expanded(child: TimeBox(label: '계산', value: batchClock)),
+                      const SizedBox(width: 10),
+                      Expanded(child: TimeBox(label: '공개', value: revealClock)),
                     ],
                   ),
                 ],
@@ -4975,12 +5219,22 @@ class _WaitingScreenState extends State<WaitingScreen> {
               icon: CupertinoIcons.square_arrow_up,
               onPressed: () => showAppSnack(context, '공유 링크가 준비되는 위치예요.'),
             ),
+            const SizedBox(height: 10),
+            SecondaryButton(
+              text: _isLoggingOut ? '로그아웃 중…' : '로그아웃',
+              icon: CupertinoIcons.square_arrow_right,
+              onPressed: _isLoggingOut ? null : _confirmLogout,
+            ),
           ],
         ),
       ),
       bottomBar: PrimaryButton(
-        text: '결과 공개 화면 보기',
-        onPressed: () => Navigator.of(context).pushNamed(AppRoutes.matches),
+        text: canOpenMatches
+            ? '추천 결과 보기'
+            : countdown != null
+            ? '$revealClock 공개 · $countdown 남음'
+            : '$revealClock에 공개됩니다',
+        onPressed: canOpenMatches && !_isLoggingOut ? _goToMatches : null,
       ),
     );
   }
@@ -5008,16 +5262,47 @@ class _TodayMatchScreenState extends State<TodayMatchScreen> {
   bool _isLoadingRecommendations = true;
   bool _isSyncingPush = false;
   bool _notificationReady = false;
+  bool _recommendationsFrozen = false;
   String? _recommendationError;
   String? _targetGender;
   int _availableCandidateCount = 0;
+  FestivalEventSchedule? _eventSchedule;
+  StreamSubscription<FestivalEventSchedule?>? _scheduleSubscription;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController(viewportFraction: 0.82);
-    unawaited(_refreshRecommendations());
+    _scheduleSubscription = FestivalBackend.instance
+        .watchEventSchedule()
+        .listen(_handleEventSchedule);
+    unawaited(_redirectIfWaitingForReveal());
     unawaited(_loadNotificationState());
+  }
+
+  Future<void> _redirectIfWaitingForReveal() async {
+    if (!await FestivalBackend.instance.isWaitingForRecommendationReveal()) {
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).pushReplacementNamed(AppRoutes.waiting);
+  }
+
+  void _handleEventSchedule(FestivalEventSchedule? schedule) {
+    if (!mounted) return;
+    setState(() => _eventSchedule = schedule);
+
+    if (schedule != null &&
+        schedule.enabled &&
+        !schedule.areRecommendationsRevealed()) {
+      Navigator.of(context).pushReplacementNamed(AppRoutes.waiting);
+      return;
+    }
+
+    if (schedule == null || schedule.areRecommendationsRevealed()) {
+      if (_recommendationsFrozen) return;
+      unawaited(_refreshRecommendations(freezeAfterLoad: schedule != null));
+    }
   }
 
   @override
@@ -5031,6 +5316,7 @@ class _TodayMatchScreenState extends State<TodayMatchScreen> {
 
   @override
   void dispose() {
+    _scheduleSubscription?.cancel();
     _pageController.dispose();
     super.dispose();
   }
@@ -5149,7 +5435,11 @@ class _TodayMatchScreenState extends State<TodayMatchScreen> {
     ).pushNamedAndRemoveUntil(AppRoutes.access, (route) => false);
   }
 
-  Future<void> _refreshRecommendations({bool refreshOnServer = false}) async {
+  Future<void> _refreshRecommendations({
+    bool refreshOnServer = false,
+    bool freezeAfterLoad = false,
+  }) async {
+    if (_recommendationsFrozen) return;
     HapticFeedback.selectionClick();
     setState(() {
       _isLoadingRecommendations = true;
@@ -5170,6 +5460,7 @@ class _TodayMatchScreenState extends State<TodayMatchScreen> {
         _targetGender = bundle.targetGender;
         _availableCandidateCount = bundle.availableCount;
         _isLoadingRecommendations = false;
+        if (freezeAfterLoad) _recommendationsFrozen = true;
       });
     } catch (error) {
       if (!mounted) return;
@@ -5252,26 +5543,27 @@ class _TodayMatchScreenState extends State<TodayMatchScreen> {
                 constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
                 visualDensity: VisualDensity.compact,
               ),
-              TextButton.icon(
-                onPressed: _isLoadingRecommendations
-                    ? null
-                    : () => _refreshRecommendations(refreshOnServer: true),
-                icon: const Icon(CupertinoIcons.arrow_clockwise, size: 15),
-                label: const Text('추천 새로고침'),
-                style: TextButton.styleFrom(
-                  foregroundColor: AppColors.textSub,
-                  textStyle: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
+              if (_eventSchedule == null || !_eventSchedule!.enabled)
+                TextButton.icon(
+                  onPressed: _isLoadingRecommendations
+                      ? null
+                      : () => _refreshRecommendations(refreshOnServer: true),
+                  icon: const Icon(CupertinoIcons.arrow_clockwise, size: 15),
+                  label: const Text('추천 새로고침'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.textSub,
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 6,
+                    ),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 6,
-                  ),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -7607,7 +7899,9 @@ class _OnboardingRedirectScreenState extends State<OnboardingRedirectScreen> {
             arguments: progress.tasteResume,
           );
         case FestivalNextStep.waiting:
-          Navigator.of(context).pushReplacementNamed(AppRoutes.matches);
+          final route = await FestivalBackend.instance.matchesOrWaitingRoute();
+          if (!mounted) return;
+          Navigator.of(context).pushReplacementNamed(route);
       }
     } catch (error) {
       if (!mounted) return;

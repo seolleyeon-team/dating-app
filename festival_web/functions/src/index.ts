@@ -153,6 +153,11 @@ export {
   seedFestivalEmbeddingsHttp,
 } from "./festival_embeddings";
 
+export {
+  festivalEventScheduleTick,
+  setFestivalEventScheduleHttp,
+} from "./festival_event_schedule";
+
 export const onFestivalChatMessageCreated = onDocumentCreated(
   "festivalChatRooms/{roomId}/messages/{messageId}",
   async (event) => {

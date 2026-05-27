@@ -55,21 +55,19 @@ service cloud.firestore {
     match /festivalTickets/{ticketId} {
       allow get: if signedIn() && validTicketId(ticketId);
       allow list: if false;
-      allow create, update: if signedIn() &&
-        validTicketId(ticketId) &&
-        request.resource.data.code == ticketId &&
-        request.resource.data.lastUid == request.auth.uid &&
-        ticketNotDisabled(ticketId);
+      allow create: if canCreateFestivalTicket(ticketId);
+      allow update: if canUpdateFestivalTicket(ticketId);
 
       match /tasteSwipes/{swipeId} {
-        allow read, write: if ownsTicket(ticketId);
+        allow read: if ownsTicket(ticketId);
+        allow write: if ownsTicket(ticketId) && beforeProfileTasteLock();
       }
     }
 
     match /festivalProfiles/{ticketId} {
       allow get: if hasActiveSession() && validTicketId(ticketId);
       allow list: if hasActiveSession();
-      allow create, update: if ownsTicket(ticketId);
+      allow create, update: if ownsTicket(ticketId) && beforeProfileTasteLock();
       allow delete: if false;
     }
 
@@ -196,6 +194,69 @@ service cloud.firestore {
         allow read: if hasActiveSession() && activeTicketId() == ticketId;
         allow write: if false;
       }
+    }
+
+    match /festivalSettings/{docId} {
+      allow get: if hasActiveSession();
+      allow list: if false;
+      allow write: if false;
+    }
+
+    function festivalSchedulePath() {
+      return /databases/$(database)/documents/festivalSettings/schedule;
+    }
+
+    function festivalEventScheduleEnabled() {
+      return exists(festivalSchedulePath()) &&
+        get(festivalSchedulePath()).data.enabled == true;
+    }
+
+    function beforeProfileTasteLock() {
+      return !festivalEventScheduleEnabled() ||
+        request.time < get(festivalSchedulePath()).data.profileTasteLockAt;
+    }
+
+    function ticketSessionFieldKeys() {
+      return [
+        'code',
+        'status',
+        'round',
+        'lastUid',
+        'lastRedeemSource',
+        'lastRedeemedAt',
+        'sessionExpiresAt',
+        'updatedAt',
+        'createdAt',
+      ];
+    }
+
+    /** merge 입장 시 기존 tasteCompleted 등은 문서에 남지만, 이번 요청에서 바뀐 키만 검사. */
+    function ticketSessionFieldsOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(ticketSessionFieldKeys());
+    }
+
+    function isSessionRedeemCreate() {
+      return request.resource.data.keys().hasOnly(ticketSessionFieldKeys());
+    }
+
+    function canCreateFestivalTicket(ticketId) {
+      return signedIn() &&
+        validTicketId(ticketId) &&
+        request.resource.data.code == ticketId &&
+        request.resource.data.lastUid == request.auth.uid &&
+        ticketNotDisabled(ticketId) &&
+        (beforeProfileTasteLock() || isSessionRedeemCreate());
+    }
+
+    /** 프로필·취향 완료 후에도 입장 코드로 세션만 갱신 가능 (11:38 이후 포함). */
+    function canUpdateFestivalTicket(ticketId) {
+      return signedIn() &&
+        validTicketId(ticketId) &&
+        request.resource.data.code == ticketId &&
+        request.resource.data.lastUid == request.auth.uid &&
+        ticketNotDisabled(ticketId) &&
+        (beforeProfileTasteLock() || ticketSessionFieldsOnly());
     }
 
     match /festivalRecommendations/{ticketId} {

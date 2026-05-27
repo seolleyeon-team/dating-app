@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 /**
- * 기존 6자리 입장 코드 계정 데이터 삭제 + 새 코드 20개 Firestore 등록
+ * Firestore의 모든 festivalTickets(입장 코드) 관련 데이터 삭제 + 새 코드 N개 등록
  *
  * Usage (from festival_web/functions):
  *   node scripts/reset_ticket_codes.cjs
+ *   NEW_CODE_COUNT=200 node scripts/reset_ticket_codes.cjs
  *
  * Requires: `firebase login` (uses ~/.config/configstore/firebase-tools.json access token)
+ *
+ * Does NOT touch: festivalSettings/schedule, festivalAiEmbeddings, Cloud Functions config.
  */
 
 const { randomBytes } = require("crypto");
@@ -16,21 +19,8 @@ const { join } = require("path");
 const PROJECT_ID = "seolleyeon-festival";
 const DATABASE = "(default)";
 const CODE_LENGTH = 6;
-const NEW_CODE_COUNT = 20;
+const NEW_CODE_COUNT = Number(process.env.NEW_CODE_COUNT || "200");
 const CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-const OLD_CODES = [
-  "A5B6C7",
-  "K9M2Q4",
-  "R7T8Y2",
-  "C3D4E5",
-  "F6G7H8",
-  "J2K3L4",
-  "M5N6P7",
-  "Q8R9S2",
-  "T3U4V5",
-  "W6X7Y8",
-];
 
 const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/${DATABASE}/documents`;
 
@@ -125,12 +115,21 @@ async function runQuery(collectionId, field, op, value, token) {
     .map((row) => docPathFromName(row.document.name));
 }
 
+async function listAllTicketIds(token) {
+  const docs = await listCollection("festivalTickets", token);
+  return docs
+    .map((doc) => docIdFromName(doc.name))
+    .filter((id) => /^[A-Z0-9]{6,64}$/.test(id));
+}
+
 async function deleteTicketData(ticketId, token) {
   const stats = {
     tasteSwipes: 0,
     chatRooms: 0,
     chatMembershipRooms: 0,
     sessions: 0,
+    recommendations: 0,
+    recJobs: 0,
   };
 
   const swipeDocs = await listCollection(`festivalTickets/${ticketId}/tasteSwipes`, token);
@@ -177,6 +176,18 @@ async function deleteTicketData(ticketId, token) {
     stats.sessions += 1;
   }
 
+  const recJobPaths = await runQuery(
+    "festivalRecommendationJobs",
+    "ticketId",
+    "EQUAL",
+    ticketId,
+    token
+  );
+  for (const jobPath of recJobPaths) {
+    await deleteDocument(jobPath, token);
+    stats.recJobs += 1;
+  }
+
   const dailyDocs = await listCollection(`festivalModelRecs/${ticketId}/daily`, token);
   for (const daily of dailyDocs) {
     const dailyPath = docPathFromName(daily.name);
@@ -184,6 +195,8 @@ async function deleteTicketData(ticketId, token) {
     await deleteDocument(dailyPath, token);
   }
   await deleteDocument(`festivalModelRecs/${ticketId}`, token);
+  await deleteDocument(`festivalRecommendations/${ticketId}`, token);
+  stats.recommendations = 1;
   await deleteDocument(`festivalProfileEmbeddings/${ticketId}`, token);
   await deleteDocument(`festivalProfiles/${ticketId}`, token);
   await deleteDocument(`festivalTicketEnforcement/${ticketId}`, token);
@@ -222,7 +235,6 @@ async function seedTickets(codes, token) {
     },
   }));
 
-  // Firestore batch write limit is 500.
   for (let i = 0; i < writes.length; i += 400) {
     const chunk = writes.slice(i, i + 400);
     await api(":commit", { method: "POST", body: { writes: chunk } }, token);
@@ -232,7 +244,7 @@ async function seedTickets(codes, token) {
 function writeSeedJson(codes) {
   const payload = {
     projectId: PROJECT_ID,
-    note: "6자리 영문+숫자 입장 코드 20개. QR URL을 생성기에 넣으면 바로 인증됩니다.",
+    note: `${CODE_LENGTH}자리 영문+숫자 입장 코드 ${codes.length}개. QR URL을 생성기에 넣으면 바로 인증됩니다.`,
     generatedAt: new Date().toISOString(),
     tickets: codes.map((code) => ({
       code,
@@ -248,24 +260,28 @@ function writeSeedJson(codes) {
 async function main() {
   const token = getAccessToken();
   console.log(`Project: ${PROJECT_ID}`);
-  console.log(`Deleting ${OLD_CODES.length} legacy ticket codes...\n`);
+  console.log(`NEW_CODE_COUNT=${NEW_CODE_COUNT}\n`);
 
-  for (const code of OLD_CODES) {
-    console.log(`— ${code}`);
-    const stats = await deleteTicketData(code, token);
+  const existingIds = await listAllTicketIds(token);
+  console.log(`Found ${existingIds.length} existing ticket(s) to delete...\n`);
+
+  for (const ticketId of existingIds) {
+    console.log(`— ${ticketId}`);
+    const stats = await deleteTicketData(ticketId, token);
     console.log(`   ${JSON.stringify(stats)}`);
   }
 
-  const newCodes = generateUniqueCodes(NEW_CODE_COUNT, OLD_CODES);
+  const newCodes = generateUniqueCodes(NEW_CODE_COUNT, existingIds);
   console.log(`\nSeeding ${newCodes.length} new codes...`);
   await seedTickets(newCodes, token);
 
   const seedPath = writeSeedJson(newCodes);
   console.log(`\nUpdated: ${seedPath}`);
-  console.log("\nNew codes:");
-  newCodes.forEach((code, index) => {
+  console.log("\nFirst 10 codes:");
+  newCodes.slice(0, 10).forEach((code, index) => {
     console.log(`${String(index + 1).padStart(2, "0")}. ${code}`);
   });
+  console.log(`... and ${newCodes.length - 10} more in ${seedPath}`);
   console.log("\nDone.");
 }
 
