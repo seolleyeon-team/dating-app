@@ -236,6 +236,11 @@ export const onFestivalProfilePhotoUpdated = onDocumentWritten(
     const after = event.data?.after;
     if (!after?.exists) return;
 
+    const { areFestivalRecommendationsFrozen } = await import(
+      "./festival_event_schedule"
+    );
+    if (await areFestivalRecommendationsFrozen()) return;
+
     const ticketId = event.params.ticketId;
     const photoUrl = String(after.data()?.photoUrl ?? "").trim();
     if (!photoUrl) return;

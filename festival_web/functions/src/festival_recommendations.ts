@@ -554,6 +554,11 @@ export const onFestivalTasteCompleted = onDocumentUpdated(
     if (!before || !after) return;
     if (before.tasteCompleted === true || after.tasteCompleted !== true) return;
 
+    const { isFestivalEventScheduleActive } = await import(
+      "./festival_event_schedule"
+    );
+    if (await isFestivalEventScheduleActive()) return;
+
     const ticketId = event.params.ticketId;
     const result = await generateRecommendationsForTicket(
       ticketId,

@@ -225,6 +225,9 @@ exports.onFestivalProfilePhotoUpdated = (0, firestore_1.onDocumentWritten)({
     const after = event.data?.after;
     if (!after?.exists)
         return;
+    const { areFestivalRecommendationsFrozen } = await Promise.resolve().then(() => __importStar(require("./festival_event_schedule")));
+    if (await areFestivalRecommendationsFrozen())
+        return;
     const ticketId = event.params.ticketId;
     const photoUrl = String(after.data()?.photoUrl ?? "").trim();
     if (!photoUrl)
