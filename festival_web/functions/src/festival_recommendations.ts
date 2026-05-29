@@ -288,9 +288,14 @@ interface GenerationResult {
   error?: string;
 }
 
+interface GenerationOptions {
+  eligibleCandidateTicketIds?: Set<string>;
+}
+
 export async function generateRecommendationsForTicket(
   ticketId: string,
-  generatedBy: string
+  generatedBy: string,
+  options: GenerationOptions = {}
 ): Promise<GenerationResult> {
   // 1. Load current user's profile
   const profileSnap = await db
@@ -359,6 +364,12 @@ export async function generateRecommendationsForTicket(
 
   for (const doc of candidatesSnap.docs) {
     if (excludeSet.has(doc.id)) continue;
+    if (
+      options.eligibleCandidateTicketIds &&
+      !options.eligibleCandidateTicketIds.has(doc.id)
+    ) {
+      continue;
+    }
     const candidate = readProfileData(doc.id, doc.data());
 
     let score: number;
@@ -406,9 +417,13 @@ export async function generateRecommendationsForTicket(
   }));
 
   const insufficientSlots = Math.max(0, MAX_RECOMMENDATIONS - recommendations.length);
-  const totalCandidates = candidatesSnap.docs.filter(
-    (d) => !excludeSet.has(d.id)
-  ).length;
+  const totalCandidates = candidatesSnap.docs.filter((d) => {
+    if (excludeSet.has(d.id)) return false;
+    return (
+      !options.eligibleCandidateTicketIds ||
+      options.eligibleCandidateTicketIds.has(d.id)
+    );
+  }).length;
 
   // 7. Save to festivalRecommendations/{ticketId}
   const dateKey = kstDateKey();

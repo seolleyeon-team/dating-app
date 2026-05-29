@@ -2,7 +2,7 @@
 /**
  * Set festival event schedule in Firestore.
  * Usage: node tools/seed_event_schedule.cjs
- * Optional env: LOCK=19:30 BATCH=19:31 REVEAL=20:00 DATE=2026-05-27
+ * Optional env: LOCK=20:30 BATCH=20:31 REVEAL=21:00 DATE=2026-05-27
  */
 
 const { readFileSync, existsSync } = require("fs");
@@ -41,9 +41,9 @@ async function setSchedule(fields, token) {
 
 async function main() {
   const date = process.env.DATE || "2026-05-27";
-  const lock = process.env.LOCK || "19:30";
-  const batch = process.env.BATCH || "19:31";
-  const reveal = process.env.REVEAL || "20:00";
+  const lock = process.env.LOCK || "20:30";
+  const batch = process.env.BATCH || "20:31";
+  const reveal = process.env.REVEAL || "21:00";
 
   const token = getAccessToken();
   await setSchedule(

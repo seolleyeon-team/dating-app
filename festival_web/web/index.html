@@ -33,10 +33,22 @@
   <title>설레연 페스티벌</title>
   <link rel="manifest" href="manifest.json">
   <style>
+    @font-face {
+      font-family: 'GriunGyuwonSplash';
+      src: url('assets/assets/fonts/Griun_Gyuwon-Rg.ttf') format('truetype');
+      font-display: swap;
+    }
+
     html, body, flt-glass-pane, flutter-view, img {
       -webkit-touch-callout: none;
       -webkit-user-select: none;
       user-select: none;
+    }
+
+    html, body {
+      min-height: 100%;
+      margin: 0;
+      background: #fff8fb;
     }
 
     img {
@@ -44,9 +56,94 @@
       user-drag: none;
       pointer-events: none;
     }
+
+    #festival-splash {
+      position: fixed;
+      inset: 0;
+      z-index: 999999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 50% 34%, rgba(255, 226, 238, 0.88), transparent 34%),
+        linear-gradient(180deg, #fffafb 0%, #fff4f9 48%, #f7edf8 100%);
+      color: #5a3544;
+      opacity: 1;
+      transition: opacity 260ms ease;
+    }
+
+    #festival-splash.festival-splash-hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .festival-splash-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+      transform: translateY(-8px);
+    }
+
+    .festival-splash-title {
+      font-family: 'GriunGyuwonSplash', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+      font-size: clamp(30px, 8.5vw, 52px);
+      font-weight: 700;
+      letter-spacing: 0;
+      line-height: 1.1;
+      white-space: nowrap;
+      text-shadow: 0 8px 24px rgba(175, 116, 146, 0.16);
+    }
+
+    .festival-splash-dots {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      height: 16px;
+    }
+
+    .festival-splash-dots span {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: #e58eb8;
+      opacity: 0.28;
+      animation: festival-dot-pulse 960ms infinite ease-in-out;
+      box-shadow: 0 4px 12px rgba(229, 142, 184, 0.24);
+    }
+
+    .festival-splash-dots span:nth-child(2) {
+      animation-delay: 160ms;
+    }
+
+    .festival-splash-dots span:nth-child(3) {
+      animation-delay: 320ms;
+    }
+
+    @keyframes festival-dot-pulse {
+      0%, 100% {
+        opacity: 0.28;
+        transform: scale(0.86);
+      }
+      45% {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
   </style>
 </head>
 <body>
+  <div id="festival-splash" aria-label="설레연 로딩 중">
+    <div class="festival-splash-inner">
+      <div class="festival-splash-title">설레연 X byte</div>
+      <div class="festival-splash-dots" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    </div>
+  </div>
   <script>
     window.festivalFirebaseConfig = {
       apiKey: 'AIzaSyC8s000lBAIPJG1TyWtPFErGqV2FgSO0mQ',
@@ -110,6 +207,35 @@
       }
       return token;
     };
+  </script>
+  <script>
+    (function () {
+      var splash = document.getElementById('festival-splash');
+      var removed = false;
+
+      function hideSplash() {
+        if (!splash || removed) return;
+        removed = true;
+        splash.classList.add('festival-splash-hidden');
+        window.setTimeout(function () {
+          if (splash && splash.parentNode) {
+            splash.parentNode.removeChild(splash);
+          }
+        }, 320);
+      }
+
+      window.addEventListener('flutter-first-frame', hideSplash, { once: true });
+
+      var observer = new MutationObserver(function () {
+        if (document.querySelector('flutter-view, flt-glass-pane')) {
+          window.setTimeout(hideSplash, 240);
+          observer.disconnect();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+
+      window.setTimeout(hideSplash, 12000);
+    })();
   </script>
   <script>
     (function () {

@@ -2,7 +2,9 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:js_interop';
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -25,8 +27,13 @@ import 'festival_event_schedule.dart';
 import 'recommendation/festival_recommendation_engine.dart';
 import 'recommendation/festival_taste_affinity.dart';
 
+@JS('window.open')
+external JSAny? _openWindow(String url, String target, String features);
+
 final GlobalKey<NavigatorState> festivalRootNavigatorKey =
     GlobalKey<NavigatorState>();
+final Map<String, Future<Uint8List?>> _profilePhotoBytesCache =
+    <String, Future<Uint8List?>>{};
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -383,6 +390,7 @@ class FestivalBackend {
   FestivalBackend._();
 
   static final FestivalBackend instance = FestivalBackend._();
+  static const Set<String> _earlyMatchAccessTicketIds = {'25YX7P', '266U5L'};
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -391,13 +399,19 @@ class FestivalBackend {
       FestivalEventScheduleService(FirebaseFirestore.instance);
   FestivalSession? _session;
 
-  Stream<FestivalEventSchedule?> watchEventSchedule() =>
-      _eventSchedule.watch();
+  Stream<FestivalEventSchedule?> watchEventSchedule() => _eventSchedule.watch();
 
   Future<FestivalEventSchedule?> loadEventSchedule() => _eventSchedule.load();
 
+  bool get hasEarlyMatchAccess {
+    final ticketId = session?.ticketId;
+    return ticketId != null &&
+        _earlyMatchAccessTicketIds.contains(_normalizeTicketCode(ticketId));
+  }
+
   /// 이벤트 모드에서 추천 공개 전이면 웨이팅 화면에 머물러야 함.
   Future<bool> isWaitingForRecommendationReveal() async {
+    if (hasEarlyMatchAccess) return false;
     final schedule = await _eventSchedule.load();
     return schedule != null &&
         schedule.enabled &&
@@ -421,6 +435,7 @@ class FestivalBackend {
   }
 
   Future<void> _ensureRecommendationsRevealed() async {
+    if (hasEarlyMatchAccess) return;
     final schedule = await _eventSchedule.load();
     if (schedule != null && !schedule.areRecommendationsRevealed()) {
       throw FestivalBackendException(
@@ -693,8 +708,10 @@ class FestivalBackend {
       throw const FestivalBackendException('사진은 8MB 이하로 올려주세요.');
     }
 
-    final contentType =
-        photo.mimeType ?? _contentTypeForFileName(photo.name) ?? 'image/jpeg';
+    final pickedMimeType = photo.mimeType?.toLowerCase().trim();
+    final contentType = pickedMimeType?.startsWith('image/') == true
+        ? pickedMimeType!
+        : (_contentTypeForFileName(photo.name) ?? 'image/jpeg');
     final extension = _extensionForContentType(contentType, photo.name);
     final storagePath =
         'festivalProfiles/${activeSession.ticketId}/${activeSession.uid}/profile.$extension';
@@ -960,9 +977,7 @@ class FestivalBackend {
     if (refreshOnServer) {
       final schedule = await _eventSchedule.load();
       if (schedule?.enabled == true) {
-        throw const FestivalBackendException(
-          '이벤트 모드에서는 추천이 일정에 맞춰 일괄 공개됩니다.',
-        );
+        throw const FestivalBackendException('이벤트 모드에서는 추천이 일정에 맞춰 일괄 공개됩니다.');
       }
       await _requestServerRecommendationRefresh();
     }
@@ -1071,17 +1086,25 @@ class FestivalBackend {
   }
 
   Future<void> _ensureFestivalEmbeddingsSeeded() async {
-    final aiSample = await _db.collection('festivalAiEmbeddings').doc('f1').get();
+    final aiSample = await _db
+        .collection('festivalAiEmbeddings')
+        .doc('f1')
+        .get();
     if (aiSample.exists) return;
 
-    debugPrint('[FestivalBackend] festivalAiEmbeddings missing — running seed…');
+    debugPrint(
+      '[FestivalBackend] festivalAiEmbeddings missing — running seed…',
+    );
     try {
-      final seedCallable = FirebaseFunctions.instanceFor(
-        region: 'asia-northeast3',
-      ).httpsCallable(
-        'seedFestivalEmbeddings',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 540)),
-      );
+      final seedCallable =
+          FirebaseFunctions.instanceFor(
+            region: 'asia-northeast3',
+          ).httpsCallable(
+            'seedFestivalEmbeddings',
+            options: HttpsCallableOptions(
+              timeout: const Duration(seconds: 540),
+            ),
+          );
       final result = await seedCallable.call();
       debugPrint('[FestivalBackend] seedFestivalEmbeddings: $result');
     } on FirebaseFunctionsException catch (e) {
@@ -1101,12 +1124,16 @@ class FestivalBackend {
       await _ensureFestivalEmbeddingsSeeded();
       final callable = FirebaseFunctions.instanceFor(region: 'asia-northeast3')
           .httpsCallable(
-        'refreshFestivalRecommendations',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 120)),
-      );
+            'refreshFestivalRecommendations',
+            options: HttpsCallableOptions(
+              timeout: const Duration(seconds: 120),
+            ),
+          );
       await callable.call();
     } on FirebaseFunctionsException catch (e) {
-      debugPrint('[FestivalBackend] callable error: ${e.code} ${e.message} ${e.details}');
+      debugPrint(
+        '[FestivalBackend] callable error: ${e.code} ${e.message} ${e.details}',
+      );
       throw FestivalBackendException(
         e.message?.isNotEmpty == true
             ? '추천 계산에 실패했어요. ${e.message}'
@@ -1406,6 +1433,27 @@ class FestivalBackend {
     return _festivalChatRoomId(activeSession.ticketId, profile.id);
   }
 
+  Stream<bool> watchProfilePhotoUnlocked(FestivalProfile profile) {
+    final activeSession = session;
+    if (activeSession == null || profile.id.isEmpty) {
+      return Stream<bool>.value(false);
+    }
+    if (profile.id == activeSession.ticketId) {
+      return Stream<bool>.value(true);
+    }
+
+    final roomId = _festivalChatRoomId(activeSession.ticketId, profile.id);
+    return _chatMembershipRef(activeSession.ticketId, roomId).snapshots().map((
+      snapshot,
+    ) {
+      final data = snapshot.data();
+      if (data == null) return false;
+      final latestMessage = data['latestMessage'] as String?;
+      return latestMessage?.trim().isNotEmpty == true ||
+          data['latestMessageAt'] != null;
+    });
+  }
+
   DocumentReference<Map<String, dynamic>> _chatMembershipRef(
     String ticketId,
     String roomId,
@@ -1524,6 +1572,7 @@ class FestivalBackend {
       'mbti': data['mbti'] as String? ?? '',
       'intro': data['intro'] as String? ?? '',
       'photoUrl': data['photoUrl'] as String?,
+      'photoStoragePath': data['photoStoragePath'] as String?,
     };
   }
 
@@ -1540,6 +1589,7 @@ class FestivalBackend {
       'mbti': profile.mbti,
       'intro': profile.intro,
       'photoUrl': profile.photoUrl,
+      'photoStoragePath': profile.photoStoragePath,
     };
   }
 }
@@ -1625,6 +1675,7 @@ class FestivalProfile {
   final List<String> tags;
   final List<Color> colors;
   final String? photoUrl;
+  final String? photoStoragePath;
 
   const FestivalProfile({
     this.id = '',
@@ -1639,6 +1690,7 @@ class FestivalProfile {
     required this.tags,
     required this.colors,
     this.photoUrl,
+    this.photoStoragePath,
   });
 
   factory FestivalProfile.fromSnapshot(
@@ -1666,6 +1718,7 @@ class FestivalProfile {
       tags: const [],
       colors: colors,
       photoUrl: data['photoUrl'] as String?,
+      photoStoragePath: data['photoStoragePath'] as String?,
     );
   }
 
@@ -1836,6 +1889,7 @@ class AppScaffold extends StatelessWidget {
   final Widget? bottomBar;
   final Widget? trailing;
   final bool showBack;
+  final VoidCallback? onBackPressed;
   final Color backgroundColor;
   final VoidCallback? onTitleTap;
   final bool resizeToAvoidBottomInset;
@@ -1850,6 +1904,7 @@ class AppScaffold extends StatelessWidget {
     this.bottomBar,
     this.trailing,
     this.showBack = true,
+    this.onBackPressed,
     this.backgroundColor = AppColors.background,
     this.onTitleTap,
     this.resizeToAvoidBottomInset = false,
@@ -1881,6 +1936,7 @@ class AppScaffold extends StatelessWidget {
                     title: title ?? '',
                     showBack: showBack,
                     trailing: trailing,
+                    onBackPressed: onBackPressed,
                     onTitleTap: onTitleTap,
                   ),
                 Expanded(child: child),
@@ -1925,12 +1981,14 @@ class _TopBar extends StatelessWidget {
   final String title;
   final bool showBack;
   final Widget? trailing;
+  final VoidCallback? onBackPressed;
   final VoidCallback? onTitleTap;
 
   const _TopBar({
     required this.title,
     required this.showBack,
     this.trailing,
+    this.onBackPressed,
     this.onTitleTap,
   });
 
@@ -1944,12 +2002,19 @@ class _TopBar extends StatelessWidget {
           children: [
             SizedBox(
               width: 44,
-              child: showBack && Navigator.of(context).canPop()
+              child:
+                  showBack &&
+                      (onBackPressed != null || Navigator.of(context).canPop())
                   ? IconButton(
                       tooltip: '뒤로',
                       onPressed: () {
                         HapticFeedback.selectionClick();
-                        Navigator.of(context).pop();
+                        final handler = onBackPressed;
+                        if (handler != null) {
+                          handler();
+                        } else {
+                          Navigator.of(context).pop();
+                        }
                       },
                       icon: const Icon(CupertinoIcons.chevron_back),
                       color: AppColors.textMain,
@@ -2130,13 +2195,13 @@ class FontMockupScreen extends StatelessWidget {
                               _MockMetaRow(
                                 icon: CupertinoIcons.clock,
                                 label: '프로필 마감',
-                                value: '19:30',
+                                value: '20:30',
                               ),
                               const SizedBox(height: 9),
                               _MockMetaRow(
                                 icon: CupertinoIcons.sparkles,
                                 label: '결과 공개',
-                                value: '20:00',
+                                value: '21:00',
                               ),
                             ],
                           ),
@@ -2615,6 +2680,8 @@ class AccessScreen extends StatefulWidget {
 }
 
 class _AccessScreenState extends State<AccessScreen> {
+  static const String _contactUrl = 'https://pf.kakao.com/_xixjixjX/friend';
+
   final TextEditingController _codeController = TextEditingController();
   bool _isSubmitting = false;
   bool _isVerified = false;
@@ -2668,6 +2735,11 @@ class _AccessScreenState extends State<AccessScreen> {
         setState(() => _isSubmitting = false);
       }
     }
+  }
+
+  void _openContactChannel() {
+    HapticFeedback.selectionClick();
+    _openWindow(_contactUrl, '_blank', 'noopener,noreferrer');
   }
 
   @override
@@ -2823,13 +2895,13 @@ class _AccessScreenState extends State<AccessScreen> {
                       const _TicketMetaRow(
                         icon: CupertinoIcons.clock,
                         label: '프로필 마감',
-                        value: '19:30',
+                        value: '20:30',
                       ),
                       const SizedBox(height: 10),
                       const _TicketMetaRow(
                         icon: CupertinoIcons.sparkles,
                         label: '결과 공개',
-                        value: '20:00',
+                        value: '21:00',
                       ),
                     ],
                   ),
@@ -2866,6 +2938,12 @@ class _AccessScreenState extends State<AccessScreen> {
                       ),
                     ],
                   ),
+                ),
+                const SizedBox(height: 14),
+                SecondaryButton(
+                  text: '설레연 문의하기',
+                  icon: CupertinoIcons.chat_bubble_2_fill,
+                  onPressed: _openContactChannel,
                 ),
               ],
             ),
@@ -3836,167 +3914,196 @@ class _SignupScreenState extends State<SignupScreen>
             const SizedBox(height: 16),
             FieldLabel(
               text: '사진',
-              child: GestureDetector(
-                onTap: _pickProfilePhoto,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  height: 170,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: _hasPhoto ? AppColors.blush : AppColors.input,
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(
-                      color: _hasPhoto ? AppColors.primary : AppColors.border,
-                    ),
-                  ),
-                  child: _profilePhotoBytes != null || _restoredPhotoUrl != null
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(21),
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              if (_profilePhotoBytes != null)
-                                Image.memory(
-                                  _profilePhotoBytes!,
-                                  fit: BoxFit.cover,
-                                )
-                              else
-                                Image.network(
-                                  _restoredPhotoUrl!,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return const ColoredBox(
-                                      color: AppColors.input,
-                                      child: Center(
-                                        child: Icon(
-                                          CupertinoIcons.photo,
-                                          color: AppColors.primary,
-                                          size: 34,
+              child: Center(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    return SizedBox(
+                      width: constraints.maxWidth,
+                      child: AspectRatio(
+                        aspectRatio: 3 / 4,
+                        child: GestureDetector(
+                          onTap: _pickProfilePhoto,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 220),
+                            decoration: BoxDecoration(
+                              color: _hasPhoto
+                                  ? AppColors.blush
+                                  : AppColors.input,
+                              borderRadius: BorderRadius.circular(22),
+                              border: Border.all(
+                                color: _hasPhoto
+                                    ? AppColors.primary
+                                    : AppColors.border,
+                              ),
+                            ),
+                            child:
+                                _profilePhotoBytes != null ||
+                                    _restoredPhotoUrl != null
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(21),
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        if (_profilePhotoBytes != null)
+                                          Image.memory(
+                                            _profilePhotoBytes!,
+                                            fit: BoxFit.cover,
+                                          )
+                                        else
+                                          Image.network(
+                                            _restoredPhotoUrl!,
+                                            fit: BoxFit.cover,
+                                            errorBuilder:
+                                                (context, error, stackTrace) {
+                                                  return const ColoredBox(
+                                                    color: AppColors.input,
+                                                    child: Center(
+                                                      child: Icon(
+                                                        CupertinoIcons.photo,
+                                                        color:
+                                                            AppColors.primary,
+                                                        size: 34,
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                          ),
+                                        DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topCenter,
+                                              end: Alignment.bottomCenter,
+                                              colors: [
+                                                Colors.transparent,
+                                                Colors.black.withValues(
+                                                  alpha: 0.42,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
                                         ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              DecoratedBox(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [
-                                      Colors.transparent,
-                                      Colors.black.withValues(alpha: 0.42),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              Positioned(
-                                left: 16,
-                                right: 16,
-                                bottom: 14,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _isUploadingPhoto
-                                          ? '프로필 사진 저장 중'
-                                          : (_restoredPhotoUrl != null
-                                                ? '프로필 사진 저장됨'
-                                                : '프로필 사진 선택됨'),
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      _profilePhoto?.name ??
-                                          _restoredPhotoOriginalName ??
-                                          '저장된 사진',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.82,
+                                        Positioned(
+                                          left: 16,
+                                          right: 16,
+                                          bottom: 14,
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                _isUploadingPhoto
+                                                    ? '프로필 사진 저장 중'
+                                                    : (_restoredPhotoUrl != null
+                                                          ? '프로필 사진 저장됨'
+                                                          : '프로필 사진 선택됨'),
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.w900,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                _profilePhoto?.name ??
+                                                    _restoredPhotoOriginalName ??
+                                                    '저장된 사진',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: Colors.white
+                                                      .withValues(alpha: 0.82),
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Positioned(
-                                top: 12,
-                                right: 12,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 7,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.42),
-                                    borderRadius: BorderRadius.circular(99),
-                                  ),
-                                  child: const Text(
-                                    '다시 선택',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              if (_isPickingPhoto || _isUploadingPhoto)
-                                const ColoredBox(
-                                  color: Color(0x66000000),
-                                  child: Center(
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        )
-                      : Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _isPickingPhoto
-                                ? const SizedBox(
-                                    width: 30,
-                                    height: 30,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 3,
+                                        Positioned(
+                                          top: 12,
+                                          right: 12,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 7,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black.withValues(
+                                                alpha: 0.42,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(99),
+                                            ),
+                                            child: const Text(
+                                              '다시 선택',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        if (_isPickingPhoto ||
+                                            _isUploadingPhoto)
+                                          const ColoredBox(
+                                            color: Color(0x66000000),
+                                            child: Center(
+                                              child: CircularProgressIndicator(
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
                                     ),
                                   )
-                                : const Icon(
-                                    CupertinoIcons.photo,
-                                    color: AppColors.primary,
-                                    size: 34,
+                                : Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      _isPickingPhoto
+                                          ? const SizedBox(
+                                              width: 30,
+                                              height: 30,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 3,
+                                              ),
+                                            )
+                                          : const Icon(
+                                              CupertinoIcons.photo,
+                                              color: AppColors.primary,
+                                              size: 34,
+                                            ),
+                                      const SizedBox(height: 10),
+                                      const Text(
+                                        '사진 선택',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w800,
+                                          color: AppColors.textMain,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 5),
+                                      const Padding(
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: 14,
+                                        ),
+                                        child: Text(
+                                          '본인 이외에 다른 사람의 얼굴이 나온 사진은 가급적 피해주세요!',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: AppColors.textSub,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                            const SizedBox(height: 10),
-                            const Text(
-                              '사진 선택',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.textMain,
-                              ),
-                            ),
-                            const SizedBox(height: 5),
-                            const Text(
-                              '앨범 또는 파일에서 프로필 사진을 골라주세요',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textSub,
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ),
@@ -4027,7 +4134,7 @@ class _SignupScreenState extends State<SignupScreen>
             const SizedBox(height: 12),
             const InfoBanner(
               icon: CupertinoIcons.timer,
-              text: '19:30 이후에는 1차 추천 계산을 위해 프로필 수정이 잠시 잠겨요.',
+              text: '20:30 이후에는 1차 추천 계산을 위해 프로필 수정이 잠겨요!',
               color: AppColors.blue,
             ),
           ],
@@ -4328,7 +4435,9 @@ class _TasteTrainingScreenState extends State<TasteTrainingScreen>
         case FestivalNextStep.waiting:
           final route = await FestivalBackend.instance.matchesOrWaitingRoute();
           if (!mounted) return;
-          Navigator.of(context).pushNamedAndRemoveUntil(route, (route) => false);
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil(route, (route) => false);
       }
     } catch (error) {
       if (!mounted) return;
@@ -4364,6 +4473,14 @@ class _TasteTrainingScreenState extends State<TasteTrainingScreen>
       showAppSnack(context, '세션 초기화에 실패했어요. 잠시 후 다시 시도해주세요.');
       setState(() => _isKillingSession = false);
     }
+  }
+
+  void _goBackToProfile() {
+    if (_isTrainingCompleted) return;
+    _flyController.stop();
+    _snapController.stop();
+    _revealController.stop();
+    Navigator.of(context).pushReplacementNamed(AppRoutes.signup);
   }
 
   void _commitAnswer(bool liked) {
@@ -4479,6 +4596,7 @@ class _TasteTrainingScreenState extends State<TasteTrainingScreen>
     if (_isResumeLoading || resumeError != null) {
       return AppScaffold(
         title: 'AI 취향 학습',
+        onBackPressed: _goBackToProfile,
         child: Stack(
           children: [
             if (resumeError != null)
@@ -4549,6 +4667,7 @@ class _TasteTrainingScreenState extends State<TasteTrainingScreen>
 
     return AppScaffold(
       title: 'AI 취향 학습',
+      onBackPressed: _goBackToProfile,
       child: Stack(
         children: [
           Padding(
@@ -4921,6 +5040,10 @@ class _WaitingScreenState extends State<WaitingScreen> {
 
   void _handleScheduleUpdate(FestivalEventSchedule? schedule) {
     if (!mounted) return;
+    if (FestivalBackend.instance.hasEarlyMatchAccess) {
+      _goToMatches();
+      return;
+    }
     setState(() => _eventSchedule = schedule);
     _revealTimer?.cancel();
     _countdownTicker?.cancel();
@@ -4943,13 +5066,25 @@ class _WaitingScreenState extends State<WaitingScreen> {
 
     final wait = schedule.timeUntilReveal();
     if (wait > Duration.zero) {
-      _revealTimer = Timer(wait + const Duration(milliseconds: 500), _goToMatches);
+      _revealTimer = Timer(
+        wait + const Duration(milliseconds: 500),
+        _goToMatches,
+      );
     }
   }
 
   void _goToMatches() {
     if (!mounted || _isLoggingOut) return;
     Navigator.of(context).pushReplacementNamed(AppRoutes.matches);
+  }
+
+  static const _shareCopyText = '씨씨 성공 기원 : seolleyeon.com';
+
+  Future<void> _shareWithFriends() async {
+    HapticFeedback.selectionClick();
+    await Clipboard.setData(const ClipboardData(text: _shareCopyText));
+    if (!mounted) return;
+    showAppSnack(context, '웹사이트 링크가 복사되었습니다');
   }
 
   Future<void> _confirmLogout() async {
@@ -5088,16 +5223,19 @@ class _WaitingScreenState extends State<WaitingScreen> {
     final schedule = _eventSchedule;
     final lockClock = schedule != null
         ? schedule.formatClockKst(schedule.profileTasteLockAt)
-        : '19:30';
+        : '20:30';
     final batchClock = schedule != null
         ? schedule.formatClockKst(schedule.batchRecommendationsAt)
-        : '19:31';
+        : '20:31';
     final revealClock = schedule != null
         ? schedule.formatClockKst(schedule.recommendationsRevealAt)
-        : '20:00';
+        : '21:00';
     final revealHeadline = '$revealClock에 추천 프로필이 공개돼요';
     final canOpenMatches =
-        schedule == null || !schedule.enabled || schedule.areRecommendationsRevealed();
+        FestivalBackend.instance.hasEarlyMatchAccess ||
+        schedule == null ||
+        !schedule.enabled ||
+        schedule.areRecommendationsRevealed();
     final wait = schedule?.timeUntilReveal() ?? Duration.zero;
     final countdown = wait == Duration.zero
         ? null
@@ -5163,11 +5301,17 @@ class _WaitingScreenState extends State<WaitingScreen> {
                   const SizedBox(height: 18),
                   Row(
                     children: [
-                      Expanded(child: TimeBox(label: '마감', value: lockClock)),
+                      Expanded(
+                        child: TimeBox(label: '마감', value: lockClock),
+                      ),
                       const SizedBox(width: 10),
-                      Expanded(child: TimeBox(label: '계산', value: batchClock)),
+                      Expanded(
+                        child: TimeBox(label: '계산', value: batchClock),
+                      ),
                       const SizedBox(width: 10),
-                      Expanded(child: TimeBox(label: '공개', value: revealClock)),
+                      Expanded(
+                        child: TimeBox(label: '공개', value: revealClock),
+                      ),
                     ],
                   ),
                 ],
@@ -5217,7 +5361,7 @@ class _WaitingScreenState extends State<WaitingScreen> {
             SecondaryButton(
               text: '친구에게 공유하기',
               icon: CupertinoIcons.square_arrow_up,
-              onPressed: () => showAppSnack(context, '공유 링크가 준비되는 위치예요.'),
+              onPressed: _shareWithFriends,
             ),
             const SizedBox(height: 10),
             SecondaryButton(
@@ -5260,12 +5404,8 @@ class _TodayMatchScreenState extends State<TodayMatchScreen> {
     null,
   );
   bool _isLoadingRecommendations = true;
-  bool _isSyncingPush = false;
-  bool _notificationReady = false;
   bool _recommendationsFrozen = false;
   String? _recommendationError;
-  String? _targetGender;
-  int _availableCandidateCount = 0;
   FestivalEventSchedule? _eventSchedule;
   StreamSubscription<FestivalEventSchedule?>? _scheduleSubscription;
 
@@ -5277,7 +5417,6 @@ class _TodayMatchScreenState extends State<TodayMatchScreen> {
         .watchEventSchedule()
         .listen(_handleEventSchedule);
     unawaited(_redirectIfWaitingForReveal());
-    unawaited(_loadNotificationState());
   }
 
   Future<void> _redirectIfWaitingForReveal() async {
@@ -5291,6 +5430,12 @@ class _TodayMatchScreenState extends State<TodayMatchScreen> {
   void _handleEventSchedule(FestivalEventSchedule? schedule) {
     if (!mounted) return;
     setState(() => _eventSchedule = schedule);
+
+    if (FestivalBackend.instance.hasEarlyMatchAccess) {
+      if (_recommendationsFrozen) return;
+      unawaited(_refreshRecommendations(freezeAfterLoad: schedule != null));
+      return;
+    }
 
     if (schedule != null &&
         schedule.enabled &&
@@ -5349,46 +5494,6 @@ class _TodayMatchScreenState extends State<TodayMatchScreen> {
 
   void _openChat(FestivalProfile profile) {
     Navigator.of(context).pushNamed(AppRoutes.chat, arguments: profile);
-  }
-
-  Future<void> _loadNotificationState() async {
-    final status = await FestivalPushService.instance
-        .currentAuthorizationStatus();
-    if (!mounted) return;
-    setState(() {
-      _notificationReady =
-          status == AuthorizationStatus.authorized ||
-          status == AuthorizationStatus.provisional;
-    });
-    if (_notificationReady) {
-      final result = await FestivalPushService.instance
-          .syncTokenSafelyDetailed();
-      if (mounted && !result.success) {
-        debugPrint('[FESTIVAL_PUSH] auto sync failed: ${result.debugMessage}');
-        setState(() => _notificationReady = false);
-      }
-    }
-  }
-
-  Future<void> _enableNotifications() async {
-    if (_isSyncingPush) return;
-    HapticFeedback.selectionClick();
-
-    final hint = FestivalPushService.instance.iosHomeScreenHint;
-    if (hint != null) {
-      showAppSnack(context, hint);
-      return;
-    }
-
-    setState(() => _isSyncingPush = true);
-    final result = await FestivalPushService.instance
-        .requestPermissionAndSyncDetailed();
-    if (!mounted) return;
-    setState(() {
-      _isSyncingPush = false;
-      _notificationReady = result.success;
-    });
-    showAppSnack(context, result.debugMessage);
   }
 
   Future<void> _confirmLogout() async {
@@ -5457,8 +5562,6 @@ class _TodayMatchScreenState extends State<TodayMatchScreen> {
       if (!mounted) return;
       setState(() {
         _recommendationSlots = bundle.slots;
-        _targetGender = bundle.targetGender;
-        _availableCandidateCount = bundle.availableCount;
         _isLoadingRecommendations = false;
         if (freezeAfterLoad) _recommendationsFrozen = true;
       });
@@ -5469,7 +5572,6 @@ class _TodayMatchScreenState extends State<TodayMatchScreen> {
             ? error.message
             : '추천 프로필을 불러오지 못했어요.';
         _recommendationSlots = List<FestivalProfile?>.filled(3, null);
-        _availableCandidateCount = 0;
         _isLoadingRecommendations = false;
       });
     }
@@ -5585,18 +5687,6 @@ class _TodayMatchScreenState extends State<TodayMatchScreen> {
               fontWeight: FontWeight.w600,
             ),
           ),
-          if (_targetGender != null) ...[
-            const SizedBox(height: 12),
-            Text(
-              '현재 등록된 $_targetGender 프로필 $_availableCandidateCount명 중 취향 기반으로 계산한 디버깅 화면이에요.',
-              style: const TextStyle(
-                fontSize: 12,
-                height: 1.35,
-                color: AppColors.textHint,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
           const SizedBox(height: 18),
           Expanded(
             child: _isLoadingRecommendations
@@ -5926,6 +6016,7 @@ FestivalProfile _festivalProfileFromChatSnapshot(
     tags: const [],
     colors: const [AppColors.primary, AppColors.blush],
     photoUrl: data['photoUrl'] as String?,
+    photoStoragePath: data['photoStoragePath'] as String?,
   );
 }
 
@@ -6572,7 +6663,7 @@ class MatchProfileFace extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            ProfilePhotoImage(
+            ChatUnlockedProfilePhoto(
               profile: profile,
               fallbackAsset: _profileCardImageAsset,
               fit: BoxFit.cover,
@@ -6966,7 +7057,7 @@ class ProfileDetailScreen extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    ProfilePhotoImage(
+                    ChatUnlockedProfilePhoto(
                       profile: profile,
                       fallbackAsset: 'assets/images/aiprofile.png',
                       fit: BoxFit.cover,
@@ -7359,7 +7450,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
             child: Row(
               children: [
-                ProfileAvatar(profile: widget.profile, size: 48),
+                ChatUnlockedProfileAvatar(profile: widget.profile, size: 48),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -8643,58 +8734,110 @@ class ProfilePhotoImage extends StatelessWidget {
   final FestivalProfile profile;
   final String fallbackAsset;
   final BoxFit fit;
+  final bool blurEnabled;
 
   const ProfilePhotoImage({
     super.key,
     required this.profile,
     required this.fallbackAsset,
     required this.fit,
+    this.blurEnabled = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final photoUrl = profile.photoUrl;
+    final fallback = Image.asset(fallbackAsset, fit: fit);
+    Widget image;
     if (photoUrl == null || photoUrl.isEmpty) {
-      return Image.asset(fallbackAsset, fit: fit);
+      image = fallback;
+    } else {
+      image = blurEnabled
+          ? ProfilePhotoBytesImage(
+              profile: profile,
+              fit: fit,
+              fallback: const LockedProfilePhotoPlaceholder(),
+            )
+          : Image.network(
+              photoUrl,
+              fit: fit,
+              filterQuality: FilterQuality.medium,
+              gaplessPlayback: true,
+              webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+              errorBuilder: (context, error, stackTrace) {
+                return fallback;
+              },
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    fallback,
+                    ColoredBox(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      child: const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
     }
 
-    return Image.network(
-      photoUrl,
-      fit: fit,
-      filterQuality: FilterQuality.medium,
-      gaplessPlayback: true,
-      webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-      errorBuilder: (context, error, stackTrace) {
-        return Image.asset(fallbackAsset, fit: fit);
-      },
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) return child;
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            Image.asset(fallbackAsset, fit: fit),
-            ColoredBox(
-              color: Colors.black.withValues(alpha: 0.08),
-              child: const Center(
-                child: CircularProgressIndicator(color: Colors.white),
-              ),
-            ),
-          ],
-        );
-      },
-    );
+    if (!blurEnabled) return image;
+    return ProfilePhotoBlur(child: image);
   }
 }
 
 class ProfileAvatar extends StatelessWidget {
   final FestivalProfile profile;
   final double size;
+  final bool blurEnabled;
 
-  const ProfileAvatar({super.key, required this.profile, this.size = 44});
+  const ProfileAvatar({
+    super.key,
+    required this.profile,
+    this.size = 44,
+    this.blurEnabled = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final photoUrl = profile.photoUrl;
+    final fallback = Center(
+      child: Text(
+        profile.name.characters.first,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: size * 0.42,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+    Widget child;
+    if (photoUrl == null || photoUrl.isEmpty) {
+      child = fallback;
+    } else {
+      child = blurEnabled
+          ? ProfilePhotoBytesImage(
+              profile: profile,
+              fit: BoxFit.cover,
+              fallback: fallback,
+            )
+          : Image.network(
+              photoUrl,
+              fit: BoxFit.cover,
+              webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+              errorBuilder: (context, error, stackTrace) {
+                return fallback;
+              },
+            );
+    }
+    if (blurEnabled) {
+      child = ProfilePhotoBlur(child: child);
+    }
+
     return Container(
       width: size,
       height: size,
@@ -8703,34 +8846,208 @@ class ProfileAvatar extends StatelessWidget {
         gradient: LinearGradient(colors: profile.colors),
         borderRadius: BorderRadius.circular(size * 0.35),
       ),
-      child: photoUrl == null || photoUrl.isEmpty
-          ? Center(
-              child: Text(
-                profile.name.characters.first,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: size * 0.42,
-                  fontWeight: FontWeight.w900,
+      child: child,
+    );
+  }
+}
+
+class ProfilePhotoBytesImage extends StatelessWidget {
+  static const int _maxProfilePhotoBytes = 8 * 1024 * 1024;
+
+  final FestivalProfile profile;
+  final BoxFit fit;
+  final Widget fallback;
+
+  const ProfilePhotoBytesImage({
+    super.key,
+    required this.profile,
+    required this.fit,
+    required this.fallback,
+  });
+
+  Future<Uint8List?> _loadBytes() {
+    final photoUrl = profile.photoUrl?.trim();
+    final storagePath = profile.photoStoragePath?.trim();
+    final cacheKey = storagePath?.isNotEmpty == true
+        ? 'path:$storagePath'
+        : 'url:$photoUrl';
+    return _profilePhotoBytesCache.putIfAbsent(cacheKey, () async {
+      try {
+        if (storagePath?.isNotEmpty == true) {
+          final bytes = await FirebaseStorage.instance
+              .ref(storagePath)
+              .getData(_maxProfilePhotoBytes);
+          if (bytes != null && bytes.isNotEmpty) return bytes;
+        }
+      } catch (error) {
+        debugPrint(
+          '[ProfilePhotoBytesImage] getData by path failed '
+          'for ${profile.id}: $error',
+        );
+      }
+
+      try {
+        if (photoUrl?.isNotEmpty == true) {
+          final bytes = await FirebaseStorage.instance
+              .refFromURL(photoUrl!)
+              .getData(_maxProfilePhotoBytes);
+          if (bytes != null && bytes.isNotEmpty) return bytes;
+        }
+      } catch (error) {
+        debugPrint(
+          '[ProfilePhotoBytesImage] getData by url failed '
+          'for ${profile.id}: $error',
+        );
+      }
+
+      try {
+        if (photoUrl?.isNotEmpty == true) {
+          final data = await NetworkAssetBundle(Uri.parse(photoUrl!)).load('');
+          return data.buffer.asUint8List(
+            data.offsetInBytes,
+            data.lengthInBytes,
+          );
+        }
+      } catch (error) {
+        debugPrint(
+          '[ProfilePhotoBytesImage] network bytes failed '
+          'for ${profile.id}: $error',
+        );
+      }
+
+      return null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List?>(
+      future: _loadBytes(),
+      builder: (context, snapshot) {
+        final bytes = snapshot.data;
+        if (bytes == null || bytes.isEmpty) {
+          return fallback;
+        }
+        return Image.memory(
+          bytes,
+          fit: fit,
+          filterQuality: FilterQuality.medium,
+          gaplessPlayback: true,
+        );
+      },
+    );
+  }
+}
+
+class LockedProfilePhotoPlaceholder extends StatelessWidget {
+  const LockedProfilePhotoPlaceholder({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFF8EEF5), Color(0xFFEED6E5), Color(0xFFE7DFF6)],
+        ),
+      ),
+      child: Center(
+        child: Icon(CupertinoIcons.photo, color: Color(0xFFB48A9A), size: 44),
+      ),
+    );
+  }
+}
+
+class ProfilePhotoBlur extends StatelessWidget {
+  static const double sigma = 10;
+
+  final Widget child;
+
+  const ProfilePhotoBlur({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRect(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ImageFiltered(
+            imageFilter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+            child: Transform.scale(scale: 1.06, child: child),
+          ),
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.white.withValues(alpha: 0.10),
+                    Colors.black.withValues(alpha: 0.24),
+                  ],
                 ),
               ),
-            )
-          : Image.network(
-              photoUrl,
-              fit: BoxFit.cover,
-              webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-              errorBuilder: (context, error, stackTrace) {
-                return Center(
-                  child: Text(
-                    profile.name.characters.first,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: size * 0.42,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                );
-              },
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ChatUnlockedProfilePhoto extends StatelessWidget {
+  final FestivalProfile profile;
+  final String fallbackAsset;
+  final BoxFit fit;
+
+  const ChatUnlockedProfilePhoto({
+    super.key,
+    required this.profile,
+    required this.fallbackAsset,
+    required this.fit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<bool>(
+      stream: FestivalBackend.instance.watchProfilePhotoUnlocked(profile),
+      initialData: false,
+      builder: (context, snapshot) {
+        final unlocked = snapshot.data == true;
+        return ProfilePhotoImage(
+          profile: profile,
+          fallbackAsset: fallbackAsset,
+          fit: fit,
+          blurEnabled: !unlocked,
+        );
+      },
+    );
+  }
+}
+
+class ChatUnlockedProfileAvatar extends StatelessWidget {
+  final FestivalProfile profile;
+  final double size;
+
+  const ChatUnlockedProfileAvatar({
+    super.key,
+    required this.profile,
+    this.size = 44,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<bool>(
+      stream: FestivalBackend.instance.watchProfilePhotoUnlocked(profile),
+      initialData: false,
+      builder: (context, snapshot) {
+        return ProfileAvatar(
+          profile: profile,
+          size: size,
+          blurEnabled: snapshot.data != true,
+        );
+      },
     );
   }
 }

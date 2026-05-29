@@ -263,7 +263,7 @@ function embeddingScore(preference, candidate) {
 // Core recommendation generator
 // ---------------------------------------------------------------------------
 const MAX_RECOMMENDATIONS = 3;
-async function generateRecommendationsForTicket(ticketId, generatedBy) {
+async function generateRecommendationsForTicket(ticketId, generatedBy, options = {}) {
     // 1. Load current user's profile
     const profileSnap = await db
         .collection("festivalProfiles")
@@ -319,6 +319,10 @@ async function generateRecommendationsForTicket(ticketId, generatedBy) {
     for (const doc of candidatesSnap.docs) {
         if (excludeSet.has(doc.id))
             continue;
+        if (options.eligibleCandidateTicketIds &&
+            !options.eligibleCandidateTicketIds.has(doc.id)) {
+            continue;
+        }
         const candidate = readProfileData(doc.id, doc.data());
         let score;
         let method;
@@ -357,7 +361,12 @@ async function generateRecommendationsForTicket(ticketId, generatedBy) {
         scoringMethod: entry.method,
     }));
     const insufficientSlots = Math.max(0, MAX_RECOMMENDATIONS - recommendations.length);
-    const totalCandidates = candidatesSnap.docs.filter((d) => !excludeSet.has(d.id)).length;
+    const totalCandidates = candidatesSnap.docs.filter((d) => {
+        if (excludeSet.has(d.id))
+            return false;
+        return (!options.eligibleCandidateTicketIds ||
+            options.eligibleCandidateTicketIds.has(d.id));
+    }).length;
     // 7. Save to festivalRecommendations/{ticketId}
     const dateKey = kstDateKey();
     const recDoc = {

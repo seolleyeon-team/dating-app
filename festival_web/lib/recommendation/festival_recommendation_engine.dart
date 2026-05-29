@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'festival_recommendation_models.dart';
@@ -119,7 +117,10 @@ class FestivalRecommendationEngine {
     required String currentGender,
     required String targetGender,
   }) async {
-    final ticketSnap = await _db.collection('festivalTickets').doc(ticketId).get();
+    final ticketSnap = await _db
+        .collection('festivalTickets')
+        .doc(ticketId)
+        .get();
     final ticketData = ticketSnap.data() ?? <String, dynamic>{};
 
     var preference = FestivalPreferenceVector.fromMap(
@@ -155,11 +156,16 @@ class FestivalRecommendationEngine {
       if (doc.id == ticketId) continue;
       final embedding = await _loadProfileEmbedding(doc.id);
       if (embedding == null || prefVector == null) {
-        scored.add((ticketId: doc.id, score: _heuristicScore(ticketData, doc.data())));
+        scored.add((
+          ticketId: doc.id,
+          score: _heuristicScore(ticketData, doc.data()),
+        ));
         continue;
       }
-      final cosine =
-          FestivalVectorMath.cosineSimilarity(prefVector, embedding).clamp(0.0, 1.0);
+      final cosine = FestivalVectorMath.cosineSimilarity(
+        prefVector,
+        embedding,
+      ).clamp(0.0, 1.0);
       const faceBase = 0.15;
       final score = faceBase + (1 - faceBase) * cosine;
       scored.add((ticketId: doc.id, score: score));
@@ -233,7 +239,9 @@ class FestivalRecommendationEngine {
     required FestivalPreferenceVector preference,
     required List<double>? selfEmbedding,
   }) {
-    if (preference.isValid && selfEmbedding != null && selfEmbedding.isNotEmpty) {
+    if (preference.isValid &&
+        selfEmbedding != null &&
+        selfEmbedding.isNotEmpty) {
       final confidence = preference.confidence.clamp(0.0, 1.0);
       final blended = List<double>.generate(preference.vector.length, (index) {
         final signal = preference.vector[index];
@@ -258,16 +266,25 @@ class FestivalRecommendationEngine {
     final candidateAge = candidateData['age'];
     if (viewerAge is int && candidateAge is int) {
       final gap = (viewerAge - candidateAge).abs();
-      score += (gap <= 2 ? 0.15 : gap <= 4 ? 0.08 : 0);
+      score += (gap <= 2
+          ? 0.15
+          : gap <= 4
+          ? 0.08
+          : 0);
     }
     return score.clamp(0.0, 1.0);
   }
 
   Future<List<double>?> _loadProfileEmbedding(String ticketId) async {
-    final snap = await _db.collection('festivalProfileEmbeddings').doc(ticketId).get();
+    final snap = await _db
+        .collection('festivalProfileEmbeddings')
+        .doc(ticketId)
+        .get();
     if (!snap.exists) return null;
     final raw = snap.data()?['vector'];
     if (raw is! List || raw.isEmpty) return null;
-    return raw.map((value) => (value as num).toDouble()).toList(growable: false);
+    return raw
+        .map((value) => (value as num).toDouble())
+        .toList(growable: false);
   }
 }
