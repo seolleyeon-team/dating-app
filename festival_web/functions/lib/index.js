@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onFestivalChatMessageCreated = exports.setFestivalEventScheduleHttp = exports.festivalEventScheduleTick = exports.seedFestivalEmbeddingsHttp = exports.seedFestivalEmbeddings = exports.onFestivalProfilePhotoUpdated = exports.refreshFestivalRecommendations = exports.onFestivalTasteCompleted = exports.onFestivalRecommendationJobCreated = exports.generateFestivalDailyRecommendations = void 0;
+exports.onFestivalChatMessageCreated = exports.sendFestivalRevealAnnouncementHttp = exports.festivalRevealCompletePushTick = exports.setFestivalEventScheduleHttp = exports.festivalEventScheduleTick = exports.seedFestivalEmbeddingsHttp = exports.seedFestivalEmbeddings = exports.onFestivalProfilePhotoUpdated = exports.refreshFestivalRecommendations = exports.onFestivalTasteCompleted = exports.onFestivalRecommendationJobCreated = exports.generateFestivalDailyRecommendations = void 0;
 const v2_1 = require("firebase-functions/v2");
 const firestore_1 = require("firebase-functions/v2/firestore");
 const logger = __importStar(require("firebase-functions/logger"));
@@ -168,6 +168,9 @@ Object.defineProperty(exports, "seedFestivalEmbeddingsHttp", { enumerable: true,
 var festival_event_schedule_1 = require("./festival_event_schedule");
 Object.defineProperty(exports, "festivalEventScheduleTick", { enumerable: true, get: function () { return festival_event_schedule_1.festivalEventScheduleTick; } });
 Object.defineProperty(exports, "setFestivalEventScheduleHttp", { enumerable: true, get: function () { return festival_event_schedule_1.setFestivalEventScheduleHttp; } });
+var festival_push_announcement_1 = require("./festival_push_announcement");
+Object.defineProperty(exports, "festivalRevealCompletePushTick", { enumerable: true, get: function () { return festival_push_announcement_1.festivalRevealCompletePushTick; } });
+Object.defineProperty(exports, "sendFestivalRevealAnnouncementHttp", { enumerable: true, get: function () { return festival_push_announcement_1.sendFestivalRevealAnnouncementHttp; } });
 exports.onFestivalChatMessageCreated = (0, firestore_1.onDocumentCreated)("festivalChatRooms/{roomId}/messages/{messageId}", async (event) => {
     const snap = event.data;
     if (!snap)

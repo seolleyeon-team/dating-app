@@ -158,6 +158,11 @@ export {
   setFestivalEventScheduleHttp,
 } from "./festival_event_schedule";
 
+export {
+  festivalRevealCompletePushTick,
+  sendFestivalRevealAnnouncementHttp,
+} from "./festival_push_announcement";
+
 export const onFestivalChatMessageCreated = onDocumentCreated(
   "festivalChatRooms/{roomId}/messages/{messageId}",
   async (event) => {

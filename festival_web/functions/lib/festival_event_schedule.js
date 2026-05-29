@@ -53,6 +53,18 @@ function kstIso(dateStr, timeStr) {
 function kstNow() {
     return new Date(Date.now() + 9 * 60 * 60 * 1000);
 }
+function kstDayStartIso(dateStr) {
+    return `${dateStr}T00:00:00+09:00`;
+}
+function readTimestamp(value) {
+    return value instanceof firestore_1.Timestamp ? value : null;
+}
+function isWithinCohortWindow(timestamp, startAt, lockAt) {
+    if (!timestamp)
+        return false;
+    const ms = timestamp.toMillis();
+    return ms >= startAt.toMillis() && ms <= lockAt.toMillis();
+}
 async function loadFestivalEventSchedule() {
     const ref = db.doc(SCHEDULE_PATH);
     const snap = await ref.get();
@@ -78,17 +90,35 @@ async function areFestivalRecommendationsFrozen() {
     return Date.now() >= schedule.recommendationsRevealAt.toMillis();
 }
 async function runEventBatchRecommendations() {
+    const schedule = await loadFestivalEventSchedule();
+    if (!schedule)
+        return { success: 0, total: 0 };
     const aiSample = await db.collection("festivalAiEmbeddings").doc("f1").get();
     if (!aiSample.exists) {
         logger.info("AI embeddings missing — running full seed before batch");
         await (0, festival_embeddings_1.seedAllFestivalEmbeddings)();
     }
+    const cohortStartAt = schedule.cohortStartAt ??
+        firestore_1.Timestamp.fromDate(new Date(kstDayStartIso(kstNow().toISOString().slice(0, 10))));
+    const lockAt = schedule.profileTasteLockAt;
     const ticketsSnap = await db
         .collection("festivalTickets")
         .where("tasteCompleted", "==", true)
         .get();
+    const eligibleTicketIds = new Set();
+    for (const doc of ticketsSnap.docs) {
+        const data = doc.data();
+        const profileCompletedAt = readTimestamp(data.profileCompletedAt);
+        const tasteCompletedAt = readTimestamp(data.tasteCompletedAt);
+        if (isWithinCohortWindow(profileCompletedAt, cohortStartAt, lockAt) &&
+            isWithinCohortWindow(tasteCompletedAt, cohortStartAt, lockAt)) {
+            eligibleTicketIds.add(doc.id);
+        }
+    }
     let success = 0;
     for (const doc of ticketsSnap.docs) {
+        if (!eligibleTicketIds.has(doc.id))
+            continue;
         const profileSnap = await db
             .collection("festivalProfiles")
             .doc(doc.id)
@@ -97,7 +127,7 @@ async function runEventBatchRecommendations() {
         if (!profileSnap.exists || !photoUrl)
             continue;
         try {
-            const result = await (0, festival_recommendations_1.generateRecommendationsForTicket)(doc.id, "scheduled_event_batch");
+            const result = await (0, festival_recommendations_1.generateRecommendationsForTicket)(doc.id, "scheduled_event_batch", { eligibleCandidateTicketIds: eligibleTicketIds });
             if (result.success)
                 success += 1;
         }
@@ -108,7 +138,7 @@ async function runEventBatchRecommendations() {
             });
         }
     }
-    return { success, total: ticketsSnap.size };
+    return { success, total: eligibleTicketIds.size };
 }
 /** Set event schedule via HTTP (debug / ops). */
 exports.setFestivalEventScheduleHttp = (0, https_1.onRequest)({
@@ -134,13 +164,15 @@ exports.setFestivalEventScheduleHttp = (0, https_1.onRequest)({
         return;
     }
     const date = body.date ?? "2026-05-27";
-    const lock = body.lock ?? "12:00";
-    const batch = body.batch ?? "12:01";
-    const reveal = body.reveal ?? "12:05";
+    const cohortStart = body.cohortStart ?? "00:00";
+    const lock = body.lock ?? "20:30";
+    const batch = body.batch ?? "20:31";
+    const reveal = body.reveal ?? "21:00";
     try {
         await db.doc(SCHEDULE_PATH).set({
             enabled: true,
             title: body.title ?? "디버그 일정",
+            cohortStartAt: firestore_1.Timestamp.fromDate(new Date(kstIso(date, cohortStart))),
             profileTasteLockAt: firestore_1.Timestamp.fromDate(new Date(kstIso(date, lock))),
             batchRecommendationsAt: firestore_1.Timestamp.fromDate(new Date(kstIso(date, batch))),
             recommendationsRevealAt: firestore_1.Timestamp.fromDate(new Date(kstIso(date, reveal))),
@@ -153,6 +185,7 @@ exports.setFestivalEventScheduleHttp = (0, https_1.onRequest)({
         }, { merge: true });
         res.json({
             ok: true,
+            cohortStartAt: kstIso(date, cohortStart),
             profileTasteLockAt: kstIso(date, lock),
             batchRecommendationsAt: kstIso(date, batch),
             recommendationsRevealAt: kstIso(date, reveal),
