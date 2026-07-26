@@ -14,6 +14,7 @@ import '../../../router/route_names.dart';
 import 'terms_detail_sheet.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/dev_entry_policy.dart';
 
 // =============================================================================
 // 색상 상수
@@ -229,7 +230,8 @@ class _TermsScreenState extends State<TermsScreen> {
                   isEnabled: _allRequiredChecked,
                   onPressed: _onSubmit,
                 ),
-                _TestAccountButton(onPressed: _enterWithTestAccount),
+                if (DevEntryPolicy.allowTestAccountEntry)
+                  _TestAccountButton(onPressed: _enterWithTestAccount),
               ],
             ),
           ),
