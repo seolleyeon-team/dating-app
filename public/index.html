@@ -191,9 +191,22 @@
           verifiedAt: firebase.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
 
-        // 토큰 재사용 방지 삭제
-        stage = 'delete_token';
-        try { await tokenRef.delete(); } catch (_) {}
+        // 앱이 이 토큰으로 세션을 복구하려면 "메일함 소유가 실제로 증명됐다"는
+        // 근거가 토큰 문서에 남아 있어야 한다. 이 필드는 firestore.rules에서
+        // 해당 메일함 소유자만 쓸 수 있고, 서버는 이 필드가 없으면 커스텀 토큰을
+        // 발급하지 않는다. 재사용 방지는 서버가 exchangedAt으로 처리한다.
+        stage = 'mark_token_verified';
+        try {
+          await tokenRef.update({
+            emailVerifiedUid: user.uid,
+            emailVerifiedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+        } catch (markError) {
+          console.error(markError);
+          throw new Error(
+            '인증 결과를 저장하지 못했습니다. 앱에서 다시 시도해 주세요.'
+          );
+        }
 
         setStatus(
           '<span class="success">🎉 인증이 완료되었습니다!<br/>앱으로 돌아가서 다음을 진행해 주세요.</span>'
