@@ -915,6 +915,21 @@ async function getUserDisplayInfo(userId: string): Promise<{
   };
 }
 
+/**
+ * Whether a failed FCM send means the token is permanently gone.
+ *
+ * Deleting on any failure is wrong: a transient FCM outage or quota error would
+ * unregister a working device, and the user then silently stops receiving push
+ * forever with nothing in the app to indicate it. Only these two codes mean the
+ * token itself is dead.
+ */
+export function isUnregisteredPushTokenError(code: string | null): boolean {
+  return (
+    code === "messaging/registration-token-not-registered" ||
+    code === "messaging/invalid-registration-token"
+  );
+}
+
 async function fetchUserTokens(userId: string): Promise<string[]> {
   const snap = await db
     .collection("users")
@@ -1052,7 +1067,17 @@ async function sendPushToUsers(
   if (uniqueUserIds.length === 0) return;
 
   const tokenLists = await Promise.all(uniqueUserIds.map(fetchUserTokens));
-  const tokens = tokenLists.flat().filter(Boolean);
+  // Keep each token bound to the user it came from. The multicast response is
+  // index-aligned with this list, and a token document is only ever valid to
+  // delete under its own owner.
+  const tokenOwners: { uid: string; token: string }[] = [];
+  tokenLists.forEach((list, index) => {
+    const uid = uniqueUserIds[index];
+    for (const token of list) {
+      if (token) tokenOwners.push({ uid, token });
+    }
+  });
+  const tokens = tokenOwners.map((entry) => entry.token);
 
   if (tokens.length === 0) {
     logger.info("No device tokens found for users", {
@@ -1087,28 +1112,32 @@ async function sendPushToUsers(
     },
   });
 
-  const invalidTokens: string[] = [];
+  const unregistered: { uid: string; token: string }[] = [];
   response.responses.forEach((r, i) => {
-    if (!r.success) {
-      const token = tokens[i];
-      if (token) invalidTokens.push(token);
-      logger.warn("Push send failed", {
-        tokenHash: logHashPrefix(token),
-        errorCode: r.error?.code ?? null,
-      });
-    }
+    if (r.success) return;
+    const owner = tokenOwners[i];
+    if (!owner) return;
+
+    const errorCode = r.error?.code ?? null;
+    const drop = isUnregisteredPushTokenError(errorCode);
+    if (drop) unregistered.push(owner);
+
+    logger.warn("Push send failed", {
+      tokenHash: logHashPrefix(owner.token),
+      userIdHash: logHashPrefix(owner.uid),
+      errorCode,
+      droppingToken: drop,
+    });
   });
 
-  if (invalidTokens.length > 0) {
-    for (const uid of uniqueUserIds) {
-      const batch = db.batch();
-      for (const token of invalidTokens) {
-        batch.delete(
-          db.collection("users").doc(uid).collection("deviceTokens").doc(token)
-        );
-      }
-      await batch.commit();
+  if (unregistered.length > 0) {
+    const batch = db.batch();
+    for (const { uid, token } of unregistered) {
+      batch.delete(
+        db.collection("users").doc(uid).collection("deviceTokens").doc(token)
+      );
     }
+    await batch.commit();
   }
 }
 
