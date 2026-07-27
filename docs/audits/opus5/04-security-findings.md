@@ -13,7 +13,7 @@
 
 | ID | 등급 | 영역 | 제목 | 상태 |
 |----|------|------|------|------|
-| **SEC-P0-05** | **P0** | **배포** | **운영에 배포된 규칙이 저장소본보다 훨씬 개방적 — 채팅 전체 공개** | **운영 조회로 확정, 배포 필요(승인 대기)** |
+| **SEC-P0-05** | **P0** | **배포** | **운영에 배포된 규칙이 저장소본보다 훨씬 개방적 — 채팅 전체 공개** | **Firestore 규칙 배포 완료 (2026-07-27). Functions 일부 CPU 쿼터로 재시도 필요** |
 | SEC-P0-01 | P0 | 인증 | 비인증 임의 계정 탈취 (emailLinkTokens → custom token) | 에뮬레이터 재현 → **수정 완료** (`b1ab01b`) |
 | SEC-P0-02 | P0 | Firestore Rules | 비인증 사용자 문서 생성 + 학교 인증 위조 | 에뮬레이터 재현 → **수정 완료** (`b1ab01b`) |
 | SEC-P0-03 | P0 | Firestore Rules | 연세 이메일 보유자가 타인 문서의 studentEmail 탈취 | 에뮬레이터 재현 → **수정 완료** (`b1ab01b`) |
@@ -129,11 +129,27 @@ Firebase 세션이 없는 경로에서 실패한다. 배포 전 스테이징 프
 분리해서 검증하는 것이 옳지만, 현재 스테이징이 곧 운영이라 그럴 수 없다.
 **별도 스테이징 프로젝트 생성이 배포 전 선행 조건이다.**
 
+### 수정 (적용됨 — 2026-07-27)
+
+사용자 승인 후 `seolleyeon-final`에 배포했다.
+
+- **Firestore 규칙:** 저장소본 릴리스 확인. `chat_rooms`/`messages`가
+  `isChatRoomParticipant` / `canUpdateChatMessage`로 잠김.
+  `blocks`/`reports` 클라이언트 쓰기 거부. 운영 재조회로 검증.
+- **Hosting:** `public/` 업로드·릴리스.
+- **Functions:** `reportAndBlockUser`·`createFirebaseCustomTokenFromEmailLinkToken`
+  등 다수 성공. 일부는 Cloud Run **CPU 쿼터 초과**로 실패
+  (`createFirebaseCustomToken`, `syncContactBlocks`, 친구초대 등).
+  기존 revision은 유지되며, 쿼터 회복 후 단건 재배포 필요.
+
 ### 남은 위험
 
 이미 유출됐을 가능성이 있는 데이터의 범위를 코드만으로는 알 수 없다.
 운영 감사 로그(Cloud Audit Logs, Firestore 사용량 급증 여부) 확인이 필요하며,
 이는 운영 데이터 조회이므로 별도 승인이 필요하다.
+
+실패한 Functions는 구버전이 그대로 서빙 중일 수 있다. 카카오 커스텀 토큰·
+연락처 차단 동기화는 단건 재배포로 맞출 것.
 
 ---
 
