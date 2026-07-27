@@ -196,6 +196,21 @@ test("chat rooms keep participantIds immutable and message updates scoped", () =
   );
 });
 
+test("recEvents are append-only with a typed whitelist", () => {
+  assertContains(
+    "recEvent creates must pass isValidRecEventCreate",
+    "allow create: if isSelf(userId) && isValidRecEventCreate(userId);"
+  );
+  assertContains(
+    "recEvent updates and deletes are denied",
+    "allow update, delete: if false;"
+  );
+  assertContains(
+    "recEvent types are limited to the app vocabulary",
+    "function isAllowedRecEventType(eventType) { return eventType in [ 'impression', 'open', 'detail_open', 'view', 'like', 'nope', 'super_like', 'swipe_right', 'block', 'report' ]; }"
+  );
+});
+
 test("team meeting request service uses callables for backend-owned writes", () => {
   const service = readFileSync(
     resolve(__dirname, "../../lib/services/team_meeting_request_service.dart"),

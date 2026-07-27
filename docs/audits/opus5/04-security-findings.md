@@ -21,7 +21,7 @@
 | SEC-P1-01 | P1 | 클라이언트 | 프로덕션 UI의 테스트 계정 로그인 우회 (`fake_user_1`) | **수정 완료** (약관 버튼 + 가짜 채팅방 debug 전용) |
 | SEC-P1-02 | P1 | 채팅 | 참여자가 상대방 메시지를 임의 수정 가능 | **수정 완료** (읽음 표시·약속 생애주기만 허용) |
 | SEC-P1-03 | P1 | 채팅 | 참여자가 participantIds 임의 변경 가능 | **수정 완료** (participantIds immutable) |
-| SEC-P1-04 | P1 | 추천 | recEvents 클라이언트 무검증 쓰기 (추천 조작) | 코드상 확정, 미수정 |
+| SEC-P1-04 | P1 | 추천 | recEvents 클라이언트 무검증 쓰기 (추천 조작) | **수정 완료** (append-only + 타입 화이트리스트, 운영 규칙 배포) |
 | SEC-P1-05 | P1 | Functions | 인증/부트스트랩 callable 11개 App Check 미적용 | 코드상 확정, 미수정 |
 | **REC-P0-01~04** | **P0** | **추천** | **정책 필터·RRF 게이트 미적용 + 차단 단방향 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
 | **REC-P1-01~02** | **P1** | **추천** | **신고 양방향 차단 callable + 폴백 정책 적용 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
@@ -141,6 +141,12 @@ Firebase 세션이 없는 경로에서 실패한다. 배포 전 스테이징 프
   등 다수 성공. 일부는 Cloud Run **CPU 쿼터 초과**로 실패
   (`createFirebaseCustomToken`, `syncContactBlocks`, 친구초대 등).
   기존 revision은 유지되며, 쿼터 회복 후 단건 재배포 필요.
+
+### 함수 재배포 (2026-07-27 후속)
+
+CPU 쿼터 회복 후 실패분을 **1개씩** 재배포했다. 핵심 인증·차단·팀 매칭
+callable이 포함된다 (`createFirebaseCustomToken`, `syncContactBlocks`,
+친구초대, `respondTeamMeetingRequest` 등).
 
 ### 남은 위험
 
@@ -555,6 +561,19 @@ update를 읽음 표시 등 필요한 필드로만 좁힌다. 예:
 
 이벤트 타입 화이트리스트, `createdAt == request.time` 강제,
 `update`/`delete` 금지, 필드 화이트리스트를 추가한다.
+
+### 수정 (적용됨)
+
+- `events`는 create만 허용. update/delete 거부 → 과거 nope를 like로
+  바꿔 상호 매치를 만드는 경로를 차단.
+- `type`/`eventType` 화이트리스트 + 상호 일치 강제.
+- `userId`는 경로와 일치, `targetUserId`는 자기 자신 금지.
+- 필드 `hasOnly`로 임의 키 주입 차단.
+- 에뮬레이터 8건 + 운영 `firestore:rules` 배포 완료 (2026-07-27).
+
+`onRecEventCreated`의 mutual-match는 상대방의 기존 like가 있어야만
+성립하므로, 단방향 위조만으로는 매치가 생기지 않는다. 소급 변조는
+위 규칙으로 막았다.
 
 ---
 
