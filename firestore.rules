@@ -756,12 +756,63 @@ service cloud.firestore {
 
     // -----------------------------------------------------------------------
     // RecEvents (recommendation training event log: open, like, nope, etc.)
+    // Clients may append their own events, but must not rewrite history —
+    // forged updates would let someone manufacture mutual likes after the fact.
     // -----------------------------------------------------------------------
+    function isAllowedRecEventType(eventType) {
+      return eventType in [
+        'impression',
+        'open',
+        'detail_open',
+        'view',
+        'like',
+        'nope',
+        'super_like',
+        'swipe_right',
+        'block',
+        'report'
+      ];
+    }
+
+    function isValidRecEventCreate(userId) {
+      return request.resource.data.userId is string &&
+          request.resource.data.userId == userId &&
+          request.resource.data.type is string &&
+          isAllowedRecEventType(request.resource.data.type) &&
+          request.resource.data.eventType is string &&
+          request.resource.data.eventType == request.resource.data.type &&
+          request.resource.data.targetUserId is string &&
+          request.resource.data.targetUserId.size() > 0 &&
+          request.resource.data.targetUserId != userId &&
+          request.resource.data.keys().hasOnly([
+            'userId',
+            'targetType',
+            'targetId',
+            'targetUserId',
+            'candidateUserId',
+            'type',
+            'eventType',
+            'surface',
+            'source',
+            'cardVariant',
+            'eventTime',
+            'createdAt',
+            'exposureId',
+            'sessionId',
+            'dateKey',
+            'context'
+          ]);
+    }
+
     match /recEvents/{userId} {
-      allow read, write: if isSelf(userId);
+      allow read: if isSelf(userId);
+      allow create, update: if isSelf(userId);
+      allow delete: if false;
 
       match /events/{eventId} {
-        allow read, write: if isSelf(userId);
+        allow read: if isSelf(userId);
+        allow create: if isSelf(userId) && isValidRecEventCreate(userId);
+        allow update, delete: if false;
       }
     }
 
