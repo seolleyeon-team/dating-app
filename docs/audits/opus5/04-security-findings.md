@@ -22,7 +22,7 @@
 | SEC-P1-02 | P1 | 채팅 | 참여자가 상대방 메시지를 임의 수정 가능 | **수정 완료** (읽음 표시·약속 생애주기만 허용) |
 | SEC-P1-03 | P1 | 채팅 | 참여자가 participantIds 임의 변경 가능 | **수정 완료** (participantIds immutable) |
 | SEC-P1-04 | P1 | 추천 | recEvents 클라이언트 무검증 쓰기 (추천 조작) | **수정 완료** (append-only + 타입 화이트리스트, 운영 규칙 배포) |
-| SEC-P1-05 | P1 | Functions | 인증/부트스트랩 callable 11개 App Check 미적용 | 코드상 확정, 미수정 |
+| SEC-P1-05 | P1 | Functions | 인증/부트스트랩 callable App Check 미적용 | **수정 완료** (`withAppCheck` + web reCAPTCHA; Functions 배포 필요) |
 | **REC-P0-01~04** | **P0** | **추천** | **정책 필터·RRF 게이트 미적용 + 차단 단방향 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
 | **REC-P1-01~02** | **P1** | **추천** | **신고 양방향 차단 callable + 폴백 정책 적용 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
 | SEC-P1-06 | P1 | 추천 | 배치 파이프라인이 blocks/contactBlocked 미제외 | 부분 완화 (recEvents block/report 대칭 제외는 REC-P0-04; Firestore blocks·연락처 해시는 미로드) |
@@ -581,15 +581,23 @@ update를 읽음 표시 등 필요한 필드로만 좁힌다. 예:
 
 **등급:** P1
 **영역:** Cloud Functions / abuse 방지
+**상태:** 코드 수정 완료 (2026-07-27). 운영 Functions 배포는 CPU 쿼터를 피해 개별/소배치로 진행.
 
 App Check(`enforceAppCheck`)가 avatar/chat/team 모듈에만 적용되어 있고,
 `createFirebaseCustomToken`, `createFirebaseCustomTokenFromEmailLinkToken`,
 `createFriendInvite`, `acceptFriendInvite`, `syncContactBlocks`, `saveUserPhoneHash`,
-이벤트 팀 관련 callable 등 **11개가 미적용**이다.
-(서브에이전트 확인 위치: `functions/src/index.ts:1463, 1498, 1609, 1648, 1928, 1973, 2111, 2282, 3693, 3951`)
+이벤트 팀 관련 callable 등이 미적용이었다.
 
-가장 민감한 인증 부트스트랩 경로가 앱 외부에서 자유롭게 호출 가능하다는 뜻이며,
-SEC-P0-01의 악용 난이도를 크게 낮춘다.
+### 수정
+
+- `functions/src/appCheckPolicy.ts` — `withAppCheck()`로 `enforceAppCheck: true` 고정
+- `functions/src/index.ts` — 인증·초대·이벤트 팀·연락처 해시 callable 10개에 적용
+- `avatarApproval` / `chatRealPhoto` callables에도 `enforceAppCheck: true`
+- Flutter web: `--dart-define=APP_CHECK_WEB_RECAPTCHA_SITE_KEY=...`로 reCAPTCHA v3 활성화
+  (키 없으면 web App Check 스킵 → 해당 callable은 서버에서 거부)
+- 회귀: `functions/src/appCheckPolicy.test.ts`, `test/app_check_provider_policy_test.dart`
+
+웹/로컬 스테이징은 [staging_app_check_setup.md](../../staging_app_check_setup.md) 참고.
 
 ---
 
