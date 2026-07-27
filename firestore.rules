@@ -405,6 +405,10 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid in chatRoomParticipantIds(request.resource.data);
     }
 
+    function chatRoomParticipantIdsUnchanged() {
+      return request.resource.data.participantIds == resource.data.participantIds;
+    }
+
     function isExistingChatRoomParticipant(roomId) {
       return isSignedIn() &&
           request.auth.uid in chatRoomParticipantIds(
@@ -416,6 +420,51 @@ service cloud.firestore {
       return isExistingChatRoomParticipant(roomId) &&
           request.resource.data.senderId is string &&
           request.resource.data.senderId == request.auth.uid;
+    }
+
+    // Participants mark messages read by appending themselves to readBy.
+    // Anything else — especially rewriting someone else's text — is denied.
+    function onlyMessageReadReceiptUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['readBy', 'updatedAt']);
+    }
+
+    // Promise cards are updated in-place (request → confirmed / rejected /
+    // cancelled / edited). Free-form chat text must never enter this path, so
+    // the *existing* message must already be a promise_* type.
+    function isExistingPromiseMessage() {
+      return resource.data.keys().hasAny(['type']) &&
+          resource.data.type is string &&
+          resource.data.type.matches('promise_.*');
+    }
+
+    function onlyPromiseMessageLifecycleUpdate() {
+      return isExistingPromiseMessage() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'senderId',
+            'type',
+            'text',
+            'dateTime',
+            'place',
+            'placeCategory',
+            'placeId',
+            'placeAddress',
+            'placeLat',
+            'placeLng',
+            'placeThumbnailUrl',
+            'status',
+            'readBy',
+            'updatedAt',
+            'isEdited',
+            'editedAt'
+          ]) &&
+          request.resource.data.type is string &&
+          request.resource.data.type.matches('promise_.*');
+    }
+
+    function canUpdateChatMessage(roomId) {
+      return isExistingChatRoomParticipant(roomId) &&
+          (onlyMessageReadReceiptUpdate() || onlyPromiseMessageLifecycleUpdate());
     }
 
     function isAskParticipant(data) {
@@ -723,15 +772,18 @@ service cloud.firestore {
       allow read: if isChatRoomParticipant();
       allow create: if isChatRoomParticipantAfter() &&
         chatRoomDoesNotPersistPrivateMedia(request.resource.data);
+      // participantIds is immutable after create — changing it would let a
+      // participant add a third party who can then read the full history.
       allow update: if isChatRoomParticipant() &&
         isChatRoomParticipantAfter() &&
+        chatRoomParticipantIdsUnchanged() &&
         chatRoomDoesNotPersistPrivateMedia(request.resource.data);
       allow delete: if false;
 
       match /messages/{messageId} {
         allow read: if isExistingChatRoomParticipant(roomId);
         allow create: if isParticipantMessageAuthor(roomId);
-        allow update: if isExistingChatRoomParticipant(roomId);
+        allow update: if canUpdateChatMessage(roomId);
         allow delete: if false;
       }
 
@@ -883,32 +935,26 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // Blocks and Reports
     // -----------------------------------------------------------------------
+    // Blocks are written only by the server (reportAndBlockUser,
+    // syncContactBlocks). A block must exist in both directions, and a client
+    // can only ever write its own side, so client writes are denied here.
+    // Reads stay open to the owner for defensive filtering in the feed.
     match /blocks/{viewerUid} {
       allow read: if isSelf(viewerUid);
-      allow create, update: if isSelf(viewerUid);
+      allow create, update: if false;
       allow delete: if isSelf(viewerUid);
 
       match /targets/{targetUid} {
         allow read: if isSelf(viewerUid);
-        allow create, update: if
-          isSelf(viewerUid) &&
-          request.resource.data.fromUserId is string &&
-          request.resource.data.toUserId is string &&
-          request.resource.data.fromUserId == viewerUid &&
-          request.resource.data.toUserId == targetUid;
+        allow create, update: if false;
         allow delete: if isSelf(viewerUid);
       }
     }
 
+    // User reports go through the reportAndBlockUser callable so that the
+    // report and both block directions are written atomically.
     match /reports/{reportId} {
-      allow create: if
-        isSignedIn() &&
-        request.resource.data.reporterId is string &&
-        request.resource.data.reporterId == request.auth.uid &&
-        request.resource.data.reportedId is string &&
-        request.resource.data.reason is string &&
-        request.resource.data.reason.size() > 0 &&
-        request.resource.data.status is string;
+      allow create: if false;
       allow read: if false;
       allow update: if false;
       allow delete: if false;

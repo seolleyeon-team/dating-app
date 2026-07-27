@@ -6,6 +6,8 @@ import 'package:uuid/uuid.dart';
 import 'storage_service.dart';
 import 'user_service.dart';
 import '../shared/utils/profile_display_image_resolver.dart';
+import '../shared/utils/privacy_log_utils.dart';
+import '../shared/utils/recommendation_eligibility.dart';
 
 // =============================================================================
 // 공통 AI 추천 프로필 모델
@@ -64,7 +66,9 @@ class AiRecommendationService {
           .get();
       return snap.docs.map((d) => d.id).toSet();
     } catch (e) {
-      debugPrint('[AI] _fetchBlockedUids error: $e');
+      debugPrint(
+        '[AI] _fetchBlockedUids error: ${PrivacyLogUtils.errorSummary(e)}',
+      );
       return {};
     }
   }
@@ -127,6 +131,8 @@ class AiRecommendationService {
     required String dateKey,
     required int limit,
     Set<String> blockedUids = const {},
+    required String viewerUid,
+    Map<String, dynamic>? viewer,
   }) async {
     final List<AiRecommendedProfile> results = [];
     final uuid = const Uuid();
@@ -145,9 +151,6 @@ class AiRecommendationService {
       final candUid = item['uid'] as String?;
       if (candUid == null) continue;
 
-      // 차단된 사용자 제외
-      if (blockedUids.contains(candUid)) continue;
-
       // 1. 추천 문서 자체에 이미지가 있는지 확인 (미래 확장성)
       List<String> images = [];
       final approvedAvatarUrl = item['approvedAvatarUrl'];
@@ -158,6 +161,17 @@ class AiRecommendationService {
       // 2. Fallback: users/{uid} approved avatar display fields only.
       final userProfile = await _userService.getUserProfile(candUid);
       if (userProfile == null) continue; // 삭제/탈퇴된 유저 패스
+
+      // modelRecs는 최대 하루 지난 스냅샷일 수 있으므로 노출 직전에 다시 본다.
+      if (!RecommendationEligibility.isRecommendableTo(
+        viewerUid: viewerUid,
+        viewer: viewer,
+        candidateUid: candUid,
+        candidate: userProfile,
+        blockedUids: blockedUids,
+      )) {
+        continue;
+      }
 
       final onboarding = userProfile['onboarding'];
       if (images.isEmpty) {
@@ -230,6 +244,10 @@ class AiRecommendationService {
   }
 
   /// modelRecs 비어있을 때 users 컬렉션에서 폴백 프로필 로드
+  ///
+  /// 배치 파이프라인을 거치지 않는 경로이므로, 파이프라인과 같은 후보 정책을
+  /// 여기서 직접 적용한다. 그러지 않으면 정지·미인증·동성 프로필이 "추천"으로
+  /// 노출된다.
   Future<List<AiRecommendedProfile>> _fetchFallbackFromUsers(
     String currentUserId,
     int limit, {
@@ -237,6 +255,7 @@ class AiRecommendationService {
   }) async {
     final uuid = const Uuid();
     final todayKey = _generateKstDateKey(DateTime.now());
+    final viewer = await _userService.getUserProfile(currentUserId);
     final snapshot = await _firestore
         .collection('users')
         .limit(30) // 본인 제외·필터 후 limit 채우기 위해 여유
@@ -244,19 +263,23 @@ class AiRecommendationService {
 
     final results = <AiRecommendedProfile>[];
     for (final doc in snapshot.docs) {
-      if (doc.id == currentUserId) continue;
-      if (blockedUids.contains(doc.id)) continue;
       if (results.length >= limit) break;
 
       final data = doc.data();
-      if (data['isStudentVerified'] != true) continue;
+      if (!RecommendationEligibility.isRecommendableTo(
+        viewerUid: currentUserId,
+        viewer: viewer,
+        candidateUid: doc.id,
+        candidate: data,
+        blockedUids: blockedUids,
+      )) {
+        continue;
+      }
 
       final onboarding = data['onboarding'];
       if (onboarding is! Map) continue;
 
-      final resolved = ProfileDisplayImageResolver.resolve(data);
-      final images = resolved.isNotEmpty ? <String>[resolved] : <String>[];
-      if (images.isEmpty) continue; // 사진 있는 유저만
+      final images = <String>[ProfileDisplayImageResolver.resolve(data)];
 
       final nickname = onboarding['nickname'] as String? ?? '익명';
       int age = 20;
@@ -298,6 +321,7 @@ class AiRecommendationService {
 
     try {
       final blockedUids = await _fetchBlockedUids(uid);
+      final viewer = await _userService.getUserProfile(uid);
 
       var result = await _fetchRawRecs(uid, 'svd');
       if (result != null) {
@@ -310,6 +334,8 @@ class AiRecommendationService {
           dateKey: dateKey,
           limit: limit,
           blockedUids: blockedUids,
+          viewerUid: uid,
+          viewer: viewer,
         );
       }
       if (kDebugMode) {
@@ -323,11 +349,19 @@ class AiRecommendationService {
         blockedUids: blockedUids,
       );
     } catch (e) {
-      debugPrint('fetchProfileFeed Error: $e');
+      debugPrint(
+        'fetchProfileFeed Error: ${PrivacyLogUtils.errorSummary(e)}',
+      );
       if (kDebugMode) {
         debugPrint('[AI] fetchProfileFeed: error, trying users fallback');
       }
-      return await _fetchFallbackFromUsers(uid, limit);
+      // 에러 경로라도 정책·차단 필터는 적용한다.
+      final blockedUids = await _fetchBlockedUids(uid);
+      return await _fetchFallbackFromUsers(
+        uid,
+        limit,
+        blockedUids: blockedUids,
+      );
     }
   }
 
@@ -343,6 +377,7 @@ class AiRecommendationService {
 
     try {
       final blockedUids = await _fetchBlockedUids(uid);
+      final viewer = await _userService.getUserProfile(uid);
 
       var result = await _fetchRawRecs(uid, 'rrf');
       String algoUsed = 'rrf';
@@ -380,6 +415,8 @@ class AiRecommendationService {
           dateKey: dateKey,
           limit: limit,
           blockedUids: blockedUids,
+          viewerUid: uid,
+          viewer: viewer,
         );
       }
       if (kDebugMode) {
@@ -393,11 +430,18 @@ class AiRecommendationService {
         blockedUids: blockedUids,
       );
     } catch (e) {
-      debugPrint('fetchMysteryFeed Error: $e');
+      debugPrint(
+        'fetchMysteryFeed Error: ${PrivacyLogUtils.errorSummary(e)}',
+      );
       if (kDebugMode) {
         debugPrint('[AI] fetchMysteryFeed: error, trying users fallback');
       }
-      return await _fetchFallbackFromUsers(uid, limit);
+      final blockedUids = await _fetchBlockedUids(uid);
+      return await _fetchFallbackFromUsers(
+        uid,
+        limit,
+        blockedUids: blockedUids,
+      );
     }
   }
 

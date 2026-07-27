@@ -62,6 +62,7 @@ import {
   createRespondTeamMeetingRequestFunction,
   createTeamMeetingRequestFunction,
 } from "./teamMeetingRequest";
+import { createReportAndBlockUserFunction } from "./reportAndBlock";
 
 // Initialize Firebase Admin
 initializeApp();
@@ -2405,6 +2406,11 @@ export const createTeamMeetingRequest = createTeamMeetingRequestFunction(
 );
 
 export const respondTeamMeetingRequest = createRespondTeamMeetingRequestFunction(
+  db,
+  resolveUserForFriendCallable
+);
+
+export const reportAndBlockUser = createReportAndBlockUserFunction(
   db,
   resolveUserForFriendCallable
 );

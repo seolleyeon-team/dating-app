@@ -14,6 +14,8 @@ import '../../../services/storage_service.dart';
 import '../../../shared/widgets/chat_profile_photo_avatar.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
+import '../../../shared/utils/dev_entry_policy.dart';
+import '../../../shared/utils/privacy_log_utils.dart';
 import '../models/chat_room_data.dart';
 import '../services/chat_service.dart';
 
@@ -125,7 +127,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Future<void> _loadCurrentUser() async {
     final kakaoUserId = await _storageService.getKakaoUserId();
 
-    debugPrint('CHAT LIST current user: $kakaoUserId');
+    debugPrint('CHAT LIST current user: ${PrivacyLogUtils.idFingerprint(kakaoUserId)}');
 
     if (!mounted) return;
 
@@ -259,9 +261,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   stream: _chatService.chatRoomsStream(currentUserId),
                   builder: (context, snapshot) {
                     if (snapshot.hasError) {
-                      debugPrint('CHAT LIST ERROR: ${snapshot.error}');
+                      debugPrint('CHAT LIST ERROR: ${PrivacyLogUtils.errorSummary(snapshot.error!)}');
 
-                      if (currentUserId != 'fake_user_1') {
+                      if (DevEntryPolicy.allowTestAccountEntry &&
+                          currentUserId != 'fake_user_1') {
                         final fallbackChats = <_ChatItem>[
                           _buildFakeRoomItem(currentUserId),
                         ];
@@ -331,7 +334,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     }
 
                     if (!snapshot.hasData) {
-                      if (currentUserId != 'fake_user_1') {
+                      if (DevEntryPolicy.allowTestAccountEntry &&
+                          currentUserId != 'fake_user_1') {
                         final fallbackChats = <_ChatItem>[
                           _buildFakeRoomItem(currentUserId),
                         ];
@@ -418,7 +422,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
                       }
                     }
 
-                    if (currentUserId != 'fake_user_1') {
+                    if (DevEntryPolicy.allowTestAccountEntry &&
+                        currentUserId != 'fake_user_1') {
                       fakeChatRoom ??= _buildFakeRoomItem(currentUserId);
                     }
 

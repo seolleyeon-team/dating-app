@@ -17,8 +17,8 @@
 | REC-P0-02 | P0 | `profileIndex` 컬렉션 부재 — 정책 필터를 켜면 추천 0건 | **수정 완료** |
 | REC-P0-03 | P0 | RRF 품질 게이트(`required_sources`, `min_sources_per_user`) 미적용 | **수정 완료** |
 | REC-P0-04 | P0 | 차단·신고가 단방향 — 피차단자에게 차단자가 계속 추천됨 | **수정 완료 (파이썬 파이프라인)** |
-| REC-P1-01 | P1 | 클라이언트 `blockAndReportUser`가 단방향으로만 기록 | 확정, 미수정 (후속) |
-| REC-P1-02 | P1 | `_fetchFallbackFromUsers`가 정책 무시 프로필을 추천으로 표시 | 확정, 미수정 (후속) |
+| REC-P1-01 | P1 | 클라이언트 `blockAndReportUser`가 단방향으로만 기록 | **수정 완료** |
+| REC-P1-02 | P1 | `_fetchFallbackFromUsers`가 정책 무시 프로필을 추천으로 표시 | **수정 완료** |
 
 ---
 
@@ -196,11 +196,67 @@ SVD/KNN은 모델의 `filter_items`와 후보 루프 양쪽에서 제외한다. 
 
 ### 남은 범위
 
-**클라이언트와 Cloud Functions는 아직 단방향이다.** `interaction_service.dart`의
-`blockAndReportUser`는 `blocks/{fromUserId}/targets/{toUserId}` 한쪽만 쓰고,
-`_fetchBlockedUids`는 자기 목록만 읽는다. 연락처 기반 차단
-(`ensureMutualContactBlock`)은 이미 양방향으로 쓰고 있으므로, 신고 기반 차단도
-동일하게 서버에서 양방향 기록하도록 맞추는 것이 자연스럽다. REC-P1-01로 분리.
+**클라이언트와 Cloud Functions 단방향 기록은 REC-P1-01에서 수정했다.**
+`reportAndBlockUser` callable이 신고와 양방향 차단을 원자적으로 쓰고,
+`firestore.rules`는 클라이언트의 `blocks`/`reports` 직접 쓰기를 거부한다.
+폴백·hydrate 경로의 정책 적용은 REC-P1-02에서 처리했다.
+
+---
+
+## REC-P1-01 — 신고 차단을 서버에서 양방향으로 기록
+
+**영역:** Cloud Functions / Flutter / Firestore rules
+
+### 근거
+
+`InteractionService.blockAndReportUser`는 클라이언트가
+`blocks/{from}/targets/{to}` 한쪽만 썼다. 규칙도 자기 쪽만 쓸 수 있게
+허용했기 때문에, 피신고자 쪽 역방향 문서는 애초에 클라이언트가 만들 수 없었다.
+연락처 차단(`ensureMutualContactBlock`)만 서버에서 양방향이었다.
+
+### 수정
+
+- `functions/src/reportAndBlock.ts` — `buildReportAndBlockPlan`이
+  `blocks/{reporter}/targets/{reported}`와
+  `blocks/{reported}/targets/{reporter}`를 함께 계획한다.
+  역방향은 `source: "report_mutual"`로 감사 가능하게 표기.
+- `createReportAndBlockUserFunction` — App Check 강제, 신고자 ID는
+  인증 결과에서만 취함, 사유/상세 길이 상한.
+- `InteractionService.blockAndReportUser` — callable 호출로 전환.
+  매치 해제는 실패해도 신고가 남도록 분리 유지.
+- `firestore.rules` — `blocks`/`reports` 클라이언트 create·update 거부.
+  소유자 읽기·자기 쪽 삭제는 유지(피드 방어 필터·해제용).
+
+### 검증
+
+- `functions/src/reportAndBlock.test.ts` — 양방향·App Check·경로 탈출·자기신고 거부
+- `rules_tests/firestore.blocks.test.mjs` — 에뮬레이터에서 클라이언트 쓰기 거부
+- `functions` 167 pass, rules 27 pass
+
+---
+
+## REC-P1-02 — users 폴백·hydrate에 후보 정책 적용
+
+**영역:** Flutter 추천 피드
+
+### 근거
+
+`_fetchFallbackFromUsers`는 `isStudentVerified`와 승인 아바타만 보고
+정지·미완성·동성 프로필을 "추천"으로 노출했다. `modelRecs` hydrate도
+배치 스냅샷이 하루 지났을 때 같은 구멍으로 이어졌다.
+
+### 수정
+
+- `lib/shared/utils/recommendation_eligibility.dart` —
+  활성/인증/완성/승인 아바타/동성 제외/차단 목록을 한 판정으로 묶음.
+- `_fetchFallbackFromUsers`와 `_hydrateProfiles` 모두
+  `RecommendationEligibility.isRecommendableTo`를 통과한 후보만 반환.
+- 에러 경로 폴백도 차단 목록을 다시 읽어 같은 필터를 적용.
+
+### 검증
+
+- `test/recommendation_eligibility_test.dart` — 13건
+- Flutter 전체 테스트 138 pass
 
 ---
 
@@ -211,7 +267,7 @@ recsys\.venv\Scripts\python.exe -m pytest tests -q
 565 passed, 6 skipped in 78.97s
 ```
 
-신규 테스트 29건:
+신규 테스트 29건 (P0):
 
 - `tests/test_recsys_policy_args.py` — Cloud Workflow가 실제로 보내는 인자
   조합(`--step/--date-key/--project/--bucket`)만 파싱했을 때 정책 필터와 RRF
@@ -219,6 +275,14 @@ recsys\.venv\Scripts\python.exe -m pytest tests -q
 - `tests/test_rec_policy_and_blocks.py` — 대칭 차단 확장, `nope`의 단방향
   유지, `users` 기반 정책 메타 파생, 학교 도메인 유도, 커버리지 부족 시
   예외 발생을 검증한다.
+
+P1 추가 검증:
+
+```
+functions: 167 pass
+flutter test: 138 pass
+rules emulator: 27 pass
+```
 
 세 익스포트 스크립트는 `--help`로 임포트·파서 정상 동작을 확인했다.
 
