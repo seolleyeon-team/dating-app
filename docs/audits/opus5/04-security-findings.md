@@ -22,7 +22,7 @@
 | SEC-P1-02 | P1 | 채팅 | 참여자가 상대방 메시지를 임의 수정 가능 | **수정 완료** (읽음 표시·약속 생애주기만 허용) |
 | SEC-P1-03 | P1 | 채팅 | 참여자가 participantIds 임의 변경 가능 | **수정 완료** (participantIds immutable) |
 | SEC-P1-04 | P1 | 추천 | recEvents 클라이언트 무검증 쓰기 (추천 조작) | **수정 완료** (append-only + 타입 화이트리스트, 운영 규칙 배포) |
-| SEC-P1-05 | P1 | Functions | 인증/부트스트랩 callable App Check 미적용 | **수정 완료** (`withAppCheck` + web reCAPTCHA; Functions 배포 필요) |
+| SEC-P1-05 | P1 | Functions | 인증/부트스트랩 callable App Check 미적용 | **수정·운영 배포 완료** (`809fa537`, 13 callables) |
 | **REC-P0-01~04** | **P0** | **추천** | **정책 필터·RRF 게이트 미적용 + 차단 단방향 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
 | **REC-P1-01~02** | **P1** | **추천** | **신고 양방향 차단 callable + 폴백 정책 적용 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
 | SEC-P1-06 | P1 | 추천 | 배치 파이프라인이 blocks/contactBlocked 미제외 | 부분 완화 (recEvents block/report 대칭 제외는 REC-P0-04; Firestore blocks·연락처 해시는 미로드) |
@@ -581,7 +581,7 @@ update를 읽음 표시 등 필요한 필드로만 좁힌다. 예:
 
 **등급:** P1
 **영역:** Cloud Functions / abuse 방지
-**상태:** 코드 수정 완료 (2026-07-27). 운영 Functions 배포는 CPU 쿼터를 피해 개별/소배치로 진행.
+**상태:** 코드 수정 및 운영 Functions 배포 완료 (2026-07-27, `seolleyeon-final`, commit `809fa537`).
 
 App Check(`enforceAppCheck`)가 avatar/chat/team 모듈에만 적용되어 있고,
 `createFirebaseCustomToken`, `createFirebaseCustomTokenFromEmailLinkToken`,
