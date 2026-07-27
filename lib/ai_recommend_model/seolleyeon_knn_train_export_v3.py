@@ -30,7 +30,9 @@ from seolleyeon_rec_common_v3 import (
     DEFAULT_NEGATIVE_EVENTS,
     DEFAULT_STRONG_POSITIVE_EVENTS,
     PairBuildConfig,
+    assert_policy_meta_coverage,
     build_interaction_matrix_from_pairs,
+    build_mutual_block_index,
     collapse_pair_events,
     compute_source_confidence,
     compute_user_signal_stats,
@@ -39,7 +41,7 @@ from seolleyeon_rec_common_v3 import (
     load_avatar_display_status_from_firestore,
     load_events_from_csv,
     load_events_from_firestore,
-    load_profile_index_from_firestore,
+    load_policy_meta_from_firestore,
     load_user_genders_from_firestore,
     passes_policy,
     prune_training_pairs,
@@ -284,6 +286,7 @@ def main() -> None:
 
     p.add_argument("--apply_policy_filters", action="store_true")
     p.add_argument("--profile_index_collection", type=str, default="profileIndex")
+    p.add_argument("--policy_min_meta_coverage", type=float, default=0.9)
     p.add_argument("--require_approved_avatar_for_candidates", dest="require_approved_avatar_for_candidates", action="store_true")
     p.add_argument("--no_require_approved_avatar_for_candidates", dest="require_approved_avatar_for_candidates", action="store_false")
     p.set_defaults(require_approved_avatar_for_candidates=True)
@@ -354,6 +357,9 @@ def main() -> None:
         allow_open_only_pairs=bool(args.allow_open_only_pairs),
         exclude_ai_items_from_training=not bool(args.include_ai_profiles_in_training),
     )
+    mutual_blocks = build_mutual_block_index(df)
+    print(f"[blocks] users with mutual block/report exclusions: {len(mutual_blocks):,}")
+
     pair_df_all, neg_df_all = collapse_pair_events(df, pair_cfg)
     print(f"[pairs] surviving positive pairs: {len(pair_df_all):,}")
     print(f"[pairs] final negative pairs: {0 if neg_df_all.empty else len(neg_df_all):,}")
@@ -435,12 +441,19 @@ def main() -> None:
     if args.apply_policy_filters:
         if not args.firestore_project:
             raise ValueError("--firestore_project is required for --apply_policy_filters")
-        meta = load_profile_index_from_firestore(
+        meta, meta_source = load_policy_meta_from_firestore(
             args.firestore_project,
-            collection=args.profile_index_collection,
+            profile_index_collection=args.profile_index_collection,
             database=args.firestore_database,
         )
-        print(f"[meta] loaded profileIndex docs: {len(meta):,}")
+        print(f"[meta] loaded policy metadata from '{meta_source}': {len(meta):,} docs")
+        coverage = assert_policy_meta_coverage(
+            meta,
+            [u for u in export_user_ids if not is_ai_profile(u)],
+            min_coverage=float(args.policy_min_meta_coverage),
+            source=meta_source,
+        )
+        print(f"[meta] policy metadata covers {coverage:.1%} of exportable users")
 
     gender_by_uid: Dict[str, str] = {}
     if args.firestore_project:
@@ -483,6 +496,11 @@ def main() -> None:
         self_item_idx = item2idx.get(uid)
         if self_item_idx is not None:
             filter_items.add(self_item_idx)
+        blocked_uids = mutual_blocks.get(uid, frozenset())
+        for blocked_uid in blocked_uids:
+            blocked_item_idx = item2idx.get(blocked_uid)
+            if blocked_item_idx is not None:
+                filter_items.add(blocked_item_idx)
 
         # implicit item-item recommenders expect a single-row CSR matrix for
         # scalar user queries, not the full user-item matrix.
@@ -504,6 +522,8 @@ def main() -> None:
         for ii, score in zip(item_idx.tolist(), scores.tolist()):
             cand_uid = idx2item[int(ii)]
             if is_ai_profile(cand_uid):
+                continue
+            if cand_uid in blocked_uids:
                 continue
 
             u_gender = gender_by_uid.get(uid)

@@ -6,7 +6,7 @@ import dataclasses
 import re
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 from urllib.parse import parse_qsl, unquote, urlparse
 
 import numpy as np
@@ -29,6 +29,9 @@ DEFAULT_EVENT_WEIGHTS: Dict[str, float] = {
     "chat_first_message": 9.0,
 }
 DEFAULT_NEGATIVE_EVENTS = {"nope", "block", "report"}
+# `nope` is a taste signal and stays one-directional; block/report must hide
+# both users from each other, so they are tracked separately from negatives.
+DEFAULT_HARD_BLOCK_EVENTS = {"block", "report"}
 DEFAULT_STRONG_POSITIVE_EVENTS = {"like", "match_created", "chat_first_message"}
 DEFAULT_FIRESTORE_LAYOUT = "auto"  # auto | top_level | user_subcollections
 DEFAULT_NEGATIVE_PREF_WEIGHTS: Dict[str, float] = {
@@ -720,6 +723,140 @@ def load_profile_index_from_firestore(
     return meta
 
 
+def university_id_from_student_email(email: Any) -> Optional[str]:
+    text = str(email or "").strip().lower()
+    if "@" not in text:
+        return None
+    labels = [label for label in text.rsplit("@", 1)[1].split(".") if label]
+    if len(labels) < 2:
+        return None
+    # Korean academic domains put the institution before the `ac.kr` suffix, so
+    # `yonsei.ac.kr` and `cs.yonsei.ac.kr` resolve to the same university.
+    if labels[-2:] == ["ac", "kr"]:
+        return labels[-3] if len(labels) >= 3 else None
+    return labels[-2]
+
+
+def build_policy_meta_from_user_docs(
+    users: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    """Derive `passes_policy` metadata from raw `users` documents.
+
+    The dedicated `profileIndex` collection is not populated in every
+    environment, and `passes_policy` rejects any uid missing from the metadata.
+    Deriving the same fields from `users` keeps the policy filter usable instead
+    of silently degrading to "no filtering" or "no recommendations".
+    """
+    blocked_statuses = {"blocked", "deleted", "suspended"}
+    out: Dict[str, Dict[str, Any]] = {}
+    for uid, doc in users.items():
+        if not isinstance(doc, dict):
+            continue
+        onboarding = doc.get("onboarding") if isinstance(doc.get("onboarding"), dict) else {}
+        ideal_type = doc.get("idealType") if isinstance(doc.get("idealType"), dict) else {}
+        ideal_age = ideal_type.get("idealAge") if isinstance(ideal_type.get("idealAge"), dict) else {}
+
+        account_status = str(doc.get("status") or doc.get("accountStatus") or "").lower()
+        is_active = (
+            account_status not in blocked_statuses
+            and doc.get("isDeleted") is not True
+            and doc.get("isSuspended") is not True
+            and doc.get("isActive", True) is not False
+        )
+
+        birth_year = onboarding.get("birthYear", doc.get("birthYear"))
+        birth_year_int = safe_int(birth_year, 0) or None
+
+        gender = onboarding.get("gender", doc.get("gender"))
+        gender_text = str(gender).strip().lower() if gender is not None else None
+
+        university_id = None
+        for candidate in (
+            onboarding.get("universityId"),
+            doc.get("universityId"),
+            university_id_from_student_email(doc.get("studentEmail")),
+        ):
+            text = str(candidate).strip() if candidate is not None else ""
+            if text:
+                university_id = text
+                break
+
+        out[str(uid)] = {
+            "universityId": university_id,
+            "isVerified": bool(doc.get("isStudentVerified", doc.get("isVerified", False))),
+            "isActive": is_active,
+            "isProfileComplete": bool(
+                doc.get("isProfileComplete", doc.get("initialSetupComplete", False))
+            ),
+            "gender": gender_text,
+            "birthYear": birth_year_int,
+            # Preferred gender is not collected during onboarding; the exporters
+            # already drop same-gender candidates from `users.onboarding.gender`.
+            "prefGender": coerce_str_list(ideal_type.get("preferredGenders")),
+            "prefAgeMin": safe_int(ideal_age.get("min"), 0) or None,
+            "prefAgeMax": safe_int(ideal_age.get("max"), 0) or None,
+            "mannerScore": safe_float(doc.get("mannerScore", 36.5), 36.5),
+            "lastActiveAt": parse_firestore_like_ts(
+                doc.get("lastActiveAt") or doc.get("onboardingUpdatedAt") or doc.get("updatedAt")
+            ),
+        }
+    return out
+
+
+def load_policy_meta_from_firestore(
+    project_id: str,
+    *,
+    profile_index_collection: str = "profileIndex",
+    users_collection: str = "users",
+    database: Optional[str] = None,
+) -> Tuple[Dict[str, Dict[str, Any]], str]:
+    """Load policy metadata, falling back to `users` when `profileIndex` is empty.
+
+    Returns the metadata and the source it came from, so callers can log which
+    path was taken.
+    """
+    meta = load_profile_index_from_firestore(
+        project_id,
+        collection=profile_index_collection,
+        database=database,
+    )
+    if meta:
+        return meta, profile_index_collection
+
+    require_firestore()
+    db = firestore.Client(project=project_id, database=database)
+    docs = {doc.id: (doc.to_dict() or {}) for doc in db.collection(users_collection).stream()}
+    return build_policy_meta_from_user_docs(docs), users_collection
+
+
+def assert_policy_meta_coverage(
+    meta: Dict[str, Dict[str, Any]],
+    required_uids: Sequence[str],
+    *,
+    min_coverage: float,
+    source: str,
+) -> float:
+    """Fail loudly when policy metadata is too sparse to filter meaningfully.
+
+    `passes_policy` rejects any uid it has no metadata for, so sparse metadata
+    silently empties the export rather than reporting a broken upstream.
+    """
+    unique_uids = {str(uid) for uid in required_uids}
+    if not unique_uids:
+        return 1.0
+
+    covered = sum(1 for uid in unique_uids if uid in meta)
+    coverage = covered / len(unique_uids)
+    if coverage < min_coverage:
+        raise ValueError(
+            f"Policy metadata from '{source}' covers only {covered}/{len(unique_uids)} "
+            f"users ({coverage:.1%} < {min_coverage:.1%}). Refusing to export a "
+            f"silently empty or unfiltered feed. Backfill the metadata source or "
+            f"lower --policy_min_meta_coverage deliberately."
+        )
+    return coverage
+
+
 def now_year_kst() -> int:
     kst = timezone(timedelta(hours=9))
     return datetime.now(tz=kst).year
@@ -823,6 +960,35 @@ def normalize_events_df(df: pd.DataFrame) -> pd.DataFrame:
     if "_row_order" not in out.columns:
         out["_row_order"] = np.arange(len(out), dtype=np.int64)
     return out[["user_id", "item_id", "event", "ts", "_row_order"]]
+
+
+def build_mutual_block_index(
+    df: pd.DataFrame,
+    *,
+    block_events: Optional[Sequence[str]] = None,
+) -> Dict[str, Set[str]]:
+    """Map each uid to the uids it must never be recommended, in both directions.
+
+    Per-user negatives only exclude a candidate for the actor, so a reported user
+    keeps receiving the reporter as a candidate. Block and report are mutual
+    safety signals, so they are expanded symmetrically here. This mirrors
+    `build_cross_user_block_pairs` in the meeting pipeline.
+    """
+    events = set(block_events) if block_events is not None else set(DEFAULT_HARD_BLOCK_EVENTS)
+    index: Dict[str, Set[str]] = defaultdict(set)
+    if df is None or len(df) == 0 or not events:
+        return {}
+
+    normalized = normalize_events_df(df)
+    hard = normalized[normalized["event"].isin(events)]
+    for actor, target in zip(hard["user_id"], hard["item_id"]):
+        actor_uid = str(actor).strip()
+        target_uid = str(target).strip()
+        if not actor_uid or not target_uid or actor_uid == target_uid:
+            continue
+        index[actor_uid].add(target_uid)
+        index[target_uid].add(actor_uid)
+    return dict(index)
 
 
 def collapse_pair_events(

@@ -43,6 +43,8 @@ from seolleyeon_rec_common_v3 import (
     DEFAULT_NEGATIVE_PREF_WEIGHTS,
     DEFAULT_STRONG_POSITIVE_EVENTS,
     PairBuildConfig,
+    assert_policy_meta_coverage,
+    build_mutual_block_index,
     clamp01,
     collapse_pair_events,
     compute_clip_signal_confidence,
@@ -52,7 +54,7 @@ from seolleyeon_rec_common_v3 import (
     load_avatar_display_status_from_firestore,
     load_events_from_csv,
     load_events_from_firestore,
-    load_profile_index_from_firestore,
+    load_policy_meta_from_firestore,
     load_user_genders_from_firestore,
     load_users_with_private_source_photos_from_firestore,
     load_users_with_photos_from_firestore,
@@ -229,6 +231,7 @@ def main() -> int:
 
     p.add_argument("--apply_policy_filters", action="store_true")
     p.add_argument("--profile_index_collection", type=str, default="profileIndex")
+    p.add_argument("--policy_min_meta_coverage", type=float, default=0.9)
     p.add_argument("--manner_min", type=float, default=33.0)
     p.add_argument("--active_within_days", type=int, default=14)
     p.add_argument("--require_same_university", dest="require_same_university", action="store_true")
@@ -299,8 +302,12 @@ def main() -> int:
     signal_meta_by_uid: Dict[str, Dict[str, Any]] = {}
     pos_by_user: Dict[str, Any] = {}
     neg_by_user: Dict[str, Any] = {}
+    mutual_blocks: Dict[str, Any] = {}
 
     if df is not None and not df.empty:
+        mutual_blocks = build_mutual_block_index(df)
+        print(f"[blocks] users with mutual block/report exclusions: {len(mutual_blocks):,}")
+
         pair_cfg = PairBuildConfig(
             event_weights=event_weights,
             negative_events=negative_events,
@@ -405,16 +412,24 @@ def main() -> int:
         )
         print(f"[display] loaded avatar display status for {len(display_status)} users")
 
+    uids = list(uid_to_vec.keys())
+
     meta = None
     if args.apply_policy_filters:
-        meta = load_profile_index_from_firestore(
+        meta, meta_source = load_policy_meta_from_firestore(
             args.firestore_project,
-            collection=args.profile_index_collection,
+            profile_index_collection=args.profile_index_collection,
             database=args.firestore_database,
         )
-        print(f"[meta] loaded profileIndex docs: {len(meta):,}")
+        print(f"[meta] loaded policy metadata from '{meta_source}': {len(meta):,} docs")
+        coverage = assert_policy_meta_coverage(
+            meta,
+            [u for u in uids if not is_ai_profile(u)],
+            min_coverage=float(args.policy_min_meta_coverage),
+            source=meta_source,
+        )
+        print(f"[meta] policy metadata covers {coverage:.1%} of candidate users")
 
-    uids = list(uid_to_vec.keys())
     emb_matrix = np.array([uid_to_vec[u] for u in uids], dtype=np.float32)
     uid_to_idx = {u: i for i, u in enumerate(uids)}
     reciprocal = not args.no_reciprocal
@@ -484,6 +499,10 @@ def main() -> int:
         for target_uid, _w in pos_targets + neg_targets:
             if target_uid in uid_to_idx:
                 exclude.add(uid_to_idx[target_uid])
+        blocked_uids = mutual_blocks.get(user_id, frozenset())
+        for blocked_uid in blocked_uids:
+            if blocked_uid in uid_to_idx:
+                exclude.add(uid_to_idx[blocked_uid])
         for idx, candidate_uid in enumerate(uids):
             if is_ai_profile(candidate_uid):
                 exclude.add(idx)
@@ -497,6 +516,8 @@ def main() -> int:
                 continue
             cand_uid = uids[ii]
             if is_ai_profile(cand_uid):
+                continue
+            if cand_uid in blocked_uids:
                 continue
 
             u_g = gender_by_uid.get(user_id)

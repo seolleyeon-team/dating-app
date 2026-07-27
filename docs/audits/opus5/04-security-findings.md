@@ -23,6 +23,7 @@
 | SEC-P1-03 | P1 | 채팅 | 참여자가 participantIds 임의 변경 가능 | 코드상 확정, 미수정 |
 | SEC-P1-04 | P1 | 추천 | recEvents 클라이언트 무검증 쓰기 (추천 조작) | 코드상 확정, 미수정 |
 | SEC-P1-05 | P1 | Functions | 인증/부트스트랩 callable 11개 App Check 미적용 | 코드상 확정, 미수정 |
+| **REC-P0-01~04** | **P0** | **추천** | **정책 필터·RRF 게이트 미적용 + 차단 단방향 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
 | SEC-P1-06 | P1 | 추천 | 배치 파이프라인이 blocks/contactBlocked 미제외 | 코드상 확정, 미수정 |
 | SEC-P1-07 | P1 | FCM | 차단·탈퇴 사용자 푸시 미필터 | 코드상 확정, 미수정 |
 | SEC-P1-08 | P1 | 개인정보 | account_deletion 시 대량 orphan 데이터 잔존 | 코드상 확정, 미수정 |
