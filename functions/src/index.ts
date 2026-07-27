@@ -44,6 +44,8 @@ import {
   type PromiseReminderTaskPayload,
 } from "./promiseReminder";
 import {
+  createGetCurrentAvatarGenerationStatusFunction,
+  createRetryCurrentAvatarGenerationFunction,
   createUploadAvatarSourcePhotoFunction,
 } from "./avatarMedia";
 import {
@@ -1480,6 +1482,12 @@ async function resolveAuthedAppUser(
 
 export const uploadAvatarSourcePhoto =
   createUploadAvatarSourcePhotoFunction(db, resolveAuthedAppUser);
+
+export const getCurrentAvatarGenerationStatus =
+  createGetCurrentAvatarGenerationStatusFunction(db, resolveAuthedAppUser);
+
+export const retryCurrentAvatarGeneration =
+  createRetryCurrentAvatarGenerationFunction(db, resolveAuthedAppUser);
 
 export const getAvatarJobCandidates =
   createGetAvatarJobCandidatesFunction(db, resolveAuthedAppUser);
