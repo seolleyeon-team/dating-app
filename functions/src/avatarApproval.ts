@@ -560,6 +560,7 @@ export function createGetAvatarJobCandidatesFunction(
       timeoutSeconds: 60,
       memory: "512MiB",
       invoker: "public",
+      enforceAppCheck: true,
     },
     async (request) => {
       const user = await resolveUser(request.auth);
@@ -660,6 +661,7 @@ export function createApproveAvatarCandidateFunction(
       timeoutSeconds: 120,
       memory: "512MiB",
       invoker: "public",
+      enforceAppCheck: true,
     },
     async (request) => {
       const user = await resolveUser(request.auth);

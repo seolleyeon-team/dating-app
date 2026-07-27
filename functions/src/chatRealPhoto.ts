@@ -251,6 +251,7 @@ export function createGetChatRealProfilePhotoFunction(
     {
       timeoutSeconds: 30,
       memory: "256MiB",
+      enforceAppCheck: true,
     },
     async (request): Promise<ChatRealProfilePhotoResponse> => {
       const requester = await resolveUser(request.auth);

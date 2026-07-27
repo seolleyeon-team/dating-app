@@ -22,6 +22,7 @@ import {
   onDocumentUpdated,
 } from "firebase-functions/v2/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { withAppCheck } from "./appCheckPolicy";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onTaskDispatched } from "firebase-functions/v2/tasks";
 import * as logger from "firebase-functions/logger";
@@ -1588,7 +1589,7 @@ function readFriendName(
   return asString(snapshot.nickname ?? fallback, fallback);
 }
 
-export const createFirebaseCustomToken = onCall(async (request) => {
+export const createFirebaseCustomToken = onCall(withAppCheck(), async (request) => {
   logger.info("createFirebaseCustomToken invoked", {
     hasAccessToken: !!asNonEmptyString(request.data?.accessToken),
   });
@@ -1624,6 +1625,7 @@ export const createFirebaseCustomToken = onCall(async (request) => {
 });
 
 export const createFirebaseCustomTokenFromEmailLinkToken = onCall(
+  withAppCheck(),
   async (request) => {
     const data = getCallableData(request);
     const verificationToken = asNonEmptyString(data.verificationToken);
@@ -1737,7 +1739,7 @@ export const createFirebaseCustomTokenFromEmailLinkToken = onCall(
   }
 );
 
-export const createFriendInvite = onCall(async (request) => {
+export const createFriendInvite = onCall(withAppCheck(), async (request) => {
   const requestData = getCallableData(request);
   logger.info("createFriendInvite request", {
     hasAuthUid: !!request.auth?.uid,
@@ -1776,7 +1778,7 @@ export const createFriendInvite = onCall(async (request) => {
   };
 });
 
-export const acceptFriendInvite = onCall(async (request) => {
+export const acceptFriendInvite = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const rawToken = asNonEmptyString(data.token);
   logger.info("acceptFriendInvite invoked", {
@@ -2057,11 +2059,11 @@ async function writeEventTeamInviteNotification(params: {
 }
 
 export const ensureEventTeamSetup = onCall(
-  {
+  withAppCheck({
     cpu: "gcf_gen1",
     concurrency: 1,
     maxInstances: 2,
-  },
+  }),
   async (request) => {
   const data = getCallableData(request);
   const leader = await resolveUserForFriendCallable(request);
@@ -2101,7 +2103,7 @@ export const ensureEventTeamSetup = onCall(
   }
 );
 
-export const createEventTeamInvite = onCall(async (request) => {
+export const createEventTeamInvite = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const inviter = await resolveUserForFriendCallable(request);
   const teamSetupId = asNonEmptyString(data.teamSetupId);
@@ -2239,7 +2241,7 @@ export const createEventTeamInvite = onCall(async (request) => {
   return { inviteId, teamSetupId };
 });
 
-export const respondEventTeamInvite = onCall(async (request) => {
+export const respondEventTeamInvite = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const user = await resolveUserForFriendCallable(request);
   const inviteId = asNonEmptyString(data.inviteId);
@@ -2415,7 +2417,7 @@ export const reportAndBlockUser = createReportAndBlockUserFunction(
   resolveUserForFriendCallable
 );
 
-export const spinSeasonMeetingRoulette = onCall(async (request) => {
+export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const user = await resolveUserForFriendCallable(request);
   const requestedTeamSetupId = asNonEmptyString(data.teamSetupId);
@@ -3826,7 +3828,7 @@ export function hashPhoneNumber(normalized: string): string {
 // =============================================================================
 const MAX_CONTACT_HASHES = 5000;
 
-export const syncContactBlocks = onCall(async (request) => {
+export const syncContactBlocks = onCall(withAppCheck(), async (request) => {
   const callerUid = request.auth?.uid;
   if (!callerUid) {
     throw new HttpsError("unauthenticated", "로그인이 필요해요.");
@@ -4084,7 +4086,7 @@ export const onUserPhoneHashUpsert = onDocumentWritten(
 // =============================================================================
 // saveUserPhoneHash - save phone hash after Kakao login
 // =============================================================================
-export const saveUserPhoneHash = onCall(async (request) => {
+export const saveUserPhoneHash = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const phoneHash = asNonEmptyString(data.phoneHash);
   const phoneSource = asNonEmptyString(data.phoneSource) ?? "kakao";
