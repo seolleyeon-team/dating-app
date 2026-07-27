@@ -18,13 +18,14 @@
 | SEC-P0-02 | P0 | Firestore Rules | 비인증 사용자 문서 생성 + 학교 인증 위조 | 에뮬레이터 재현 → **수정 완료** (`b1ab01b`) |
 | SEC-P0-03 | P0 | Firestore Rules | 연세 이메일 보유자가 타인 문서의 studentEmail 탈취 | 에뮬레이터 재현 → **수정 완료** (`b1ab01b`) |
 | SEC-P0-04 | P0 | 개인정보 | users 컬렉션 전체 비인증 read/list | 에뮬레이터 재현 → **수정 완료** (`b1ab01b`) |
-| SEC-P1-01 | P1 | 클라이언트 | 프로덕션 UI의 테스트 계정 로그인 우회 (`fake_user_1`) | 코드상 확정, 미수정 |
-| SEC-P1-02 | P1 | 채팅 | 참여자가 상대방 메시지를 임의 수정 가능 | 코드상 확정, 미수정 |
-| SEC-P1-03 | P1 | 채팅 | 참여자가 participantIds 임의 변경 가능 | 코드상 확정, 미수정 |
+| SEC-P1-01 | P1 | 클라이언트 | 프로덕션 UI의 테스트 계정 로그인 우회 (`fake_user_1`) | **수정 완료** (약관 버튼 + 가짜 채팅방 debug 전용) |
+| SEC-P1-02 | P1 | 채팅 | 참여자가 상대방 메시지를 임의 수정 가능 | **수정 완료** (읽음 표시·약속 생애주기만 허용) |
+| SEC-P1-03 | P1 | 채팅 | 참여자가 participantIds 임의 변경 가능 | **수정 완료** (participantIds immutable) |
 | SEC-P1-04 | P1 | 추천 | recEvents 클라이언트 무검증 쓰기 (추천 조작) | 코드상 확정, 미수정 |
 | SEC-P1-05 | P1 | Functions | 인증/부트스트랩 callable 11개 App Check 미적용 | 코드상 확정, 미수정 |
 | **REC-P0-01~04** | **P0** | **추천** | **정책 필터·RRF 게이트 미적용 + 차단 단방향 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
-| SEC-P1-06 | P1 | 추천 | 배치 파이프라인이 blocks/contactBlocked 미제외 | 코드상 확정, 미수정 |
+| **REC-P1-01~02** | **P1** | **추천** | **신고 양방향 차단 callable + 폴백 정책 적용 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
+| SEC-P1-06 | P1 | 추천 | 배치 파이프라인이 blocks/contactBlocked 미제외 | 부분 완화 (recEvents block/report 대칭 제외는 REC-P0-04; Firestore blocks·연락처 해시는 미로드) |
 | SEC-P1-07 | P1 | FCM | 차단·탈퇴 사용자 푸시 미필터 | 코드상 확정, 미수정 |
 | SEC-P1-08 | P1 | 개인정보 | account_deletion 시 대량 orphan 데이터 잔존 | 코드상 확정, 미수정 |
 | SEC-P2-01 | P2 | 커뮤니티 | bamboo_posts likeCount 임의 조작 | 코드상 확정, 미수정 |
@@ -429,6 +430,12 @@ Firebase 세션이 없는 경로에서 실패한다. 배포 전 스테이징 프
 `kDebugMode` 또는 `--dart-define` 플래그로 감싸고, release 빌드에 없음을 검증하는
 정적 테스트를 추가한다 (`test/app_check_provider_policy_test.dart`와 동일한 패턴 사용 가능).
 
+### 수정 (적용됨)
+
+- `DevEntryPolicy.allowTestAccountEntry` — release에서 false (`kDebugMode`만).
+- 약관 화면 버튼·핸들러 모두 게이트. `test/terms_screen_test_account_gate_test.dart`로 검증.
+- 채팅 목록의 `fake_user_1` 가짜방 주입도 동일 정책으로 감쌈.
+
 ---
 
 ## SEC-P1-02 — 참여자가 상대방 메시지를 임의 수정 가능
@@ -461,6 +468,15 @@ update를 읽음 표시 등 필요한 필드로만 좁힌다. 예:
 작성자 본인은 제한된 필드만, 상대방은 `readAt`/`readBy` 계열만 변경 가능하도록 분리.
 **실제 앱이 어떤 필드를 update하는지 먼저 조사해야 한다** (미조사).
 
+### 수정 (적용됨)
+
+앱이 실제로 하는 쓰기를 조사한 뒤 규칙을 두 경로로 좁혔다.
+
+- `onlyMessageReadReceiptUpdate` — `readBy`/`updatedAt`만.
+- `onlyPromiseMessageLifecycleUpdate` — **기존** `promise_*` 메시지에 한해
+  약속 필드만 변경. 일반 text를 promise로 위장해 우회하는 경로도 차단.
+- 에뮬레이터 테스트: `rules_tests/firestore.chat.test.mjs`
+
 ---
 
 ## SEC-P1-03 — 참여자가 participantIds 임의 변경 가능
@@ -484,6 +500,11 @@ update를 읽음 표시 등 필요한 필드로만 좁힌다. 예:
 
 `participantIds`를 immutable로 강제한다:
 `request.resource.data.participantIds == resource.data.participantIds`.
+
+### 수정 (적용됨)
+
+`chatRoomParticipantIdsUnchanged()`를 chat_rooms update 조건에 추가.
+제3자 추가·상대 제거를 에뮬레이터에서 거부 검증.
 
 ---
 

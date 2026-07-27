@@ -87,6 +87,10 @@ class _TermsScreenState extends State<TermsScreen> {
   bool get _allChecked => _allRequiredChecked && _marketingChecked;
 
   Future<void> _enterWithTestAccount() async {
+    // Belt-and-suspenders: the button is already hidden in release, but the
+    // handler must refuse even if something else invokes it.
+    if (!DevEntryPolicy.allowTestAccountEntry) return;
+
     final storage = StorageService();
     final userService = UserService();
     await storage.saveKakaoUserId("fake_user_1");
