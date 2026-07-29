@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 import '../utils/safety_stamp_availability.dart';
 
@@ -800,7 +801,10 @@ class ChatService {
   ) async {
     try {
       return await _firestore.collection('users').doc(userId).get();
-    } catch (_) {
+    } catch (e) {
+      debugPrint(
+        '[ChatService] getUserProfileDoc failed',
+      );
       return null;
     }
   }
