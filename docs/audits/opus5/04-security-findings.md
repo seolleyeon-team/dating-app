@@ -27,7 +27,7 @@
 | **REC-P1-01~02** | **P1** | **추천** | **신고 양방향 차단 callable + 폴백 정책 적용 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
 | SEC-P1-06 | P1 | 추천 | 배치 파이프라인이 blocks/contactBlocked 미제외 | **수정·이미지 배포 완료** (`bc554be8` → `recs-pipeline:latest`, Jobs 6개 갱신) |
 | SEC-P1-07 | P1 | FCM | 차단·탈퇴 사용자 푸시 미필터 | **수정·운영 배포 완료** (`f92408b5`, push 관련 Functions 9개) |
-| SEC-P1-08 | P1 | 개인정보 | account_deletion 시 대량 orphan 데이터 잔존 | **1·2차 수정 완료** (고위험 PII + 소셜 residual; Functions 재배포 필요) |
+| SEC-P1-08 | P1 | 개인정보 | account_deletion 시 대량 orphan 데이터 잔존 | **1·2차 수정·배포 완료** (`247d0b64` → `cleanupAvatarMedia`) |
 | SEC-P2-01 | P2 | 커뮤니티 | bamboo_posts likeCount 임의 조작 | **수정·rules 배포 완료** (`126aeafc`) |
 | SEC-P2-02 | P2 | 데이터 일관성 | 상호 like 시 match/chat_room 중복 생성 race | **수정·배포 완료** (`38c7adc1`) |
 | SEC-P3-01 | P3 | Rules | place_catalog 규칙 블록 중복 정의 | **수정 완료** (중복 블록 제거) |
@@ -658,7 +658,7 @@ Python 배치 파이프라인은 `blocks/{uid}/targets`를 조회하지 않고,
 
 **등급:** P1
 **영역:** 개인정보
-**상태:** **1차 수정·운영 배포 완료** (2026-07-29, `cleanupAvatarMedia`, commit `4f8fbb5b`).
+**상태:** **1·2차 수정·운영 배포 완료** (2026-07-29, `cleanupAvatarMedia`/`onRecEventCreated`, commit `247d0b64`).
 
 `cleanupAvatarMedia(reason: "account_deletion")`은 아바타 미디어, `users/{uid}`,
 Firebase Auth 계정을 삭제하지만 다음은 남긴다 (서브에이전트 확인, `functions/src/avatarCleanup.ts`):
