@@ -73,6 +73,7 @@ import {
   createTeamMeetingRequestFunction,
 } from "./teamMeetingRequest";
 import { createReportAndBlockUserFunction } from "./reportAndBlock";
+import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
 
 // Initialize Firebase Admin
 initializeApp();
@@ -1466,6 +1467,9 @@ export const getChatRealProfilePhoto =
 
 export const cleanupAvatarMedia =
   createCleanupAvatarMediaFunction(db, resolveAuthedAppUser);
+
+export const purgeExpiredEmailLinkTokens =
+  createPurgeExpiredEmailLinkTokensSchedule(db);
 
 export const onAvatarJobSourceRetention =
   createAvatarJobSourceRetentionTrigger(db);
