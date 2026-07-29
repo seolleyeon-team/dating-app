@@ -27,7 +27,7 @@
 | **REC-P1-01~02** | **P1** | **추천** | **신고 양방향 차단 callable + 폴백 정책 적용 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
 | SEC-P1-06 | P1 | 추천 | 배치 파이프라인이 blocks/contactBlocked 미제외 | **수정·이미지 배포 완료** (`bc554be8` → `recs-pipeline:latest`, Jobs 6개 갱신) |
 | SEC-P1-07 | P1 | FCM | 차단·탈퇴 사용자 푸시 미필터 | **수정·운영 배포 완료** (`f92408b5`, push 관련 Functions 9개) |
-| SEC-P1-08 | P1 | 개인정보 | account_deletion 시 대량 orphan 데이터 잔존 | **1차 수정·배포 완료** (`4f8fbb5b` → `cleanupAvatarMedia`; matches/채팅 등은 2차) |
+| SEC-P1-08 | P1 | 개인정보 | account_deletion 시 대량 orphan 데이터 잔존 | **1·2차 수정 완료** (고위험 PII + 소셜 residual; Functions 재배포 필요) |
 | SEC-P2-01 | P2 | 커뮤니티 | bamboo_posts likeCount 임의 조작 | **수정·rules 배포 완료** (`126aeafc`) |
 | SEC-P2-02 | P2 | 데이터 일관성 | 상호 like 시 match/chat_room 중복 생성 race | **수정·배포 완료** (`38c7adc1`) |
 | SEC-P3-01 | P3 | Rules | place_catalog 규칙 블록 중복 정의 | **수정 완료** (중복 블록 제거) |
@@ -686,14 +686,31 @@ Firebase Auth 계정을 삭제하지만 다음은 남긴다 (서브에이전트 
 
 단위 테스트: `functions/src/avatarCleanup.test.ts` (plan/execute/count/순서 검증).
 
-### 아직 연기 (2차 — 법무·제품 정책 확인 후)
+### 2차 수정 (2026-07-29) — 소셜 residual 정책
+
+정책: **소유 데이터는 삭제**, **1:1 공유 데이터는 비활성+표시 PII 스크럽**(상대 UX 유지),
+**메시지 원문은 보존**, 커뮤니티 글은 soft-delete.
+
+| 대상 | 처리 |
+|------|------|
+| `interactions` / `asks` (from 또는 to = uid) | 삭제 |
+| `friendships` + `users/*/friends` 양방향 | 삭제 |
+| `matches` (userIds 포함) | `status=ended`, `endedReason=account_deletion` |
+| `chat_rooms` (participant) | `status=closed`, `participantInfo[uid]` → `탈퇴한 사용자`, `accountDeletedUserIds` |
+| `recEvents/{uid}` | events + parent 삭제 |
+| `bamboo_posts` (authorId) | soft-delete (`isDeleted`, 본문 치환) |
+| `friendInvites` (inviter) | email 메타 스크럽 |
+| `eventTeamSetups.memberUids` | uid 제거 |
+
+구현: `functions/src/accountDeletionSocialCleanup.ts` (1차 PII plan에 병합).
+
+### 아직 연기
 
 | 대상 | 연기 사유 |
 |------|-----------|
-| `matches`, `chat_rooms`, `interactions`, `asks`, `friendships` | 상대방 UX·증빙 보존 정책 필요; 무단 삭제 시 기능 회귀 |
-| `recEvents`, `bamboo_posts`, `friendInvites.metadata.inviterEmail` | 익명화 vs 삭제 vs 보존 기간 미정 |
-| 이벤트 팀 문서 | 팀 매칭 이력·다른 참가자 데이터와 entangled |
-| broad collection group delete | 다른 사용자 데이터 오염 위험 — UID/경로 검증 있는 범위만 1차 적용 |
+| bamboo comments collectionGroup | 인덱스·대량 스캔 위험 — 게시글 soft-delete로 1차 완화 |
+| chat message 본문 일괄 삭제 | 상대방 분쟁·안전 증빙 보존 |
+| 이벤트 팀 문서 전체 삭제 | 다른 참가자 entangled — membership 제거만 |
 
 ---
 
@@ -718,7 +735,7 @@ Firebase Auth 계정을 삭제하지만 다음은 남긴다 (서브에이전트 
 
 **등급:** P2
 **영역:** 데이터 일관성 / Functions
-**상태:** 코드 수정 완료 (Functions 재배포 필요).
+**상태:** 코드 수정 및 Functions 배포 완료 (2026-07-29, `onInteractionCreated`/`onRecEventCreated`, commit `38c7adc1`).
 
 `onInteractionCreated`와 `checkAndCreateRecMatch`가 기존 match를 조회한 뒤
 랜덤 doc id로 `batch.create`/`add` 하여, 동시 상호 like 시 match(및 chat_room
@@ -738,17 +755,18 @@ Firebase Auth 계정을 삭제하지만 다음은 남긴다 (서브에이전트 
 
 ## SEC-P3-01 — place_catalog 규칙 중복 정의
 
-`firestore.rules:662-670`과 `firestore.rules:676-684`에 동일한
-`place_catalog_meta` / `place_catalog_items` 블록이 두 번 정의되어 있다.
-동작에는 영향이 없으나 (동일 규칙) 규칙 파일의 신뢰성을 떨어뜨리는 편집 사고 흔적이다.
+**등급:** P3
+**영역:** Rules
+**상태:** 수정 완료 (중복 `place_catalog_*` 블록 제거).
 
 ---
 
 ## 검증되지 않은 영역 (NEEDS-VERIFICATION)
 
-- 위조 `recEvents` like로 실제 match를 생성할 수 있는지 (`onRecEventCreated` 미정독)
-- 채팅 앱 코드가 `messages` update로 어떤 필드를 쓰는지 (수정 범위 설계에 필요)
-- `emailLinkTokens`에 이미 악성 문서가 존재하는지 (운영 데이터 조회 필요)
-- App Check 강제(enforcement)가 Firebase 콘솔에서 실제로 켜져 있는지
-- Storage 규칙이 모든 클라이언트 쓰기를 막고 있는데 앱의 업로드 경로가 전부 callable을 쓰는지
-  (`storage.rules:65-67` 기본 deny — 클라이언트 직접 업로드가 남아 있으면 기능 장애)
+상세: [15-needs-verification-results.md](15-needs-verification-results.md)
+
+후속 (2026-07-29):
+- recEvents 상호 like → chat room 생성 보강 (`checkAndCreateRecMatch`)
+- 만료 emailLinkTokens purge 판정 헬퍼 (`emailLinkTokenPurge.ts`) — 운영 일괄 삭제는 승인 후
+- Storage App Check 콘솔 ENFORCED는 **별도 승인 필요** (현재 UNENFORCED; 실쓰기는 rules deny)
+

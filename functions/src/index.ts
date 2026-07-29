@@ -4081,19 +4081,39 @@ async function checkAndCreateRecMatch(
     return null;
   }
 
-  const { matchId, created } = await ensureMutualMatch(db, {
+  const [userAInfo, userBInfo] = await Promise.all([
+    getUserDisplayInfo(userA),
+    getUserDisplayInfo(userB),
+  ]);
+  const systemMessage = "매칭이 성사되었어요! 먼저 인사해보세요";
+
+  const { matchId, roomId, created } = await ensureMutualMatch(db, {
     userA,
     userB,
     matchType,
+    chatRoom: {
+      participantInfo: {
+        [userA]: {
+          nickname: userAInfo.nickname,
+          avatarUrl: userAInfo.avatarUrl,
+        },
+        [userB]: {
+          nickname: userBInfo.nickname,
+          avatarUrl: userBInfo.avatarUrl,
+        },
+      },
+      systemMessage,
+    },
   });
 
   if (!created) {
-    logger.info("Match already exists", { matchId });
+    logger.info("Match already exists", { matchId, roomId });
     return matchId;
   }
 
   logger.info("Rec match created", {
     matchId,
+    roomIdHash: roomId ? logHashPrefix(roomId) : null,
     userAHash: logHashPrefix(userA),
     userBHash: logHashPrefix(userB),
     matchType,

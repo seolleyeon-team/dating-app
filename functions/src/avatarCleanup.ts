@@ -9,6 +9,16 @@ import {
   type CallableRequest,
 } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
+import {
+  emptySocialCounts,
+  emptySocialDocs,
+  loadAccountDeletionSocialDocs,
+  planAccountDeletionSocialOperations,
+  applySocialCleanupOperation,
+  socialCountsFromDocs,
+  type AccountDeletionSocialDocs,
+  type SocialCleanupOperation,
+} from "./accountDeletionSocialCleanup";
 
 const DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-private-source-photos";
 const DEFAULT_AVATAR_TEMP_BUCKET = "seolleyeon-avatar-temp";
@@ -57,6 +67,16 @@ export type AvatarCleanupCounts = {
   contactBlockedHashIndexOwnersDeleted: number;
   blockTargetsDeleted: number;
   reverseBlockTargetsDeleted: number;
+  interactionsDeleted: number;
+  asksDeleted: number;
+  friendshipsDeleted: number;
+  friendEdgesDeleted: number;
+  matchesEnded: number;
+  chatRoomsClosed: number;
+  recEventsDeleted: number;
+  bambooPostsSoftDeleted: number;
+  friendInvitesScrubbed: number;
+  eventTeamMembershipsRemoved: number;
 };
 
 export type AccountDeletionDocs = {
@@ -66,6 +86,7 @@ export type AccountDeletionDocs = {
   contactBlockedHashIds: string[];
   blockTargetIds: string[];
   reverseBlockViewerUids: string[];
+  social: AccountDeletionSocialDocs;
 };
 
 export type AvatarCleanupResponse = {
@@ -116,7 +137,8 @@ export type CleanupOperation =
   | { kind: "deleteContactBlockedHash"; phoneHash: string }
   | { kind: "deleteContactBlockedHashIndexOwner"; phoneHash: string }
   | { kind: "deleteBlockTarget"; targetUid: string }
-  | { kind: "deleteReverseBlockTarget"; viewerUid: string };
+  | { kind: "deleteReverseBlockTarget"; viewerUid: string }
+  | SocialCleanupOperation;
 
 export type CleanupExecutor = {
   load(uid: string, requestId: string): Promise<CleanupDocs>;
@@ -231,6 +253,7 @@ function emptyCounts(): AvatarCleanupCounts {
     contactBlockedHashIndexOwnersDeleted: 0,
     blockTargetsDeleted: 0,
     reverseBlockTargetsDeleted: 0,
+    ...emptySocialCounts(),
   };
 }
 
@@ -251,6 +274,7 @@ export function accountDeletionDocsFromParts(
     contactBlockedHashIds: parts.contactBlockedHashIds ?? [],
     blockTargetIds: parts.blockTargetIds ?? [],
     reverseBlockViewerUids: parts.reverseBlockViewerUids ?? [],
+    social: parts.social ?? emptySocialDocs(),
   };
 }
 
@@ -286,6 +310,9 @@ export function planAccountDeletionPiiOperations(params: {
     if (viewerUid === uid) continue;
     operations.push({ kind: "deleteReverseBlockTarget", viewerUid });
   }
+  operations.push(
+    ...planAccountDeletionSocialOperations({ uid, docs: docs.social }),
+  );
 
   return operations;
 }
@@ -305,6 +332,7 @@ function applyAccountDeletionCounts(
   counts.reverseBlockTargetsDeleted = docs.reverseBlockViewerUids.filter(
     (viewerUid) => viewerUid !== uid,
   ).length;
+  Object.assign(counts, socialCountsFromDocs(docs.social));
 }
 
 function requestDocId(uid: string, clientRequestId: string): string {
@@ -524,6 +552,7 @@ export async function loadAccountDeletionDocs(
     contactBlockedHashesSnap,
     blockTargetsSnap,
     reverseBlockTargetsSnap,
+    social,
   ] = await Promise.all([
     firestore.collection("userPrivate").doc(safeUid).get(),
     firestore.collection("users").doc(safeUid).collection("deviceTokens").get(),
@@ -538,6 +567,7 @@ export async function loadAccountDeletionDocs(
       .collectionGroup("targets")
       .where(FieldPath.documentId(), "==", safeUid)
       .get(),
+    loadAccountDeletionSocialDocs(firestore, safeUid),
   ]);
 
   const reverseBlockViewerUids = reverseBlockTargetsSnap.docs
@@ -555,6 +585,7 @@ export async function loadAccountDeletionDocs(
     contactBlockedHashIds: contactBlockedHashesSnap.docs.map((doc) => doc.id),
     blockTargetIds: blockTargetsSnap.docs.map((doc) => doc.id),
     reverseBlockViewerUids,
+    social,
   });
 }
 
@@ -804,6 +835,19 @@ function firestoreExecutor(firestore: Firestore, uid: string): CleanupExecutor {
             .delete();
           return;
         }
+        case "deleteInteraction":
+        case "deleteAsk":
+        case "deleteFriendship":
+        case "deleteFriendEdge":
+        case "endMatch":
+        case "closeChatRoom":
+        case "deleteRecEvent":
+        case "deleteRecEventsParent":
+        case "softDeleteBambooPost":
+        case "scrubFriendInvite":
+        case "removeEventTeamMember":
+          await applySocialCleanupOperation(firestore, uid, operation);
+          return;
         case "markCompleted":
           await firestore
             .collection("avatarMediaCleanupRequests")

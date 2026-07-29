@@ -23,6 +23,16 @@ const zeroAccountDeletionCounts = {
   contactBlockedHashIndexOwnersDeleted: 0,
   blockTargetsDeleted: 0,
   reverseBlockTargetsDeleted: 0,
+  interactionsDeleted: 0,
+  asksDeleted: 0,
+  friendshipsDeleted: 0,
+  friendEdgesDeleted: 0,
+  matchesEnded: 0,
+  chatRoomsClosed: 0,
+  recEventsDeleted: 0,
+  bambooPostsSoftDeleted: 0,
+  friendInvitesScrubbed: 0,
+  eventTeamMembershipsRemoved: 0,
 };
 
 function sampleExecutor() {
@@ -403,6 +413,16 @@ test("account deletion includes PII cleanup counts and skips PII for consent wit
     contactBlockedHashIndexOwnersDeleted: 1,
     blockTargetsDeleted: 1,
     reverseBlockTargetsDeleted: 1,
+    interactionsDeleted: 0,
+    asksDeleted: 0,
+    friendshipsDeleted: 0,
+    friendEdgesDeleted: 0,
+    matchesEnded: 0,
+    chatRoomsClosed: 0,
+    recEventsDeleted: 0,
+    bambooPostsSoftDeleted: 0,
+    friendInvitesScrubbed: 0,
+    eventTeamMembershipsRemoved: 0,
   });
 
   const { executor, operations } = sampleExecutor();
