@@ -189,7 +189,6 @@ def test_custom_token_is_exchanged_and_only_verified_id_token_is_returned():
         return 200, {
             "idToken": "firebase-id-token",
             "refreshToken": "must-not-be-returned",
-            "localId": "uid-1",
         }, "raw-response-must-not-be-returned"
 
     result = module.mint_exact_replay_id_token(

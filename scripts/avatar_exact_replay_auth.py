@@ -179,7 +179,8 @@ def mint_exact_replay_id_token(
         id_token = str(payload.get("idToken") or "")
         if status != 200 or not id_token:
             raise ValueError("operator_custom_token_exchange_failed")
-        if str(payload.get("localId") or "") != uid:
+        response_uid = str(payload.get("localId") or "")
+        if response_uid and response_uid != uid:
             raise ValueError("operator_custom_token_exchange_uid_mismatch")
         decoded = auth_mod.verify_id_token(
             id_token,
