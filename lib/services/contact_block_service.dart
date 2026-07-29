@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
@@ -33,16 +34,18 @@ class ContactBlockSyncResult {
 enum ContactPermissionStatus { granted, denied, permanentlyDenied }
 
 class ContactBlockService {
-  final FirebaseFunctions _functions =
-      FirebaseFunctions.instanceFor(region: 'asia-northeast3');
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
+    region: 'asia-northeast3',
+  );
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final StorageService _storageService = StorageService();
 
   /// 연락처 권한 요청 및 상태 확인
   Future<ContactPermissionStatus> checkPermission() async {
     try {
-      final status =
-          await FlutterContacts.permissions.request(PermissionType.read);
+      final status = await FlutterContacts.permissions.request(
+        PermissionType.read,
+      );
       switch (status) {
         case PermissionStatus.granted:
         case PermissionStatus.limited:
@@ -55,7 +58,9 @@ class ContactBlockService {
           return ContactPermissionStatus.denied;
       }
     } catch (e) {
-      debugPrint('[ContactBlock] checkPermission error: $e');
+      debugPrint(
+        '[ContactBlock] checkPermission error: ${PrivacyLogUtils.errorSummary(e)}',
+      );
       return ContactPermissionStatus.denied;
     }
   }
@@ -142,7 +147,9 @@ class ContactBlockService {
 
       return snap.docs.map((d) => d.id).toSet();
     } catch (e) {
-      debugPrint('[ContactBlock] getBlockedUserIds error: $e');
+      debugPrint(
+        '[ContactBlock] getBlockedUserIds error: ${PrivacyLogUtils.errorSummary(e)}',
+      );
       return {};
     }
   }

@@ -223,6 +223,31 @@ def test_backend_display_resolver_ignores_profile_image_url_and_photo_urls():
     )
 
 
+@pytest.mark.parametrize(
+    "private_ref",
+    [
+        "gs://qa-tenant-17-private-source-photos/users/u/source/p.jpg",
+        "https://storage.googleapis.com/tenant.alpha-avatar-temp/users/u/candidate/p.png",
+        "https://tenant99-chat-profile-photos.storage.googleapis.com/users/u/chat-profile/p.jpg",
+    ],
+)
+def test_backend_display_resolver_rejects_private_media_for_any_project_prefix(private_ref):
+    from seolleyeon_rec_common_v3 import extract_display_avatar_url
+
+    assert (
+        extract_display_avatar_url(
+            {
+                "avatar": {
+                    "status": "approved",
+                    "approvedAvatarUrl": private_ref,
+                },
+                "onboarding": {"avatarUrls": [private_ref]},
+            }
+        )
+        == ""
+    )
+
+
 def test_qa_flags_legacy_profile_image_url_as_public_leak():
     from scripts.qa_media_privacy import _public_doc_has_source_photo_leak
 

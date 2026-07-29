@@ -1,0 +1,214 @@
+{
+  "schemaVersion": "avatar_observability_reconcile_v1",
+  "displayName": "Avatar observability",
+  "logMetrics": [
+    {
+      "name": "avatar_worker_unhealthy",
+      "description": "Avatar worker unhealthy or GPU smoke failure.",
+      "filter": "jsonPayload.service=\"avatar-generation\" AND jsonPayload.eventName=(\"avatar_live_gpu_smoke_completed\" OR \"avatar_live_iam_check_completed\") AND jsonPayload.status=\"failed\"",
+      "labels": {
+        "service": "jsonPayload.service",
+        "event_name": "jsonPayload.eventName",
+        "status": "jsonPayload.status",
+        "severity": "jsonPayload.severity",
+        "component": "jsonPayload.attributes.component",
+        "signal": "jsonPayload.attributes.signal"
+      }
+    },
+    {
+      "name": "avatar_job_failed",
+      "description": "Avatar generation job failed.",
+      "filter": "jsonPayload.service=\"avatar-generation\" AND jsonPayload.eventName=\"avatar_job_failed\"",
+      "labels": {
+        "service": "jsonPayload.service",
+        "event_name": "jsonPayload.eventName",
+        "status": "jsonPayload.status",
+        "severity": "jsonPayload.severity",
+        "component": "jsonPayload.attributes.component",
+        "signal": "jsonPayload.attributes.signal"
+      }
+    },
+    {
+      "name": "avatar_queue_depth",
+      "description": "Avatar queue depth or backlog health signal.",
+      "filter": "jsonPayload.service=\"avatar-generation\" AND jsonPayload.eventName=\"avatar_upload_enqueued\"",
+      "labels": {
+        "service": "jsonPayload.service",
+        "event_name": "jsonPayload.eventName",
+        "status": "jsonPayload.status",
+        "severity": "jsonPayload.severity",
+        "component": "jsonPayload.attributes.component",
+        "signal": "jsonPayload.attributes.signal"
+      }
+    },
+    {
+      "name": "avatar_deadline_stop",
+      "description": "Avatar batch stopped because deadline was reached.",
+      "filter": "jsonPayload.service=\"avatar-generation\" AND jsonPayload.eventName=\"avatar_batch_deadline_stop\"",
+      "labels": {
+        "service": "jsonPayload.service",
+        "event_name": "jsonPayload.eventName",
+        "status": "jsonPayload.status",
+        "severity": "jsonPayload.severity",
+        "component": "jsonPayload.attributes.component",
+        "signal": "jsonPayload.attributes.signal"
+      }
+    },
+    {
+      "name": "avatar_retry_scheduled",
+      "description": "Avatar retry scheduled after retryable failure.",
+      "filter": "jsonPayload.service=\"avatar-generation\" AND jsonPayload.eventName=\"avatar_job_retry_scheduled\"",
+      "labels": {
+        "service": "jsonPayload.service",
+        "event_name": "jsonPayload.eventName",
+        "status": "jsonPayload.status",
+        "severity": "jsonPayload.severity",
+        "component": "jsonPayload.attributes.component",
+        "signal": "jsonPayload.attributes.signal"
+      }
+    },
+    {
+      "name": "avatar_cost_guard_daily",
+      "description": "Daily avatar generation cost guard pause.",
+      "filter": "jsonPayload.service=\"avatar-generation\" AND jsonPayload.eventName=\"avatar_cost_guard_paused\" AND jsonPayload.attributes.signal=\"daily\"",
+      "labels": {
+        "service": "jsonPayload.service",
+        "event_name": "jsonPayload.eventName",
+        "status": "jsonPayload.status",
+        "severity": "jsonPayload.severity",
+        "component": "jsonPayload.attributes.component",
+        "signal": "jsonPayload.attributes.signal"
+      }
+    },
+    {
+      "name": "avatar_cost_guard_monthly",
+      "description": "Monthly avatar generation cost guard pause.",
+      "filter": "jsonPayload.service=\"avatar-generation\" AND jsonPayload.eventName=\"avatar_cost_guard_paused\" AND jsonPayload.attributes.signal=\"monthly\"",
+      "labels": {
+        "service": "jsonPayload.service",
+        "event_name": "jsonPayload.eventName",
+        "status": "jsonPayload.status",
+        "severity": "jsonPayload.severity",
+        "component": "jsonPayload.attributes.component",
+        "signal": "jsonPayload.attributes.signal"
+      }
+    },
+    {
+      "name": "avatar_qa_no_preview",
+      "description": "QA completed without generating a preview.",
+      "filter": "jsonPayload.service=\"avatar-generation\" AND jsonPayload.eventName=\"avatar_candidate_qa_reject\" AND jsonPayload.attributes.signal=\"no_preview\"",
+      "labels": {
+        "service": "jsonPayload.service",
+        "event_name": "jsonPayload.eventName",
+        "status": "jsonPayload.status",
+        "severity": "jsonPayload.severity",
+        "component": "jsonPayload.attributes.component",
+        "signal": "jsonPayload.attributes.signal"
+      }
+    },
+    {
+      "name": "avatar_qa_reject",
+      "description": "QA rejected an avatar candidate.",
+      "filter": "jsonPayload.service=\"avatar-generation\" AND jsonPayload.eventName=\"avatar_candidate_qa_reject\"",
+      "labels": {
+        "service": "jsonPayload.service",
+        "event_name": "jsonPayload.eventName",
+        "status": "jsonPayload.status",
+        "severity": "jsonPayload.severity",
+        "component": "jsonPayload.attributes.component",
+        "signal": "jsonPayload.attributes.signal"
+      }
+    },
+    {
+      "name": "avatar_qa_review_required",
+      "description": "QA required manual review for candidate decision.",
+      "filter": "jsonPayload.service=\"avatar-generation\" AND jsonPayload.eventName=\"avatar_candidate_qa_reject\" AND jsonPayload.attributes.signal=\"review_required\"",
+      "labels": {
+        "service": "jsonPayload.service",
+        "event_name": "jsonPayload.eventName",
+        "status": "jsonPayload.status",
+        "severity": "jsonPayload.severity",
+        "component": "jsonPayload.attributes.component",
+        "signal": "jsonPayload.attributes.signal"
+      }
+    },
+    {
+      "name": "avatar_iam_failure",
+      "description": "Avatar IAM verification failed.",
+      "filter": "jsonPayload.service=\"avatar-generation\" AND jsonPayload.eventName=\"avatar_live_iam_check_completed\" AND jsonPayload.status=\"failed\"",
+      "labels": {
+        "service": "jsonPayload.service",
+        "event_name": "jsonPayload.eventName",
+        "status": "jsonPayload.status",
+        "severity": "jsonPayload.severity",
+        "component": "jsonPayload.attributes.component",
+        "signal": "jsonPayload.attributes.signal"
+      }
+    },
+    {
+      "name": "avatar_app_check_failure",
+      "description": "Avatar callable or media flow App Check failure.",
+      "filter": "jsonPayload.service=\"avatar-generation\" AND jsonPayload.attributes.signal=\"app_check_failure\"",
+      "labels": {
+        "service": "jsonPayload.service",
+        "event_name": "jsonPayload.eventName",
+        "status": "jsonPayload.status",
+        "severity": "jsonPayload.severity",
+        "component": "jsonPayload.attributes.component",
+        "signal": "jsonPayload.attributes.signal"
+      }
+    },
+    {
+      "name": "avatar_bridge_auth_failure",
+      "description": "Festival bridge auth failure.",
+      "filter": "jsonPayload.service=\"avatar-generation\" AND jsonPayload.attributes.signal=\"bridge_auth_failure\"",
+      "labels": {
+        "service": "jsonPayload.service",
+        "event_name": "jsonPayload.eventName",
+        "status": "jsonPayload.status",
+        "severity": "jsonPayload.severity",
+        "component": "jsonPayload.attributes.component",
+        "signal": "jsonPayload.attributes.signal"
+      }
+    },
+    {
+      "name": "avatar_bridge_isolation_violation",
+      "description": "Festival bridge tenant or storage isolation violation.",
+      "filter": "jsonPayload.service=\"avatar-generation\" AND jsonPayload.attributes.signal=\"bridge_isolation_violation\"",
+      "labels": {
+        "service": "jsonPayload.service",
+        "event_name": "jsonPayload.eventName",
+        "status": "jsonPayload.status",
+        "severity": "jsonPayload.severity",
+        "component": "jsonPayload.attributes.component",
+        "signal": "jsonPayload.attributes.signal"
+      }
+    }
+  ],
+  "alertPolicies": [
+    {"name": "worker_unhealthy", "metric": "avatar_worker_unhealthy", "threshold": 1, "duration": "300s", "severity": "critical"},
+    {"name": "job_failed", "metric": "avatar_job_failed", "threshold": 1, "duration": "300s", "severity": "error"},
+    {"name": "queue_depth", "metric": "avatar_queue_depth", "threshold": 50, "duration": "900s", "severity": "warning"},
+    {"name": "deadline_stop", "metric": "avatar_deadline_stop", "threshold": 1, "duration": "300s", "severity": "warning"},
+    {"name": "retry_scheduled", "metric": "avatar_retry_scheduled", "threshold": 10, "duration": "900s", "severity": "warning"},
+    {"name": "cost_guard_daily", "metric": "avatar_cost_guard_daily", "threshold": 1, "duration": "60s", "severity": "critical"},
+    {"name": "cost_guard_monthly", "metric": "avatar_cost_guard_monthly", "threshold": 1, "duration": "60s", "severity": "critical"},
+    {"name": "qa_no_preview", "metric": "avatar_qa_no_preview", "threshold": 1, "duration": "300s", "severity": "error"},
+    {"name": "qa_reject", "metric": "avatar_qa_reject", "threshold": 10, "duration": "900s", "severity": "warning"},
+    {"name": "qa_review_required", "metric": "avatar_qa_review_required", "threshold": 1, "duration": "300s", "severity": "warning"},
+    {"name": "iam_failure", "metric": "avatar_iam_failure", "threshold": 1, "duration": "300s", "severity": "critical"},
+    {"name": "app_check_failure", "metric": "avatar_app_check_failure", "threshold": 1, "duration": "300s", "severity": "critical"},
+    {"name": "bridge_auth_failure", "metric": "avatar_bridge_auth_failure", "threshold": 1, "duration": "300s", "severity": "critical"},
+    {"name": "bridge_isolation_violation", "metric": "avatar_bridge_isolation_violation", "threshold": 1, "duration": "300s", "severity": "critical"}
+  ],
+  "dashboard": {
+    "name": "avatar-observability",
+    "widgets": [
+      {"title": "Avatar worker", "metrics": ["avatar_worker_unhealthy", "avatar_job_failed"]},
+      {"title": "Queue health", "metrics": ["avatar_queue_depth", "avatar_deadline_stop", "avatar_retry_scheduled"]},
+      {"title": "Cost guard", "metrics": ["avatar_cost_guard_daily", "avatar_cost_guard_monthly"]},
+      {"title": "QA", "metrics": ["avatar_qa_no_preview", "avatar_qa_reject", "avatar_qa_review_required"]},
+      {"title": "Security and bridge", "metrics": ["avatar_iam_failure", "avatar_app_check_failure", "avatar_bridge_auth_failure", "avatar_bridge_isolation_violation"]}
+    ]
+  }
+}

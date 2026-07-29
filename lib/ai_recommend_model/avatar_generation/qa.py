@@ -12,6 +12,10 @@ from urllib.parse import unquote, urlparse
 
 from PIL import Image, ImageChops, ImageStat
 
+from avatar_generation.environment import is_production_like_environment
+
+from .qa_signals import CandidateQASignalResult
+
 
 try:  # Pillow 10+ exposes resampling enums.
     _LANCZOS = Image.Resampling.LANCZOS
@@ -31,11 +35,15 @@ AUTO_REJECT_REASONS = {
     "crop_expanded_to_unseen_body",
     "image_aspect_invalid",
     "image_dimensions_invalid",
+    "no_face_generated",
     "logo_text_watermark",
     "multiple_faces_generated",
     "not_adult_university_student_tone",
     "secondary_face_leakage",
     "secondary_person_generated",
+    "sexualized_or_nightlife",
+    "severe_artifact",
+    "hard_trait_contradiction",
     "signed_url_marker",
     "source_candidate_identical",
     "source_candidate_near_duplicate",
@@ -157,12 +165,8 @@ class AvatarQAResult:
             "textLogoWatermarkRisk": self.textLogoWatermarkRisk,
             "backgroundLeakageRisk": self.backgroundLeakageRisk,
             "secondaryFaceLeakageRisk": self.secondaryFaceLeakageRisk,
-            "faceSimilarityScore": (
-                None if self.faceSimilarityScore is None else float(self.faceSimilarityScore)
-            ),
-            "primaryFaceConfidence": (
-                None if self.primaryFaceConfidence is None else float(self.primaryFaceConfidence)
-            ),
+            "faceSimilarityScore": _rounded_score(self.faceSimilarityScore),
+            "primaryFaceConfidence": _rounded_score(self.primaryFaceConfidence),
             "identifiabilityRisk": self.identifiabilityRisk,
             "previewAllowed": bool(self.previewAllowed),
             "requiresHumanReview": bool(self.requiresHumanReview),
@@ -201,7 +205,9 @@ def apply_avatar_qa_rejection_logic(result: AvatarQAResult) -> AvatarQAResult:
         reasons.add("unique_mark_copied")
     if result.beautificationRisk == "high":
         reasons.add("too_beautified")
-    if result.cropConsistency == "fail" or result.cropIsolationQuality == "fail":
+    if (
+        result.cropConsistency == "fail" or result.cropIsolationQuality == "fail"
+    ) and "severe_artifact" not in reasons:
         reasons.add("crop_expanded_to_unseen_body")
     if _risk_is_high(result.logoTextWatermarkRisk) or _risk_is_high(
         result.textLogoWatermarkRisk
@@ -211,7 +217,7 @@ def apply_avatar_qa_rejection_logic(result: AvatarQAResult) -> AvatarQAResult:
         reasons.add("background_leakage")
     if _risk_is_high(result.secondaryFaceLeakageRisk):
         reasons.add("secondary_face_leakage")
-    if result.brandQa == "fail":
+    if result.brandQa == "fail" and "sexualized_or_nightlife" not in reasons:
         reasons.add("not_adult_university_student_tone")
     result.rejectReasons = sorted(reasons)
     if result.rejectReasons:
@@ -323,6 +329,11 @@ def _sanitize_debug_value(value: Any) -> Any:
 
 def _normalized_debug_key(key: str) -> str:
     return re.sub(r"[^a-z0-9]", "", key.lower())
+
+
+def _rounded_score(value: Any) -> Optional[float]:
+    score = _score(value)
+    return None if score is None else round(float(score), 6)
 
 
 def _score(value: Any) -> Optional[float]:
@@ -508,7 +519,7 @@ def _truthy_env(name: str) -> bool:
 
 
 def _is_production_environment() -> bool:
-    return os.environ.get("ENVIRONMENT", "").strip().lower() in {"prod", "production"}
+    return is_production_like_environment()
 
 
 def _dev_bypass_allowed() -> bool:
@@ -579,33 +590,26 @@ def _mapping_child(parent: Mapping[str, Any], key: str) -> Mapping[str, Any]:
 def _metadata_qa_signals(metadata: Mapping[str, Any]) -> Dict[str, Any]:
     source_analysis = _mapping_child(metadata, "sourceAnalysis")
     reference_preprocess = _mapping_child(metadata, "referencePreprocess")
-    neutralization = _mapping_child(reference_preprocess, "backgroundNeutralization")
 
     signals: Dict[str, Any] = {}
     primary_face_confidence = _score(source_analysis.get("primaryFaceConfidence"))
     if primary_face_confidence is not None:
         signals["primaryFaceConfidence"] = primary_face_confidence
 
-    if source_analysis.get("backgroundNeutralizationRequired") is True:
-        if reference_preprocess.get("backgroundNeutralized") is True:
-            signals["backgroundLeakageRisk"] = "low"
-        else:
-            signals["backgroundLeakageRisk"] = "high"
+    # Source preprocessing metadata may elevate risk, but must not synthesize
+    # candidate low-risk/pass signals. Candidate safety must come from actual
+    # candidate QA signals.
+    if (
+        source_analysis.get("backgroundNeutralizationRequired") is True
+        and reference_preprocess.get("backgroundNeutralized") is not True
+    ):
+        signals["backgroundLeakageRisk"] = "high"
 
     if source_analysis.get("secondaryFaceCount") not in (None, 0, "0"):
-        if neutralization.get("secondaryFaceAction") in {
-            "removed_with_background",
-            "blurred",
-            "neutralized_background",
-        }:
-            signals.setdefault("secondaryFaceLeakageRisk", "low")
-        else:
-            signals.setdefault("secondaryFaceLeakageRisk", "medium")
+        signals.setdefault("secondaryFaceLeakageRisk", "medium")
 
     if reference_preprocess.get("cropRisk") == "needs_review":
         signals["cropIsolationQuality"] = "needs_review"
-    elif reference_preprocess.get("primaryCropApplied") is True:
-        signals["cropIsolationQuality"] = "pass"
 
     return signals
 
@@ -683,6 +687,24 @@ def _load_image(ref: str, metadata: Mapping[str, Any]) -> LoadedImage:
             return LoadedImage(image=image.convert("RGB"))
     except Exception:
         return LoadedImage(image=None, reject_reason="undecodable_image")
+
+
+def _process_local_image(metadata: Mapping[str, Any], key: str) -> Optional[Image.Image]:
+    value = metadata.get(key)
+    if isinstance(value, Image.Image):
+        return value.convert("RGB")
+    return None
+
+
+def _load_image_or_process_local(ref: str, metadata: Mapping[str, Any], key: str) -> LoadedImage:
+    image = _process_local_image(metadata, key)
+    if image is not None:
+        return LoadedImage(image=image)
+    return _load_image(ref, metadata)
+
+
+def _analysis_reference_image(metadata: Mapping[str, Any]) -> Optional[Image.Image]:
+    return _process_local_image(metadata, "_analysis_reference_image")
 
 
 def _is_blank_or_monochrome(image: Image.Image) -> bool:
@@ -913,9 +935,9 @@ def _qa_debug_document(
             "mediapipe": model_availability.get("mediapipe", "unavailable"),
         },
         "scores": {
-            "faceSimilarityScore": face_similarity_score,
-            "perceptualHashDistance": perceptual_distance,
-            "perceptualSimilarityScore": perceptual_similarity_score,
+            "faceSimilarityScore": _rounded_score(face_similarity_score),
+            "perceptualHashDistance": _rounded_score(perceptual_distance),
+            "perceptualSimilarityScore": _rounded_score(perceptual_similarity_score),
             "ssimScore": None,
             "clipSimilarityScore": None,
             "dinoStyleScore": None,
@@ -977,7 +999,10 @@ def build_avatar_qa_from_signals(
     included in the returned document.
     """
     t = thresholds or qa_thresholds_from_env()
-    face_similarity = _score(signals.get("faceSimilarityScore"))
+    face_similarity_reliable = signals.get("faceSimilarityReliable") is True
+    face_similarity = (
+        _score(signals.get("faceSimilarityScore")) if face_similarity_reliable else None
+    )
     childlike_score = _score(signals.get("childlikeScore"))
     beautification_score = _score(signals.get("beautificationScore"))
     primary_face_confidence = _score(signals.get("primaryFaceConfidence"))
@@ -1044,19 +1069,19 @@ def build_avatar_qa_from_signals(
     background_leakage_risk = (
         "high"
         if background_leakage_detected
-        else _normalized_risk(signals.get("backgroundLeakageRisk"), fallback="low")
+        else _normalized_risk(signals.get("backgroundLeakageRisk"), fallback="medium")
     )
     secondary_face_leakage_risk = (
         "high"
         if multiple_faces_generated or secondary_person_generated
-        else _normalized_risk(signals.get("secondaryFaceLeakageRisk"), fallback="low")
+        else _normalized_risk(signals.get("secondaryFaceLeakageRisk"), fallback="medium")
     )
     text_logo_watermark_risk = (
         "high"
         if text_logo_detected
         else _normalized_risk(
             signals.get("textLogoWatermarkRisk", signals.get("logoTextWatermarkRisk")),
-            fallback="low",
+            fallback="medium",
         )
     )
     crop_isolation_quality = (
@@ -1064,11 +1089,13 @@ def build_avatar_qa_from_signals(
         if crop_expanded
         else _normalized_crop_isolation(
             signals.get("cropIsolationQuality"),
-            fallback=("pass" if signals.get("cropConsistent") is True else "needs_review"),
+            fallback=("pass" if signals.get("cropConsistent") is True and signals.get("cropIsolationQuality") == "pass" else "needs_review"),
         )
     )
 
     reject_reasons: List[str] = []
+    if signals.get("noFaceDetected") is True:
+        reject_reasons.append("no_face_generated")
     if signals.get("uniqueMarkCopied") is True:
         reject_reasons.append("unique_mark_copied")
     if signals.get("idolModelInfluencerLook") is True:
@@ -1091,6 +1118,12 @@ def build_avatar_qa_from_signals(
         reject_reasons.append("secondary_face_leakage")
     if signals.get("notAdultUniversityStudentTone") is True:
         reject_reasons.append("not_adult_university_student_tone")
+    if signals.get("sexualizedOrNightlife") is True:
+        reject_reasons.append("sexualized_or_nightlife")
+    if signals.get("severeArtifactDetected") is True:
+        reject_reasons.append("severe_artifact")
+    if signals.get("hardTraitContradiction") is True:
+        reject_reasons.append("hard_trait_contradiction")
 
     adult_qa = _qa_status_from_bool(
         signals.get("adultLike"),
@@ -1148,8 +1181,10 @@ def build_avatar_qa_from_signals(
         face_similarity_score=face_similarity,
         perceptual_similarity_score=_score(signals.get("perceptualSimilarityScore")),
         model_availability={
-            "faceSimilarity": "available" if face_similarity is not None else "unavailable",
-            "clip": "unavailable",
+            "faceSimilarity": (
+                "available" if face_similarity is not None else ("uncalibrated" if signals.get("faceSimilarityScore") is not None or signals.get("faceSimilarityNeedsReview") is True else "unavailable")
+            ),
+            "clip": str(signals.get("localSafetyRiskAvailability") or "unavailable"),
             "dino": "unavailable",
         },
         decision_tier=decision_tier,
@@ -1163,10 +1198,10 @@ def build_avatar_qa_from_signals(
 def needs_review_model_unavailable_result() -> AvatarQAResult:
     return AvatarQAResult(
         adultQa="needs_review",
-        childlikeRisk="medium",
+        childlikeRisk="unavailable",
         privacyQa="needs_review",
         brandQa="needs_review",
-        beautificationRisk="medium",
+        beautificationRisk="unavailable",
         cropConsistency="needs_review",
         cropIsolationQuality="needs_review",
         uniqueMarkCopyRisk="unknown",
@@ -1193,8 +1228,8 @@ def run_avatar_candidate_qa(
     if _contains_signed_url_marker(source_image_ref, candidate_image_ref, qa_metadata):
         return _hard_reject_result(["signed_url_marker"])
 
-    source = _load_image(source_image_ref, qa_metadata)
-    candidate = _load_image(candidate_image_ref, qa_metadata)
+    source = _load_image_or_process_local(source_image_ref, qa_metadata, "_source_image")
+    candidate = _load_image_or_process_local(candidate_image_ref, qa_metadata, "_candidate_image")
     decode_reasons = {
         reason
         for reason in (source.reject_reason, candidate.reject_reason)
@@ -1213,24 +1248,42 @@ def run_avatar_candidate_qa(
     reliable_face_similarity_score: Optional[float] = None
     perceptual_similarity_score: Optional[float] = None
     review_reasons: List[str] = []
+    reference_image = _analysis_reference_image(qa_metadata)
+    if not hard_reasons and reference_image is None and _is_production_environment():
+        result = needs_review_model_unavailable_result()
+        result.reviewReasons = ["analysis_reference_image_unavailable"]
+        result.debug = _qa_debug_document(
+            thresholds=thresholds,
+            face_similarity_score=None,
+            perceptual_similarity_score=None,
+            model_availability={
+                "faceSimilarity": "unavailable",
+                "clip": "unavailable",
+                "dino": "unavailable",
+            },
+            decision_tier="needs_review",
+            hard_reject_reasons=[],
+            needs_review_reasons=result.reviewReasons,
+            soft_pass_reasons=[],
+        )
+        return _apply_candidate_trait_consistency(
+            result,
+            _candidate_eyewear_consistency(qa_metadata),
+        )
+
     if not hard_reasons:
-        if _images_exactly_equal(source.image, candidate.image):
+        comparison_source = reference_image or source.image
+        if _images_exactly_equal(comparison_source, candidate.image):
             perceptual_similarity_score = 1.0
             hard_reasons.update(
                 {"source_candidate_identical", "source_candidate_near_duplicate", "too_identifiable"}
             )
         else:
             perceptual_similarity_score = _image_similarity_score(
-                source.image,
+                comparison_source,
                 candidate.image,
             )
-            if (
-                thresholds.allow_perceptual_hard_reject_only_near_duplicate
-                and perceptual_similarity_score
-                >= thresholds.perceptual_near_duplicate_reject
-            ):
-                hard_reasons.update({"source_candidate_near_duplicate", "too_identifiable"})
-            elif perceptual_similarity_score >= thresholds.perceptual_review:
+            if perceptual_similarity_score >= thresholds.perceptual_review:
                 review_reasons.append("perceptual_similarity_review")
 
     text_watermark_detected = _contains_text_watermark_marker(
@@ -1268,7 +1321,13 @@ def run_avatar_candidate_qa(
         )
 
     raw_signals = qa_metadata.get("qaSignals") or qa_metadata.get("signals")
-    signals = raw_signals if isinstance(raw_signals, Mapping) else None
+    production_environment = _is_production_environment()
+    signals = (
+        None
+        if production_environment
+        else raw_signals if isinstance(raw_signals, Mapping) else None
+    )
+    runtime_signal_result: Optional[CandidateQASignalResult] = None
     if signals is None and _staging_heuristic_preview_allowed():
         return _apply_candidate_trait_consistency(
             _staging_heuristic_preview_result(
@@ -1278,6 +1337,28 @@ def run_avatar_candidate_qa(
             ),
             eyewear_consistency,
         )
+    if signals is None:
+        actual_source = reference_image or source.image
+        try:
+            from .qa_runtime import build_actual_candidate_qa_signals
+
+            runtime_signal_result = build_actual_candidate_qa_signals(
+                source_image=actual_source,
+                candidate_image=candidate.image,
+                metadata=qa_metadata,
+                runtime=qa_metadata.get("_qa_runtime"),
+            )
+            signals = dict(runtime_signal_result.signals)
+        except Exception:
+            return _apply_candidate_trait_consistency(
+                _model_unavailable_with_local_similarity(
+                    reliable_face_similarity_score,
+                    perceptual_similarity_score=perceptual_similarity_score,
+                    thresholds=thresholds,
+                ),
+                eyewear_consistency,
+            )
+
     merged_signals = _merge_local_signals(
         signals,
         text_watermark_detected=text_watermark_detected,
@@ -1285,23 +1366,47 @@ def run_avatar_candidate_qa(
     )
     if perceptual_similarity_score is not None:
         merged_signals["perceptualSimilarityScore"] = perceptual_similarity_score
-    if qa_metadata.get("modelsUnavailable") is True:
-        return _apply_candidate_trait_consistency(
-            _model_unavailable_with_local_similarity(
-                reliable_face_similarity_score,
-                perceptual_similarity_score=perceptual_similarity_score,
-                thresholds=thresholds,
-            ),
-            eyewear_consistency,
-        )
     result = build_avatar_qa_from_signals(merged_signals, thresholds=thresholds)
-    if review_reasons and not result.rejectReasons and not result.previewAllowed:
+    model_availability = (
+        dict(runtime_signal_result.model_availability)
+        if runtime_signal_result is not None
+        else dict(_mapping_child(qa_metadata, "modelAvailability"))
+    )
+    if runtime_signal_result is not None:
+        result.qaVersion = "avatar_qa_v2"
+        result.debug = _qa_debug_document(
+            thresholds=thresholds,
+            face_similarity_score=result.faceSimilarityScore,
+            perceptual_similarity_score=perceptual_similarity_score,
+            model_availability=model_availability,
+            decision_tier=_decision_tier(result),
+            hard_reject_reasons=result.rejectReasons,
+            needs_review_reasons=result.reviewReasons,
+            soft_pass_reasons=result.softPassReasons,
+        )
+        result.debug["qaVersion"] = "avatar_qa_v2"
+    needs_review_from_models = _runtime_result_needs_review(runtime_signal_result, model_availability)
+    if qa_metadata.get("modelsUnavailable") is True:
+        needs_review_from_models = True
+        review_reasons.append("model_unavailable")
+    if runtime_signal_result is not None and runtime_signal_result.models_unavailable:
+        review_reasons.extend(
+            f"{key}_unavailable" for key in runtime_signal_result.models_unavailable
+        )
+    if runtime_signal_result is not None and runtime_signal_result.needs_review:
+        review_reasons.append("actual_qa_signal_review")
+    if needs_review_from_models and not result.rejectReasons:
+        result.previewAllowed = False
+        result.requiresHumanReview = True
+        result.softPass = False
+        review_reasons.append("qa_model_signal_review")
+    if review_reasons and not result.rejectReasons:
         result.reviewReasons = sorted(set(result.reviewReasons + review_reasons))
         result.debug = _qa_debug_document(
             thresholds=thresholds,
             face_similarity_score=result.faceSimilarityScore,
             perceptual_similarity_score=perceptual_similarity_score,
-            model_availability={
+            model_availability=model_availability or {
                 "faceSimilarity": (
                     "available" if result.faceSimilarityScore is not None else "unavailable"
                 ),
@@ -1313,4 +1418,32 @@ def run_avatar_candidate_qa(
             needs_review_reasons=result.reviewReasons,
             soft_pass_reasons=result.softPassReasons,
         )
+        if runtime_signal_result is not None:
+            result.debug["qaVersion"] = "avatar_qa_v2"
     return _apply_candidate_trait_consistency(result, eyewear_consistency)
+
+
+def _decision_tier(result: AvatarQAResult) -> str:
+    if result.rejectReasons:
+        return "hard_reject"
+    if result.previewAllowed:
+        return "hard_pass"
+    if result.softPass:
+        return "soft_pass"
+    return "needs_review"
+
+
+def _runtime_result_needs_review(
+    signal_result: Optional[CandidateQASignalResult],
+    model_availability: Mapping[str, str],
+) -> bool:
+    if signal_result is not None and signal_result.needs_review:
+        return True
+    unavailable_statuses = {"unavailable", "critical_unavailable", "uncalibrated"}
+    for key, value in model_availability.items():
+        lowered_key = str(key).lower()
+        if lowered_key.endswith(".error") or lowered_key.endswith(".calibrationversion"):
+            continue
+        if str(value).strip().lower() in unavailable_statuses:
+            return True
+    return False

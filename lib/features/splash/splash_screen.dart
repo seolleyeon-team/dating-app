@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/cupertino.dart';
 
@@ -96,7 +97,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
       Navigator.of(context).pushReplacementNamed(RouteNames.terms);
     } catch (e) {
-      debugPrint('⚠️ Splash 네비게이션 오류: $e');
+      debugPrint('⚠️ Splash 네비게이션 오류: ${PrivacyLogUtils.errorSummary(e)}');
       if (!mounted) return;
       // 오류 발생 시 안전하게 terms 화면으로 이동
       Navigator.of(context).pushReplacementNamed(RouteNames.terms);

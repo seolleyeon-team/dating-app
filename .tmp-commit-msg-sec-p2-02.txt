@@ -1,0 +1,4 @@
+fix(security): prevent duplicate mutual-like matches (SEC-P2-02)
+
+Use deterministic match ids and Firestore transactions so concurrent likes
+create at most one match and chat room.

@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
+import '../shared/utils/privacy_log_utils.dart';
+
 class FirebaseDiagnostics {
   const FirebaseDiagnostics._();
 
@@ -14,13 +16,15 @@ class FirebaseDiagnostics {
       final options = app.options;
       debugPrint(
         '[FirebaseDiag] phase=$phase '
-        'projectId=${options.projectId} '
-        'appId=${options.appId} '
-        'apiKeyPrefix=${_prefix(options.apiKey)} '
-        'authProjectId=${FirebaseAuth.instance.app.options.projectId}',
+        'hasProjectId=${options.projectId.isNotEmpty} '
+        'hasAppId=${options.appId.isNotEmpty} '
+        'hasApiKey=${options.apiKey.isNotEmpty} '
+        'authReady=${FirebaseAuth.instance.app.options.projectId.isNotEmpty}',
       );
     } catch (e) {
-      debugPrint('[FirebaseDiag] phase=$phase error=${_safeError(e)}');
+      debugPrint(
+        '[FirebaseDiag] phase=$phase ${PrivacyLogUtils.errorSummary(e)}',
+      );
     }
   }
 
@@ -49,10 +53,10 @@ class FirebaseDiagnostics {
     final parts = <String>[
       '[AuthDiag]',
       'phase=$phase',
-      'projectId=$projectId',
-      'appId=$appId',
-      'firebaseUid=${firebaseUid ?? 'null'}',
-      'kakaoUserId=${kakaoUserId ?? 'null'}',
+      'hasProjectId=${projectId != 'unknown' && projectId.isNotEmpty}',
+      'hasAppId=${appId != 'unknown' && appId.isNotEmpty}',
+      PrivacyLogUtils.idFingerprint(firebaseUid),
+      PrivacyLogUtils.idFingerprint(kakaoUserId),
       'function=$functionName',
       'region=$region',
     ];
@@ -62,34 +66,26 @@ class FirebaseDiagnostics {
     }
 
     debugPrint(parts.join(' '));
-    if (stackTrace != null) {
-      debugPrint(stackTrace.toString());
-    }
   }
 
   static List<String> _errorParts(Object error) {
     if (error is FirebaseFunctionsException) {
       return [
         'callableCode=${error.code}',
-        'callableMessage=${_safeError(error.message)}',
+        PrivacyLogUtils.errorSummary(error),
       ];
     }
     if (error is FirebaseAuthException) {
       return [
         'authCode=${error.code}',
-        'authMessage=${_safeError(error.message)}',
+        PrivacyLogUtils.errorSummary(error),
         'plugin=${error.plugin}',
       ];
     }
-    return ['error=${_safeError(error)}'];
+    return [PrivacyLogUtils.errorSummary(error)];
   }
 
   static String safeErrorForLog(Object? value) => _safeError(value);
-
-  static String _prefix(String value) {
-    if (value.length <= 6) return '<redacted>';
-    return '${value.substring(0, 6)}...';
-  }
 
   static String _safeError(Object? value) {
     final raw = value?.toString() ?? '';

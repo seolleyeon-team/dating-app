@@ -44,6 +44,28 @@ test("same-candidate approval does not echo unsafe persisted avatar urls", () =>
   assert.equal(plan.action, "reserve");
 });
 
+test("same-candidate approval rejects Festival private-media URLs", () => {
+  for (const approvedAvatarUrl of [
+    "https://seolleyeon-festival-private-source-photos.storage.googleapis.com/users/u/source/src.jpg",
+    "https://seolleyeon-festival-avatar-temp.storage.googleapis.com/users/u/jobs/j/candidates/c.png",
+    "https://seolleyeon-festival-chat-profile-photos.storage.googleapis.com/users/u/chat/photo.jpg?token=secret",
+  ]) {
+    const plan = planAvatarApprovalState(
+      {
+        avatar: {
+          status: "approved",
+          selectedCandidateId: "cand_1",
+          approvedAvatarUrl,
+          avatarId: "avatar_1",
+        },
+      },
+      "cand_1"
+    );
+
+    assert.equal(plan.action, "reserve", approvedAvatarUrl);
+  }
+});
+
 test("different-candidate approval conflicts before copy when approval is in progress", () => {
   const plan = planAvatarApprovalState(
     {

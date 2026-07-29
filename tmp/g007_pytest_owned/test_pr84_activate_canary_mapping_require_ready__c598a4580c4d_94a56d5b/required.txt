@@ -1,0 +1,5 @@
+# PR8.4 UID/photo consent map template
+# Copy these rows to pr84_uid_photo_consent_map.txt only after exact UID-photo consent is confirmed.
+# This file is advisory and is not used for upload.
+
+# uid-a=photo_a_plain.jpg

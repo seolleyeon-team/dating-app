@@ -369,11 +369,12 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
 
       if (!mounted) return;
       setState(() => _statusMessage = '연세 메일로 인증 링크를 보냈습니다');
-    } catch (e, stack) {
+    } catch (e) {
       final safeError = FirebaseDiagnostics.safeErrorForLog(e);
-      debugPrint('❌ 이메일 인증 링크 전송 실패');
-      debugPrint(safeError);
-      debugPrint(stack.toString());
+      debugPrint(
+        '[StudentVerification] email link '
+        '${FirebaseDiagnostics.safeErrorForLog(e)}',
+      );
 
       if (!mounted) return;
       setState(() => _statusMessage = '전송 실패: $safeError');

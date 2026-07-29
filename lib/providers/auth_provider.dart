@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:kakao_flutter_sdk_common/kakao_flutter_sdk_common.dart';
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
@@ -97,13 +98,16 @@ class AuthProvider with ChangeNotifier {
             kakaoUserId,
           );
           _hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
-          _isStudentVerified = await _authService.isStudentVerified(kakaoUserId);
+          _isStudentVerified = await _authService.isStudentVerified(
+            kakaoUserId,
+          );
           _studentEmail = await _authService.getStudentEmail(kakaoUserId);
         } else {
           _isInitialSetupComplete = false;
           _hasSeenTutorial = false;
-          _isStudentVerified =
-              await _storageService.isStudentVerified(kakaoUserId);
+          _isStudentVerified = await _storageService.isStudentVerified(
+            kakaoUserId,
+          );
           _studentEmail = await _storageService.getStudentEmail(kakaoUserId);
         }
 
@@ -115,11 +119,15 @@ class AuthProvider with ChangeNotifier {
               : await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
           debugPrint('[Auth] bootstrap Firebase session restored=$restored');
         } catch (e) {
-          debugPrint('[Auth] ensureFirebaseSession (bootstrap): $e');
+          debugPrint(
+            '[Auth] ensureFirebaseSession (bootstrap): ${PrivacyLogUtils.errorSummary(e)}',
+          );
         }
       }
     } catch (e) {
-      debugPrint('Error checking auth status: $e');
+      debugPrint(
+        'Error checking auth status: ${PrivacyLogUtils.errorSummary(e)}',
+      );
     } finally {
       _isLoading = false;
       _isInitialized = true;
@@ -144,7 +152,9 @@ class AuthProvider with ChangeNotifier {
         await _handleIncomingUri(uri);
       },
       onError: (e) {
-        debugPrint('Deep link stream error: $e');
+        debugPrint(
+          'Deep link stream error: ${PrivacyLogUtils.errorSummary(e)}',
+        );
       },
     );
   }
@@ -161,13 +171,17 @@ class AuthProvider with ChangeNotifier {
         await _handleIncomingKakaoScheme(link);
       },
       onError: (e) {
-        debugPrint('Kakao scheme stream error: $e');
+        debugPrint(
+          'Kakao scheme stream error: ${PrivacyLogUtils.errorSummary(e)}',
+        );
       },
     );
   }
 
   Future<void> _handleIncomingKakaoScheme(String link) async {
-    debugPrint('[Auth] incoming Kakao scheme: $link');
+    debugPrint(
+      '[Auth] incoming Kakao scheme ${PrivacyLogUtils.pathFingerprint(link)}',
+    );
     final uri = Uri.tryParse(link);
     if (uri == null) return;
     await _handleIncomingUri(uri);
@@ -175,7 +189,7 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> _handleIncomingUri(Uri uri) async {
     debugPrint(
-      '[DeepLink] incoming uri=$uri scheme=${uri.scheme} host=${uri.host} path=${uri.path} query=${uri.query}',
+      '[DeepLink] incoming ${PrivacyLogUtils.pathFingerprint(uri.toString())}',
     );
     if (_friendInviteService.isFriendInviteUri(uri)) {
       final token = _friendInviteService.extractInviteToken(uri);
@@ -188,7 +202,9 @@ class AuthProvider with ChangeNotifier {
         return;
       }
 
-      debugPrint('[DeepLink] friend invite detected token=$token');
+      debugPrint(
+        '[DeepLink] friend invite detected ${PrivacyLogUtils.idFingerprint(token)}',
+      );
       await _friendInviteService.savePendingInviteToken(token);
       debugPrint('[DeepLink] saved pending friend invite token');
       await _processPendingFriendInvite();
@@ -234,9 +250,13 @@ class AuthProvider with ChangeNotifier {
       // 이메일 링크 UID ≠ 카카오 문서 ID. 가능하면 카카오 커스텀 토큰으로 통일(실패해도 이메일 세션 유지)
       await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
 
-      debugPrint('Email link verification complete for $email');
+      debugPrint(
+        'Email link verification complete ${PrivacyLogUtils.idFingerprint(email)}',
+      );
     } catch (e) {
-      debugPrint('Email link sign-in failed: $e');
+      debugPrint(
+        'Email link sign-in failed: ${PrivacyLogUtils.errorSummary(e)}',
+      );
     } finally {
       _isLoading = false;
       _emailLinkHandling = false;
@@ -257,9 +277,7 @@ class AuthProvider with ChangeNotifier {
     await _showFriendInviteResult(result);
   }
 
-  Future<void> _showFriendInviteResult(
-    FriendInviteAcceptResult result,
-  ) async {
+  Future<void> _showFriendInviteResult(FriendInviteAcceptResult result) async {
     final context = NavigationService.navigatorKey.currentContext;
     final navigator = NavigationService.navigatorKey.currentState;
     if (context == null || navigator == null) return;
@@ -375,7 +393,9 @@ class AuthProvider with ChangeNotifier {
       _isStudentVerified = await _authService.isStudentVerified(kakaoUserId);
       _studentEmail = await _authService.getStudentEmail(kakaoUserId);
     } catch (e) {
-      debugPrint('Error saving kakao user id: $e');
+      debugPrint(
+        'Error saving kakao user id: ${PrivacyLogUtils.errorSummary(e)}',
+      );
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -393,7 +413,9 @@ class AuthProvider with ChangeNotifier {
     // 안전장치: 연세 메일만 허용
     final normalized = email.trim().toLowerCase();
     if (!normalized.endsWith('@yonsei.ac.kr')) {
-      debugPrint('Rejected non-yonsei email: $normalized');
+      debugPrint(
+        'Rejected non-yonsei email ${PrivacyLogUtils.idFingerprint(normalized)}',
+      );
       return;
     }
 
@@ -444,7 +466,9 @@ class AuthProvider with ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
-      debugPrint('Error completing initial setup: $e');
+      debugPrint(
+        'Error completing initial setup: ${PrivacyLogUtils.errorSummary(e)}',
+      );
       return false;
     } finally {
       _isLoading = false;
@@ -478,7 +502,7 @@ class AuthProvider with ChangeNotifier {
       _isStudentVerified = false;
       _studentEmail = null;
     } catch (e) {
-      debugPrint('Error during logout: $e');
+      debugPrint('Error during logout: ${PrivacyLogUtils.errorSummary(e)}');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -514,7 +538,7 @@ class AuthProvider with ChangeNotifier {
       }
       return false;
     } catch (e) {
-      debugPrint('Error during signup: $e');
+      debugPrint('Error during signup: ${PrivacyLogUtils.errorSummary(e)}');
       return false;
     } finally {
       _isLoading = false;
@@ -544,7 +568,9 @@ class AuthProvider with ChangeNotifier {
       }
       return false;
     } catch (e) {
-      debugPrint('Error during student verification: $e');
+      debugPrint(
+        'Error during student verification: ${PrivacyLogUtils.errorSummary(e)}',
+      );
       return false;
     } finally {
       _isLoading = false;

@@ -254,9 +254,15 @@ test("queue payload builders include idempotency keys", () => {
     "u1",
     "src_abc",
     "gs://seolleyeon-private-source-photos/users/u1/source/src_abc.jpg",
+    {
+      avatarGeneration: true,
+      clipRecommendation: true,
+      sourcePhotoRetention: false,
+    },
   );
 
   assert.equal(avatar.idempotencyKey, "u1:src_abc:avatar_generation_v1");
+  assert.ok(clip);
   assert.equal(clip.idempotencyKey, "u1:src_abc:clip_embedding_v1");
 });
 
@@ -497,14 +503,24 @@ test("avatar source lock requires both current source and current job ids", () =
     hasLockedAvatarSource({
       currentAvatarSourcePhotoId: "src_abc",
       currentAvatarJobId: "avatar_job_abc",
+      sourcePhotos: [
+        {
+          photoId: "src_abc",
+          status: "active",
+          avatarGenerationState: "current",
+        },
+      ],
     }),
     true,
   );
-  assert.equal(
-    hasLockedAvatarSource({ currentAvatarSourcePhotoId: "src_abc" }),
-    false,
+  assert.throws(
+    () => hasLockedAvatarSource({ currentAvatarSourcePhotoId: "src_abc" }),
+    /avatar_state_inconsistent/,
   );
-  assert.equal(hasLockedAvatarSource({ currentAvatarJobId: "job_abc" }), false);
+  assert.throws(
+    () => hasLockedAvatarSource({ currentAvatarJobId: "job_abc" }),
+    /avatar_state_inconsistent/,
+  );
   assert.equal(hasLockedAvatarSource(null), false);
 });
 
@@ -532,7 +548,7 @@ test("private media payload records chat real-photo consent explicitly", () => {
 
   assert.equal(payload.photoConsent.chatPartnerRealPhotoDisclosure, true);
   assert.equal(payload.photoConsent.profileDisplayOriginalPhoto, false);
-  assert.equal(payload.photoConsent.version, "photo_consent_v3");
+  assert.equal(payload.photoConsent.version, "photo_consent_v4");
   assert.equal(payload.chatRealPhoto.enabled, true);
   assert.equal(
     payload.chatRealPhoto.storageBucket,

@@ -155,11 +155,10 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('연세 이메일로 인증 링크를 보냈습니다.')));
-    } catch (e, stack) {
+    } catch (e) {
       final safeError = FirebaseDiagnostics.safeErrorForLog(e);
       debugPrint('❌ 이메일 인증 링크 전송 실패');
       debugPrint(safeError);
-      debugPrint(stack.toString());
 
       if (!mounted) return;
 

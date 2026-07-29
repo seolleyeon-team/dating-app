@@ -146,6 +146,9 @@ void main() {
       'https://seolleyeon-private-source-photos.storage.googleapis.com/users/u/source/src.jpg',
       'https://seolleyeon-final-avatar-temp.storage.googleapis.com/users/u/jobs/j/candidates/c.png',
       'https://seolleyeon-final-chat-profile-photos.storage.googleapis.com/users/u/chat/photo.jpg',
+      'https://seolleyeon-festival-private-source-photos.storage.googleapis.com/users/u/source/src.jpg',
+      'https://seolleyeon-festival-avatar-temp.storage.googleapis.com/users/u/jobs/j/candidates/c.png',
+      'https://seolleyeon-festival-chat-profile-photos.storage.googleapis.com/users/u/chat/photo.jpg',
     ];
 
     for (final value in unsafeUrls) {

@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../features/onboarding/widgets/avatar_generation_models.dart';
+import '../shared/utils/privacy_log_utils.dart';
 import 'avatar_source_photo_service.dart';
 
 /// 아바타 생성 파이프라인 클라이언트 추상화.
@@ -114,7 +116,7 @@ void _logAvatarClient(
   if (jobId != null) parts.add('jobId=${_redactIdentifier(jobId)}');
   if (status != null) parts.add('status=${status.name}');
   if (candidateCount != null) parts.add('candidateCount=$candidateCount');
-  if (error != null) parts.add('error=${_redactError(error)}');
+  if (error != null) parts.add('error=${PrivacyLogUtils.errorSummary(error)}');
   debugPrint(parts.join(' '));
 }
 
@@ -122,40 +124,6 @@ String _redactIdentifier(String value) {
   final normalized = value.trim();
   if (normalized.length <= 10) return '<redacted>';
   return '${normalized.substring(0, 10)}...';
-}
-
-String _redactError(Object error) {
-  if (error is FirebaseFunctionsException) {
-    return 'FirebaseFunctionsException('
-        'code=${error.code}, '
-        'message=${_sanitizeLogText(error.message)})';
-  }
-  return error.runtimeType.toString();
-}
-
-String _sanitizeLogText(String? value) {
-  var text = (value ?? '').trim();
-  if (text.isEmpty) return '';
-  text = text.replaceAll(
-    RegExp(r'g(?:s|cs)://[^\s]+', caseSensitive: false),
-    '<private-ref-redacted>',
-  );
-  text = text.replaceAll(
-    RegExp(
-      r'(X-Goog-[^=&\s]+|Google'
-      r'AccessId|Signature|Expires|X-Amz-[^=&\s]+)=([^&\s]+)',
-      caseSensitive: false,
-    ),
-    r'$1=<redacted>',
-  );
-  text = text.replaceAll(
-    RegExp(
-      r'seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp|chat-profile-photos)',
-      caseSensitive: false,
-    ),
-    '<private-bucket-redacted>',
-  );
-  return text.length <= 180 ? text : '${text.substring(0, 180)}...';
 }
 
 /// 폴링이 외부 신호에 의해 취소됐을 때 던지는 예외.

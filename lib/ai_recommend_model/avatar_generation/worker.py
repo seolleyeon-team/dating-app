@@ -10,7 +10,7 @@ import logging
 import os
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -18,21 +18,59 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
 from avatar_generation import FLUX2_KLEIN_MODEL_ID, FLUX2_KLEIN_VERSION
-from avatar_generation.adaptive_generation import AdaptiveGenerationPolicy, plan_generation_round
+from avatar_generation.adaptive_generation import (
+    AdaptiveGenerationPolicy,
+    GenerationBudget,
+    plan_generation_round,
+)
 from avatar_generation.analysis.source_analyzer import analyze_avatar_source_image
+from avatar_generation.analysis.visual_risk import (
+    STATUS_CRITICAL_UNAVAILABLE,
+    unavailable_visual_risk_analysis,
+)
+from avatar_generation.admission_policy import (
+    AdmissionDecision,
+    AdmissionPolicy,
+    AdmissionRequest,
+    CumulativeUsage,
+    evaluate_admission,
+    usage_from_cost_aggregate,
+)
 from avatar_generation.batching import claim_avatar_job_batch
-from avatar_generation.cost import build_batch_cost_document, build_job_cost_document
+from avatar_generation.environment import (
+    configured_environment_names,
+    is_local_or_dev_environment as _shared_is_local_or_dev_environment,
+    is_production_like_environment,
+)
+from avatar_generation.cost import (
+    AvatarCostConfig,
+    build_batch_cost_document,
+    build_job_cost_document,
+    evaluate_cost_guard,
+)
 from avatar_generation.job_lease import AvatarJobLeaseConfig, ClaimDeadline
+from avatar_generation.fidelity_corridor import CorridorCandidate
+from avatar_generation.fidelity_shadow import (
+    build_shadow_corridor_evidence,
+    build_shadow_ranking_document,
+)
+from avatar_generation.flux_config import (
+    Flux2KleinExecutionConfig,
+    build_flux2_klein_execution_audit,
+    resolve_flux2_klein_execution_config,
+)
 from avatar_generation.model_adapters.florence2 import Florence2TraitExtractionAdapter
 from avatar_generation.preprocessing import (
     ReferencePreprocessConfig,
     preprocess_reference_image,
     validate_reference_preprocess_enabled_for_environment,
 )
+from avatar_generation.preprocessing.reference import REFERENCE_PREPROCESS_PROFILES
 from avatar_generation.preview_policy import (
     is_preview_eligible,
     passes_absolute_preview_checks,
 )
+from avatar_generation.quality_context import AvatarQualityContext
 from avatar_generation.qa import AvatarQAResult, run_avatar_candidate_qa
 from avatar_generation.rerank import rerank_preview_candidates
 from avatar_generation.seolleyeon_avatar_prompt_builder_v4 import (
@@ -45,6 +83,7 @@ from avatar_generation.trait_card import (
     merge_trait_card_with_broad_hints,
     normalize_avatar_presentation_gender,
 )
+from avatar_generation.trait_card.region_features import extract_region_color_traits
 
 try:
     from google.cloud import firestore, storage
@@ -57,6 +96,9 @@ except Exception:  # pragma: no cover - optional in pure unit tests
 
 DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-private-source-photos"
 DEFAULT_AVATAR_TEMP_BUCKET = "seolleyeon-avatar-temp"
+BRIDGE_ENVIRONMENT = "production_bridge"
+FESTIVAL_DATA_PROJECT = "seolleyeon-festival"
+FORBIDDEN_BRIDGE_BUCKET_PREFIX = "seolleyeon-final-"
 DEFAULT_MAX_CANDIDATES = 4
 DEFAULT_CANDIDATE_TTL_HOURS = 72
 DEFAULT_WIDTH = 1024
@@ -165,7 +207,8 @@ _FLUX_ALWAYS_DROPPED_KWARGS = frozenset({"negative_prompt"})
 def build_flux_prompt_with_avoid(prompt: str, negative_prompt: str = "") -> str:
     """Fold text-only negative constraints into the FLUX prompt.
 
-    Flux2KleinPipeline does not accept a normal ``negative_prompt`` string
+    Flux2KleinPipeline does not accept a normal `
+egative_prompt`` string
     kwarg. Keeping the constraints in the prompt preserves the policy without
     relying on unsupported provider parameters.
     """
@@ -207,7 +250,7 @@ def call_flux_pipeline_safely(pipe: Any, **kwargs: Any) -> Any:
                 key: value
                 for key, value in remaining.items()
                 if key in supported
-            }
+             }
             dropped.update(set(remaining) - set(safe_kwargs))
 
     if dropped:
@@ -266,7 +309,7 @@ class AvatarGenerationResult:
             "previewReadyCount": self.preview_ready_count,
             "rejectedCount": self.rejected_count,
             "needsReviewCount": self.needs_review_count,
-        }
+         }
 
 
 @dataclass(frozen=True)
@@ -292,13 +335,13 @@ class AvatarBatchRunResult:
             "skippedCount": self.skipped_count,
             "jobResults": list(self.job_results),
             "metrics": dict(self.metrics),
-        }
+         }
 
 
 QARunner = Callable[[str, str, Dict[str, Any]], AvatarQAResult]
 MetricHook = Callable[[str, Mapping[str, Any]], None]
 
-_FLUX_GENERATOR_CACHE: Dict[str, "Flux2KleinImageGenerator"] = {}
+_FLUX_GENERATOR_CACHE: Dict[tuple[str, str, int, int, int, float], "Flux2KleinImageGenerator"] = {}
 _MODEL_METRICS: Dict[str, int] = {
     "modelCacheHits": 0,
     "modelCacheMisses": 0,
@@ -331,11 +374,11 @@ def _bool_env(name: str) -> Optional[bool]:
 
 
 def is_production_environment() -> bool:
-    return os.environ.get("ENVIRONMENT", "").strip().lower() in {"prod", "production"}
+    return is_production_like_environment()
 
 
 def is_local_or_dev_environment() -> bool:
-    return os.environ.get("ENVIRONMENT", "").strip().lower() in {"", "local", "dev", "development", "test"}
+    return _shared_is_local_or_dev_environment()
 
 
 def resolve_worker_mode(mode: Optional[str] = None) -> str:
@@ -374,6 +417,40 @@ def source_photo_bucket() -> str:
 
 def avatar_temp_bucket() -> str:
     return env_value("AVATAR_TEMP_BUCKET", DEFAULT_AVATAR_TEMP_BUCKET)
+
+
+def _explicit_data_project_from_env() -> Optional[str]:
+    for name in ("AVATAR_DATA_PROJECT", "FIRESTORE_PROJECT", "GCP_PROJECT"):
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return None
+
+
+def resolve_firestore_project(explicit_project: Optional[str] = None) -> Optional[str]:
+    return explicit_project or _explicit_data_project_from_env()
+
+
+def validate_bridge_runtime_config(firestore_project: Optional[str] = None) -> None:
+    if BRIDGE_ENVIRONMENT not in configured_environment_names():
+        return
+
+    data_project = resolve_firestore_project(firestore_project)
+    if data_project != FESTIVAL_DATA_PROJECT:
+        raise AvatarGenerationError(
+            "production_bridge requires AVATAR_DATA_PROJECT/FIRESTORE_PROJECT/GCP_PROJECT=seolleyeon-festival."
+        )
+
+    forbidden_buckets: List[str] = []
+    for name in ("SOURCE_PHOTO_BUCKET", "AVATAR_TEMP_BUCKET", "APPROVED_AVATAR_BUCKET"):
+        value = os.environ.get(name, "").strip()
+        if value.startswith(FORBIDDEN_BRIDGE_BUCKET_PREFIX):
+            forbidden_buckets.append(name)
+    if forbidden_buckets:
+        raise AvatarGenerationError(
+            "production_bridge cannot use seolleyeon-final avatar/source/temp buckets: "
+            + ", ".join(sorted(forbidden_buckets))
+        )
 
 
 def max_candidates() -> int:
@@ -426,14 +503,32 @@ def _bool_env_default(name: str, default: bool) -> bool:
 def _generation_pause_reason() -> str:
     if _bool_env_default("AVATAR_GPU_WORKER_ENABLED", True) is False:
         return "gpu_worker_disabled"
-    if _bool_env_default("AVATAR_DISABLE_NEW_GENERATION", False) is True:
+    if _env_bool_any_default(
+        ("AVATAR_DISABLE_NEW_GENERATION", "AVATAR_GENERATION_DISABLED", "AVATAR_GENERATION_PAUSED"),
+        False,
+    ):
         return "new_generation_disabled"
-    if _bool_env_default("AVATAR_COST_KILL_SWITCH_ENABLED", False) is True:
+    if _env_bool_any_default(
+        ("AVATAR_COST_KILL_SWITCH_ENABLED", "AVATAR_KILL_SWITCH", "AVATAR_GENERATION_BUDGET_EXHAUSTED"),
+        False,
+    ):
         return "cost_kill_switch_enabled"
     return ""
 
+def _env_bool_any_default(names: Sequence[str], default: bool) -> bool:
+    found_explicit = False
+    for name in names:
+        raw = os.environ.get(name)
+        if raw is None or not str(raw).strip():
+            continue
+        found_explicit = True
+        if _bool_env_default(name, False):
+            return True
+    return False if found_explicit else default
 
 def _source_analysis_enabled(run_mode: str) -> bool:
+    if run_mode == "flux" and is_production_environment():
+        return True
     return _bool_env_default("AVATAR_FACE_DETECTOR_ENABLED", run_mode == "flux")
 
 
@@ -453,8 +548,376 @@ def _trait_require_validated() -> bool:
     return _bool_env_default("AVATAR_TRAIT_REQUIRE_VALIDATED", True)
 
 
+def _source_visual_risk_enabled(run_mode: str) -> bool:
+    if run_mode == "flux" and is_production_environment():
+        return True
+    parsed = _bool_env("AVATAR_SOURCE_VISUAL_RISK_ENABLED")
+    return bool(parsed) if parsed is not None else False
+
+
+def _default_source_visual_risk_adapter() -> Any:
+    from avatar_generation.qa_runtime import get_default_visual_risk_adapter
+
+    return get_default_visual_risk_adapter()
+
+
+def _primary_face_bbox_xyxy_pixels(source_analysis: Any, image_size: tuple[int, int]) -> Optional[tuple[float, float, float, float]]:
+    bbox = getattr(source_analysis, "primary_face_bbox", None)
+    if bbox is None and getattr(source_analysis, "primary_face", None) is not None:
+        bbox = getattr(source_analysis.primary_face, "bbox", None)
+    if bbox is None or len(bbox) < 4:
+        return None
+    width, height = image_size
+    left, top, box_width, box_height = (float(bbox[index]) for index in range(4))
+    if max(abs(left), abs(top), abs(box_width), abs(box_height)) <= 1.0:
+        left *= width
+        top *= height
+        box_width *= width
+        box_height *= height
+    right = left + max(0.0, box_width)
+    bottom = top + max(0.0, box_height)
+    return (
+        max(0.0, min(float(width), left)),
+        max(0.0, min(float(height), top)),
+        max(0.0, min(float(width), right)),
+        max(0.0, min(float(height), bottom)),
+    )
+
+
+def _analyze_source_visual_risk(
+    source_image: Image.Image,
+    *,
+    source_analysis: Any,
+    run_mode: str,
+    source_visual_risk_adapter: Any = None,
+) -> Any:
+    if not _source_visual_risk_enabled(run_mode):
+        return None
+    adapter = source_visual_risk_adapter or _default_source_visual_risk_adapter()
+    try:
+        return adapter.analyze(
+            source_image,
+            primary_face_bbox_xyxy=_primary_face_bbox_xyxy_pixels(
+                source_analysis,
+                source_image.size,
+            ),
+        )
+    except Exception:
+        provider = str(getattr(adapter, "provider", "source_visual_risk") or "source_visual_risk")
+        return unavailable_visual_risk_analysis(
+            provider,
+            error_code="source_visual_risk_adapter_unavailable",
+        )
+
+
+def _is_critical_visual_risk_unavailable(visual_risk: Any) -> bool:
+    if visual_risk is None:
+        return False
+    if getattr(visual_risk, "provider_available", True) is False:
+        return True
+    return str(getattr(visual_risk, "status", "")).strip().lower() == STATUS_CRITICAL_UNAVAILABLE
+
+
+def _quality_context_metadata(metadata: Mapping[str, Any]) -> Dict[str, Any]:
+    return {
+        key: value
+        for key, value in dict(metadata or {}).items()
+        if not str(key).startswith("_")
+    }
+
+
+def _finalize_needs_review_without_generation(
+    fs: Any,
+    payload: AvatarGenerationPayload,
+    *,
+    error_code: str,
+    error_message: str,
+    seconds_by_stage: Dict[str, float],
+    job_started_at: float,
+    extra_update: Optional[Mapping[str, Any]] = None,
+) -> AvatarGenerationResult:
+    seconds_by_stage["total"] = _elapsed_seconds(job_started_at)
+    seconds_by_stage["total_seconds"] = seconds_by_stage["total"]
+    seconds_by_stage["total_worker_seconds"] = seconds_by_stage["total"]
+    final_update: Dict[str, Any] = {
+        "status": "needs_review",
+        "candidateIds": [],
+        "errorCode": error_code,
+        "errorMessage": error_message,
+    }
+    if extra_update:
+        final_update.update(dict(extra_update))
+    final_update.update(
+        _cost_document_for_job(
+            duration_seconds=seconds_by_stage["total"],
+            candidate_count=0,
+            seconds_by_stage=seconds_by_stage,
+        )
+    )
+    _update_job_status(fs, payload.job_id, final_update)
+    return AvatarGenerationResult(
+        job_id=payload.job_id,
+        uid=payload.uid,
+        status="needs_review",
+        candidate_ids=[],
+        preview_ready_count=0,
+        rejected_count=0,
+        needs_review_count=0,
+    )
+
+
+def _processing_attempt_from_job_doc(job_doc: Optional[Mapping[str, Any]]) -> int:
+    processing = (job_doc or {}).get("processing")
+    value = processing.get("attempt") if isinstance(processing, Mapping) else None
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _admission_remaining_seconds(deadline: Optional[ClaimDeadline]) -> Optional[float]:
+    if deadline is None:
+        return None
+    return max(0.0, deadline.remaining_seconds() - max(0, deadline.safety_seconds))
+
+
+def _worker_admission_remaining_seconds(deadline: AvatarWorkerDeadline) -> float:
+    return max(
+        0.0,
+        deadline.remaining_seconds() - deadline.soft_stop_margin_seconds,
+    )
+
+def _evaluate_worker_admission(
+    firestore_client: Any,
+    *,
+    phase: str,
+    existing_candidate_count: int,
+    retry_attempt: int,
+    remaining_deadline_seconds: Optional[float],
+) -> AdmissionDecision:
+    estimated_usd_per_candidate = _float_env_optional("AVATAR_ESTIMATED_USD_PER_CANDIDATE")
+    if AvatarCostConfig is None or evaluate_cost_guard is None:
+        return evaluate_admission(
+            AdmissionRequest(
+                phase=phase,
+                existing_candidate_count=existing_candidate_count,
+                retry_attempt=retry_attempt,
+                remaining_deadline_seconds=remaining_deadline_seconds,
+                usage=None,
+            ),
+            policy=AdmissionPolicy.from_env(),
+        )
+
+    cost_config = AvatarCostConfig.from_env()
+    policy = AdmissionPolicy.from_cost_config(
+        cost_config,
+        estimated_usd_per_candidate=estimated_usd_per_candidate,
+    )
+    if not policy.production_like and not policy.enforce_budget:
+        return evaluate_admission(
+            AdmissionRequest(
+                phase=phase,
+                existing_candidate_count=existing_candidate_count,
+                retry_attempt=retry_attempt,
+                remaining_deadline_seconds=remaining_deadline_seconds,
+                usage=CumulativeUsage(),
+            ),
+            policy=policy,
+        )
+
+    guard = evaluate_cost_guard(firestore_client, config=cost_config)
+    usage = usage_from_cost_aggregate(guard.aggregate)
+    decision = evaluate_admission(
+        AdmissionRequest(
+            phase=phase,
+            existing_candidate_count=existing_candidate_count,
+            retry_attempt=retry_attempt,
+            remaining_deadline_seconds=remaining_deadline_seconds,
+            usage=usage,
+        ),
+        policy=policy,
+    )
+    if guard.allowed or not decision.allowed:
+        return decision
+    return AdmissionDecision(
+        allowed=False,
+        reason=guard.reason or "cost_guard_denied",
+        projected_daily_count=usage.daily_count,
+        projected_monthly_count=usage.monthly_count,
+        projected_daily_usd=usage.daily_usd,
+        projected_monthly_usd=usage.monthly_usd,
+        blocked_reasons=(guard.reason or "cost_guard_denied",),
+    )
+
+
+def _finalize_admission_denied(
+    fs: Any,
+    payload: AvatarGenerationPayload,
+    decision: AdmissionDecision,
+) -> AvatarGenerationResult:
+    deadline_insufficient = decision.reason == "deadline_insufficient"
+    error_code = (
+        "avatar_worker_deadline_exceeded"
+        if deadline_insufficient
+        else "avatar_worker_cost_guard_paused"
+    )
+    error_message = (
+        "Avatar generation deadline is insufficient."
+        if deadline_insufficient
+        else "Avatar generation is currently paused."
+    )
+    _update_job_status(
+        fs,
+        payload.job_id,
+        {
+            "status": "failed",
+            "errorCode": error_code,
+            "errorMessage": error_message,
+            "admissionDecision": decision.to_dict(),
+            "processing": {
+                "lastErrorCode": error_code,
+                "lastErrorMessage": decision.reason,
+             },
+            "retryable": False,
+         },
+    )
+    return AvatarGenerationResult(
+        job_id=payload.job_id,
+        uid=payload.uid,
+        status="failed",
+        candidate_ids=[],
+        preview_ready_count=0,
+        rejected_count=0,
+        needs_review_count=0,
+    )
+
+def _blocked_extra_round(extra_plan: Any, decision: AdmissionDecision, candidate_count: int) -> Dict[str, Any]:
+    blocked_plan = dict(extra_plan.to_dict())
+    blocked_plan["candidateCount"] = 0
+    blocked_plan["reason"] = decision.reason
+    blocked_plan["admissionDecision"] = decision.to_dict()
+    blocked_reasons = list(blocked_plan.get("blockedReasons") or [])
+    if decision.reason not in blocked_reasons:
+        blocked_reasons.append(decision.reason)
+    blocked_plan["blockedReasons"] = blocked_reasons
+    return {
+        "reason": "extra_blocked",
+        "candidateCount": 0,
+        "startIndex": candidate_count,
+        "plan": blocked_plan,
+    }
+
+
+def _trait_input_uses_analysis_reference(run_mode: str, quality_context: Optional[AvatarQualityContext]) -> bool:
+    return run_mode == "flux" and quality_context is not None and quality_context.analysis_image is not None
+
+
+def _merge_region_color_traits(
+    validation: TraitCardValidationResult,
+    *,
+    image: Image.Image,
+    quality_context: Optional[AvatarQualityContext],
+    avatar_presentation_gender: str,
+) -> TraitCardValidationResult:
+    if quality_context is None:
+        return validation
+    region_traits = extract_region_color_traits(
+        image,
+        primary_face_hint=(quality_context.face_hints[0] if quality_context.face_hints else None),
+        foreground_mask=quality_context.foreground_mask,
+    )
+    raw_updates = region_traits.to_trait_card_update()
+    updates: Dict[str, str] = {}
+    for key, value in raw_updates.items():
+        hint = region_traits.hair_color_range if key == "hair_color_range" else region_traits.clothing_color
+        if hint.confidence in {"medium", "high"}:
+            updates[key] = value
+    if not updates:
+        return validation
+    data = validation.trait_card.to_dict()
+    for key, value in updates.items():
+        hint = region_traits.hair_color_range if key == "hair_color_range" else region_traits.clothing_color
+        if hint.confidence in {"medium", "high"}:
+            data[key] = value
+    data["avatar_presentation_gender"] = avatar_presentation_gender
+    from avatar_generation.trait_card.schema import AvatarTraitCard
+
+    return TraitCardValidationResult(
+        schema_version=validation.schema_version,
+        trait_card=AvatarTraitCard(**data),
+        privacy_safe=validation.privacy_safe,
+        confidence=validation.confidence,
+        errors=list(validation.errors),
+        removed_keys=list(validation.removed_keys),
+        invalid_enum_fields=list(validation.invalid_enum_fields),
+        sanitized_fields=sorted(set(validation.sanitized_fields + ["region_color_traits"])),
+    )
+
+
+def _float_env_optional(name: str) -> Optional[float]:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    return max(0.0, value)
+
+
+def _generation_budget(worker_deadline: AvatarWorkerDeadline, *, generated_count: int, max_total_candidates: int, min_extra_round_seconds: float = 30.0) -> GenerationBudget:
+    max_total = max(0, int(max_total_candidates))
+    estimated = _float_env_optional("AVATAR_ESTIMATED_USD_PER_CANDIDATE")
+    max_usd = _float_env_optional("AVATAR_JOB_MAX_GENERATION_USD")
+    remaining_usd = None
+    if max_usd is not None and estimated is not None:
+        remaining_usd = max(0.0, max_usd - (generated_count * estimated))
+    return GenerationBudget(
+        remaining_deadline_seconds=worker_deadline.remaining_seconds() - worker_deadline.soft_stop_margin_seconds,
+        min_extra_round_seconds=min_extra_round_seconds,
+        remaining_candidate_budget=max(0, max_total - generated_count),
+        remaining_usd=remaining_usd,
+        estimated_usd_per_candidate=estimated,
+    )
+
+
+def _qa_critical_models_unavailable(candidate_summaries: Sequence[Mapping[str, Any]]) -> bool:
+    unavailable = {"unavailable", "critical_unavailable", "uncalibrated"}
+    for summary in candidate_summaries:
+        qa = summary.get("qa") if isinstance(summary, Mapping) else None
+        if not isinstance(qa, Mapping):
+            continue
+        version = str(qa.get("qaVersion") or "").strip().lower()
+        if "model_unavailable" in version:
+            return True
+        review_reasons = {str(reason) for reason in (qa.get("reviewReasons") or [])}
+        if "model_unavailable" in review_reasons or any(reason.endswith("_unavailable") for reason in review_reasons):
+            return True
+        if qa.get("modelsUnavailable") is True:
+            return True
+        availability = qa.get("modelAvailability") if isinstance(qa.get("modelAvailability"), Mapping) else {}
+        for value in availability.values():
+            if str(value).strip().lower() in unavailable:
+                return True
+    return False
+
+
+def _heuristic_preview_version_blocked(qa_doc: Mapping[str, Any]) -> bool:
+    if not is_production_environment():
+        return False
+    version = str(qa_doc.get("qaVersion") or qa_doc.get("version") or "").strip().lower()
+    return any(token in version for token in ("dev", "staging", "bridge", "heuristic"))
+
+
 def _reference_preprocess_config_from_env() -> ReferencePreprocessConfig:
+    requested_profile = os.environ.get("AVATAR_REFERENCE_PROFILE", "").strip().lower()
+    profile_name = (
+        requested_profile
+        if requested_profile in REFERENCE_PREPROCESS_PROFILES
+        else "privacy_strict"
+    )
     return ReferencePreprocessConfig(
+        profile_name=profile_name,
         face_downsample_px=_int_env(
             "AVATAR_REFERENCE_FACE_EQUIVALENT_SIZE",
             32,
@@ -528,7 +991,7 @@ def _reference_preprocess_config_from_env() -> ReferencePreprocessConfig:
                 maximum=256,
             ),
             "hardPrivacyMode": is_production_environment(),
-        },
+         },
     )
 
 
@@ -684,28 +1147,6 @@ def redact_error_message(value: Any) -> str:
     return text[:240]
 
 
-def _sha256_prefix_bytes(data: bytes, *, length: int = 16) -> str:
-    return hashlib.sha256(data).hexdigest()[:length]
-
-
-def _image_sha256_prefix(image: Image.Image) -> str:
-    return _sha256_prefix_bytes(image_to_png_bytes(image))
-
-
-def _json_sha256_prefix(value: Any) -> str:
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        default=str,
-    ).encode("utf-8")
-    return _sha256_prefix_bytes(encoded)
-
-
-def _text_sha256_prefix(value: str) -> str:
-    return _sha256_prefix_bytes(str(value or "").encode("utf-8"))
-
-
 def _doc_ref(client: Any, collection: str, doc_id: str) -> Any:
     col = client.collection(collection)
     if hasattr(col, "document"):
@@ -807,8 +1248,10 @@ def build_fixture_avatar_image(source_image: Image.Image, *, seed: int, index: i
 
 
 class Flux2KleinImageGenerator:
-    def __init__(self, model_id: str = FLUX2_KLEIN_MODEL_ID) -> None:
-        self.model_id = model_id
+    def __init__(self, config: Flux2KleinExecutionConfig | None = None) -> None:
+        self.config = config or resolve_flux2_klein_execution_config()
+        self.model_id = self.config.logical_model_id
+        self.model_artifact_revision = self.config.model_artifact_revision
         self._pipeline: Any = None
         self.model_load_seconds_total = 0.0
 
@@ -826,7 +1269,11 @@ class Flux2KleinImageGenerator:
             ) from exc
 
         dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-        pipe = Flux2KleinPipeline.from_pretrained(self.model_id, torch_dtype=dtype)
+        pipe = Flux2KleinPipeline.from_pretrained(
+            self.model_id,
+            revision=self.model_artifact_revision,
+            torch_dtype=dtype,
+        )
         if torch.cuda.is_available():
             pipe = pipe.to("cuda")
         elif hasattr(pipe, "enable_model_cpu_offload"):
@@ -858,10 +1305,10 @@ class Flux2KleinImageGenerator:
             pipe,
             prompt=final_prompt,
             image=source_image,
-            width=int(os.environ.get("AVATAR_GENERATION_WIDTH", DEFAULT_WIDTH)),
-            height=int(os.environ.get("AVATAR_GENERATION_HEIGHT", DEFAULT_HEIGHT)),
-            num_inference_steps=int(os.environ.get("AVATAR_GENERATION_STEPS", DEFAULT_STEPS)),
-            guidance_scale=float(os.environ.get("AVATAR_GENERATION_GUIDANCE_SCALE", DEFAULT_GUIDANCE_SCALE)),
+            width=int(self.config.width),
+            height=int(self.config.height),
+            num_inference_steps=int(self.config.num_inference_steps),
+            guidance_scale=float(self.config.guidance_scale),
             generator=generator,
         )
         images = getattr(result, "images", None)
@@ -882,18 +1329,35 @@ def model_cache_metrics() -> Dict[str, int]:
     return metrics
 
 
-def get_flux2_klein_generator(model_id: str = FLUX2_KLEIN_MODEL_ID) -> Flux2KleinImageGenerator:
-    generator = _FLUX_GENERATOR_CACHE.get(model_id)
+def _flux_generator_cache_key(config: Flux2KleinExecutionConfig) -> tuple[str, str, int, int, int, float]:
+    return (
+        config.logical_model_id,
+        config.model_artifact_revision,
+        int(config.width),
+        int(config.height),
+        int(config.num_inference_steps),
+        float(config.guidance_scale),
+    )
+
+
+def get_flux2_klein_generator(
+    model_id: str = FLUX2_KLEIN_MODEL_ID,
+    *,
+    config: Flux2KleinExecutionConfig | None = None,
+) -> Flux2KleinImageGenerator:
+    resolved_config = config or resolve_flux2_klein_execution_config()
+    if model_id != resolved_config.logical_model_id:
+        resolved_config = replace(resolved_config, logical_model_id=model_id)
+    cache_key = _flux_generator_cache_key(resolved_config)
+    generator = _FLUX_GENERATOR_CACHE.get(cache_key)
     if generator is not None:
         _MODEL_METRICS["modelCacheHits"] += 1
         return generator
     _MODEL_METRICS["modelCacheMisses"] += 1
     _MODEL_METRICS["modelLoadCalls"] += 1
-    generator = Flux2KleinImageGenerator(model_id)
-    _FLUX_GENERATOR_CACHE[model_id] = generator
+    generator = Flux2KleinImageGenerator(resolved_config)
+    _FLUX_GENERATOR_CACHE[cache_key] = generator
     return generator
-
-
 def warmup_avatar_model(*, mode: Optional[str] = None) -> Dict[str, Any]:
     run_mode = resolve_worker_mode(mode)
     warmed = False
@@ -908,6 +1372,30 @@ def warmup_avatar_model(*, mode: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
+def _candidate_generation_execution_audit(
+    payload: AvatarGenerationPayload,
+    *,
+    mode: str,
+    seed: int,
+    generator: Any,
+) -> Dict[str, Any]:
+    if mode == "flux" and generator is not None:
+        config = getattr(generator, "config", None)
+        if isinstance(config, Flux2KleinExecutionConfig):
+            audit = build_flux2_klein_execution_audit(config, seed=seed)
+            return {**audit, "mode": mode, "candidateSeed": int(seed)}
+    return {
+        "modelId": payload.model_id,
+        "modelVersion": FLUX2_KLEIN_VERSION,
+        "mode": mode,
+        "width": DEFAULT_WIDTH,
+        "height": DEFAULT_HEIGHT,
+        "numInferenceSteps": DEFAULT_STEPS,
+        "guidanceScale": DEFAULT_GUIDANCE_SCALE,
+        "candidateSeed": int(seed),
+    }
+
+
 def generate_candidate_artifacts(
     payload: AvatarGenerationPayload,
     source_image: Image.Image,
@@ -917,7 +1405,6 @@ def generate_candidate_artifacts(
     trait_card: PromptAvatarTraitCard | None = None,
     privacy_reference_image: Optional[Image.Image] = None,
     reference_preprocess_metadata: Optional[Mapping[str, Any]] = None,
-    source_reference_audit: Optional[Mapping[str, Any]] = None,
     candidate_start_index: int = 0,
     candidate_count: Optional[int] = None,
     seconds_by_stage: Optional[Dict[str, float]] = None,
@@ -942,7 +1429,6 @@ def generate_candidate_artifacts(
             candidate_count=total_count,
             seed=seed,
         )
-        prompt_hash = _text_sha256_prefix(prompt.positive)
         if mode == "flux":
             assert generator is not None
             image = generator.generate(
@@ -966,29 +1452,17 @@ def generate_candidate_artifacts(
                 image_bytes=candidate_image_bytes,
                 seed=seed,
                 generation_params={
-                    "modelId": payload.model_id,
-                    "modelVersion": FLUX2_KLEIN_VERSION,
-                    "mode": mode,
-                    "width": int(os.environ.get("AVATAR_GENERATION_WIDTH", DEFAULT_WIDTH)),
-                    "height": int(os.environ.get("AVATAR_GENERATION_HEIGHT", DEFAULT_HEIGHT)),
-                    "numInferenceSteps": int(os.environ.get("AVATAR_FLUX_NUM_INFERENCE_STEPS", os.environ.get("AVATAR_GENERATION_STEPS", DEFAULT_STEPS))),
-                    "guidanceScale": float(os.environ.get("AVATAR_FLUX_GUIDANCE_SCALE", os.environ.get("AVATAR_GENERATION_GUIDANCE_SCALE", DEFAULT_GUIDANCE_SCALE))),
+                    **_candidate_generation_execution_audit(
+                        payload,
+                        mode=mode,
+                        seed=seed,
+                        generator=generator,
+                    ),
                     "referencePrivacyPreprocess": _reference_privacy_preprocess_enabled(),
                     "referencePreprocess": dict(reference_preprocess_metadata or {}),
                     "promptVersion": str(prompt.meta.get("prompt_version") or "seolleyeon_avatar_v4"),
                     "promptBuilder": "seolleyeon_avatar_prompt_builder_v4",
-                    "promptHash": prompt_hash,
                     "candidateSeed": seed,
-                    "sourceReferenceAudit": dict(source_reference_audit or {}),
-                    "sourceImageSha256Prefix": (
-                        source_reference_audit or {}
-                    ).get("sourceImageSha256Prefix"),
-                    "privacyReferenceSha256Prefix": (
-                        source_reference_audit or {}
-                    ).get("privacyReferenceSha256Prefix"),
-                    "traitCardHash": (source_reference_audit or {}).get("traitCardHash"),
-                    "promptMeta": dict(prompt.meta),
-                    "generationKwargs": dict(prompt.generation_kwargs),
                 },
             )
         )
@@ -1023,6 +1497,8 @@ def _write_fixture_file(output_dir: Path, artifact: CandidateArtifact) -> None:
 
 def _candidate_status_from_qa(qa_doc: Mapping[str, Any]) -> str:
     candidate_for_gate = {"status": "hard_pass", "qa": qa_doc}
+    if _heuristic_preview_version_blocked(qa_doc):
+        return "needs_review"
     if qa_doc.get("rejectReasons"):
         return "rejected"
     if qa_doc.get("requiresHumanReview") is True:
@@ -1220,7 +1696,7 @@ def _cost_document_for_job(
         {
             cost_key: normalized_seconds[stage_key]
             for stage_key, cost_key in NORMALIZED_STAGE_COST_KEYS
-        }
+         }
     )
     return {
         "cost": cost,
@@ -1381,7 +1857,7 @@ def _mark_avatar_job_superseded(
             "status": "superseded",
             "errorCode": "avatar_job_superseded",
             "errorMessage": f"Avatar job is no longer current: {reason}.",
-        },
+         },
     )
     return AvatarGenerationResult(
         job_id=payload.job_id,
@@ -1406,7 +1882,7 @@ def _mark_candidates_superseded(
                 {
                     "status": "superseded",
                     "updatedAt": SERVER_TIMESTAMP,
-                },
+                 },
                 merge=True,
             )
         except Exception as exc:
@@ -1416,7 +1892,7 @@ def _mark_candidates_superseded(
                     "candidateIdHash": hashlib.sha256(candidate_id.encode("utf-8")).hexdigest()[:12],
                     "errorType": type(exc).__name__,
                     "error": redact_error_message(exc),
-                },
+                 },
             )
 
 
@@ -1451,6 +1927,18 @@ def _source_reject_error_code(analysis_doc: Mapping[str, Any]) -> str:
         return "avatar_source_multi_face"
     if "face_too_small" in reasons:
         return "avatar_source_face_too_small"
+    if "face_too_blurry" in reasons:
+        return "avatar_source_face_too_blurry"
+    if "face_out_of_frame" in reasons:
+        return "avatar_source_face_out_of_frame"
+    if "landmarks_unstable" in reasons:
+        return "avatar_source_landmarks_unstable"
+    if "low_light" in reasons:
+        return "avatar_source_low_light"
+    if "compression_damage" in reasons:
+        return "avatar_source_compression_damage"
+    if "analysis_uncertain" in reasons:
+        return "avatar_source_analysis_uncertain"
     if reasons & {
         "background_text_logo_risk",
         "background_logo_text_risk",
@@ -1467,12 +1955,23 @@ def _source_reject_error_message(analysis_doc: Mapping[str, Any]) -> str:
         return "얼굴이 여러 명 감지됐어요. 혼자 나온 사진을 선택해주세요."
     if error_code == "avatar_source_face_too_small":
         return "얼굴이 너무 작게 보여요. 얼굴이 더 잘 보이는 사진을 선택해주세요."
+    if error_code == "avatar_source_face_too_blurry":
+        return "사진이 흐려 얼굴 특징을 확인하기 어려워요. 선명한 다른 사진을 선택해주세요."
+    if error_code == "avatar_source_face_out_of_frame":
+        return "얼굴이 사진 안에 충분히 들어오도록 촬영한 다른 사진을 선택해주세요."
+    if error_code == "avatar_source_landmarks_unstable":
+        return "얼굴 특징을 안정적으로 확인하기 어려워요. 정면에 가까운 다른 사진을 선택해주세요."
+    if error_code == "avatar_source_low_light":
+        return "사진이 너무 어두워 얼굴을 확인하기 어려워요. 밝은 곳에서 촬영한 사진을 선택해주세요."
+    if error_code == "avatar_source_compression_damage":
+        return "사진 화질이 많이 손상되어 있어요. 원본에 가까운 다른 사진을 선택해주세요."
+    if error_code == "avatar_source_analysis_uncertain":
+        return "사진 상태를 확실히 판단하기 어려워요. 선명한 다른 사진을 선택해주세요."
     if error_code == "avatar_background_text_logo_risky":
         return "배경의 글자나 로고가 크게 보여요. 다른 사진을 권장해요."
     if error_code == "avatar_source_no_face":
         return "얼굴이 잘 보이는 사진을 선택해주세요."
     return "아바타를 만들기 어려운 사진이에요. 다른 사진을 선택해주세요."
-
 
 def _worker_error_code(exc: Exception) -> str:
     message = str(exc).lower()
@@ -1593,31 +2092,32 @@ def _trait_extraction_input_metadata(
     reference_preprocess_doc: Mapping[str, Any],
     *,
     using_privacy_reference: bool,
+    using_analysis_reference: bool = False,
 ) -> Dict[str, Any]:
     neutralization = reference_preprocess_doc.get("backgroundNeutralization")
     if not isinstance(neutralization, Mapping):
         neutralization = {}
     return {
         "input": (
-            "privacy_processed_reference"
-            if using_privacy_reference
-            else "source_image"
+            "analysis_reference_image"
+            if using_analysis_reference
+            else ("privacy_processed_reference" if using_privacy_reference else "source_image")
         ),
         "primaryCropApplied": bool(reference_preprocess_doc.get("primaryCropApplied"))
-        if using_privacy_reference
+        if using_privacy_reference or using_analysis_reference
         else False,
         "cropType": reference_preprocess_doc.get("cropType")
-        if using_privacy_reference
+        if using_privacy_reference or using_analysis_reference
         else None,
         "backgroundNeutralized": bool(reference_preprocess_doc.get("backgroundNeutralized"))
-        if using_privacy_reference
+        if using_privacy_reference or using_analysis_reference
         else False,
         "backgroundRiskNotes": {
             "secondaryFaceCount": neutralization.get("secondaryFaceCount", 0),
             "secondaryFaceAction": neutralization.get("secondaryFaceAction", "none"),
             "textLogoRiskDetected": bool(neutralization.get("textLogoRiskDetected")),
             "textLogoAction": neutralization.get("textLogoAction", "none"),
-        },
+         },
     }
 
 
@@ -1629,6 +2129,7 @@ def _candidate_qa_metadata(
     reference_preprocess_doc: Mapping[str, Any],
     source_trait_card: Optional[Mapping[str, Any]] = None,
     candidate_trait_card: Optional[Mapping[str, Any]] = None,
+    analysis_reference_image: Optional[Image.Image] = None,
 ) -> Dict[str, Any]:
     metadata = {
         "jobId": payload.job_id,
@@ -1640,19 +2141,21 @@ def _candidate_qa_metadata(
         "sourceAnalysis": dict(source_analysis_doc or {}),
         "referencePreprocess": dict(reference_preprocess_doc or {}),
         "sourceTraitCard": dict(source_trait_card or {}),
-        "promptMeta": dict(artifact.generation_params.get("promptMeta") or {}),
-    }
+   }
+    if analysis_reference_image is not None and reference_preprocess_doc:
+        metadata["_source_image"] = analysis_reference_image
+        metadata["_analysis_reference_image"] = analysis_reference_image
     if candidate_trait_card:
         metadata["candidateTraitCard"] = dict(candidate_trait_card)
         metadata["candidateTraitExtraction"] = {
             "status": "available",
             "input": "generated_candidate",
-        }
-    elif source_trait_card and _source_eyewear_needs_candidate_check(source_trait_card):
+         }
+    elif source_trait_card:
         metadata["candidateTraitExtraction"] = {
             "status": "unavailable",
             "input": "generated_candidate",
-        }
+         }
     return metadata
 
 
@@ -1660,21 +2163,48 @@ def _prepare_reference_preprocess_for_generation(
     source_image: Image.Image,
     *,
     source_analysis: Any = None,
+    visual_risk_regions: Sequence[Any] = (),
     run_mode: str,
-) -> tuple[Optional[Image.Image], Dict[str, Any]]:
+) -> AvatarQualityContext:
     if run_mode != "flux":
-        return None, {}
+        return AvatarQualityContext(
+            generation_image=None,
+            analysis_image=source_image.convert("RGB"),
+            metadata={},
+        )
     if not _reference_privacy_preprocess_enabled():
         validate_reference_preprocess_enabled_for_environment(
             preprocess_enabled=False,
         )
-        return source_image.convert("RGB"), {"enabled": False}
+        image = source_image.convert("RGB")
+        return AvatarQualityContext(
+            generation_image=image,
+            analysis_image=image,
+            metadata={"enabled": False},
+        )
+    pipeline_analysis_reference = getattr(
+        source_analysis, "analysis_reference_image", None
+    )
     result = preprocess_reference_image(
         source_image,
         source_analysis=source_analysis,
+        visual_risk_regions=visual_risk_regions,
         config=_reference_preprocess_config_from_env(),
     )
-    return result.image, result.metadata
+    analysis_image = result.analysis_image
+    if pipeline_analysis_reference is not None:
+        # Prefer small-face pipeline analysis reference (crop + neutralized).
+        analysis_image = pipeline_analysis_reference.convert("RGB")
+    return AvatarQualityContext(
+        generation_image=result.image,
+        analysis_image=analysis_image,
+        foreground_mask=result.foreground_mask,
+        face_hints=result.face_hints,
+        metadata={
+            **result.metadata,
+            "smallFaceAnalysisReferenceUsed": pipeline_analysis_reference is not None,
+         },
+    )
 
 
 def _candidate_summary(
@@ -1715,7 +2245,7 @@ def _apply_preview_selection(
             "status": status,
             "qa": qa_doc,
             "rerank": rerank_doc,
-        }
+         }
         if (
             candidate_id in selected_ids
             and allow_preview_selection
@@ -1749,7 +2279,7 @@ def _apply_preview_selection(
                 "rerank": rerank_doc,
                 "status": status,
                 "updatedAt": SERVER_TIMESTAMP,
-            },
+             },
             merge=True,
         )
 
@@ -1843,8 +2373,11 @@ def process_avatar_generation_payload(
     firestore_database: Optional[str] = None,
     metrics_hook: Optional[MetricHook] = None,
     deadline: Optional[ClaimDeadline] = None,
+    source_visual_risk_adapter: Any = None,
 ) -> AvatarGenerationResult:
     job_started_at = time.perf_counter()
+    validate_bridge_runtime_config(firestore_project)
+    resolved_firestore_project = resolve_firestore_project(firestore_project)
     worker_deadline = AvatarWorkerDeadline.from_env().capped_by_claim_deadline(deadline)
     seconds_by_stage: Dict[str, float] = {
         "loadSource": 0.0,
@@ -1868,36 +2401,27 @@ def process_avatar_generation_payload(
     payload = parse_avatar_generation_payload(raw_payload)
     run_mode = resolve_worker_mode(mode)
 
-    fs = firestore_client or _default_firestore_client(firestore_project, firestore_database)
-    st = storage_client or _default_storage_client(firestore_project)
+    fs = firestore_client or _default_firestore_client(resolved_firestore_project, firestore_database)
+    st = storage_client or _default_storage_client(resolved_firestore_project)
 
     job_doc = _load_job_doc(fs, payload.job_id)
     _assert_job_can_run(job_doc, payload)
-    pause_reason = _generation_pause_reason()
-    if pause_reason:
-        persisted_status = _update_job_status(
-            fs,
-            payload.job_id,
-            {
-                "status": "failed",
-                "errorCode": "avatar_worker_cost_guard_paused",
-                "errorMessage": "Avatar generation is currently paused.",
-                "processing": {
-                    "lastErrorCode": "avatar_worker_cost_guard_paused",
-                    "lastErrorMessage": pause_reason,
-                },
-            },
-        )
-        result_status = persisted_status if persisted_status in TERMINAL_JOB_STATUSES else "failed"
-        return AvatarGenerationResult(
-            job_id=payload.job_id,
-            uid=payload.uid,
-            status=result_status,
-            candidate_ids=[],
-            preview_ready_count=0,
-            rejected_count=0,
-            needs_review_count=0,
-        )
+    initial_admission = _evaluate_worker_admission(
+        fs,
+        phase="initial",
+        existing_candidate_count=0,
+        retry_attempt=_processing_attempt_from_job_doc(job_doc),
+        remaining_deadline_seconds=_worker_admission_remaining_seconds(worker_deadline),
+    )
+    if not initial_admission.allowed:
+        denied_result = _finalize_admission_denied(fs, payload, initial_admission)
+        if initial_admission.reason == "deadline_insufficient":
+            raise AvatarGenerationError(
+                "avatar_worker_deadline_exceeded at initial_admission."
+            )
+        return denied_result
+    if initial_admission.candidate_count < payload.candidate_count:
+        payload = replace(payload, candidate_count=initial_admission.candidate_count)
     avatar_presentation_gender = _avatar_presentation_gender_for_job(
         payload,
         job_doc,
@@ -1922,7 +2446,7 @@ def process_avatar_generation_payload(
             "uid": payload.uid,
             "mode": run_mode,
             "candidateCount": payload.candidate_count,
-        },
+         },
     )
 
     _update_job_status(
@@ -1932,6 +2456,7 @@ def process_avatar_generation_payload(
             "status": "running",
             "startedAt": SERVER_TIMESTAMP,
             "workerMode": run_mode,
+            "admissionDecision": initial_admission.to_dict(),
         },
     )
 
@@ -1939,7 +2464,6 @@ def process_avatar_generation_payload(
         worker_deadline.ensure_can_continue("load_source", min_remaining_seconds=10)
         stage_started_at = time.perf_counter()
         source_image = load_source_image_from_gcs(st, source_refs[0])
-        source_image_hash_prefix = _image_sha256_prefix(source_image)
         source_selection_version = _selection_version(
             (job_doc or {}).get("avatarSourceSelectionVersion")
         )
@@ -1949,20 +2473,20 @@ def process_avatar_generation_payload(
             )
         source_reference_audit: Dict[str, Any] = {
             "jobId": payload.job_id,
-            "uidHash": _text_sha256_prefix(payload.uid),
             "sourcePhotoId": payload.source_photo_ids[0] if payload.source_photo_ids else "",
             "sourceSelectionVersion": source_selection_version,
-            "sourceImageSha256Prefix": source_image_hash_prefix,
-            "cleanedSourceSha256Prefix": source_image_hash_prefix,
-            "privacyReferenceSha256Prefix": None,
-            "traitCardHash": None,
-            "promptHash": None,
         }
         elapsed = _elapsed_seconds(stage_started_at)
         seconds_by_stage["loadSource"] += elapsed
         seconds_by_stage["source_load_seconds"] += elapsed
+        _update_job_status(
+            fs,
+            payload.job_id,
+            {"sourceReferenceAudit": source_reference_audit},
+        )
 
         source_analysis = None
+        source_visual_risk = None
         source_analysis_doc: Dict[str, Any] = {}
         if _source_analysis_enabled(run_mode):
             worker_deadline.ensure_can_continue("source_analysis", min_remaining_seconds=10)
@@ -1973,11 +2497,29 @@ def process_avatar_generation_payload(
             )
             seconds_by_stage["face_detect_seconds"] += _elapsed_seconds(stage_started_at)
             source_analysis_doc = source_analysis.to_document()
+            source_visual_risk = _analyze_source_visual_risk(
+                source_image,
+                source_analysis=source_analysis,
+                run_mode=run_mode,
+                source_visual_risk_adapter=source_visual_risk_adapter,
+            )
+            if source_visual_risk is not None:
+                source_analysis_doc["visualRisk"] = source_visual_risk.to_document()
             _update_job_status(
                 fs,
                 payload.job_id,
                 {"sourceAnalysis": source_analysis_doc},
             )
+            if _is_critical_visual_risk_unavailable(source_visual_risk) and is_production_environment():
+                return _finalize_needs_review_without_generation(
+                    fs,
+                    payload,
+                    error_code="avatar_source_visual_risk_model_unavailable",
+                    error_message="Source visual risk analysis is unavailable for production avatar generation.",
+                    seconds_by_stage=seconds_by_stage,
+                    job_started_at=job_started_at,
+                    extra_update={"sourceAnalysis": source_analysis_doc},
+                )
             if source_analysis.hard_reject:
                 final_status = "failed"
                 final_update = {
@@ -1986,7 +2528,7 @@ def process_avatar_generation_payload(
                     "sourceAnalysis": source_analysis_doc,
                     "errorCode": _source_reject_error_code(source_analysis_doc),
                     "errorMessage": _source_reject_error_message(source_analysis_doc),
-                }
+                 }
                 seconds_by_stage["total"] = _elapsed_seconds(job_started_at)
                 seconds_by_stage["total_seconds"] = seconds_by_stage["total"]
                 seconds_by_stage["total_worker_seconds"] = seconds_by_stage["total"]
@@ -2009,18 +2551,17 @@ def process_avatar_generation_payload(
                 )
 
         stage_started_at = time.perf_counter()
-        privacy_reference_image, reference_preprocess_doc = (
-            _prepare_reference_preprocess_for_generation(
-                source_image,
-                source_analysis=source_analysis,
-                run_mode=run_mode,
-            )
+        quality_context = _prepare_reference_preprocess_for_generation(
+            source_image,
+            source_analysis=source_analysis,
+            visual_risk_regions=getattr(source_visual_risk, "regions", ()),
+            run_mode=run_mode,
         )
+        privacy_reference_image = quality_context.generation_image
+        analysis_reference_image = quality_context.analysis_image or source_image.convert("RGB")
+        reference_preprocess_doc = quality_context.persisted_metadata()
         preprocess_elapsed = _elapsed_seconds(stage_started_at)
         seconds_by_stage["preprocess_seconds"] += preprocess_elapsed
-        source_reference_audit["privacyReferenceSha256Prefix"] = _image_sha256_prefix(
-            privacy_reference_image or source_image
-        )
         if (
             isinstance(reference_preprocess_doc, Mapping)
             and isinstance(reference_preprocess_doc.get("sam"), Mapping)
@@ -2038,21 +2579,16 @@ def process_avatar_generation_payload(
             )
 
         trait_validation = None
+        trait_card_doc: Optional[Dict[str, Any]] = None
         prompt_trait_card = None
         source_trait_card_doc: Dict[str, Any] = {}
         if _trait_extraction_enabled(run_mode):
             try:
                 worker_deadline.ensure_can_continue("trait_extraction", min_remaining_seconds=20)
                 stage_started_at = time.perf_counter()
-                trait_uses_privacy_reference = (
-                    _trait_extraction_uses_privacy_reference()
-                    and privacy_reference_image is not None
-                )
-                trait_input_image = (
-                    privacy_reference_image
-                    if trait_uses_privacy_reference
-                    else source_image
-                )
+                trait_uses_analysis_reference = _trait_input_uses_analysis_reference(run_mode, quality_context)
+                trait_uses_privacy_reference = False
+                trait_input_image = analysis_reference_image if trait_uses_analysis_reference else source_image
                 trait_validation, prompt_trait_card = _extract_trait_card_for_generation(
                     trait_input_image,
                     run_mode=run_mode,
@@ -2063,6 +2599,16 @@ def process_avatar_generation_payload(
                         else None
                     ),
                 )
+                if trait_validation is not None:
+                    trait_validation = _merge_region_color_traits(
+                        trait_validation,
+                        image=analysis_reference_image,
+                        quality_context=quality_context,
+                        avatar_presentation_gender=avatar_presentation_gender,
+                    )
+                    prompt_trait_card = PromptAvatarTraitCard(
+                        **trait_validation.trait_card.to_prompt_builder_dict()
+                    )
                 seconds_by_stage["trait_extract_seconds"] += _elapsed_seconds(stage_started_at)
             except Exception as exc:
                 detail = str(exc).splitlines()[0][:200]
@@ -2071,15 +2617,24 @@ def process_avatar_generation_payload(
                     type(exc).__name__,
                     detail,
                 )
+                if is_production_environment():
+                    return _finalize_needs_review_without_generation(
+                        fs,
+                        payload,
+                        error_code="avatar_trait_extraction_failed",
+                        error_message="Avatar trait extraction is unavailable for production avatar generation.",
+                        seconds_by_stage=seconds_by_stage,
+                        job_started_at=job_started_at,
+                        extra_update={
+                            "sourceAnalysis": source_analysis_doc,
+                            "referencePreprocess": reference_preprocess_doc,
+                            "traitExtraction": {"status": "critical_unavailable"},
+                         },
+                    )
                 raise AvatarGenerationError("avatar trait extraction failed.") from exc
             trait_card_doc = (
                 trait_validation.to_dict()
                 if trait_validation is not None
-                else None
-            )
-            source_reference_audit["traitCardHash"] = (
-                _json_sha256_prefix(trait_card_doc)
-                if trait_card_doc is not None
                 else None
             )
             source_trait_card_doc = (
@@ -2095,23 +2650,35 @@ def process_avatar_generation_payload(
                     "traitExtraction": _trait_extraction_input_metadata(
                         reference_preprocess_doc,
                         using_privacy_reference=trait_uses_privacy_reference,
+                        using_analysis_reference=trait_uses_analysis_reference,
                     ),
                     "sourceReferenceAudit": source_reference_audit,
                 },
             )
 
-        logger.info(
-            "Avatar job source/reference audit",
-            extra={"sourceReferenceAudit": source_reference_audit},
-        )
-
         worker_deadline.ensure_can_continue("generate_initial", min_remaining_seconds=30)
         stage_started_at = time.perf_counter()
         policy = AdaptiveGenerationPolicy.from_env()
-        initial_count = min(
-            max(1, int(payload.candidate_count)),
-            max(1, int(policy.initial_candidate_count)),
+        initial_plan = plan_generation_round(
+            [],
+            policy=policy,
+            budget=_generation_budget(
+                worker_deadline,
+                generated_count=0,
+                max_total_candidates=policy.max_candidate_count,
+            ),
         )
+        initial_count = min(max(0, int(payload.candidate_count)), initial_plan.candidate_count)
+        if initial_count <= 0:
+            return _finalize_needs_review_without_generation(
+                fs,
+                payload,
+                error_code="avatar_generation_budget_blocked",
+                error_message="Avatar generation budget blocked initial candidate generation.",
+                seconds_by_stage=seconds_by_stage,
+                job_started_at=job_started_at,
+                extra_update={"generationPlan": {"initial": initial_plan.to_dict()}},
+            )
         model_load_before = seconds_by_stage["model_load_seconds"]
         artifacts = generate_candidate_artifacts(
             payload,
@@ -2121,18 +2688,10 @@ def process_avatar_generation_payload(
             trait_card=prompt_trait_card,
             privacy_reference_image=privacy_reference_image,
             reference_preprocess_metadata=reference_preprocess_doc,
-            source_reference_audit=source_reference_audit,
             candidate_start_index=0,
             candidate_count=initial_count,
             seconds_by_stage=seconds_by_stage,
         )
-        if artifacts:
-            source_reference_audit["promptHash"] = artifacts[0].generation_params.get("promptHash")
-            _update_job_status(
-                fs,
-                payload.job_id,
-                {"sourceReferenceAudit": source_reference_audit},
-            )
         elapsed = _elapsed_seconds(stage_started_at)
         model_load_delta = max(0.0, seconds_by_stage["model_load_seconds"] - model_load_before)
         generation_elapsed = round(max(0.0, elapsed - model_load_delta), 3)
@@ -2142,12 +2701,14 @@ def process_avatar_generation_payload(
 
         candidate_ids: List[str] = []
         candidate_summaries: List[Dict[str, Any]] = []
+        shadow_corridor_candidates: List[CorridorCandidate] = []
         generation_rounds: List[Dict[str, Any]] = [
             {
                 "reason": "initial",
                 "candidateCount": initial_count,
                 "startIndex": 0,
-            }
+                "plan": initial_plan.to_dict(),
+             }
         ]
         stage_started_at = time.perf_counter()
         for artifact in artifacts:
@@ -2181,9 +2742,17 @@ def process_avatar_generation_payload(
                     reference_preprocess_doc=reference_preprocess_doc,
                     source_trait_card=source_trait_card_doc,
                     candidate_trait_card=candidate_trait_card_doc,
+                    analysis_reference_image=analysis_reference_image,
                 ),
             )
             qa_doc = qa_result.to_document()
+            shadow_evidence = build_shadow_corridor_evidence(
+                active_qa=qa_doc,
+                candidate_id=artifact.candidate_id,
+                source_trait_validation=trait_card_doc,
+            )
+            qa_doc = shadow_evidence.qa_document
+            shadow_corridor_candidates.append(shadow_evidence.candidate)
             seconds_by_stage["qa_seconds"] += _elapsed_seconds(qa_started_at)
             candidate_status = _candidate_status_from_qa(qa_doc)
             _set_doc(
@@ -2192,7 +2761,7 @@ def process_avatar_generation_payload(
                     "qa": qa_doc,
                     "status": candidate_status,
                     "updatedAt": SERVER_TIMESTAMP,
-                },
+                 },
                 merge=True,
             )
 
@@ -2205,10 +2774,30 @@ def process_avatar_generation_payload(
                 )
             )
 
-        extra_plan = plan_generation_round(candidate_summaries, policy=policy)
+        qa_models_unavailable = _qa_critical_models_unavailable(candidate_summaries)
+        extra_plan = plan_generation_round(
+            candidate_summaries,
+            policy=policy,
+            budget=_generation_budget(
+                worker_deadline,
+                generated_count=len(candidate_summaries),
+                max_total_candidates=policy.max_candidate_count,
+            ),
+        )
+        extra_admission = _evaluate_worker_admission(
+            fs,
+            phase="extra",
+            existing_candidate_count=len(candidate_summaries),
+            retry_attempt=_processing_attempt_from_job_doc(job_doc),
+            remaining_deadline_seconds=_worker_admission_remaining_seconds(worker_deadline),
+        ) if extra_plan.should_generate else AdmissionDecision(allowed=True, reason="admitted")
+        extra_count = min(extra_plan.candidate_count, extra_admission.candidate_count)
         if (
             payload.candidate_count >= policy.min_safe_before_extra
             and extra_plan.should_generate
+            and extra_admission.allowed
+            and extra_count > 0
+            and not qa_models_unavailable
         ):
             worker_deadline.ensure_can_continue("generate_extra", min_remaining_seconds=30)
             stage_generate_extra_started_at = time.perf_counter()
@@ -2221,9 +2810,8 @@ def process_avatar_generation_payload(
                 trait_card=prompt_trait_card,
                 privacy_reference_image=privacy_reference_image,
                 reference_preprocess_metadata=reference_preprocess_doc,
-                source_reference_audit=source_reference_audit,
                 candidate_start_index=len(candidate_summaries),
-                candidate_count=extra_plan.candidate_count,
+                candidate_count=extra_count,
                 seconds_by_stage=seconds_by_stage,
             )
             elapsed = _elapsed_seconds(stage_generate_extra_started_at)
@@ -2234,8 +2822,9 @@ def process_avatar_generation_payload(
             generation_rounds.append(
                 {
                     "reason": extra_plan.reason,
-                    "candidateCount": extra_plan.candidate_count,
+                    "candidateCount": extra_count,
                     "startIndex": len(candidate_summaries),
+                    "plan": extra_plan.to_dict(),
                 }
             )
 
@@ -2270,9 +2859,17 @@ def process_avatar_generation_payload(
                         reference_preprocess_doc=reference_preprocess_doc,
                         source_trait_card=source_trait_card_doc,
                         candidate_trait_card=candidate_trait_card_doc,
+                        analysis_reference_image=analysis_reference_image,
                     ),
                 )
                 qa_doc = qa_result.to_document()
+                shadow_evidence = build_shadow_corridor_evidence(
+                    active_qa=qa_doc,
+                    candidate_id=artifact.candidate_id,
+                    source_trait_validation=trait_card_doc,
+                )
+                qa_doc = shadow_evidence.qa_document
+                shadow_corridor_candidates.append(shadow_evidence.candidate)
                 seconds_by_stage["qa_seconds"] += _elapsed_seconds(qa_started_at)
                 candidate_status = _candidate_status_from_qa(qa_doc)
                 _set_doc(
@@ -2281,7 +2878,7 @@ def process_avatar_generation_payload(
                         "qa": qa_doc,
                         "status": candidate_status,
                         "updatedAt": SERVER_TIMESTAMP,
-                    },
+                     },
                     merge=True,
                 )
 
@@ -2294,12 +2891,53 @@ def process_avatar_generation_payload(
                     )
                 )
 
+        if (
+            payload.candidate_count >= policy.min_safe_before_extra
+            and extra_plan.should_generate
+            and not extra_admission.allowed
+            and not qa_models_unavailable
+        ):
+            generation_rounds.append(
+                _blocked_extra_round(extra_plan, extra_admission, len(candidate_summaries))
+            )
+
+        if qa_models_unavailable and extra_plan.should_generate:
+            blocked_plan = dict(extra_plan.to_dict())
+            blocked_plan["candidateCount"] = 0
+            blocked_reasons = list(blocked_plan.get("blockedReasons") or [])
+            if "qa_critical_model_unavailable" not in blocked_reasons:
+                blocked_reasons.append("qa_critical_model_unavailable")
+            blocked_plan["blockedReasons"] = blocked_reasons
+            generation_rounds.append(
+                {
+                    "reason": "extra_blocked",
+                    "candidateCount": 0,
+                    "startIndex": len(candidate_summaries),
+                    "plan": blocked_plan,
+                 }
+            )
+        if (
+            qa_models_unavailable
+            and not extra_plan.should_generate
+            and extra_plan.reason == "extra_suppressed_systemic_unavailable"
+        ):
+            generation_rounds.append(
+                {
+                    "reason": extra_plan.reason,
+                    "candidateCount": 0,
+                    "startIndex": len(candidate_summaries),
+                    "plan": extra_plan.to_dict(),
+                }
+            )
         seconds_by_stage["uploadAndQa"] += _elapsed_seconds(stage_started_at)
         rerank_started_at = time.perf_counter()
         preview_ready, rejected, needs_review, rerank_doc = _apply_preview_selection(
             fs,
             candidate_summaries,
             policy=policy,
+        )
+        shadow_ranking_doc = build_shadow_ranking_document(
+            shadow_corridor_candidates
         )
         seconds_by_stage["rerank_seconds"] += _elapsed_seconds(rerank_started_at)
         selected_preview_candidate_count = len(
@@ -2350,14 +2988,14 @@ def process_avatar_generation_payload(
                 "fillWithSoftPass": policy.soft_pass_fill_enabled,
                 "fillHardReject": policy.hard_reject_fill_enabled,
                 "fillWithNeedsReviewLowRisk": policy.needs_review_low_risk_enabled,
-            },
+             },
             "previewShortfall": _preview_shortfall(
                 selected_preview_candidate_count
                 if rerank_doc.get("status") == "insufficient_preview_candidates"
                 else preview_ready,
                 policy,
             ),
-        }
+         }
         if _has_required_preview_count(preview_ready, policy):
             final_status = "preview_ready"
             final_update = {
@@ -2369,7 +3007,7 @@ def process_avatar_generation_payload(
                 "errorMessage": "",
                 "generationPlan": generation_plan,
                 "previewRerank": rerank_doc,
-            }
+             }
         elif preview_ready > 0 or needs_review > 0:
             rerank_status = str(rerank_doc.get("status") or "")
             if rerank_status == "no_previewable":
@@ -2388,7 +3026,7 @@ def process_avatar_generation_payload(
                 "errorMessage": "No avatar candidates are safe for preview yet.",
                 "generationPlan": generation_plan,
                 "previewRerank": rerank_doc,
-            }
+             }
         else:
             final_status = "no_previewable_candidates"
             final_update = {
@@ -2398,7 +3036,8 @@ def process_avatar_generation_payload(
                 "errorMessage": "All generated avatar candidates were rejected by QA.",
                 "generationPlan": generation_plan,
                 "previewRerank": rerank_doc,
-            }
+             }
+        final_update["fidelityCorridorShadowRanking"] = shadow_ranking_doc
         seconds_by_stage["total"] = _elapsed_seconds(job_started_at)
         seconds_by_stage["total_seconds"] = seconds_by_stage["total"]
         seconds_by_stage["total_worker_seconds"] = seconds_by_stage["total"]
@@ -2434,7 +3073,7 @@ def process_avatar_generation_payload(
                 "previewReadyCount": preview_ready,
                 "needsReviewCount": needs_review,
                 "rejectedCount": rejected,
-            },
+             },
         )
         return AvatarGenerationResult(
             job_id=payload.job_id,
@@ -2453,7 +3092,7 @@ def process_avatar_generation_payload(
                 "jobId": payload.job_id,
                 "uid": payload.uid,
                 "errorType": exc.__class__.__name__,
-            },
+             },
         )
         _update_job_status(
             fs,
@@ -2462,7 +3101,7 @@ def process_avatar_generation_payload(
                 "status": "failed",
                 "errorCode": _worker_error_code(exc),
                 "errorMessage": redact_error_message(exc),
-            },
+             },
         )
         if isinstance(exc, AvatarGenerationError):
             raise
@@ -2583,14 +3222,16 @@ def process_avatar_generation_batch_payload(
     continue_on_error: bool = True,
 ) -> AvatarBatchRunResult:
     batch_started_at = time.perf_counter()
-    fs = firestore_client or _default_firestore_client(firestore_project, firestore_database)
-    st = storage_client or _default_storage_client(firestore_project)
+    validate_bridge_runtime_config(firestore_project)
+    resolved_firestore_project = resolve_firestore_project(firestore_project)
+    fs = firestore_client or _default_firestore_client(resolved_firestore_project, firestore_database)
+    st = storage_client or _default_storage_client(resolved_firestore_project)
     resolved = _resolve_batch_payload(raw_payload, fs)
     jobs = resolved.jobs
     deadline = (
         ClaimDeadline.from_timeout(resolved.deadline_seconds, safety_seconds=0)
         if resolved.deadline_seconds is not None
-        else None
+        else _deadline_from_env(AvatarJobLeaseConfig.from_env())
     )
     results: List[Dict[str, Any]] = []
     success_count = 0
@@ -2667,11 +3308,13 @@ def process_avatar_generation_drain(
     metrics_hook: Optional[MetricHook] = None,
 ) -> AvatarBatchRunResult:
     batch_started_at = time.perf_counter()
+    validate_bridge_runtime_config(firestore_project)
+    resolved_firestore_project = resolve_firestore_project(firestore_project)
     config = config or AvatarJobLeaseConfig.from_env()
     if config.concurrency_per_gpu != 1:
         raise AvatarGenerationError("GPU worker batch/drain mode requires AVATAR_BATCH_CONCURRENCY_PER_GPU=1.")
-    fs = firestore_client or _default_firestore_client(firestore_project, firestore_database)
-    st = storage_client or _default_storage_client(firestore_project)
+    fs = firestore_client or _default_firestore_client(resolved_firestore_project, firestore_database)
+    st = storage_client or _default_storage_client(resolved_firestore_project)
     active_deadline = deadline if deadline is not None else _deadline_from_env(config)
     active_worker_id = worker_id or os.environ.get("AVATAR_WORKER_ID", "").strip() or f"avatar-worker-{os.getpid()}"
     start = time.monotonic()
@@ -2742,7 +3385,7 @@ def process_avatar_generation_drain(
             "drainMode": True,
             "concurrencyPerGpu": config.concurrency_per_gpu,
             "cost": batch_cost,
-        },
+         },
     )
 
 

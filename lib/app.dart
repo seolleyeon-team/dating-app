@@ -15,7 +15,9 @@ import 'shared/widgets/app_privacy_splash_overlay.dart';
 
 /// 설레연 앱 (MaterialApp 루트 + Provider 등록)
 class SeolleyeonApp extends StatefulWidget {
-  const SeolleyeonApp({super.key});
+  const SeolleyeonApp({super.key, this.testHome});
+
+  final Widget? testHome;
 
   static const String fontFamily = 'Pretendard';
 
@@ -30,8 +32,10 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
   @override
   void initState() {
     super.initState();
-    PushNotificationService.instance.initialize();
-    ScreenSecurityService.instance.enableProtection();
+    if (widget.testHome == null) {
+      PushNotificationService.instance.initialize();
+      ScreenSecurityService.instance.enableProtection();
+    }
   }
 
   @override
@@ -54,7 +58,8 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
             themeMode: themeProvider.themeMode,
             theme: _buildLightTheme(),
             darkTheme: _buildDarkTheme(),
-            initialRoute: RouteNames.splash,
+            home: widget.testHome,
+            initialRoute: widget.testHome == null ? RouteNames.splash : null,
             onGenerateRoute: AppRouter.generateRoute,
             builder: (context, child) {
               final theme = Theme.of(context);

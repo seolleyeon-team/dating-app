@@ -1,0 +1,16 @@
+{
+  "generatedAt": "2026-07-27T20:24:23.706165+00:00",
+  "dryRun": false,
+  "status": "BLOCKED_MISSING_APPCHECK_TOKEN_NO_UPLOAD",
+  "eligibleCount": 1,
+  "requiredMinUsers": 1,
+  "eligible": [
+    {
+      "uidHash": "uid:4a49acf8a6bd",
+      "photoFile": "photo.jpeg"
+    }
+  ],
+  "blocked": [],
+  "appCheckTokenConfigured": false,
+  "appCheckExchangeHttpStatus": 0
+}

@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -18,8 +19,10 @@ class ScreenSecurityService {
 
     try {
       await _channel.invokeMethod<void>('enableProtection');
-    } catch (e, st) {
-      debugPrint('[ScreenSecurity] enableProtection failed: $e\n$st');
+    } catch (e) {
+      debugPrint(
+        '[ScreenSecurity] enableProtection failed: ${PrivacyLogUtils.errorSummary(e)}',
+      );
     }
   }
 
@@ -35,8 +38,10 @@ class ScreenSecurityService {
 
     try {
       await _channel.invokeMethod<void>('enableSensitiveProtection');
-    } catch (e, st) {
-      debugPrint('[ScreenSecurity] enableSensitiveProtection failed: $e\n$st');
+    } catch (e) {
+      debugPrint(
+        '[ScreenSecurity] enableSensitiveProtection failed: ${PrivacyLogUtils.errorSummary(e)}',
+      );
     }
   }
 
@@ -56,8 +61,10 @@ class ScreenSecurityService {
 
     try {
       await _channel.invokeMethod<void>('disableSensitiveProtection');
-    } catch (e, st) {
-      debugPrint('[ScreenSecurity] disableSensitiveProtection failed: $e\n$st');
+    } catch (e) {
+      debugPrint(
+        '[ScreenSecurity] disableSensitiveProtection failed: ${PrivacyLogUtils.errorSummary(e)}',
+      );
     }
   }
 }

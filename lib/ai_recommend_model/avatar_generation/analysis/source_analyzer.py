@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import BinaryIO, List, Optional, Sequence, Union
 
-from PIL import Image
+from PIL import Image, ImageOps
+
+from avatar_generation.environment import is_production_like_environment
 
 from .config import SourceSafetyConfig
 from .detectors import (
@@ -14,6 +17,11 @@ from .detectors import (
 )
 from .redaction import redacted_source_ref
 from .schema import FaceDetection, FaceDetectorResult, SourceAnalysisResult
+from .small_face import (
+    InternalFaceDetection,
+    SmallFacePipelineConfig,
+    SmallFaceSourcePipeline,
+)
 
 ImageInput = Union[bytes, bytearray, memoryview, BinaryIO, Image.Image]
 
@@ -22,6 +30,12 @@ REJECT_MULTIPLE_FACES = "multiple_faces"
 REJECT_MULTI_FACE_PRIMARY = "multi_face_primary"
 REJECT_AMBIGUOUS_PRIMARY_FACE = "ambiguous_primary_face"
 REJECT_FACE_TOO_SMALL = "face_too_small"
+REJECT_FACE_TOO_BLURRY = "face_too_blurry"
+REJECT_FACE_OUT_OF_FRAME = "face_out_of_frame"
+REJECT_LANDMARKS_UNSTABLE = "landmarks_unstable"
+REJECT_LOW_LIGHT = "low_light"
+REJECT_COMPRESSION_DAMAGE = "compression_damage"
+REJECT_ANALYSIS_UNCERTAIN = "analysis_uncertain"
 REJECT_SEVERE_OCCLUSION = "severe_occlusion"
 REJECT_CORRUPT_IMAGE = "corrupt_image"
 
@@ -31,6 +45,12 @@ REJECT_REASON_ORDER = (
     REJECT_AMBIGUOUS_PRIMARY_FACE,
     REJECT_MULTIPLE_FACES,
     REJECT_FACE_TOO_SMALL,
+    REJECT_FACE_TOO_BLURRY,
+    REJECT_FACE_OUT_OF_FRAME,
+    REJECT_LANDMARKS_UNSTABLE,
+    REJECT_LOW_LIGHT,
+    REJECT_COMPRESSION_DAMAGE,
+    REJECT_ANALYSIS_UNCERTAIN,
     REJECT_SEVERE_OCCLUSION,
     REJECT_CORRUPT_IMAGE,
 )
@@ -53,9 +73,29 @@ def analyze_avatar_source_image(
     source_ref: str = "",
     detector: Optional[FaceDetector] = None,
     config: Optional[SourceSafetyConfig] = None,
+    small_face_pipeline: Optional[SmallFaceSourcePipeline] = None,
+    small_face_config: Optional[SmallFacePipelineConfig] = None,
 ) -> SourceAnalysisResult:
     source_config = config or SourceSafetyConfig.from_env()
     redacted_ref = redacted_source_ref(source_ref)
+    pipeline_config = small_face_config or SmallFacePipelineConfig.from_env()
+    production_like = is_production_like_environment()
+    if production_like:
+        pipeline_config = replace(
+            pipeline_config,
+            enabled=True,
+            fail_closed_without_model=True,
+        )
+
+    if pipeline_config.enabled and (detector is None or production_like):
+        return _analyze_with_small_face_pipeline(
+            image_data,
+            source_ref=redacted_ref,
+            source_config=source_config,
+            pipeline_config=pipeline_config,
+            pipeline=small_face_pipeline,
+        )
+
     image = _load_image(image_data)
     if image is None:
         return _build_result(
@@ -94,12 +134,192 @@ def analyze_avatar_source_image(
     )
 
 
+def _analyze_with_small_face_pipeline(
+    image_data: ImageInput,
+    *,
+    source_ref: str,
+    source_config: SourceSafetyConfig,
+    pipeline_config: SmallFacePipelineConfig,
+    pipeline: Optional[SmallFaceSourcePipeline],
+) -> SourceAnalysisResult:
+    if pipeline is None:
+        model_path = pipeline_config.face_detect_model_path
+        model_ok = bool(model_path and Path(model_path).is_file())
+        if not model_ok and (
+            pipeline_config.fail_closed_without_model
+            or is_production_like_environment()
+        ):
+            return _build_result(
+                status="rejected",
+                hard_reject=True,
+                reject_reasons=[REJECT_CORRUPT_IMAGE],
+                source_ref=source_ref,
+                image_width=None,
+                image_height=None,
+                detector_result=FaceDetectorResult(
+                    provider="small_face_pipeline",
+                    image_width=None,
+                    image_height=None,
+                    faces=[],
+                    metadata={"pipeline": "small_face", "modelMissing": True},
+                ),
+                analysis_version=source_config.analysis_version,
+            )
+        pipeline = SmallFaceSourcePipeline(
+            config=pipeline_config,
+            source_config=source_config,
+            landmarker_model_path=source_config.mediapipe_face_landmarker_model_path,
+        )
+
+    try:
+        pipeline_result = pipeline.run(image_data)
+    except Exception:
+        return _small_face_pipeline_failure_result(
+            source_ref=source_ref,
+            analysis_version=source_config.analysis_version,
+        )
+
+    detector_result, face_selection = _small_face_selection(
+        pipeline_result.detector_result,
+        pipeline_result.analysis.primary_detection,
+        pipeline_result.analysis.secondary_detections,
+        source_config,
+    )
+    reasons = list(pipeline_result.public_reject_reasons)
+    if not reasons:
+        reasons = _small_face_policy_reject_reasons(
+            face_selection,
+            source_config,
+        )
+    metrics = pipeline_result.analysis.metrics if pipeline_result.analysis else {}
+    result = _build_result(
+        status="rejected" if reasons else "accepted",
+        hard_reject=bool(reasons),
+        reject_reasons=reasons,
+        source_ref=source_ref,
+        image_width=detector_result.image_width,
+        image_height=detector_result.image_height,
+        detector_result=detector_result,
+        face_selection=face_selection,
+        analysis_version=source_config.analysis_version,
+        used_tile_fallback=bool(metrics.get("usedTileFallback")),
+        face_size_bucket=(
+            str(metrics["primaryFaceSizeBucket"])
+            if metrics.get("primaryFaceSizeBucket") is not None
+            else None
+        ),
+    )
+    object.__setattr__(
+        result, "analysis_reference_image", pipeline_result.analysis_reference
+    )
+    object.__setattr__(result, "internal_face_analysis", pipeline_result.analysis)
+    return result
+
+
+def _small_face_selection(
+    detector_result: FaceDetectorResult,
+    primary_detection: Optional[InternalFaceDetection],
+    secondary_detections: Sequence[InternalFaceDetection],
+    config: SourceSafetyConfig,
+) -> tuple[FaceDetectorResult, FaceSelection]:
+    primary = _face_detection_from_internal(primary_detection)
+    secondary = tuple(
+        face
+        for face in (
+            _face_detection_from_internal(item) for item in secondary_detections
+        )
+        if face is not None
+    )
+    ordered_faces = tuple(
+        face for face in (primary, *secondary) if face is not None
+    )
+    detector_result = replace(detector_result, faces=ordered_faces)
+    if primary is None:
+        return detector_result, _select_primary_face(ordered_faces, config)
+
+    primary_score = _primary_face_score(primary)
+    secondary_scores = [_primary_face_score(face) for face in secondary]
+    margin = primary_score - max(secondary_scores) if secondary_scores else 1.0
+    large_secondary_count = sum(
+        1 for face in secondary if _is_large_secondary_face(face, primary, config)
+    )
+    background_risk = "none"
+    if large_secondary_count:
+        background_risk = "large_secondary_face"
+    elif secondary:
+        background_risk = "secondary_background_face"
+    return detector_result, FaceSelection(
+        primary_face=primary,
+        primary_score=primary_score,
+        primary_score_margin=margin,
+        secondary_face_count=len(secondary),
+        large_secondary_face_count=large_secondary_count,
+        background_face_risk=background_risk,
+        background_neutralization_required=bool(secondary),
+    )
+
+
+def _face_detection_from_internal(
+    detection: Optional[InternalFaceDetection],
+) -> Optional[FaceDetection]:
+    if detection is None:
+        return None
+    return FaceDetection(
+        bbox=detection.bbox_normalized.as_xywh(),
+        confidence=detection.confidence,
+    )
+
+
+def _small_face_policy_reject_reasons(
+    face_selection: FaceSelection,
+    config: SourceSafetyConfig,
+) -> List[str]:
+    if face_selection.primary_face is None:
+        return [REJECT_NO_FACE]
+    if (
+        face_selection.large_secondary_face_count > 0
+        and config.reject_large_secondary_face
+    ):
+        return [REJECT_MULTI_FACE_PRIMARY]
+    if (
+        face_selection.secondary_face_count > 0
+        and not config.allow_small_background_faces_if_removed
+    ):
+        return [REJECT_MULTI_FACE_PRIMARY]
+    return []
+
+
+def _small_face_pipeline_failure_result(
+    *,
+    source_ref: str,
+    analysis_version: str,
+) -> SourceAnalysisResult:
+    return _build_result(
+        status="rejected",
+        hard_reject=True,
+        reject_reasons=[REJECT_CORRUPT_IMAGE],
+        source_ref=source_ref,
+        image_width=None,
+        image_height=None,
+        detector_result=FaceDetectorResult(
+            provider="small_face_pipeline",
+            image_width=None,
+            image_height=None,
+            faces=(),
+            metadata={"pipeline": "small_face", "runtimeFailure": True},
+        ),
+        analysis_version=analysis_version,
+    )
+
+
+
 def _load_image(image_data: ImageInput) -> Optional[Image.Image]:
     try:
         if isinstance(image_data, Image.Image):
             image = image_data.copy()
             image.load()
-            return image.convert("RGB")
+            transposed = ImageOps.exif_transpose(image) or image
+            return transposed.convert("RGB")
         if isinstance(image_data, memoryview):
             raw = image_data.tobytes()
         elif isinstance(image_data, (bytes, bytearray)):
@@ -108,7 +328,8 @@ def _load_image(image_data: ImageInput) -> Optional[Image.Image]:
             raw = image_data.read()
         with Image.open(io.BytesIO(raw)) as image:
             image.load()
-            return image.convert("RGB")
+            transposed = ImageOps.exif_transpose(image) or image
+            return transposed.convert("RGB")
     except Exception:
         return None
 
@@ -253,6 +474,29 @@ def _clamp01(value: Optional[float]) -> float:
     return max(0.0, min(1.0, float(value)))
 
 
+def _primary_first_faces(
+    faces: Sequence[FaceDetection],
+    primary_face: Optional[FaceDetection],
+) -> tuple[FaceDetection, ...]:
+    if primary_face is None:
+        return tuple(faces)
+
+    remaining: list[FaceDetection] = []
+    primary_inserted = False
+    for face in faces:
+        if not primary_inserted and face is primary_face:
+            primary_inserted = True
+            continue
+        remaining.append(face)
+    if not primary_inserted:
+        for index, face in enumerate(remaining):
+            if face == primary_face:
+                del remaining[index]
+                primary_inserted = True
+                break
+    return (primary_face, *remaining)
+
+
 def _ordered_reasons(reasons: Sequence[str]) -> List[str]:
     reason_set = set(reasons)
     return [reason for reason in REJECT_REASON_ORDER if reason in reason_set]
@@ -269,13 +513,16 @@ def _build_result(
     detector_result: Optional[FaceDetectorResult],
     analysis_version: str,
     face_selection: Optional[FaceSelection] = None,
+    used_tile_fallback: bool = False,
+    face_size_bucket: Optional[str] = None,
 ) -> SourceAnalysisResult:
-    faces = list(detector_result.faces) if detector_result else []
+    faces = tuple(detector_result.faces) if detector_result else ()
     primary_face = (
         face_selection.primary_face
         if face_selection is not None
         else (faces[0] if len(faces) == 1 else None)
     )
+    ordered_faces = _primary_first_faces(faces, primary_face)
     return SourceAnalysisResult(
         status=status,
         hard_reject=hard_reject,
@@ -291,6 +538,7 @@ def _build_result(
         detector_metadata=dict(detector_result.metadata) if detector_result else {},
         broad_trait_hints=dict(primary_face.broad_traits) if primary_face else {},
         face_count=len(faces),
+        faces=ordered_faces,
         primary_face=primary_face,
         primary_face_bbox=primary_face.bbox if primary_face else None,
         primary_face_confidence=primary_face.confidence if primary_face else None,
@@ -313,6 +561,8 @@ def _build_result(
             else False
         ),
         analysis_version=analysis_version,
+        used_tile_fallback=used_tile_fallback,
+        face_size_bucket=face_size_bucket,
     )
 
 
@@ -320,6 +570,12 @@ __all__ = [
     "REJECT_CORRUPT_IMAGE",
     "REJECT_AMBIGUOUS_PRIMARY_FACE",
     "REJECT_FACE_TOO_SMALL",
+    "REJECT_FACE_TOO_BLURRY",
+    "REJECT_FACE_OUT_OF_FRAME",
+    "REJECT_LANDMARKS_UNSTABLE",
+    "REJECT_LOW_LIGHT",
+    "REJECT_COMPRESSION_DAMAGE",
+    "REJECT_ANALYSIS_UNCERTAIN",
     "REJECT_MULTI_FACE_PRIMARY",
     "REJECT_MULTIPLE_FACES",
     "REJECT_NO_FACE",

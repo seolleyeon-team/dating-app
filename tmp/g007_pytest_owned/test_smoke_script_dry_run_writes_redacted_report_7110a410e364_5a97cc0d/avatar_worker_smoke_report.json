@@ -1,0 +1,33 @@
+{
+  "status": "ok",
+  "mode": "dry_run",
+  "jobId": "avatar_job_1",
+  "uid": "u1",
+  "sourceRef": "gs://<private-source-photo-redacted>",
+  "candidateCount": 4,
+  "dependencies": {
+    "torch": {
+      "available": true,
+      "version": "2.11.0+cpu",
+      "cudaAvailable": false
+    },
+    "diffusersFlux2KleinPipeline": {
+      "available": false,
+      "error": "ModuleNotFoundError"
+    }
+  },
+  "result": {
+    "jobId": "avatar_job_1",
+    "uid": "u1",
+    "status": "no_previewable_candidates",
+    "candidateIds": [
+      "cand_avatar_job_1_01",
+      "cand_avatar_job_1_02",
+      "cand_avatar_job_1_03",
+      "cand_avatar_job_1_04"
+    ],
+    "previewReadyCount": 0,
+    "rejectedCount": 0,
+    "needsReviewCount": 4
+  }
+}

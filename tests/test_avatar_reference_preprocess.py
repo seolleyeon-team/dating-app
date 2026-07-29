@@ -182,7 +182,7 @@ def test_background_neutralization_removes_secondary_background_face_region():
     assert result.image.getpixel((138, 28)) == (247, 242, 236)
 
 
-def test_text_logo_risk_is_neutralized_in_metadata():
+def test_text_logo_risk_without_region_remains_unneutralized_watch_item():
     source = _source_image().resize((160, 160))
     source_analysis = {
         "primaryFaceBbox": [0.30, 0.22, 0.38, 0.38],
@@ -197,7 +197,9 @@ def test_text_logo_risk_is_neutralized_in_metadata():
 
     neutralization = result.metadata["backgroundNeutralization"]
     assert neutralization["textLogoRiskDetected"] is True
-    assert neutralization["textLogoAction"] == "neutralized_background"
+    assert neutralization["textLogoAction"] == "none"
+    assert result.metadata["backgroundNeutralized"] is True
+    assert result.metadata["textLogoNeutralized"] is False
 
 
 def test_sam_mock_path_loads_lazily():
