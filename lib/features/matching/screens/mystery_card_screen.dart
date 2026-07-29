@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 // =============================================================================
 // 오늘의 인연 (미스터리 카드) 화면
 // 경로: lib/features/matching/screens/mystery_card_screen.dart
@@ -463,7 +464,9 @@ class _MainContentState extends State<_MainContent> {
           context: contextMetadata,
         )
         .catchError(
-          (e) => debugPrint('[RecEvent] mystery_card impression failed: $e'),
+          (e) => debugPrint(
+            '[RecEvent] mystery_card impression failed: ${PrivacyLogUtils.errorSummary(e)}',
+          ),
         );
   }
 
@@ -893,7 +896,9 @@ class _MysteryCardState extends State<_MysteryCard>
               context: contextMetadata,
             )
             .catchError(
-              (e) => debugPrint('[RecEvent] mystery_card open failed: $e'),
+              (e) => debugPrint(
+                '[RecEvent] mystery_card open failed: ${PrivacyLogUtils.errorSummary(e)}',
+              ),
             );
       }
       _controller

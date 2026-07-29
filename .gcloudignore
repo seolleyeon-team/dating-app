@@ -17,3 +17,4 @@ lib/*
 recsys/.venv/
 **/.venv/
 **/__pycache__/
+**/.omx/

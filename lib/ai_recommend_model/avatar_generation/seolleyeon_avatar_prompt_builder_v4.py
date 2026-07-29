@@ -19,6 +19,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Mapping, Sequence
 
+PROMPT_VERSION = "seolleyeon_avatar_v3_flux2_klein"
+
 
 # ---------------------------------------------------------------------------
 # Public type aliases
@@ -374,88 +376,79 @@ def avatar_trait_card_from_dict(raw: Mapping[str, Any]) -> AvatarTraitCard:
 # ---------------------------------------------------------------------------
 
 _STYLE_TEXT: dict[StyleMode, str] = {
-    "privacy_3d_avatar": "Subtly stylized realistic adult 3D profile avatar style; ordinary university-student proportions; not chibi, baby-faced, doll-like, toy-like, mascot-like, or game-like.",
-    "subtle_minime": "Subtly stylized realistic adult 3D profile avatar style; ordinary university-student proportions; not chibi, baby-faced, doll-like, toy-like, mascot-like, or game-like.",
-    "soft_3d_avatar": "Soft realistic 3D app-profile avatar style; well-rendered but ordinary; not glossy character showcase or portfolio render.",
-    "clay_animation": "Soft clay-inspired 3D animation feel; refined app-profile rendering; mature adult proportions; not toy product, mascot, or collectible figurine.",
+    "privacy_3d_avatar": "Realistic adult 3D; not chibi/doll.",
+    "subtle_minime": "Realistic adult 3D; not chibi/doll.",
+    "soft_3d_avatar": "Soft realistic adult 3D app avatar; ordinary, not glossy.",
+    "clay_animation": "Soft clay-inspired adult 3D avatar; mature proportions; not a toy or mascot.",
 }
 
 _PRIVACY_TEXT: dict[PrivacyLevel, str] = {
-    "balanced": "Medium broad resemblance only; keep mood, hairstyle, eyewear, expression, clothing category, and broad facial impression, not exact identity.",
-    "more_private": "Prioritize lower re-identification risk; preserve mainly hairstyle, eyewear, clothing color, and expression mood; generalize facial structure more strongly.",
-    "more_resemblance": "Slightly stronger broad overall impression, but still no exact biometric geometry, unique marks, or face-recognition likeness.",
-    "anti_beauty_guard": "Prioritize anti-beautification; preserve ordinary broad impression even if soft, asymmetric, rounder, less sharp, or less model-like; do not upgrade attractiveness.",
+    "balanced": "Broad resemblance: mood/hair/eyewear/expression/clothing/face; no exact identity.",
+    "more_private": "More private: retain hair, eyewear, clothing color, expression; generalize facial structure.",
+    "more_resemblance": "More broad resemblance; still no exact geometry, unique marks, or face-recognition likeness.",
+    "anti_beauty_guard": "Anti-beauty: retain ordinary broad impression; never upgrade attractiveness.",
 }
 
 _CROP_TEXT: dict[CropPolicy, str] = {
-    "match_source_no_expansion": "Match the reference crop: face-only, head-and-shoulders, upper-body, or full-body only if actually visible. Never invent unseen lower body, legs, hands, accessories, outfit details, or body proportions.",
-    "app_card_cap_upper_body": "Match the reference crop but cap at face, head-and-shoulders, or upper-body for app cards. Never expand beyond the source or invent unseen body/outfit details.",
+    "match_source_no_expansion": "Match crop; invent no body/hands/accessories/outfit.",
+    "app_card_cap_upper_body": "Match crop; upper-body cap; invent no body/outfit.",
 }
 
 _CANDIDATE_VARIANTS: tuple[CandidateVariant, ...] = (
     CandidateVariant(
         key="balanced",
         privacy_level="balanced",
-        prompt_note="candidate 0: balanced medium broad resemblance with clear privacy-preserving generalization.",
+        prompt_note="candidate 0: broad resemblance; privacy-generalized.",
         metadata={"identity_strength_target": 0.30, "biometric_abstraction_target": 0.62},
     ),
     CandidateVariant(
         key="hair_clothing_fidelity",
         privacy_level="more_private",
-        prompt_note="candidate 1: slightly stronger confirmed hairstyle, crop, and clothing fidelity, with the same privacy limits.",
+        prompt_note="candidate 1: hair/crop/clothing; same privacy.",
         metadata={"identity_strength_target": 0.22, "biometric_abstraction_target": 0.75},
     ),
     CandidateVariant(
         key="softer_facial_abstraction",
         privacy_level="more_private",
-        prompt_note="candidate 2: slightly softer facial abstraction, not more attractive or more idealized.",
+        prompt_note="candidate 2: softer facial abstraction; no beauty upgrade.",
         metadata={"identity_strength_target": 0.24, "biometric_abstraction_target": 0.78},
     ),
     CandidateVariant(
         key="strongest_privacy_generalization",
         privacy_level="anti_beauty_guard",
-        prompt_note="candidate 3: strongest privacy generalization while keeping an ordinary adult student tone.",
+        prompt_note="candidate 3: strongest privacy; ordinary adult tone.",
         metadata={"identity_strength_target": 0.30, "biometric_abstraction_target": 0.65, "beautification": 0.0},
     ),
     CandidateVariant(
         key="regenerate_balanced",
         privacy_level="balanced",
-        prompt_note="extra candidate 4: regenerate variation, balanced broad resemblance, not beautified.",
+        prompt_note="extra candidate 4: resemblance; not beautified.",
         metadata={"identity_strength_target": 0.30, "biometric_abstraction_target": 0.64},
     ),
     CandidateVariant(
         key="regenerate_style_fidelity",
         privacy_level="more_private",
-        prompt_note="extra candidate 5: regenerate variation with hairstyle and clothing consistency, not beautified.",
+        prompt_note="extra candidate 5: hair/clothing; not beautified.",
         metadata={"identity_strength_target": 0.23, "biometric_abstraction_target": 0.76},
     ),
     CandidateVariant(
         key="regenerate_soft_abstraction",
         privacy_level="more_private",
-        prompt_note="extra candidate 6: regenerate variation with softer facial abstraction, not beautified.",
+        prompt_note="extra candidate 6: regenerated softer abstraction; not beautified.",
         metadata={"identity_strength_target": 0.22, "biometric_abstraction_target": 0.80},
     ),
     CandidateVariant(
         key="regenerate_privacy_guard",
         privacy_level="anti_beauty_guard",
-        prompt_note="extra candidate 7: regenerate variation with strongest privacy guard, not beautified.",
+        prompt_note="extra candidate 7: regenerated strongest privacy; not beautified.",
         metadata={"identity_strength_target": 0.20, "biometric_abstraction_target": 0.82, "beautification": 0.0},
     ),
 )
 
 _NEGATIVE_TERMS = (
-    "photorealistic clone, exact biometric face copy, face-recognition likeness, identity-preserving replica, "
-    "over-resemblance, exact facial geometry, exact eye distance, exact nose shape, exact jaw contour, "
-    "exact mouth shape, exact cheekbone geometry, exact facial asymmetry, exact moles, exact scars, "
-    "unique skin marks, unique wrinkles, copied skin texture, celebrity lookalike, idol styling, K-pop idol style, "
-    "influencer photoshoot, model portfolio, fashion photoshoot, professional studio portrait, handsome upgrade, "
-    "beauty upgrade, attractiveness enhancement, idealized face, perfect symmetry, sharper jawline, slimmer face, "
-    "smaller face, V-line jaw, higher nose bridge, oversized eyes, larger eyes, tiny nose, childlike appearance, "
-    "teenager look, babyface, chibi, doll face, toy figurine, collectible figurine, plastic toy, mascot, bobblehead, "
-    "game character, glossy character showcase, glossy perfect skin, plastic doll skin, over-smoothed skin, "
-    "hyper-realistic pores, school uniform, sexualized styling, nightclub, neon, nightlife, swimsuit, lingerie, "
-    "luxury fashion styling, logo, readable text, watermark, school name, brand name, campus sign, detailed campus building, "
-    "invented full body, invented lower body, invented legs, invented hands, body extension beyond source crop"
+    "photorealistic clone, exact biometric face copy, face-recognition likeness, idol, beauty upgrade, "
+    "babyface, logo, watermark, childlike, teenager, chibi, doll face, sexualized, school uniform, "
+    "readable text, school name, brand, campus sign, invented body/hands"
 )
 
 _QA_CHECKS: tuple[str, ...] = (
@@ -531,63 +524,41 @@ def _prompt_trait_card_dict(trait_card: AvatarTraitCard) -> dict[str, Any]:
 
 def _format_trait_card(trait_card: AvatarTraitCard | None) -> str:
     if trait_card is None:
-        return "No validated trait card provided; use only broad, visible, non-identifying categories from the privacy-processed reference."
+        return "{}"
 
     validate_trait_card(trait_card)
     data = _prompt_trait_card_dict(trait_card)
-    return (
-        "Expanded trait-card fields are broad impression categories only; interpret "
-        "hair_bangs, facial_hair_present/style, facial_feature_balance, "
-        "eye_shape_mood, brow_shape, nose_bridge_impression, and "
-        "mouth_fullness_category without copying exact geometry.\n"
-        "Trait card JSON, validated broad non-identifying categories only:\n"
-        f"{json.dumps(data, ensure_ascii=False, sort_keys=True)}"
-    )
+    return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def _eyewear_instruction(trait_card: AvatarTraitCard | None) -> str:
     state = _confirmed_eyewear_state(trait_card)
     if trait_card is not None and state == "present":
-        style = trait_card.eyewear_style or "broad visible frame style"
-        return (
-            "Eyewear: present. The avatar must wear eyewear with the same broad "
-            f"frame style ({style}). Do not omit glasses."
-        )
+        style = trait_card.eyewear_style or "broad frame"
+        return f"Eyewear: present ({style}); must wear eyewear; do not omit glasses."
     if state == "none":
-        return (
-            "Eye area: bare visible eyes. Keep the eye area simple, clear, "
-            "and unobstructed. Do not add any accessory around the eyes."
-        )
-    return "Eye area is unclear. Do not invent strong accessory details around the eyes."
+        return "Bare visible eyes; do not add any accessory around the eyes."
+    return "Eye area unclear; invent no accessory."
 
 
 def _priority_eyewear_constraint(trait_card: AvatarTraitCard | None) -> str:
     state = _confirmed_eyewear_state(trait_card)
     if state == "present":
-        return (
-            "Critical eyewear constraint: the source shows eyewear. The avatar "
-            "must include eyewear and must not omit glasses."
-        )
+        return "Critical eyewear constraint: the source shows eyewear."
     if state == "none":
-        return (
-            "Critical eye-area constraint: draw clear bare eyes with no eye "
-            "accessory detail. Keep the eye area simple and unobstructed."
-        )
-    return (
-        "Critical eye-area constraint: source eye accessories are unclear; "
-        "do not invent strong details around the eyes."
-    )
+        return "Critical eye-area constraint: draw clear bare eyes; no eye accessory detail."
+    return "Critical eye-area constraint: source accessories unclear; do not invent."
 
 
 def _presentation_gender_text(trait_card: AvatarTraitCard | None) -> str:
     gender = trait_card.avatar_presentation_gender if trait_card else None
     if gender == "male":
-        return "Use the user-provided onboarding gender only as broad presentation guidance: ordinary adult male university student avatar. Do not infer gender from the face, stereotype, sexualize, or alter age/body."
+        return "User-provided onboarding gender; ordinary adult male university student; do not infer gender from the face."
     if gender == "female":
-        return "Use the user-provided onboarding gender only as broad presentation guidance: ordinary adult female university student avatar. Do not infer gender from the face, stereotype, sexualize, or alter age/body."
+        return "User-provided onboarding gender; ordinary adult female university student; do not infer gender from the face."
     if gender == "non_binary":
-        return "Use the user-provided onboarding gender only as broad presentation guidance: neutral ordinary adult university student avatar. Do not infer gender from the face, stereotype, sexualize, or alter age/body."
-    return "No explicit onboarding gender guidance is available; keep a neutral ordinary adult university student presentation and do not infer gender from the face."
+        return "User-provided onboarding gender; neutral ordinary adult university student; do not infer gender from the face."
+    return "Neutral adult presentation; do not infer gender from the face."
 
 
 def _privacy_text(privacy_level: PrivacyLevel, trait_card: AvatarTraitCard | None) -> str:
@@ -595,9 +566,9 @@ def _privacy_text(privacy_level: PrivacyLevel, trait_card: AvatarTraitCard | Non
     if state == "present":
         return _PRIVACY_TEXT[privacy_level]
     if privacy_level == "balanced":
-        return "Medium broad resemblance only; keep mood, hairstyle, expression, clothing category, and broad facial impression, not exact identity."
+        return "Broad resemblance: mood/hair/expression/clothing/face; no exact identity."
     if privacy_level == "more_private":
-        return "Prioritize lower re-identification risk; preserve mainly hairstyle, clothing color, and expression mood; generalize facial structure more strongly."
+        return "More private: retain hair, clothing color, expression; generalize facial structure."
     return _PRIVACY_TEXT[privacy_level]
 
 
@@ -609,19 +580,16 @@ def _reference_use_line(trait_card: AvatarTraitCard | None) -> str:
         eye_area = "bare-eye state"
     else:
         eye_area = "eye-area mood only"
-    return (
-        "- the privacy-processed reference image for crop, general color, mood, "
-        f"hairstyle silhouette, {eye_area}, and clothing color/category"
-    )
+    return f"Privacy reference: crop/color/mood/hair/{eye_area}/clothes."
 
 
 def _reference_mode_text(reference_mode: ReferenceMode) -> str:
     if reference_mode == "reference_plus_trait":
-        return "Use the reference image plus the trait card; reference guides crop/style/mood, trait card limits preservation."
+        return "Privacy crop/style/mood; traits limit preservation."
     if reference_mode == "direct_reference":
-        return "Use the reference image directly, but only for broad non-identifying categories; stricter privacy QA is required."
+        return "Use privacy reference only for broad non-identifying categories."
     if reference_mode == "trait_card_only":
-        return "Use the trait card only; no original reference image at generation time; lower re-identification risk but more generic."
+        return "Use trait card only; no image reference; expect more generic output."
     raise ValueError(f"Unsupported reference_mode: {reference_mode!r}")
 
 
@@ -643,62 +611,28 @@ def _build_positive_prompt(
     eyewear_text = _eyewear_instruction(trait_card)
     priority_eyewear_text = _priority_eyewear_constraint(trait_card)
     reference_use_line = _reference_use_line(trait_card)
-    variant_text = f" Candidate calibration: {candidate_note}" if candidate_note else ""
 
     # Compact by design: Flux2KleinPipeline commonly uses max_sequence_length=512.
+    variant_text = candidate_note or "baseline broad-resemblance variant."
     return f"""
 {priority_eyewear_text}
-
-Create one standalone privacy-preserving adult 3D avatar for a Seolleyeon profile, a trusted university relationship platform.
-
-Goal:
-Represent only the user's broad visible impression, not exact identity or biometric identity.
-The avatar should feel similar in mood and style to the reference, but should not be identifiable as the real person.
-
-Use:
+Privacy-preserving adult 3D avatar.
+Style: {style_text}
+Privacy: {privacy_text}
+Reference: {ref_text}
 {reference_use_line}
-- the trait card for broad non-identifying visual categories only
-
-Reference policy:
-{ref_text}
-
-Resemblance:
-{privacy_text}
-
-Do not preserve:
-exact face geometry, eye distance, nose shape, jaw contour, mouth shape, cheekbones, facial asymmetry, pores, moles, scars, wrinkles, skin marks, or face-recognition likeness.
-
-Style:
-{style_text}
-ordinary adult university student in their 20s.
-Subtly stylized realistic 3D profile avatar with adult proportions.
-Well-rendered but not beautified.
-Do not make the avatar more handsome or prettier than the reference.
-Do not enlarge eyes, shrink nose, slim face, sharpen jawline, improve symmetry, or create a V-line.
-
-Avatar presentation:
-{gender_text}
-
-Eye area:
-{eyewear_text}
-
-Crop:
-{crop_text}
-Do not invent unseen body parts, lower body, hands, accessories, logos, school names, brands, or background details.
-
-Expression/background:
-calm closed-mouth expression or very subtle natural smile.
-simple warm off-white or quiet neutral background.
-Use simple neutral background. Do not preserve or recreate the original background.
-
-Trait card:
+Variant: {variant_text}
+Core invariants:
+- Preserve broad resemblance: hair, expression, clothing, crop, broad facial impression.
+- Suppress exact biometric identity; not exact identity/geometry or face-recognition likeness.
+- Safety: ordinary adult university student, adult proportions; no childlike/sexualized/logo/text/brand/background.
+- Anti-beauty: not beautified; no beauty upgrade, larger eyes, tiny nose, slim face, V-line.
+Trait card JSON first: broad impression categories without copying exact geometry.
 {trait_text}
-
+{gender_text} {eyewear_text} Crop: {crop_text}
+Use simple neutral background. Do not preserve or recreate the original background.
 Avoid:
 {_NEGATIVE_TERMS}
-
-Requirements:
-calm, trustworthy, ordinary adult 3D Seolleyeon avatar; similar in broad mood/style but not identifiable as a biometric copy.{variant_text}
 """.strip()
 
 def _provider_generation_kwargs(
@@ -808,13 +742,13 @@ def build_avatar_prompt(
         caps=caps,
         reference_mode=reference_mode,
         candidate_count=candidate_count,
-        seed=seed + int(candidate_index) if seed is not None else None,
+        seed=seed,
     )
 
     provider_negative = _NEGATIVE_TERMS if caps.supports_negative_prompt_text else None
 
     meta = {
-        "prompt_version": "seolleyeon_avatar_v3_flux2_klein",
+        "prompt_version": PROMPT_VERSION,
         "brand_positioning": "Quiet Romance / Clear Trust",
         "provider": caps.provider,
         "model_id": caps.model_id,

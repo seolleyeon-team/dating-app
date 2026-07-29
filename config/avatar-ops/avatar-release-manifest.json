@@ -1,0 +1,180 @@
+{
+  "schemaVersion": "avatar_release_manifest_v1",
+  "description": "Read-only release evidence expectations for the selected avatar pipeline only.",
+  "allowedProjects": [
+    "seolleyeon-final",
+    "seolleyeon-festival"
+  ],
+  "projects": {
+    "seolleyeon-final": {
+      "regions": {
+        "functions": "asia-northeast3",
+        "cloudRun": "asia-southeast1",
+        "queues": "asia-northeast3",
+        "buckets": "asia-northeast3"
+      },
+      "selectedFunctions": [
+        "uploadAvatarSourcePhoto",
+        "getCurrentAvatarGenerationStatus",
+        "retryCurrentAvatarGeneration",
+        "getAvatarJobCandidates",
+        "approveAvatarCandidate",
+        "cleanupAvatarMedia",
+        "onAvatarJobSourceRetention",
+        "onClipEmbeddingSourceRetention"
+      ],
+      "cloudRunServices": {
+        "seolleyeon-avatar-worker": {
+          "region": "asia-southeast1",
+          "privateInvocation": true,
+          "minInstances": 0,
+          "maxInstances": 1,
+          "concurrency": 1,
+          "timeoutSeconds": 1800,
+          "revisionEvidence": "latestReadyRevisionName only",
+          "imageEvidence": "image digest only"
+        }
+      },
+      "queues": {
+        "avatar-generation": {
+          "location": "asia-northeast3",
+          "rateLimits": {
+            "maxConcurrentDispatches": 1,
+            "maxDispatchesPerSecond": 1
+          },
+          "retryConfig": {
+            "maxAttempts": 3,
+            "minBackoff": "30s",
+            "maxBackoff": "600s"
+          }
+        }
+      },
+      "mediaBuckets": {
+        "private-source-photos": {
+          "nameSuffix": "private-source-photos",
+          "uniformBucketLevelAccess": true,
+          "publicAccessPrevention": "enforced",
+          "retentionPolicy": "absent",
+          "noPublicIamPrincipals": true
+        },
+        "avatar-temp": {
+          "nameSuffix": "avatar-temp",
+          "uniformBucketLevelAccess": true,
+          "publicAccessPrevention": "enforced",
+          "retentionPolicy": "absent",
+          "noPublicIamPrincipals": true
+        },
+        "approved-avatars": {
+          "nameSuffix": "approved-avatars",
+          "uniformBucketLevelAccess": true,
+          "publicAccessPrevention": "enforced",
+          "retentionPolicy": "absent",
+          "noPublicIamPrincipals": true
+        }
+      },
+      "evidencePlaceholders": {
+        "appCheck": "TODO: attach App Check enforcement evidence before release signoff.",
+        "rules": "TODO: attach Firestore and Storage rules deployment evidence before release signoff.",
+        "hosting": "TODO: attach Hosting channel/app config evidence before release signoff."
+      },
+      "temporaryBridge": {
+        "status": "temporary",
+        "expectedDirectFestivalWorker": true,
+        "sunsetGate": "Remove bridge after direct worker and task OIDC are verified."
+      }
+    },
+    "seolleyeon-festival": {
+      "regions": {
+        "functions": "asia-northeast3",
+        "cloudRun": "asia-southeast1",
+        "queues": "asia-northeast3",
+        "buckets": "asia-northeast3"
+      },
+      "selectedFunctions": [
+        "uploadAvatarSourcePhoto",
+        "getCurrentAvatarGenerationStatus",
+        "retryCurrentAvatarGeneration",
+        "getAvatarJobCandidates",
+        "approveAvatarCandidate",
+        "cleanupAvatarMedia",
+        "onAvatarJobSourceRetention",
+        "onClipEmbeddingSourceRetention"
+      ],
+      "cloudRunServices": {
+        "seolleyeon-avatar-worker": {
+          "region": "asia-southeast1",
+          "privateInvocation": true,
+          "minInstances": 0,
+          "maxInstances": 1,
+          "concurrency": 1,
+          "timeoutSeconds": 1800,
+          "revisionEvidence": "latestReadyRevisionName only",
+          "imageEvidence": "image digest only"
+        }
+      },
+      "queues": {
+        "avatar-generation": {
+          "location": "asia-northeast3",
+          "rateLimits": {
+            "maxConcurrentDispatches": 1,
+            "maxDispatchesPerSecond": 1
+          },
+          "retryConfig": {
+            "maxAttempts": 3,
+            "minBackoff": "30s",
+            "maxBackoff": "600s"
+          }
+        }
+      },
+      "mediaBuckets": {
+        "private-source-photos": {
+          "nameSuffix": "private-source-photos",
+          "uniformBucketLevelAccess": true,
+          "publicAccessPrevention": "enforced",
+          "retentionPolicy": "absent",
+          "noPublicIamPrincipals": true
+        },
+        "avatar-temp": {
+          "nameSuffix": "avatar-temp",
+          "uniformBucketLevelAccess": true,
+          "publicAccessPrevention": "enforced",
+          "retentionPolicy": "absent",
+          "noPublicIamPrincipals": true
+        },
+        "approved-avatars": {
+          "nameSuffix": "approved-avatars",
+          "uniformBucketLevelAccess": true,
+          "publicAccessPrevention": "enforced",
+          "retentionPolicy": "absent",
+          "noPublicIamPrincipals": true
+        }
+      },
+      "evidencePlaceholders": {
+        "appCheck": "TODO: attach App Check enforcement evidence before release signoff.",
+        "rules": "TODO: attach Firestore and Storage rules deployment evidence before release signoff.",
+        "hosting": "TODO: attach Hosting channel/app config evidence before release signoff."
+      },
+      "temporaryBridge": {
+        "status": "temporary",
+        "expectedDirectFestivalWorker": true,
+        "sunsetGate": "Remove bridge after direct worker and task OIDC are verified."
+      }
+    }
+  },
+  "redactionPolicy": {
+    "denyOutput": [
+      "environment variable values",
+      "IAM tokens",
+      "signed URLs",
+      "private object paths",
+      "raw identities",
+      "service account emails"
+    ],
+    "allowOutput": [
+      "aggregate counts",
+      "sanitized drift fields",
+      "Cloud Run latest ready revision name",
+      "container image digest"
+    ]
+  }
+}

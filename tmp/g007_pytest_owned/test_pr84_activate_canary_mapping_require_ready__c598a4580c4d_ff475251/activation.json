@@ -1,0 +1,48 @@
+{
+  "generatedAt": "2026-07-27T20:38:38.253069+00:00",
+  "confirmUidPhotoConsent": false,
+  "candidatePairCount": 1,
+  "consentPairCount": 0,
+  "matchedConsentPairCount": 0,
+  "unexpectedConsentPairCount": 0,
+  "activeRowCount": 0,
+  "blockedRowCount": 1,
+  "blockerCounts": {
+    "confirm_uid_photo_consent_required": 1,
+    "uid_photo_pair_consent_missing": 1
+  },
+  "candidateConsentMapRows": [
+    "uid-a=photo_a_plain.jpg"
+  ],
+  "requiredConsentMapRows": [
+    "uid-a=photo_a_plain.jpg"
+  ],
+  "rows": [
+    {
+      "label": null,
+      "uid": "uid-a",
+      "photoFile": "photo_a_plain.jpg",
+      "photoPath": "C:\\Users\\samsung\\StudioProjects\\semisemifinal\\tmp\\g007_pytest_owned\\test_pr84_activate_canary_mapping_require_ready__c598a4580c4d_ff475251\\photo_a_plain.jpg",
+      "active": false,
+      "blockers": [
+        "confirm_uid_photo_consent_required",
+        "uid_photo_pair_consent_missing"
+      ]
+    }
+  ],
+  "notes": [
+    "This activation requires an exact UID=photoFile consent map.",
+    "candidateConsentMapRows are the canonical exact UID/photo rows for PR8.4.",
+    "requiredConsentMapRows are still-blocked rows to copy only after consent is confirmed.",
+    "No upload is performed by this script."
+  ],
+  "uidPhotoConsentMap": {
+    "path": "C:\\Users\\samsung\\StudioProjects\\semisemifinal\\tmp\\g007_pytest_owned\\test_pr84_activate_canary_mapping_require_ready__c598a4580c4d_ff475251\\missing.txt",
+    "present": false,
+    "pairCount": 0,
+    "matchedPairCount": 0,
+    "unexpectedPairCount": 0
+  },
+  "status": "BLOCKED_CONSENT",
+  "minUsers": 1
+}

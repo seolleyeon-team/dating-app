@@ -29,6 +29,9 @@ test("backend display resolver rejects final private/temp buckets and encoded so
   for (const approvedAvatarUrl of [
     "https://storage.googleapis.com/seolleyeon-final-avatar-temp/users/u/jobs/j/c.png",
     "https://seolleyeon-final-private-source-photos.storage.googleapis.com/users/u/source/src.jpg",
+    "https://seolleyeon-festival-private-source-photos.storage.googleapis.com/users/u/source/src.jpg",
+    "https://seolleyeon-festival-avatar-temp.storage.googleapis.com/users/u/jobs/j/c.png",
+    "https://seolleyeon-festival-chat-profile-photos.storage.googleapis.com/users/u/chat-profile/p.jpg",
     "https://firebasestorage.googleapis.com/v0/b/public/o/users%2Fu%2Fsource%2Fsrc.jpg?alt=media",
     "https://cdn.example/users%2Fu%2Fcandidates%2Fcand.png",
   ]) {

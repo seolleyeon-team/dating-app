@@ -1,18 +1,14 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart'
-    show
-        TargetPlatform,
-        debugPrint,
-        debugPrintStack,
-        defaultTargetPlatform,
-        kIsWeb;
+    show TargetPlatform, debugPrint, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:kakao_flutter_sdk_share/kakao_flutter_sdk_share.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'auth_service.dart';
 import 'storage_service.dart';
+import '../shared/utils/privacy_log_utils.dart';
 
 enum FriendInviteAcceptStatus {
   accepted,
@@ -25,11 +21,7 @@ enum FriendInviteAcceptStatus {
   error,
 }
 
-enum FriendInviteShareSurface {
-  kakaoTalkApp,
-  webSharePage,
-  desktopSharePage,
-}
+enum FriendInviteShareSurface { kakaoTalkApp, webSharePage, desktopSharePage }
 
 class FriendInviteShareResult {
   final FriendInviteShareSurface surface;
@@ -141,10 +133,10 @@ class FriendInviteService {
     FirebaseFunctions? functions,
     StorageService? storageService,
     AuthService? authService,
-  })  : _functions =
-            functions ?? FirebaseFunctions.instanceFor(region: _functionsRegion),
-        _storageService = storageService ?? StorageService(),
-        _authService = authService ?? AuthService();
+  }) : _functions =
+           functions ?? FirebaseFunctions.instanceFor(region: _functionsRegion),
+       _storageService = storageService ?? StorageService(),
+       _authService = authService ?? AuthService();
 
   static const String _functionsRegion = 'asia-northeast3';
   static const String inviteWebHost = 'seolleyeon.web.app';
@@ -170,8 +162,8 @@ class FriendInviteService {
         throw Exception('\uB85C\uADF8\uC778\uC774 \uD544\uC694\uD574\uC694.');
       }
 
-      final hasFirebaseSession =
-          await _authService.ensureFirebaseSessionForVerifiedUser(kakaoUserId);
+      final hasFirebaseSession = await _authService
+          .ensureFirebaseSessionForVerifiedUser(kakaoUserId);
 
       final kakaoAccessToken = FirebaseAuth.instance.currentUser == null
           ? await _authService.getKakaoAccessTokenForFunctions()
@@ -183,7 +175,10 @@ class FriendInviteService {
       }
 
       debugPrint(
-        '[FriendInvite] createFriendInvite auth firebaseAttached=$hasFirebaseSession firebaseUid=${FirebaseAuth.instance.currentUser?.uid} hasKakaoAccessToken=${kakaoAccessToken != null && kakaoAccessToken.isNotEmpty}',
+        '[FriendInvite] createFriendInvite auth '
+        'firebaseAttached=$hasFirebaseSession '
+        '${PrivacyLogUtils.idFingerprint(FirebaseAuth.instance.currentUser?.uid)} '
+        'hasKakaoAccessToken=${kakaoAccessToken != null && kakaoAccessToken.isNotEmpty}',
       );
 
       if (FirebaseAuth.instance.currentUser == null &&
@@ -215,18 +210,22 @@ class FriendInviteService {
       }
 
       debugPrint(
-        '[FriendInvite] createFriendInvite success inviteId=${payload.inviteId} inviteUrl=${payload.inviteUrl}',
+        '[FriendInvite] createFriendInvite success '
+        '${PrivacyLogUtils.idFingerprint(payload.inviteId)} '
+        '${PrivacyLogUtils.pathFingerprint(payload.inviteUrl)}',
       );
       return payload;
-    } on FirebaseFunctionsException catch (e, st) {
+    } on FirebaseFunctionsException catch (e) {
       debugPrint(
-        '[FriendInvite] createFriendInvite functions error code=${e.code} message=${e.message}',
+        '[FriendInvite] createFriendInvite ${PrivacyLogUtils.errorSummary(e)}',
       );
-      debugPrintStack(stackTrace: st);
+
       throw Exception(_functionsErrorMessage(e));
-    } catch (e, st) {
-      debugPrint('[FriendInvite] createFriendInvite error: $e');
-      debugPrintStack(stackTrace: st);
+    } catch (e) {
+      debugPrint(
+        '[FriendInvite] createFriendInvite ${PrivacyLogUtils.errorSummary(e)}',
+      );
+
       throw Exception(
         '\uCE5C\uAD6C \uCD08\uB300 \uB9C1\uD06C\uB97C \uB9CC\uB4E4\uC9C0 \uBABB\uD588\uC5B4\uC694: $e',
       );
@@ -238,41 +237,37 @@ class FriendInviteService {
     required String inviterName,
   }) async {
     final inviteUri = Uri.parse(payload.inviteUrl);
-    debugPrint('[FriendInvite] share target url=$inviteUri');
-
-    final link = Link(
-      webUrl: inviteUri,
-      mobileWebUrl: inviteUri,
+    debugPrint(
+      '[FriendInvite] share target ${PrivacyLogUtils.pathFingerprint(inviteUri.toString())}',
     );
+
+    final link = Link(webUrl: inviteUri, mobileWebUrl: inviteUri);
 
     final template = TextTemplate(
       text:
           '\uC124\uB808\uC5F0\uC5D0\uC11C \uCE5C\uAD6C \uCD94\uAC00\uD558\uAE30\n${_shareDisplayName(inviterName)}\uB2D8\uC774 \uCE5C\uAD6C\uB85C \uCD08\uB300\uD588\uC5B4\uC694.',
       link: link,
       buttons: [
-        Button(
-          title: '\uCE5C\uAD6C \uCD94\uAC00\uD558\uAE30',
-          link: link,
-        ),
+        Button(title: '\uCE5C\uAD6C \uCD94\uAC00\uD558\uAE30', link: link),
       ],
       buttonTitle: '\uCE5C\uAD6C \uCD94\uAC00\uD558\uAE30',
     );
 
     try {
       debugPrint(
-        "[FriendInvite] shareInviteViaKakao start platform=${kIsWeb ? 'web' : 'native'} inviteUrl=${payload.inviteUrl}",
+        "[FriendInvite] shareInviteViaKakao start platform=${kIsWeb ? 'web' : 'native'} "
+        "${PrivacyLogUtils.pathFingerprint(payload.inviteUrl)}",
       );
 
       if (kIsWeb) {
         final sharerUri = await WebSharerClient.instance.makeDefaultUrl(
           template: template,
         );
-        debugPrint('[FriendInvite] web sharer uri=$sharerUri');
-
-        final launched = await launchUrl(
-          sharerUri,
-          webOnlyWindowName: '_self',
+        debugPrint(
+          '[FriendInvite] web sharer ${PrivacyLogUtils.pathFingerprint(sharerUri.toString())}',
         );
+
+        final launched = await launchUrl(sharerUri, webOnlyWindowName: '_self');
         if (!launched) {
           throw Exception(
             '\uCE74\uCE74\uC624 \uACF5\uC720 \uD398\uC774\uC9C0\uB97C \uC5F4\uC9C0 \uBABB\uD588\uC5B4\uC694.',
@@ -288,7 +283,9 @@ class FriendInviteService {
         final sharerUri = await WebSharerClient.instance.makeDefaultUrl(
           template: template,
         );
-        debugPrint('[FriendInvite] desktop sharer uri=$sharerUri');
+        debugPrint(
+          '[FriendInvite] desktop sharer ${PrivacyLogUtils.pathFingerprint(sharerUri.toString())}',
+        );
 
         await Clipboard.setData(ClipboardData(text: payload.inviteUrl));
         final launched = await launchUrl(
@@ -307,15 +304,17 @@ class FriendInviteService {
         );
       }
 
-      final canShareToTalk =
-          await ShareClient.instance.isKakaoTalkSharingAvailable();
+      final canShareToTalk = await ShareClient.instance
+          .isKakaoTalkSharingAvailable();
       debugPrint('[FriendInvite] KakaoTalk available=$canShareToTalk');
 
       if (canShareToTalk) {
         final sharingUri = await ShareClient.instance.shareDefault(
           template: template,
         );
-        debugPrint('[FriendInvite] launchKakaoTalk uri=$sharingUri');
+        debugPrint(
+          '[FriendInvite] launchKakaoTalk ${PrivacyLogUtils.pathFingerprint(sharingUri.toString())}',
+        );
         await ShareClient.instance.launchKakaoTalk(sharingUri);
 
         return const FriendInviteShareResult(
@@ -326,7 +325,9 @@ class FriendInviteService {
       final sharerUri = await WebSharerClient.instance.makeDefaultUrl(
         template: template,
       );
-      debugPrint('[FriendInvite] native fallback sharer uri=$sharerUri');
+      debugPrint(
+        '[FriendInvite] native fallback ${PrivacyLogUtils.pathFingerprint(sharerUri.toString())}',
+      );
 
       final launched = await launchUrl(
         sharerUri,
@@ -341,9 +342,11 @@ class FriendInviteService {
       return const FriendInviteShareResult(
         surface: FriendInviteShareSurface.webSharePage,
       );
-    } catch (e, st) {
-      debugPrint('[FriendInvite] shareInviteViaKakao error: $e');
-      debugPrintStack(stackTrace: st);
+    } catch (e) {
+      debugPrint(
+        '[FriendInvite] shareInviteViaKakao ${PrivacyLogUtils.errorSummary(e)}',
+      );
+
       throw Exception(
         '\uCE74\uCE74\uC624\uD1A1 \uACF5\uC720\uB97C \uC2E4\uD589\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694: $e',
       );
@@ -429,7 +432,8 @@ class FriendInviteService {
 
     final kakaoUserId = await _storageService.getKakaoUserId();
     debugPrint(
-      '[FriendInvite] processPendingInviteIfPossible kakaoUserId=$kakaoUserId',
+      '[FriendInvite] processPendingInviteIfPossible '
+      '${PrivacyLogUtils.idFingerprint(kakaoUserId)}',
     );
 
     if (kakaoUserId == null || kakaoUserId.isEmpty) {
@@ -471,14 +475,17 @@ class FriendInviteService {
       }
 
       debugPrint(
-        '[FriendInvite] acceptFriendInvite auth firebaseUid=${FirebaseAuth.instance.currentUser?.uid} hasKakaoAccessToken=${kakaoAccessToken != null && kakaoAccessToken.isNotEmpty}',
+        '[FriendInvite] acceptFriendInvite auth '
+        '${PrivacyLogUtils.idFingerprint(FirebaseAuth.instance.currentUser?.uid)} '
+        'hasKakaoAccessToken=${kakaoAccessToken != null && kakaoAccessToken.isNotEmpty}',
       );
 
       if (FirebaseAuth.instance.currentUser == null &&
           (kakaoAccessToken == null || kakaoAccessToken.isEmpty)) {
         return const FriendInviteAcceptResult(
           status: FriendInviteAcceptStatus.pendingVerification,
-          message: '\uCE74\uCE74\uC624 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD574\uC694.',
+          message:
+              '\uCE74\uCE74\uC624 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD574\uC694.',
         );
       }
 
@@ -487,13 +494,15 @@ class FriendInviteService {
       final data = Map<String, dynamic>.from(
         (result.data as Map?)?.cast<String, dynamic>() ?? const {},
       );
-      debugPrint('[FriendInvite] acceptFriendInvite result=$data');
-      return _acceptResultFromMap(data);
-    } on FirebaseFunctionsException catch (e, st) {
+      final parsedResult = _acceptResultFromMap(data);
       debugPrint(
-        '[FriendInvite] acceptFriendInvite functions error code=${e.code} message=${e.message}',
+        '[FriendInvite] acceptFriendInvite result=${parsedResult.status}',
       );
-      debugPrintStack(stackTrace: st);
+      return parsedResult;
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint(
+        '[FriendInvite] acceptFriendInvite ${PrivacyLogUtils.errorSummary(e)}',
+      );
 
       if (e.code == 'unauthenticated') {
         return const FriendInviteAcceptResult(
@@ -505,9 +514,11 @@ class FriendInviteService {
         status: FriendInviteAcceptStatus.error,
         message: _functionsErrorMessage(e),
       );
-    } catch (e, st) {
-      debugPrint('[FriendInvite] acceptFriendInvite error: $e');
-      debugPrintStack(stackTrace: st);
+    } catch (e) {
+      debugPrint(
+        '[FriendInvite] acceptFriendInvite ${PrivacyLogUtils.errorSummary(e)}',
+      );
+
       return FriendInviteAcceptResult(
         status: FriendInviteAcceptStatus.error,
         message:

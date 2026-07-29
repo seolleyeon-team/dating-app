@@ -814,6 +814,31 @@ def test_retry_failed_avatar_jobs_targets_only_negative_prompt_worker_error():
     assert "seolleyeon-final-private-source-photos" not in rendered
 
 
+@pytest.mark.parametrize("project", ["", "default", "seolleyeon", "production-project"])
+def test_retry_failed_avatar_jobs_rejects_forbidden_projects(project):
+    retry = load_script("retry_failed_avatar_jobs_guard", "retry_failed_avatar_jobs.py")
+
+    with pytest.raises(ValueError, match="refusing project"):
+        retry.validate_execution(project, apply=False)
+
+
+def test_retry_failed_avatar_jobs_apply_requires_exact_confirmation():
+    retry = load_script("retry_failed_avatar_jobs_confirmation", "retry_failed_avatar_jobs.py")
+
+    with pytest.raises(ValueError, match="confirmation token"):
+        retry.validate_execution("seolleyeon-final", apply=True)
+    with pytest.raises(ValueError, match="confirmation token"):
+        retry.validate_execution(
+            "seolleyeon-final",
+            apply=True,
+            confirmation_token="wrong",
+        )
+    assert retry.validate_execution(
+        "seolleyeon-final",
+        apply=True,
+        confirmation_token="APPLY_AVATAR_NEGATIVE_PROMPT_RETRY:seolleyeon-final:v1",
+    ) == "seolleyeon-final"
+
 def test_retry_failed_avatar_jobs_update_requeues_and_preserves_last_error():
     retry = load_script("retry_failed_avatar_jobs_update", "retry_failed_avatar_jobs.py")
     job = {

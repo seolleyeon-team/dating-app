@@ -10,6 +10,10 @@ except Exception:  # pragma: no cover - dependency is required in the worker ima
     jsonify = None  # type: ignore[assignment]
     request = None  # type: ignore[assignment]
 
+from avatar_generation.fidelity_corridor import CorridorMode, CorridorPolicy
+from avatar_generation.flux_config import resolve_flux2_klein_execution_config
+from avatar_generation.preprocessing.reference import REFERENCE_PREPROCESS_PROFILES
+from avatar_generation.seolleyeon_avatar_prompt_builder_v4 import PROMPT_VERSION
 from avatar_generation.worker import (
     AvatarGenerationError,
     is_production_environment,
@@ -17,6 +21,8 @@ from avatar_generation.worker import (
     process_avatar_generation_batch_payload,
     process_avatar_generation_drain,
     process_avatar_generation_payload,
+    resolve_firestore_project,
+    validate_bridge_runtime_config,
     warmup_avatar_model,
 )
 
@@ -47,7 +53,34 @@ def _batch_drain_enabled() -> bool:
     )
 
 
+
+def _release_posture() -> Dict[str, Any]:
+    execution = resolve_flux2_klein_execution_config()
+    corridor = CorridorPolicy.from_env()
+    requested_profile = os.environ.get("AVATAR_REFERENCE_PROFILE", "").strip().lower()
+    profile = REFERENCE_PREPROCESS_PROFILES.get(
+        requested_profile,
+        REFERENCE_PREPROCESS_PROFILES["privacy_strict"],
+    )
+    return {
+        "fluxModelArtifactRevision": execution.model_artifact_revision,
+        "promptVersion": PROMPT_VERSION,
+        "referenceProfile": {
+            "name": profile.name,
+            "version": profile.version,
+        },
+        "fidelityCorridor": {
+            "mode": corridor.mode.value,
+            "calibrationVersion": corridor.calibration_version,
+            "enforced": bool(
+                corridor.mode is CorridorMode.ENFORCED and corridor.calibrated
+            ),
+        },
+        "publicRollout": _env_bool("AVATAR_PUBLIC_ROLLOUT_ENABLED"),
+    }
+
 def readyz_status() -> Dict[str, Any]:
+    validate_bridge_runtime_config()
     auth_mode = os.environ.get("AVATAR_WORKER_AUTH_MODE", "").strip().lower()
     if not auth_mode and _allow_insecure_local_worker():
         auth_mode = "local_insecure"
@@ -55,7 +88,9 @@ def readyz_status() -> Dict[str, Any]:
         "status": "ok",
         "authMode": auth_mode or "not_configured",
         "production": is_production_environment(),
+        "dataProject": resolve_firestore_project() or "ambient",
         "batchDrainEnabled": _batch_drain_enabled(),
+        "releasePosture": _release_posture(),
         "metrics": model_cache_metrics(),
     }
 

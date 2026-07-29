@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
   CREATE_TEAM_MEETING_REQUEST_CALLABLE_OPTIONS,
   RESPOND_TEAM_MEETING_REQUEST_CALLABLE_OPTIONS,
   buildCreateTeamMeetingRequestPlan,
+  buildPendingPairRepair,
   buildRespondTeamMeetingRequestPlan,
+  isPendingTeamPairRequest,
   teamMeetingMatchId,
+  teamMeetingPairLockId,
   teamMeetingRequestId,
 } from "./teamMeetingRequest";
 
@@ -47,6 +51,8 @@ test("create request plan derives snapshots, members, participants, and determin
   });
 
   assert.equal(plan.requestId, teamMeetingRequestId("result-1", "team-a", "team-b"));
+  assert.equal(plan.pairLockId, teamMeetingPairLockId("team-a", "team-b"));
+  assert.equal(plan.requestData.pairLockId, plan.pairLockId);
   assert.equal(plan.responseStatus, "pending");
   assert.deepEqual(plan.requestData.fromTeamMemberUids, ["a1", "a2", "a3"]);
   assert.deepEqual(plan.requestData.toTeamMemberUids, ["b1", "b2", "b3"]);
@@ -54,6 +60,92 @@ test("create request plan derives snapshots, members, participants, and determin
   assert.equal(plan.requestData.createdByUserId, "a2");
 });
 
+test("different results for the same team pair share one pending-request lock", () => {
+  const first = buildCreateTeamMeetingRequestPlan({
+    sourceResultId: "result-1",
+    viewerGroupId: "team-a",
+    callerUid: "a1",
+    matchResultData: matchResult,
+  });
+  const second = buildCreateTeamMeetingRequestPlan({
+    sourceResultId: "result-2",
+    viewerGroupId: "team-b",
+    callerUid: "b1",
+    matchResultData: { ...matchResult, resultId: "result-2" },
+  });
+
+  assert.notEqual(first.requestId, second.requestId);
+  assert.equal(first.pairLockId, second.pairLockId);
+});
+
+test("pending pair repair backfills the request and lock with the same identity", () => {
+  const repair = buildPendingPairRepair({
+    requestId: "request-legacy",
+    pairLockId: "lock-team-a-team-b",
+    fromTeamId: "team-a",
+    toTeamId: "team-b",
+    sourceResultId: "result-legacy",
+  });
+
+  assert.deepEqual(repair.requestUpdate, {
+    pairLockId: "lock-team-a-team-b",
+  });
+  assert.deepEqual(repair.pairLockData, {
+    requestId: "request-legacy",
+    status: "pending",
+    fromTeamId: "team-a",
+    toTeamId: "team-b",
+    sourceResultId: "result-legacy",
+  });
+});
+
+test("legacy pending requests match the team pair in either direction", () => {
+  assert.equal(
+    isPendingTeamPairRequest(
+      { status: "pending", fromTeamId: "team-a", toTeamId: "team-b" },
+      "team-a",
+      "team-b"
+    ),
+    true
+  );
+  assert.equal(
+    isPendingTeamPairRequest(
+      { status: "pending", fromTeamId: "team-b", toTeamId: "team-a" },
+      "team-a",
+      "team-b"
+    ),
+    true
+  );
+  assert.equal(
+    isPendingTeamPairRequest(
+      { status: "accepted", fromTeamId: "team-a", toTeamId: "team-b" },
+      "team-a",
+      "team-b"
+    ),
+    false
+  );
+  assert.equal(
+    isPendingTeamPairRequest(
+      { status: "pending", fromTeamId: "team-a", toTeamId: "team-c" },
+      "team-a",
+      "team-b"
+    ),
+    false
+  );
+});
+
+test("create transaction queries and repairs legacy pending pair requests", () => {
+  const source = readFileSync(__filename.replace(/\.test\.js$/, ".js"), "utf8");
+
+  assert.match(source, /\.where\("fromTeamId", "==", fromTeamId\)/);
+  assert.match(source, /\.where\("fromTeamId", "==", toTeamId\)/);
+  assert.match(source, /legacyPendingSnap\.ref[\s\S]*?pairLockId: plan\.pairLockId/);
+  assert.match(source, /pairLockRef[\s\S]*?requestId: legacyPendingSnap\.id/);
+  assert.match(
+    source,
+    /if \(existingSnap\.exists\)[\s\S]*?buildPendingPairRepair\([\s\S]*?tx\.set\(\s*requestRef,[\s\S]*?repair\.requestUpdate/
+  );
+});
 test("create request plan rejects callers outside the selected team", () => {
   assert.throws(
     () => buildCreateTeamMeetingRequestPlan({

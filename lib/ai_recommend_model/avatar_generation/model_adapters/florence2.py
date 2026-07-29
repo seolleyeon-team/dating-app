@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Callable, Mapping
 
 from avatar_generation.trait_card import (
@@ -272,10 +273,10 @@ class Florence2TraitExtractionAdapter:
                 eyewear_style = "thin_metal"
             else:
                 eyewear_style = "other_simple"
-        elif no_eyewear_phrase or face_and_eyes_visible:
+        elif no_eyewear_phrase:
             eyewear_present = "no"
             eyewear_style = "none"
-            eyewear_confidence = "high" if no_eyewear_phrase else "medium"
+            eyewear_confidence = "high"
 
         hair_length = "unclear"
         if has_any("long hair", "long-haired"):
@@ -290,10 +291,38 @@ class Florence2TraitExtractionAdapter:
             hair_color = "black"
         elif has_any("dark brown hair"):
             hair_color = "dark_brown"
-        elif has_any("brown hair"):
-            hair_color = "brown"
         elif has_any("light brown hair"):
             hair_color = "light_brown"
+        elif has_any("brown hair"):
+            hair_color = "brown"
+
+        hair_volume = "unclear"
+        if has_any("voluminous hair", "full hair", "thick hair") or re.search(
+            r"\bhigh[-\s]+volume\b(?:[-\s]+\w+){0,2}[-\s]+\bhair\b", text
+        ):
+            hair_volume = "high"
+        elif re.search(
+            r"\b(?:medium|moderate)[-\s]+volume\b(?:[-\s]+\w+){0,2}[-\s]+\bhair\b", text
+        ):
+            hair_volume = "medium"
+        elif has_any("flat hair", "thin hair", "slicked-down hair") or re.search(
+            r"\blow[-\s]+volume\b(?:[-\s]+\w+){0,2}[-\s]+\bhair\b", text
+        ):
+            hair_volume = "low"
+
+        hair_direction = "unclear"
+        if has_any("side-parted hair", "side parted hair", "side part", "side-part"):
+            hair_direction = "side_part"
+        elif has_any("center-parted hair", "center parted hair", "middle-parted hair", "middle parted hair", "center part", "middle part"):
+            hair_direction = "center_part"
+        elif has_any("forward bangs", "front bangs", "bangs across the forehead", "bangs over the forehead"):
+            hair_direction = "forward_bangs"
+        elif has_any("swept-back hair", "swept back hair", "slicked-back hair", "slicked back hair", "combed-back hair", "combed back hair"):
+            hair_direction = "swept_back"
+        elif has_any("pulled-back hair", "pulled back hair", "hair pulled back", "ponytail", "hair in a bun"):
+            hair_direction = "pulled_back"
+        elif has_any("messy hair", "naturally messy hair", "tousled hair"):
+            hair_direction = "natural_messy"
 
         hair_bangs = "unclear"
         if has_any("curtain bangs"):
@@ -321,24 +350,166 @@ class Florence2TraitExtractionAdapter:
             else:
                 facial_hair_style = "short_beard"
 
+        face_shape_category = "unclear"
+        if has_any("round face", "round facial shape"):
+            face_shape_category = "round"
+        elif has_any("oval face", "oval facial shape"):
+            face_shape_category = "oval"
+        elif has_any("long face", "long facial shape", "elongated face"):
+            face_shape_category = "long"
+        elif has_any("soft square face", "square face"):
+            face_shape_category = "soft_square"
+
+        facial_feature_balance = "unclear"
+        if has_any("balanced features", "balanced facial features"):
+            facial_feature_balance = "balanced"
+        elif has_any("soft features", "soft facial features"):
+            facial_feature_balance = "soft"
+        elif has_any("defined features", "defined facial features"):
+            facial_feature_balance = "defined"
+
+        eye_size_category = "unclear"
+        if has_any("small eyes"):
+            eye_size_category = "small"
+        elif has_any("large eyes", "medium-large eyes", "medium large eyes"):
+            eye_size_category = "medium_large"
+        elif has_any("medium eyes"):
+            eye_size_category = "medium"
+
+        eye_tilt_category = "unclear"
+        if has_any("slightly upturned eyes", "upturned eyes"):
+            eye_tilt_category = "slightly_upturned"
+        elif has_any("slightly downturned eyes", "downturned eyes"):
+            eye_tilt_category = "slightly_downturned"
+        elif has_any("neutral eyes", "level eyes"):
+            eye_tilt_category = "neutral"
+
+        eye_shape_mood = "unclear"
+        if has_any("gentle eyes", "gentle eye expression"):
+            eye_shape_mood = "gentle"
+        elif has_any("focused eyes", "focused gaze"):
+            eye_shape_mood = "focused"
+        elif has_any("calm eyes", "calm gaze"):
+            eye_shape_mood = "calm"
+        elif has_any("soft eyes", "soft gaze"):
+            eye_shape_mood = "soft"
+        elif eye_tilt_category in {"slightly_upturned", "slightly_downturned"}:
+            eye_shape_mood = eye_tilt_category
+        elif has_any("neutral expression", "neutral gaze"):
+            eye_shape_mood = "neutral"
+
+        brow_thickness = "unclear"
+        if has_any("thin brows", "thin eyebrows"):
+            brow_thickness = "thin"
+        elif has_any("thick brows", "thick eyebrows", "full eyebrows"):
+            brow_thickness = "thick"
+        elif has_any("natural brows", "natural eyebrows"):
+            brow_thickness = "natural"
+
+        brow_shape = "unclear"
+        if has_any("straight brows", "straight eyebrows"):
+            brow_shape = "straight"
+        elif has_any("soft arch brows", "soft-arch brows", "soft arched eyebrows", "soft arch eyebrows", "soft arch"):
+            brow_shape = "soft_arch"
+        elif has_any("arched brows", "arched eyebrows"):
+            brow_shape = "arched"
+        elif has_any("natural brows", "natural eyebrows"):
+            brow_shape = "natural"
+
+        nose_prominence = "unclear"
+        if has_any("soft nose", "subtle nose"):
+            nose_prominence = "soft"
+        elif has_any("defined nose", "prominent nose"):
+            nose_prominence = "defined"
+        elif has_any("medium nose", "moderate nose"):
+            nose_prominence = "medium"
+
+        nose_bridge_impression = "unclear"
+        if has_any("soft nose bridge"):
+            nose_bridge_impression = "soft"
+        elif has_any("defined nose bridge"):
+            nose_bridge_impression = "defined"
+        elif has_any("moderate nose bridge"):
+            nose_bridge_impression = "moderate"
+        elif has_any("medium nose bridge"):
+            nose_bridge_impression = "medium"
+
+        cheek_fullness = "unclear"
+        if has_any("full cheeks", "rounded cheeks"):
+            cheek_fullness = "full"
+        elif has_any("moderate cheeks", "medium cheeks"):
+            cheek_fullness = "moderate"
+        elif has_any("low cheek fullness", "slim cheeks"):
+            cheek_fullness = "low"
+
+        jaw_impression = "unclear"
+        if has_any("soft jaw", "soft jawline"):
+            jaw_impression = "soft"
+        elif has_any("moderately defined jaw", "moderate defined jaw", "defined jaw impression"):
+            jaw_impression = "moderate_defined"
+        elif has_any("broad soft jaw", "broad jaw"):
+            jaw_impression = "broad_soft"
+
+        mouth_expression = "unclear"
+        if has_any("subtle smile", "slight smile", "smiling softly", "soft smile"):
+            mouth_expression = "subtle_smile"
+        elif has_any("calm closed mouth", "closed mouth"):
+            mouth_expression = "calm_closed"
+        elif has_any("neutral mouth", "neutral expression"):
+            mouth_expression = "neutral"
+        elif has_any("smile", "smiling"):
+            mouth_expression = "subtle_smile"
+
+        mouth_fullness_category = "unclear"
+        if has_any("thin lips", "thin mouth"):
+            mouth_fullness_category = "thin"
+        elif has_any("subtle lips", "subtle mouth"):
+            mouth_fullness_category = "subtle"
+        elif has_any("full lips", "full mouth"):
+            mouth_fullness_category = "full"
+        elif has_any("medium lips", "medium mouth"):
+            mouth_fullness_category = "medium"
+
+        skin_tone_range = "unclear"
+        if has_any("fair warm skin", "fair skin"):
+            skin_tone_range = "fair_warm"
+        elif has_any("natural beige skin", "beige skin"):
+            skin_tone_range = "natural_beige"
+        elif has_any("medium warm skin", "warm medium skin"):
+            skin_tone_range = "medium_warm"
+        elif has_any("sun kissed skin", "sun-kissed skin"):
+            skin_tone_range = "sun_kissed"
+
+        expression_mood = "unclear"
+        if has_any("gentle expression", "gentle mood"):
+            expression_mood = "gentle"
+        elif has_any("focused expression", "focused mood"):
+            expression_mood = "focused"
+        elif has_any("calm expression", "calm mood", "calm"):
+            expression_mood = "calm"
+        elif has_any("neutral expression", "neutral mood", "neutral"):
+            expression_mood = "neutral"
+
         clothing_category = "unclear"
-        for keyword, value in (
+        clothing_keywords = (
             ("hoodie", "hoodie"),
             ("sweatshirt", "sweatshirt"),
-            ("t-shirt", "tshirt"),
-            ("tshirt", "tshirt"),
+            ("t-shirt", "t_shirt"),
+            ("tshirt", "t_shirt"),
+            ("tee shirt", "t_shirt"),
             ("shirt", "shirt"),
             ("jacket", "jacket"),
-            ("coat", "coat"),
+            ("coat", "jacket"),
             ("knit", "knit"),
             ("polo", "polo"),
-        ):
+        )
+        for keyword, value in clothing_keywords:
             if keyword in text:
                 clothing_category = value
                 break
 
         clothing_color = "unclear"
-        for color, value in (
+        clothing_colors = (
             ("white", "white"),
             ("black", "black"),
             ("gray", "gray"),
@@ -348,27 +519,18 @@ class Florence2TraitExtractionAdapter:
             ("beige", "beige"),
             ("brown", "brown"),
             ("green", "green"),
-            ("pink", "muted_pink"),
-        ):
-            if clothing_category != "unclear" and f"{color} {clothing_category}" in text:
-                clothing_color = value
-                break
-        for keyword, value in (
-            ("white", "white"),
-            ("black", "black"),
-            ("gray", "gray"),
-            ("grey", "gray"),
-            ("navy", "navy"),
-            ("blue", "blue"),
-            ("beige", "beige"),
-            ("brown", "brown"),
-            ("green", "green"),
-            ("pink", "muted_pink"),
-        ):
+        )
+        clothing_nouns = tuple(keyword for keyword, _ in clothing_keywords)
+        for color, value in clothing_colors:
+            color_pattern = re.escape(color)
+            for noun in clothing_nouns:
+                noun_pattern = re.escape(noun)
+                color_before_noun = rf"\b{color_pattern}\b(?:[-\s]+\w+){{0,2}}[-\s]+\b{noun_pattern}\b"
+                noun_before_color = rf"\b{noun_pattern}\b(?:\s+(?:is|was|looks|appears|in))?\s+\b{color_pattern}\b"
+                if re.search(color_before_noun, text) or re.search(noun_before_color, text):
+                    clothing_color = value
+                    break
             if clothing_color != "unclear":
-                break
-            if keyword in text:
-                clothing_color = value
                 break
 
         return {
@@ -380,8 +542,8 @@ class Florence2TraitExtractionAdapter:
                 if has_any("head", "shoulder", "portrait", "face")
                 else "unclear",
                 "hair_length": hair_length,
-                "hair_volume": "unclear",
-                "hair_direction": "unclear",
+                "hair_volume": hair_volume,
+                "hair_direction": hair_direction,
                 "hair_bangs": hair_bangs,
                 "hair_color_range": hair_color,
                 "eyewear_present": eyewear_present,
@@ -390,25 +552,21 @@ class Florence2TraitExtractionAdapter:
                 "eyewear_source": eyewear_source,
                 "facial_hair_present": facial_hair_present,
                 "facial_hair_style": facial_hair_style,
-                "face_shape_category": "unclear",
-                "facial_feature_balance": "unclear",
-                "eye_size_category": "unclear",
-                "eye_tilt_category": "unclear",
-                "eye_shape_mood": "unclear",
-                "brow_thickness": "unclear",
-                "brow_shape": "unclear",
-                "nose_prominence": "unclear",
-                "nose_bridge_impression": "unclear",
-                "cheek_fullness": "unclear",
-                "jaw_impression": "unclear",
-                "mouth_expression": "subtle_smile"
-                if has_any("smile", "smiling")
-                else "unclear",
-                "mouth_fullness_category": "unclear",
-                "skin_tone_range": "unclear",
-                "expression_mood": "calm"
-                if has_any("calm", "neutral")
-                else "unclear",
+                "face_shape_category": face_shape_category,
+                "facial_feature_balance": facial_feature_balance,
+                "eye_size_category": eye_size_category,
+                "eye_tilt_category": eye_tilt_category,
+                "eye_shape_mood": eye_shape_mood,
+                "brow_thickness": brow_thickness,
+                "brow_shape": brow_shape,
+                "nose_prominence": nose_prominence,
+                "nose_bridge_impression": nose_bridge_impression,
+                "cheek_fullness": cheek_fullness,
+                "jaw_impression": jaw_impression,
+                "mouth_expression": mouth_expression,
+                "mouth_fullness_category": mouth_fullness_category,
+                "skin_tone_range": skin_tone_range,
+                "expression_mood": expression_mood,
                 "clothing_category": clothing_category,
                 "clothing_color": clothing_color,
             },

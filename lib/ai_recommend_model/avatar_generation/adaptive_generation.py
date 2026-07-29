@@ -83,11 +83,20 @@ class AdaptiveGenerationPolicy:
             ),
             require_four_preview=_read_bool_env_any(ENV_PREVIEW_REQUIRE_FOUR, False),
             soft_pass_fill_enabled=_read_bool_env_any(ENV_SOFT_PASS_FILL_ENABLED, True),
-            hard_reject_fill_enabled=_read_bool_env_any(ENV_HARD_REJECT_FILL_ENABLED, False),
+            hard_reject_fill_enabled=False,
             needs_review_low_risk_enabled=_read_bool_env_any(
                 ENV_NEEDS_REVIEW_LOW_RISK_ENABLED
             ),
         )
+
+
+@dataclass(frozen=True)
+class GenerationBudget:
+    remaining_deadline_seconds: Optional[float] = None
+    min_extra_round_seconds: float = 0
+    remaining_candidate_budget: Optional[int] = None
+    remaining_usd: Optional[float] = None
+    estimated_usd_per_candidate: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +107,7 @@ class GenerationPlan:
     max_candidate_count: int
     preview_candidate_count: int
     reason: str
+    blocked_reasons: tuple[str, ...] = ()
 
     @property
     def should_generate(self) -> bool:
@@ -117,6 +127,7 @@ class GenerationPlan:
             "shouldGenerate": self.should_generate,
             "totalAfterGeneration": self.total_after_generation,
             "reason": self.reason,
+            "blockedReasons": list(self.blocked_reasons),
         }
 
 
@@ -124,7 +135,10 @@ def plan_generation_round(
     existing_candidates: Optional[Sequence[Mapping[str, Any]]] = None,
     *,
     policy: Optional[AdaptiveGenerationPolicy] = None,
+    budget: Optional[GenerationBudget] = None,
     regenerate_requested: bool = False,
+    retry_attempt: int = 0,
+    adaptive_retry_enabled: bool = False,
 ) -> GenerationPlan:
     active_policy = policy or AdaptiveGenerationPolicy.from_env()
     candidates = list(existing_candidates or [])
@@ -141,33 +155,93 @@ def plan_generation_round(
             safe_count,
             active_policy,
             reason="max_total_reached",
+            blocked_reasons=("max_total_reached",),
         )
 
     if existing_count == 0:
-        return _plan(
+        candidate_count, blocked_reasons = _apply_budget_constraints(
             min(active_policy.initial_candidate_count, remaining_capacity),
+            budget,
+            require_extra_round_time=False,
+        )
+        return _plan(
+            candidate_count,
             existing_count,
             safe_count,
             active_policy,
-            reason="initial",
+            reason="initial" if candidate_count > 0 else "budget_blocked",
+            blocked_reasons=blocked_reasons,
+        )
+
+    systemic_unavailable_reason = _uniform_systemic_unavailable_reason(candidates)
+    if systemic_unavailable_reason:
+        return _plan(
+            0,
+            existing_count,
+            safe_count,
+            active_policy,
+            reason="extra_suppressed_systemic_unavailable",
+            blocked_reasons=(systemic_unavailable_reason,),
+        )
+
+    if retry_attempt >= 1 and (
+        regenerate_requested or safe_count < active_policy.min_safe_before_extra
+    ):
+        return _plan(
+            0,
+            existing_count,
+            safe_count,
+            active_policy,
+            reason="retry_limit_reached",
+            blocked_reasons=("retry_limit_reached",),
         )
 
     if regenerate_requested:
-        return _plan(
+        candidate_count, blocked_reasons = _apply_budget_constraints(
             min(active_policy.extra_candidate_count, remaining_capacity),
+            budget,
+            require_extra_round_time=True,
+        )
+        return _plan(
+            candidate_count,
             existing_count,
             safe_count,
             active_policy,
-            reason="regenerate_extra",
+            reason="regenerate_extra" if candidate_count > 0 else "budget_blocked",
+            blocked_reasons=blocked_reasons,
+        )
+
+    adaptive_retry_reason = (
+        _uniform_adaptive_retry_reason(candidates) if adaptive_retry_enabled else ""
+    )
+    if adaptive_retry_reason:
+        candidate_count, blocked_reasons = _apply_budget_constraints(
+            min(active_policy.extra_candidate_count, remaining_capacity),
+            budget,
+            require_extra_round_time=True,
+        )
+        return _plan(
+            candidate_count,
+            existing_count,
+            safe_count,
+            active_policy,
+            reason=adaptive_retry_reason if candidate_count > 0 else "budget_blocked",
+            blocked_reasons=blocked_reasons,
         )
 
     if safe_count < active_policy.min_safe_before_extra:
-        return _plan(
+        candidate_count, blocked_reasons = _apply_budget_constraints(
             min(active_policy.extra_candidate_count, remaining_capacity),
+            budget,
+            require_extra_round_time=True,
+        )
+        return _plan(
+            candidate_count,
             existing_count,
             safe_count,
             active_policy,
-            reason="extra_insufficient_safe",
+            reason="extra_insufficient_safe" if candidate_count > 0 else "budget_blocked",
+            blocked_reasons=blocked_reasons,
         )
 
     return _plan(
@@ -179,6 +253,50 @@ def plan_generation_round(
     )
 
 
+def _apply_budget_constraints(
+    requested_count: int,
+    budget: Optional[GenerationBudget],
+    *,
+    require_extra_round_time: bool,
+) -> tuple[int, tuple[str, ...]]:
+    candidate_count = max(0, int(requested_count))
+    if budget is None or candidate_count <= 0:
+        return candidate_count, ()
+
+    blocked_reasons: list[str] = []
+
+    if (
+        require_extra_round_time
+        and budget.remaining_deadline_seconds is not None
+        and budget.remaining_deadline_seconds < max(0, budget.min_extra_round_seconds)
+    ):
+        blocked_reasons.append("deadline_insufficient")
+
+    if budget.remaining_candidate_budget is not None:
+        remaining_candidates = max(0, int(budget.remaining_candidate_budget))
+        if remaining_candidates <= 0:
+            blocked_reasons.append("candidate_budget_exhausted")
+        else:
+            candidate_count = min(candidate_count, remaining_candidates)
+
+    if (
+        budget.remaining_usd is not None
+        and budget.estimated_usd_per_candidate is not None
+        and budget.estimated_usd_per_candidate > 0
+    ):
+        affordable_count = int(
+            max(0, budget.remaining_usd) // budget.estimated_usd_per_candidate
+        )
+        if affordable_count <= 0:
+            blocked_reasons.append("cost_budget_insufficient")
+        else:
+            candidate_count = min(candidate_count, affordable_count)
+
+    if blocked_reasons:
+        return 0, tuple(blocked_reasons)
+    return candidate_count, ()
+
+
 def _plan(
     candidate_count: int,
     existing_count: int,
@@ -186,6 +304,7 @@ def _plan(
     policy: AdaptiveGenerationPolicy,
     *,
     reason: str,
+    blocked_reasons: Sequence[str] = (),
 ) -> GenerationPlan:
     return GenerationPlan(
         candidate_count=max(0, int(candidate_count)),
@@ -194,7 +313,109 @@ def _plan(
         max_candidate_count=max(0, int(policy.max_candidate_count)),
         preview_candidate_count=max(0, int(policy.preview_candidate_count)),
         reason=reason,
+        blocked_reasons=tuple(blocked_reasons),
     )
+
+
+FIDELITY_RETRY_REASONS = frozenset(
+    {
+        "candidate_not_resembling_source",
+        "candidate_trait_mismatch",
+        "candidate_generation_generic",
+    }
+)
+PRIVACY_RETRY_REASONS = frozenset({"candidate_too_identifiable", "too_identifiable"})
+
+
+def _uniform_adaptive_retry_reason(
+    candidates: Sequence[Mapping[str, Any]],
+) -> str:
+    if not candidates:
+        return ""
+    reasons_by_candidate = [
+        _candidate_retry_reasons(candidate) for candidate in candidates
+    ]
+    if any(not reasons for reasons in reasons_by_candidate):
+        return ""
+    if all(reasons <= FIDELITY_RETRY_REASONS for reasons in reasons_by_candidate):
+        return "fidelity_adjusted_retry"
+    if all(reasons <= PRIVACY_RETRY_REASONS for reasons in reasons_by_candidate):
+        return "privacy_strengthened_retry"
+    return ""
+
+
+def _candidate_retry_reasons(candidate: Mapping[str, Any]) -> set[str]:
+    qa = candidate.get("qa")
+    qa_doc = qa if isinstance(qa, Mapping) else {}
+    reasons: set[str] = set()
+    for key in ("rejectReasons", "reviewReasons", "blockedReasons"):
+        reasons.update(_normalized_reason_codes(qa_doc.get(key)))
+    fidelity_corridor = qa_doc.get("fidelityCorridor")
+    if isinstance(fidelity_corridor, Mapping):
+        reasons.update(_normalized_reason_codes(fidelity_corridor.get("reasonCodes")))
+    return reasons
+
+
+def _normalized_reason_codes(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return {value.strip().lower()} if value.strip() else set()
+    if isinstance(value, Mapping):
+        return set()
+    try:
+        iterator = iter(value or ())
+    except TypeError:
+        return set()
+    return {
+        str(reason or "").strip().lower()
+        for reason in iterator
+        if str(reason or "").strip()
+    }
+
+
+def _uniform_systemic_unavailable_reason(
+    candidates: Sequence[Mapping[str, Any]],
+) -> str:
+    if not candidates:
+        return ""
+    reasons = [_systemic_unavailable_reason(candidate) for candidate in candidates]
+    if any(not reason for reason in reasons) or len(set(reasons)) != 1:
+        return ""
+    if any(is_hard_reject(candidate) or is_preview_eligible(candidate) for candidate in candidates):
+        return ""
+    return next(iter(reasons))
+
+
+def _systemic_unavailable_reason(candidate: Mapping[str, Any]) -> str:
+    qa = candidate.get("qa")
+    qa_doc = qa if isinstance(qa, Mapping) else {}
+    qa_version = str(qa_doc.get("qaVersion") or "").strip().lower()
+    if "policy_unavailable" in qa_version:
+        return "qa_policy_unavailable"
+    if "model_unavailable" in qa_version:
+        return "qa_critical_model_unavailable"
+    for reason in qa_doc.get("reviewReasons") or ():
+        lowered = str(reason or "").strip().lower()
+        if lowered in {"model_unavailable", "qa_model_signal_review"}:
+            return "qa_critical_model_unavailable"
+        if lowered == "policy_unavailable" or lowered.endswith("policy_unavailable"):
+            return "qa_policy_unavailable"
+        if lowered.endswith("_unavailable"):
+            return "qa_critical_model_unavailable"
+    debug = qa_doc.get("debug")
+    if not isinstance(debug, Mapping):
+        return ""
+    model_availability = debug.get("modelAvailability")
+    if not isinstance(model_availability, Mapping):
+        return ""
+    unavailable = {"unavailable", "critical_unavailable", "uncalibrated"}
+    for key, value in model_availability.items():
+        if str(value or "").strip().lower() not in unavailable:
+            continue
+        lowered_key = str(key or "").strip().lower()
+        if "policy" in lowered_key:
+            return "qa_policy_unavailable"
+        return "qa_critical_model_unavailable"
+    return ""
 
 
 def _counts_as_safe(
@@ -251,6 +472,7 @@ __all__ = [
     "DEFAULT_MIN_PREVIEW_CANDIDATE_COUNT",
     "DEFAULT_PREVIEW_CANDIDATE_COUNT",
     "AdaptiveGenerationPolicy",
+    "GenerationBudget",
     "GenerationPlan",
     "plan_generation_round",
 ]

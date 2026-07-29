@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
@@ -221,8 +222,8 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       Navigator.of(
         context,
       ).pushReplacementNamed(RouteNames.studentVerification);
-    } catch (e, st) {
-      debugPrint('[KAKAO] login failed: $e\n$st');
+    } catch (e) {
+      debugPrint('[KAKAO] login failed: ${PrivacyLogUtils.errorSummary(e)}');
       final msg = _formatLoginErrorMessage(e.toString());
       if (!mounted) return;
       final isKeyHashError =
@@ -375,8 +376,10 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       Navigator.of(
         context,
       ).pushReplacementNamed(RouteNames.studentVerification);
-    } catch (e, st) {
-      debugPrint('[KAKAO] web login failed: $e\n$st');
+    } catch (e) {
+      debugPrint(
+        '[KAKAO] web login failed: ${PrivacyLogUtils.errorSummary(e)}',
+      );
       if (!mounted) return;
       final msg = _formatLoginErrorMessage(e.toString());
       final isKeyHashError =

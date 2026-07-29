@@ -12,6 +12,9 @@ from typing import Any, Mapping, Optional, Sequence
 
 TARGET_ERROR_CODE = "avatar_generation_worker_error"
 TARGET_ERROR_SUBSTRING = "unexpected keyword argument 'negative_prompt'"
+ALLOWED_PROJECTS = {"seolleyeon-final", "seolleyeon-festival"}
+FORBIDDEN_PROJECTS = {"", "default", "seolleyeon"}
+CONFIRMATION_TOKEN_TEMPLATE = "APPLY_AVATAR_NEGATIVE_PROMPT_RETRY:{project}:v1"
 
 PRIVATE_MARKER_RE = re.compile(
     r"(?i)(g(?:s|cs)://[^\s\"']+|seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp)[^\s\"']*)"
@@ -104,6 +107,18 @@ def build_retry_report(
     }
 
 
+def validate_execution(project: str, *, apply: bool, confirmation_token: str = "") -> str:
+    normalized = str(project or "").strip()
+    if normalized in FORBIDDEN_PROJECTS or normalized not in ALLOWED_PROJECTS:
+        raise ValueError(
+            "refusing project; pass explicit seolleyeon-final or seolleyeon-festival"
+        )
+    expected_token = CONFIRMATION_TOKEN_TEMPLATE.format(project=normalized)
+    if apply and confirmation_token != expected_token:
+        raise ValueError("apply requires the exact project-specific confirmation token")
+    return normalized
+
+
 def _load_firestore_jobs(project: str, database: str, limit: int) -> tuple[Any, dict[str, Mapping[str, Any]]]:
     try:
         from google.cloud import firestore
@@ -147,13 +162,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Requeue only avatarJobs failed by the FLUX negative_prompt kwarg regression."
     )
-    parser.add_argument("--project", default="seolleyeon-final")
+    parser.add_argument(
+        "--project",
+        required=True,
+        help="Only seolleyeon-final or seolleyeon-festival.",
+    )
     parser.add_argument("--database", default="(default)")
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--confirmation-token", default="")
     args = parser.parse_args(argv)
 
-    client, jobs = _load_firestore_jobs(args.project, args.database, args.limit)
+    project = validate_execution(
+        args.project,
+        apply=args.apply,
+        confirmation_token=args.confirmation_token,
+    )
+    client, jobs = _load_firestore_jobs(project, args.database, args.limit)
     report = build_retry_report(jobs, apply=args.apply)
     if args.apply:
         matched = {

@@ -1,0 +1,1 @@
+{"provider": "mediapipe_face_landmarker_tasks", "recommendationCounts": {"PASS": 1}, "images": [{"normalizedFile": "a.jpg", "recommendation": "PASS"}, {"normalizedFile": "unused.jpg", "recommendation": "PASS"}]}

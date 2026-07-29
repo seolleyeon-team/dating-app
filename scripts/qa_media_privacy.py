@@ -17,6 +17,19 @@ AI_MODEL_DIR = REPO_ROOT / "lib" / "ai_recommend_model"
 if str(AI_MODEL_DIR) not in sys.path:
     sys.path.insert(0, str(AI_MODEL_DIR))
 
+try:
+    from privacy_client_scanner import (
+        PRIVATE_MEDIA_MARKERS,
+        count_leaky_records,
+        scan_client_files,
+    )
+except ModuleNotFoundError:  # pragma: no cover - package import path
+    from scripts.privacy_client_scanner import (
+        PRIVATE_MEDIA_MARKERS,
+        count_leaky_records,
+        scan_client_files,
+    )
+
 from seolleyeon_rec_common_v3 import (  # noqa: E402
     PRIVATE_SOURCE_PHOTO_BUCKET,
     _is_private_or_signed_image_ref,
@@ -34,11 +47,7 @@ AVATAR_TEMP_BUCKET = "seolleyeon-avatar-temp"
 APPROVED_AVATAR_BUCKET = "seolleyeon-approved-avatars"
 CHAT_PROFILE_PHOTO_BUCKET = "seolleyeon-chat-profile-photos"
 APPROVED_AVATAR_GCS_PREFIX = f"gs://{APPROVED_AVATAR_BUCKET}/"
-PRIVATE_OR_TEMP_BUCKET_MARKERS = (
-    PRIVATE_SOURCE_PHOTO_BUCKET,
-    AVATAR_TEMP_BUCKET,
-    CHAT_PROFILE_PHOTO_BUCKET,
-)
+PRIVATE_OR_TEMP_BUCKET_MARKERS = PRIVATE_MEDIA_MARKERS
 SIGNED_URL_MARKERS = (
     "X-Goog-",
     "GoogleAccessId",
@@ -119,6 +128,14 @@ class PrivacyQASummary:
     client_code_leakage_count: int = 0
     clip_embeddings_invalid_count: int = 0
     chat_room_leakage_count: int = 0
+    browser_storage_leakage_count: int = 0
+    public_report_leakage_count: int = 0
+    public_log_leakage_count: int = 0
+    scanned_file_count: int = 0
+
+    @property
+    def leakage_count(self) -> int:
+        return self.client_code_leakage_count
 
     @property
     def passed(self) -> bool:
@@ -130,6 +147,9 @@ class PrivacyQASummary:
             and self.client_code_leakage_count == 0
             and self.clip_embeddings_invalid_count == 0
             and self.chat_room_leakage_count == 0
+            and self.browser_storage_leakage_count == 0
+            and self.public_report_leakage_count == 0
+            and self.public_log_leakage_count == 0
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -142,6 +162,10 @@ class PrivacyQASummary:
             "client_code_leakage_count": self.client_code_leakage_count,
             "clip_embeddings_invalid_count": self.clip_embeddings_invalid_count,
             "chat_room_leakage_count": self.chat_room_leakage_count,
+            "browser_storage_leakage_count": self.browser_storage_leakage_count,
+            "public_report_leakage_count": self.public_report_leakage_count,
+            "public_log_leakage_count": self.public_log_leakage_count,
+            "scanned_file_count": self.scanned_file_count,
             "status": "pass" if self.passed else "fail",
         }
 
@@ -459,19 +483,41 @@ def _scan_client_code(repo_root: Path) -> int:
     return count
 
 
+def scan_client_surfaces(
+    repo_root: Path,
+    *,
+    festival_roots: Iterable[Path] = (),
+) -> PrivacyQASummary:
+    scan = scan_client_files(
+        repo_root,
+        festival_roots=tuple(Path(root) for root in festival_roots),
+    )
+    return PrivacyQASummary(
+        client_code_leakage_count=scan.leakage_count,
+        scanned_file_count=scan.scanned_file_count,
+    )
+
+
 def run_fixture_checks(
     fixture: Mapping[str, Any],
     *,
     repo_root: Path = REPO_ROOT,
     check_client_code: bool = True,
+    festival_roots: Iterable[Path] = (),
 ) -> PrivacyQASummary:
     users = fixture.get("users") if isinstance(fixture.get("users"), Mapping) else {}
     private_media = fixture.get("userPrivateMedia") if isinstance(fixture.get("userPrivateMedia"), Mapping) else {}
     clip_embeddings = fixture.get("clipEmbeddings") if isinstance(fixture.get("clipEmbeddings"), Mapping) else {}
     model_recs = fixture.get("modelRecs") if isinstance(fixture.get("modelRecs"), Mapping) else {}
     chat_rooms = fixture.get("chatRooms") if isinstance(fixture.get("chatRooms"), Mapping) else {}
+    browser_storage = fixture.get("browserStorage") if isinstance(fixture.get("browserStorage"), Mapping) else {}
+    public_reports = fixture.get("reports") if isinstance(fixture.get("reports"), Mapping) else {}
+    public_logs = fixture.get("logs") if isinstance(fixture.get("logs"), Mapping) else {}
 
     summary = PrivacyQASummary(total_users_scanned=len(users))
+    summary.browser_storage_leakage_count = count_leaky_records(browser_storage)
+    summary.public_report_leakage_count = count_leaky_records(public_reports)
+    summary.public_log_leakage_count = count_leaky_records(public_logs)
     summary.public_leakage_count = sum(
         1 for doc in users.values() if isinstance(doc, Mapping) and _public_doc_has_source_photo_leak(doc)
     )
@@ -513,7 +559,12 @@ def run_fixture_checks(
 
     load_users_with_private_source_photos_from_docs(dict(private_media))
     if check_client_code:
-        summary.client_code_leakage_count = _scan_client_code(repo_root)
+        client_scan = scan_client_surfaces(repo_root, festival_roots=festival_roots)
+        summary.client_code_leakage_count = max(
+            _scan_client_code(repo_root),
+            client_scan.client_code_leakage_count,
+        )
+        summary.scanned_file_count = client_scan.scanned_file_count
     return summary
 
 
@@ -587,6 +638,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fixture", "--fixture_json", "--fixtures_path", dest="fixture_json", default=None)
     parser.add_argument("--scan_client_code", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--no_client_code_check", action="store_true")
+    parser.add_argument(
+        "--festival_root",
+        action="append",
+        default=[],
+        help="Additional festival client repository root to scan; repeat as needed.",
+    )
     parser.add_argument("--fail_on_warning", action="store_true")
     parser.add_argument("--dry_run", action="store_true")
     return parser
@@ -621,6 +678,7 @@ def main() -> int:
         fixture,
         repo_root=REPO_ROOT,
         check_client_code=bool(args.scan_client_code) and not args.no_client_code_check,
+        festival_roots=[Path(value).resolve() for value in args.festival_root],
     )
     print(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2))
     return 0 if summary.passed or not args.fail_on_warning else 1

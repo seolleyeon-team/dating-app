@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 // =============================================================================
 // 팀 구성(3명) 화면 — Firestore eventTeamSetups 실시간 동기화
 // =============================================================================
@@ -112,8 +113,8 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
         _bootstrapErrorDetail = null;
         _bootstrapComplete = true;
       });
-    } catch (e, st) {
-      debugPrint('TeamSetup bootstrap: $e\n$st');
+    } catch (e) {
+      debugPrint('TeamSetup bootstrap: ${PrivacyLogUtils.errorSummary(e)}');
       final saved = await _storage.getEventTeamSetupDraftId(uid);
       final recovered = await _eventTeam.recoverTeamSetupIfLeader(
         kakaoUserId: uid,
@@ -1081,9 +1082,7 @@ class _InviteButtons extends StatelessWidget {
             onPressed: () {
               HapticFeedback.lightImpact();
               SharePlus.instance.share(
-                ShareParams(
-                  text: '설레연에서 함께 3:3 미팅해요! 🎉',
-                ),
+                ShareParams(text: '설레연에서 함께 3:3 미팅해요! 🎉'),
               );
             },
             child: Container(

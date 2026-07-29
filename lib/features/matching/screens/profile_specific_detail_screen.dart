@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart'
     show showModalBottomSheet, RoundedRectangleBorder;
@@ -190,7 +191,11 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
               dateKey: widget.args?.aiProfile?.dateKey,
               context: _buildRecContext(button: 'detail_open'),
             )
-            .catchError((e) => debugPrint('[RecEvent] detail_open failed: $e'));
+            .catchError(
+              (e) => debugPrint(
+                '[RecEvent] detail_open failed: ${PrivacyLogUtils.errorSummary(e)}',
+              ),
+            );
       }
     }
   }
@@ -339,7 +344,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
       widget.onLike?.call();
       if (mounted) setState(() => _hasLiked = true);
     } catch (e) {
-      debugPrint('[Like] error: $e');
+      debugPrint('[Like] error: ${PrivacyLogUtils.errorSummary(e)}');
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       _showToast('좋아요를 보내지 못했어요. 다시 시도해주세요.', isError: true);
@@ -395,7 +400,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
     } catch (e) {
-      debugPrint('[Nope] error: $e');
+      debugPrint('[Nope] error: ${PrivacyLogUtils.errorSummary(e)}');
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       _showToast('처리하지 못했어요. 다시 시도해주세요.', isError: true);
@@ -436,7 +441,11 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
             },
           },
         )
-        .catchError((e) => debugPrint('[RecEvent] ask_button_tap failed: $e'));
+        .catchError(
+          (e) => debugPrint(
+            '[RecEvent] ask_button_tap failed: ${PrivacyLogUtils.errorSummary(e)}',
+          ),
+        );
 
     showModalBottomSheet(
       context: context,
@@ -501,7 +510,9 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                 },
               )
               .catchError(
-                (e) => debugPrint('[RecEvent] ask_submit failed: $e'),
+                (e) => debugPrint(
+                  '[RecEvent] ask_submit failed: ${PrivacyLogUtils.errorSummary(e)}',
+                ),
               );
 
           widget.onQna?.call();
@@ -511,7 +522,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
           _showToast('질문을 보냈어요 💌');
         },
         onError: (e) {
-          debugPrint('[Ask] send failed: $e');
+          debugPrint('[Ask] send failed: ${PrivacyLogUtils.errorSummary(e)}');
           if (!mounted) return;
           _showToast('질문을 보내지 못했어요', isError: true);
         },
@@ -553,7 +564,9 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
           },
         )
         .catchError(
-          (e) => debugPrint('[RecEvent] message_button_tap failed: $e'),
+          (e) => debugPrint(
+            '[RecEvent] message_button_tap failed: ${PrivacyLogUtils.errorSummary(e)}',
+          ),
         );
 
     showModalBottomSheet(
@@ -620,7 +633,9 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                 },
               )
               .catchError(
-                (e) => debugPrint('[RecEvent] message_sent failed: $e'),
+                (e) => debugPrint(
+                  '[RecEvent] message_sent failed: ${PrivacyLogUtils.errorSummary(e)}',
+                ),
               );
 
           widget.onMessage?.call();
@@ -905,7 +920,9 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
       await _loadPhotoAccess();
       await _loadChatRealPhotoIfAllowed();
     } catch (e) {
-      debugPrint('AiMatchProfileScreen load profile error: $e');
+      debugPrint(
+        'AiMatchProfileScreen load profile error: ${PrivacyLogUtils.errorSummary(e)}',
+      );
 
       if (!mounted) return;
       setState(() {
@@ -1072,7 +1089,9 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
                               ),
                             );
                           } catch (e) {
-                            debugPrint('Report error: $e');
+                            debugPrint(
+                              'Report error: ${PrivacyLogUtils.errorSummary(e)}',
+                            );
 
                             if (dialogCtx.mounted) {
                               setState(() => isSubmitting = false);

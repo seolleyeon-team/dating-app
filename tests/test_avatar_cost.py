@@ -758,13 +758,13 @@ def test_canary_runner_dry_run_blocks_when_minimum_eligible_missing(tmp_path):
     report = module.build_dry_run_report(
         eligible=[
             {
-                "uidHash": "uid:a",
+                "rowLineage": "calibration_dedc0384e77a83a3f31f1e07",
                 "photoFile": "a.jpg",
             }
         ],
         blocked=[
             {
-                "uidHash": "uid:b",
+                "rowLineage": "calibration_c6f9041e417f12eec2a209cc",
                 "photoFile": "b.jpg",
                 "blockers": ["block_face_too_small"],
             }
@@ -775,6 +775,9 @@ def test_canary_runner_dry_run_blocks_when_minimum_eligible_missing(tmp_path):
     assert report["status"] == "BLOCKED_MIN_ELIGIBLE"
     assert report["eligibleCount"] == 1
     assert report["blocked"][0]["blockers"] == ["block_face_too_small"]
+    rendered = json.dumps(report, sort_keys=True)
+    assert "a.jpg" not in rendered
+    assert "b.jpg" not in rendered
 
 
 def test_canary_runner_payload_level_thresholds():
@@ -787,6 +790,10 @@ def test_canary_runner_payload_level_thresholds():
     assert module._payload_level(1024) == "ok"
     assert module._payload_level(9 * 1024 * 1024) == "warning"
     assert module._payload_level(21 * 1024 * 1024) == "critical"
+    request_id = module._safe_client_request_id("uid-a", "a.jpg")
+    assert request_id == "calibration_dedc0384e77a83a3f31f1e07"
+    assert "uid-a" not in request_id
+    assert "a.jpg" not in request_id
 
 
 def test_canary_runner_apply_reports_missing_auth_token_as_error(monkeypatch, tmp_path):
@@ -816,6 +823,8 @@ def test_canary_runner_apply_reports_missing_auth_token_as_error(monkeypatch, tm
         encoding="utf-8",
     )
     output = tmp_path / "runner.json"
+    app_check_token = tmp_path / "app_check_token.txt"
+    app_check_token.write_text("test-app-check-token", encoding="utf-8")
 
     monkeypatch.setattr(module, "_auth_tokens_by_uid", lambda api_key, secret_paths: {})
     monkeypatch.setattr(module, "_firestore_client", lambda project: object())
@@ -832,6 +841,8 @@ def test_canary_runner_apply_reports_missing_auth_token_as_error(monkeypatch, tm
             str(output),
             "--api_key",
             "test-api-key",
+            "--app_check_token_file",
+            str(app_check_token),
             "--min_users",
             "1",
             "--apply",
@@ -843,6 +854,7 @@ def test_canary_runner_apply_reports_missing_auth_token_as_error(monkeypatch, tm
     assert report["status"] == "COMPLETE_WITH_ERRORS"
     assert report["jobErrorCount"] == 1
     assert report["jobs"][0]["error"] == "missing_auth_token"
+    assert photo.name not in json.dumps(report, sort_keys=True)
 
 
 def test_canary_runner_apply_reports_unsafe_callable_response_as_error(monkeypatch, tmp_path):
@@ -872,6 +884,8 @@ def test_canary_runner_apply_reports_unsafe_callable_response_as_error(monkeypat
         encoding="utf-8",
     )
     output = tmp_path / "runner.json"
+    app_check_token = tmp_path / "app_check_token.txt"
+    app_check_token.write_text("test-app-check-token", encoding="utf-8")
 
     monkeypatch.setattr(module, "_auth_tokens_by_uid", lambda api_key, secret_paths: {"uid-a": "token"})
     monkeypatch.setattr(module, "_firestore_client", lambda project: object())
@@ -879,7 +893,7 @@ def test_canary_runner_apply_reports_unsafe_callable_response_as_error(monkeypat
         module,
         "_run_one",
         lambda **kwargs: {
-            "uidHash": "uid:test",
+            "rowLineage": "calibration_d17aabd4b57b7f7b2737e1fa",
             "photoFile": photo.name,
             "upload": {"httpStatus": 200, "safeResponse": False},
         },
@@ -897,6 +911,8 @@ def test_canary_runner_apply_reports_unsafe_callable_response_as_error(monkeypat
             str(output),
             "--api_key",
             "test-api-key",
+            "--app_check_token_file",
+            str(app_check_token),
             "--min_users",
             "1",
             "--apply",
@@ -907,6 +923,7 @@ def test_canary_runner_apply_reports_unsafe_callable_response_as_error(monkeypat
     assert result == 1
     assert report["status"] == "COMPLETE_WITH_ERRORS"
     assert report["responseSafetyViolationCount"] == 1
+    assert photo.name not in json.dumps(report, sort_keys=True)
     assert report["jobs"][0]["error"] == "unsafe_callable_response"
 
 
@@ -1026,13 +1043,13 @@ def test_pr84_gate_summary_reports_needed_eligible_rows(tmp_path):
                 "eligibleUploadRows": 1,
                 "rows": [
                     {
-                        "uidHash": "uid:a",
+                        "rowLineage": "calibration_dedc0384e77a83a3f31f1e07",
                         "photoFile": "a.jpg",
                         "eligibleForUpload": True,
                         "blockers": [],
                     },
                     {
-                        "uidHash": "uid:b",
+                        "rowLineage": "calibration_c6f9041e417f12eec2a209cc",
                         "photoFile": "b.jpg",
                         "eligibleForUpload": False,
                         "blockers": ["approved_avatar_lock"],

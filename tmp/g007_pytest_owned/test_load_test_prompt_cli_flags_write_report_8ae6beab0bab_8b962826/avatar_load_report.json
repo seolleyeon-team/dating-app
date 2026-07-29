@@ -1,0 +1,78 @@
+{
+  "batches": {
+    "averageBatchSize": 5.0,
+    "batchSize": 5,
+    "batchingEnabled": true,
+    "numberOfBatches": 2
+  },
+  "claims": {
+    "attempted": 10,
+    "claimed": 10,
+    "remainingQueued": 0
+  },
+  "cost": {
+    "candidateCount": 40,
+    "costPerApprovedAvatar": 0.008721,
+    "estimatedBatches": 2,
+    "estimatedCostPerUser": 0.008721,
+    "estimatedGpuSeconds": 300.0,
+    "estimatedUsd": 0.08721,
+    "pricingVersion": "cloud_run_l4_2026_05",
+    "timing": {
+      "claimLoopSeconds": 0.024408,
+      "estimatedBatchRuntimeSeconds": 300.0
+    },
+    "totalSimulatedWorkerSeconds": 300.0
+  },
+  "duplicatePrevention": {
+    "duplicateClaims": 0,
+    "uniqueClaimedJobs": 10
+  },
+  "failures": {
+    "duringClaim": 0,
+    "failed": 0
+  },
+  "gcs": {
+    "realGcsUsed": false
+  },
+  "generatedAt": "2026-07-27T20:09:03.431125+00:00",
+  "gpu": {
+    "realGpuUsed": false
+  },
+  "mode": {
+    "ciSafe": true,
+    "dryRun": true,
+    "firestoreEmulator": true
+  },
+  "ok": true,
+  "privacy": {
+    "jobIdsEmitted": false,
+    "leakageCheck": "pass",
+    "qaMarker": "pr7f_privacy_qa_pass",
+    "signedUrlsEmitted": false,
+    "sourceRefsEmitted": false,
+    "status": "pass",
+    "tempRefsEmitted": false,
+    "userIdsEmitted": false
+  },
+  "retries": {
+    "retryable": 0
+  },
+  "simulation": {
+    "candidateCount": 4,
+    "ciJobs": 10,
+    "ciModeJobs": 10,
+    "defaultUsersScenario": 1000,
+    "jobsPerUser": 1,
+    "numUsers": 10,
+    "simulateWorker": true,
+    "users": 10
+  },
+  "staleLeases": {
+    "dryRun": true,
+    "found": 0,
+    "recovered": 0,
+    "requeued": 0,
+    "simulated": 0
+  }
+}

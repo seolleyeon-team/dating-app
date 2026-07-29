@@ -51,7 +51,8 @@ void main() {
     expect(diagnosticsSource, contains('Bearer <redacted>'));
     expect(diagnosticsSource, contains('accessToken=<redacted>'));
     expect(diagnosticsSource, contains('customToken=<redacted>'));
-    expect(diagnosticsSource, contains('apiKeyPrefix='));
+    expect(diagnosticsSource, contains('hasApiKey='));
+    expect(diagnosticsSource, isNot(contains('apiKeyPrefix=')));
     expect(diagnosticsSource, isNot(contains(r'apiKey=${')));
   });
 

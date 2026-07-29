@@ -1,0 +1,84 @@
+{
+  "featureFlags": {
+    "requiredBeforeProduction": {
+      "AVATAR_BATCHING_ENABLED": true,
+      "AVATAR_BATCH_CONCURRENCY_PER_GPU": 1,
+      "AVATAR_BATCH_MODE": "drain",
+      "AVATAR_COST_ENFORCE_BUDGET": true,
+      "AVATAR_GPU_WORKER_ENABLED": true
+    },
+    "rollback": {
+      "AVATAR_COST_KILL_SWITCH_ENABLED": true,
+      "AVATAR_DISABLE_NEW_GENERATION": true,
+      "AVATAR_FORCE_SINGLE_JOB_MODE": true,
+      "AVATAR_GPU_WORKER_ENABLED": false
+    }
+  },
+  "gates": {
+    "cleanup": {
+      "blocking": true,
+      "detail": "cleanup gate verifies stale temp docs and rejected candidates are removable.",
+      "status": "pass"
+    },
+    "firestore": {
+      "blocking": true,
+      "detail": "avatarJobs, userPrivateMedia, candidates, and approval docs are fixture-validated.",
+      "status": "pass"
+    },
+    "gcs": {
+      "blocking": true,
+      "detail": "private source, temp, and approved-avatar bucket checks are declared.",
+      "status": "pass"
+    },
+    "gpu": {
+      "blocking": true,
+      "detail": "no real GPU is used in dry-run.",
+      "status": "pass"
+    },
+    "oidc": {
+      "blocking": true,
+      "detail": "OIDC audience and invoker identity are required for live mode.",
+      "status": "pass"
+    },
+    "previewApproval": {
+      "blocking": true,
+      "detail": "preview approval gate is required before production promotion.",
+      "status": "pass"
+    },
+    "privacy": {
+      "blocking": true,
+      "detail": "reports emit aggregate status only.",
+      "status": "pass"
+    },
+    "qa": {
+      "blocking": true,
+      "detail": "privacy QA marker is present.",
+      "status": "pass"
+    },
+    "queue": {
+      "blocking": true,
+      "detail": "Cloud Tasks/PubSub dispatch is not called in dry-run.",
+      "status": "pass"
+    },
+    "tempDocs": {
+      "blocking": true,
+      "detail": "temporary candidate docs are expected to be TTL/cleanup bounded.",
+      "status": "pass"
+    }
+  },
+  "generatedAt": "2026-07-27T18:21:25.182819+00:00",
+  "liveProbe": {},
+  "mode": "dry_run",
+  "ok": true,
+  "privacy": {
+    "qaMarker": "pr7f_privacy_qa_pass",
+    "signedUrlsEmitted": false,
+    "sourceRefsEmitted": false,
+    "userIdsEmitted": false
+  },
+  "rollback": {
+    "data": "Do not delete private source media during rollback; cleanup only temp candidates.",
+    "primary": "Set AVATAR_DISABLE_NEW_GENERATION=true and AVATAR_COST_KILL_SWITCH_ENABLED=true.",
+    "secondary": "Scale GPU worker to zero after queue drain or pause dispatch."
+  }
+}

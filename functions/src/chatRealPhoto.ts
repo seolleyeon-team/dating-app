@@ -3,6 +3,7 @@ import { type Firestore } from "firebase-admin/firestore";
 import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import { chatProfilePhotoBucket } from "./avatarMedia";
+import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
 
 type ChatRealPhotoAuth = CallableRequest<unknown>["auth"];
 
@@ -67,57 +68,11 @@ function requirePathSegment(value: string, label: string): string {
   return normalized;
 }
 
-function safeDecodeUriComponent(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-function isSafeRuntimePublicAvatarUrl(value: unknown): boolean {
-  const url = asString(value);
-  if (!url) return false;
-  const decoded = safeDecodeUriComponent(url);
-  const forbidden = [
-    /^gs:\/\//i,
-    /^gcs:\/\//i,
-    /seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp|chat-profile-photos)/i,
-    /\/source\//i,
-    /\/jobs\//i,
-    /\/candidates\//i,
-    /X-Goog-/i,
-    /GoogleAccessId/i,
-    /Signature=/i,
-    /Expires=/i,
-    /AWSAccessKeyId/i,
-    /X-Amz-/i,
-  ];
-  if (forbidden.some((pattern) => pattern.test(decoded))) return false;
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase();
-    const bucketFromVirtualHost = host.endsWith(".storage.googleapis.com")
-      ? host.replace(".storage.googleapis.com", "")
-      : "";
-    if (
-      /seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp|chat-profile-photos)/i.test(
-        bucketFromVirtualHost
-      )
-    ) {
-      return false;
-    }
-  } catch {
-    return false;
-  }
-  return true;
-}
-
 export function resolveSafeApprovedAvatarUrl(userData: Record<string, unknown>): string {
   const avatar = readMap(userData.avatar);
   const avatarStatus = asString(avatar.status).toLowerCase();
   const approvedAvatarUrl = asString(avatar.approvedAvatarUrl);
-  if (avatarStatus === "approved" && isSafeRuntimePublicAvatarUrl(approvedAvatarUrl)) {
+  if (avatarStatus === "approved" && isSafePublicAvatarUrl(approvedAvatarUrl)) {
     return approvedAvatarUrl;
   }
 
@@ -126,7 +81,7 @@ export function resolveSafeApprovedAvatarUrl(userData: Record<string, unknown>):
     ? onboarding.avatarUrls.map((item) => asString(item)).filter(Boolean)
     : [];
   const fallback = avatarUrls[0] ?? "";
-  return isSafeRuntimePublicAvatarUrl(fallback) ? fallback : "";
+  return isSafePublicAvatarUrl(fallback) ? fallback : "";
 }
 
 function hasBlockedUser(userData: Record<string, unknown>, otherUid: string): boolean {

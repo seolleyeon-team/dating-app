@@ -1,9 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors, Icons;
-import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
 
-import '../../../services/auth_service.dart';
 import '../../../services/avatar_source_photo_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
@@ -269,9 +266,6 @@ class ProfileEditScreen extends StatefulWidget {
 class _ProfileEditScreenState extends State<ProfileEditScreen> {
   final _userService = UserService();
   final _storageService = StorageService();
-  final _authService = AuthService();
-  final _avatarSourcePhotoService = AvatarSourcePhotoService();
-  final ImagePicker _imagePicker = ImagePicker();
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -280,7 +274,6 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   int? _birthYear;
 
   final List<String?> _photoSlots = List<String?>.filled(6, null);
-  final List<bool> _photoUploading = List<bool>.filled(6, false);
   bool _avatarLocked = false;
   bool _avatarSourceLocked = false;
   String _lockedApprovedAvatarUrl = '';
@@ -497,11 +490,6 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         throw Exception('로그인 정보가 없습니다.');
       }
 
-      final photoUrls = _photoSlots.whereType<String>().toList();
-      if (!_avatarLocked && photoUrls.length < 2) {
-        throw Exception('프로필 사진은 최소 2장 이상 등록해야 합니다.');
-      }
-
       await _userService.saveOnboardingBasicInfo(
         kakaoUserId: kakaoUserId,
         basicInfo: {
@@ -521,13 +509,6 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           'keywords': _keywords.map((e) => e.toString()).toList(),
         },
       );
-
-      if (!_avatarLocked) {
-        await _userService.saveOnboardingPhotos(
-          kakaoUserId: kakaoUserId,
-          photoUrls: photoUrls,
-        );
-      }
 
       if (_profileQa.isNotEmpty) {
         await _userService.saveOnboardingProfileQa(
@@ -985,8 +966,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     );
   }
 
-  Future<void> _addPhoto(int index) async {
-    HapticFeedback.lightImpact();
+  void _showProfileAvatarDisplayOnlyDialog() {
     if (_avatarLocked) {
       _showLockedAvatarDialog();
       return;
@@ -996,90 +976,18 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       _showSourceLockedAvatarDialog();
       return;
     }
-    final pickedFile = await _imagePicker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 88,
-    );
-    if (pickedFile == null) return;
-
-    setState(() => _photoUploading[index] = true);
-
-    try {
-      final kakaoUserId =
-          _currentUserId ?? await _storageService.getKakaoUserId();
-      if (kakaoUserId == null || kakaoUserId.isEmpty) {
-        throw Exception('사용자 정보를 찾을 수 없습니다.');
-      }
-
-      final hasFirebaseSession = await _authService
-          .ensureFirebaseSessionForVerifiedUser(kakaoUserId);
-      if (!hasFirebaseSession) {
-        throw Exception(
-          'Firebase login session is required for private upload.',
-        );
-      }
-
-      final result = await _avatarSourcePhotoService.uploadPickedImage(
-        file: pickedFile,
-        slotIndex: index,
-        uid: kakaoUserId,
-      );
-
-      if (!mounted) return;
-      setState(() {
-        _photoSlots[index] = AvatarSourcePhotoService.queuedSlotToken(
-          result.jobId,
-        );
-        _avatarSourceLocked = true;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      if (e is AvatarSourceLockedException) {
-        setState(() => _avatarSourceLocked = true);
-      }
-      final message = e is AvatarAlreadyApprovedException
-          ? AvatarAlreadyApprovedException.message
-          : e is AvatarSourceLockedException
-          ? AvatarSourceLockedException.message
-          : '사진 업로드에 실패했어요. 잠시 후 다시 시도해주세요.';
-      showCupertinoDialog(
-        context: context,
-        builder: (context) => CupertinoAlertDialog(
-          title: const Text('사진 업로드 실패'),
-          content: Text(message),
-          actions: [
-            CupertinoDialogAction(
-              child: const Text('확인'),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-          ],
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _photoUploading[index] = false);
-    }
-  }
-
-  Future<void> _removePhoto(int index) async {
-    HapticFeedback.selectionClick();
-    if (_avatarLocked) {
-      _showLockedAvatarDialog();
-      return;
-    }
-    if (_avatarSourceLocked ||
-        _photoSlots.any(AvatarSourcePhotoService.isQueuedSlotToken)) {
-      _showSourceLockedAvatarDialog();
-      return;
-    }
-    setState(() => _photoSlots[index] = null);
-
-    final kakaoUserId =
-        _currentUserId ?? await _storageService.getKakaoUserId();
-    if (kakaoUserId == null || kakaoUserId.isEmpty) return;
-    final photoUrls = _photoSlots.whereType<String>().toList();
-    await _userService.saveOnboardingPhotos(
-      kakaoUserId: kakaoUserId,
-      photoUrls: photoUrls,
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('프로필 이미지 변경 불가'),
+        content: const Text('프로필 이미지는 아바타 생성 화면에서만 등록할 수 있어요.'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1215,7 +1123,14 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                         children: [
                           _PhotoSection(
                             photoUrls: _photoSlots,
-                            isUploading: _photoUploading,
+                            isUploading: const <bool>[
+                              false,
+                              false,
+                              false,
+                              false,
+                              false,
+                              false,
+                            ],
                             avatarLocked: _avatarLocked,
                             sourceLocked:
                                 !_avatarLocked &&
@@ -1225,8 +1140,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                                           .isQueuedSlotToken,
                                     )),
                             lockedApprovedAvatarUrl: _lockedApprovedAvatarUrl,
-                            onAddPhoto: _addPhoto,
-                            onRemovePhoto: _removePhoto,
+                            onAddPhoto: (_) =>
+                                _showProfileAvatarDisplayOnlyDialog(),
+                            onRemovePhoto: (_) =>
+                                _showProfileAvatarDisplayOnlyDialog(),
                           ),
                           const SizedBox(height: 16),
                           _SelfIntroSection(

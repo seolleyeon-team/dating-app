@@ -55,6 +55,8 @@ def passes_absolute_preview_checks(candidate: Mapping[str, Any]) -> bool:
         return False
 
     qa = qa_doc(candidate)
+    if _qa_model_unavailable(qa):
+        return False
     required_pass = all(_status_is_pass(qa.get(field)) for field in PASS_FIELDS)
     required_low = all(
         _risk_is_low(qa.get(field)) for field in LOW_RISK_FIELDS
@@ -79,6 +81,28 @@ def is_preview_eligible(candidate: Mapping[str, Any]) -> bool:
 def qa_doc(candidate: Mapping[str, Any]) -> Mapping[str, Any]:
     qa = candidate.get("qa")
     return qa if isinstance(qa, Mapping) else {}
+
+
+
+def _qa_model_unavailable(qa: Mapping[str, Any]) -> bool:
+    unavailable = {"unavailable", "critical_unavailable", "uncalibrated"}
+    qa_version = str(qa.get("qaVersion") or "").strip().lower()
+    if "model_unavailable" in qa_version:
+        return True
+    for reason in qa.get("reviewReasons") or ():
+        lowered = str(reason or "").strip().lower()
+        if lowered == "model_unavailable" or lowered.endswith("_unavailable"):
+            return True
+    debug = qa.get("debug")
+    if not isinstance(debug, Mapping):
+        return False
+    model_availability = debug.get("modelAvailability")
+    if not isinstance(model_availability, Mapping):
+        return False
+    for value in model_availability.values():
+        if str(value or "").strip().lower() in unavailable:
+            return True
+    return False
 
 
 def _status_is_pass(value: Any) -> bool:

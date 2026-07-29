@@ -503,7 +503,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--mode", choices=["expired_candidates", "user_media"], default="expired_candidates")
     parser.add_argument("--uid")
     parser.add_argument("--reason", default="consent_withdrawal")
-    parser.add_argument("--apply", action="store_true", help="Mutate Firestore/GCS. Default is dry-run.")
+    execution = parser.add_mutually_exclusive_group()
+    execution.add_argument(
+        "--dry_run",
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        help="Explicitly inspect cleanup candidates without mutation.",
+    )
+    execution.add_argument("--apply", action="store_true", help="Mutate Firestore/GCS.")
     parser.add_argument("--firestore_project")
     parser.add_argument("--firestore_database")
     parser.add_argument("--max_delete_per_run", type=int, default=500)
@@ -515,7 +523,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         summary = cleanup_expired_avatar_candidates(
             firestore_client=fs,
             storage_client=st,
-            dry_run=not args.apply,
+            dry_run=args.dry_run or not args.apply,
             max_delete_per_run=args.max_delete_per_run,
         )
     else:
@@ -526,7 +534,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             reason=args.reason,
             firestore_client=fs,
             storage_client=st,
-            dry_run=not args.apply,
+            dry_run=args.dry_run or not args.apply,
         )
     print(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2))
     return 0

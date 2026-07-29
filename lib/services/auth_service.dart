@@ -8,6 +8,7 @@ import '../models/user_model.dart';
 import '../router/route_names.dart';
 import 'firebase_diagnostics.dart';
 import '../utils/phone_hash_utils.dart';
+import '../shared/utils/privacy_log_utils.dart';
 import 'storage_service.dart';
 import 'user_service.dart';
 
@@ -34,16 +35,18 @@ class AuthService {
           currentUser.uid == kakaoUserId || claimedKakaoUserId == kakaoUserId;
       if (!matches) {
         debugPrint(
-          '[Auth] Firebase session mismatch: '
-          'uid=${currentUser.uid} '
-          'claimKakaoUserId=$claimedKakaoUserId '
-          'expected=$kakaoUserId',
+          '[Auth] Firebase session mismatch '
+          '${PrivacyLogUtils.idFingerprint(currentUser.uid)} '
+          'claim=${PrivacyLogUtils.idFingerprint(claimedKakaoUserId)} '
+          'expected=${PrivacyLogUtils.idFingerprint(kakaoUserId)}',
         );
       }
       return matches;
-    } catch (e, st) {
-      debugPrint('[Auth] Firebase session inspection failed: $e');
-      debugPrint(st.toString());
+    } catch (e) {
+      debugPrint(
+        '[Auth] Firebase session inspection ${PrivacyLogUtils.errorSummary(e)}',
+      );
+
       return false;
     }
   }
@@ -84,7 +87,7 @@ class AuthService {
           tryKakaoTalk = installed;
         } catch (e) {
           debugPrint(
-            '[Kakao] isKakaoTalkInstalled error (fallback to web): $e',
+            '[Kakao] isKakaoTalkInstalled ${PrivacyLogUtils.errorSummary(e)}',
           );
         }
 
@@ -93,18 +96,20 @@ class AuthService {
             await UserApi.instance.loginWithKakaoTalk();
           } on KakaoException catch (e) {
             final detail = e.message ?? e.toString();
-            debugPrint('[Kakao] loginWithKakaoTalk failed: $detail');
+            debugPrint(
+              '[Kakao] loginWithKakaoTalk ${PrivacyLogUtils.errorSummary(e)}',
+            );
             if (detail.contains('bundleId') ||
                 detail.contains('IOS bundleId')) {
               rethrow;
             }
             debugPrint('[Kakao] fallback to loginWithKakaoAccount');
             await UserApi.instance.loginWithKakaoAccount();
-          } catch (e, st) {
+          } catch (e) {
             debugPrint(
-              '[Kakao] loginWithKakaoTalk error (fallback to web): $e',
+              '[Kakao] loginWithKakaoTalk ${PrivacyLogUtils.errorSummary(e)}',
             );
-            debugPrint(st.toString());
+
             final detail = e.toString();
             if (detail.contains('bundleId') ||
                 detail.contains('IOS bundleId')) {
@@ -203,7 +208,9 @@ class AuthService {
       try {
         final phoneHash = PhoneHashUtils.normalizeAndHash(rawPhone);
         if (phoneHash == null) {
-          debugPrint('[Auth] 전화번호 정규화 실패: $rawPhone');
+          debugPrint(
+            '[Auth] phone normalization failed hasPhone=${rawPhone.isNotEmpty}',
+          );
           return;
         }
         final callable = _functions.httpsCallable('saveUserPhoneHash');
@@ -213,7 +220,7 @@ class AuthService {
         });
         debugPrint('[Auth] phoneHash 저장 완료');
       } catch (e) {
-        debugPrint('[Auth] phoneHash 저장 실패 (무시): $e');
+        debugPrint('[Auth] phoneHash save ${PrivacyLogUtils.errorSummary(e)}');
       }
     });
   }
@@ -354,7 +361,9 @@ class AuthService {
           'firebase_session_already_attached',
           kakaoUserId: kakaoUserId,
         );
-        debugPrint('[Auth] Firebase session already attached to $kakaoUserId');
+        debugPrint(
+          '[Auth] Firebase session attached ${PrivacyLogUtils.idFingerprint(kakaoUserId)}',
+        );
         return true;
       }
 
@@ -419,7 +428,9 @@ class AuthService {
         'firebase_custom_token_signin_success',
         kakaoUserId: kakaoUserId,
       );
-      debugPrint('[Auth] Firebase custom auth attached to $kakaoUserId');
+      debugPrint(
+        '[Auth] Firebase custom auth ${PrivacyLogUtils.idFingerprint(kakaoUserId)}',
+      );
       return true;
     } on FirebaseFunctionsException catch (e, st) {
       FirebaseDiagnostics.logAuthBridgePhase(
@@ -433,7 +444,7 @@ class AuthService {
         'code=${e.code} '
         'message=${FirebaseDiagnostics.safeErrorForLog(e.message)}',
       );
-      debugPrint(st.toString());
+
       return false;
     } on FirebaseAuthException catch (e, st) {
       FirebaseDiagnostics.logAuthBridgePhase(
@@ -447,7 +458,7 @@ class AuthService {
         'code=${e.code} '
         'message=${FirebaseDiagnostics.safeErrorForLog(e.message)}',
       );
-      debugPrint(st.toString());
+
       return false;
     } catch (e, st) {
       FirebaseDiagnostics.logAuthBridgePhase(
@@ -460,7 +471,7 @@ class AuthService {
         '[Auth] ensureFirebaseSessionForKakao error: '
         '${FirebaseDiagnostics.safeErrorForLog(e)}',
       );
-      debugPrint(st.toString());
+
       return false;
     }
   }
@@ -469,13 +480,15 @@ class AuthService {
     try {
       if (await _hasMatchingFirebaseSession(kakaoUserId)) {
         debugPrint(
-          '[Auth] Existing Firebase session is available for verified user '
-          '(kakaoUserId=$kakaoUserId)',
+          '[Auth] Existing Firebase session '
+          '${PrivacyLogUtils.idFingerprint(kakaoUserId)}',
         );
         return true;
       }
     } catch (e) {
-      debugPrint('[Auth] Existing Firebase session refresh failed: $e');
+      debugPrint(
+        '[Auth] Existing Firebase session refresh ${PrivacyLogUtils.errorSummary(e)}',
+      );
     }
 
     await _signOutFirebaseIfMismatched(kakaoUserId);
@@ -509,27 +522,25 @@ class AuthService {
           );
           await credential.user?.getIdToken(true);
           debugPrint(
-            '[Auth] Firebase session restored from student verification token '
-            'for $kakaoUserId',
+            '[Auth] Firebase session restored '
+            '${PrivacyLogUtils.idFingerprint(kakaoUserId)}',
           );
           return true;
         }
         debugPrint(
           '[Auth] Email-link token bridge returned empty custom token',
         );
-      } on FirebaseFunctionsException catch (e, st) {
+      } on FirebaseFunctionsException catch (e) {
         debugPrint(
           '[Auth] ensureFirebaseSessionForVerifiedUser functions error: '
           'code=${e.code} '
           'message=${FirebaseDiagnostics.safeErrorForLog(e.message)}',
         );
-        debugPrint(st.toString());
-      } catch (e, st) {
+      } catch (e) {
         debugPrint(
           '[Auth] ensureFirebaseSessionForVerifiedUser error: '
           '${FirebaseDiagnostics.safeErrorForLog(e)}',
         );
-        debugPrint(st.toString());
       }
     } else {
       debugPrint(
@@ -543,16 +554,14 @@ class AuthService {
   Future<void> signOutAll() async {
     try {
       await _firebaseAuth.signOut();
-    } catch (e, st) {
-      debugPrint('[Auth] Firebase signOut failed: $e');
-      debugPrint(st.toString());
+    } catch (e) {
+      debugPrint('[Auth] Firebase signOut ${PrivacyLogUtils.errorSummary(e)}');
     }
 
     try {
       await UserApi.instance.logout();
-    } catch (e, st) {
-      debugPrint('[Auth] Kakao logout failed: $e');
-      debugPrint(st.toString());
+    } catch (e) {
+      debugPrint('[Auth] Kakao logout ${PrivacyLogUtils.errorSummary(e)}');
     }
   }
 
@@ -569,7 +578,9 @@ class AuthService {
         await UserApi.instance.accessTokenInfo();
         return accessToken;
       } catch (e) {
-        debugPrint('[Auth] Kakao access token is not usable anymore: $e');
+        debugPrint(
+          '[Auth] Kakao access token ${PrivacyLogUtils.errorSummary(e)}',
+        );
         // 만료·폐기 토큰이 로컬에 남아 있으면 이후 호출이 계속 실패하므로 세션 정리
         final msg = e.toString();
         if (msg.contains('-401') || msg.contains('does not exist')) {
@@ -578,15 +589,19 @@ class AuthService {
             debugPrint('[Auth] Kakao logout after invalid access token');
           } catch (logoutErr) {
             debugPrint(
-              '[Auth] Kakao logout after invalid token failed: $logoutErr',
+              '[Auth] Kakao logout after invalid token '
+              '${PrivacyLogUtils.errorSummary(logoutErr)}',
             );
           }
         }
         return null;
       }
-    } catch (e, st) {
-      debugPrint('[Auth] getKakaoAccessTokenForFunctions: $e');
-      debugPrint('$st');
+    } catch (e) {
+      debugPrint(
+        '[Auth] getKakaoAccessTokenForFunctions '
+        '${PrivacyLogUtils.errorSummary(e)}',
+      );
+
       return null;
     }
   }

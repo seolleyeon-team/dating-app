@@ -76,6 +76,22 @@ test("approved avatar resolver rejects signed or private fallbacks", () => {
   );
 });
 
+test("approved avatar resolver rejects Festival private-media buckets", () => {
+  for (const url of [
+    "https://seolleyeon-festival-private-source-photos.storage.googleapis.com/users/u/source/src.jpg",
+    "https://seolleyeon-festival-avatar-temp.storage.googleapis.com/users/u/jobs/j/candidates/c.png",
+    "https://seolleyeon-festival-chat-profile-photos.storage.googleapis.com/users/u/chat/photo.jpg?token=secret",
+  ]) {
+    assert.equal(
+      resolveSafeApprovedAvatarUrl({
+        avatar: { status: "approved", approvedAvatarUrl: url },
+      }),
+      "",
+      url
+    );
+  }
+});
+
 test("valid chat participants with consent can use chat-profile photo asset", () => {
   const decision = evaluateChatRealPhotoAccess({
     roomExists: true,

@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -13,6 +12,7 @@ import '../../../services/onboarding_save_helper.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/utils/avatar_lock_policy.dart';
+import '../../../shared/utils/privacy_log_utils.dart';
 import '../widgets/avatar_candidate_selection_dialog.dart';
 import '../widgets/avatar_generation_error_banner.dart';
 import '../widgets/avatar_generating_overlay.dart';
@@ -622,7 +622,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       }
       await _goToSelfIntroduction();
     } catch (e) {
-      debugPrint('avatar approval failed: ${_redactError(e)}');
+      debugPrint('avatar approval failed: ${PrivacyLogUtils.errorSummary(e)}');
       if (!mounted) return;
       setState(() {
         _avatarFlowState = AvatarOnboardingFlowState.previewReady;
@@ -638,7 +638,9 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       try {
         await OnboardingSaveHelper.savePhotos(validPhotos);
       } catch (e) {
-        debugPrint('avatar onboarding savePhotos failed: ${_redactError(e)}');
+        debugPrint(
+          'avatar onboarding savePhotos failed: ${PrivacyLogUtils.errorSummary(e)}',
+        );
       }
     }
 
@@ -700,7 +702,9 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     if (sourceSelectionVersion != null) {
       parts.add('sourceSelectionVersion=$sourceSelectionVersion');
     }
-    if (error != null) parts.add('error=${_redactError(error)}');
+    if (error != null) {
+      parts.add('error=${PrivacyLogUtils.errorSummary(error)}');
+    }
     debugPrint(parts.join(' '));
   }
 
@@ -711,39 +715,6 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   }
 
   /// 로그에 임시 프리뷰 URL이나 사용자 식별 정보가 새는 것을 방지한다.
-  String _redactError(Object error) {
-    if (error is FirebaseFunctionsException) {
-      return 'FirebaseFunctionsException('
-          'code=${error.code}, '
-          'message=${_sanitizeLogText(error.message)})';
-    }
-    return error.runtimeType.toString();
-  }
-
-  String _sanitizeLogText(String? value) {
-    var text = (value ?? '').trim();
-    if (text.isEmpty) return '';
-    text = text.replaceAll(
-      RegExp(r'g(?:s|cs)://[^\s]+', caseSensitive: false),
-      '<private-ref-redacted>',
-    );
-    text = text.replaceAll(
-      RegExp(
-        r'(X-Goog-[^=&\s]+|Google'
-        r'AccessId|Signature|Expires|X-Amz-[^=&\s]+)=([^&\s]+)',
-        caseSensitive: false,
-      ),
-      r'$1=<redacted>',
-    );
-    text = text.replaceAll(
-      RegExp(
-        r'seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp|chat-profile-photos)',
-        caseSensitive: false,
-      ),
-      '<private-bucket-redacted>',
-    );
-    return text.length <= 180 ? text : '${text.substring(0, 180)}...';
-  }
 
   Future<void> _saveCurrentPhotos() async {
     if (_isSavingOnExit) return;

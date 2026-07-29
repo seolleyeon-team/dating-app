@@ -69,7 +69,6 @@ class ChatService {
   }) async {
     final roomRef = _firestore.collection('chat_rooms').doc(roomId);
     final promiseRef = roomRef.collection('promises').doc(promiseId);
-    final cancelledMessageRef = roomRef.collection('messages').doc();
     final now = DateTime.now();
     final cancelledMessageText = '약속이 취소되었어요 (${_formatKoreanDateTime(now)})';
 
@@ -104,21 +103,6 @@ class ChatService {
         'status': 'cancelled',
         'cancelledAt': FieldValue.serverTimestamp(),
         'cancelledReason': 'safety_stamp_timeout',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      tx.set(cancelledMessageRef, {
-        'senderId': 'system',
-        'text': cancelledMessageText,
-        'type': 'promise_deleted',
-        'promiseId': promiseId,
-        'dateTime': FieldValue.serverTimestamp(),
-        'place': activePromise['place'],
-        'placeCategory': activePromise['placeCategory'],
-        'status': 'cancelled',
-        'cancelledReason': 'safety_stamp_timeout',
-        'readBy': const <String>[],
-        'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
