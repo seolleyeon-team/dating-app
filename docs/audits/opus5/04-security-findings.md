@@ -28,7 +28,7 @@
 | SEC-P1-06 | P1 | 추천 | 배치 파이프라인이 blocks/contactBlocked 미제외 | **수정·이미지 배포 완료** (`bc554be8` → `recs-pipeline:latest`, Jobs 6개 갱신) |
 | SEC-P1-07 | P1 | FCM | 차단·탈퇴 사용자 푸시 미필터 | **수정·운영 배포 완료** (`f92408b5`, push 관련 Functions 9개) |
 | SEC-P1-08 | P1 | 개인정보 | account_deletion 시 대량 orphan 데이터 잔존 | **1차 수정·배포 완료** (`4f8fbb5b` → `cleanupAvatarMedia`; matches/채팅 등은 2차) |
-| SEC-P2-01 | P2 | 커뮤니티 | bamboo_posts likeCount 임의 조작 | **수정 완료** (카운터 ±1 게이트; rules 배포 필요) |
+| SEC-P2-01 | P2 | 커뮤니티 | bamboo_posts likeCount 임의 조작 | **수정·rules 배포 완료** (`126aeafc`) |
 | SEC-P2-02 | P2 | 데이터 일관성 | 상호 like 시 match/chat_room 중복 생성 race | 코드상 확정, 미수정 |
 | SEC-P3-01 | P3 | Rules | place_catalog 규칙 블록 중복 정의 | 코드상 확정, 미수정 |
 
@@ -701,7 +701,7 @@ Firebase Auth 계정을 삭제하지만 다음은 남긴다 (서브에이전트 
 
 **등급:** P2
 **영역:** 커뮤니티
-**상태:** 코드 수정 완료 (2026-07-29). Firestore rules 배포 필요.
+**상태:** 코드 수정 및 Firestore rules 배포 완료 (2026-07-29, `seolleyeon-final`, commit `126aeafc`).
 
 클라이언트가 `likeCount`/`score7d`/`commentCount`를 임의 값으로 쓸 수 있어
 커뮤니티 랭킹 조작이 가능했다. 앱은 `FieldValue.increment(±1)`만 쓰므로
