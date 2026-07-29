@@ -13,8 +13,8 @@
 |---|------|------|-----------|
 | 1 | 위조 `recEvents` like → match/chat 생성 | **PARTIALLY VERIFIED** | 상호 like가 이미 있으면 `matches` 문서는 생성되나 **채팅방은 생성되지 않음**. 타인 `recEvents` 위조·소급 변조는 현행 규칙·배포본에서 차단. |
 | 2 | Flutter 채팅 앱 `messages` update 필드 | **VERIFIED** | `readBy`/`updatedAt` 읽음 처리 + `promise_*` 약속 카드 생애주기 필드만 갱신. |
-| 3 | 운영 `emailLinkTokens` 악성 문서 존재 | **PARTIALLY VERIFIED** | 레거시 28건 존재(전부 만료, `emailVerifiedUid` 0건). **현재 악용 가능한 토큰은 없음**. 공격자가 심은 문서와 정상 레거시 구분은 불가. |
-| 4 | App Check 콘솔 enforcement (callable/Storage) | **PARTIALLY VERIFIED** | **Storage/Firestore/Auth 콘솔 enforcement = UNENFORCED**. Callable은 코드 `enforceAppCheck: true` (콘솔 API 대상 아님). |
+| 3 | 운영 `emailLinkTokens` 악성 문서 존재 | **RESOLVED** | 레거시 28건 전부 만료·미검증 → **2026-07-29 일괄 삭제 완료** (REMAINING=0). |
+| 4 | App Check 콘솔 enforcement (callable/Storage) | **PARTIALLY → Storage RESOLVED** | **Storage = ENFORCED** (2026-07-29). Firestore/Auth는 여전히 UNENFORCED. Callable은 코드 `enforceAppCheck`. |
 | 5 | Storage rules deny vs Flutter 직접 업로드 | **VERIFIED** | `lib/`에 `putFile`/`putData`/직접 업로드 없음. 아바타는 callable 경유. Storage는 read-only(`getDownloadURL`)만. |
 
 ---
@@ -224,6 +224,12 @@ export async function ensureMutualMatch(
 - **모니터링:** `emailVerifiedUid` 없이 create된 신규 토큰 알림 (규칙상 create는 auth 필요하나, anomaly detection용)
 - **선택:** `expiresAt` 지난 문서 자동 삭제 Cloud Scheduler/Function
 
+### 운영 조치 (2026-07-29)
+
+- 조건: `expiresAt < now` AND `emailVerifiedUid` 없음
+- **DELETED=28 / FAILED=0 / REMAINING=0** (`seolleyeon-final`)
+- Firestore REST delete (ADC). 활성·검증 완료 토큰은 0건이라 스킵 없음.
+
 ---
 
 ## 4. App Check enforcement (callable / Storage)
@@ -236,7 +242,7 @@ export async function ensureMutualMatch(
 
 | 서비스 | enforcementMode |
 |--------|-----------------|
-| `firebasestorage.googleapis.com` | **UNENFORCED** |
+| `firebasestorage.googleapis.com` | **ENFORCED** (2026-07-29 전환) |
 | `firestore.googleapis.com` | **UNENFORCED** |
 | `identitytoolkit.googleapis.com` (Auth) | **UNENFORCED** |
 
@@ -260,14 +266,14 @@ export async function ensureMutualMatch(
 
 | 계층 | Storage | Callable |
 |------|---------|----------|
-| Firebase 콘솔 App Check enforcement | **OFF (UNENFORCED)** | N/A (코드 플래그) |
+| Firebase 콘솔 App Check enforcement | **ON (ENFORCED)** (2026-07-29) | N/A (코드 플래그) |
 | 코드/규칙 | `storage.rules` 전 경로 `write: if false` | `enforceAppCheck: true` |
 
-Storage는 콘솔 enforcement가 꺼져 있어도 **rules가 클라이언트 쓰기를 전면 거부**하므로 실질 쓰기 차단은 rules에 의존. App Check 미적용 클라이언트가 Storage SDK로 우회 시도해도 rules에서 거부.
+Storage는 **rules deny + App Check ENFORCED** 이중 방어. 유효한 App Check 토큰 없는 클라이언트 요청은 Storage API에서 거부된다.
 
 ### 권장 조치
 
-- **Storage:** 콘솔 enforcement **ENFORCED** 전환 검토 (defense-in-depth). rules deny와 병행.
+- **Storage:** ENFORCED 적용 완료 (2026-07-29).
 - **Firestore/Auth:** 제품 요구에 따라 enforcement 검토 (현재 UNENFORCED).
 - **Callable:** 코드 `enforceAppCheck` 유지 + Flutter/web App Check 초기화 필수. staging 문서 `docs/staging_app_check_setup.md` 참고.
 - App Check 403 blocker(avatar QA 등)는 enforcement 우회가 아닌 **정상 debug token / 등록 device**로 해결.
@@ -327,8 +333,8 @@ Storage는 콘솔 enforcement가 꺼져 있어도 **rules가 클라이언트 쓰
 | 항목 | 조치 |
 |------|------|
 | 1 recEvents chat gap | `checkAndCreateRecMatch`가 `ensureMutualMatch(..., chatRoom)` 전달 |
-| 3 expired tokens | `shouldPurgeEmailLinkToken` 헬퍼 + 단위 테스트. 운영 28건 일괄 삭제는 승인 대기 |
-| 4 App Check console | Storage ENFORCED 전환은 운영 승인 필요 — 미적용 |
+| 3 expired tokens | **일괄 삭제 완료** — DELETED=28, REMAINING=0 (2026-07-29) |
+| 4 App Check console | **Storage ENFORCED 완료** (2026-07-29). Firestore/Auth는 UNENFORCED 유지 |
 | P1-08 phase 2 | `accountDeletionSocialCleanup` — matches/chat/interactions 등 소셜 residual |
 
 ---
