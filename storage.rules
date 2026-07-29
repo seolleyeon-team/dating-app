@@ -4,13 +4,10 @@ service firebase.storage {
   match /b/{bucket}/o {
     function isApprovedAvatarBucket() {
       return bucket == "seolleyeon-approved-avatars" ||
-          bucket == "seolleyeon-final-approved-avatars";
+          bucket == "seolleyeon-final-approved-avatars" ||
+          bucket == "seolleyeon-festival-approved-avatars";
     }
 
-    function isChatProfilePhotoBucket() {
-      return bucket == "seolleyeon-chat-profile-photos" ||
-          bucket == "seolleyeon-final-chat-profile-photos";
-    }
 
     match /ai_profiles/{rest=**} {
       allow read: if true;

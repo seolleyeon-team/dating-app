@@ -1,0 +1,21 @@
+{
+  "status": "ok",
+  "mode": "real_gpu",
+  "workerUrl": "https://avatar-worker.example",
+  "jobId": "job:2a0c2289de6a",
+  "uid": "uid:c05acdb6e023",
+  "sourceRef": "gs://seolleyeon-final-private-source-photos/<redacted>",
+  "candidateCount": 4,
+  "readyz": {
+    "status": "ok",
+    "authMode": "cloud_run_iam"
+  },
+  "warmup": {
+    "status": "ok",
+    "modelCacheMisses": 1
+  },
+  "result": {
+    "status": "warmup_completed",
+    "taskPayloadPosted": false
+  }
+}

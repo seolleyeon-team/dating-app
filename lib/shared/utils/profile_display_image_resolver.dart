@@ -36,7 +36,7 @@ class ProfileDisplayImageResolver {
       return false;
     }
     if (RegExp(
-      r'seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp|chat-profile-photos)',
+      r'seolleyeon(?:-final|-festival)?-(?:private-source-photos|avatar-temp|chat-profile-photos)',
     ).hasMatch(decodedLowerValue)) {
       return false;
     }
@@ -63,7 +63,7 @@ class ProfileDisplayImageResolver {
         : '';
     if (bucketFromVirtualHost.isNotEmpty &&
         RegExp(
-          r'seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp|chat-profile-photos)',
+          r'seolleyeon(?:-final|-festival)?-(?:private-source-photos|avatar-temp|chat-profile-photos)',
         ).hasMatch(bucketFromVirtualHost)) {
       return false;
     }

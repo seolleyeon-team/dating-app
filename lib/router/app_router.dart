@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'route_names.dart';
@@ -318,7 +319,9 @@ class AppRouter {
                     );
                     return true;
                   } catch (e) {
-                    debugPrint('Issue report submit error: $e');
+                    debugPrint(
+                      'Issue report submit error: ${PrivacyLogUtils.errorSummary(e)}',
+                    );
                     return false;
                   }
                 },
@@ -341,7 +344,9 @@ class AppRouter {
                     );
                     return true;
                   } catch (e) {
-                    debugPrint('Inquiry submit error: $e');
+                    debugPrint(
+                      'Inquiry submit error: ${PrivacyLogUtils.errorSummary(e)}',
+                    );
                     return false;
                   }
                 },

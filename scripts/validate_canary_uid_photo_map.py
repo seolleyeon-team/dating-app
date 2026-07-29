@@ -10,6 +10,21 @@ from pathlib import Path
 from typing import Any, Mapping
 
 try:
+    from avatar_auth_secrets import load_auth_secret_users
+except ModuleNotFoundError:  # pragma: no cover - importlib test path support
+    import importlib.util
+
+    _AUTH_SECRET_SPEC = importlib.util.spec_from_file_location(
+        "avatar_auth_secrets",
+        Path(__file__).with_name("avatar_auth_secrets.py"),
+    )
+    if _AUTH_SECRET_SPEC is None or _AUTH_SECRET_SPEC.loader is None:
+        raise
+    _AUTH_SECRET_MODULE = importlib.util.module_from_spec(_AUTH_SECRET_SPEC)
+    _AUTH_SECRET_SPEC.loader.exec_module(_AUTH_SECRET_MODULE)
+    load_auth_secret_users = _AUTH_SECRET_MODULE.load_auth_secret_users
+
+try:
     from pr84_consent_evidence import evaluate_consent_file
 except ModuleNotFoundError:  # pragma: no cover - importlib test path support
     import importlib.util
@@ -23,6 +38,23 @@ except ModuleNotFoundError:  # pragma: no cover - importlib test path support
     _CONSENT_MODULE = importlib.util.module_from_spec(_CONSENT_SPEC)
     _CONSENT_SPEC.loader.exec_module(_CONSENT_MODULE)
     evaluate_consent_file = _CONSENT_MODULE.evaluate_consent_file
+
+try:
+    from avatar_exact_consent import evaluate_exact_uid_photo_consent
+except ModuleNotFoundError:  # pragma: no cover - importlib test path support
+    import importlib.util
+
+    _EXACT_CONSENT_SPEC = importlib.util.spec_from_file_location(
+        "avatar_exact_consent",
+        Path(__file__).with_name("avatar_exact_consent.py"),
+    )
+    if _EXACT_CONSENT_SPEC is None or _EXACT_CONSENT_SPEC.loader is None:
+        raise
+    _EXACT_CONSENT_MODULE = importlib.util.module_from_spec(_EXACT_CONSENT_SPEC)
+    _EXACT_CONSENT_SPEC.loader.exec_module(_EXACT_CONSENT_MODULE)
+    evaluate_exact_uid_photo_consent = (
+        _EXACT_CONSENT_MODULE.evaluate_exact_uid_photo_consent
+    )
 
 DEFAULT_AUTH_SECRET_PATHS = (
     Path(".local_secrets/staging_test_users.json"),
@@ -84,18 +116,7 @@ def _load_mapping(path: Path) -> list[tuple[str, Path]]:
 
 
 def _load_auth_secrets(paths: list[Path]) -> list[Mapping[str, Any]]:
-    users: list[Mapping[str, Any]] = []
-    for path in paths:
-        if not path.is_file():
-            continue
-        payload = _load_json(path)
-        for label, entry in (payload.get("users") or {}).items():
-            if isinstance(entry, Mapping):
-                item = dict(entry)
-                item["label"] = str(label)
-                users.append(item)
-    return users
-
+    return load_auth_secret_users(paths, load_json=_load_json)
 
 def _post_json(url: str, payload: Mapping[str, Any]) -> tuple[int, Mapping[str, Any]]:
     body = json.dumps(payload).encode("utf-8")
@@ -169,9 +190,14 @@ def build_report(
 ) -> dict[str, Any]:
     preflight = _load_preflight(preflight_json)
     auth_lookup = _auth_uid_lookup(api_key, _load_auth_secrets(auth_secret_paths))
-    consent = evaluate_consent_file(consent_file)
+    mapping_rows = _load_mapping(mapping_path)
+    consent = dict(evaluate_consent_file(consent_file))
+    consent["exactUidPhotoConsent"] = evaluate_exact_uid_photo_consent(
+        consent_file=consent_file,
+        expected_rows=mapping_rows,
+    )
     rows = []
-    for uid, photo_path in _load_mapping(mapping_path):
+    for uid, photo_path in mapping_rows:
         item = preflight.get(photo_path.name, {})
         user = _user_state(project, uid)
         local_auth_match = uid in auth_lookup
@@ -184,6 +210,7 @@ def build_report(
             and not user["approvedLock"]
             and photo_path.is_file()
             and consent["valid"]
+            and consent["exactUidPhotoConsent"]["satisfiedByThisFile"]
         )
         rows.append(
             {
@@ -225,6 +252,12 @@ def _blockers(
     blockers: list[str] = []
     if not consent.get("valid"):
         blockers.append("consent_evidence_invalid")
+    exact_consent = consent.get("exactUidPhotoConsent")
+    if consent.get("valid") and (
+        not isinstance(exact_consent, Mapping)
+        or exact_consent.get("satisfiedByThisFile") is not True
+    ):
+        blockers.append("exact_uid_photo_consent_mismatch")
     if not photo_path.is_file():
         blockers.append("photo_missing")
     if preflight.get("recommendation") != "PASS":

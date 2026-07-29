@@ -12,6 +12,7 @@ import {
 } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import sharp from "sharp";
+import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
 
 const DEFAULT_AVATAR_TEMP_BUCKET = "seolleyeon-avatar-temp";
 const DEFAULT_APPROVED_AVATAR_BUCKET = "seolleyeon-approved-avatars";
@@ -75,63 +76,6 @@ function normalizeStringList(value: unknown): string[] {
       value.map((item) => asString(item)).filter((item) => item.length > 0),
     ),
   );
-}
-
-function safeDecodeUriComponent(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-function isSafePublicApprovedAvatarUrl(value: unknown): value is string {
-  if (typeof value !== "string") return false;
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-  const decodedLower = safeDecodeUriComponent(trimmed).toLowerCase();
-  if (
-    decodedLower.startsWith("gs://") ||
-    decodedLower.startsWith("gcs://") ||
-    /seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp|chat-profile-photos)/.test(
-      decodedLower,
-    ) ||
-    decodedLower.includes("x-goog-") ||
-    decodedLower.includes("x-amz-") ||
-    decodedLower.includes("googleaccessid") ||
-    decodedLower.includes("signature=") ||
-    decodedLower.includes("expires=") ||
-    decodedLower.includes("awsaccesskeyid") ||
-    decodedLower.includes("signedurl") ||
-    /\/source\//.test(decodedLower) ||
-    /\/jobs\//.test(decodedLower) ||
-    /\/candidates\//.test(decodedLower)
-  ) {
-    return false;
-  }
-
-  try {
-    const parsed = new URL(trimmed);
-    const host = parsed.hostname.toLowerCase();
-    const path = safeDecodeUriComponent(parsed.pathname).toLowerCase();
-    const bucketFromVirtualHost = host.endsWith(".storage.googleapis.com")
-      ? host.replace(".storage.googleapis.com", "")
-      : "";
-    if (
-      /seolleyeon(?:-final)?-(?:private-source-photos|avatar-temp|chat-profile-photos)/.test(
-        bucketFromVirtualHost,
-      ) ||
-      /\/source\//.test(path) ||
-      /\/jobs\//.test(path) ||
-      /\/candidates\//.test(path)
-    ) {
-      return false;
-    }
-  } catch {
-    return false;
-  }
-
-  return true;
 }
 
 function requirePathSegment(value: string, label: string): string {
@@ -433,7 +377,7 @@ export function planAvatarApprovalState(
   if (
     status === "approved" &&
     selectedCandidateId === candidateId &&
-    isSafePublicApprovedAvatarUrl(approvedAvatarUrl)
+    isSafePublicAvatarUrl(approvedAvatarUrl)
   ) {
     return {
       action: "return_existing",

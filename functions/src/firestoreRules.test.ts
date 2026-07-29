@@ -176,6 +176,10 @@ test("event team match results are participant-scoped and locks are fully privat
     "match /eventTeamMeetingRequests/{requestId} { allow read: if isEventTeamMatchParticipant(resource.data); allow write: if false; }"
   );
   assertContains(
+    "team meeting pair locks must deny every client operation",
+    "match /eventTeamMeetingRequestLocks/{lockId} { allow read, write: if false; }"
+  );
+  assertContains(
     "three-vs-three matches must be participant-readable and backend-written",
     "match /eventThreeVsThreeMatches/{matchId} { allow read: if isEventTeamMatchParticipant(resource.data); allow write: if false; }"
   );
@@ -193,6 +197,19 @@ test("chat rooms keep participantIds immutable and message updates scoped", () =
   assertContains(
     "plain text messages cannot be rewritten except for read receipts",
     "function onlyMessageReadReceiptUpdate() { return request.resource.data.diff(resource.data).affectedKeys() .hasOnly(['readBy', 'updatedAt']); }"
+  );
+  assertContains(
+    "promise lifecycle updates must preserve the original sender identity",
+    "request.resource.data.senderId == resource.data.senderId"
+  );
+  const lifecycleBody = rules.match(
+    /function onlyPromiseMessageLifecycleUpdate\(\) \{([\s\S]*?)\n\s*\}/
+  )?.[1];
+  assert.ok(lifecycleBody, "promise lifecycle rule body must exist");
+  assert.doesNotMatch(
+    lifecycleBody,
+    /['\"]senderId['\"]/,
+    "senderId must not be an allowed lifecycle mutation key"
   );
 });
 
@@ -219,6 +236,15 @@ test("team meeting request service uses callables for backend-owned writes", () 
 
   assert.match(service, /httpsCallable\('createTeamMeetingRequest'\)/);
   assert.match(service, /httpsCallable\('respondTeamMeetingRequest'\)/);
+  for (const protectedRead of [
+    /Stream<List<TeamMeetingRequestDoc>> _watchTeamRequests\([\s\S]*?\) async\* \{\s*final userId = await _requireFirebaseReadSession\(\);/,
+    /Stream<TeamMeetingRequestDoc\?> watchRequest\([^)]*\) async\* \{\s*await _requireFirebaseReadSession\(\);/,
+    /Future<TeamMeetingMatchDoc\?> getMatchOnce\([^)]*\) async \{\s*await _requireFirebaseReadSession\(\);/,
+    /Stream<TeamMeetingMatchDoc\?> watchMatch\([^)]*\) async\* \{\s*await _requireFirebaseReadSession\(\);/,
+    /Future<TeamMeetingRequestDoc\?> getRequestOnce\([^)]*\) async \{\s*await _requireFirebaseReadSession\(\);/,
+  ]) {
+    assert.match(service, protectedRead);
+  }
   assert.doesNotMatch(service, /\.collection\(_requestsCollection\)\.doc\(\)\s*;[\s\S]*?\.set\s*\(/);
   assert.doesNotMatch(service, /runTransaction/);
   assert.doesNotMatch(service, /\.collection\(_matchesCollection\)\.doc\(\)/);

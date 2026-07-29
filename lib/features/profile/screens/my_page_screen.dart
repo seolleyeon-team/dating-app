@@ -19,6 +19,7 @@ import '../../../services/kakao_friend_invite_helper.dart';
 import '../../../services/friend_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/privacy_log_utils.dart';
 import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 
@@ -79,7 +80,9 @@ class _MyPageScreenState extends State<MyPageScreen> {
               setState(() => friendsCount = snapshot.size);
             },
             onError: (error) {
-              debugPrint('[MyPage] friends stream error: $error');
+              debugPrint(
+                '[MyPage] friends stream ${PrivacyLogUtils.errorSummary(error)}',
+              );
             },
           );
     }

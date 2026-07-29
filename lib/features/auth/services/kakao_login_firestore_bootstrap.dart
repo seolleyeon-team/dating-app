@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../services/auth_service.dart';
@@ -31,9 +32,10 @@ class KakaoLoginFirestoreBootstrap {
         kakaoUserId: kakaoUserId,
         platform: platform,
       );
-    } catch (e, st) {
-      debugPrint('[KAKAO] setLastActivePlatform skipped: $e');
-      debugPrint(st.toString());
+    } catch (e) {
+      debugPrint(
+        '[KAKAO] setLastActivePlatform skipped: ${PrivacyLogUtils.errorSummary(e)}',
+      );
     }
 
     return existedBeforeLogin;

@@ -69,8 +69,10 @@ class ChatService {
         .where('participantIds', arrayContains: userId)
         .orderBy('updatedAt', descending: true)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+        .map(
+          (snap) =>
+              snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
+        );
   }
 
   /// 특정 채팅방 정보 조회
@@ -117,36 +119,6 @@ class ChatService {
     return msgRef.id;
   }
 
-  /// 시스템 메시지 전송 (매치 안내 등)
-  Future<void> sendSystemMessage({
-    required String roomId,
-    required String content,
-  }) async {
-    final batch = _firestore.batch();
-
-    final msgRef = _roomsRef.doc(roomId).collection('messages').doc();
-    batch.set(msgRef, {
-      'senderId': 'system',
-      'content': content,
-      'type': 'system',
-      'readBy': <String>[],
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    final roomRef = _roomsRef.doc(roomId);
-    batch.update(roomRef, {
-      'lastMessage': {
-        'content': content,
-        'senderId': 'system',
-        'type': 'system',
-        'createdAt': Timestamp.now(),
-      },
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-
-    await batch.commit();
-  }
-
   /// 메시지 실시간 스트림 (시간순)
   Stream<List<Map<String, dynamic>>> messagesStream(
     String roomId, {
@@ -158,8 +130,10 @@ class ChatService {
         .orderBy('createdAt', descending: false)
         .limitToLast(limit)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+        .map(
+          (snap) =>
+              snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
+        );
   }
 
   /// 이전 메시지 로드 (페이징)
@@ -195,9 +169,12 @@ class ChatService {
     final unread = await _roomsRef
         .doc(roomId)
         .collection('messages')
-        .where('readBy', whereNotIn: [
-          [userId]
-        ])
+        .where(
+          'readBy',
+          whereNotIn: [
+            [userId],
+          ],
+        )
         .get();
 
     if (unread.docs.isEmpty) return;
@@ -218,11 +195,7 @@ class ChatService {
     required String roomId,
     required String userId,
   }) {
-    return _roomsRef
-        .doc(roomId)
-        .collection('messages')
-        .snapshots()
-        .map((snap) {
+    return _roomsRef.doc(roomId).collection('messages').snapshots().map((snap) {
       int count = 0;
       for (final doc in snap.docs) {
         final readBy = List<String>.from(doc.data()['readBy'] ?? []);

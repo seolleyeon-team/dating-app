@@ -1,0 +1,478 @@
+[{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/05262eed-07aa-4e54-aed9-1c94ffc8a35d",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4860499822"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-04-23T04:14:43.523397Z"
+      },
+      "email": {
+        "stringValue": "hystat@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-04-23T03:44:43.608Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/05bf523f-58e7-46c1-a1e5-c9ee4fbd73b5",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4705818223"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-02-22T12:24:47.809Z"
+      },
+      "email": {
+        "stringValue": "kimgyejung26@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-02-22T11:54:47.911Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/09583d59-cdc1-4a9c-a283-4545a403f654",
+    "fields": {
+      "lastRecoveredKakaoUserId": {
+        "stringValue": "4705818223"
+      },
+      "kakaoUserId": {
+        "stringValue": "4705818223"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-05-13T18:14:34.347Z"
+      },
+      "lastRecoveredAt": {
+        "timestampValue": "2026-05-13T17:45:14.873Z"
+      },
+      "email": {
+        "stringValue": "kimgyejung26@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-05-13T17:44:34.399Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/09e79831-847b-4584-a728-c2c357498f3e",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4705828086"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-03-03T07:13:37.624789Z"
+      },
+      "email": {
+        "stringValue": "chaehong@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-03-03T06:43:38.896Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/10e1209e-2ad6-4056-bf78-cd4227a3951e",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4705818223"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-02-22T12:23:35.527Z"
+      },
+      "email": {
+        "stringValue": "kimgyejung26@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-02-22T11:53:35.679Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/126e1cf1-6f9f-4601-8065-082b91f631f4",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4860507771"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-04-23T04:20:12.872935Z"
+      },
+      "email": {
+        "stringValue": "hyeonahoh@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-04-23T03:50:12.995Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/1faa3919-815f-4203-8d7f-be1aae49863d",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4705818223"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-02-20T09:34:31.070Z"
+      },
+      "email": {
+        "stringValue": "kimgyejung26@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-02-20T09:04:31.167Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/264023d3-d87c-4b99-b27e-a389bc29e000",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4705818223"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-02-22T12:40:01.684Z"
+      },
+      "email": {
+        "stringValue": "kimgyejung26@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-02-22T12:10:01.702Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/29ed447e-bc06-4f88-ae74-bdd4a3fc5868",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4891835702"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-05-12T08:05:58.202299Z"
+      },
+      "email": {
+        "stringValue": "binwang26@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-05-12T07:35:58.208Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/2ad25dc5-ae48-4084-bf79-122c4bb75de3",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4860499822"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-04-23T04:15:52.578420Z"
+      },
+      "email": {
+        "stringValue": "hystat@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-04-23T03:45:52.662Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/3005e2a5-2139-4365-a5e8-bfee493df336",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4848268673"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-04-15T11:41:52.018747Z"
+      },
+      "email": {
+        "stringValue": "choihj619@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-04-15T11:11:52.330Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/3ec20b26-617b-401b-b44b-11bc18631fd5",
+    "fields": {
+      "lastRecoveredKakaoUserId": {
+        "stringValue": "4705818223"
+      },
+      "kakaoUserId": {
+        "stringValue": "4705818223"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-05-15T08:58:16.768Z"
+      },
+      "lastRecoveredAt": {
+        "timestampValue": "2026-05-15T08:29:04.549Z"
+      },
+      "email": {
+        "stringValue": "kimgyejung26@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-05-15T08:28:16.906Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/3f1b912c-f12c-4e47-a944-1ff734a0ee85",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4860499822"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-04-23T04:50:53.908585Z"
+      },
+      "email": {
+        "stringValue": "hystat@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-04-23T04:20:53.939Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/45aa1e94-6bea-4c6f-ac12-ce07eeb2e560",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4705828086"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-03-03T07:14:19.705417Z"
+      },
+      "email": {
+        "stringValue": "chaehong@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-03-03T06:44:20.972Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/4b3f8558-9e00-4b93-ab55-61f0a9228c89",
+    "fields": {
+      "lastRecoveredKakaoUserId": {
+        "stringValue": "4705818223"
+      },
+      "kakaoUserId": {
+        "stringValue": "4705818223"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-05-13T16:47:13.012Z"
+      },
+      "lastRecoveredAt": {
+        "timestampValue": "2026-05-13T16:18:48.993Z"
+      },
+      "email": {
+        "stringValue": "kimgyejung26@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-05-13T16:17:13.019Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/4ba9cdc5-0502-4a04-bd63-35ffb1367361",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4705818223"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-03-18T09:29:54.738Z"
+      },
+      "email": {
+        "stringValue": "kimgyejung26@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-03-18T08:59:54.797Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/5b09b2e5-1e84-4189-b7e5-fae2203a7de6",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4705818223"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-02-22T12:02:37.550Z"
+      },
+      "email": {
+        "stringValue": "kimgyejung26@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-02-22T11:32:37.697Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/61a90a61-e855-4d7d-b5c9-1db0e99bb835",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4705818223"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-05-15T08:50:16.807Z"
+      },
+      "email": {
+        "stringValue": "kimgyejung26@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-05-15T08:20:16.824Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/93315f58-5695-4599-9710-d78eaa77b525",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4705828086"
+      },
+      "email": {
+        "stringValue": "chaehong@yonsei.ac.kr"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-05-20T08:36:13.105606Z"
+      },
+      "createdAt": {
+        "timestampValue": "2026-05-20T08:06:12.833Z"
+      }
+    },
+    "createTime": "2026-05-20T08:06:12.860291Z",
+    "updateTime": "2026-05-20T08:06:12.860291Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+,
+{
+  "document": {
+    "name": "projects/seolleyeon-final/databases/(default)/documents/emailLinkTokens/97d897f7-80a1-47e5-a1f6-2b17b6cda294",
+    "fields": {
+      "kakaoUserId": {
+        "stringValue": "4705818223"
+      },
+      "expiresAt": {
+        "timestampValue": "2026-02-22T09:59:43.599Z"
+      },
+      "email": {
+        "stringValue": "kimgyejung26@yonsei.ac.kr"
+      },
+      "createdAt": {
+        "timestampValue": "2026-02-22T09:29:43.709Z"
+      }
+    },
+    "createTime": "2026-05-19T17:23:30.648133Z",
+    "updateTime": "2026-05-19T17:23:30.648133Z"
+  },
+  "readTime": "2026-07-29T05:58:55.698384Z"
+}
+]

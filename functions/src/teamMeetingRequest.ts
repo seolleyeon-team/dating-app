@@ -37,6 +37,7 @@ type TeamMeetingRequestStatus = "pending" | "accepted" | "declined";
 
 type CreatePlan = {
   requestId: string;
+  pairLockId: string;
   responseStatus: TeamMeetingRequestStatus;
   requestData: Record<string, unknown>;
 };
@@ -95,8 +96,52 @@ export function teamMeetingRequestId(
   return stableHashId("tmr", `${sourceResultId}|${pair}`);
 }
 
+export function teamMeetingPairLockId(
+  leftTeamId: string,
+  rightTeamId: string
+): string {
+  const pair = [leftTeamId, rightTeamId].sort().join("|");
+  return stableHashId("tmpl", pair);
+}
+
 export function teamMeetingMatchId(requestId: string): string {
   return stableHashId("tmm", requestId);
+}
+
+export function isPendingTeamPairRequest(
+  requestData: Record<string, unknown>,
+  leftTeamId: string,
+  rightTeamId: string
+): boolean {
+  if (asString(requestData.status) !== "pending") return false;
+  const expectedPair = [leftTeamId, rightTeamId].sort().join("|");
+  const requestPair = [
+    asString(requestData.fromTeamId),
+    asString(requestData.toTeamId),
+  ].sort().join("|");
+  return requestPair === expectedPair;
+}
+
+export function buildPendingPairRepair(params: {
+  requestId: string;
+  pairLockId: string;
+  fromTeamId: string;
+  toTeamId: string;
+  sourceResultId: string;
+}): {
+  requestUpdate: Record<string, unknown>;
+  pairLockData: Record<string, unknown>;
+} {
+  return {
+    requestUpdate: { pairLockId: params.pairLockId },
+    pairLockData: {
+      requestId: params.requestId,
+      status: "pending",
+      fromTeamId: params.fromTeamId,
+      toTeamId: params.toTeamId,
+      sourceResultId: params.sourceResultId,
+    },
+  };
 }
 
 function readTeamSnapshot(
@@ -174,10 +219,13 @@ export function buildCreateTeamMeetingRequestPlan(params: {
     throw new HttpsError("failed-precondition", "3인 팀끼리만 요청할 수 있어요.");
   }
 
+  const pairLockId = teamMeetingPairLockId(viewerGroupId, otherTeamId);
   return {
     requestId: teamMeetingRequestId(sourceResultId, viewerGroupId, otherTeamId),
+    pairLockId,
     responseStatus: "pending",
     requestData: {
+      pairLockId,
       source: "slot_result",
       sourceResultId,
       fromTeamId: viewerGroupId,
@@ -295,10 +343,159 @@ export function createTeamMeetingRequestFunction(
           callerUid: user.userId,
           matchResultData: (resultSnap.data() ?? {}) as Record<string, unknown>,
         });
-        const requestRef = firestore
-          .collection("eventTeamMeetingRequests")
-          .doc(plan.requestId);
-        const existingSnap = await tx.get(requestRef);
+        const requests = firestore.collection("eventTeamMeetingRequests");
+        const requestRef = requests.doc(plan.requestId);
+        const pairLockRef = firestore
+          .collection("eventTeamMeetingRequestLocks")
+          .doc(plan.pairLockId);
+        const pairLockSnap = await tx.get(pairLockRef);
+        const pairLockData = (pairLockSnap.data() ?? {}) as Record<string, unknown>;
+        const lockedRequestId = asString(pairLockData.status) === "pending"
+          ? requireSafePathSegment(pairLockData.requestId, "lockedRequestId")
+          : "";
+        const lockedRequestRef = lockedRequestId
+          ? requests.doc(lockedRequestId)
+          : null;
+        const lockedRequestSnap = lockedRequestRef
+          ? await tx.get(lockedRequestRef)
+          : null;
+        const existingSnap =
+          lockedRequestRef?.id === requestRef.id && lockedRequestSnap != null
+            ? lockedRequestSnap
+            : await tx.get(requestRef);
+
+        if (lockedRequestSnap?.exists) {
+          const lockedRequest = (lockedRequestSnap.data() ?? {}) as Record<string, unknown>;
+          if (isPendingTeamPairRequest(
+            lockedRequest,
+            asString(plan.requestData.fromTeamId),
+            asString(plan.requestData.toTeamId)
+          )) {
+            const repair = buildPendingPairRepair({
+              requestId: lockedRequestSnap.id,
+              pairLockId: plan.pairLockId,
+              fromTeamId: asString(lockedRequest.fromTeamId),
+              toTeamId: asString(lockedRequest.toTeamId),
+              sourceResultId: asString(lockedRequest.sourceResultId) || sourceResultId,
+            });
+            tx.set(
+              lockedRequestSnap.ref,
+              {
+                ...repair.requestUpdate,
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+            tx.set(
+              pairLockRef,
+              {
+                ...repair.pairLockData,
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+            return {
+              requestId: lockedRequestSnap.id,
+              status: "pending",
+              matchId: asString(lockedRequest.matchId) || undefined,
+            };
+          }
+        }
+
+        if (existingSnap.exists) {
+          const existing = (existingSnap.data() ?? {}) as Record<string, unknown>;
+          if (isPendingTeamPairRequest(
+            existing,
+            asString(plan.requestData.fromTeamId),
+            asString(plan.requestData.toTeamId)
+          )) {
+            const repair = buildPendingPairRepair({
+              requestId: requestRef.id,
+              pairLockId: plan.pairLockId,
+              fromTeamId: asString(plan.requestData.fromTeamId),
+              toTeamId: asString(plan.requestData.toTeamId),
+              sourceResultId,
+            });
+            tx.set(
+              requestRef,
+              {
+                ...repair.requestUpdate,
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+            tx.set(
+              pairLockRef,
+              {
+                ...repair.pairLockData,
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+            return {
+              requestId: requestRef.id,
+              status: "pending",
+              matchId: asString(existing.matchId) || undefined,
+            };
+          }
+        }
+
+        const fromTeamId = asString(plan.requestData.fromTeamId);
+        const toTeamId = asString(plan.requestData.toTeamId);
+        const pendingForward = requests
+          .where("fromTeamId", "==", fromTeamId)
+          .where("toTeamId", "==", toTeamId)
+          .where("status", "==", "pending")
+          .limit(1);
+        const pendingReverse = requests
+          .where("fromTeamId", "==", toTeamId)
+          .where("toTeamId", "==", fromTeamId)
+          .where("status", "==", "pending")
+          .limit(1);
+        const [pendingForwardSnap, pendingReverseSnap] = await Promise.all([
+          tx.get(pendingForward),
+          tx.get(pendingReverse),
+        ]);
+        const legacyPendingSnap = [
+          ...pendingForwardSnap.docs,
+          ...pendingReverseSnap.docs,
+        ].find((doc) =>
+          isPendingTeamPairRequest(
+            (doc.data() ?? {}) as Record<string, unknown>,
+            fromTeamId,
+            toTeamId
+          )
+        );
+
+        if (legacyPendingSnap) {
+          const legacyData = (legacyPendingSnap.data() ?? {}) as Record<string, unknown>;
+          tx.set(
+            legacyPendingSnap.ref,
+            {
+              pairLockId: plan.pairLockId,
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+          tx.set(
+            pairLockRef,
+            {
+              requestId: legacyPendingSnap.id,
+              status: "pending",
+              fromTeamId: legacyData.fromTeamId,
+              toTeamId: legacyData.toTeamId,
+              sourceResultId: asString(legacyData.sourceResultId) || sourceResultId,
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+          return {
+            requestId: legacyPendingSnap.id,
+            status: "pending",
+            matchId: asString(legacyData.matchId) || undefined,
+          };
+        }
+
         if (existingSnap.exists) {
           const existing = (existingSnap.data() ?? {}) as Record<string, unknown>;
           return {
@@ -307,9 +504,17 @@ export function createTeamMeetingRequestFunction(
             matchId: asString(existing.matchId) || undefined,
           };
         }
-
         tx.set(requestRef, {
           ...plan.requestData,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        tx.set(pairLockRef, {
+          requestId: requestRef.id,
+          status: "pending",
+          fromTeamId: plan.requestData.fromTeamId,
+          toTeamId: plan.requestData.toTeamId,
+          sourceResultId,
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         });
@@ -339,18 +544,37 @@ export function createRespondTeamMeetingRequestFunction(
         if (!requestSnap.exists || requestSnap.data() == null) {
           throw new HttpsError("not-found", "요청 문서를 찾을 수 없어요.");
         }
+        const requestData = (requestSnap.data() ?? {}) as Record<string, unknown>;
         const plan = buildRespondTeamMeetingRequestPlan({
           requestId,
-          requestData: (requestSnap.data() ?? {}) as Record<string, unknown>,
+          requestData,
           callerUid: user.userId,
           accept,
         });
+        const rawPairLockId = asString(requestData.pairLockId);
+        const pairLockRef = rawPairLockId
+          ? firestore
+              .collection("eventTeamMeetingRequestLocks")
+              .doc(requireSafePathSegment(rawPairLockId, "pairLockId"))
+          : null;
+        const pairLockSnap = pairLockRef ? await tx.get(pairLockRef) : null;
         if (plan.requestUpdate) {
           tx.update(requestRef, {
             ...plan.requestUpdate,
             respondedAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
           });
+          const pairLockData = (pairLockSnap?.data() ?? {}) as Record<string, unknown>;
+          if (pairLockRef && asString(pairLockData.requestId) === requestId) {
+            tx.set(
+              pairLockRef,
+              {
+                status: plan.status,
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+          }
         }
         if (plan.matchId && plan.matchData) {
           tx.set(

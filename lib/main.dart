@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -54,8 +55,10 @@ Future<bool> _shouldUseDebugAppCheckProvider() async {
       );
     }
     return isDebugSigned;
-  } catch (e, st) {
-    debugPrint('[AppCheck] debug-signing check failed: $e\n$st');
+  } catch (e) {
+    debugPrint(
+      '[AppCheck] debug-signing check failed: ${PrivacyLogUtils.errorSummary(e)}',
+    );
     return false;
   }
 }
@@ -119,8 +122,10 @@ void main() {
             'kReleaseMode=$kReleaseMode forceDebug=$_forceAppCheckDebugProvider',
           );
         }
-      } catch (e, st) {
-        debugPrint('[AppCheck] activate failed: $e\n$st');
+      } catch (e) {
+        debugPrint(
+          '[AppCheck] activate failed: ${PrivacyLogUtils.errorSummary(e)}',
+        );
       }
 
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
@@ -128,7 +133,9 @@ void main() {
       runApp(const SeolleyeonApp());
     },
     (error, stack) {
-      debugPrint('[GLOBAL] Uncaught error: $error\n$stack');
+      debugPrint(
+        '[GLOBAL] Uncaught error: ${PrivacyLogUtils.errorSummary(error)}',
+      );
     },
   );
 }

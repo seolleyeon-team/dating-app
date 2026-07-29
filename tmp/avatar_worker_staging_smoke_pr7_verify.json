@@ -1,0 +1,23 @@
+{
+  "status": "ok",
+  "mode": "dry_run",
+  "workerUrl": "",
+  "jobId": "avatar_staging_smoke_job",
+  "uid": "avatar_staging_smoke_user",
+  "sourceRef": "gs://<private-source-photo-redacted>",
+  "candidateCount": 4,
+  "result": {
+    "jobId": "avatar_staging_smoke_job",
+    "uid": "avatar_staging_smoke_user",
+    "status": "needs_review",
+    "candidateIds": [
+      "cand_avatar_staging_smoke_job_01",
+      "cand_avatar_staging_smoke_job_02",
+      "cand_avatar_staging_smoke_job_03",
+      "cand_avatar_staging_smoke_job_04"
+    ],
+    "previewReadyCount": 0,
+    "rejectedCount": 0,
+    "needsReviewCount": 4
+  }
+}

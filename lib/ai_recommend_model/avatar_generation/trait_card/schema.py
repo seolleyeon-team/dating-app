@@ -147,6 +147,35 @@ TRAIT_CARD_ALLOWED_ENUMS: dict[str, tuple[str, ...]] = {
 }
 
 
+CRITICAL_BROAD_TRAIT_FIELDS: tuple[str, ...] = (
+    "visible_crop",
+    "hair_length",
+    "hair_volume",
+    "hair_direction",
+    "hair_bangs",
+    "hair_color_range",
+    "eyewear_present",
+    "facial_hair_present",
+    "face_shape_category",
+    "facial_feature_balance",
+    "eye_size_category",
+    "eye_tilt_category",
+    "eye_shape_mood",
+    "brow_thickness",
+    "brow_shape",
+    "nose_prominence",
+    "nose_bridge_impression",
+    "cheek_fullness",
+    "jaw_impression",
+    "mouth_expression",
+    "mouth_fullness_category",
+    "skin_tone_range",
+    "expression_mood",
+)
+
+CRITICAL_BROAD_TRAIT_MIN_COVERAGE = 0.6
+
+
 @dataclass(frozen=True)
 class AvatarTraitCard:
     """Enum-only, privacy-safe visual trait card for avatar generation."""
@@ -309,6 +338,28 @@ class TraitCardValidationResult:
     removed_keys: list[str] = field(default_factory=list)
     invalid_enum_fields: list[str] = field(default_factory=list)
     sanitized_fields: list[str] = field(default_factory=list)
+    critical_trait_coverage: dict[str, Any] = field(default_factory=dict)
+    trait_extraction_availability: str = ""
+    trait_extraction_availability_reason: str = ""
+
+    def __post_init__(self) -> None:
+        coverage = (
+            dict(self.critical_trait_coverage)
+            if self.critical_trait_coverage
+            else critical_broad_trait_coverage(self.trait_card)
+        )
+        availability = self.trait_extraction_availability or _trait_availability_for_coverage(
+            coverage,
+            privacy_safe=self.privacy_safe,
+        )
+        reason = self.trait_extraction_availability_reason or _trait_availability_reason(
+            availability,
+            coverage,
+            privacy_safe=self.privacy_safe,
+        )
+        object.__setattr__(self, "critical_trait_coverage", coverage)
+        object.__setattr__(self, "trait_extraction_availability", availability)
+        object.__setattr__(self, "trait_extraction_availability_reason", reason)
 
     def to_dict(self) -> dict[str, Any]:
         trait_card = self.trait_card.to_dict()
@@ -322,6 +373,9 @@ class TraitCardValidationResult:
             "removedKeys": list(self.removed_keys),
             "invalidEnumFields": list(self.invalid_enum_fields),
             "sanitizedFields": list(self.sanitized_fields),
+            "criticalTraitCoverage": dict(self.critical_trait_coverage),
+            "traitExtractionAvailability": self.trait_extraction_availability,
+            "traitExtractionAvailabilityReason": self.trait_extraction_availability_reason,
         }
 
 
@@ -355,6 +409,52 @@ def avatar_trait_card_from_dict(values: Mapping[str, Any]) -> AvatarTraitCard:
         for key in TRAIT_CARD_ALLOWED_ENUMS
     }
     return AvatarTraitCard(**normalized)
+
+
+def critical_broad_trait_coverage(
+    trait_card: AvatarTraitCard,
+    *,
+    critical_fields: tuple[str, ...] = CRITICAL_BROAD_TRAIT_FIELDS,
+) -> dict[str, Any]:
+    values = trait_card.to_dict()
+    unavailable = {None, "", UNCLEAR, "not_visible", "unknown", "prefer_not_to_say"}
+    available_fields = [key for key in critical_fields if values.get(key) not in unavailable]
+    missing_fields = [key for key in critical_fields if key not in available_fields]
+    total = len(critical_fields)
+    complete = len(available_fields)
+    ratio = round(complete / total, 4) if total else 1.0
+    return {
+        "availableFields": available_fields,
+        "missingCriticalFields": missing_fields,
+        "completeCount": complete,
+        "totalCount": total,
+        "coverageRatio": ratio,
+        "minCoverageRatio": CRITICAL_BROAD_TRAIT_MIN_COVERAGE,
+        "meetsMinimum": ratio >= CRITICAL_BROAD_TRAIT_MIN_COVERAGE,
+    }
+
+
+def _trait_availability_for_coverage(
+    coverage: Mapping[str, Any],
+    *,
+    privacy_safe: bool,
+) -> str:
+    if not privacy_safe:
+        return "unavailable"
+    return "available" if coverage.get("meetsMinimum") is True else "review"
+
+
+def _trait_availability_reason(
+    availability: str,
+    coverage: Mapping[str, Any],
+    *,
+    privacy_safe: bool,
+) -> str:
+    if not privacy_safe:
+        return "privacy_validation_failed"
+    if availability == "available":
+        return "critical_broad_trait_coverage_met"
+    return "insufficient_critical_broad_trait_coverage"
 
 
 def _map_value(data: dict[str, Any], key: str, mapping: Mapping[str, str]) -> None:

@@ -101,7 +101,7 @@ def test_clear_primary_face_with_small_background_face_is_accepted():
     assert doc["rejectReasons"] == []
     assert doc["face"]["count"] == 2
     assert doc["face"]["areaRatio"] == primary.area_ratio
-    assert doc["primaryFaceBbox"] == [0.24, 0.14, 0.48, 0.52]
+    assert "primaryFaceBbox" not in doc
     assert doc["primaryFaceConfidence"] == 0.96
     assert doc["secondaryFaceCount"] == 1
     assert doc["largeSecondaryFaceCount"] == 0

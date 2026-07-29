@@ -1,0 +1,8 @@
+{
+  "enable-windows-desktop": false,
+  "enable-linux-desktop": false,
+  "enable-macos-desktop": false,
+  "enable-ios": false,
+  "enable-android": false,
+  "enable-native-assets": true
+}

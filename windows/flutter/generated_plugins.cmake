@@ -11,6 +11,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   firebase_storage
   flutter_ble_peripheral
   geolocator_windows
+  share_plus
   url_launcher_windows
 )
 

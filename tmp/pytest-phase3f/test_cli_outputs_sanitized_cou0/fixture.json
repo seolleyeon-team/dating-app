@@ -1,0 +1,1 @@
+{"users": {"uid-secret-123": {"avatar": {"approvedAvatarUrl": "https://cdn.example/avatar.png?X-Goog-Signature=secret-token-abc"}}}, "userPrivateMedia": {}, "clipEmbeddings": {}, "modelRecs": {}}

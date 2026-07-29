@@ -16,6 +16,7 @@ import '../../../services/storage_service.dart';
 import '../../../services/interaction_service.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/ai_recommendation_service.dart';
+import '../../../shared/utils/privacy_log_utils.dart';
 import '../../../shared/widgets/profile_photo_blur.dart';
 import '../../../shared/widgets/seol_swipe_deck.dart';
 
@@ -70,7 +71,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
   Future<void> _loadRecommendations() async {
     try {
       final kakaoUserId = await _storageService.getKakaoUserId();
-      debugPrint('[ProfileCard] kakaoUserId from storage: $kakaoUserId');
+      debugPrint('[ProfileCard] ${PrivacyLogUtils.idFingerprint(kakaoUserId)}');
       if (mounted) setState(() => _kakaoUserId = kakaoUserId);
 
       if (kakaoUserId == null || kakaoUserId.isEmpty) {
@@ -97,9 +98,10 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
           (_) => _recordImpressionAndOpenForTopCard(0),
         );
       }
-    } catch (e, st) {
-      debugPrint('[ProfileCard] ❌ _loadRecommendations 실패: $e');
-      debugPrint('[ProfileCard] stack: $st');
+    } catch (e) {
+      debugPrint(
+        '[ProfileCard] load recommendations ${PrivacyLogUtils.errorSummary(e)}',
+      );
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -116,7 +118,8 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
   void _onSwiped(int index, SwipeDirection direction) {
     final uid = _kakaoUserId;
     debugPrint(
-      '[ProfileCard] _onSwiped: index=$index, dir=$direction, uid=$uid, profiles=${_profiles.length}',
+      '[ProfileCard] _onSwiped index=$index dir=$direction '
+      '${PrivacyLogUtils.idFingerprint(uid)} profiles=${_profiles.length}',
     );
 
     if (uid == null) {
@@ -182,7 +185,9 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
         context: contextMetadata,
       );
     } catch (e) {
-      debugPrint('[ProfileCard] ❌ recEvent $label 실패: $e');
+      debugPrint(
+        '[ProfileCard] recEvent $label ${PrivacyLogUtils.errorSummary(e)}',
+      );
     }
   }
 
@@ -435,7 +440,9 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                             }
                           } catch (e) {
                             setState(() => isSubmitting = false);
-                            debugPrint('Report error: $e');
+                            debugPrint(
+                              '[ProfileCard] report ${PrivacyLogUtils.errorSummary(e)}',
+                            );
                           }
                         },
                   child: isSubmitting

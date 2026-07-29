@@ -1,0 +1,5 @@
+﻿fix(security): purge high-risk PII on account_deletion cleanup
+
+Extend cleanupAvatarMedia account_deletion path to remove userPrivate,
+phoneHashIndex, deviceTokens, notifications, contact-block indexes,
+and block edges before deleting the public user doc and Auth account.

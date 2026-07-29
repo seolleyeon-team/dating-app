@@ -13,6 +13,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
 import '../../../services/storage_service.dart';
 import '../providers/community_provider.dart';
@@ -100,7 +101,7 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
       }
 
       debugPrint(
-        '[PostWrite] 글 등록 authorId="$kakaoUserId", category="$_selectedCategory"',
+        '[PostWrite] 글 등록 author=${PrivacyLogUtils.idFingerprint(kakaoUserId)}, category="$_selectedCategory"',
       );
 
       if (!mounted) return;
