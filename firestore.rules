@@ -84,6 +84,42 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    // Community counters are client-written via FieldValue.increment(±1).
+    // Without a ±1 gate anyone can set likeCount/score7d to an arbitrary rank.
+    function intFieldUnchangedOrDeltaOne(field) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([field]) ||
+        (
+          request.resource.data[field] is int &&
+          resource.data[field] is int &&
+          (
+            request.resource.data[field] == resource.data[field] + 1 ||
+            request.resource.data[field] == resource.data[field] - 1
+          )
+        );
+    }
+
+    function nonNegativeIntField(field) {
+      return !(field in request.resource.data) ||
+        (
+          request.resource.data[field] is int &&
+          request.resource.data[field] >= 0
+        );
+    }
+
+    function bambooPostCounterUpdateOk() {
+      return intFieldUnchangedOrDeltaOne('likeCount') &&
+        intFieldUnchangedOrDeltaOne('commentCount') &&
+        intFieldUnchangedOrDeltaOne('score7d') &&
+        nonNegativeIntField('likeCount') &&
+        nonNegativeIntField('commentCount') &&
+        nonNegativeIntField('score7d');
+    }
+
+    function bambooCommentCounterUpdateOk() {
+      return intFieldUnchangedOrDeltaOne('likeCount') &&
+        nonNegativeIntField('likeCount');
+    }
+
     function isVerifiedOwner(kakaoUserId) {
       return isSelf(kakaoUserId);
     }
@@ -441,7 +477,6 @@ service cloud.firestore {
     function onlyPromiseMessageLifecycleUpdate() {
       return isExistingPromiseMessage() &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'senderId',
             'type',
             'text',
             'dateTime',
@@ -458,6 +493,7 @@ service cloud.firestore {
             'isEdited',
             'editedAt'
           ]) &&
+          request.resource.data.senderId == resource.data.senderId &&
           request.resource.data.type is string &&
           request.resource.data.type.matches('promise_.*');
     }
@@ -909,7 +945,8 @@ service cloud.firestore {
           request.resource.data.tags == resource.data.tags &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'likeCount', 'commentCount', 'score7d', 'updatedAt'
-          ])
+          ]) &&
+          bambooPostCounterUpdateOk()
         );
 
       allow delete: if false;
@@ -961,7 +998,8 @@ service cloud.firestore {
             request.resource.data.parentCommentId == resource.data.parentCommentId &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'likeCount', 'updatedAt'
-            ])
+            ]) &&
+            bambooCommentCounterUpdateOk()
           );
 
         allow delete: if false;
@@ -1176,6 +1214,10 @@ service cloud.firestore {
     match /eventTeamMeetingRequests/{requestId} {
       allow read: if isEventTeamMatchParticipant(resource.data);
       allow write: if false;
+    }
+
+    match /eventTeamMeetingRequestLocks/{lockId} {
+      allow read, write: if false;
     }
 
     match /eventThreeVsThreeMatches/{matchId} {
