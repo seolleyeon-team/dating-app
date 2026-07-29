@@ -767,6 +767,6 @@ Firebase Auth 계정을 삭제하지만 다음은 남긴다 (서브에이전트 
 
 후속 (2026-07-29):
 - recEvents 상호 like → chat room 생성 보강 (`checkAndCreateRecMatch`)
-- 만료 emailLinkTokens purge 판정 헬퍼 (`emailLinkTokenPurge.ts`) — 운영 일괄 삭제는 승인 후
-- Storage App Check 콘솔 ENFORCED는 **별도 승인 필요** (현재 UNENFORCED; 실쓰기는 rules deny)
+- 만료 emailLinkTokens **28건 일괄 삭제 완료** (REMAINING=0)
+- Storage App Check 콘솔 **ENFORCED 전환 완료** (Firestore/Auth는 UNENFORCED 유지)
 
