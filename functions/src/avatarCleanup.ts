@@ -75,6 +75,7 @@ export type AvatarCleanupCounts = {
   chatRoomsClosed: number;
   recEventsDeleted: number;
   bambooPostsSoftDeleted: number;
+  bambooCommentsSoftDeleted: number;
   friendInvitesScrubbed: number;
   eventTeamMembershipsRemoved: number;
 };
@@ -844,6 +845,7 @@ function firestoreExecutor(firestore: Firestore, uid: string): CleanupExecutor {
         case "deleteRecEvent":
         case "deleteRecEventsParent":
         case "softDeleteBambooPost":
+        case "softDeleteBambooComment":
         case "scrubFriendInvite":
         case "removeEventTeamMember":
           await applySocialCleanupOperation(firestore, uid, operation);

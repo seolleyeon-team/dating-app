@@ -4,7 +4,7 @@
  * Policy (dating-app safe):
  * - Owned preference / graph edges → hard delete
  * - Shared 1:1 match/chat → deactivate + scrub display PII (keep ids for other party)
- * - Community posts authored by uid → soft-delete content
+ * - Community posts/comments authored by uid → soft-delete content
  * - Invites → scrub email metadata
  * - Event teams → remove uid from memberUids only
  *
@@ -24,6 +24,7 @@ export type AccountDeletionSocialDocs = {
   chatRoomIds: string[];
   recEventIds: string[];
   bambooPostIds: string[];
+  bambooComments: Array<{ postId: string; commentId: string }>;
   friendInviteIds: string[];
   eventTeamSetupIds: string[];
 };
@@ -37,6 +38,7 @@ export type AccountDeletionSocialCounts = {
   chatRoomsClosed: number;
   recEventsDeleted: number;
   bambooPostsSoftDeleted: number;
+  bambooCommentsSoftDeleted: number;
   friendInvitesScrubbed: number;
   eventTeamMembershipsRemoved: number;
 };
@@ -51,6 +53,7 @@ export type SocialCleanupOperation =
   | { kind: "deleteRecEvent"; id: string }
   | { kind: "deleteRecEventsParent" }
   | { kind: "softDeleteBambooPost"; id: string }
+  | { kind: "softDeleteBambooComment"; postId: string; commentId: string }
   | { kind: "scrubFriendInvite"; id: string }
   | { kind: "removeEventTeamMember"; id: string };
 
@@ -85,6 +88,7 @@ export function emptySocialDocs(): AccountDeletionSocialDocs {
     chatRoomIds: [],
     recEventIds: [],
     bambooPostIds: [],
+    bambooComments: [],
     friendInviteIds: [],
     eventTeamSetupIds: [],
   };
@@ -100,6 +104,7 @@ export function emptySocialCounts(): AccountDeletionSocialCounts {
     chatRoomsClosed: 0,
     recEventsDeleted: 0,
     bambooPostsSoftDeleted: 0,
+    bambooCommentsSoftDeleted: 0,
     friendInvitesScrubbed: 0,
     eventTeamMembershipsRemoved: 0,
   };
@@ -117,6 +122,7 @@ export function socialCountsFromDocs(
     chatRoomsClosed: docs.chatRoomIds.length,
     recEventsDeleted: docs.recEventIds.length,
     bambooPostsSoftDeleted: docs.bambooPostIds.length,
+    bambooCommentsSoftDeleted: docs.bambooComments.length,
     friendInvitesScrubbed: docs.friendInviteIds.length,
     eventTeamMembershipsRemoved: docs.eventTeamSetupIds.length,
   };
@@ -158,6 +164,13 @@ export function planAccountDeletionSocialOperations(params: {
   for (const id of docs.bambooPostIds) {
     operations.push({ kind: "softDeleteBambooPost", id });
   }
+  for (const comment of docs.bambooComments) {
+    operations.push({
+      kind: "softDeleteBambooComment",
+      postId: comment.postId,
+      commentId: comment.commentId,
+    });
+  }
   for (const id of docs.friendInviteIds) {
     operations.push({ kind: "scrubFriendInvite", id });
   }
@@ -195,6 +208,7 @@ export async function loadAccountDeletionSocialDocs(
     roomsSnap,
     recEventsSnap,
     bambooSnap,
+    bambooCommentsSnap,
     invitesSnap,
     teamsSnap,
   ] = await Promise.all([
@@ -213,6 +227,10 @@ export async function loadAccountDeletionSocialDocs(
       .get(),
     firestore.collection("recEvents").doc(safeUid).collection("events").get(),
     queryIds(firestore, "bamboo_posts", "authorId", safeUid),
+    firestore
+      .collectionGroup("comments")
+      .where("authorId", "==", safeUid)
+      .get(),
     queryIds(firestore, "friendInvites", "inviterUserId", safeUid),
     firestore
       .collection("eventTeamSetups")
@@ -229,6 +247,24 @@ export async function loadAccountDeletionSocialDocs(
     ),
   ];
 
+  const bambooComments: Array<{ postId: string; commentId: string }> = [];
+  for (const doc of bambooCommentsSnap.docs) {
+    // Expected path: bamboo_posts/{postId}/comments/{commentId}
+    const parts = doc.ref.path.split("/");
+    if (
+      parts.length !== 4 ||
+      parts[0] !== "bamboo_posts" ||
+      parts[2] !== "comments"
+    ) {
+      continue;
+    }
+    const postId = asString(parts[1]);
+    const commentId = asString(parts[3]);
+    if (!postId || !commentId) continue;
+    if (doc.data()?.isDeleted === true) continue;
+    bambooComments.push({ postId, commentId });
+  }
+
   return {
     interactionIds: [...new Set([...interactionsFrom, ...interactionsTo])],
     askIds: [...new Set([...asksFrom, ...asksTo])],
@@ -238,6 +274,7 @@ export async function loadAccountDeletionSocialDocs(
     chatRoomIds: roomsSnap.docs.map((doc) => doc.id),
     recEventIds: recEventsSnap.docs.map((doc) => doc.id),
     bambooPostIds: bambooSnap,
+    bambooComments,
     friendInviteIds: invitesSnap,
     eventTeamSetupIds: teamsSnap.docs.map((doc) => doc.id),
   };
@@ -328,6 +365,36 @@ export async function applySocialCleanupOperation(
         { merge: true }
       );
       return;
+    case "softDeleteBambooComment": {
+      const postId = requirePathSegment(operation.postId, "postId");
+      const commentId = requirePathSegment(operation.commentId, "commentId");
+      const postRef = firestore.collection("bamboo_posts").doc(postId);
+      const commentRef = postRef.collection("comments").doc(commentId);
+      await firestore.runTransaction(async (tx) => {
+        const snap = await tx.get(commentRef);
+        if (!snap.exists) return;
+        const data = snap.data() ?? {};
+        if (data.isDeleted === true) return;
+        tx.set(
+          commentRef,
+          {
+            isDeleted: true,
+            content: "[삭제된 댓글]",
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+        tx.set(
+          postRef,
+          {
+            commentCount: FieldValue.increment(-1),
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+      });
+      return;
+    }
     case "scrubFriendInvite":
       await firestore.collection("friendInvites").doc(operation.id).set(
         {

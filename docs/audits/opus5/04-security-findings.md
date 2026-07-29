@@ -13,7 +13,7 @@
 
 | ID | 등급 | 영역 | 제목 | 상태 |
 |----|------|------|------|------|
-| **SEC-P0-05** | **P0** | **배포** | **운영에 배포된 규칙이 저장소본보다 훨씬 개방적 — 채팅 전체 공개** | **Firestore 규칙 배포 완료 (2026-07-27). Functions 일부 CPU 쿼터로 재시도 필요** |
+| **SEC-P0-05** | **P0** | **배포** | **운영에 배포된 규칙이 저장소본보다 훨씬 개방적 — 채팅 전체 공개** | **Firestore 규칙 배포 완료 (2026-07-27). 후속 Functions/App Check hardening도 반영됨** |
 | SEC-P0-01 | P0 | 인증 | 비인증 임의 계정 탈취 (emailLinkTokens → custom token) | 에뮬레이터 재현 → **수정 완료** (`b1ab01b`) |
 | SEC-P0-02 | P0 | Firestore Rules | 비인증 사용자 문서 생성 + 학교 인증 위조 | 에뮬레이터 재현 → **수정 완료** (`b1ab01b`) |
 | SEC-P0-03 | P0 | Firestore Rules | 연세 이메일 보유자가 타인 문서의 studentEmail 탈취 | 에뮬레이터 재현 → **수정 완료** (`b1ab01b`) |
@@ -27,7 +27,7 @@
 | **REC-P1-01~02** | **P1** | **추천** | **신고 양방향 차단 callable + 폴백 정책 적용 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
 | SEC-P1-06 | P1 | 추천 | 배치 파이프라인이 blocks/contactBlocked 미제외 | **수정·이미지 배포 완료** (`bc554be8` → `recs-pipeline:latest`, Jobs 6개 갱신) |
 | SEC-P1-07 | P1 | FCM | 차단·탈퇴 사용자 푸시 미필터 | **수정·운영 배포 완료** (`f92408b5`, push 관련 Functions 9개) |
-| SEC-P1-08 | P1 | 개인정보 | account_deletion 시 대량 orphan 데이터 잔존 | **1·2차 수정·배포 완료** (`247d0b64` → `cleanupAvatarMedia`) |
+| SEC-P1-08 | P1 | 개인정보 | account_deletion 시 대량 orphan 데이터 잔존 | **1~3차 수정·배포** (`247d0b64` + bamboo comments soft-delete + emailLink 일일 purge) |
 | SEC-P2-01 | P2 | 커뮤니티 | bamboo_posts likeCount 임의 조작 | **수정·rules 배포 완료** (`126aeafc`) |
 | SEC-P2-02 | P2 | 데이터 일관성 | 상호 like 시 match/chat_room 중복 생성 race | **수정·배포 완료** (`38c7adc1`) |
 | SEC-P3-01 | P3 | Rules | place_catalog 규칙 블록 중복 정의 | **수정 완료** (중복 블록 제거) |
@@ -658,7 +658,8 @@ Python 배치 파이프라인은 `blocks/{uid}/targets`를 조회하지 않고,
 
 **등급:** P1
 **영역:** 개인정보
-**상태:** **1·2차 수정·운영 배포 완료** (2026-07-29, `cleanupAvatarMedia`/`onRecEventCreated`, commit `247d0b64`).
+**상태:** **1~3차 수정** (2026-07-29). 2차까지 `cleanupAvatarMedia` 배포 (`247d0b64`).
+3차는 bamboo comments soft-delete + 만료 `emailLinkTokens` 일일 스케줄 purge.
 
 `cleanupAvatarMedia(reason: "account_deletion")`은 아바타 미디어, `users/{uid}`,
 Firebase Auth 계정을 삭제하지만 다음은 남긴다 (서브에이전트 확인, `functions/src/avatarCleanup.ts`):
@@ -699,16 +700,24 @@ Firebase Auth 계정을 삭제하지만 다음은 남긴다 (서브에이전트 
 | `chat_rooms` (participant) | `status=closed`, `participantInfo[uid]` → `탈퇴한 사용자`, `accountDeletedUserIds` |
 | `recEvents/{uid}` | events + parent 삭제 |
 | `bamboo_posts` (authorId) | soft-delete (`isDeleted`, 본문 치환) |
+| `bamboo_posts/*/comments` (authorId, collectionGroup) | soft-delete + 본문 치환 + `commentCount-1` |
 | `friendInvites` (inviter) | email 메타 스크럽 |
 | `eventTeamSetups.memberUids` | uid 제거 |
 
 구현: `functions/src/accountDeletionSocialCleanup.ts` (1차 PII plan에 병합).
+인덱스: `firestore.indexes.json` `comments.authorId` COLLECTION_GROUP.
+
+### 3차 보강 (2026-07-29)
+
+| 대상 | 처리 |
+|------|------|
+| bamboo comments | collectionGroup `authorId` 조회 후 soft-delete |
+| 만료 emailLinkTokens | `purgeExpiredEmailLinkTokens` 매일 04:15 Asia/Seoul |
 
 ### 아직 연기
 
 | 대상 | 연기 사유 |
 |------|-----------|
-| bamboo comments collectionGroup | 인덱스·대량 스캔 위험 — 게시글 soft-delete로 1차 완화 |
 | chat message 본문 일괄 삭제 | 상대방 분쟁·안전 증빙 보존 |
 | 이벤트 팀 문서 전체 삭제 | 다른 참가자 entangled — membership 제거만 |
 

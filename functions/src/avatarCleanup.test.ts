@@ -31,6 +31,7 @@ const zeroAccountDeletionCounts = {
   chatRoomsClosed: 0,
   recEventsDeleted: 0,
   bambooPostsSoftDeleted: 0,
+  bambooCommentsSoftDeleted: 0,
   friendInvitesScrubbed: 0,
   eventTeamMembershipsRemoved: 0,
 };
@@ -421,6 +422,7 @@ test("account deletion includes PII cleanup counts and skips PII for consent wit
     chatRoomsClosed: 0,
     recEventsDeleted: 0,
     bambooPostsSoftDeleted: 0,
+    bambooCommentsSoftDeleted: 0,
     friendInvitesScrubbed: 0,
     eventTeamMembershipsRemoved: 0,
   });

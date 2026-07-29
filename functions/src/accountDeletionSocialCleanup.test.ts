@@ -21,6 +21,7 @@ function docs(
     chatRoomIds: [],
     recEventIds: [],
     bambooPostIds: [],
+    bambooComments: [],
     friendInviteIds: [],
     eventTeamSetupIds: [],
     ...overrides,
@@ -44,6 +45,7 @@ test("plan deletes owned edges and deactivates shared 1:1", () => {
       chatRoomIds: ["dm_alice_bob"],
       recEventIds: ["e1", "e2"],
       bambooPostIds: ["p1"],
+      bambooComments: [{ postId: "p1", commentId: "c1" }],
       friendInviteIds: ["inv1"],
       eventTeamSetupIds: ["team1"],
     }),
@@ -59,6 +61,7 @@ test("plan deletes owned edges and deactivates shared 1:1", () => {
   assert.ok(kinds.includes("deleteRecEvent"));
   assert.ok(kinds.includes("deleteRecEventsParent"));
   assert.ok(kinds.includes("softDeleteBambooPost"));
+  assert.ok(kinds.includes("softDeleteBambooComment"));
   assert.ok(kinds.includes("scrubFriendInvite"));
   assert.ok(kinds.includes("removeEventTeamMember"));
   assert.equal(DELETED_USER_DISPLAY_NAME, "탈퇴한 사용자");
