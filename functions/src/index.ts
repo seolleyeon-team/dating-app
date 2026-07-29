@@ -23,6 +23,7 @@ import {
 } from "firebase-functions/v2/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { withAppCheck } from "./appCheckPolicy";
+import { ensureMutualMatch } from "./mutualMatchCreation";
 import {
   createFirestorePushRecipientLoader,
   filterPushRecipientIds,
@@ -124,11 +125,6 @@ function asDate(v: unknown): Date | null {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
   return null;
-}
-
-function buildDirectRoomId(userA: string, userB: string): string {
-  const ids = [userA, userB].sort();
-  return `dm_${ids[0]}_${ids[1]}`;
 }
 
 function getKstDateKey(now = new Date()): string {
@@ -2804,81 +2800,39 @@ export const onInteractionCreated = onDocumentCreated(
 
     if (reverseQuery.empty) return;
 
-    const existingMatches = await db
-      .collection("matches")
-      .where("userIds", "array-contains", fromUserId)
-      .get();
-
-    for (const doc of existingMatches.docs) {
-      const ids = (doc.data().userIds || []) as string[];
-      if (ids.includes(toUserId)) {
-        logger.info("Match already exists", { matchId: doc.id });
-        return;
-      }
-    }
-
-    const roomId = buildDirectRoomId(fromUserId, toUserId);
-    const matchRef = db.collection("matches").doc();
-    const roomRef = db.collection("chat_rooms").doc(roomId);
-
     const [userA, userB] = await Promise.all([
       getUserDisplayInfo(fromUserId),
       getUserDisplayInfo(toUserId),
     ]);
 
-    const participantInfo = {
-      [fromUserId]: {
-        nickname: userA.nickname,
-        avatarUrl: userA.avatarUrl,
-      },
-      [toUserId]: {
-        nickname: userB.nickname,
-        avatarUrl: userB.avatarUrl,
-      },
-    };
-
-    const batch = db.batch();
-
-    batch.set(matchRef, {
-      userIds: [fromUserId, toUserId],
+    const systemMessage = "매칭이 성사되었어요! 먼저 인사해보세요";
+    const { matchId, roomId, created } = await ensureMutualMatch(db, {
+      userA: fromUserId,
+      userB: toUserId,
       matchType: "mutual_like",
-      matchedAt: FieldValue.serverTimestamp(),
-      status: "active",
-      chatRoomId: roomId,
-    });
-
-    batch.set(
-      roomRef,
-      {
-        roomId,
-        type: "one_to_one",
-        status: "active",
-        participantIds: [fromUserId, toUserId],
-        participantInfo,
-        matchId: matchRef.id,
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-        lastMessage: "매칭이 성사되었어요! 먼저 인사해보세요",
-        lastMessageAt: FieldValue.serverTimestamp(),
+      chatRoom: {
+        participantInfo: {
+          [fromUserId]: {
+            nickname: userA.nickname,
+            avatarUrl: userA.avatarUrl,
+          },
+          [toUserId]: {
+            nickname: userB.nickname,
+            avatarUrl: userB.avatarUrl,
+          },
+        },
+        systemMessage,
       },
-      { merge: true }
-    );
-
-    const msgRef = roomRef.collection("messages").doc();
-    batch.set(msgRef, {
-      senderId: "system",
-      text: "매칭이 성사되었어요! 먼저 인사해보세요",
-      content: "매칭이 성사되었어요! 먼저 인사해보세요",
-      type: "system",
-      createdAt: FieldValue.serverTimestamp(),
-      readBy: [],
     });
 
-    await batch.commit();
+    if (!created) {
+      logger.info("Match already exists", { matchId });
+      return;
+    }
 
     logger.info("Match created", {
-      matchId: matchRef.id,
-      roomIdHash: logHashPrefix(roomId),
+      matchId,
+      roomIdHash: roomId ? logHashPrefix(roomId) : null,
       fromUserIdHash: logHashPrefix(fromUserId),
       toUserIdHash: logHashPrefix(toUserId),
     });
@@ -4127,36 +4081,23 @@ async function checkAndCreateRecMatch(
     return null;
   }
 
-  const existingMatches = await db
-    .collection("matches")
-    .where("userIds", "array-contains", userA)
-    .get();
-
-  for (const doc of existingMatches.docs) {
-    const raw = (doc.data() as Record<string, unknown>).userIds;
-    const ids = Array.isArray(raw)
-      ? raw.map((v) => asString(v)).filter((v) => v.length > 0)
-      : [];
-    if (ids.includes(userB)) {
-      logger.info("Match already exists", { matchId: doc.id });
-      return doc.id;
-    }
-  }
-
-  const matchRef = await db.collection("matches").add({
-    userIds: [userA, userB],
+  const { matchId, created } = await ensureMutualMatch(db, {
+    userA,
+    userB,
     matchType,
-    matchedAt: FieldValue.serverTimestamp(),
-    status: "active",
-    chatRoomId: null,
   });
 
+  if (!created) {
+    logger.info("Match already exists", { matchId });
+    return matchId;
+  }
+
   logger.info("Rec match created", {
-    matchId: matchRef.id,
+    matchId,
     userAHash: logHashPrefix(userA),
     userBHash: logHashPrefix(userB),
     matchType,
   });
 
-  return matchRef.id;
+  return matchId;
 }
