@@ -27,7 +27,7 @@
 | **REC-P1-01~02** | **P1** | **추천** | **신고 양방향 차단 callable + 폴백 정책 적용 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
 | SEC-P1-06 | P1 | 추천 | 배치 파이프라인이 blocks/contactBlocked 미제외 | **수정·이미지 배포 완료** (`bc554be8` → `recs-pipeline:latest`, Jobs 6개 갱신) |
 | SEC-P1-07 | P1 | FCM | 차단·탈퇴 사용자 푸시 미필터 | **수정 완료** (`pushRecipientPolicy`; Functions 배포 진행) |
-| SEC-P1-08 | P1 | 개인정보 | account_deletion 시 대량 orphan 데이터 잔존 | 코드상 확정, 미수정 |
+| SEC-P1-08 | P1 | 개인정보 | account_deletion 시 대량 orphan 데이터 잔존 | **1차 수정 완료** (고위험 PII: userPrivate, phoneHashIndex, deviceTokens, notifications, contactBlockedHashIndex, blocks) |
 | SEC-P2-01 | P2 | 커뮤니티 | bamboo_posts likeCount 임의 조작 | 코드상 확정, 미수정 |
 | SEC-P2-02 | P2 | 데이터 일관성 | 상호 like 시 match/chat_room 중복 생성 race | 코드상 확정, 미수정 |
 | SEC-P3-01 | P3 | Rules | place_catalog 규칙 블록 중복 정의 | 코드상 확정, 미수정 |
@@ -658,6 +658,7 @@ Python 배치 파이프라인은 `blocks/{uid}/targets`를 조회하지 않고,
 
 **등급:** P1
 **영역:** 개인정보
+**상태:** **1차 수정 완료** (`functions/src/avatarCleanup.ts`)
 
 `cleanupAvatarMedia(reason: "account_deletion")`은 아바타 미디어, `users/{uid}`,
 Firebase Auth 계정을 삭제하지만 다음은 남긴다 (서브에이전트 확인, `functions/src/avatarCleanup.ts`):
@@ -667,6 +668,32 @@ Firebase Auth 계정을 삭제하지만 다음은 남긴다 (서브에이전트 
 `friendInvites.metadata.inviterEmail`, 이벤트 팀 문서 전반.
 
 전화번호 해시와 이메일이 남는 것은 개인정보 파기 의무와 충돌할 수 있다. **법무 검토 필요.**
+
+### 1차 수정 (2026-07-29)
+
+`planAccountDeletionPiiOperations` + `loadAccountDeletionDocs`로 account_deletion
+시 다음 고위험 PII를 **감사 기록 이후·공개 users 문서 삭제 이전**에 제거한다.
+
+| 대상 | 처리 |
+|------|------|
+| `userPrivate/{uid}` | 삭제 |
+| `phoneHashIndex/{phoneHash}` | `userId == uid` 일치 시에만 삭제 |
+| `users/{uid}/deviceTokens/*` | 전체 삭제 |
+| `users/{uid}/notifications/*` | 전체 삭제 |
+| `users/{uid}/contactBlockedHashes/*` + `contactBlockedHashIndex/{hash}/owners/{uid}` | 쌍으로 삭제 |
+| `blocks/{uid}/targets/*` | 전체 삭제 |
+| `blocks/{viewerUid}/targets/{uid}` | collection group `targets` + 경로 검증(`blocks/…`)으로 역방향 삭제 |
+
+단위 테스트: `functions/src/avatarCleanup.test.ts` (plan/execute/count/순서 검증).
+
+### 아직 연기 (2차 — 법무·제품 정책 확인 후)
+
+| 대상 | 연기 사유 |
+|------|-----------|
+| `matches`, `chat_rooms`, `interactions`, `asks`, `friendships` | 상대방 UX·증빙 보존 정책 필요; 무단 삭제 시 기능 회귀 |
+| `recEvents`, `bamboo_posts`, `friendInvites.metadata.inviterEmail` | 익명화 vs 삭제 vs 보존 기간 미정 |
+| 이벤트 팀 문서 | 팀 매칭 이력·다른 참가자 데이터와 entangled |
+| broad collection group delete | 다른 사용자 데이터 오염 위험 — UID/경로 검증 있는 범위만 1차 적용 |
 
 ---
 
