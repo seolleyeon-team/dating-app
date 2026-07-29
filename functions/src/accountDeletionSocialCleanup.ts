@@ -6,14 +6,20 @@
  * - Shared 1:1 match/chat → deactivate + scrub display PII (keep ids for other party)
  * - Community posts/comments authored by uid → soft-delete content
  * - Invites → scrub email metadata
- * - Event teams → remove uid from memberUids only
- *
- * Message history is intentionally retained (other-party UX / dispute).
+ * - Event teams → remove from acceptedUserIds/leader/pending + invite cancel
+ * - Chat message authors → anonymize immediately; body retained until TTL purge
  */
 
 import { FieldValue, type Firestore } from "firebase-admin/firestore";
+import { anonymizeChatMessagesForDeletedUser } from "./accountDeletionChatLifecycle";
+import { DELETED_USER_DISPLAY_NAME } from "./accountDeletionConstants";
+import {
+  applyEventTeamMemberRemoval,
+  loadEventTeamInviteIdsForUser,
+  loadEventTeamSetupIdsForUser,
+} from "./accountDeletionEventTeamCleanup";
 
-export const DELETED_USER_DISPLAY_NAME = "탈퇴한 사용자";
+export { DELETED_USER_DISPLAY_NAME };
 
 export type AccountDeletionSocialDocs = {
   interactionIds: string[];
@@ -27,6 +33,7 @@ export type AccountDeletionSocialDocs = {
   bambooComments: Array<{ postId: string; commentId: string }>;
   friendInviteIds: string[];
   eventTeamSetupIds: string[];
+  eventTeamInviteIds: string[];
 };
 
 export type AccountDeletionSocialCounts = {
@@ -41,6 +48,8 @@ export type AccountDeletionSocialCounts = {
   bambooCommentsSoftDeleted: number;
   friendInvitesScrubbed: number;
   eventTeamMembershipsRemoved: number;
+  eventTeamInvitesCancelled: number;
+  chatMessagesAnonymized: number;
 };
 
 export type SocialCleanupOperation =
@@ -55,7 +64,9 @@ export type SocialCleanupOperation =
   | { kind: "softDeleteBambooPost"; id: string }
   | { kind: "softDeleteBambooComment"; postId: string; commentId: string }
   | { kind: "scrubFriendInvite"; id: string }
-  | { kind: "removeEventTeamMember"; id: string };
+  | { kind: "removeEventTeamMember"; id: string }
+  | { kind: "cancelEventTeamInvite"; id: string }
+  | { kind: "anonymizeChatMessages"; id: string };
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -91,6 +102,7 @@ export function emptySocialDocs(): AccountDeletionSocialDocs {
     bambooComments: [],
     friendInviteIds: [],
     eventTeamSetupIds: [],
+    eventTeamInviteIds: [],
   };
 }
 
@@ -107,6 +119,8 @@ export function emptySocialCounts(): AccountDeletionSocialCounts {
     bambooCommentsSoftDeleted: 0,
     friendInvitesScrubbed: 0,
     eventTeamMembershipsRemoved: 0,
+    eventTeamInvitesCancelled: 0,
+    chatMessagesAnonymized: 0,
   };
 }
 
@@ -125,6 +139,8 @@ export function socialCountsFromDocs(
     bambooCommentsSoftDeleted: docs.bambooComments.length,
     friendInvitesScrubbed: docs.friendInviteIds.length,
     eventTeamMembershipsRemoved: docs.eventTeamSetupIds.length,
+    eventTeamInvitesCancelled: docs.eventTeamInviteIds.length,
+    chatMessagesAnonymized: 0,
   };
 }
 
@@ -154,6 +170,7 @@ export function planAccountDeletionSocialOperations(params: {
   }
   for (const id of docs.chatRoomIds) {
     operations.push({ kind: "closeChatRoom", id });
+    operations.push({ kind: "anonymizeChatMessages", id });
   }
   for (const id of docs.recEventIds) {
     operations.push({ kind: "deleteRecEvent", id });
@@ -176,6 +193,9 @@ export function planAccountDeletionSocialOperations(params: {
   }
   for (const id of docs.eventTeamSetupIds) {
     operations.push({ kind: "removeEventTeamMember", id });
+  }
+  for (const id of docs.eventTeamInviteIds) {
+    operations.push({ kind: "cancelEventTeamInvite", id });
   }
   return operations;
 }
@@ -210,7 +230,6 @@ export async function loadAccountDeletionSocialDocs(
     bambooSnap,
     bambooCommentsSnap,
     invitesSnap,
-    teamsSnap,
   ] = await Promise.all([
     queryIds(firestore, "interactions", "fromUserId", safeUid),
     queryIds(firestore, "interactions", "toUserId", safeUid),
@@ -232,10 +251,11 @@ export async function loadAccountDeletionSocialDocs(
       .where("authorId", "==", safeUid)
       .get(),
     queryIds(firestore, "friendInvites", "inviterUserId", safeUid),
-    firestore
-      .collection("eventTeamSetups")
-      .where("memberUids", "array-contains", safeUid)
-      .get(),
+  ]);
+
+  const [eventTeamSetupIds, eventTeamInviteIds] = await Promise.all([
+    loadEventTeamSetupIdsForUser(firestore, safeUid),
+    loadEventTeamInviteIdsForUser(firestore, safeUid),
   ]);
 
   const friendOtherUids = friendsSnap.docs.map((doc) => doc.id);
@@ -276,7 +296,8 @@ export async function loadAccountDeletionSocialDocs(
     bambooPostIds: bambooSnap,
     bambooComments,
     friendInviteIds: invitesSnap,
-    eventTeamSetupIds: teamsSnap.docs.map((doc) => doc.id),
+    eventTeamSetupIds,
+    eventTeamInviteIds,
   };
 }
 
@@ -406,23 +427,25 @@ export async function applySocialCleanupOperation(
       );
       return;
     case "removeEventTeamMember": {
-      const ref = firestore.collection("eventTeamSetups").doc(operation.id);
-      const snap = await ref.get();
-      if (!snap.exists) return;
-      const data = snap.data() ?? {};
-      const memberUids = Array.isArray(data.memberUids)
-        ? data.memberUids
-            .map((v) => asString(v))
-            .filter((v) => v && v !== safeUid)
-        : [];
-      await ref.set(
+      await applyEventTeamMemberRemoval(firestore, safeUid, operation.id);
+      return;
+    }
+    case "cancelEventTeamInvite": {
+      await firestore.collection("eventTeamInvites").doc(operation.id).set(
         {
-          memberUids,
-          memberCount: memberUids.length,
+          status: "cancelled",
+          cancelledReason: "account_deletion",
           updatedAt: now,
         },
         { merge: true }
       );
+      return;
+    }
+    case "anonymizeChatMessages": {
+      await anonymizeChatMessagesForDeletedUser(firestore, {
+        uid: safeUid,
+        roomId: operation.id,
+      });
       return;
     }
   }
@@ -434,8 +457,20 @@ export async function executeAccountDeletionSocialCleanup(
 ): Promise<AccountDeletionSocialCounts> {
   const docs = await loadAccountDeletionSocialDocs(firestore, uid);
   const operations = planAccountDeletionSocialOperations({ uid, docs });
+  let chatMessagesAnonymized = 0;
   for (const operation of operations) {
+    if (operation.kind === "anonymizeChatMessages") {
+      const result = await anonymizeChatMessagesForDeletedUser(firestore, {
+        uid,
+        roomId: operation.id,
+      });
+      chatMessagesAnonymized += result.anonymized;
+      continue;
+    }
     await applySocialCleanupOperation(firestore, uid, operation);
   }
-  return socialCountsFromDocs(docs);
+  return {
+    ...socialCountsFromDocs(docs),
+    chatMessagesAnonymized,
+  };
 }

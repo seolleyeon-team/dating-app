@@ -74,6 +74,7 @@ import {
 } from "./teamMeetingRequest";
 import { createReportAndBlockUserFunction } from "./reportAndBlock";
 import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
+import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
 
 // Initialize Firebase Admin
 initializeApp();
@@ -1470,6 +1471,9 @@ export const cleanupAvatarMedia =
 
 export const purgeExpiredEmailLinkTokens =
   createPurgeExpiredEmailLinkTokensSchedule(db);
+
+export const purgeAccountDeletionRetention =
+  createAccountDeletionRetentionPurgeSchedule(db);
 
 export const onAvatarJobSourceRetention =
   createAvatarJobSourceRetentionTrigger(db);
