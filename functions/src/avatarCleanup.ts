@@ -78,6 +78,8 @@ export type AvatarCleanupCounts = {
   bambooCommentsSoftDeleted: number;
   friendInvitesScrubbed: number;
   eventTeamMembershipsRemoved: number;
+  eventTeamInvitesCancelled: number;
+  chatMessagesAnonymized: number;
 };
 
 export type AccountDeletionDocs = {

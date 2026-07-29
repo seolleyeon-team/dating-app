@@ -34,6 +34,8 @@ const zeroAccountDeletionCounts = {
   bambooCommentsSoftDeleted: 0,
   friendInvitesScrubbed: 0,
   eventTeamMembershipsRemoved: 0,
+  eventTeamInvitesCancelled: 0,
+  chatMessagesAnonymized: 0,
 };
 
 function sampleExecutor() {
@@ -425,6 +427,8 @@ test("account deletion includes PII cleanup counts and skips PII for consent wit
     bambooCommentsSoftDeleted: 0,
     friendInvitesScrubbed: 0,
     eventTeamMembershipsRemoved: 0,
+    eventTeamInvitesCancelled: 0,
+    chatMessagesAnonymized: 0,
   });
 
   const { executor, operations } = sampleExecutor();
