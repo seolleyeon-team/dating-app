@@ -23,6 +23,10 @@ import {
 } from "firebase-functions/v2/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { withAppCheck } from "./appCheckPolicy";
+import {
+  createFirestorePushRecipientLoader,
+  filterPushRecipientIds,
+} from "./pushRecipientPolicy";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onTaskDispatched } from "firebase-functions/v2/tasks";
 import * as logger from "firebase-functions/logger";
@@ -57,8 +61,12 @@ import { createGetChatRealProfilePhotoFunction } from "./chatRealPhoto";
 import { createCleanupAvatarMediaFunction } from "./avatarCleanup";
 import {
   createAvatarJobSourceRetentionTrigger,
+  createAvatarSourceRetentionRecoveryTrigger,
   createClipEmbeddingSourceRetentionTrigger,
 } from "./avatarSourceRetention";
+import { createAvatarGenerationStateSyncTrigger } from "./avatarGenerationStateSync";
+import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
+export { isSafePublicAvatarUrl as isSafePublicMediaUrl } from "./publicMediaUrlPolicy";
 import {
   createRespondTeamMeetingRequestFunction,
   createTeamMeetingRequestFunction,
@@ -209,70 +217,6 @@ function readMap(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }
 
-function safeDecodeUriComponent(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-export function isSafePublicMediaUrl(value: unknown): value is string {
-  if (typeof value !== "string") return false;
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-
-  const decodedLower = safeDecodeUriComponent(trimmed).toLowerCase();
-  if (
-    decodedLower.startsWith("gs://") ||
-    decodedLower.startsWith("gcs://") ||
-    /(?:private-source-photos|avatar-temp|chat-profile-photos)/.test(
-      decodedLower
-    ) ||
-    decodedLower.includes("x-goog-") ||
-    decodedLower.includes("x-amz-") ||
-    decodedLower.includes("googleaccessid") ||
-    decodedLower.includes("signature=") ||
-    decodedLower.includes("expires=") ||
-    decodedLower.includes("awsaccesskeyid") ||
-    decodedLower.includes("signedurl") ||
-    /\/source\//.test(decodedLower) ||
-    /\/jobs\//.test(decodedLower) ||
-    /\/candidates\//.test(decodedLower)
-  ) {
-    return false;
-  }
-
-  try {
-    const parsed = new URL(trimmed);
-    if (
-      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
-      !parsed.hostname
-    ) {
-      return false;
-    }
-    const host = parsed.hostname.toLowerCase();
-    const path = safeDecodeUriComponent(parsed.pathname).toLowerCase();
-    const bucketFromVirtualHost = host.endsWith(".storage.googleapis.com")
-      ? host.replace(".storage.googleapis.com", "")
-      : "";
-    if (
-      /(?:private-source-photos|avatar-temp|chat-profile-photos)/.test(
-        bucketFromVirtualHost
-      ) ||
-      /\/source\//.test(path) ||
-      /\/jobs\//.test(path) ||
-      /\/candidates\//.test(path)
-    ) {
-      return false;
-    }
-  } catch {
-    return false;
-  }
-
-  return true;
-}
-
 function firstNonEmptyString(...values: unknown[]): string | null {
   for (const value of values) {
     const normalized = asStringOrNull(value);
@@ -304,7 +248,7 @@ function firstInteger(...values: unknown[]): number | null {
 export function readSafePhotoUrl(userData: Record<string, unknown>): string | null {
   const avatar = readMap(userData.avatar);
   const approvedAvatarUrl = asStringOrNull(avatar.approvedAvatarUrl);
-  if (avatar.status === "approved" && isSafePublicMediaUrl(approvedAvatarUrl)) {
+  if (avatar.status === "approved" && isSafePublicAvatarUrl(approvedAvatarUrl)) {
     return approvedAvatarUrl;
   }
   return null;
@@ -1063,18 +1007,43 @@ async function sendPushToUsers(
     title: string;
     body: string;
     data: Record<string, string>;
+    /** When set, recipients who mutually blocked this actor are skipped. */
+    actorUserId?: string;
   }
 ): Promise<void> {
   const uniqueUserIds = [...new Set(userIds.filter((u) => u.length > 0))];
   if (uniqueUserIds.length === 0) return;
 
-  const tokenLists = await Promise.all(uniqueUserIds.map(fetchUserTokens));
+  const actorUserId =
+    asNonEmptyString(payload.actorUserId) ??
+    asNonEmptyString(payload.data.actorUserId) ??
+    asNonEmptyString(payload.data.inviterUserId) ??
+    undefined;
+
+  const { allowed: eligibleUserIds, skipped } = await filterPushRecipientIds(
+    uniqueUserIds,
+    {
+      actorUserId,
+      ...createFirestorePushRecipientLoader(db),
+    }
+  );
+  if (skipped.length > 0) {
+    logger.info("Push recipients filtered", {
+      actorUserIdHash: actorUserId ? logHashPrefix(actorUserId) : null,
+      skippedCount: skipped.length,
+      skippedReasons: skipped.map((s) => s.reason),
+      skippedUserIdHashes: logHashPrefixes(skipped.map((s) => s.uid)),
+    });
+  }
+  if (eligibleUserIds.length === 0) return;
+
+  const tokenLists = await Promise.all(eligibleUserIds.map(fetchUserTokens));
   // Keep each token bound to the user it came from. The multicast response is
   // index-aligned with this list, and a token document is only ever valid to
   // delete under its own owner.
   const tokenOwners: { uid: string; token: string }[] = [];
   tokenLists.forEach((list, index) => {
-    const uid = uniqueUserIds[index];
+    const uid = eligibleUserIds[index];
     for (const token of list) {
       if (token) tokenOwners.push({ uid, token });
     }
@@ -1083,8 +1052,8 @@ async function sendPushToUsers(
 
   if (tokens.length === 0) {
     logger.info("No device tokens found for users", {
-      userCount: uniqueUserIds.length,
-      userIdHashes: logHashPrefixes(uniqueUserIds),
+      userCount: eligibleUserIds.length,
+      userIdHashes: logHashPrefixes(eligibleUserIds),
     });
     return;
   }
@@ -1507,6 +1476,12 @@ export const onAvatarJobSourceRetention =
 
 export const onClipEmbeddingSourceRetention =
   createClipEmbeddingSourceRetentionTrigger(db);
+
+export const recoverAvatarSourceRetention =
+  createAvatarSourceRetentionRecoveryTrigger(db);
+
+export const onAvatarGenerationStateSync =
+  createAvatarGenerationStateSyncTrigger(db);
 
 function getCallableData(request: {
   data?: unknown;
@@ -2223,6 +2198,7 @@ export const createEventTeamInvite = onCall(withAppCheck(), async (request) => {
   await sendPushToUsers([inviteeUserId], {
     title: "팀 초대",
     body: `${inviterInfo.nickname}님이 3인 팀 참여를 요청했어요.`,
+    actorUserId: inviter.userId,
     data: {
       type: "event_team_invite",
       inviteId,
@@ -2796,6 +2772,7 @@ export const onInteractionCreated = onDocumentCreated(
         await sendPushToUsers([toUserId], {
           title,
           body,
+          actorUserId: fromUserId,
           data: {
             type: "profile_like",
             notificationId,
@@ -2952,6 +2929,7 @@ export const onChatMessageCreated = onDocumentCreated(
     await sendPushToUsers(targetUserIds, {
       title: senderName,
       body: body || "메시지가 도착했어요.",
+      actorUserId: senderId,
       data: {
         type: "chat",
         roomId,
@@ -2999,6 +2977,7 @@ export const onBambooCommentCreated = onDocumentCreated(
         await sendPushToUsers([postAuthorId], {
           title: "내 글에 새 댓글이 달렸어요",
           body: content || "\uB313\uAE00\uC774 \uB3C4\uCC29\uD588\uC5B4\uC694.",
+          actorUserId: authorId,
           data: {
             type: "community_comment",
             postId,
@@ -3046,6 +3025,7 @@ export const onBambooCommentCreated = onDocumentCreated(
       await sendPushToUsers(targets, {
         title: "내 댓글에 답글이 달렸어요",
         body: content || "답글이 도착했어요.",
+        actorUserId: authorId,
         data: {
           type: "community_reply",
           postId,
@@ -3119,6 +3099,7 @@ export const onBambooPostLikeCreated = onDocumentCreated(
     await sendPushToUsers([postAuthorId], {
       title: "내 글에 좋아요가 눌렸어요",
       body: "누군가가 회원님의 글을 좋아합니다.",
+      actorUserId: likerUserId,
       data: {
         type: "community_post_like",
         postId,
@@ -3184,6 +3165,7 @@ export const onAskCreated = onDocumentCreated(
       await sendPushToUsers([toUserId], {
         title,
         body,
+        actorUserId: fromUserId,
         data: {
           type: "ask_received",
           notificationId,
