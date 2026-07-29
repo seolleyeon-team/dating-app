@@ -54,8 +54,11 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
     // 2) 앱이 카카오 리다이렉트 URL로 켜졌을 때 네이티브에서 URL을 SDK에 전달 (iOS/Android)
     try {
       await receiveKakaoScheme();
-    } catch (_) {}
-
+    } catch (e) {
+      debugPrint(
+        '[KakaoCallback] receiveKakaoScheme failed: ${PrivacyLogUtils.errorSummary(e)}',
+      );
+    }
     // 3) URL에 code가 있으면 토큰 발급 후 저장 (iOS에서 네이티브가 URL을 안 넘겨도 동작하도록)
     final code = query['code'];
     if (code != null && code.isNotEmpty) {

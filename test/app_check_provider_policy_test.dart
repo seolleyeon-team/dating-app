@@ -3,10 +3,32 @@ import 'package:seolleyeon/shared/utils/app_check_provider_policy.dart';
 
 void main() {
   group('App Check provider policy', () {
-    test('release builds never use debug providers', () {
+    test('release builds never use debug providers by default', () {
       expect(
         shouldUseDebugAppCheckProvider(isWeb: false, isReleaseMode: true),
         isFalse,
+      );
+    });
+
+    test('force debug overrides release default for local release APK tests', () {
+      expect(
+        shouldUseDebugAppCheckProvider(
+          isWeb: false,
+          isReleaseMode: true,
+          forceDebugProvider: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test('debug-signed Android release may use debug provider', () {
+      expect(
+        shouldUseDebugAppCheckProvider(
+          isWeb: false,
+          isReleaseMode: true,
+          isDebugSignedAndroid: true,
+        ),
+        isTrue,
       );
     });
 
@@ -32,6 +54,24 @@ void main() {
         webAppCheckRecaptchaSiteKey(fromEnvironment: '  site-key  '),
         'site-key',
       );
+    });
+
+    test('missing web site key is an explicit skipped state', () {
+      final result = evaluateWebAppCheckActivation(siteKey: null);
+      expect(result.status, AppCheckInitStatus.skippedWebMissingKey);
+      expect(result.callablesLikelyBlocked, isTrue);
+      expect(result.isReady, isFalse);
+    });
+
+    test('native activation failure is not silent success', () {
+      final result = evaluateNativeAppCheckActivation(
+        usedDebugProvider: false,
+        platform: 'android',
+        activateErrorSummary: 'provider_unavailable',
+      );
+      expect(result.status, AppCheckInitStatus.failed);
+      expect(result.callablesLikelyBlocked, isTrue);
+      expect(result.errorSummary, 'provider_unavailable');
     });
   });
 }

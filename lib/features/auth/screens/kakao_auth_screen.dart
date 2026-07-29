@@ -103,7 +103,15 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
           ),
         ),
       );
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint(
+        '[KakaoAuth] receiveKakaoScheme failed: ${PrivacyLogUtils.errorSummary(e)}',
+      );
+      assert(() {
+        debugPrint('$st');
+        return true;
+      }());
+    }
   }
 
   Future<bool> _handlePendingInviteAfterLogin() async {
