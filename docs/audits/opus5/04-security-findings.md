@@ -26,7 +26,7 @@
 | **REC-P0-01~04** | **P0** | **추천** | **정책 필터·RRF 게이트 미적용 + 차단 단방향 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
 | **REC-P1-01~02** | **P1** | **추천** | **신고 양방향 차단 callable + 폴백 정책 적용 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
 | SEC-P1-06 | P1 | 추천 | 배치 파이프라인이 blocks/contactBlocked 미제외 | **수정·이미지 배포 완료** (`bc554be8` → `recs-pipeline:latest`, Jobs 6개 갱신) |
-| SEC-P1-07 | P1 | FCM | 차단·탈퇴 사용자 푸시 미필터 | 코드상 확정, 미수정 |
+| SEC-P1-07 | P1 | FCM | 차단·탈퇴 사용자 푸시 미필터 | **수정 완료** (`pushRecipientPolicy`; Functions 배포 진행) |
 | SEC-P1-08 | P1 | 개인정보 | account_deletion 시 대량 orphan 데이터 잔존 | 코드상 확정, 미수정 |
 | SEC-P2-01 | P2 | 커뮤니티 | bamboo_posts likeCount 임의 조작 | 코드상 확정, 미수정 |
 | SEC-P2-02 | P2 | 데이터 일관성 | 상호 like 시 match/chat_room 중복 생성 race | 코드상 확정, 미수정 |
@@ -634,10 +634,23 @@ Python 배치 파이프라인은 `blocks/{uid}/targets`를 조회하지 않고,
 
 **등급:** P1
 **영역:** 알림
+**상태:** 코드 수정 완료 (2026-07-29). 관련 Functions 배포 필요.
 
-`sendPushToUsers`(`functions/src/index.ts:1043-1113`)는 `deviceTokens` 존재 여부만 확인하고
-차단 관계·탈퇴·정지 상태를 확인하지 않는다.
-차단한 상대의 활동으로 인한 푸시가 계속 도달할 수 있다.
+`sendPushToUsers`는 `deviceTokens` 존재 여부만 확인하고 차단·탈퇴·정지를
+보지 않았다. 차단한 상대의 like/채팅/커뮤니티 활동 푸시가 계속 도달했다.
+
+### 수정
+
+- `functions/src/pushRecipientPolicy.ts` — 수신자 분류:
+  - 유저 문서 없음 / 탈퇴·정지·blocked → 스킵
+  - `actorUserId`가 있으면 `blocks` 양방향 엣지 확인 후 스킵
+- `sendPushToUsers`가 토큰 조회 전에 필터 적용
+- like/채팅/댓글/답글/커뮤니티 좋아요/무물/팀 초대에 `actorUserId` 전달
+- 시스템성 다이제스트·약속 리마인더는 상태 필터만 적용
+
+### 검증
+
+- `functions/src/pushRecipientPolicy.test.ts`
 
 ---
 
