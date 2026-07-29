@@ -778,4 +778,6 @@ Firebase Auth 계정을 삭제하지만 다음은 남긴다 (서브에이전트 
 - recEvents 상호 like → chat room 생성 보강 (`checkAndCreateRecMatch`)
 - 만료 emailLinkTokens **28건 일괄 삭제 완료** (REMAINING=0)
 - Storage App Check 콘솔 **ENFORCED 전환 완료** (Firestore/Auth는 UNENFORCED 유지)
+- **일일 스케줄** `purgeExpiredEmailLinkTokens` 배포 (매일 04:15 Asia/Seoul)
+- account_deletion **bamboo comments soft-delete** 보강 (`cleanupAvatarMedia`)
 
