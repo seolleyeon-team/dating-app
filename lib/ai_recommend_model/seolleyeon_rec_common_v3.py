@@ -41,7 +41,11 @@ DEFAULT_NEGATIVE_PREF_WEIGHTS: Dict[str, float] = {
 }
 PRIVATE_SOURCE_PHOTO_BUCKET = "seolleyeon-private-" "source-photos"
 AVATAR_TEMP_BUCKET = "seolleyeon-avatar-temp"
-SENSITIVE_MEDIA_BUCKET_MARKERS = (PRIVATE_SOURCE_PHOTO_BUCKET, AVATAR_TEMP_BUCKET)
+SENSITIVE_MEDIA_BUCKET_MARKERS = (
+    "private-source-photos",
+    "avatar-temp",
+    "chat-profile-photos",
+)
 SIGNED_URL_MARKERS = (
     "X-Goog-",
     "GoogleAccessId",
@@ -989,6 +993,105 @@ def build_mutual_block_index(
         index[actor_uid].add(target_uid)
         index[target_uid].add(actor_uid)
     return dict(index)
+
+
+def block_edges_from_owner_targets(
+    owner_to_targets: Dict[str, Sequence[str]],
+) -> List[Tuple[str, str]]:
+    """Normalize `blocks/{owner}/targets/{target}` docs into directed edges.
+
+    Contact sync (`ensureMutualContactBlock`) and `reportAndBlockUser` both write
+    this path. Edges are later expanded symmetrically by
+    `extend_mutual_block_index`, so a one-sided Firestore doc still excludes both
+    users once merged.
+    """
+    edges: List[Tuple[str, str]] = []
+    for owner, targets in owner_to_targets.items():
+        owner_uid = str(owner).strip()
+        if not owner_uid:
+            continue
+        for target in targets:
+            target_uid = str(target).strip()
+            if not target_uid or target_uid == owner_uid:
+                continue
+            edges.append((owner_uid, target_uid))
+    return edges
+
+
+def extend_mutual_block_index(
+    index: Optional[Dict[str, Set[str]]],
+    edges: Sequence[Tuple[str, str]],
+) -> Dict[str, Set[str]]:
+    """Union undirected exclusions from (actor, target) edges into an index."""
+    out: Dict[str, Set[str]] = {
+        str(uid): set(blocked) for uid, blocked in (index or {}).items()
+    }
+    for actor, target in edges:
+        actor_uid = str(actor).strip()
+        target_uid = str(target).strip()
+        if not actor_uid or not target_uid or actor_uid == target_uid:
+            continue
+        out.setdefault(actor_uid, set()).add(target_uid)
+        out.setdefault(target_uid, set()).add(actor_uid)
+    return out
+
+
+def resolve_mutual_block_index(
+    events_df: Optional[pd.DataFrame],
+    *,
+    firestore_block_edges: Optional[Sequence[Tuple[str, str]]] = None,
+) -> Dict[str, Set[str]]:
+    """Combine recEvents hard blocks with live Firestore `blocks` edges.
+
+    Contact-matched blocks never write `recEvents`, and event lookback can drop
+    old block/report rows. The Firestore `blocks` collection is the durable
+    source of truth for active exclusions (including contact blocks).
+    """
+    index = build_mutual_block_index(
+        events_df if events_df is not None else pd.DataFrame()
+    )
+    if firestore_block_edges:
+        index = extend_mutual_block_index(index, firestore_block_edges)
+    return index
+
+
+def load_block_edges_from_firestore(
+    project_id: str,
+    *,
+    collection: str = "blocks",
+    targets_subcollection: str = "targets",
+    database: Optional[str] = None,
+) -> List[Tuple[str, str]]:
+    """Load every `blocks/{uid}/targets/{targetUid}` edge from Firestore."""
+    require_firestore()
+    db = firestore.Client(project=project_id, database=database)
+    owner_to_targets: Dict[str, List[str]] = {}
+    for owner_ref in db.collection(collection).list_documents():
+        targets = [
+            doc.id for doc in owner_ref.collection(targets_subcollection).stream()
+        ]
+        if targets:
+            owner_to_targets[owner_ref.id] = targets
+    return block_edges_from_owner_targets(owner_to_targets)
+
+
+def load_and_resolve_mutual_block_index(
+    events_df: Optional[pd.DataFrame],
+    *,
+    firestore_project: Optional[str] = None,
+    firestore_database: Optional[str] = None,
+    load_firestore_blocks: bool = True,
+    blocks_collection: str = "blocks",
+) -> Dict[str, Set[str]]:
+    """Build the export-time exclusion index from events + live Firestore blocks."""
+    edges: Optional[List[Tuple[str, str]]] = None
+    if load_firestore_blocks and firestore_project:
+        edges = load_block_edges_from_firestore(
+            firestore_project,
+            collection=blocks_collection,
+            database=firestore_database,
+        )
+    return resolve_mutual_block_index(events_df, firestore_block_edges=edges)
 
 
 def collapse_pair_events(

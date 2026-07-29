@@ -59,6 +59,23 @@ def test_policy_filters_can_be_disabled_explicitly():
     assert "--policy_min_meta_coverage" not in script_args
 
 
+def test_workflow_invocation_keeps_firestore_blocks_enabled_by_default():
+    # SVD/KNN train from events CSV; contact/report blocks live in Firestore only.
+    args = parse("--step", "svd", "--project", "seolleyeon-final")
+
+    script_args = build_model_script_args(args, events_csv="/tmp/events.csv")
+
+    assert "--no_firestore_blocks" not in script_args
+
+
+def test_firestore_blocks_can_be_disabled_explicitly():
+    args = parse("--step", "knn", "--project", "p", "--no-firestore-blocks")
+
+    script_args = build_model_script_args(args, events_csv="/tmp/events.csv")
+
+    assert "--no_firestore_blocks" in script_args
+
+
 def test_same_university_requirement_can_be_relaxed():
     args = parse("--step", "clip", "--project", "p", "--no-require-same-university")
 
