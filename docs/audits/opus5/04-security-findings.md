@@ -25,7 +25,7 @@
 | SEC-P1-05 | P1 | Functions | 인증/부트스트랩 callable App Check 미적용 | **수정·운영 배포 완료** (`809fa537`, 13 callables) |
 | **REC-P0-01~04** | **P0** | **추천** | **정책 필터·RRF 게이트 미적용 + 차단 단방향 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
 | **REC-P1-01~02** | **P1** | **추천** | **신고 양방향 차단 callable + 폴백 정책 적용 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
-| SEC-P1-06 | P1 | 추천 | 배치 파이프라인이 blocks/contactBlocked 미제외 | **수정 완료** (Firestore `blocks` 로드·병합; 연락처 차단은 매칭 시 동일 경로에 기록) |
+| SEC-P1-06 | P1 | 추천 | 배치 파이프라인이 blocks/contactBlocked 미제외 | **수정·이미지 배포 완료** (`bc554be8` → `recs-pipeline:latest`, Jobs 6개 갱신) |
 | SEC-P1-07 | P1 | FCM | 차단·탈퇴 사용자 푸시 미필터 | 코드상 확정, 미수정 |
 | SEC-P1-08 | P1 | 개인정보 | account_deletion 시 대량 orphan 데이터 잔존 | 코드상 확정, 미수정 |
 | SEC-P2-01 | P2 | 커뮤니티 | bamboo_posts likeCount 임의 조작 | 코드상 확정, 미수정 |
@@ -605,7 +605,7 @@ App Check(`enforceAppCheck`)가 avatar/chat/team 모듈에만 적용되어 있�
 
 **등급:** P1
 **영역:** 추천 시스템
-**상태:** 코드 수정 완료 (2026-07-29). 다음 배치 잡 실행부터 적용 (이미지 재빌드 필요).
+**상태:** 코드 수정 및 Cloud Run 이미지/Jobs 배포 완료 (2026-07-29, `seolleyeon-final`, image tag `bc554be8`/`latest`). 다음 일일 워크플로 또는 수동 잡 실행부터 적용.
 
 Python 배치 파이프라인은 `blocks/{uid}/targets`를 조회하지 않고,
 `recEvents`의 `block`/`report`만으로 상호 제외했다. 연락처 차단은
