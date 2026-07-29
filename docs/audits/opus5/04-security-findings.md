@@ -29,7 +29,7 @@
 | SEC-P1-07 | P1 | FCM | 차단·탈퇴 사용자 푸시 미필터 | **수정·운영 배포 완료** (`f92408b5`, push 관련 Functions 9개) |
 | SEC-P1-08 | P1 | 개인정보 | account_deletion 시 대량 orphan 데이터 잔존 | **1차 수정·배포 완료** (`4f8fbb5b` → `cleanupAvatarMedia`; matches/채팅 등은 2차) |
 | SEC-P2-01 | P2 | 커뮤니티 | bamboo_posts likeCount 임의 조작 | **수정·rules 배포 완료** (`126aeafc`) |
-| SEC-P2-02 | P2 | 데이터 일관성 | 상호 like 시 match/chat_room 중복 생성 race | 코드상 확정, 미수정 |
+| SEC-P2-02 | P2 | 데이터 일관성 | 상호 like 시 match/chat_room 중복 생성 race | **수정 완료** (Functions 재배포 필요) |
 | SEC-P3-01 | P3 | Rules | place_catalog 규칙 블록 중복 정의 | 코드상 확정, 미수정 |
 
 ---
@@ -716,9 +716,23 @@ Firebase Auth 계정을 삭제하지만 다음은 남긴다 (서브에이전트 
 
 ## SEC-P2-02 — 상호 like 시 match/chat_room 중복 생성
 
-`functions/src/index.ts:2692-2762` — 기존 match 조회 후 `batch.commit()`.
-트랜잭션이 아니므로 두 사용자가 동시에 like하면 match와 chat_room이 중복 생성될 수 있다.
-`recEvents` 경로(`index.ts:4010-4032`)도 동일하다.
+**등급:** P2
+**영역:** 데이터 일관성 / Functions
+**상태:** 코드 수정 완료 (Functions 재배포 필요).
+
+`onInteractionCreated`와 `checkAndCreateRecMatch`가 기존 match를 조회한 뒤
+랜덤 doc id로 `batch.create`/`add` 하여, 동시 상호 like 시 match(및 chat_room
+시스템 메시지)가 중복 생성될 수 있었다.
+
+### 수정
+
+- `functions/src/matchIdentity.ts` — 정렬된 uid 쌍으로 `buildDeterministicMatchId`,
+  `buildDirectRoomId` 제공 (단위 테스트 포함).
+- `functions/src/mutualMatchCreation.ts` — deterministic match id + Firestore
+  transaction(`tx.create`)으로 create-if-missing.
+- `onInteractionCreated`, `checkAndCreateRecMatch` 모두 `ensureMutualMatch` 사용.
+
+재배포 대상: `onInteractionCreated`, `onRecEventCreated` (내부 `checkAndCreateRecMatch`).
 
 ---
 
