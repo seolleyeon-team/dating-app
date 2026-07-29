@@ -1049,6 +1049,9 @@ def main(argv: list[str] | None = None) -> int:
                     admin_app=admin_app,
                     post_json=_post_json,
                 )
+                preupload_gate["customTokenCreated"] = True
+                preupload_gate["idTokenExchange"] = True
+                preupload_gate["decodedUidMatched"] = True
             except ValueError as exc:
                 error_code = str(exc)
                 if not error_code.startswith("operator_custom_token_"):
