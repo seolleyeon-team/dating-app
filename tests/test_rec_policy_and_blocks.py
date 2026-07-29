@@ -11,9 +11,12 @@ if str(AI_MODEL_DIR) not in sys.path:
 
 from seolleyeon_rec_common_v3 import (  # noqa: E402
     assert_policy_meta_coverage,
+    block_edges_from_owner_targets,
     build_mutual_block_index,
     build_policy_meta_from_user_docs,
+    extend_mutual_block_index,
     passes_policy,
+    resolve_mutual_block_index,
     university_id_from_student_email,
 )
 
@@ -75,6 +78,56 @@ def test_multiple_blocks_accumulate_per_user():
 def test_self_blocks_and_empty_input_are_ignored():
     assert build_mutual_block_index(events(("alice", "alice", "block", None))) == {}
     assert build_mutual_block_index(events()) == {}
+
+
+# ---------------------------------------------------------------------------
+# Firestore blocks / contact blocks (SEC-P1-06)
+# ---------------------------------------------------------------------------
+
+def test_firestore_block_edges_are_parsed_from_owner_target_map():
+    # blocks/{owner}/targets/{target} — contact sync and reportAndBlock both land here.
+    edges = block_edges_from_owner_targets(
+        {
+            "alice": ["bob", "carol", "alice", ""],
+            "": ["dave"],
+            "erin": [],
+        }
+    )
+
+    assert set(edges) == {("alice", "bob"), ("alice", "carol")}
+
+
+def test_firestore_blocks_merge_into_event_based_index():
+    # Contact blocks never write recEvents; without Firestore edges they are invisible.
+    index = resolve_mutual_block_index(
+        events(("alice", "bob", "like", None)),
+        firestore_block_edges=[("alice", "carol")],
+    )
+
+    assert index["alice"] == {"carol"}
+    assert index["carol"] == {"alice"}
+    assert "bob" not in index.get("alice", set())
+
+
+def test_firestore_blocks_cover_pairs_outside_rec_events_lookback():
+    # Active blocks collection is the source of truth; old recEvents may age out.
+    index = resolve_mutual_block_index(
+        events(),
+        firestore_block_edges=[("alice", "bob"), ("bob", "alice")],
+    )
+
+    assert index["alice"] == {"bob"}
+    assert index["bob"] == {"alice"}
+
+
+def test_extend_mutual_block_index_is_symmetric_and_idempotent():
+    base = build_mutual_block_index(events(("alice", "bob", "block", None)))
+    once = extend_mutual_block_index(base, [("carol", "alice")])
+    twice = extend_mutual_block_index(once, [("carol", "alice"), ("alice", "carol")])
+
+    assert once["alice"] == {"bob", "carol"}
+    assert once["carol"] == {"alice"}
+    assert twice == once
 
 
 # ---------------------------------------------------------------------------

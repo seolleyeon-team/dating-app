@@ -25,7 +25,7 @@
 | SEC-P1-05 | P1 | Functions | 인증/부트스트랩 callable App Check 미적용 | **수정·운영 배포 완료** (`809fa537`, 13 callables) |
 | **REC-P0-01~04** | **P0** | **추천** | **정책 필터·RRF 게이트 미적용 + 차단 단방향 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
 | **REC-P1-01~02** | **P1** | **추천** | **신고 양방향 차단 callable + 폴백 정책 적용 (→ [14번 문서](14-recommendation-policy-findings.md))** | **수정 완료** |
-| SEC-P1-06 | P1 | 추천 | 배치 파이프라인이 blocks/contactBlocked 미제외 | 부분 완화 (recEvents block/report 대칭 제외는 REC-P0-04; Firestore blocks·연락처 해시는 미로드) |
+| SEC-P1-06 | P1 | 추천 | 배치 파이프라인이 blocks/contactBlocked 미제외 | **수정 완료** (Firestore `blocks` 로드·병합; 연락처 차단은 매칭 시 동일 경로에 기록) |
 | SEC-P1-07 | P1 | FCM | 차단·탈퇴 사용자 푸시 미필터 | 코드상 확정, 미수정 |
 | SEC-P1-08 | P1 | 개인정보 | account_deletion 시 대량 orphan 데이터 잔존 | 코드상 확정, 미수정 |
 | SEC-P2-01 | P2 | 커뮤니티 | bamboo_posts likeCount 임의 조작 | 코드상 확정, 미수정 |
@@ -605,23 +605,28 @@ App Check(`enforceAppCheck`)가 avatar/chat/team 모듈에만 적용되어 있�
 
 **등급:** P1
 **영역:** 추천 시스템
+**상태:** 코드 수정 완료 (2026-07-29). 다음 배치 잡 실행부터 적용 (이미지 재빌드 필요).
 
-Python 배치 파이프라인은 `blocks/{uid}/targets` 컬렉션을 전혀 조회하지 않는다
-(서브에이전트 확인: 저장소 전체에서 Python 측 `blocks` 참조 없음).
-차단 사용자 제외는 **Flutter 클라이언트 표시 시점에만** 수행된다
-(`lib/services/ai_recommendation_service.dart:152`).
+Python 배치 파이프라인은 `blocks/{uid}/targets`를 조회하지 않고,
+`recEvents`의 `block`/`report`만으로 상호 제외했다. 연락처 차단은
+`ensureMutualContactBlock`이 `blocks`에만 쓰고 `recEvents`에는 쓰지 않으며,
+이벤트 lookback 밖으로 빠진 신고/차단도 배치에서 사라질 수 있었다.
 
-`contactBlockedHashes`(연락처 차단)는 **클라이언트·서버 어디에서도 추천에서 제외되지 않는다**
-(저장소 전체 `contactBlocked` grep 0건 — 추천 경로 기준).
+### 수정
 
-또한 Cloud Run Job 인자에 `--apply_policy_filters`가 전달되지 않아
-`profileIndex` 기반 정책 필터가 비활성 상태다 (`infra/deploy.sh:151-165`).
+- `load_block_edges_from_firestore` / `resolve_mutual_block_index` —
+  활성 `blocks/{uid}/targets`를 읽어 recEvents 상호 제외와 병합
+- CLIP / SVD / KNN v3 익스포터가 기본으로 Firestore blocks를 로드
+  (`--no_firestore_blocks`로만 해제)
+- 연락처 차단: 앱 유저와 매칭되면 이미 `blocks`에 양방향 기록되므로
+  별도 `contactBlockedHashes` 스캔 없이 동일 경로로 제외됨
+  (미매칭 해시는 UID가 없어 추천 제외 대상이 아님)
+- `recsys/main.py`는 정책 필터를 기본 ON으로 유지 (deploy.sh 인자 없이도 적용)
 
-### 영향
+### 검증
 
-차단·연락처 차단 정책이 추천 파이프라인에 일관되게 반영되지 않는다.
-클라이언트 필터를 우회하거나 클라이언트가 구버전이면 차단한 상대가 다시 노출된다.
-설레연의 핵심 가치(안전·신뢰)에 직접 배치된다.
+- `tests/test_rec_policy_and_blocks.py` — Firestore edges 병합·대칭성
+- `tests/test_recsys_policy_args.py` — 기본 유지 / 명시적 opt-out
 
 ---
 

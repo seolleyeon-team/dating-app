@@ -201,6 +201,9 @@ SVD/KNN은 모델의 `filter_items`와 후보 루프 양쪽에서 제외한다. 
 `firestore.rules`는 클라이언트의 `blocks`/`reports` 직접 쓰기를 거부한다.
 폴백·hydrate 경로의 정책 적용은 REC-P1-02에서 처리했다.
 
+**Firestore `blocks` 미로드(연락처 차단·lookback 밖 신고)는 SEC-P1-06에서 수정했다.**
+배치 익스포터가 `blocks/{uid}/targets`를 읽어 상호 제외 인덱스에 병합한다.
+
 ---
 
 ## REC-P1-01 — 신고 차단을 서버에서 양방향으로 기록

@@ -44,7 +44,7 @@ from seolleyeon_rec_common_v3 import (
     DEFAULT_STRONG_POSITIVE_EVENTS,
     PairBuildConfig,
     assert_policy_meta_coverage,
-    build_mutual_block_index,
+    load_and_resolve_mutual_block_index,
     clamp01,
     collapse_pair_events,
     compute_clip_signal_confidence,
@@ -216,6 +216,19 @@ def main() -> int:
     )
     p.add_argument("--events_csv", type=str, default=None)
     p.add_argument("--firestore_events", action="store_true", help="호환성용 플래그. events_csv가 없으면 Firestore 사용")
+    p.add_argument(
+        "--firestore_blocks",
+        dest="firestore_blocks",
+        action="store_true",
+        help="Load blocks/{uid}/targets for mutual exclusions (default on)",
+    )
+    p.add_argument(
+        "--no_firestore_blocks",
+        dest="firestore_blocks",
+        action="store_false",
+        help="Skip Firestore blocks collection (events-only exclusions)",
+    )
+    p.set_defaults(firestore_blocks=True)
     p.add_argument("--skip_clip_if_no_torch", action="store_true", help="torch 미설치 시 CLIP 스킵")
 
     p.add_argument("--event_weights_json", type=str, default=None)
@@ -302,12 +315,18 @@ def main() -> int:
     signal_meta_by_uid: Dict[str, Dict[str, Any]] = {}
     pos_by_user: Dict[str, Any] = {}
     neg_by_user: Dict[str, Any] = {}
-    mutual_blocks: Dict[str, Any] = {}
+    mutual_blocks = load_and_resolve_mutual_block_index(
+        df,
+        firestore_project=args.firestore_project,
+        firestore_database=args.firestore_database,
+        load_firestore_blocks=bool(args.firestore_blocks),
+    )
+    print(
+        f"[blocks] users with mutual block/report/contact exclusions: "
+        f"{len(mutual_blocks):,}"
+    )
 
     if df is not None and not df.empty:
-        mutual_blocks = build_mutual_block_index(df)
-        print(f"[blocks] users with mutual block/report exclusions: {len(mutual_blocks):,}")
-
         pair_cfg = PairBuildConfig(
             event_weights=event_weights,
             negative_events=negative_events,

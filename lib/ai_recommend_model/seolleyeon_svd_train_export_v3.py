@@ -33,7 +33,7 @@ from seolleyeon_rec_common_v3 import (
     PairBuildConfig,
     assert_policy_meta_coverage,
     build_interaction_matrix_from_pairs,
-    build_mutual_block_index,
+    load_and_resolve_mutual_block_index,
     collapse_pair_events,
     compute_source_confidence,
     compute_user_signal_stats,
@@ -216,6 +216,19 @@ def main() -> None:
     p.add_argument("--firestore_events", action="store_true")
     p.add_argument("--firestore_project", type=str, default=None)
     p.add_argument("--firestore_database", type=str, default=None)
+    p.add_argument(
+        "--firestore_blocks",
+        dest="firestore_blocks",
+        action="store_true",
+        help="Load blocks/{uid}/targets for mutual exclusions (default on)",
+    )
+    p.add_argument(
+        "--no_firestore_blocks",
+        dest="firestore_blocks",
+        action="store_false",
+        help="Skip Firestore blocks collection (events-only exclusions)",
+    )
+    p.set_defaults(firestore_blocks=True)
     p.add_argument("--events_collection", type=str, default="recEvents")
     p.add_argument(
         "--events_layout",
@@ -334,8 +347,16 @@ def main() -> None:
         allow_open_only_pairs=bool(args.allow_open_only_pairs),
         exclude_ai_items_from_training=not bool(args.include_ai_profiles_in_training),
     )
-    mutual_blocks = build_mutual_block_index(df)
-    print(f"[blocks] users with mutual block/report exclusions: {len(mutual_blocks):,}")
+    mutual_blocks = load_and_resolve_mutual_block_index(
+        df,
+        firestore_project=args.firestore_project,
+        firestore_database=args.firestore_database,
+        load_firestore_blocks=bool(args.firestore_blocks),
+    )
+    print(
+        f"[blocks] users with mutual block/report/contact exclusions: "
+        f"{len(mutual_blocks):,}"
+    )
 
     pair_df_all, neg_df_all = collapse_pair_events(df, pair_cfg)
     print(f"[pairs] surviving positive pairs: {len(pair_df_all):,}")

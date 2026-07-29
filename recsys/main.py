@@ -113,6 +113,9 @@ def build_model_script_args(args, *, events_csv: str | None = None) -> list[str]
         ])
     if not args.require_same_university:
         script_args.append("--no_require_same_university")
+    # Scripts default firestore_blocks=True; only forward the opt-out.
+    if not args.firestore_blocks:
+        script_args.append("--no_firestore_blocks")
     return script_args
 
 
@@ -286,7 +289,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-require-same-university", dest="require_same_university",
         action="store_false",
     )
-    p.set_defaults(apply_policy_filters=True, require_same_university=True)
+    policy.add_argument(
+        "--firestore-blocks", dest="firestore_blocks",
+        action="store_true",
+        help="Load Firestore blocks/{uid}/targets into mutual exclusions (default).",
+    )
+    policy.add_argument(
+        "--no-firestore-blocks", dest="firestore_blocks",
+        action="store_false",
+        help="Skip Firestore blocks; use recEvents block/report only.",
+    )
+    p.set_defaults(
+        apply_policy_filters=True,
+        require_same_university=True,
+        firestore_blocks=True,
+    )
 
     rrf = p.add_argument_group("rrf merge")
     rrf.add_argument("--rrf-sources", dest="rrf_sources", default=DEFAULT_RRF_SOURCES)
