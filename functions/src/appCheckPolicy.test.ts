@@ -26,6 +26,7 @@ test("auth and bootstrap callables pass through withAppCheck", () => {
   const required = [
     "createFirebaseCustomToken",
     "createFirebaseCustomTokenFromEmailLinkToken",
+    "verifyAdultIdentityAfterLogin",
     "createFriendInvite",
     "acceptFriendInvite",
     "ensureEventTeamSetup",
@@ -33,6 +34,7 @@ test("auth and bootstrap callables pass through withAppCheck", () => {
     "respondEventTeamInvite",
     "spinSeasonMeetingRoulette",
     "syncContactBlocks",
+    "syncKakaoTalkFriendBlocks",
     "saveUserPhoneHash",
   ];
 
