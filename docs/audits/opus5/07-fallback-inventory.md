@@ -14,5 +14,17 @@
 | Cupertino `placeholder:` UI strings | placeholder | NOT_APPLICABLE | UI hint text |
 | `core/network/interceptors.dart` TODO token | TODO | KEEP_WITH_JUSTIFICATION | unused/legacy HTTP path; track separately |
 | Recommendation empty candidate | empty list | KEEP_WITH_JUSTIFICATION | must NOT restore blocked users |
+| `AiRecommendationService` users scan | `/users` list fallback | REPLACE | removed; empty feed when no `modelRecs` |
+| `AiPreferenceScreen` random gender pool | unknown gender → mixed pool | REPLACE | return null / empty cards |
+| `AiPreferenceScreen` placehold.co | Storage miss → fake image success | REPLACE | nullable URL; no placeholder cards |
+| `AuthProvider` local `isStudentVerified` | missing Firestore doc → trust prefs | REPLACE | force false + clear local flag |
+| `AdultVerificationService.isTemporarilyDisabled` | always-true bypass | REPLACE | local WIP: release fail-closed (`!kReleaseMode`); commit with adult-verification feature |
+| `firestore.rules` `users` list | signed-in collection list | REPLACE | `allow list: if false` |
+| `terms_screen` test-account button | release skip of Kakao/Yonsei | KEEP_WITH_JUSTIFICATION | already gated by `DevEntryPolicy` on branch |
+| `premium_chat_list_screen` fake room inject | error/empty → invent fake room | KEEP_WITH_JUSTIFICATION | already gated by `DevEntryPolicy` on branch |
+| `ApiService` placeholder | `api.example.com` client | REPLACE | throw in `kReleaseMode` |
+| Kakao scheme empty catches | silent swallow | REPLACE | `logCaughtError` |
 
 Production mock admin / release test UID bypass: **not present** (release gated).
+
+**Note:** Release builds now require real adult (PortOne) verification. If PortOne is not ready for prod, treat as external ops blocker before store ship.

@@ -1,27 +1,17 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
-/// Legacy Dio wrapper. Production traffic uses Firebase SDKs, not this client.
-///
-/// Instantiating against `api.example.com` in release is a hard error so a
-/// forgotten import cannot ship placeholder networking.
+/// Legacy placeholder HTTP client. Not wired into production flows.
+/// Release construction is blocked so a forgotten import cannot hit
+/// `api.example.com` or silently send unauthenticated traffic.
 class ApiService {
   late final Dio _dio;
-
-  static const String _placeholderBaseUrl = 'https://api.example.com';
-
-  /// Override only for explicit local experiments.
-  static const String baseUrl = String.fromEnvironment(
-    'LEGACY_API_BASE_URL',
-    defaultValue: _placeholderBaseUrl,
-  );
+  static const String baseUrl = 'https://api.example.com';
 
   ApiService() {
-    if (kReleaseMode &&
-        (baseUrl.contains('api.example.com') || baseUrl.trim().isEmpty)) {
+    if (kReleaseMode) {
       throw UnsupportedError(
-        'ApiService placeholder base URL is blocked in release. '
-        'Use Firebase clients or pass --dart-define=LEGACY_API_BASE_URL=...',
+        'ApiService is a legacy placeholder and must not be used in release.',
       );
     }
     _dio = Dio(
@@ -37,22 +27,45 @@ class ApiService {
 
     _dio.interceptors.add(
       InterceptorsWrapper(
-        onRequest: (options, handler) => handler.next(options),
-        onError: (error, handler) => handler.next(error),
+        onRequest: (options, handler) {
+          return handler.next(options);
+        },
+        onError: (error, handler) {
+          return handler.next(error);
+        },
       ),
     );
   }
 
-  Dio get dio => _dio;
-
-  Future<Response<T>> get<T>(
-    String path, {
-    Map<String, dynamic>? queryParameters,
-  }) {
-    return _dio.get<T>(path, queryParameters: queryParameters);
+  Future<Response> get(String path, {Map<String, dynamic>? queryParameters}) async {
+    try {
+      return await _dio.get(path, queryParameters: queryParameters);
+    } catch (e) {
+      throw Exception('GET request failed: $e');
+    }
   }
 
-  Future<Response<T>> post<T>(String path, {dynamic data}) {
-    return _dio.post<T>(path, data: data);
+  Future<Response> post(String path, {dynamic data}) async {
+    try {
+      return await _dio.post(path, data: data);
+    } catch (e) {
+      throw Exception('POST request failed: $e');
+    }
+  }
+
+  Future<Response> put(String path, {dynamic data}) async {
+    try {
+      return await _dio.put(path, data: data);
+    } catch (e) {
+      throw Exception('PUT request failed: $e');
+    }
+  }
+
+  Future<Response> delete(String path) async {
+    try {
+      return await _dio.delete(path);
+    } catch (e) {
+      throw Exception('DELETE request failed: $e');
+    }
   }
 }
