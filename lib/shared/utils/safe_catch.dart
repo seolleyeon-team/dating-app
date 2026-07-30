@@ -6,7 +6,7 @@ import 'privacy_log_utils.dart';
 void logCaughtError(String tag, Object error, [StackTrace? stackTrace]) {
   debugPrint('[$tag] ${PrivacyLogUtils.errorSummary(error)}');
   if (stackTrace != null && kDebugMode) {
-    debugPrint('[$tag] $stackTrace');
+    debugPrint('[$tag] stackType=${stackTrace.runtimeType}');
   }
 }
 

@@ -1,11 +1,14 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/auth_service.dart';
+import '../../services/firebase_diagnostics.dart';
 import '../../services/storage_service.dart';
 import '../../utils/open_mail_app.dart';
+import '../../features/auth/utils/email_link_continue_url.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 
@@ -27,10 +30,12 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
   String? _statusMessage;
 
   String _buildContinueUrl(String token) {
-    if (kIsWeb) {
-      return '${Uri.base.origin}/auth/email-link?t=$token';
-    }
-    return 'https://seolleyeon.web.app/auth/email-link?t=$token';
+    return buildStudentEmailLinkContinueUrl(
+      token: token,
+      isWeb: kIsWeb,
+      webOrigin: kIsWeb ? Uri.base.origin : '',
+      firebaseProjectId: Firebase.app().options.projectId,
+    );
   }
 
   @override
@@ -150,20 +155,20 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('연세 이메일로 인증 링크를 보냈습니다.')));
-    } catch (e, stack) {
+    } catch (e) {
+      final safeError = FirebaseDiagnostics.safeErrorForLog(e);
       debugPrint('❌ 이메일 인증 링크 전송 실패');
-      debugPrint(e.toString());
-      debugPrint(stack.toString());
+      debugPrint(safeError);
 
       if (!mounted) return;
 
       setState(() {
-        _statusMessage = '전송 실패: ${e.toString()}';
+        _statusMessage = '전송 실패: $safeError';
       });
 
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('인증 링크 전송 실패: ${e.toString()}')));
+      ).showSnackBar(SnackBar(content: Text('인증 링크 전송 실패: $safeError')));
     } finally {
       if (mounted) {
         setState(() => _isSending = false);

@@ -1,24 +1,18 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:flutter/foundation.dart';
 
 /// 프로필 카드 인터랙션 (view / like / nope / super_like / message) 기록 서비스
 ///
 /// Firestore 컬렉션:
 ///   interactions/{auto-id}   — 개별 인터랙션
-///   matches/{auto-id}        — 매치 성사 기록 (서버 Functions가 생성; 클라이언트 create 금지)
-///   reports / blocks         — reportAndBlockUser callable 전용
+///   matches/{auto-id}        — 매치 성사 기록
+///   reports/{auto-id}        — 신고 기록 (서버에서 기록)
+///   blocks/{uid}/targets/{targetUid} — 차단 기록 (서버에서 양방향 기록)
 class InteractionService {
-  InteractionService({
-    FirebaseFirestore? firestore,
-    FirebaseFunctions? functions,
-  }) : _firestore = firestore ?? FirebaseFirestore.instance,
-       _functions =
-           functions ??
-           FirebaseFunctions.instanceFor(region: 'asia-northeast3');
-
-  final FirebaseFirestore _firestore;
-  final FirebaseFunctions _functions;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
+    region: 'asia-northeast3',
+  );
 
   CollectionReference<Map<String, dynamic>> get _interactionsRef =>
       _firestore.collection('interactions');
@@ -58,11 +52,7 @@ class InteractionService {
       source: source,
     );
 
-    return await _checkAndCreateMatch(
-      userA: fromUserId,
-      userB: toUserId,
-      matchType: 'mutual_like',
-    );
+    return await _findExistingMatch(userA: fromUserId, userB: toUserId);
   }
 
   /// Super Like 기록 + 매치 체크
@@ -78,11 +68,7 @@ class InteractionService {
       source: source,
     );
 
-    return await _checkAndCreateMatch(
-      userA: fromUserId,
-      userB: toUserId,
-      matchType: 'mutual_like',
-    );
+    return await _findExistingMatch(userA: fromUserId, userB: toUserId);
   }
 
   /// Nope 기록
@@ -138,20 +124,15 @@ class InteractionService {
   // 프로덕션에서는 Cloud Function으로 이동 권장
   // ---------------------------------------------------------------------------
 
-  Future<String?> _checkAndCreateMatch({
+  // ---------------------------------------------------------------------------
+  // Match lookup
+  // Cloud Functions owns match creation from interaction triggers.
+  // ---------------------------------------------------------------------------
+
+  Future<String?> _findExistingMatch({
     required String userA,
     required String userB,
-    required String matchType,
   }) async {
-    final reverseQuery = await _interactionsRef
-        .where('fromUserId', isEqualTo: userB)
-        .where('toUserId', isEqualTo: userA)
-        .where('action', whereIn: ['like', 'super_like'])
-        .limit(1)
-        .get();
-
-    if (reverseQuery.docs.isEmpty) return null;
-
     final existingMatch = await _matchesRef
         .where('userIds', arrayContains: userA)
         .get();
@@ -163,15 +144,8 @@ class InteractionService {
       }
     }
 
-    // Matches are created by Cloud Functions (onInteractionCreated). Client
-    // create is denied by firestore.rules — do not attempt a client write.
-    debugPrint(
-      '[Interaction] mutual like detected; waiting for server match create '
-      '($userA ↔ $userB)',
-    );
     return null;
   }
-
   // ---------------------------------------------------------------------------
   // 조회 쿼리
   // ---------------------------------------------------------------------------
@@ -266,12 +240,12 @@ class InteractionService {
 
   /// 유저 신고 및 차단
   ///
-  /// 순서:
-  /// 1. reports/ 컬렉션에 신고 상세 내용 저장
-  /// 2. blocks/{fromUserId}/targets/{toUserId} 에 차단 기록 생성
-  /// 3. 기존 매치가 있다면 해제 처리
+  /// 신고 기록과 양방향 차단은 `reportAndBlockUser` callable이 원자적으로
+  /// 처리한다. 차단을 서버에서 쓰는 이유는 규칙상 클라이언트가
+  /// `blocks/{상대}/targets/{나}`를 쓸 수 없기 때문이다. 역방향이 없으면
+  /// 피신고자에게 신고자가 계속 추천·노출된다.
   ///
-  /// 신고+차단은 서버 callable로만 수행 (client reports/blocks create 금지).
+  /// 매치 해제는 실패해도 신고가 남도록 분리해 둔다.
   Future<void> blockAndReportUser({
     required String fromUserId,
     required String toUserId,
@@ -288,30 +262,27 @@ class InteractionService {
       throw Exception('reason is empty');
     }
 
-    final callable = _functions.httpsCallable('reportAndBlockUser');
-    await callable.call(<String, dynamic>{
+    await _functions.httpsCallable('reportAndBlockUser').call<dynamic>({
       'reportedUserId': toUserId.trim(),
       'reason': reason.trim(),
-      'details': details?.trim().isEmpty == true ? null : details?.trim(),
-      'source': 'profile',
+      if (details != null && details.trim().isNotEmpty)
+        'details': details.trim(),
     });
 
-    // Best-effort: unmatch existing rooms after server block (non-fatal).
+    // 기존 매치가 있다면 해제 처리 (실패해도 신고는 유지)
     try {
       final existingMatch = await _matchesRef
           .where('userIds', arrayContains: fromUserId)
           .get();
+
       for (final doc in existingMatch.docs) {
         final ids = List<String>.from(doc.data()['userIds'] ?? []);
         if (ids.contains(toUserId)) {
-          await doc.reference.update({
-            'status': 'unmatched',
-            'unmatchedAt': FieldValue.serverTimestamp(),
-          });
+          await unmatch(doc.id);
         }
       }
-    } catch (e) {
-      debugPrint('[Interaction] post-block unmatch skipped: $e');
+    } catch (_) {
+      // 신고 기록은 이미 저장되었으므로 여기서는 삼킴
     }
   }
 }

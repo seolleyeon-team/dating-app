@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
 import '../../../data/models/community/post_model.dart';
 import '../../../data/repositories/firestore_community_repository.dart';
@@ -68,7 +69,9 @@ class CommunityProvider extends ChangeNotifier {
     _isInitialized = true;
 
     _currentUserId = await _storageService.getKakaoUserId();
-    debugPrint('CommunityProvider initialize currentUserId: $_currentUserId');
+    debugPrint(
+      'CommunityProvider initialize ${PrivacyLogUtils.idFingerprint(_currentUserId)}',
+    );
 
     await loadPosts(tab: _selectedTab, forceRefresh: true);
   }
@@ -80,7 +83,9 @@ class CommunityProvider extends ChangeNotifier {
       final fromAuth = _authProvider?.kakaoUserId;
       if ((fromAuth ?? '').trim().isNotEmpty) _currentUserId = fromAuth;
     }
-    debugPrint('CommunityProvider ensured currentUserId: $_currentUserId');
+    debugPrint(
+      'CommunityProvider ensured ${PrivacyLogUtils.idFingerprint(_currentUserId)}',
+    );
   }
 
   Future<void> changeTab(String tab) async {
@@ -122,7 +127,7 @@ class CommunityProvider extends ChangeNotifier {
 
     try {
       debugPrint(
-        'CommunityProvider loadPosts tab=$tab currentUserId=$_currentUserId',
+        'CommunityProvider loadPosts tab=$tab ${PrivacyLogUtils.idFingerprint(_currentUserId)}',
       );
 
       final snapshot = await _repository.fetchPostsSnapshot(
@@ -138,9 +143,10 @@ class CommunityProvider extends ChangeNotifier {
       _postsByTab[tab] = loadedPosts;
       _lastDocByTab[tab] = docs.isNotEmpty ? docs.last : null;
       _hasMoreByTab[tab] = docs.length == 5;
-    } catch (e, st) {
-      debugPrint('CommunityProvider loadPosts error: $e');
-      debugPrintStack(stackTrace: st);
+    } catch (e) {
+      debugPrint(
+        'CommunityProvider loadPosts error: ${PrivacyLogUtils.errorSummary(e)}',
+      );
     } finally {
       _isLoadingByTab[tab] = false;
       notifyListeners();
@@ -181,9 +187,10 @@ class CommunityProvider extends ChangeNotifier {
       _postsByTab[targetTab] = currentPosts;
       _lastDocByTab[targetTab] = docs.isNotEmpty ? docs.last : lastDoc;
       _hasMoreByTab[targetTab] = docs.length == 5;
-    } catch (e, st) {
-      debugPrint('CommunityProvider loadMore error: $e');
-      debugPrintStack(stackTrace: st);
+    } catch (e) {
+      debugPrint(
+        'CommunityProvider loadMore error: ${PrivacyLogUtils.errorSummary(e)}',
+      );
     } finally {
       _isLoadingMoreByTab[targetTab] = false;
       notifyListeners();
@@ -208,9 +215,10 @@ class CommunityProvider extends ChangeNotifier {
 
       await refreshAfterPostCreated(category: category);
       return postId;
-    } catch (e, st) {
-      debugPrint('CommunityProvider createPost error: $e');
-      debugPrintStack(stackTrace: st);
+    } catch (e) {
+      debugPrint(
+        'CommunityProvider createPost error: ${PrivacyLogUtils.errorSummary(e)}',
+      );
       return null;
     }
   }
@@ -301,21 +309,23 @@ class CommunityProvider extends ChangeNotifier {
 
     try {
       await _repository.togglePostLike(postId: postId, userId: userId);
-    } catch (e, st) {
+    } catch (e) {
       _revertOptimisticPostLike(postId: postId, willLike: willLike);
       notifyListeners();
 
-      debugPrint('CommunityProvider togglePostLike error: $e');
-      debugPrintStack(stackTrace: st);
+      debugPrint(
+        'CommunityProvider togglePostLike error: ${PrivacyLogUtils.errorSummary(e)}',
+      );
     }
   }
 
   Future<PostModel?> fetchPostDetail(String postId) async {
     try {
       return await _repository.fetchPostDetail(postId);
-    } catch (e, st) {
-      debugPrint('CommunityProvider fetchPostDetail error: $e');
-      debugPrintStack(stackTrace: st);
+    } catch (e) {
+      debugPrint(
+        'CommunityProvider fetchPostDetail error: ${PrivacyLogUtils.errorSummary(e)}',
+      );
       return null;
     }
   }
@@ -332,9 +342,10 @@ class CommunityProvider extends ChangeNotifier {
           await loadPosts(tab: tab, forceRefresh: true);
         }
       }
-    } catch (e, st) {
-      debugPrint('CommunityProvider deletePost error: $e');
-      debugPrintStack(stackTrace: st);
+    } catch (e) {
+      debugPrint(
+        'CommunityProvider deletePost error: ${PrivacyLogUtils.errorSummary(e)}',
+      );
     }
   }
 

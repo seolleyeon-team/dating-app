@@ -119,36 +119,6 @@ class ChatService {
     return msgRef.id;
   }
 
-  /// 시스템 메시지 전송 (매치 안내 등)
-  Future<void> sendSystemMessage({
-    required String roomId,
-    required String content,
-  }) async {
-    final batch = _firestore.batch();
-
-    final msgRef = _roomsRef.doc(roomId).collection('messages').doc();
-    batch.set(msgRef, {
-      'senderId': 'system',
-      'content': content,
-      'type': 'system',
-      'readBy': <String>[],
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    final roomRef = _roomsRef.doc(roomId);
-    batch.update(roomRef, {
-      'lastMessage': {
-        'content': content,
-        'senderId': 'system',
-        'type': 'system',
-        'createdAt': Timestamp.now(),
-      },
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-
-    await batch.commit();
-  }
-
   /// 메시지 실시간 스트림 (시간순)
   Stream<List<Map<String, dynamic>>> messagesStream(
     String roomId, {

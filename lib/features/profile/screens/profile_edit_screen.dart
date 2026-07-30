@@ -1,13 +1,10 @@
-import 'package:cross_file/cross_file.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors, Icons;
-import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
 
+import '../../../services/avatar_source_photo_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/avatar_lock_policy.dart';
 import '../../../router/route_names.dart';
 import '../../matching/models/profile_card_args.dart';
 
@@ -269,7 +266,6 @@ class ProfileEditScreen extends StatefulWidget {
 class _ProfileEditScreenState extends State<ProfileEditScreen> {
   final _userService = UserService();
   final _storageService = StorageService();
-  final ImagePicker _imagePicker = ImagePicker();
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -278,7 +274,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   int? _birthYear;
 
   final List<String?> _photoSlots = List<String?>.filled(6, null);
-  final List<bool> _photoUploading = List<bool>.filled(6, false);
+  bool _avatarLocked = false;
+  bool _avatarSourceLocked = false;
+  String _lockedApprovedAvatarUrl = '';
 
   String _selfIntroduction = '';
   List<Map<String, String>> _profileQa = [];
@@ -312,7 +310,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       'interests': List<String>.from(_interests),
       'keywords': List<String>.from(_keywords),
       'loveLanguages': const <String>[],
-      'photoUrls': _photoSlots.whereType<String>().toList(),
+      'avatarUrls': _photoSlots
+          .whereType<String>()
+          .where((url) => !AvatarSourcePhotoService.isQueuedSlotToken(url))
+          .toList(),
       'profileQa': _profileQa
           .map(
             (e) => {
@@ -389,8 +390,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     final onboarding = onboardingRaw is Map
         ? Map<String, dynamic>.from(onboardingRaw)
         : <String, dynamic>{};
+    final lockState = avatarLockStateFromUserProfile(
+      data == null ? null : Map<String, dynamic>.from(data),
+    );
 
-    final photoUrlsRaw = onboarding['photoUrls'];
+    final photoUrlsRaw = onboarding['avatarUrls'];
     final interestsRaw = onboarding['interests'];
     final profileQaRaw = onboarding['profileQa'];
     final keywordsRaw = onboarding['keywords'];
@@ -399,9 +403,22 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     if (!mounted) return;
 
     setState(() {
-      final photoUrls = photoUrlsRaw is List
+      final photoUrls =
+          lockState.isLocked && lockState.approvedAvatarUrl.isNotEmpty
+          ? <String>[lockState.approvedAvatarUrl]
+          : photoUrlsRaw is List
           ? photoUrlsRaw.whereType<String>().toList()
           : [];
+      _avatarLocked = lockState.isLocked;
+      _avatarSourceLocked =
+          !lockState.isLocked &&
+          (avatarSourceLockedFromUserProfile(
+                data == null ? null : Map<String, dynamic>.from(data),
+              ) ||
+              photoUrls.any(
+                (url) => AvatarSourcePhotoService.isQueuedSlotToken(url),
+              ));
+      _lockedApprovedAvatarUrl = lockState.approvedAvatarUrl;
       for (int i = 0; i < _photoSlots.length; i++) {
         _photoSlots[i] = i < photoUrls.length ? photoUrls[i] : null;
       }
@@ -473,11 +490,6 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         throw Exception('로그인 정보가 없습니다.');
       }
 
-      final photoUrls = _photoSlots.whereType<String>().toList();
-      if (photoUrls.length < 2) {
-        throw Exception('프로필 사진은 최소 2장 이상 등록해야 합니다.');
-      }
-
       await _userService.saveOnboardingBasicInfo(
         kakaoUserId: kakaoUserId,
         basicInfo: {
@@ -496,11 +508,6 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           },
           'keywords': _keywords.map((e) => e.toString()).toList(),
         },
-      );
-
-      await _userService.saveOnboardingPhotos(
-        kakaoUserId: kakaoUserId,
-        photoUrls: photoUrls,
       );
 
       if (_profileQa.isNotEmpty) {
@@ -526,7 +533,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         context: context,
         builder: (context) => CupertinoAlertDialog(
           title: const Text('저장 실패'),
-          content: Text(e.toString()),
+          content: const Text('프로필 저장에 실패했어요. 잠시 후 다시 시도해주세요.'),
           actions: [
             CupertinoDialogAction(
               child: const Text('확인'),
@@ -552,10 +559,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     await showCupertinoDialog(
       context: context,
       builder: (context) => CupertinoAlertDialog(
-        title: Text(
-          title,
-          style: const TextStyle(fontFamily: 'NanumSquareRound'),
-        ),
+        title: Text(title, style: const TextStyle(fontFamily: 'Pretendard')),
         content: Padding(
           padding: const EdgeInsets.only(top: 12),
           child: CupertinoTextField(
@@ -563,9 +567,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
             placeholder: placeholder,
             maxLines: multiline ? 4 : 1,
             keyboardType: keyboardType,
-            style: const TextStyle(fontFamily: 'NanumSquareRound'),
+            style: const TextStyle(fontFamily: 'Pretendard'),
             placeholderStyle: TextStyle(
-              fontFamily: 'NanumSquareRound',
+              fontFamily: 'Pretendard',
               color: CupertinoColors.placeholderText,
             ),
           ),
@@ -573,10 +577,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         actions: [
           CupertinoDialogAction(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text(
-              '취소',
-              style: TextStyle(fontFamily: 'NanumSquareRound'),
-            ),
+            child: const Text('취소', style: TextStyle(fontFamily: 'Pretendard')),
           ),
           CupertinoDialogAction(
             isDefaultAction: true,
@@ -584,10 +585,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
               onSaved(controller.text.trim());
               Navigator.of(context).pop();
             },
-            child: const Text(
-              '저장',
-              style: TextStyle(fontFamily: 'NanumSquareRound'),
-            ),
+            child: const Text('저장', style: TextStyle(fontFamily: 'Pretendard')),
           ),
         ],
       ),
@@ -729,7 +727,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Future<void> _showMbtiSheet() async {
-    String e = _mbti.length >= 1 ? _mbti[0] : 'E';
+    String e = _mbti.isNotEmpty ? _mbti[0] : 'E';
     String n = _mbti.length >= 2 ? _mbti[1] : 'N';
     String f = _mbti.length >= 3 ? _mbti[2] : 'F';
     String j = _mbti.length >= 4 ? _mbti[3] : 'J';
@@ -890,9 +888,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                     placeholder: '답변을 입력하세요 (최대 100자)',
                     maxLength: 100,
                     maxLines: 2,
-                    style: const TextStyle(fontFamily: 'NanumSquareRound'),
+                    style: const TextStyle(fontFamily: 'Pretendard'),
                     placeholderStyle: TextStyle(
-                      fontFamily: 'NanumSquareRound',
+                      fontFamily: 'Pretendard',
                       color: CupertinoColors.placeholderText,
                     ),
                   ),
@@ -968,119 +966,60 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     );
   }
 
-  /// 웹은 path 가 비어 있을 수 있음 — XFile.name 우선
-  String _imageExtensionFromPicked(XFile picked) {
-    String raw = '';
-    if (picked.name.trim().isNotEmpty && picked.name.contains('.')) {
-      raw = picked.name.split('.').last;
-    } else if (picked.path.contains('.')) {
-      raw = picked.path.split('.').last;
+  void _showProfileAvatarDisplayOnlyDialog() {
+    if (_avatarLocked) {
+      _showLockedAvatarDialog();
+      return;
     }
-    raw = raw.toLowerCase().trim();
-    if (raw.isEmpty || raw.length > 8) return 'jpg';
-    return raw;
-  }
-
-  String _contentTypeForImageExtension(String ext) {
-    switch (ext.toLowerCase()) {
-      case 'jpg':
-      case 'jpeg':
-        return 'image/jpeg';
-      case 'png':
-        return 'image/png';
-      case 'gif':
-        return 'image/gif';
-      case 'webp':
-        return 'image/webp';
-      case 'heic':
-      case 'heif':
-        return 'image/heic';
-      default:
-        return 'image/jpeg';
+    if (_avatarSourceLocked ||
+        _photoSlots.any(AvatarSourcePhotoService.isQueuedSlotToken)) {
+      _showSourceLockedAvatarDialog();
+      return;
     }
-  }
-
-  Future<void> _addPhoto(int index) async {
-    HapticFeedback.lightImpact();
-    final pickedFile = await _imagePicker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 88,
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('프로필 이미지 변경 불가'),
+        content: const Text('프로필 이미지는 아바타 생성 화면에서만 등록할 수 있어요.'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
     );
-    if (pickedFile == null) return;
-
-    setState(() => _photoUploading[index] = true);
-
-    try {
-      final kakaoUserId =
-          _currentUserId ?? await _storageService.getKakaoUserId();
-      if (kakaoUserId == null || kakaoUserId.isEmpty) {
-        throw Exception('사용자 정보를 찾을 수 없습니다.');
-      }
-
-      // Storage 규칙이 아직 "인증 필요"만 허용하는 경우 대비 (배포 전·타 경로)
-      if (FirebaseAuth.instance.currentUser == null) {
-        try {
-          await FirebaseAuth.instance.signInAnonymously();
-        } catch (_) {
-          // 익명 로그인 비활성화 등 — 아래 공개 업로드 규칙에만 의존
-        }
-      }
-
-      final extension = _imageExtensionFromPicked(pickedFile);
-      final fileName =
-          '${DateTime.now().millisecondsSinceEpoch}_slot$index.$extension';
-      final ref = FirebaseStorage.instance.ref().child(
-        'users/$kakaoUserId/onboarding/photos/$fileName',
-      );
-
-      final metadata = SettableMetadata(
-        contentType: _contentTypeForImageExtension(extension),
-      );
-      final bytes = await pickedFile.readAsBytes();
-      await ref.putData(bytes, metadata);
-      final url = await ref.getDownloadURL();
-
-      if (!mounted) return;
-      setState(() => _photoSlots[index] = url);
-    } catch (e) {
-      if (!mounted) return;
-      showCupertinoDialog(
-        context: context,
-        builder: (context) => CupertinoAlertDialog(
-          title: const Text('사진 업로드 실패'),
-          content: Text(e.toString()),
-          actions: [
-            CupertinoDialogAction(
-              child: const Text('확인'),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-          ],
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _photoUploading[index] = false);
-    }
   }
 
-  Future<void> _removePhoto(int index) async {
-    HapticFeedback.selectionClick();
-    final url = _photoSlots[index];
-    setState(() => _photoSlots[index] = null);
+  void _showLockedAvatarDialog() {
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('아바타 변경 불가'),
+        content: const Text(lockedAvatarMessage),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('확인'),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ],
+      ),
+    );
+  }
 
-    if (url != null && url.isNotEmpty) {
-      try {
-        final ref = FirebaseStorage.instance.refFromURL(url);
-        await ref.delete();
-      } catch (_) {}
-    }
-
-    final kakaoUserId =
-        _currentUserId ?? await _storageService.getKakaoUserId();
-    if (kakaoUserId == null || kakaoUserId.isEmpty) return;
-    final photoUrls = _photoSlots.whereType<String>().toList();
-    await _userService.saveOnboardingPhotos(
-      kakaoUserId: kakaoUserId,
-      photoUrls: photoUrls,
+  void _showSourceLockedAvatarDialog() {
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('아바타 생성 진행 중'),
+        content: const Text(sourceLockedAvatarMessage),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('확인'),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1184,9 +1123,27 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                         children: [
                           _PhotoSection(
                             photoUrls: _photoSlots,
-                            isUploading: _photoUploading,
-                            onAddPhoto: _addPhoto,
-                            onRemovePhoto: _removePhoto,
+                            isUploading: const <bool>[
+                              false,
+                              false,
+                              false,
+                              false,
+                              false,
+                              false,
+                            ],
+                            avatarLocked: _avatarLocked,
+                            sourceLocked:
+                                !_avatarLocked &&
+                                (_avatarSourceLocked ||
+                                    _photoSlots.any(
+                                      AvatarSourcePhotoService
+                                          .isQueuedSlotToken,
+                                    )),
+                            lockedApprovedAvatarUrl: _lockedApprovedAvatarUrl,
+                            onAddPhoto: (_) =>
+                                _showProfileAvatarDisplayOnlyDialog(),
+                            onRemovePhoto: (_) =>
+                                _showProfileAvatarDisplayOnlyDialog(),
                           ),
                           const SizedBox(height: 16),
                           _SelfIntroSection(
@@ -1280,12 +1237,18 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 class _PhotoSection extends StatelessWidget {
   final List<String?> photoUrls;
   final List<bool> isUploading;
+  final bool avatarLocked;
+  final bool sourceLocked;
+  final String lockedApprovedAvatarUrl;
   final void Function(int index)? onAddPhoto;
   final void Function(int index)? onRemovePhoto;
 
   const _PhotoSection({
     required this.photoUrls,
     required this.isUploading,
+    required this.avatarLocked,
+    required this.sourceLocked,
+    required this.lockedApprovedAvatarUrl,
     this.onAddPhoto,
     this.onRemovePhoto,
   });
@@ -1344,9 +1307,14 @@ class _PhotoSection extends StatelessWidget {
                     ? isUploading[index]
                     : false;
                 if (photos[index] != null) {
+                  final lockedCell =
+                      avatarLocked && photos[index] == lockedApprovedAvatarUrl;
                   return _PhotoItem(
                     imageUrl: photos[index]!,
-                    onRemove: () => onRemovePhoto?.call(index),
+                    onRemove: (lockedCell || sourceLocked)
+                        ? null
+                        : () => onRemovePhoto?.call(index),
+                    locked: lockedCell,
                     showMainLabel: index == 0,
                   );
                 }
@@ -1385,6 +1353,28 @@ class _PhotoSection extends StatelessWidget {
             },
           ),
           const SizedBox(height: 16),
+          if (avatarLocked) ...[
+            const Text(
+              lockedAvatarNotice,
+              style: TextStyle(
+                fontSize: 13,
+                color: _AppColors.textSub,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (!avatarLocked && sourceLocked) ...[
+            const Text(
+              sourceLockedAvatarMessage,
+              style: TextStyle(
+                fontSize: 13,
+                color: _AppColors.textSub,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           GestureDetector(
             onTap: () {},
             child: Row(
@@ -1410,22 +1400,51 @@ class _PhotoSection extends StatelessWidget {
 class _PhotoItem extends StatelessWidget {
   final String imageUrl;
   final VoidCallback? onRemove;
+  final bool locked;
   final bool showMainLabel;
 
   const _PhotoItem({
     required this.imageUrl,
     this.onRemove,
+    this.locked = false,
     this.showMainLabel = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isQueuedSourcePhoto = AvatarSourcePhotoService.isQueuedSlotToken(
+      imageUrl,
+    );
     return Stack(
       fit: StackFit.expand,
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: Image.network(imageUrl, fit: BoxFit.cover),
+          child: isQueuedSourcePhoto
+              ? Container(
+                  color: _AppColors.placeholderBg,
+                  child: const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          CupertinoIcons.check_mark_circled_solid,
+                          color: _AppColors.primary,
+                          size: 30,
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Avatar pending',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: _AppColors.textSub,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : Image.network(imageUrl, fit: BoxFit.cover),
         ),
         if (showMainLabel)
           Positioned(
@@ -1447,22 +1466,50 @@ class _PhotoItem extends StatelessWidget {
               ),
             ),
           ),
-        Positioned(
-          top: 4,
-          right: 4,
-          child: Container(
-            width: 20,
-            height: 20,
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: GestureDetector(
-              onTap: onRemove,
-              child: const Icon(Icons.close, color: Colors.white, size: 12),
+        if (!locked && onRemove != null)
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.5),
+                shape: BoxShape.circle,
+              ),
+              child: GestureDetector(
+                onTap: onRemove,
+                child: const Icon(Icons.close, color: Colors.white, size: 12),
+              ),
             ),
           ),
-        ),
+        if (locked)
+          Positioned(
+            right: 8,
+            bottom: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(CupertinoIcons.lock_fill, size: 12, color: Colors.white),
+                  SizedBox(width: 4),
+                  Text(
+                    '잠김',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
       ],
     );
   }
