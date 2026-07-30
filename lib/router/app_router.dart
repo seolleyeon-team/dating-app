@@ -101,6 +101,7 @@ import '../features/event/screens/team_friend_picker_screen.dart';
 import '../features/event/screens/event_team_invite_response_screen.dart';
 import '../features/event/models/event_team_route_args.dart';
 import '../features/event/screens/season_meeting_roulette_screen.dart';
+import '../features/event/meeting_icebreaker/presentation/bomb_pass_timer_screen.dart';
 import '../features/event/screens/match_result_screen.dart';
 import '../features/event/screens/random_mathcing_screen.dart';
 import '../features/event/screens/three_vs_three_match_screen.dart';
@@ -462,6 +463,15 @@ class AppRouter {
             return _cupertino(const BlindMeetingIntroScreen());
           }
           return _cupertino(BlindMeetingFeedbackScreen(args: args));
+        }
+
+      // 3:3 미팅 아이스브레이킹 — 폭탄 돌리기 타이머
+      case RouteNames.meetingIcebreakerBombTimer:
+        {
+          final args = settings.arguments;
+          return _cupertino(
+            BombPassTimerScreen(args: args is BombPassTimerArgs ? args : null),
+          );
         }
 
       default:

@@ -11,6 +11,7 @@ import 'router/route_names.dart';
 import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
 import 'features/community/providers/community_provider.dart';
+import 'features/event/meeting_icebreaker/services/meeting_icebreaker_deep_link_handler.dart';
 import 'shared/widgets/app_privacy_splash_overlay.dart';
 
 /// 설레연 앱 (MaterialApp 루트 + Provider 등록)
@@ -32,6 +33,12 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
     super.initState();
     PushNotificationService.instance.initialize();
     ScreenSecurityService.instance.enableProtection();
+
+    // 앱이 완전히 종료된 상태에서 미팅 룰렛 알림으로 열린 경우,
+    // navigator가 준비될 때까지 보류된 알림을 첫 프레임 이후에 이어서 처리한다.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      MeetingIcebreakerDeepLinkHandler.instance.flushPending();
+    });
   }
 
   @override

@@ -120,6 +120,10 @@ class RouteNames {
   static const String groupProfile = '/event/group-profile';
   static const String partnership = '/event/partnership';
 
+  // 3:3 미팅 아이스브레이킹 룰렛 (시즌 미팅 / 블라인드 취향 미팅 진행 중)
+  static const String meetingIcebreakerBombTimer =
+      '/event/meeting-icebreaker/bomb-timer';
+
   // Blind taste meeting (3:3 블라인드 취향 미팅)
   static const String blindTasteMeeting = '/event/blind-taste-meeting';
   static const String blindTasteMeetingDna = '/event/blind-taste-meeting/dna';
