@@ -799,7 +799,8 @@ class ChatService {
     String userId,
   ) async {
     try {
-      return await _firestore.collection('users').doc(userId).get();
+      // Cross-user surface is publicProfiles only (private users/{uid} is self-only).
+      return await _firestore.collection('publicProfiles').doc(userId).get();
     } catch (_) {
       return null;
     }

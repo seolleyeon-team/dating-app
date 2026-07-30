@@ -1,10 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../constants/campus_life_zones.dart';
 import '../constants/legal_texts.dart';
 
 class UserService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
+    region: 'asia-northeast3',
+  );
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   static const String withdrawnDisplayName = '탈퇴한 사용자';
   static const int withdrawalRetentionDays = 30;
@@ -92,55 +97,16 @@ class UserService {
         isStillRestricted;
   }
 
+  /// Legacy soft-rejoin path is disabled. Hard-deleted accounts re-onboard via
+  /// Kakao bootstrap as a new shell; clients must not mutate moderation fields.
   Future<void> reactivateForRejoin({
     required String kakaoUserId,
     required String? nickname,
     required String? profileImageUrl,
     String? email,
   }) async {
-    final docRef = _firestore.collection('users').doc(kakaoUserId);
-    final doc = await docRef.get();
-    final data = doc.data();
-    if (data == null) return;
-
-    if (await isRejoinRestricted(kakaoUserId)) {
-      throw StateError('재가입이 제한된 계정입니다.');
-    }
-    if (data['status'] != 'withdrawn' && data['isWithdrawn'] != true) {
-      return;
-    }
-
-    await docRef.update({
-      'status': 'active',
-      'isWithdrawn': false,
-      'canRejoin': true,
-      'rejoinRestricted': false,
-      'loginDisabled': false,
-      'profileVisible': true,
-      'nickname': nickname,
-      'profileImageUrl': profileImageUrl,
-      'email': email,
-      'isStudentVerified': false,
-      'studentEmail': FieldValue.delete(),
-      'studentVerifiedAt': FieldValue.delete(),
-      'verifiedAt': FieldValue.delete(),
-      'onboarding': FieldValue.delete(),
-      'onboardingUpdatedAt': FieldValue.delete(),
-      'initialSetupComplete': false,
-      'initialSetupCompletedAt': FieldValue.delete(),
-      'onboardingCompletedAt': FieldValue.delete(),
-      'hasSeenTutorial': false,
-      'idealType': FieldValue.delete(),
-      'idealTypeUpdatedAt': FieldValue.delete(),
-      'rejoinedAt': FieldValue.serverTimestamp(),
-      'lastLoginAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-
-    await _restoreRejoinedUserInChatRooms(
-      kakaoUserId: kakaoUserId,
-      nickname: nickname,
-      profileImageUrl: profileImageUrl,
+    throw UnsupportedError(
+      'Client rejoin reactivation is disabled. Complete Kakao sign-in to create a fresh account shell.',
     );
   }
 
@@ -221,8 +187,19 @@ class UserService {
   // 프로필 조회
   // ---------------------------------------------------------------------------
 
+  /// Own private `users/{uid}` when [kakaoUserId] is the signed-in user;
+  /// otherwise AUTHENTICATED_LIMITED_PROFILE from `publicProfiles/{uid}`.
   Future<Map<String, dynamic>?> getUserProfile(String kakaoUserId) async {
-    final doc = await _firestore.collection('users').doc(kakaoUserId).get();
+    final selfUid = _auth.currentUser?.uid;
+    if (selfUid != null && selfUid == kakaoUserId) {
+      final doc = await _firestore.collection('users').doc(kakaoUserId).get();
+      return doc.data();
+    }
+    return getPublicProfile(kakaoUserId);
+  }
+
+  Future<Map<String, dynamic>?> getPublicProfile(String uid) async {
+    final doc = await _firestore.collection('publicProfiles').doc(uid).get();
     return doc.data();
   }
 
@@ -237,167 +214,29 @@ class UserService {
     }, SetOptions(merge: true));
   }
 
+  /// Requests server-orchestrated hard deletion. Success only after callable
+  /// returns `completed`. Does not mutate protected moderation fields client-side.
   Future<void> withdrawAccount({
     required String kakaoUserId,
     String? reason,
   }) async {
-    final now = DateTime.now();
-    final scheduledHardDeleteAt = Timestamp.fromDate(
-      now.add(const Duration(days: withdrawalRetentionDays)),
-    );
-
-    final userRef = _firestore.collection('users').doc(kakaoUserId);
-    await userRef.update({
-      'status': 'withdrawn',
-      'isWithdrawn': true,
-      'withdrawnAt': FieldValue.serverTimestamp(),
-      'scheduledHardDeleteAt': scheduledHardDeleteAt,
-      'withdrawalRetentionDays': withdrawalRetentionDays,
-      if (reason != null && reason.trim().isNotEmpty)
-        'withdrawalReason': reason.trim(),
-      'profileVisible': false,
-      'canRejoin': true,
-      'rejoinRestricted': false,
-      'loginDisabled': false,
-      'nickname': withdrawnDisplayName,
-      'profileImageUrl': FieldValue.delete(),
-      'email': FieldValue.delete(),
-      'studentEmail': FieldValue.delete(),
-      'isStudentVerified': false,
-      'onboarding': {
-        'nickname': withdrawnDisplayName,
-        'photoUrls': <String>[],
-        'interests': <String>[],
-        'keywords': <String>[],
-        'profileQa': <Map<String, String>>[],
-        'selfIntroduction': '',
-      },
-      'idealType': FieldValue.delete(),
-      'preferenceVector': FieldValue.delete(),
-      'privacySettings': {
-        'avoidSameDepartment': false,
-        'profileVisible': false,
-      },
-      'withdrawalPolicy': {
-        'mode': 'soft_delete',
-        'retentionDays': withdrawalRetentionDays,
-        'reason': '신고, 제재, 분쟁 및 이용자 보호 대응을 위해 최소 정보만 임시 보관합니다.',
-      },
-      'updatedAt': FieldValue.serverTimestamp(),
+    // Local reason is accepted for API compatibility but never logged or
+    // written client-side; server owns withdrawal moderation fields.
+    final clientRequestId =
+        'account_deletion_${DateTime.now().millisecondsSinceEpoch}';
+    final callable = _functions.httpsCallable('cleanupAvatarMedia');
+    final result = await callable.call<Map<String, dynamic>>({
+      'reason': 'account_deletion',
+      'clientRequestId': clientRequestId,
     });
-
-    await _maskWithdrawnUserInChatRooms(kakaoUserId);
-  }
-
-  Future<void> _maskWithdrawnUserInChatRooms(String kakaoUserId) async {
-    final rooms = await _firestore
-        .collection('chat_rooms')
-        .where('participantIds', arrayContains: kakaoUserId)
-        .get();
-
-    WriteBatch batch = _firestore.batch();
-    var writeCount = 0;
-
-    Future<void> commitIfNeeded({bool force = false}) async {
-      if (writeCount == 0) return;
-      if (!force && writeCount < 420) return;
-      await batch.commit();
-      batch = _firestore.batch();
-      writeCount = 0;
+    final data = result.data;
+    final status = data['status']?.toString();
+    if (status != 'completed') {
+      throw StateError('account_deletion_incomplete');
     }
-
-    for (final room in rooms.docs) {
-      final roomRef = room.reference;
-      final noticeRef = roomRef.collection('messages').doc();
-
-      batch.set(roomRef, {
-        'participantInfo.$kakaoUserId.nickname': withdrawnDisplayName,
-        'participantInfo.$kakaoUserId.avatarUrl': '',
-        'participantInfo.$kakaoUserId.isWithdrawn': true,
-        'participantInfo.$kakaoUserId.withdrawnAt':
-            FieldValue.serverTimestamp(),
-        'withdrawnParticipantIds': FieldValue.arrayUnion([kakaoUserId]),
-        'lastMessage': '상대방이 계정을 탈퇴했어요',
-        'lastMessageAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      writeCount += 1;
-
-      batch.set(noticeRef, {
-        'senderId': 'system',
-        'text': '상대방이 계정을 탈퇴했어요. 더 이상 메시지를 보낼 수 없습니다.',
-        'type': 'account_withdrawn',
-        'readBy': const <String>[],
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      writeCount += 1;
-
-      await commitIfNeeded();
-    }
-
-    await commitIfNeeded(force: true);
-  }
-
-  Future<void> _restoreRejoinedUserInChatRooms({
-    required String kakaoUserId,
-    required String? nickname,
-    required String? profileImageUrl,
-  }) async {
-    final rooms = await _firestore
-        .collection('chat_rooms')
-        .where('participantIds', arrayContains: kakaoUserId)
-        .get();
-
-    WriteBatch batch = _firestore.batch();
-    var writeCount = 0;
-
-    Future<void> commitIfNeeded({bool force = false}) async {
-      if (writeCount == 0) return;
-      if (!force && writeCount < 430) return;
-      await batch.commit();
-      batch = _firestore.batch();
-      writeCount = 0;
-    }
-
-    for (final room in rooms.docs) {
-      final data = room.data();
-      final lastMessage = data['lastMessage']?.toString() ?? '';
-
-      batch.set(room.reference, {
-        'participantInfo.$kakaoUserId.nickname':
-            (nickname != null && nickname.trim().isNotEmpty)
-            ? nickname.trim()
-            : '사용자',
-        'participantInfo.$kakaoUserId.avatarUrl': profileImageUrl ?? '',
-        'participantInfo.$kakaoUserId.isWithdrawn': FieldValue.delete(),
-        'participantInfo.$kakaoUserId.withdrawnAt': FieldValue.delete(),
-        'withdrawnParticipantIds': FieldValue.arrayRemove([kakaoUserId]),
-        if (lastMessage == '상대방이 계정을 탈퇴했어요') ...{
-          'lastMessage': '채팅을 다시 시작해 보세요',
-          'lastMessageAt': FieldValue.serverTimestamp(),
-        },
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      writeCount += 1;
-
-      final withdrawalMessages = await room.reference
-          .collection('messages')
-          .where('type', isEqualTo: 'account_withdrawn')
-          .get();
-      for (final message in withdrawalMessages.docs) {
-        batch.update(message.reference, {
-          'hiddenAfterRejoin': true,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-        writeCount += 1;
-        await commitIfNeeded();
-      }
-
-      await commitIfNeeded();
-    }
-
-    await commitIfNeeded(force: true);
+    // Preserve API surface; server owns audit reason fields.
+    void keepCompat(String? value) {}
+    keepCompat(reason);
   }
 
   // ---------------------------------------------------------------------------

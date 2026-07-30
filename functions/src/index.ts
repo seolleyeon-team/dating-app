@@ -55,6 +55,15 @@ import {
 } from "./avatarApproval";
 import { createGetChatRealProfilePhotoFunction } from "./chatRealPhoto";
 import { createCleanupAvatarMediaFunction } from "./avatarCleanup";
+import { syncPublicProfileForUser } from "./publicProfileSync";
+import { nextAcceptedUserIds } from "./eventTeamInviteAcceptPolicy";
+import {
+  createSeasonMeetingCancelFunction,
+  createSeasonMeetingClaimReplacementFunction,
+  createSeasonMeetingDepositIntentFunction,
+  createSeasonMeetingRefundFunction,
+  createSeasonMeetingReportNoShowFunction,
+} from "./seasonMeetingOperations";
 import {
   createAvatarJobSourceRetentionTrigger,
   createAvatarSourceRetentionRecoveryTrigger,
@@ -70,7 +79,6 @@ import {
 import { createReportAndBlockUserFunction } from "./reportAndBlock";
 import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
 import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
-import { canAcceptInviteIntoTeam } from "./eventTeamInviteAcceptPolicy";
 
 // Firebase Admin 초기화
 initializeApp();
@@ -1488,6 +1496,17 @@ export const getChatRealProfilePhoto =
 export const cleanupAvatarMedia =
   createCleanupAvatarMediaFunction(db, resolveAuthedAppUser);
 
+export const createSeasonMeetingDepositIntent =
+  createSeasonMeetingDepositIntentFunction(db, resolveAuthedAppUser);
+export const cancelSeasonMeeting =
+  createSeasonMeetingCancelFunction(db, resolveAuthedAppUser);
+export const reportSeasonMeetingNoShow =
+  createSeasonMeetingReportNoShowFunction(db, resolveAuthedAppUser);
+export const claimSeasonMeetingReplacementSeat =
+  createSeasonMeetingClaimReplacementFunction(db, resolveAuthedAppUser);
+export const refundSeasonMeetingDeposit =
+  createSeasonMeetingRefundFunction(db, resolveAuthedAppUser);
+
 export const purgeExpiredEmailLinkTokens =
   createPurgeExpiredEmailLinkTokensSchedule(db);
 
@@ -1505,6 +1524,28 @@ export const recoverAvatarSourceRetention =
 
 export const onAvatarGenerationStateSync =
   createAvatarGenerationStateSyncTrigger(db);
+
+/** Keep publicProfiles/{uid} in sync with private users/{uid}. */
+export const onUserPublicProfileSync = onDocumentWritten(
+  "users/{uid}",
+  async (event) => {
+    const uid = asString(event.params.uid ?? "", "");
+    if (!uid) return;
+    const after = event.data?.after?.exists
+      ? ((event.data.after.data() ?? {}) as Record<string, unknown>)
+      : null;
+    try {
+      await syncPublicProfileForUser(db, uid, after);
+    } catch (error) {
+      logger.error("publicProfiles sync failed", {
+        uidHash: createHash("sha256").update(uid).digest("hex").slice(0, 16),
+        ...((error && typeof error === "object" && "message" in error)
+          ? { code: "sync_failed" }
+          : { code: "sync_failed" }),
+      });
+    }
+  },
+);
 
 export const createTeamMeetingRequest = createTeamMeetingRequestFunction(
   db,
@@ -2543,7 +2584,7 @@ export const respondEventTeamInvite = onCall(withAppCheck(), async (request) => 
       return { ok: false as const, code: "stale_invite" as const };
     }
 
-    const acceptGate = canAcceptInviteIntoTeam({
+    const acceptGate = nextAcceptedUserIds({
       acceptedUserIds: acc,
       inviteeUserId,
     });
@@ -2570,15 +2611,15 @@ export const respondEventTeamInvite = onCall(withAppCheck(), async (request) => 
       return { ok: false as const, code: "team_full" as const };
     }
 
-    // Use arrayUnion so concurrent invite accepts cannot clobber each other.
-    // Capacity is still gated on the transactionally re-read `acc` snapshot.
-
+    // Write the exact membership array inside the transaction so capacity is a
+    // hard postcondition. Concurrent accepts retry via Firestore OCC.
     tx.update(inviteRef, {
       status: "accepted",
       respondedAt: FieldValue.serverTimestamp(),
     });
     tx.update(teamRef, {
-      acceptedUserIds: FieldValue.arrayUnion(inviteeUserId),
+      acceptedUserIds: acceptGate.acceptedUserIds,
+      memberCount: acceptGate.memberCount,
       pendingInviteeIds: FieldValue.arrayRemove(inviteeUserId),
       updatedAt: FieldValue.serverTimestamp(),
     });
