@@ -157,53 +157,59 @@ class _SeolNavItem extends StatelessWidget {
         ? const Color(0xFF7A6B76)
         : const Color(0xFF9CA3AF); // gray400
 
+    final semanticsLabel = showBadge ? '$label, 새 메시지' : label;
+
     return Semantics(
-      label: label,
+      label: semanticsLabel,
       button: true,
       selected: isActive,
       child: CupertinoButton(
         padding: EdgeInsets.zero,
-        minSize: 0,
+        minimumSize: const Size(44, 44),
         onPressed: onTap,
-        child: SizedBox(
-          width: 48,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Icon(
-                    icon,
-                    size: 24,
-                    color: isActive ? primary : inactiveColor,
-                  ),
-                  if (showBadge)
-                    Positioned(
-                      right: -2,
-                      top: -2,
-                      child: Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF10B981),
-                          shape: BoxShape.circle,
+        child: ExcludeSemantics(
+          child: SizedBox(
+            width: 48,
+            height: 48,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Icon(
+                      icon,
+                      size: 24,
+                      color: isActive ? primary : inactiveColor,
+                    ),
+                    if (showBadge)
+                      Positioned(
+                        right: -2,
+                        top: -2,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF10B981),
+                            shape: BoxShape.circle,
+                          ),
                         ),
                       ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontFamily: 'NanumSquareRound',
-                  fontSize: 10,
-                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-                  color: isActive ? primary : inactiveColor,
+                  ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontFamily: 'NanumSquareRound',
+                    fontSize: 10,
+                    fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                    color: isActive ? primary : inactiveColor,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

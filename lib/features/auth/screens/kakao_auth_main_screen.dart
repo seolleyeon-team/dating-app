@@ -154,42 +154,50 @@ class KakaoAuthMainScreen extends StatelessWidget {
                   child: Column(
                     children: [
                       // 카카오 버튼
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: _onKakaoLogin,
-                        child: Container(
-                          width: double.infinity,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            color: _AppColors.kakao,
-                            borderRadius: BorderRadius.circular(28),
-                            boxShadow: [
-                              BoxShadow(
-                                color: _AppColors.kakao.withValues(alpha: 0.3),
-                                blurRadius: 12,
-                                offset: const Offset(0, 4),
+                      Semantics(
+                        label: '카카오로 계속하기',
+                        button: true,
+                        child: CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: _onKakaoLogin,
+                          child: ExcludeSemantics(
+                            child: Container(
+                              width: double.infinity,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                color: _AppColors.kakao,
+                                borderRadius: BorderRadius.circular(28),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: _AppColors.kakao.withValues(
+                                      alpha: 0.3,
+                                    ),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                CupertinoIcons.chat_bubble_fill,
-                                size: 24,
-                                color: _AppColors.kakaoLabel,
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    CupertinoIcons.chat_bubble_fill,
+                                    size: 24,
+                                    color: _AppColors.kakaoLabel,
+                                  ),
+                                  SizedBox(width: 12),
+                                  Text(
+                                    '카카오로 계속하기',
+                                    style: TextStyle(
+                                      fontFamily: 'NanumSquareRound',
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                      color: _AppColors.kakaoLabel,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              SizedBox(width: 12),
-                              Text(
-                                '카카오로 계속하기',
-                                style: TextStyle(
-                                  fontFamily: 'NanumSquareRound',
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: _AppColors.kakaoLabel,
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
                         ),
                       ),
@@ -228,23 +236,30 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: Row(
         children: [
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            onPressed: () {
-              HapticFeedback.lightImpact();
-              onBack?.call();
-            },
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: CupertinoColors.black.withValues(alpha: 0.05),
-              ),
-              child: const Icon(
-                CupertinoIcons.back,
-                size: 20,
-                color: _AppColors.textMain,
+          Semantics(
+            label: '뒤로 가기',
+            button: true,
+            child: CupertinoButton(
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(44, 44),
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                onBack?.call();
+              },
+              child: ExcludeSemantics(
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: CupertinoColors.black.withValues(alpha: 0.05),
+                  ),
+                  child: const Icon(
+                    CupertinoIcons.back,
+                    size: 20,
+                    color: _AppColors.textMain,
+                  ),
+                ),
               ),
             ),
           ),
