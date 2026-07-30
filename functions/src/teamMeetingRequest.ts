@@ -11,6 +11,8 @@ import {
   type CallableRequest,
 } from "firebase-functions/v2/https";
 
+import { canTransitionTeamMeetingRequest } from "./seasonMeetingStateMachine";
+
 export const CREATE_TEAM_MEETING_REQUEST_CALLABLE_OPTIONS: CallableOptions = {
   timeoutSeconds: 30,
   memory: "256MiB",
@@ -278,6 +280,9 @@ export function buildRespondTeamMeetingRequestPlan(params: {
   }
 
   if (!accept) {
+    if (!canTransitionTeamMeetingRequest("pending", "declined")) {
+      throw new HttpsError("failed-precondition", "이미 처리된 요청이에요.");
+    }
     return {
       status: "declined",
       requestUpdate: {
@@ -285,6 +290,10 @@ export function buildRespondTeamMeetingRequestPlan(params: {
         respondedByUserId: params.callerUid,
       },
     };
+  }
+
+  if (!canTransitionTeamMeetingRequest("pending", "accepted")) {
+    throw new HttpsError("failed-precondition", "이미 처리된 요청이에요.");
   }
 
   const matchId = teamMeetingMatchId(requestId);
