@@ -316,16 +316,16 @@ test("SEC-P0-04: unauthenticated clients cannot list the users collection", asyn
   await assertFails(getDocs(collection(db, "users")));
 });
 
+test("SEC-P0-04b: signed-in clients cannot list the users collection", async () => {
+  await seedVictim();
+  const db = await kakaoSession(ATTACKER);
+
+  await assertFails(getDocs(collection(db, "users")));
+});
+
 test("legit: a signed-in user can read another user's profile document", async () => {
   await seedVictim();
   const db = await kakaoSession(ATTACKER);
 
   await assertSucceeds(getDoc(doc(db, "users", VICTIM)));
-});
-
-test("legit: a signed-in user can list users for the recommendation fallback", async () => {
-  await seedVictim();
-  const db = await kakaoSession(ATTACKER);
-
-  await assertSucceeds(getDocs(collection(db, "users")));
 });

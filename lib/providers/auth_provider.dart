@@ -103,12 +103,13 @@ class AuthProvider with ChangeNotifier {
           );
           _studentEmail = await _authService.getStudentEmail(kakaoUserId);
         } else {
+          // Never trust local SharedPreferences alone for student verification -
+          // a modified device could skip the Yonsei email gate.
           _isInitialSetupComplete = false;
           _hasSeenTutorial = false;
-          _isStudentVerified = await _storageService.isStudentVerified(
-            kakaoUserId,
-          );
-          _studentEmail = await _storageService.getStudentEmail(kakaoUserId);
+          _isStudentVerified = false;
+          _studentEmail = null;
+          await _storageService.setStudentVerified(kakaoUserId, false);
         }
 
         try {

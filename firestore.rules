@@ -590,11 +590,11 @@ service cloud.firestore {
     }
 
     match /users/{kakaoUserId} {
-      // Signed-in only. These documents carry studentEmail, onboarding profile
-      // data and preferenceVector; open read/list let anyone dump the whole
-      // student roster and pick takeover targets.
+      // Signed-in get of a known document id is required for matching/chat.
+      // Collection list is denied: it enabled roster dumps and powered the
+      // unsafe client recommendation fallback that scanned /users.
       allow get: if isSignedIn();
-      allow list: if isSignedIn();
+      allow list: if false;
 
       // Initial creation through Yonsei email student verification
       allow create: if publicUserMediaOk(request.resource.data) &&

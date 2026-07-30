@@ -5,9 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import 'storage_service.dart';
 import 'user_service.dart';
-import '../shared/utils/profile_display_image_resolver.dart';
 import '../shared/utils/privacy_log_utils.dart';
-import '../shared/utils/recommendation_eligibility.dart';
 
 // =============================================================================
 // 공통 AI 추천 프로필 모델
@@ -66,9 +64,7 @@ class AiRecommendationService {
           .get();
       return snap.docs.map((d) => d.id).toSet();
     } catch (e) {
-      debugPrint(
-        '[AI] _fetchBlockedUids error: ${PrivacyLogUtils.errorSummary(e)}',
-      );
+      debugPrint('[AI] _fetchBlockedUids error: $e');
       return {};
     }
   }
@@ -131,8 +127,6 @@ class AiRecommendationService {
     required String dateKey,
     required int limit,
     Set<String> blockedUids = const {},
-    required String viewerUid,
-    Map<String, dynamic>? viewer,
   }) async {
     final List<AiRecommendedProfile> results = [];
     final uuid = const Uuid();
@@ -151,40 +145,34 @@ class AiRecommendationService {
       final candUid = item['uid'] as String?;
       if (candUid == null) continue;
 
+      // 차단된 사용자 제외
+      if (blockedUids.contains(candUid)) continue;
+
       // 1. 추천 문서 자체에 이미지가 있는지 확인 (미래 확장성)
       List<String> images = [];
-      final approvedAvatarUrl = item['approvedAvatarUrl'];
-      if (approvedAvatarUrl is String && approvedAvatarUrl.trim().isNotEmpty) {
-        images = [approvedAvatarUrl.trim()];
+      if (item['imageUrls'] != null) {
+        images = List<String>.from(item['imageUrls']);
       }
 
-      // 2. Fallback: users/{uid} approved avatar display fields only.
+      // 2. Fallback: users/{uid} 문서에서 onboarding.photoUrls 조회
       final userProfile = await _userService.getUserProfile(candUid);
       if (userProfile == null) continue; // 삭제/탈퇴된 유저 패스
-
-      // modelRecs는 최대 하루 지난 스냅샷일 수 있으므로 노출 직전에 다시 본다.
-      if (!RecommendationEligibility.isRecommendableTo(
-        viewerUid: viewerUid,
-        viewer: viewer,
-        candidateUid: candUid,
-        candidate: userProfile,
-        blockedUids: blockedUids,
-      )) {
+      if (userProfile['status'] == 'withdrawn' ||
+          userProfile['isWithdrawn'] == true ||
+          userProfile['profileVisible'] == false) {
         continue;
       }
 
       final onboarding = userProfile['onboarding'];
-      if (images.isEmpty) {
-        final resolved = ProfileDisplayImageResolver.resolve(userProfile);
-        if (resolved.isNotEmpty) {
-          images = [resolved];
-        }
-        if (images.isEmpty) {
+      if (images.isEmpty && onboarding is Map) {
+        final photos = onboarding['photoUrls'];
+        if (photos is List && photos.isNotEmpty) {
+          images = List<String>.from(photos);
+        } else {
           // 사진이 한장도 없으면 렌더링에 문제가 생길 수 있으므로 최소 Fallback
           // images = ['https://placeholder.com/default']; // 기획에 따라 처리 가능. 여기선 빈 리스트 허용
         }
       }
-      if (images.isEmpty) continue;
 
       // 데이터 매핑
       final nickname =
@@ -243,75 +231,18 @@ class AiRecommendationService {
     return results;
   }
 
-  /// modelRecs 비어있을 때 users 컬렉션에서 폴백 프로필 로드
+  /// modelRecs가 없을 때의 안전한 동작: 빈 피드.
   ///
-  /// 배치 파이프라인을 거치지 않는 경로이므로, 파이프라인과 같은 후보 정책을
-  /// 여기서 직접 적용한다. 그러지 않으면 정지·미인증·동성 프로필이 "추천"으로
-  /// 노출된다.
-  Future<List<AiRecommendedProfile>> _fetchFallbackFromUsers(
-    String currentUserId,
-    int limit, {
-    Set<String> blockedUids = const {},
-  }) async {
-    final uuid = const Uuid();
-    final todayKey = _generateKstDateKey(DateTime.now());
-    final viewer = await _userService.getUserProfile(currentUserId);
-    final snapshot = await _firestore
-        .collection('users')
-        .limit(30) // 본인 제외·필터 후 limit 채우기 위해 여유
-        .get();
-
-    final results = <AiRecommendedProfile>[];
-    for (final doc in snapshot.docs) {
-      if (results.length >= limit) break;
-
-      final data = doc.data();
-      if (!RecommendationEligibility.isRecommendableTo(
-        viewerUid: currentUserId,
-        viewer: viewer,
-        candidateUid: doc.id,
-        candidate: data,
-        blockedUids: blockedUids,
-      )) {
-        continue;
-      }
-
-      final onboarding = data['onboarding'];
-      if (onboarding is! Map) continue;
-
-      final images = <String>[ProfileDisplayImageResolver.resolve(data)];
-
-      final nickname = onboarding['nickname'] as String? ?? '익명';
-      int age = 20;
-      final birthYear = onboarding['birthYear'];
-      if (birthYear != null) {
-        final y = int.tryParse(birthYear.toString());
-        if (y != null) age = DateTime.now().year - y;
-      }
-      final major = onboarding['major'] as String? ?? '전공 미상';
-
-      results.add(
-        AiRecommendedProfile(
-          candidateUid: doc.id,
-          name: nickname,
-          age: age,
-          major: major,
-          bio: '',
-          university: '',
-          imageUrls: images,
-          tags: [],
-          rank: 999,
-          primaryAlgo: 'fallback',
-          dateKey: todayKey,
-          exposureId: uuid.v4(),
-        ),
-      );
-    }
-    return results;
+  /// 과거 `/users` collection scan 폴백은 인증된 클라이언트의 전체 roster 조회를
+  /// 유도했고, 차단·탈퇴 정책을 우회할 위험도 있어 제거했다.
+  Future<List<AiRecommendedProfile>> _emptyFeedBecauseNoModelRecs(
+    String reason,
+  ) async {
+    debugPrint('[AI] refusing users-collection fallback ($reason)');
+    return const <AiRecommendedProfile>[];
   }
 
-  /// Profile Card (일반 스와이프 추천) 피드를 불러옵니다.
-  /// modelRecs 없으면 users 폴백 사용.
+  /// Profile Card 피드. modelRecs 없으면 빈 목록 (users 스캔 폴백 없음).
   Future<List<AiRecommendedProfile>> fetchProfileFeed({
     int limit = 10,
     String? userId,
@@ -321,9 +252,8 @@ class AiRecommendationService {
 
     try {
       final blockedUids = await _fetchBlockedUids(uid);
-      final viewer = await _userService.getUserProfile(uid);
 
-      var result = await _fetchRawRecs(uid, 'svd');
+      final result = await _fetchRawRecs(uid, 'svd');
       if (result != null) {
         final data = result['data'] as Map<String, dynamic>;
         final dateKey = result['dateKey'] as String;
@@ -334,40 +264,18 @@ class AiRecommendationService {
           dateKey: dateKey,
           limit: limit,
           blockedUids: blockedUids,
-          viewerUid: uid,
-          viewer: viewer,
         );
       }
-      if (kDebugMode) {
-        debugPrint(
-          '[AI] fetchProfileFeed: modelRecs empty, using users fallback',
-        );
-      }
-      return await _fetchFallbackFromUsers(
-        uid,
-        limit,
-        blockedUids: blockedUids,
-      );
+      return await _emptyFeedBecauseNoModelRecs('profile_feed_no_modelRecs');
     } catch (e) {
       debugPrint(
         'fetchProfileFeed Error: ${PrivacyLogUtils.errorSummary(e)}',
       );
-      if (kDebugMode) {
-        debugPrint('[AI] fetchProfileFeed: error, trying users fallback');
-      }
-      // 에러 경로라도 정책·차단 필터는 적용한다.
-      final blockedUids = await _fetchBlockedUids(uid);
-      return await _fetchFallbackFromUsers(
-        uid,
-        limit,
-        blockedUids: blockedUids,
-      );
+      return await _emptyFeedBecauseNoModelRecs('profile_feed_error');
     }
   }
 
-  /// Mystery Card (RRF 통합 / CLIP / SVD) 피드를 불러옵니다.
-  /// modelRecs/{uid}/daily/{오늘}/sources/rrf 의 rank 1~3 순서대로 표시.
-  /// modelRecs 없으면 users 폴백 사용.
+  /// Mystery Card 피드. modelRecs 없으면 빈 목록 (users 스캔 폴백 없음).
   Future<List<AiRecommendedProfile>> fetchMysteryFeed({
     int limit = 3,
     String? userId,
@@ -377,10 +285,9 @@ class AiRecommendationService {
 
     try {
       final blockedUids = await _fetchBlockedUids(uid);
-      final viewer = await _userService.getUserProfile(uid);
 
       var result = await _fetchRawRecs(uid, 'rrf');
-      String algoUsed = 'rrf';
+      var algoUsed = 'rrf';
 
       if (result == null) {
         result = await _fetchRawRecs(uid, 'clip');
@@ -396,17 +303,16 @@ class AiRecommendationService {
         final dateKey = result['dateKey'] as String;
         var items = data['items'] as List<dynamic>? ?? [];
 
-        // RRF인 경우 rank 1~3만 필터, 순서 보장
         if (algoUsed == 'rrf') {
-          items =
-              items.where((item) {
-                final r = (item['rank'] as num?)?.toInt() ?? 999;
-                return r >= 1 && r <= 3;
-              }).toList()..sort((a, b) {
-                final rankA = (a['rank'] as num?)?.toInt() ?? 999;
-                final rankB = (b['rank'] as num?)?.toInt() ?? 999;
-                return rankA.compareTo(rankB);
-              });
+          items = items.where((item) {
+            final r = (item['rank'] as num?)?.toInt() ?? 999;
+            return r >= 1 && r <= 3;
+          }).toList()
+            ..sort((a, b) {
+              final rankA = (a['rank'] as num?)?.toInt() ?? 999;
+              final rankB = (b['rank'] as num?)?.toInt() ?? 999;
+              return rankA.compareTo(rankB);
+            });
         }
 
         return await _hydrateProfiles(
@@ -415,33 +321,14 @@ class AiRecommendationService {
           dateKey: dateKey,
           limit: limit,
           blockedUids: blockedUids,
-          viewerUid: uid,
-          viewer: viewer,
         );
       }
-      if (kDebugMode) {
-        debugPrint(
-          '[AI] fetchMysteryFeed: modelRecs empty, using users fallback',
-        );
-      }
-      return await _fetchFallbackFromUsers(
-        uid,
-        limit,
-        blockedUids: blockedUids,
-      );
+      return await _emptyFeedBecauseNoModelRecs('mystery_feed_no_modelRecs');
     } catch (e) {
       debugPrint(
         'fetchMysteryFeed Error: ${PrivacyLogUtils.errorSummary(e)}',
       );
-      if (kDebugMode) {
-        debugPrint('[AI] fetchMysteryFeed: error, trying users fallback');
-      }
-      final blockedUids = await _fetchBlockedUids(uid);
-      return await _fetchFallbackFromUsers(
-        uid,
-        limit,
-        blockedUids: blockedUids,
-      );
+      return await _emptyFeedBecauseNoModelRecs('mystery_feed_error');
     }
   }
 
