@@ -22,6 +22,34 @@ export function canAcceptInviteIntoTeam(params: {
   return { ok: true };
 }
 
+/**
+ * Builds the post-accept membership list for a Firestore transaction.
+ * Prefer writing this exact array (with OCC) over arrayUnion so capacity is
+ * an explicit postcondition of the same write.
+ */
+export function nextAcceptedUserIds(params: {
+  acceptedUserIds: string[];
+  inviteeUserId: string;
+  capacity?: number;
+}):
+  | { ok: true; acceptedUserIds: string[]; memberCount: number }
+  | { ok: false; reason: "already_accepted" | "team_full" } {
+  const gate = canAcceptInviteIntoTeam(params);
+  if (!gate.ok) return gate;
+  const acceptedUserIds = [
+    ...new Set([...params.acceptedUserIds.filter(Boolean), params.inviteeUserId]),
+  ];
+  const capacity = params.capacity ?? 3;
+  if (acceptedUserIds.length > capacity) {
+    return { ok: false, reason: "team_full" };
+  }
+  return {
+    ok: true,
+    acceptedUserIds,
+    memberCount: acceptedUserIds.length,
+  };
+}
+
 /** Simulates two concurrent accepts against the same snapshot (lost-update model). */
 export function simulateConcurrentAcceptOverwrite(params: {
   acceptedUserIds: string[];
