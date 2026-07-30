@@ -1,0 +1,12 @@
+{
+  "name": "seolleyeon-firestore-rules-tests",
+  "private": true,
+  "description": "블라인드 취향 미팅 Firestore 보안 규칙 테스트 (Firestore emulator 필요)",
+  "scripts": {
+    "test": "firebase emulators:exec --only firestore --project seolleyeon-rules-test \"node --test blind_meeting_rules.test.js\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "firebase": "^11.0.0"
+  }
+}
