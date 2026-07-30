@@ -75,6 +75,64 @@
         { "fieldPath": "inviteeUserId", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "blindMeetingApplications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "requestedSlotIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "open", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "blindMeetingApplications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "open", "order": "ASCENDING" },
+        { "fieldPath": "appliedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "blindMeetings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "participantIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "blindMeetings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "serverStatus", "order": "ASCENDING" },
+        { "fieldPath": "scheduledStartAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "blindMeetingReplacementOffers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "meetingId", "order": "ASCENDING" },
+        { "fieldPath": "vacantParticipantId", "order": "ASCENDING" },
+        { "fieldPath": "offerStatus", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "blindMeetingReplacementOffers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "candidateUid", "order": "ASCENDING" },
+        { "fieldPath": "offerStatus", "order": "ASCENDING" },
+        { "fieldPath": "expiresAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "mutualMatches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "matchedAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
