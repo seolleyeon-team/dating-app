@@ -29,10 +29,8 @@ export function simulateConcurrentAcceptOverwrite(params: {
   inviteeB: string;
 }): { withReplace: string[]; withArrayUnion: string[] } {
   const base = [...params.acceptedUserIds];
-  const withReplaceA = [...base, params.inviteeA];
-  const withReplaceB = [...base, params.inviteeB];
   // Last writer wins under naive replace — one member lost.
-  const withReplace = withReplaceB;
+  const withReplace = [...base, params.inviteeB];
   const withArrayUnion = [
     ...new Set([...base, params.inviteeA, params.inviteeB]),
   ];
