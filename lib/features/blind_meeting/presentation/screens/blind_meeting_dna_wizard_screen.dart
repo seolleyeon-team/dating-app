@@ -13,6 +13,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../router/route_names.dart';
+import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_profile_snapshot.dart';
 import '../../domain/blind_meeting_enums.dart';
 import '../blind_meeting_route_args.dart';
@@ -21,8 +22,13 @@ import '../widgets/blind_meeting_common.dart';
 
 class BlindMeetingDnaWizardScreen extends StatefulWidget {
   final BlindMeetingProfileSnapshot profile;
+  final BlindMeetingAnalytics? analytics;
 
-  const BlindMeetingDnaWizardScreen({super.key, required this.profile});
+  const BlindMeetingDnaWizardScreen({
+    super.key,
+    required this.profile,
+    this.analytics,
+  });
 
   @override
   State<BlindMeetingDnaWizardScreen> createState() =>
@@ -57,6 +63,10 @@ class _BlindMeetingDnaWizardScreenState
       setState(() => _step++);
       return;
     }
+    (widget.analytics ?? BlindMeetingAnalytics()).log(
+      BlindMeetingAnalyticsEvent.dnaCompleted,
+      userId: widget.profile.userId,
+    );
     final draft = BlindMeetingDnaDraft(
       profile: widget.profile,
       atmosphere: _atmosphere!,

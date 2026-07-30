@@ -9,6 +9,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../router/route_names.dart';
+import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_profile_snapshot.dart';
 import '../../data/blind_meeting_repository.dart';
 import '../../domain/blind_meeting_application.dart';
@@ -18,8 +19,9 @@ import '../widgets/blind_meeting_common.dart';
 
 class BlindMeetingIntroScreen extends StatefulWidget {
   final BlindMeetingRepository? repository;
+  final BlindMeetingAnalytics? analytics;
 
-  const BlindMeetingIntroScreen({super.key, this.repository});
+  const BlindMeetingIntroScreen({super.key, this.repository, this.analytics});
 
   @override
   State<BlindMeetingIntroScreen> createState() =>
@@ -29,6 +31,8 @@ class BlindMeetingIntroScreen extends StatefulWidget {
 class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
   late final BlindMeetingRepository _repository =
       widget.repository ?? BlindMeetingRepository();
+  late final BlindMeetingAnalytics _analytics =
+      widget.analytics ?? BlindMeetingAnalytics();
 
   bool _loading = true;
   String? _error;
@@ -38,6 +42,7 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
   @override
   void initState() {
     super.initState();
+    _analytics.log(BlindMeetingAnalyticsEvent.introViewed);
     _load();
   }
 
@@ -67,6 +72,10 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
   void _startApplication() {
     final profile = _profile;
     if (profile == null) return;
+    _analytics.log(
+      BlindMeetingAnalyticsEvent.dnaStarted,
+      userId: profile.userId,
+    );
     Navigator.of(
       context,
     ).pushNamed(RouteNames.blindTasteMeetingDna, arguments: profile);

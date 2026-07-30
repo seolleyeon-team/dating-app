@@ -6,7 +6,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../../router/route_names.dart';
+import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_repository.dart';
+import '../../domain/blind_meeting_application.dart';
 import '../../domain/blind_meeting_dna.dart';
 import '../../domain/blind_meeting_enums.dart';
 import '../../domain/blind_meeting_slot.dart';
@@ -17,6 +19,7 @@ import '../widgets/blind_meeting_common.dart';
 class BlindMeetingScheduleScreen extends StatefulWidget {
   final BlindMeetingDnaDraft draft;
   final BlindMeetingRepository? repository;
+  final BlindMeetingAnalytics? analytics;
 
   /// 테스트에서 날짜를 고정하기 위한 기준 시각.
   final DateTime? now;
@@ -25,6 +28,7 @@ class BlindMeetingScheduleScreen extends StatefulWidget {
     super.key,
     required this.draft,
     this.repository,
+    this.analytics,
     this.now,
   });
 
@@ -97,6 +101,29 @@ class _BlindMeetingScheduleScreenState
         });
         return;
       }
+      final analytics = widget.analytics ?? BlindMeetingAnalytics();
+      await analytics.log(
+        BlindMeetingAnalyticsEvent.applicationSubmitted,
+        userId: dna.userId,
+        params: {
+          'slotCount': slots.length,
+          'isAlcoholFree': _alcoholFreeRequested,
+          'stage': result.stage.name,
+        },
+      );
+      if (result.stage == BlindMeetingMatchingStage.matched) {
+        await analytics.log(
+          BlindMeetingAnalyticsEvent.groupFormed,
+          userId: dna.userId,
+          params: {'meetingId': result.meetingId ?? ''},
+        );
+      } else {
+        await analytics.log(
+          BlindMeetingAnalyticsEvent.waitlisted,
+          userId: dna.userId,
+        );
+      }
+      if (!mounted) return;
       Navigator.of(
         context,
       ).pushReplacementNamed(RouteNames.blindTasteMeetingWaiting);

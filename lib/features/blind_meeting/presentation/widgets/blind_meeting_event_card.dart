@@ -9,17 +9,33 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../../router/route_names.dart';
+import '../../data/blind_meeting_analytics.dart';
 import '../theme/blind_meeting_palette.dart';
 import 'blind_meeting_common.dart';
 
 /// 이벤트 탭에서 보여줄 블라인드 취향 미팅 소개 카드.
-class BlindMeetingEventCard extends StatelessWidget {
-  const BlindMeetingEventCard({super.key});
+class BlindMeetingEventCard extends StatefulWidget {
+  final BlindMeetingAnalytics? analytics;
+
+  const BlindMeetingEventCard({super.key, this.analytics});
 
   static const String title = '블라인드 취향 미팅';
   static const String description =
       '얼굴 공개 없이,\n취향과 대화 성향이 잘 맞는 여섯 명을 만나보세요.\n혼자 신청해도 설레연이 3:3 팀을 구성해드려요.';
   static const String ctaLabel = '취향 미팅 참가하기';
+
+  @override
+  State<BlindMeetingEventCard> createState() => _BlindMeetingEventCardState();
+}
+
+class _BlindMeetingEventCardState extends State<BlindMeetingEventCard> {
+  @override
+  void initState() {
+    super.initState();
+    (widget.analytics ?? BlindMeetingAnalytics()).log(
+      BlindMeetingAnalyticsEvent.cardViewed,
+    );
+  }
 
   void _open(BuildContext context) {
     HapticFeedback.selectionClick();
@@ -63,10 +79,13 @@ class BlindMeetingEventCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    Text(title, style: BlindMeetingText.display(palette.ink)),
+                    Text(
+                      BlindMeetingEventCard.title,
+                      style: BlindMeetingText.display(palette.ink),
+                    ),
                     const SizedBox(height: 10),
                     Text(
-                      description,
+                      BlindMeetingEventCard.description,
                       style: BlindMeetingText.body(palette.inkSoft),
                     ),
                     const SizedBox(height: 20),
@@ -76,7 +95,7 @@ class BlindMeetingEventCard extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               BlindMeetingPrimaryButton(
-                label: ctaLabel,
+                label: BlindMeetingEventCard.ctaLabel,
                 icon: Icons.people_outline,
                 onPressed: () => _open(context),
               ),
