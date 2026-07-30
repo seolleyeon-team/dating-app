@@ -16,17 +16,9 @@ import '../screens/event/event_screen.dart';
 import '../screens/community/community_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import '../screens/tutorial/tutorial_screen.dart';
-import '../shared/utils/legacy_stub_policy.dart';
 
-/// DEPRECATED: This GoRouter tree is unused.
-/// Production navigation is `lib/router/app_router.dart` via [AppRouter.generateRoute].
-@Deprecated('Use lib/router/app_router.dart named routes instead')
 class AppRouter {
-  static GoRouter router(AuthProvider authProvider) {
-    if (!LegacyStubPolicy.allowLegacyStubScreens) {
-      LegacyStubPolicy.denyInRelease('routes.AppRouter');
-    }
-    return GoRouter(
+  static GoRouter router(AuthProvider authProvider) => GoRouter(
     initialLocation: '/splash', // ✅ 변경
     refreshListenable: authProvider,
     redirect: (context, state) {
@@ -210,7 +202,6 @@ class AppRouter {
       ),
     ],
   );
-  }
 }
 
 class _SplashScreen extends StatefulWidget {
@@ -267,7 +258,7 @@ class _SplashScreenState extends State<_SplashScreen>
                     '설레연',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 40,
                       fontWeight: FontWeight.w800,
                       color: Colors.white,
@@ -279,7 +270,7 @@ class _SplashScreenState extends State<_SplashScreen>
                     '만남이 시작되는 곳',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
                       color: Color(0xFFB7B7C2),

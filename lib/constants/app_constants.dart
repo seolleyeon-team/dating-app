@@ -2,12 +2,11 @@ class AppConstants {
   // App Info
   static const String appName = '설레연';
   static const String appDescription = '연세대학교 데이팅 앱';
-
-  // Legacy placeholder — not used by production Firebase paths.
-  // Blocked from silent reuse: prefer Firebase; do not point release traffic here.
-  @Deprecated('Placeholder only. Production uses Firebase, not this URL.')
-  static const String baseUrl = 'https://api.example.com';
-  static const String apiVersion = '/v1'; 
+  
+  // API Endpoints
+  static const String baseUrl = 'https://api.example.com'; // TODO: Replace with actual URL
+  static const String apiVersion = '/v1';
+  
   // Storage Keys
   static const String userIdKey = 'user_id';
   static const String isFirstLaunchKey = 'is_first_launch';

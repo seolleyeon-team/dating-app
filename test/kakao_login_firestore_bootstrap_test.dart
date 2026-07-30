@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('Kakao login attaches Firebase before owner-only Firestore writes', () {
+  test('Kakao login attaches Firebase before any users/{id} Firestore access', () {
     final file = File(
       'lib/features/auth/services/kakao_login_firestore_bootstrap.dart',
     );
@@ -32,17 +32,18 @@ void main() {
           'The client must not create users/{kakaoUserId}; the callable does it with Admin privileges.',
     );
     expect(
-      existsIndex,
-      lessThan(sessionIndex),
-      reason: 'the pre-login existence check preserves first-login routing.',
-    );
-    expect(
       sessionIndex,
       lessThan(failureGuardIndex),
       reason: 'failed Firebase session attachment must be handled explicitly.',
     );
     expect(
       failureGuardIndex,
+      lessThan(existsIndex),
+      reason:
+          'users/{id} get requires isSignedIn(); check existence only after the custom-token session is attached.',
+    );
+    expect(
+      existsIndex,
       lessThan(lastActiveIndex),
       reason:
           'lastActivePlatform is an owner update and must not run unauthenticated.',

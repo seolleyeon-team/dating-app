@@ -58,7 +58,14 @@ import UIKit
   override func applicationDidBecomeActive(_ application: UIApplication) {
     super.applicationDidBecomeActive(application)
     guard screenSecurityEnabled else { return }
-    updatePrivacyOverlayVisibility()
+    // KakaoTalk / Universal Link resume can invoke this while
+    // applicationState is still briefly `.inactive`. Checking state here
+    // would keep the privacy cover forever ("blank/off screen").
+    if UIScreen.main.isCaptured {
+      showPrivacyOverlay()
+    } else {
+      hidePrivacyOverlay()
+    }
   }
 
   private func enableScreenSecurityProtection() {
@@ -107,11 +114,13 @@ import UIKit
   private func updatePrivacyOverlayVisibility() {
     guard screenSecurityEnabled else { return }
 
-    let isCaptured = UIScreen.main.isCaptured
-    let isInactive = UIApplication.shared.applicationState != .active
-    if isCaptured || isInactive {
+    // Only force-show for screen capture. Do not treat brief `.inactive`
+    // (KakaoTalk / Universal Link handoff) as a reason to cover the UI —
+    // that left a stuck blank/"screen off" state on resume.
+    // Background/resign cover is handled by applicationWillResignActive.
+    if UIScreen.main.isCaptured {
       showPrivacyOverlay()
-    } else {
+    } else if UIApplication.shared.applicationState == .active {
       hidePrivacyOverlay()
     }
   }

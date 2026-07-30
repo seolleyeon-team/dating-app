@@ -3,7 +3,6 @@ import 'package:cloud_functions/cloud_functions.dart';
 
 import 'auth_service.dart';
 import 'friend_service.dart';
-import '../shared/utils/profile_display_image_resolver.dart';
 import 'storage_service.dart';
 import 'user_service.dart';
 
@@ -374,8 +373,13 @@ class EventTeamService {
         ? Map<String, dynamic>.from(raw)
         : <String, dynamic>{};
     final name = _extractName(ob, user, inviterUserId);
-    final resolvedImageUrl = ProfileDisplayImageResolver.resolve(user);
-    final imageUrl = resolvedImageUrl.isEmpty ? null : resolvedImageUrl;
+    final photos = ob['photoUrls'];
+    String? imageUrl;
+    if (photos is List && photos.isNotEmpty) {
+      imageUrl = photos.first.toString();
+    }
+    imageUrl = imageUrl ?? user['profileImageUrl']?.toString();
+    if (imageUrl != null && imageUrl.isEmpty) imageUrl = null;
     final university = (ob['university']?.toString().trim().isNotEmpty == true)
         ? ob['university'].toString()
         : _inferUniversityFromEmail(user['studentEmail']?.toString());
@@ -483,8 +487,13 @@ class EventTeamService {
     final mbti = onboarding['mbti']?.toString().trim().isNotEmpty == true
         ? onboarding['mbti'].toString()
         : '—';
-    final resolvedUrl = ProfileDisplayImageResolver.resolve(user);
-    final url = resolvedUrl.isEmpty ? null : resolvedUrl;
+    final photos = onboarding['photoUrls'];
+    String? url;
+    if (photos is List && photos.isNotEmpty) {
+      url = photos.first.toString();
+    }
+    url = url ?? user['profileImageUrl']?.toString();
+    if (url != null && url.isEmpty) url = null;
     return (name, mbti, url);
   }
 

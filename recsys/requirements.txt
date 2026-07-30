@@ -14,4 +14,4 @@ requests>=2.31.0
 
 # ---- GCP ----
 google-cloud-firestore>=2.16.0
-google-cloud-storage>=2.16.0
+google-cloud-storage>=2.14.0

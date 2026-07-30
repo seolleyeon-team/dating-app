@@ -8,12 +8,18 @@ class KakaoFriendInviteHelper {
 
   static final FriendInviteService _service = FriendInviteService();
 
+  /// Kakao Message API와 Kakao Share API가 동일한 설레연 초대 링크를 사용하게 한다.
+  static Future<FriendInviteSharePayload> createKakaoInvitePayload() {
+    debugPrint('[KakaoFriendInvite] createKakaoInvitePayload');
+    return _service.createFriendInvite();
+  }
+
   /// 친구 초대 링크를 만들고 카카오로 공유한다. (FriendInviteService 경로 단일화)
   static Future<FriendInviteShareResult> createAndShareKakaoInvite({
     required String inviterDisplayName,
   }) async {
     debugPrint('[KakaoFriendInvite] createAndShareKakaoInvite');
-    final payload = await _service.createFriendInvite();
+    final payload = await createKakaoInvitePayload();
     return await _service.shareInviteViaKakao(
       payload: payload,
       inviterName: inviterDisplayName,

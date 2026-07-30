@@ -69,7 +69,7 @@ class BaseBottomSheet extends StatelessWidget {
               child: Text(
                 title!,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
                   color: textColor,

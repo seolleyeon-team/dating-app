@@ -14,6 +14,9 @@ class RouteGuards {
   static bool requiresOnboarding(String routeName) {
     const onboardingRoutes = [
       '/onboarding/basic-info',
+      '/onboarding/interests-selection',
+      '/onboarding/lifestyle',
+      '/onboarding/major',
       '/onboarding/department',
       '/onboarding/interests',
       '/onboarding/keywords',

@@ -13,7 +13,6 @@ import '../../../router/route_names.dart';
 import '../../../services/interaction_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
-import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/chat_unlocked_profile_avatar.dart';
 import '../models/profile_card_args.dart';
 
@@ -31,7 +30,7 @@ class _AppColors {
   static const Color gray500 = Color(0xFF6B7280);
 }
 
-const String _kFontFamily = 'Noto Sans KR';
+const String _kFontFamily = 'NanumSquareRound';
 
 // =============================================================================
 // Hydrated heart profile view model
@@ -104,9 +103,7 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
     });
   }
 
-  Future<List<_HeartItem>> _hydrate(
-    List<Map<String, dynamic>> interactions,
-  ) async {
+  Future<List<_HeartItem>> _hydrate(List<Map<String, dynamic>> interactions) async {
     final Map<String, Map<String, dynamic>> deduped = {};
     for (final doc in interactions) {
       final otherId = doc['toUserId'] as String? ?? '';
@@ -127,12 +124,14 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
       final profile = _profileCache[otherId];
       final onboarding = profile?['onboarding'] as Map?;
 
-      final nickname =
-          profile?['nickname'] as String? ??
+      final nickname = profile?['nickname'] as String? ??
           (onboarding?['nickname'] as String?) ??
           '익명';
 
-      final imageUrl = ProfileDisplayImageResolver.resolve(profile);
+      final photoUrls = onboarding?['photoUrls'];
+      final imageUrl = (photoUrls is List && photoUrls.isNotEmpty)
+          ? photoUrls.first as String
+          : '';
 
       int age = 0;
       final birthYear = onboarding?['birthYear'];
@@ -155,18 +154,16 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
       final ts = doc['createdAt'];
       if (ts is Timestamp) createdAt = ts.toDate();
 
-      items.add(
-        _HeartItem(
-          interactionId: doc['id'] as String? ?? '',
-          otherUserId: otherId,
-          createdAt: createdAt,
-          name: nickname,
-          imageUrl: imageUrl,
-          department: major,
-          age: age,
-          tags: tags.take(3).toList(),
-        ),
-      );
+      items.add(_HeartItem(
+        interactionId: doc['id'] as String? ?? '',
+        otherUserId: otherId,
+        createdAt: createdAt,
+        name: nickname,
+        imageUrl: imageUrl,
+        department: major,
+        age: age,
+        tags: tags.take(3).toList(),
+      ));
     }
     return items;
   }
@@ -264,9 +261,8 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
                                       Icon(
                                         CupertinoIcons.heart,
                                         size: 48,
-                                        color: _AppColors.gray400.withValues(
-                                          alpha: 0.5,
-                                        ),
+                                        color: _AppColors.gray400
+                                            .withValues(alpha: 0.5),
                                       ),
                                       const SizedBox(height: 16),
                                       const Text(
@@ -292,9 +288,8 @@ class _SentHeartsScreenState extends State<SentHeartsScreen> {
                                 sliver: SliverList(
                                   delegate: SliverChildBuilderDelegate(
                                     (context, index) => Padding(
-                                      padding: const EdgeInsets.only(
-                                        bottom: 12,
-                                      ),
+                                      padding:
+                                          const EdgeInsets.only(bottom: 12),
                                       child: _ProfileListItem(
                                         item: items[index],
                                         currentUserId: _currentUserId!,

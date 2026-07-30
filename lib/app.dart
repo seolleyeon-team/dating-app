@@ -15,11 +15,9 @@ import 'shared/widgets/app_privacy_splash_overlay.dart';
 
 /// 설레연 앱 (MaterialApp 루트 + Provider 등록)
 class SeolleyeonApp extends StatefulWidget {
-  const SeolleyeonApp({super.key, this.testHome});
+  const SeolleyeonApp({super.key});
 
-  final Widget? testHome;
-
-  static const String fontFamily = 'Pretendard';
+  static const String fontFamily = 'NanumSquareRound';
 
   static const Color primaryColor = Color(0xFFFF6B8A);
   static const Color backgroundColor = Color(0xFFFAFAFA);
@@ -32,10 +30,8 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
   @override
   void initState() {
     super.initState();
-    if (widget.testHome == null) {
-      PushNotificationService.instance.initialize();
-      ScreenSecurityService.instance.enableProtection();
-    }
+    PushNotificationService.instance.initialize();
+    ScreenSecurityService.instance.enableProtection();
   }
 
   @override
@@ -58,8 +54,7 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
             themeMode: themeProvider.themeMode,
             theme: _buildLightTheme(),
             darkTheme: _buildDarkTheme(),
-            home: widget.testHome,
-            initialRoute: widget.testHome == null ? RouteNames.splash : null,
+            initialRoute: RouteNames.splash,
             onGenerateRoute: AppRouter.generateRoute,
             builder: (context, child) {
               final theme = Theme.of(context);
@@ -271,13 +266,13 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
       dialogTheme: const DialogThemeData(
         backgroundColor: darkSurface,
         titleTextStyle: TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NanumSquareRound',
           fontSize: 18,
           fontWeight: FontWeight.w600,
           color: darkText,
         ),
         contentTextStyle: TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NanumSquareRound',
           fontSize: 14,
           color: AppColorsDark.textSecondary,
         ),
@@ -301,11 +296,7 @@ TextTheme _applyFontWeight(TextTheme base) {
   TextStyle bump(TextStyle? s, int steps) {
     if (s == null) return const TextStyle();
     final w = s.fontWeight ?? FontWeight.w400;
-    final nextValue = (w.value + (steps * 100)).clamp(
-      FontWeight.w100.value,
-      FontWeight.w900.value,
-    );
-    final nextIndex = (nextValue ~/ 100) - 1;
+    final nextIndex = (w.index + steps).clamp(0, FontWeight.w900.index);
     return s.copyWith(fontWeight: FontWeight.values[nextIndex]);
   }
 

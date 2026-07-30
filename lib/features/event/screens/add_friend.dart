@@ -166,7 +166,7 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
         middle: const Text(
           '친구 목록',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontWeight: FontWeight.w700,
             color: FriendsListSharedColors.textMain,
           ),
@@ -260,7 +260,7 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
                       ? '요청 보내기'
                       : '요청 보내기 (${_selectedFriendIds.length})',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontWeight: FontWeight.w700,
                     fontSize: 16,
                     color: CupertinoColors.white.withValues(

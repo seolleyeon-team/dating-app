@@ -37,7 +37,7 @@ class SecondaryButton extends StatelessWidget {
                 : Text(
                     text,
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                       color: primary,

@@ -18,14 +18,17 @@ class KakaoLoginFirestoreBootstrap {
     required String kakaoUserId,
     required String platform,
   }) async {
-    final existedBeforeLogin = await _authService.kakaoUserExists(kakaoUserId);
-
+    // users/{id} get/update requires request.auth. Attach the Kakao-bridged
+    // custom-token session first; reading the doc beforehand yields
+    // permission-denied on the login screen.
     final firebaseAttached = await _authService.ensureFirebaseSessionForKakao(
       kakaoUserId,
     );
     if (!firebaseAttached) {
       throw Exception('Firebase 로그인 세션을 준비하지 못했습니다. 다시 시도해주세요.');
     }
+
+    final existedBeforeLogin = await _authService.kakaoUserExists(kakaoUserId);
 
     try {
       await _userService.setLastActivePlatform(

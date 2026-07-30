@@ -5,7 +5,6 @@ class ProfileCardArgs {
   final AiRecommendedProfile? aiProfile;
   final bool showActions;
   final bool isPreview;
-  final String? chatRoomId;
   final Map<String, dynamic>? onboardingOverride;
 
   const ProfileCardArgs({
@@ -13,7 +12,6 @@ class ProfileCardArgs {
     this.aiProfile,
     this.showActions = true,
     this.isPreview = false,
-    this.chatRoomId,
     this.onboardingOverride,
   });
 
@@ -26,15 +24,11 @@ class ProfileCardArgs {
     );
   }
 
-  factory ProfileCardArgs.fromChat({
-    required String userId,
-    String? chatRoomId,
-  }) {
+  factory ProfileCardArgs.fromChat({required String userId}) {
     return ProfileCardArgs(
       userId: userId,
       showActions: false,
       isPreview: false,
-      chatRoomId: chatRoomId,
     );
   }
 

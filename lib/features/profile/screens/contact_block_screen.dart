@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 
 import '../../../services/contact_block_service.dart';
-import '../../../shared/utils/safe_catch.dart';
+import '../../../services/kakao_talk_friend_service.dart';
 import '../../../utils/helpers.dart';
 
 class _AppColors {
@@ -27,10 +27,15 @@ class ContactBlockScreen extends StatefulWidget {
 
 class _ContactBlockScreenState extends State<ContactBlockScreen> {
   final _service = ContactBlockService();
+  final _kakaoFriendService = KakaoTalkFriendService();
 
   bool _isSyncing = false;
+  bool _isLoadingKakaoFriends = false;
   ContactBlockSyncResult? _result;
+  KakaoTalkFriendLookupResult? _kakaoFriendResult;
+  KakaoFriendBlockSyncResult? _kakaoFriendSyncResult;
   String? _error;
+  String? _kakaoFriendError;
   DateTime? _lastSyncTime;
 
   @override
@@ -92,12 +97,52 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
     }
   }
 
+  Future<void> _loadKakaoTalkFriends() async {
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _isLoadingKakaoFriends = true;
+      _kakaoFriendError = null;
+      _kakaoFriendResult = null;
+      _kakaoFriendSyncResult = null;
+    });
+
+    try {
+      final result = await _kakaoFriendService.fetchFriends();
+      final syncResult = await _service.syncKakaoTalkFriendBlocks(
+        result.friends.map((friend) => friend.serviceUserId),
+      );
+      if (!mounted) return;
+      setState(() {
+        _kakaoFriendResult = result;
+        _kakaoFriendSyncResult = syncResult;
+        _isLoadingKakaoFriends = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _kakaoFriendError = _formatKakaoFriendError(e);
+        _isLoadingKakaoFriends = false;
+      });
+    }
+  }
+
+  String _formatKakaoFriendError(Object error) {
+    final message = error.toString().replaceFirst('Exception: ', '');
+    if (message.contains('insufficient scopes') ||
+        message.contains('required_scopes') ||
+        message.contains('-402')) {
+      return '카카오 서비스 내 친구목록 동의가 필요해요. 카카오 개발자 콘솔에서 해당 동의항목을 사용 설정한 뒤 다시 시도해주세요.';
+    }
+    if (message.toLowerCase().contains('cancel')) {
+      return '카카오 추가 동의가 취소되었어요. 친구 목록을 불러오려면 동의가 필요해요.';
+    }
+    return message;
+  }
+
   Future<void> _openAppSettings() async {
     try {
       await FlutterContacts.permissions.openSettings();
-    } catch (e) {
-      logCaughtError('ContactBlock.openSettings', e);
-    }
+    } catch (_) {}
   }
 
   @override
@@ -130,7 +175,7 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
         middle: const Text(
           '연락처 차단',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 18,
             fontWeight: FontWeight.w700,
             color: _AppColors.textMain,
@@ -147,6 +192,8 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
               _buildExplanationCard(),
               const SizedBox(height: 24),
               _buildPrivacyInfo(),
+              const SizedBox(height: 24),
+              _buildKakaoFriendLookupCard(),
               const SizedBox(height: 32),
               _buildSyncButton(),
               if (_lastSyncTime != null) ...[
@@ -205,7 +252,7 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
                 child: Text(
                   '내 연락처의 지인이\n설레연에서 추천되지 않도록',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                     color: _AppColors.textMain,
@@ -221,15 +268,9 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
             '연락처에 저장된 지인과 서로 추천되지 않아요.',
           ),
           const SizedBox(height: 12),
-          _infoRow(
-            CupertinoIcons.chat_bubble,
-            '기존 매치나 채팅은 그대로 유지돼요.',
-          ),
+          _infoRow(CupertinoIcons.chat_bubble, '기존 매치나 채팅은 그대로 유지돼요.'),
           const SizedBox(height: 12),
-          _infoRow(
-            CupertinoIcons.eye_slash,
-            '상대방에게 차단 사실이 알려지지 않아요.',
-          ),
+          _infoRow(CupertinoIcons.eye_slash, '상대방에게 차단 사실이 알려지지 않아요.'),
         ],
       ),
     );
@@ -245,7 +286,7 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
           child: Text(
             text,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               color: _AppColors.textSecondary,
               height: 1.4,
@@ -269,12 +310,16 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
         children: [
           Row(
             children: [
-              Icon(CupertinoIcons.lock_shield, size: 18, color: Color(0xFF0284C7)),
+              Icon(
+                CupertinoIcons.lock_shield,
+                size: 18,
+                color: Color(0xFF0284C7),
+              ),
               SizedBox(width: 8),
               Text(
                 '개인정보 보호 안내',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: Color(0xFF0284C7),
@@ -288,12 +333,207 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
             '• 전화번호는 기기에서 안전하게 암호화(해시)된 후 전송되며, 원본 전화번호는 서버에 저장되지 않아요.\n'
             '• 연락처 권한을 해제해도 이미 적용된 차단은 유지돼요.',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 13,
               color: Color(0xFF0369A1),
               height: 1.5,
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKakaoFriendLookupCard() {
+    final result = _kakaoFriendResult;
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: _AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _AppColors.primary.withValues(alpha: 0.18)),
+        boxShadow: [
+          BoxShadow(
+            color: CupertinoColors.black.withValues(alpha: 0.03),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(
+                CupertinoIcons.chat_bubble_2_fill,
+                size: 20,
+                color: _AppColors.primary,
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '카카오톡 친구 조회',
+                  style: TextStyle(
+                    fontFamily: 'NanumSquareRound',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: _AppColors.textMain,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            '카카오톡 친구 목록을 불러와 설레연 추천에서 제외해요.',
+            style: TextStyle(
+              fontFamily: 'NanumSquareRound',
+              fontSize: 13,
+              height: 1.45,
+              color: _AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: CupertinoButton(
+              padding: const EdgeInsets.symmetric(vertical: 13),
+              borderRadius: BorderRadius.circular(14),
+              color: const Color(0xFFFEE500),
+              onPressed: _isLoadingKakaoFriends ? null : _loadKakaoTalkFriends,
+              child: _isLoadingKakaoFriends
+                  ? const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CupertinoActivityIndicator(),
+                        SizedBox(width: 10),
+                        Text(
+                          '카카오톡 친구 조회 중...',
+                          style: TextStyle(
+                            fontFamily: 'NanumSquareRound',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: _AppColors.textMain,
+                          ),
+                        ),
+                      ],
+                    )
+                  : const Text(
+                      '카카오톡 친구 불러오기',
+                      style: TextStyle(
+                        fontFamily: 'NanumSquareRound',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: _AppColors.textMain,
+                      ),
+                    ),
+            ),
+          ),
+          if (_kakaoFriendError != null) ...[
+            const SizedBox(height: 14),
+            _buildKakaoFriendError(_kakaoFriendError!),
+          ],
+          if (result != null) ...[
+            const SizedBox(height: 16),
+            _buildKakaoFriendSummary(result, _kakaoFriendSyncResult),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKakaoFriendError(String message) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7ED),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFED7AA)),
+      ),
+      child: Text(
+        message,
+        style: const TextStyle(
+          fontFamily: 'NanumSquareRound',
+          fontSize: 13,
+          height: 1.45,
+          color: Color(0xFFC2410C),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKakaoFriendSummary(
+    KakaoTalkFriendLookupResult result,
+    KakaoFriendBlockSyncResult? syncResult,
+  ) {
+    final friendCount = result.friends.length;
+    final storedCount = syncResult?.matchedUserCount ?? 0;
+    final isEmpty = friendCount == 0;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: (isEmpty ? _AppColors.gray100 : _AppColors.emerald500)
+            .withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: (isEmpty ? _AppColors.gray400 : _AppColors.emerald500)
+              .withValues(alpha: 0.25),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            isEmpty
+                ? '카카오톡 친구가 조회되지 않았습니다. 상대방도 앱 팀멤버로 등록되어 있고, 설레연에 카카오 로그인 및 친구목록/메시지 동의가 필요합니다.'
+                : '카카오톡 친구 $friendCount명이 앞으로 추천에서 제외됩니다.',
+            style: TextStyle(
+              fontFamily: 'NanumSquareRound',
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              height: 1.45,
+              color: isEmpty ? _AppColors.gray800 : _AppColors.emerald500,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Friend API 조회 성공 · 조회된 친구 $friendCount명 · 추천 제외 저장 $storedCount명',
+            style: const TextStyle(
+              fontFamily: 'NanumSquareRound',
+              fontSize: 13,
+              height: 1.45,
+              color: _AppColors.textSecondary,
+            ),
+          ),
+          if (result.friends.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ...result.friends
+                .take(5)
+                .map(
+                  (friend) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      '${friend.maskedNickname} · UUID ${friend.hasUuid ? '있음 (${friend.maskedUuid})' : '없음'}${friend.isFavorite ? ' · 즐겨찾기' : ''}',
+                      style: const TextStyle(
+                        fontFamily: 'NanumSquareRound',
+                        fontSize: 12,
+                        color: _AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+            if (result.friends.length > 5)
+              const Text(
+                '나머지 친구 정보는 개인정보 보호를 위해 표시하지 않아요.',
+                style: TextStyle(
+                  fontFamily: 'NanumSquareRound',
+                  fontSize: 12,
+                  color: _AppColors.textSecondary,
+                ),
+              ),
+          ],
         ],
       ),
     );
@@ -316,7 +556,7 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
                   Text(
                     '연락처 동기화 중...',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                       color: CupertinoColors.white,
@@ -327,7 +567,7 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
             : Text(
                 _lastSyncTime != null ? '다시 동기화하기' : '연락처 차단 시작하기',
                 style: const TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                   color: CupertinoColors.white,
@@ -345,7 +585,7 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
       child: Text(
         '마지막 동기화: $timeStr',
         style: const TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NanumSquareRound',
           fontSize: 13,
           color: _AppColors.gray400,
         ),
@@ -374,13 +614,16 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
         children: [
           const Row(
             children: [
-              Icon(CupertinoIcons.checkmark_circle_fill,
-                  size: 24, color: _AppColors.emerald500),
+              Icon(
+                CupertinoIcons.checkmark_circle_fill,
+                size: 24,
+                color: _AppColors.emerald500,
+              ),
               SizedBox(width: 10),
               Text(
                 '연락처 차단이 적용되었어요',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
                   color: _AppColors.textMain,
@@ -396,11 +639,7 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: Container(height: 1, color: _AppColors.gray100),
           ),
-          _resultRow(
-            '설레연 사용자 매칭',
-            '${r.matchedUserCount}명',
-            highlight: true,
-          ),
+          _resultRow('설레연 사용자 매칭', '${r.matchedUserCount}명', highlight: true),
           _resultRow(
             '새로 상호 차단',
             '${r.newlyBlockedPairCount}쌍',
@@ -412,7 +651,7 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
           const Text(
             '앞으로 차단된 사용자와 서로 추천되지 않아요.',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 13,
               color: _AppColors.textSecondary,
             ),
@@ -431,17 +670,16 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
           Text(
             label,
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
-              color:
-                  highlight ? _AppColors.textMain : _AppColors.textSecondary,
+              color: highlight ? _AppColors.textMain : _AppColors.textSecondary,
               fontWeight: highlight ? FontWeight.w600 : FontWeight.w400,
             ),
           ),
           Text(
             value,
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               fontWeight: FontWeight.w600,
               color: highlight ? _AppColors.primary : _AppColors.gray800,
@@ -483,14 +721,17 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
         children: [
           Row(
             children: [
-              const Icon(CupertinoIcons.exclamationmark_triangle,
-                  size: 20, color: Color(0xFFDC2626)),
+              const Icon(
+                CupertinoIcons.exclamationmark_triangle,
+                size: 20,
+                color: Color(0xFFDC2626),
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   title,
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFFDC2626),
@@ -503,7 +744,7 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
           Text(
             message,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 13,
               color: Color(0xFF991B1B),
               height: 1.5,
@@ -521,7 +762,7 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
                 child: const Text(
                   '설정으로 이동',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: CupertinoColors.white,

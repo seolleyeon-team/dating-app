@@ -44,12 +44,12 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# Firebase / Google Cloud credentials (local only; never commit)
+# Firebase / Google Cloud credentials (절대 커밋 금지)
 **/serviceAccountKey.json
 **/*-service-account*.json
 .local_secrets/
 .venv_mediapipe_preflight/
-.cache/avatar_models/
+.cache/
 functions/.env.seolleyeon-final
 *.backup-production-if-any
 

@@ -11,7 +11,6 @@ import '../router/route_names.dart';
 import '../features/event/models/event_team_route_args.dart';
 import '../features/chat/models/safety_stamp_follow_up_args.dart';
 import '../shared/layouts/main_scaffold_args.dart';
-import '../shared/utils/privacy_log_utils.dart';
 import 'navigation_service.dart';
 import 'storage_service.dart';
 
@@ -24,16 +23,21 @@ class PushNotificationService {
   PushNotificationService._();
   static final PushNotificationService instance = PushNotificationService._();
 
-  FirebaseMessaging? _messagingInstance;
-  FirebaseFirestore? _firestoreInstance;
+  static const Map<String, bool> defaultNotificationSettings = {
+    'all': true,
+    'chat': true,
+    'matching': true,
+    'community': true,
+    'asks': true,
+    'events': true,
+    'safety': true,
+  };
+
+  final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   final FlutterLocalNotificationsPlugin _local =
       FlutterLocalNotificationsPlugin();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final StorageService _storage = StorageService();
-
-  FirebaseMessaging get _messaging =>
-      _messagingInstance ??= FirebaseMessaging.instance;
-  FirebaseFirestore get _firestore =>
-      _firestoreInstance ??= FirebaseFirestore.instance;
 
   String? _openedChatRoomId;
   bool _isChatRoomVisible = false;
@@ -47,12 +51,6 @@ class PushNotificationService {
       );
 
   Future<void> initialize() async {
-    try {
-      Firebase.app();
-    } catch (_) {
-      debugPrint('[PUSH] Firebase is not initialized; skipping setup.');
-      return;
-    }
     if (kIsWeb) {
       debugPrint(
         '[PUSH] Web push service worker is not configured, skipping FCM init.',
@@ -60,9 +58,12 @@ class PushNotificationService {
       return;
     }
 
-    await _requestPermission();
+    final notificationSettings = await loadUserNotificationSettings();
+    if (notificationSettings['all'] != false) {
+      await _requestPermission();
+    }
     await _initLocalNotifications();
-    await syncFcmToken();
+    await syncFcmToken(notificationSettings: notificationSettings);
 
     FirebaseMessaging.onMessage.listen(_onForegroundMessage);
     FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageTap);
@@ -80,19 +81,19 @@ class PushNotificationService {
   void setOpenedChatRoom(String roomId) {
     _openedChatRoomId = roomId;
     _isChatRoomVisible = true;
-    debugPrint('[PUSH] opened ${PrivacyLogUtils.idFingerprint(roomId)}');
+    debugPrint('[PUSH] opened chat room = $roomId');
   }
 
   void clearOpenedChatRoom(String roomId) {
     if (_openedChatRoomId == roomId) {
-      debugPrint('[PUSH] cleared ${PrivacyLogUtils.idFingerprint(roomId)}');
+      debugPrint('[PUSH] cleared opened chat room = $roomId');
       _openedChatRoomId = null;
       _isChatRoomVisible = false;
     }
   }
 
-  Future<void> _requestPermission() async {
-    await _messaging.requestPermission(
+  Future<NotificationSettings> requestSystemPermission() async {
+    final settings = await _messaging.requestPermission(
       alert: true,
       badge: true,
       sound: true,
@@ -106,6 +107,60 @@ class PushNotificationService {
       badge: false,
       sound: false,
     );
+
+    return settings;
+  }
+
+  Future<NotificationSettings> getSystemNotificationSettings() {
+    return _messaging.getNotificationSettings();
+  }
+
+  Future<void> _requestPermission() async {
+    await requestSystemPermission();
+  }
+
+  Map<String, bool> normalizeNotificationSettings(dynamic raw) {
+    final normalized = Map<String, bool>.from(defaultNotificationSettings);
+    if (raw is Map) {
+      for (final key in defaultNotificationSettings.keys) {
+        final value = raw[key];
+        if (value is bool) {
+          normalized[key] = value;
+        }
+      }
+    }
+    return normalized;
+  }
+
+  Future<Map<String, bool>> loadUserNotificationSettings({
+    String? userId,
+  }) async {
+    final resolvedUserId = userId ?? await _storage.getKakaoUserId();
+    if (resolvedUserId == null || resolvedUserId.isEmpty) {
+      return Map<String, bool>.from(defaultNotificationSettings);
+    }
+
+    final doc = await _firestore.collection('users').doc(resolvedUserId).get();
+    return normalizeNotificationSettings(doc.data()?['notificationSettings']);
+  }
+
+  Future<void> saveUserNotificationSettings({
+    String? userId,
+    required Map<String, bool> settings,
+  }) async {
+    final resolvedUserId = userId ?? await _storage.getKakaoUserId();
+    if (resolvedUserId == null || resolvedUserId.isEmpty) {
+      throw StateError('사용자 정보를 찾을 수 없습니다.');
+    }
+
+    final normalized = normalizeNotificationSettings(settings);
+    await _firestore.collection('users').doc(resolvedUserId).set({
+      'notificationSettings': normalized,
+      'notificationSettingsUpdatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    await syncFcmToken(notificationSettings: normalized);
   }
 
   Future<void> _initLocalNotifications() async {
@@ -129,7 +184,7 @@ class PushNotificationService {
         ?.createNotificationChannel(_chatChannel);
   }
 
-  Future<void> syncFcmToken() async {
+  Future<void> syncFcmToken({Map<String, bool>? notificationSettings}) async {
     try {
       if (kIsWeb) {
         debugPrint(
@@ -139,18 +194,19 @@ class PushNotificationService {
       }
 
       final userId = await _storage.getKakaoUserId();
-      debugPrint('[PUSH] ${PrivacyLogUtils.idFingerprint(userId)}');
+      debugPrint('[PUSH] stored kakaoUserId = $userId');
 
       final settings = await _messaging.getNotificationSettings();
       debugPrint('[PUSH] permission = ${settings.authorizationStatus}');
+      final userNotificationSettings =
+          notificationSettings ??
+          await loadUserNotificationSettings(userId: userId);
 
       final apnsToken = await _messaging.getAPNSToken();
-      debugPrint(
-        '[PUSH] hasApnsToken=${apnsToken != null && apnsToken.isNotEmpty}',
-      );
+      debugPrint('[PUSH] apnsToken = $apnsToken');
 
       final token = await _messaging.getToken();
-      debugPrint('[PUSH] hasFcmToken=${token != null && token.isNotEmpty}');
+      debugPrint('[PUSH] fcmToken = $token');
 
       if (userId == null || userId.isEmpty) {
         debugPrint('[PUSH] no userId, skip');
@@ -170,12 +226,15 @@ class PushNotificationService {
             'userId': userId,
             'token': token,
             'platform': defaultTargetPlatform.name,
+            'notificationsEnabled': userNotificationSettings['all'] != false,
+            'notificationSettings': userNotificationSettings,
             'updatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
 
       debugPrint('[PUSH] token saved to firestore');
-    } catch (e) {
-      debugPrint('[PUSH] syncFcmToken ${PrivacyLogUtils.errorSummary(e)}');
+    } catch (e, st) {
+      debugPrint('[PUSH] syncFcmToken error: $e');
+      debugPrint('$st');
     }
   }
 
@@ -186,6 +245,12 @@ class PushNotificationService {
     final type = message.data['type']?.toString() ?? '';
     final roomId = message.data['roomId']?.toString() ?? '';
 
+    final notificationSettings = await loadUserNotificationSettings();
+    if (!_isNotificationTypeEnabled(notificationSettings, type)) {
+      debugPrint('[PUSH] suppress foreground notification by settings: $type');
+      return;
+    }
+
     final isSameOpenedChat =
         type == 'chat' &&
         _isChatRoomVisible &&
@@ -194,8 +259,7 @@ class PushNotificationService {
 
     if (isSameOpenedChat) {
       debugPrint(
-        '[PUSH] suppress foreground chat notification '
-        '${PrivacyLogUtils.idFingerprint(roomId)}',
+        '[PUSH] suppress foreground chat notification for room=$roomId',
       );
       return;
     }
@@ -216,6 +280,35 @@ class PushNotificationService {
       ),
       payload: jsonEncode(message.data),
     );
+  }
+
+  bool _isNotificationTypeEnabled(Map<String, bool> settings, String type) {
+    if (settings['all'] == false) return false;
+    final category = _categoryForPushType(type);
+    if (category == null) return true;
+    return settings[category] != false;
+  }
+
+  String? _categoryForPushType(String type) {
+    switch (type) {
+      case 'chat':
+      case 'chat_digest':
+        return 'chat';
+      case 'profile_like':
+        return 'matching';
+      case 'community_post_like':
+      case 'community_comment':
+      case 'community_reply':
+        return 'community';
+      case 'ask_received':
+        return 'asks';
+      case 'event_team_invite':
+        return 'events';
+      case 'safety_stamp_follow_up':
+        return 'safety';
+      default:
+        return null;
+    }
   }
 
   void _handleMessageTap(RemoteMessage message) {

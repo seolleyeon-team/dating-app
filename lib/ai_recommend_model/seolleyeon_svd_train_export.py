@@ -40,11 +40,6 @@ except Exception:  # pragma: no cover - local CSV-only runs may not have google-
     firestore = None
     FieldFilter = None
 
-from seolleyeon_rec_common_v3 import (
-    filter_recommendation_items_for_display_ready,
-    load_avatar_display_status_from_firestore,
-)
-
 
 # =========================
 # Defaults
@@ -840,7 +835,6 @@ def export_to_firestore(
     algorithm_version: str,
     model_meta: Dict[str, Any],
     user_signal_meta: Optional[Dict[str, Dict[str, Any]]] = None,
-    candidate_skip_reasons: Optional[Dict[str, Dict[str, int]]] = None,
     database: Optional[str] = None,
 ) -> None:
     require_firestore()
@@ -860,8 +854,6 @@ def export_to_firestore(
         }
         if user_signal_meta and uid in user_signal_meta:
             payload["signal"] = user_signal_meta[uid]
-        if candidate_skip_reasons and uid in candidate_skip_reasons:
-            payload["candidateSkipReasons"] = candidate_skip_reasons[uid]
         bw.set(doc_ref, payload, merge=True)
 
     bw.close()
@@ -918,14 +910,6 @@ def main() -> None:
     # policy filters
     p.add_argument("--apply_policy_filters", action="store_true")
     p.add_argument("--profile_index_collection", type=str, default="profileIndex")
-    p.add_argument("--require_approved_avatar_for_candidates", dest="require_approved_avatar_for_candidates", action="store_true")
-    p.add_argument("--no_require_approved_avatar_for_candidates", dest="require_approved_avatar_for_candidates", action="store_false")
-    p.set_defaults(require_approved_avatar_for_candidates=True)
-    p.add_argument("--avatar_required_for_display", dest="avatar_required_for_display", action="store_true")
-    p.add_argument("--no_avatar_required_for_display", dest="avatar_required_for_display", action="store_false")
-    p.set_defaults(avatar_required_for_display=True)
-    p.add_argument("--display_ready_users_collection", type=str, default="users")
-    p.add_argument("--allow_missing_avatar_candidates", action="store_true", default=False)
     p.add_argument("--manner_min", type=float, default=33.0)
     p.add_argument("--active_within_days", type=int, default=14)
     p.add_argument("--require_same_university", dest="require_same_university", action="store_true")
@@ -940,11 +924,6 @@ def main() -> None:
     p.add_argument("--algorithm_version", type=str, default=None)
 
     args = p.parse_args()
-    require_approved_avatar = (
-        bool(args.require_approved_avatar_for_candidates)
-        and bool(args.avatar_required_for_display)
-        and not bool(args.allow_missing_avatar_candidates)
-    )
 
     event_weights = dict(DEFAULT_EVENT_WEIGHTS)
     if args.event_weights_json:
@@ -1080,17 +1059,6 @@ def main() -> None:
         )
         print(f"[gender] loaded users/onboarding genders: {len(gender_by_uid):,}")
 
-    display_status: Dict[str, Dict[str, Any]] = {}
-    if require_approved_avatar:
-        if not args.firestore_project:
-            raise ValueError("--firestore_project is required when approved avatar gating is enabled")
-        display_status = load_avatar_display_status_from_firestore(
-            args.firestore_project,
-            users_collection=args.display_ready_users_collection,
-            database=args.firestore_database,
-        )
-        print(f"[display] loaded avatar display status for {len(display_status):,} users")
-
     idx2user = [None] * len(user2idx)
     for uid, i in user2idx.items():
         idx2user[i] = uid
@@ -1100,7 +1068,6 @@ def main() -> None:
 
     # ---- Generate recommendations ----
     recs_to_export: Dict[str, List[Dict[str, Any]]] = {}
-    candidate_skip_reasons_by_uid: Dict[str, Dict[str, int]] = {}
     topn = int(args.topn)
 
     for ui in tqdm(active_user_indices, desc="generating"):
@@ -1150,25 +1117,11 @@ def main() -> None:
                 ):
                     continue
 
-            item = {
+            items_out.append({
                 "uid": cand_uid,
                 "rank": rank,
                 "score": float(score),
-            }
-            filtered, skipped = filter_recommendation_items_for_display_ready(
-                [item],
-                display_status,
-                require_approved_avatar=require_approved_avatar,
-            )
-            if skipped:
-                user_skips = candidate_skip_reasons_by_uid.setdefault(uid, {})
-                for reason, count in skipped.items():
-                    user_skips[reason] = user_skips.get(reason, 0) + count
-                continue
-            if not filtered:
-                continue
-            filtered[0]["rank"] = rank
-            items_out.append(filtered[0])
+            })
             rank += 1
             if rank > topn:
                 break
@@ -1214,7 +1167,6 @@ def main() -> None:
             algorithm_version=algorithm_version,
             model_meta=model_meta,
             user_signal_meta=signal_meta_by_uid,
-            candidate_skip_reasons=candidate_skip_reasons_by_uid,
             database=args.firestore_database,
         )
         print("[export] done")

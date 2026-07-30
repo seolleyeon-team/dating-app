@@ -1,6 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../shared/utils/profile_display_image_resolver.dart';
 import 'user_service.dart';
 
 class FriendListItem {
@@ -25,7 +24,7 @@ class FriendListItem {
 
 class FriendService {
   FriendService({UserService? userService})
-    : _userService = userService ?? UserService();
+      : _userService = userService ?? UserService();
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final UserService _userService;
@@ -88,7 +87,7 @@ class FriendService {
 
   bool _snapshotIsInsufficient(Map<String, dynamic> snapshot) {
     final name = snapshot['nickname']?.toString().trim() ?? '';
-    final imageUrl = ProfileDisplayImageResolver.resolve(snapshot);
+    final imageUrl = snapshot['profileImageUrl']?.toString().trim() ?? '';
     return name.isEmpty && imageUrl.isEmpty;
   }
 
@@ -104,23 +103,24 @@ class FriendService {
         ? Map<String, dynamic>.from(onboardingRaw)
         : <String, dynamic>{};
 
+    final photoUrls = onboarding['photoUrls'] is List
+        ? List<String>.from(
+            (onboarding['photoUrls'] as List).whereType<String>(),
+          )
+        : const <String>[];
+
     final merged = <String, dynamic>{...snapshot};
     merged['uid'] = snapshot['uid']?.toString().isNotEmpty == true
         ? snapshot['uid']
         : userId;
-    merged['nickname'] = _firstNonEmpty(
-      snapshot['nickname'],
-      onboarding['nickname'],
-      user['nickname'],
+    merged['nickname'] =
+        _firstNonEmpty(snapshot['nickname'], onboarding['nickname'], user['nickname']);
+    merged['profileImageUrl'] = _firstNonEmpty(
+      snapshot['profileImageUrl'],
+      photoUrls.isNotEmpty ? photoUrls.first : null,
+      user['profileImageUrl'],
+      onboarding['representativeImageUrl'],
     );
-    final resolvedImage = ProfileDisplayImageResolver.resolve(user);
-    merged['profileImageUrl'] = resolvedImage;
-    if (resolvedImage.isNotEmpty) {
-      merged['avatar'] = {
-        'status': 'approved',
-        'approvedAvatarUrl': resolvedImage,
-      };
-    }
     merged['universityName'] = _firstNonEmpty(
       snapshot['universityName'],
       onboarding['university'],
@@ -145,7 +145,7 @@ class FriendService {
   }
 
   String _readImageUrl(Map<String, dynamic> snapshot) {
-    return ProfileDisplayImageResolver.resolve(snapshot);
+    return snapshot['profileImageUrl']?.toString().trim() ?? '';
   }
 
   String _readUniversity(Map<String, dynamic> snapshot) {
@@ -156,12 +156,7 @@ class FriendService {
     return snapshot['major']?.toString().trim() ?? '';
   }
 
-  String _firstNonEmpty(
-    dynamic first, [
-    dynamic second,
-    dynamic third,
-    dynamic fourth,
-  ]) {
+  String _firstNonEmpty(dynamic first, [dynamic second, dynamic third, dynamic fourth]) {
     final values = [first, second, third, fourth];
     for (final value in values) {
       final text = value?.toString().trim() ?? '';

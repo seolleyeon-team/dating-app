@@ -1,4 +1,3 @@
-import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -14,36 +13,25 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart';
-import 'services/firebase_diagnostics.dart';
 import 'services/push_notification_service.dart';
-import 'services/app_check_bootstrap.dart';
-import 'shared/utils/app_check_provider_policy.dart';
 import 'services/windows_protocol_registration_stub.dart'
     if (dart.library.io) 'services/windows_protocol_registration_io.dart';
 import 'firebase_options.dart';
 import 'app.dart';
 import 'webview_web_stub.dart'
-    if (dart.library.html) 'webview_web_impl.dart'
-    as webview_web;
+    if (dart.library.html) 'webview_web_impl.dart' as webview_web;
 
-/// `true`이면 **local release APK/AAB**에서도 Debug App Check provider 사용.
-/// 스토어 배포 빌드에서는 이 플래그를 켜지 말 것.
-const bool _forceAppCheckDebugProvider = bool.fromEnvironment(
-  'FORCE_APP_CHECK_DEBUG',
-  defaultValue: false,
-);
-const String _webAppCheckRecaptchaSiteKey = String.fromEnvironment(
-  'APP_CHECK_WEB_RECAPTCHA_SITE_KEY',
-  defaultValue: '',
-);
-const MethodChannel _kakaoUtilChannel = MethodChannel(
-  'com.yonsei.dating/kakao_util',
-);
+/// `true`이면 **release APK/AAB**에서도 Debug App Check provider 사용 (콘솔 디버그 토큰).
+/// 로컬에 release 설치해 테스트할 때 Play Integrity 403 방지용.
+/// 스토어 배포 빌드에서는 이 플래그를 켜지 말 것 (Play Integrity / App Attest 사용).
+const bool _forceAppCheckDebugProvider =
+    bool.fromEnvironment('FORCE_APP_CHECK_DEBUG', defaultValue: false);
+const MethodChannel _kakaoUtilChannel =
+    MethodChannel('com.yonsei.dating/kakao_util');
 
 Future<bool> _shouldUseDebugAppCheckProvider() async {
   if (kIsWeb) return false;
-  if (_forceAppCheckDebugProvider) return true;
-  if (!kReleaseMode) return true;
+  if (!kReleaseMode || _forceAppCheckDebugProvider) return true;
   if (defaultTargetPlatform != TargetPlatform.android) return false;
 
   try {
@@ -55,87 +43,10 @@ Future<bool> _shouldUseDebugAppCheckProvider() async {
         'using debug provider.',
       );
     }
-    return shouldUseDebugAppCheckProvider(
-      isWeb: false,
-      isReleaseMode: true,
-      isDebugSignedAndroid: isDebugSigned,
-    );
-  } catch (e) {
-    debugPrint(
-      '[AppCheck] debug-signing check failed: ${PrivacyLogUtils.errorSummary(e)}',
-    );
+    return isDebugSigned;
+  } catch (e, st) {
+    debugPrint('[AppCheck] debug-signing check failed: $e\n$st');
     return false;
-  }
-}
-
-Future<void> _activateAppCheck() async {
-  if (kIsWeb) {
-    final siteKey = webAppCheckRecaptchaSiteKey(
-      fromEnvironment: _webAppCheckRecaptchaSiteKey,
-    );
-    if (siteKey == null) {
-      final result = evaluateWebAppCheckActivation(siteKey: null);
-      recordAppCheckInitResult(result);
-      debugPrint(
-        '[AppCheck] web skipped: APP_CHECK_WEB_RECAPTCHA_SITE_KEY unset',
-      );
-      return;
-    }
-    try {
-      await FirebaseAppCheck.instance.activate(
-        providerWeb: ReCaptchaV3Provider(siteKey),
-      );
-      await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
-      recordAppCheckInitResult(evaluateWebAppCheckActivation(siteKey: siteKey));
-      debugPrint('[AppCheck] web reCAPTCHA v3 provider activated');
-    } catch (e) {
-      final summary = summarizeAppCheckError(e);
-      recordAppCheckInitResult(
-        evaluateWebAppCheckActivation(
-          siteKey: siteKey,
-          activateErrorSummary: summary,
-        ),
-      );
-      debugPrint('[AppCheck] activate failed: $summary');
-      // Keep running so UI can surface a recoverable App Check error.
-    }
-    return;
-  }
-
-  final useDebugAppCheck = await _shouldUseDebugAppCheckProvider();
-  final platform = defaultTargetPlatform.name;
-  try {
-    await FirebaseAppCheck.instance.activate(
-      providerAndroid: useDebugAppCheck
-          ? const AndroidDebugProvider()
-          : const AndroidPlayIntegrityProvider(),
-      providerApple: useDebugAppCheck
-          ? const AppleDebugProvider()
-          : const AppleAppAttestProvider(),
-    );
-    await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
-    recordAppCheckInitResult(
-      evaluateNativeAppCheckActivation(
-        usedDebugProvider: useDebugAppCheck,
-        platform: platform,
-      ),
-    );
-    debugPrint(
-      '[AppCheck] debugProviders=$useDebugAppCheck '
-      'kReleaseMode=$kReleaseMode forceDebug=$_forceAppCheckDebugProvider',
-    );
-  } catch (e) {
-    final summary = summarizeAppCheckError(e);
-    recordAppCheckInitResult(
-      evaluateNativeAppCheckActivation(
-        usedDebugProvider: useDebugAppCheck,
-        platform: platform,
-        activateErrorSummary: summary,
-      ),
-    );
-    debugPrint('[AppCheck] activate failed: $summary');
-    // Do not swallow: callable Auth/bootstrap will fail closed with App Check.
-    // Keep the app running so UI can show a recoverable error state.
   }
 }
 
@@ -161,21 +72,38 @@ void main() {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
-      FirebaseDiagnostics.logCurrentFirebaseApp('firebase_initialize_success');
 
-      // App Check: Android/iOS always; web when a reCAPTCHA v3 site key is
-      // supplied. Callable functions enforce App Check, so web login requires
-      // `--dart-define=APP_CHECK_WEB_RECAPTCHA_SITE_KEY=...`.
-      await _activateAppCheck();
+      // App Check: Android/iOS 항상 활성화.
+      // - 일반 debug/profile: Debug provider (!kReleaseMode)
+      // - release: Play Integrity / App Attest — 로컬 release만 쓸 때는 403 나므로
+      //   `flutter run --dart-define=FORCE_APP_CHECK_DEBUG=true` 또는 APK 빌드에 동일 define 추가
+      if (!kIsWeb) {
+        try {
+          final useDebugAppCheck = await _shouldUseDebugAppCheckProvider();
+          await FirebaseAppCheck.instance.activate(
+            providerAndroid: useDebugAppCheck
+                ? const AndroidDebugProvider()
+                : const AndroidPlayIntegrityProvider(),
+            providerApple: useDebugAppCheck
+                ? const AppleDebugProvider()
+                : const AppleDeviceCheckProvider(),
+          );
+          await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
+          debugPrint(
+            '[AppCheck] debugProviders=$useDebugAppCheck '
+            'kReleaseMode=$kReleaseMode forceDebug=$_forceAppCheckDebugProvider',
+          );
+        } catch (e, st) {
+          debugPrint('[AppCheck] activate failed: $e\n$st');
+        }
+      }
 
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
       runApp(const SeolleyeonApp());
     },
     (error, stack) {
-      debugPrint(
-        '[GLOBAL] Uncaught error: ${PrivacyLogUtils.errorSummary(error)}',
-      );
+      debugPrint('[GLOBAL] Uncaught error: $error\n$stack');
     },
   );
 }

@@ -67,16 +67,10 @@ class AskService {
     String? profileImageUrl,
     String? universityName,
   }) {
-    final avatarUrl = profileImageUrl?.trim() ?? '';
     return {
       'uid': uid,
       'nickname': nickname ?? '',
-      'profileImageUrl': avatarUrl,
-      if (avatarUrl.isNotEmpty)
-        'avatar': {
-          'status': 'approved',
-          'approvedAvatarUrl': avatarUrl,
-        },
+      'profileImageUrl': profileImageUrl ?? '',
       'universityName': universityName ?? '',
     };
   }

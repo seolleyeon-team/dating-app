@@ -16,15 +16,15 @@ import '../../../../services/storage_service.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFF6477E);
-  static const Color primaryVibrant = Color(0xFFFF0055);
-  static const Color backgroundLight = Color(0xFFF7F5F8);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color primaryVibrant = Color(0xFFF5468C);
+  static const Color backgroundLight = Color(0xFFFAFAFA);
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color textMain = Color(0xFF1F2937);
   static const Color textSub = Color(0xFF6B7280);
   static const Color gray200 = Color(0xFFE5E7EB);
   static const Color gray400 = Color(0xFF94A3B8);
-  static const Color pinkBorder = Color(0x4DFFB6C1); // rgba(255, 182, 193, 0.3)
+  static const Color pinkBorder = Color(0x80F5468C);
 }
 
 // =============================================================================
@@ -40,10 +40,10 @@ class IdealMbtiScreen extends StatefulWidget {
 class _IdealMbtiScreenState extends State<IdealMbtiScreen> {
   // 각 차원별 선택 (null = 선택 안함)
   final Map<String, String?> _selection = {
-    'EI': 'E',
-    'NS': 'N',
-    'TF': 'F',
-    'JP': 'J',
+    'EI': null,
+    'NS': null,
+    'TF': null,
+    'JP': null,
   };
 
   void _toggleSelection(String dimension, String value) {
@@ -74,7 +74,17 @@ class _IdealMbtiScreenState extends State<IdealMbtiScreen> {
 
   void _onDontCare() {
     HapticFeedback.lightImpact();
-    Navigator.of(context).pop();
+    () async {
+      final storage = StorageService();
+      final kakaoUserId = await storage.getKakaoUserId();
+      if (kakaoUserId != null) {
+        await storage.mergeOnboardingDraft(kakaoUserId, {
+          'idealMbti': {'EI': null, 'NS': null, 'TF': null, 'JP': null},
+        });
+      }
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    }();
   }
 
   void _onNext() {
@@ -97,39 +107,63 @@ class _IdealMbtiScreenState extends State<IdealMbtiScreen> {
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
       backgroundColor: _AppColors.backgroundLight,
-      child: SafeArea(
-        child: Column(
-          children: [
-            // 헤더
-            _Header(onBackPressed: () => Navigator.of(context).pop()),
-            // 프로그레스 바
-            const _ProgressBar(currentStep: 1, totalSteps: 5),
-            // 컨텐츠 영역
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 16),
-                    // 타이틀
-                    const _TitleSection(),
-                    const SizedBox(height: 32),
-                    // MBTI 그리드
-                    Expanded(
-                      child: Center(
-                        child: _MbtiGrid(
-                          selection: _selection,
-                          onToggle: _toggleSelection,
-                          onCheckboxToggle: _toggleCheckbox,
+      child: Stack(
+        children: [
+          const Positioned.fill(child: _SubtleBackgroundGradient()),
+          SafeArea(
+            child: Column(
+              children: [
+                // 헤더
+                _Header(onBackPressed: () => Navigator.of(context).pop()),
+                // 컨텐츠 영역
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 16),
+                        // 타이틀
+                        const _TitleSection(),
+                        const SizedBox(height: 32),
+                        // MBTI 그리드
+                        Expanded(
+                          child: Center(
+                            child: _MbtiGrid(
+                              selection: _selection,
+                              onToggle: _toggleSelection,
+                              onCheckboxToggle: _toggleCheckbox,
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
+                // 하단 버튼
+                _BottomButtons(onDontCare: _onDontCare, onNext: _onNext),
+              ],
             ),
-            // 하단 버튼
-            _BottomButtons(onDontCare: _onDontCare, onNext: _onNext),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SubtleBackgroundGradient extends StatelessWidget {
+  const _SubtleBackgroundGradient();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFEDE8EB).withValues(alpha: 0.14),
+            _AppColors.backgroundLight,
+            CupertinoColors.white.withValues(alpha: 0.96),
           ],
         ),
       ),
@@ -166,7 +200,7 @@ class _Header extends StatelessWidget {
               '설레연',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.primary,
@@ -175,38 +209,6 @@ class _Header extends StatelessWidget {
           ),
           const SizedBox(width: 44),
         ],
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// 프로그레스 바
-// =============================================================================
-class _ProgressBar extends StatelessWidget {
-  final int currentStep;
-  final int totalSteps;
-
-  const _ProgressBar({required this.currentStep, required this.totalSteps});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-      child: Row(
-        children: List.generate(totalSteps, (index) {
-          final isActive = index < currentStep;
-          return Expanded(
-            child: Container(
-              height: 4,
-              margin: EdgeInsets.only(right: index < totalSteps - 1 ? 8 : 0),
-              decoration: BoxDecoration(
-                color: isActive ? _AppColors.primary : _AppColors.gray200,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          );
-        }),
       ),
     );
   }
@@ -226,7 +228,7 @@ class _TitleSection extends StatelessWidget {
           '선호하는 상대의\nMBTI를 알려주세요',
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 24,
             fontWeight: FontWeight.w700,
             height: 1.3,
@@ -238,7 +240,7 @@ class _TitleSection extends StatelessWidget {
           '나와 잘 맞는 성향을 선택해보세요',
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 14,
             fontWeight: FontWeight.w400,
             color: _AppColors.textSub,
@@ -399,7 +401,7 @@ class _MbtiButton extends StatelessWidget {
             child: Text(
               letter,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 26,
                 fontWeight: FontWeight.w800,
                 color: isSelected
@@ -454,7 +456,7 @@ class _BottomButtons extends StatelessWidget {
                   child: Text(
                     '상관없어요',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.textMain,
@@ -477,7 +479,7 @@ class _BottomButtons extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFFFFC0CB).withValues(alpha: 0.5),
+                      color: const Color(0xFFF5468C).withValues(alpha: 0.24),
                       blurRadius: 16,
                       offset: const Offset(0, 6),
                     ),
@@ -487,9 +489,9 @@ class _BottomButtons extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      '다음',
+                      '선택',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 17,
                         fontWeight: FontWeight.w700,
                         color: CupertinoColors.white,

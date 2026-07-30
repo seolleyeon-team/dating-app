@@ -67,7 +67,7 @@ class TeamRequestDeclinedScreen extends StatelessWidget {
                             '이번 요청은\n이어지지 않았어요',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 24,
                               fontWeight: FontWeight.w800,
                               height: 1.35,
@@ -80,7 +80,7 @@ class TeamRequestDeclinedScreen extends StatelessWidget {
                             '아쉽지만 다음 기회를 기다려 볼까요?\n더 좋은 만남이 기다리고 있을 거예요.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 14,
                               fontWeight: FontWeight.w500,
                               height: 1.55,
@@ -150,7 +150,7 @@ class TeamRequestDeclinedScreen extends StatelessWidget {
                   child: const Text(
                     '확인',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                       color: CupertinoColors.white,
@@ -242,7 +242,7 @@ class _MiniAvatar extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 11,
               fontWeight: FontWeight.w600,
               color: _AppColors.textSub,

@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.0+3
 
 environment:
   sdk: ^3.9.2
@@ -50,11 +50,11 @@ dependencies:
   app_links: ^7.0.0
   kakao_flutter_sdk_common: ^1.10.0
   kakao_flutter_sdk_share: ^1.10.0
+  kakao_flutter_sdk_talk: ^1.10.0
   kakao_flutter_sdk_user: ^1.10.0
   google_fonts: ^6.2.1
   image_picker: ^1.1.2
   webview_flutter: ^4.10.0
-  webview_flutter_platform_interface: ^2.14.0
   webview_flutter_web: ^0.2.3
 
   firebase_messaging: ^16.1.2
@@ -67,6 +67,7 @@ dependencies:
   ffi: ^2.1.4
   win32: ^5.14.0
   share_plus: ^12.0.2
+  portone_flutter: ^1.0.1
 
 dev_dependencies:
   flutter_test:
@@ -92,15 +93,33 @@ flutter:
 
   assets:
     - public/legal/terms.html
+    - cherrysticker.png
+    - mainlogo.png
+    - sketchbook.png
+    - aiprofile.png
+    - postit.png
   #   - images/a_dot_ham.jpeg
 
   fonts:
+    - family: NanumSquareRound
+      fonts:
+        - asset: assets/fonts/NanumSquareRoundL.ttf
+          weight: 300
+        - asset: assets/fonts/NanumSquareRoundR.ttf
+          weight: 400
+        - asset: assets/fonts/NanumSquareRoundB.ttf
+          weight: 700
+        - asset: assets/fonts/NanumSquareRoundEB.ttf
+          weight: 800
     - family: Pretendard
       fonts:
         - asset: assets/fonts/PretendardVariable.ttf
     - family: Noto Sans KR
       fonts:
         - asset: assets/fonts/NotoSansKR-Variable.ttf
+    - family: LeeSeoyun
+      fonts:
+        - asset: assets/fonts/LeeSeoyun.ttf
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

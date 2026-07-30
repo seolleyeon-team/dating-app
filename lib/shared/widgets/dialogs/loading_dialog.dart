@@ -43,7 +43,7 @@ class LoadingDialog extends StatelessWidget {
               Text(
                 message!,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 14,
                   color: textColor,
                 ),
