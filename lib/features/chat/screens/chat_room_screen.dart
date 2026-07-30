@@ -2929,15 +2929,20 @@ class _InputBar extends StatelessWidget {
         ),
         child: Row(
           children: [
-            CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: () {},
-              child: Transform.rotate(
-                angle: 0.785,
-                child: Icon(
-                  CupertinoIcons.paperclip,
-                  size: 24,
-                  color: iconColor,
+            Semantics(
+              label: '첨부 파일',
+              button: true,
+              child: CupertinoButton(
+                padding: const EdgeInsets.all(10),
+                minimumSize: const Size(44, 44),
+                onPressed: () {},
+                child: Transform.rotate(
+                  angle: 0.785,
+                  child: Icon(
+                    CupertinoIcons.paperclip,
+                    size: 24,
+                    color: iconColor,
+                  ),
                 ),
               ),
             ),
@@ -2963,23 +2968,30 @@ class _InputBar extends StatelessWidget {
                 onSubmitted: (_) => onSend?.call(),
               ),
             ),
-            CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: () {
-                HapticFeedback.mediumImpact();
-                onSend?.call();
-              },
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: sendBg,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  CupertinoIcons.paperplane_fill,
-                  size: 20,
-                  color: CupertinoColors.white,
+            Semantics(
+              label: '메시지 보내기',
+              button: true,
+              child: CupertinoButton(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(44, 44),
+                onPressed: () {
+                  HapticFeedback.mediumImpact();
+                  onSend?.call();
+                },
+                child: ExcludeSemantics(
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: sendBg,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      CupertinoIcons.paperplane_fill,
+                      size: 20,
+                      color: CupertinoColors.white,
+                    ),
+                  ),
                 ),
               ),
             ),
