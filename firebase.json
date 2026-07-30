@@ -37,12 +37,40 @@
     }
   ],
   "hosting": {
+    "site": "seolleyeon",
     "public": "public",
     "ignore": [
       "firebase.json",
       "**/node_modules/**"
     ],
     "headers": [
+      {
+        "source": "**/*.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store"
+          }
+        ]
+      },
+      {
+        "source": "/flutter_service_worker.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store"
+          }
+        ]
+      },
+      {
+        "source": "/firebase-messaging-sw.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store"
+          }
+        ]
+      },
       {
         "source": "/.well-known/apple-app-site-association",
         "headers": [
@@ -60,6 +88,15 @@
             "value": "application/json"
           }
         ]
+      },
+      {
+        "source": "/assetlinks.json",
+        "headers": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ]
       }
     ],
     "rewrites": [
@@ -70,6 +107,54 @@
       {
         "source": "/invite/friend/**",
         "destination": "/invite-friend.html"
+      },
+      {
+        "source": "/privacy",
+        "destination": "/privacy.html"
+      },
+      {
+        "source": "/privacy/**",
+        "destination": "/privacy.html"
+      },
+      {
+        "source": "/terms",
+        "destination": "/legal/terms.html"
+      },
+      {
+        "source": "/terms/**",
+        "destination": "/legal/terms.html"
+      },
+      {
+        "source": "/kakao-review",
+        "destination": "/kakao-review.html"
+      },
+      {
+        "source": "/kakao-review/**",
+        "destination": "/kakao-review.html"
+      },
+      {
+        "source": "/review",
+        "destination": "/kakao-review.html"
+      },
+      {
+        "source": "/review/**",
+        "destination": "/kakao-review.html"
+      },
+      {
+        "source": "/signup-guide",
+        "destination": "/signup-guide.html"
+      },
+      {
+        "source": "/signup-guide/**",
+        "destination": "/signup-guide.html"
+      },
+      {
+        "source": "/auth/email-link",
+        "destination": "/auth-email-link.html"
+      },
+      {
+        "source": "/auth/email-link/**",
+        "destination": "/auth-email-link.html"
       },
       {
         "source": "**",

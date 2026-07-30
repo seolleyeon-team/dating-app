@@ -1,1 +1,0 @@
-uid-1=C:\Users\samsung\StudioProjects\semisemifinal\tmp\g007_pytest_owned\test_mapping_validator_accepts_exact_consent_row_105b13b1196e_eaa726c3\photo.jpeg

@@ -1,0 +1,13 @@
+[
+  {
+    "origin": [
+      "https://seolleyeon-festival.web.app",
+      "https://seolleyeon.com",
+      "http://localhost:5317",
+      "http://localhost:5000"
+    ],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type", "Cache-Control"],
+    "maxAgeSeconds": 3600
+  }
+]

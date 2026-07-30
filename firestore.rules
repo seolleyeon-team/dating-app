@@ -645,6 +645,11 @@ service cloud.firestore {
                 'studentEmail',
                 'studentVerifiedAt',
                 'verifiedAt',
+                'legalConsents',
+                'privacySettings',
+                'privacySettingsUpdatedAt',
+                'notificationSettings',
+                'notificationSettingsUpdatedAt',
                 'preferenceVector'
               ])
             )
@@ -676,6 +681,9 @@ service cloud.firestore {
             usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
               'kakaoUserId',
+              'nickname',
+              'profileImageUrl',
+              'email',
               'lastActivePlatform',
               'lastActivePlatformUpdatedAt',
               'onboarding',
@@ -686,14 +694,29 @@ service cloud.firestore {
               'onboardingCompletedAt',
               'idealType',
               'idealTypeUpdatedAt',
-              'updatedAt',
-              // App smoke / normal session writes (not avatar approval fields)
-              'hasSeenTutorial',
+              'legalConsents',
+              'privacySettings',
+              'privacySettingsUpdatedAt',
+              'notificationSettings',
+              'notificationSettingsUpdatedAt',
               'preferenceVector',
+              'status',
+              'isWithdrawn',
+              'withdrawnAt',
+              'scheduledHardDeleteAt',
+              'withdrawalRetentionDays',
+              'withdrawalReason',
+              'withdrawalPolicy',
+              'profileVisible',
+              'canRejoin',
+              'rejoinRestricted',
+              'rejoinRestrictedUntil',
+              'rejoinRestrictionReason',
+              'rejoinedAt',
               'lastLoginAt',
-              'nickname',
-              'profileImageUrl',
-              'email'
+              'hasSeenTutorial',
+              'loginDisabled',
+              'updatedAt'
             ])
           ) || (
             // Profile edit (onboarding data update) - keep existing rules and allow onboarding edits
@@ -702,6 +725,9 @@ service cloud.firestore {
               request.resource.data.kakaoUserId == kakaoUserId) &&
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
               'kakaoUserId',
+              'nickname',
+              'profileImageUrl',
+              'email',
               'lastActivePlatform',
               'lastActivePlatformUpdatedAt',
               'onboarding',
@@ -709,13 +735,34 @@ service cloud.firestore {
               'profileImageMode',
               'idealType',
               'idealTypeUpdatedAt',
-              'updatedAt',
-              'hasSeenTutorial',
+              'legalConsents',
+              'privacySettings',
+              'privacySettingsUpdatedAt',
+              'notificationSettings',
+              'notificationSettingsUpdatedAt',
               'preferenceVector',
+              'status',
+              'isWithdrawn',
+              'withdrawnAt',
+              'scheduledHardDeleteAt',
+              'withdrawalRetentionDays',
+              'withdrawalReason',
+              'withdrawalPolicy',
+              'profileVisible',
+              'canRejoin',
+              'rejoinRestricted',
+              'rejoinRestrictedUntil',
+              'rejoinRestrictionReason',
+              'rejoinedAt',
               'lastLoginAt',
-              'nickname',
-              'profileImageUrl',
-              'email'
+              'hasSeenTutorial',
+              'initialSetupComplete',
+              'initialSetupCompletedAt',
+              'onboardingCompletedAt',
+              'studentVerifiedAt',
+              'verifiedAt',
+              'loginDisabled',
+              'updatedAt'
             ])
           )
         );
@@ -1093,6 +1140,14 @@ service cloud.firestore {
       allow get: if request.auth != null && request.auth.uid == uid;
       allow list: if false;
       allow create, update, delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // User Private Verifications
+    // Identity-verification source data and identifiers are server-only.
+    // -----------------------------------------------------------------------
+    match /userPrivateVerifications/{uid} {
+      allow read, write: if false;
     }
 
     // -----------------------------------------------------------------------

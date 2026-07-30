@@ -1,0 +1,8 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Flutter Chrome (57575)" type="FlutterRunConfigurationType" factoryName="Flutter">
+    <option name="filePath" value="$PROJECT_DIR$/lib/main.dart" />
+    <option name="additionalArgs" value="--web-port=57575" />
+    <option name="deviceId" value="chrome" />
+    <method v="2" />
+  </configuration>
+</component>
