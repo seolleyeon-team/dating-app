@@ -351,7 +351,7 @@ class _FallingLeavesOverlayState extends State<FallingLeavesOverlay>
     _reduceMotion =
         (mediaQuery?.disableAnimations ?? false) ||
         (mediaQuery?.accessibleNavigation ?? false);
-    _tickerEnabled = TickerMode.of(context);
+    _tickerEnabled = TickerMode.valuesOf(context).enabled;
     _syncController();
   }
 

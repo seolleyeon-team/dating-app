@@ -24,7 +24,6 @@ class _AppColors {
   static const Color surfaceLight = CupertinoColors.white;
   static const Color textMain = Color(0xFF111827);
   static const Color textSub = Color(0xFF6B7280);
-  static const Color textGray800 = Color(0xFF1F2937);
 }
 
 // =============================================================================

@@ -5,7 +5,6 @@
 // postId 기반 Firestore 상세 조회 + 댓글/답글/좋아요
 // =============================================================================
 
-import 'dart:ui';
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
@@ -243,14 +242,16 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         );
       });
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('댓글 등록에 실패했어요: $e')));
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isSubmittingComment = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isSubmittingComment = false;
+        });
+      }
     }
   }
 
@@ -581,7 +582,7 @@ class _Header extends StatelessWidget {
         children: [
           CupertinoButton(
             padding: EdgeInsets.zero,
-            minSize: 40,
+            minimumSize: const Size(40, 40),
             onPressed: () {
               HapticFeedback.lightImpact();
               onBack();

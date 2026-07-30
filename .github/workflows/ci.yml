@@ -57,8 +57,32 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: dart format --output=none --set-exit-if-changed lib test
-      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - run: flutter analyze
       - run: flutter test
+
+  android-debug:
+    name: Android debug APK smoke build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build apk --debug
+
+  web-build:
+    name: Web build smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build web --release
 
   python-recsys:
     name: Recsys / script unit tests

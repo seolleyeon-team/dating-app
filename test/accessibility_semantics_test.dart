@@ -1,5 +1,4 @@
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/features/auth/screens/kakao_auth_main_screen.dart';
 import 'package:seolleyeon/shared/widgets/seolleyeon_bottom_navigation_bar.dart';
@@ -11,6 +10,12 @@ Future<void> _useMobileSurface(WidgetTester tester) async {
     tester.view.resetPhysicalSize();
     tester.view.resetDevicePixelRatio();
   });
+}
+
+bool _semanticsFlagEnabled(Object? value) {
+  if (value == true) return true;
+  final text = value.toString();
+  return text == 'true' || text == 'Tristate.isTrue';
 }
 
 void main() {
@@ -34,8 +39,14 @@ void main() {
       final matchingSemantics = tester.getSemantics(
         find.bySemanticsLabel('설레연'),
       );
-      expect(matchingSemantics.hasFlag(SemanticsFlag.isButton), isTrue);
-      expect(matchingSemantics.hasFlag(SemanticsFlag.isSelected), isTrue);
+      expect(
+        _semanticsFlagEnabled(matchingSemantics.flagsCollection.isButton),
+        isTrue,
+      );
+      expect(
+        _semanticsFlagEnabled(matchingSemantics.flagsCollection.isSelected),
+        isTrue,
+      );
     });
 
     testWidgets('kakao auth main screen exposes primary action semantics', (
@@ -52,7 +63,10 @@ void main() {
       final loginSemantics = tester.getSemantics(
         find.bySemanticsLabel('카카오로 계속하기'),
       );
-      expect(loginSemantics.hasFlag(SemanticsFlag.isButton), isTrue);
+      expect(
+        _semanticsFlagEnabled(loginSemantics.flagsCollection.isButton),
+        isTrue,
+      );
     });
   });
 }
