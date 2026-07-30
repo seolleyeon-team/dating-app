@@ -61,7 +61,7 @@ class _SafetyStampLogScreenState extends State<SafetyStampLogScreen> {
         middle: Text(
           '안전도장 로그',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontWeight: FontWeight.w700,
             color: _AppColors.textMain,
           ),
@@ -84,7 +84,7 @@ class _SafetyStampLogScreenState extends State<SafetyStampLogScreen> {
                     '아직 저장된 안전도장 로그가 없어요.\n새 만남이나 헤어짐 도장을 찍으면 여기에 최신순으로 기록돼요.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 15,
                       height: 1.5,
                       color: _AppColors.textSub,
@@ -127,7 +127,7 @@ class _SafetyStampLogScreenState extends State<SafetyStampLogScreen> {
                         child: Text(
                           log.phaseLabel,
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
                             color: chipTextColor,
@@ -138,7 +138,7 @@ class _SafetyStampLogScreenState extends State<SafetyStampLogScreen> {
                       Text(
                         '${log.partnerName}님과의 기록',
                         style: const TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 17,
                           fontWeight: FontWeight.w700,
                           color: _AppColors.textMain,
@@ -181,7 +181,7 @@ class _LogMetaRow extends StatelessWidget {
           child: Text(
             label,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 13,
               fontWeight: FontWeight.w600,
               color: _AppColors.textSub,
@@ -192,7 +192,7 @@ class _LogMetaRow extends StatelessWidget {
           child: Text(
             value,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               fontWeight: FontWeight.w600,
               color: _AppColors.textMain,

@@ -199,7 +199,7 @@ class _NotificationSettingsScreenState
         middle: Text(
           '알림 설정',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 18,
             fontWeight: FontWeight.w700,
             color: textMain,
@@ -403,7 +403,7 @@ class _InfoCard extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                     color: textMain,
@@ -413,7 +413,7 @@ class _InfoCard extends StatelessWidget {
                 Text(
                   body,
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 13,
                     height: 1.4,
                     color: textSub,
@@ -441,7 +441,7 @@ class _SectionTitle extends StatelessWidget {
       child: Text(
         title.toUpperCase(),
         style: TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NanumSquareRound',
           fontSize: 12,
           fontWeight: FontWeight.w700,
           letterSpacing: 1,
@@ -539,7 +539,7 @@ class _NotificationToggle extends StatelessWidget {
                   Text(
                     title,
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
                       color: textMain,
@@ -549,7 +549,7 @@ class _NotificationToggle extends StatelessWidget {
                   Text(
                     subtitle,
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 13,
                       color: textSub,
                     ),

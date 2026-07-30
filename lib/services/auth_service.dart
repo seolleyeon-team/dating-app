@@ -8,6 +8,7 @@ import '../models/user_model.dart';
 import '../constants/yonsei_departments.dart';
 import '../router/route_names.dart';
 import '../utils/phone_hash_utils.dart';
+import 'adult_verification_service.dart';
 import 'storage_service.dart';
 import 'user_service.dart';
 
@@ -235,6 +236,14 @@ class AuthService {
 
   Future<bool> isInitialSetupComplete(String kakaoUserId) async {
     return await _userService.isInitialSetupComplete(kakaoUserId);
+  }
+
+  Future<bool> isAdultVerified(String kakaoUserId) async {
+    if (AdultVerificationService.isTemporarilyDisabled) return true;
+
+    final profile = await _userService.getUserProfile(kakaoUserId);
+    return profile?['adultVerified'] == true &&
+        profile?['realNameVerified'] == true;
   }
 
   Future<Map<String, dynamic>?> getUserProfile(String kakaoUserId) async {

@@ -42,6 +42,33 @@
     ],
     "headers": [
       {
+        "source": "**/*.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store"
+          }
+        ]
+      },
+      {
+        "source": "/flutter_service_worker.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store"
+          }
+        ]
+      },
+      {
+        "source": "/firebase-messaging-sw.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store"
+          }
+        ]
+      },
+      {
         "source": "/apple-app-site-association",
         "headers": [
           {
@@ -104,6 +131,30 @@
         "destination": "/privacy.html"
       },
       {
+        "source": "/terms",
+        "destination": "/legal/terms.html"
+      },
+      {
+        "source": "/terms/**",
+        "destination": "/legal/terms.html"
+      },
+      {
+        "source": "/kakao-review",
+        "destination": "/kakao-review.html"
+      },
+      {
+        "source": "/kakao-review/**",
+        "destination": "/kakao-review.html"
+      },
+      {
+        "source": "/review",
+        "destination": "/kakao-review.html"
+      },
+      {
+        "source": "/review/**",
+        "destination": "/kakao-review.html"
+      },
+      {
         "source": "/signup-guide",
         "destination": "/signup-guide.html"
       },
@@ -113,11 +164,11 @@
       },
       {
         "source": "/auth/email-link",
-        "destination": "/index.html"
+        "destination": "/auth-email-link.html"
       },
       {
         "source": "/auth/email-link/**",
-        "destination": "/index.html"
+        "destination": "/auth-email-link.html"
       }
     ]
   },

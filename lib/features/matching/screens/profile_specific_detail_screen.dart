@@ -16,7 +16,7 @@ import '../../../router/route_names.dart';
 import '../models/profile_card_args.dart';
 import '../services/profile_photo_access_service.dart';
 
-const String _kFontFamily = 'Pretendard';
+const String _kFontFamily = 'NanumSquareRound';
 
 class _AppColors {
   static const Color primary = Color(0xFFFF5A7E);

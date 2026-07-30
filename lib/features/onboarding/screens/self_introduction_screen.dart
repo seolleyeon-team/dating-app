@@ -161,7 +161,7 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
                             const Text(
                               '자기 소개',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 28,
                                 fontWeight: FontWeight.bold,
                                 height: 1.2,
@@ -172,7 +172,7 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
                             const Text(
                               '어떤 사람인지 알려주세요',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 15,
                                 height: 1.5,
                                 color: _AppColors.textMuted,
@@ -182,7 +182,7 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
                             const Text(
                               '솔직하고 담백하게 작성해보세요.',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 15,
                                 height: 1.5,
                                 color: _AppColors.textMuted,
@@ -365,7 +365,7 @@ class _InputArea extends StatelessWidget {
             maxLength: maxLength,
             maxLines: 8,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 16,
               height: 1.6,
               color: _AppColors.textMain,
@@ -397,7 +397,7 @@ class _InputArea extends StatelessWidget {
                   Text(
                     '$charCount',
                     style: const TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                       color: _AppColors.primary,
@@ -406,7 +406,7 @@ class _InputArea extends StatelessWidget {
                   Text(
                     ' / $maxLength',
                     style: const TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                       color: _AppColors.textMuted,
@@ -449,7 +449,7 @@ class _SuggestionChipsArea extends StatelessWidget {
             Text(
               '무엇을 쓸지 고민되시나요?',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
                 color: _AppColors.textMain,
@@ -514,7 +514,7 @@ class _SuggestionChip extends StatelessWidget {
             Text(
               label,
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
                 color: _AppColors.textMuted,
@@ -578,7 +578,7 @@ class _BottomButton extends StatelessWidget {
               Text(
                 label,
                 style: const TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 17,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,

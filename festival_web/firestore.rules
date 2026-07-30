@@ -1,0 +1,281 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function validTicketId(ticketId) {
+      return ticketId is string &&
+        ticketId.size() >= 6 &&
+        ticketId.size() <= 64 &&
+        ticketId.matches('^[A-Z0-9]+$');
+    }
+
+    function ticketPath(ticketId) {
+      return /databases/$(database)/documents/festivalTickets/$(ticketId);
+    }
+
+    function ownsTicket(ticketId) {
+      return signedIn() &&
+        validTicketId(ticketId) &&
+        exists(ticketPath(ticketId)) &&
+        get(ticketPath(ticketId)).data.lastUid == request.auth.uid;
+    }
+
+    function sessionPath() {
+      return /databases/$(database)/documents/festivalSessions/$(request.auth.uid);
+    }
+
+    function hasActiveSession() {
+      return signedIn() &&
+        exists(sessionPath()) &&
+        validTicketId(get(sessionPath()).data.ticketId);
+    }
+
+    function activeTicketId() {
+      return get(sessionPath()).data.ticketId;
+    }
+
+    function ticketNotDisabled(ticketId) {
+      return !exists(/databases/$(database)/documents/festivalTicketEnforcement/$(ticketId)) ||
+        get(/databases/$(database)/documents/festivalTicketEnforcement/$(ticketId)).data.disabled != true;
+    }
+
+    match /festivalSessions/{uid} {
+      allow read, delete: if signedIn() && uid == request.auth.uid;
+      allow create, update: if signedIn() &&
+        uid == request.auth.uid &&
+        request.resource.data.uid == request.auth.uid &&
+        validTicketId(request.resource.data.ticketId) &&
+        ticketNotDisabled(request.resource.data.ticketId);
+    }
+
+    match /festivalTickets/{ticketId} {
+      allow get: if signedIn() && validTicketId(ticketId);
+      allow list: if false;
+      allow create: if canCreateFestivalTicket(ticketId);
+      allow update: if canUpdateFestivalTicket(ticketId);
+
+      match /tasteSwipes/{swipeId} {
+        allow read: if ownsTicket(ticketId);
+        allow write: if ownsTicket(ticketId) && beforeProfileTasteLock();
+      }
+    }
+
+    match /festivalProfiles/{ticketId} {
+      allow get: if hasActiveSession() && validTicketId(ticketId);
+      allow list: if hasActiveSession();
+      allow create, update: if ownsTicket(ticketId) && beforeProfileTasteLock();
+      allow delete: if false;
+    }
+
+    match /festivalChatRooms/{roomId} {
+      function roomHasActiveTicket(data) {
+        return hasActiveSession() &&
+          data.participantTicketIds is list &&
+          activeTicketId() in data.participantTicketIds;
+      }
+
+      function validRoomTickets(data) {
+        return data.participantTicketIds is list &&
+          data.participantTicketIds.size() == 2 &&
+          validTicketId(data.participantTicketIds[0]) &&
+          validTicketId(data.participantTicketIds[1]);
+      }
+
+      allow read: if roomHasActiveTicket(resource.data);
+      allow create, update: if signedIn() &&
+        roomHasActiveTicket(request.resource.data) &&
+        validRoomTickets(request.resource.data);
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        function parentRoom() {
+          return get(/databases/$(database)/documents/festivalChatRooms/$(roomId)).data;
+        }
+
+        function parentRoomAfter() {
+          return getAfter(/databases/$(database)/documents/festivalChatRooms/$(roomId)).data;
+        }
+
+        allow read: if roomHasActiveTicket(parentRoom());
+        allow create: if signedIn() &&
+          roomHasActiveTicket(parentRoomAfter()) &&
+          request.resource.data.senderUid == request.auth.uid &&
+          request.resource.data.senderTicketId == activeTicketId() &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() > 0 &&
+          request.resource.data.text.size() <= 1000;
+        allow update, delete: if false;
+      }
+    }
+
+    match /festivalChatMemberships/{ticketId}/rooms/{roomId} {
+      function membershipHasValidTickets(data) {
+        return data.participantTicketIds is list &&
+          data.participantTicketIds.size() == 2 &&
+          validTicketId(data.participantTicketIds[0]) &&
+          validTicketId(data.participantTicketIds[1]);
+      }
+
+      allow read: if hasActiveSession() && activeTicketId() == ticketId;
+      allow create, update: if hasActiveSession() &&
+        ticketId in request.resource.data.participantTicketIds &&
+        activeTicketId() in request.resource.data.participantTicketIds &&
+        membershipHasValidTickets(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /festivalChats/{chatId} {
+      allow read: if signedIn() && resource.data.ownerUid == request.auth.uid;
+      allow create, update: if signedIn() &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        ownsTicket(request.resource.data.ticketId);
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+
+      match /messages/{messageId} {
+        allow read: if signedIn() &&
+          get(/databases/$(database)/documents/festivalChats/$(chatId)).data.ownerUid == request.auth.uid;
+        allow create: if signedIn() &&
+          request.resource.data.senderUid == request.auth.uid &&
+          ownsTicket(request.resource.data.ticketId);
+        allow update, delete: if false;
+      }
+    }
+
+    match /festivalDeveloperReports/{reportId} {
+      function validReport(data) {
+        return data.status == 'open' &&
+          data.source in ['profile_detail', 'chat_screen'] &&
+          data.reason is string &&
+          data.reason.size() > 0 &&
+          data.reason.size() <= 120 &&
+          data.reporterTicketId == activeTicketId() &&
+          data.reporterUid == request.auth.uid &&
+          validTicketId(data.reportedTicketId) &&
+          data.reportedTicketId != activeTicketId();
+      }
+
+      allow create: if hasActiveSession() && validReport(request.resource.data);
+      allow read, update, delete: if false;
+    }
+
+    match /festivalTicketEnforcement/{ticketId} {
+      allow get: if signedIn() && validTicketId(ticketId);
+      allow list: if false;
+      allow write: if false;
+    }
+
+    match /festivalPushTokens/{uid} {
+      allow read, write: if signedIn() && uid == request.auth.uid;
+
+      match /tokens/{tokenId} {
+        allow read, write: if signedIn() && uid == request.auth.uid;
+      }
+    }
+
+    match /festivalAiEmbeddings/{code} {
+      allow read: if hasActiveSession();
+      allow write: if false;
+    }
+
+    match /festivalProfileEmbeddings/{ticketId} {
+      allow read: if hasActiveSession();
+      allow write: if false;
+    }
+
+    match /festivalModelRecs/{ticketId} {
+      allow read: if hasActiveSession() && activeTicketId() == ticketId;
+      allow write: if false;
+
+      match /daily/{dateKey}/sources/{source} {
+        allow read: if hasActiveSession() && activeTicketId() == ticketId;
+        allow write: if false;
+      }
+    }
+
+    match /festivalSettings/{docId} {
+      allow get: if hasActiveSession();
+      allow list: if false;
+      allow write: if false;
+    }
+
+    function festivalSchedulePath() {
+      return /databases/$(database)/documents/festivalSettings/schedule;
+    }
+
+    function festivalEventScheduleEnabled() {
+      return exists(festivalSchedulePath()) &&
+        get(festivalSchedulePath()).data.enabled == true;
+    }
+
+    function beforeProfileTasteLock() {
+      return !festivalEventScheduleEnabled() ||
+        request.time < get(festivalSchedulePath()).data.profileTasteLockAt;
+    }
+
+    function ticketSessionFieldKeys() {
+      return [
+        'code',
+        'status',
+        'round',
+        'lastUid',
+        'lastRedeemSource',
+        'lastRedeemedAt',
+        'sessionExpiresAt',
+        'updatedAt',
+        'createdAt',
+      ];
+    }
+
+    /** merge 입장 시 기존 tasteCompleted 등은 문서에 남지만, 이번 요청에서 바뀐 키만 검사. */
+    function ticketSessionFieldsOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(ticketSessionFieldKeys());
+    }
+
+    function isSessionRedeemCreate() {
+      return request.resource.data.keys().hasOnly(ticketSessionFieldKeys());
+    }
+
+    function canCreateFestivalTicket(ticketId) {
+      return signedIn() &&
+        validTicketId(ticketId) &&
+        request.resource.data.code == ticketId &&
+        request.resource.data.lastUid == request.auth.uid &&
+        ticketNotDisabled(ticketId) &&
+        (beforeProfileTasteLock() || isSessionRedeemCreate());
+    }
+
+    /** 프로필·취향 완료 후에도 입장 코드로 세션만 갱신 가능 (11:38 이후 포함). */
+    function canUpdateFestivalTicket(ticketId) {
+      return signedIn() &&
+        validTicketId(ticketId) &&
+        request.resource.data.code == ticketId &&
+        request.resource.data.lastUid == request.auth.uid &&
+        ticketNotDisabled(ticketId) &&
+        (beforeProfileTasteLock() || ticketSessionFieldsOnly());
+    }
+
+    match /festivalRecommendations/{ticketId} {
+      allow read: if hasActiveSession() && activeTicketId() == ticketId;
+      allow write: if false;
+    }
+
+    match /festivalRecommendationJobs/{jobId} {
+      function ownsRecommendationJob(data) {
+        return hasActiveSession() &&
+          data.ticketId == activeTicketId() &&
+          data.requestedByUid == request.auth.uid;
+      }
+
+      allow create: if ownsRecommendationJob(request.resource.data) &&
+        request.resource.data.status == 'requested' &&
+        request.resource.data.source == 'debug_refresh_button';
+      allow read: if ownsRecommendationJob(resource.data);
+      allow update, delete: if false;
+    }
+  }
+}

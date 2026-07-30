@@ -1,59 +1,32 @@
-// =============================================================================
-// 오늘의 인연 (미스터리 카드) 화면
-// 경로: lib/features/matching/screens/mystery_card_screen.dart
-//
-// PageView 기반 스와이프 캐러셀 + 카드별 3D 플립 애니메이션
-// 1차 탭: 미스터리 → 프로필 공개 (플립)
-// 2차 탭: ai_match_card_screen으로 이동
-// =============================================================================
+import 'dart:math' as math;
 
-import 'dart:async';
-import 'dart:math';
-import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
-import '../../chat/services/chat_service.dart';
-import '../../notifications/services/notification_service.dart';
+import '../../../core/constants/app_colors.dart';
 import '../../../router/route_names.dart';
-import '../../../services/ask_service.dart';
-import '../../../services/storage_service.dart';
-import '../../../services/rec_event_service.dart';
 import '../../../services/ai_recommendation_service.dart';
+import '../../../services/ask_service.dart';
+import '../../../services/rec_event_service.dart';
+import '../../../services/storage_service.dart';
+import '../../../services/user_service.dart';
 import '../../../shared/constants/photo_blur_constants.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
-import '../models/profile_card_args.dart';
-import '../../../core/constants/app_colors.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
+import '../../chat/services/chat_service.dart';
+import '../../notifications/services/notification_service.dart';
+import '../models/profile_card_args.dart';
 
-// =============================================================================
-// 색상 상수
-// =============================================================================
-class _AppColors {
-  static const Color primary = Color(0xFFFF4D88);
-  static const Color purple100 = Color(0xFFEDE9FE);
-  static const Color purple600 = Color(0xFF9333EA);
-  static const Color gray100 = Color(0xFFF3F4F6);
-  static const Color gray300 = Color(0xFFD1D5DB);
-  static const Color gray400 = Color(0xFF9CA3AF);
-  static const Color gray500 = Color(0xFF6B7280);
-  static const Color gray900 = Color(0xFF111827);
-  static const Color pink50 = Color(0xFFFDF2F8);
-  static const Color pink100 = Color(0xFFFCE7F3);
-  static const Color pink500 = Color(0xFFEC4899);
-}
+Color _postItColor(int index) =>
+    const [Color(0xFFFFF1A8), Color(0xFFF7CDD9), Color(0xFFCDE9F3)][index % 3];
 
-// =============================================================================
-// 메인 화면
-// =============================================================================
 class MysteryCardScreen extends StatefulWidget {
   final int notificationCount;
   final int remainingMatches;
   final VoidCallback? onAiPreference;
   final VoidCallback? onNotification;
-  final VoidCallback? onSettings;
   final Function(int index)? onNavTap;
 
   const MysteryCardScreen({
@@ -62,7 +35,6 @@ class MysteryCardScreen extends StatefulWidget {
     this.remainingMatches = 2,
     this.onAiPreference,
     this.onNotification,
-    this.onSettings,
     this.onNavTap,
   });
 
@@ -71,10 +43,9 @@ class MysteryCardScreen extends StatefulWidget {
 }
 
 class _MysteryCardScreenState extends State<MysteryCardScreen> {
-  final StorageService _storageService = StorageService();
-  final ChatService _chatService = ChatService();
-  final NotificationService _notificationService = NotificationService();
-
+  final _storageService = StorageService();
+  final _chatService = ChatService();
+  final _notificationService = NotificationService();
   String? _currentUserId;
 
   @override
@@ -84,78 +55,48 @@ class _MysteryCardScreenState extends State<MysteryCardScreen> {
   }
 
   Future<void> _loadCurrentUser() async {
-    final kakaoUserId = await _storageService.getKakaoUserId();
-    if (!mounted) return;
-    setState(() => _currentUserId = kakaoUserId);
-  }
-
-  void _handleNotificationTap() {
-    if (widget.onNotification != null) {
-      widget.onNotification!();
-      return;
-    }
-
-    Navigator.of(
-      context,
-      rootNavigator: true,
-    ).pushNamed(RouteNames.notifications);
+    final userId = await _storageService.getKakaoUserId();
+    if (mounted) setState(() => _currentUserId = userId);
   }
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
-
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return CupertinoPageScaffold(
-      backgroundColor: Theme.of(context).brightness == Brightness.dark
-          ? AppColorsDark.background
-          : CupertinoColors.white,
+      backgroundColor: isDark ? AppColorsDark.background : Colors.white,
       child: Stack(
         children: [
-          _BackgroundGradients(),
+          const _BackgroundGradients(),
           SafeArea(
             child: Column(
               children: [
-                if (_currentUserId == null || _currentUserId!.isEmpty)
-                  _Header(
-                    notificationCount: widget.notificationCount,
-                    onAiPreference:
-                        widget.onAiPreference ??
-                        () => Navigator.of(
-                          context,
-                          rootNavigator: true,
-                        ).pushNamed(RouteNames.aiPreference),
-                    onNotification: _handleNotificationTap,
-                  )
-                else
-                  StreamBuilder<int>(
-                    stream: _notificationService.unreadNotificationCountStream(
-                      _currentUserId!,
-                    ),
-                    builder: (context, snapshot) {
-                      final unreadCount = snapshot.data ?? 0;
-
-                      return _Header(
-                        notificationCount: unreadCount,
-                        onAiPreference:
-                            widget.onAiPreference ??
-                            () => Navigator.of(
-                              context,
-                              rootNavigator: true,
-                            ).pushNamed(RouteNames.aiPreference),
-                        onNotification: _handleNotificationTap,
-                      );
-                    },
-                  ),
-                Expanded(
-                  child: _MainContent(
-                    remainingMatches: widget.remainingMatches,
-                    onSettings: widget.onSettings,
-                  ),
+                _TopBar(
+                  notificationCount: _currentUserId == null
+                      ? widget.notificationCount
+                      : null,
+                  notificationStream: _currentUserId == null
+                      ? null
+                      : _notificationService.unreadNotificationCountStream(
+                          _currentUserId!,
+                        ),
+                  onAiPreference:
+                      widget.onAiPreference ??
+                      () => Navigator.of(
+                        context,
+                        rootNavigator: true,
+                      ).pushNamed(RouteNames.aiPreference),
+                  onNotification:
+                      widget.onNotification ??
+                      () => Navigator.of(
+                        context,
+                        rootNavigator: true,
+                      ).pushNamed(RouteNames.notifications),
                 ),
+                const Expanded(child: _LockerRecommendationContent()),
               ],
             ),
           ),
-          (_currentUserId == null || _currentUserId!.isEmpty)
+          _currentUserId == null
               ? SeolleyeonBottomNavPositioned(
                   currentTab: BottomNavTab.matching,
                   onTap: widget.onNavTap,
@@ -163,14 +104,11 @@ class _MysteryCardScreenState extends State<MysteryCardScreen> {
                 )
               : StreamBuilder<bool>(
                   stream: _chatService.hasAnyUnreadChats(_currentUserId!),
-                  builder: (context, snapshot) {
-                    final hasUnread = snapshot.data == true;
-                    return SeolleyeonBottomNavPositioned(
-                      currentTab: BottomNavTab.matching,
-                      onTap: widget.onNavTap,
-                      showChatBadge: hasUnread,
-                    );
-                  },
+                  builder: (context, snapshot) => SeolleyeonBottomNavPositioned(
+                    currentTab: BottomNavTab.matching,
+                    onTap: widget.onNavTap,
+                    showChatBadge: snapshot.data == true,
+                  ),
                 ),
         ],
       ),
@@ -178,86 +116,53 @@ class _MysteryCardScreenState extends State<MysteryCardScreen> {
   }
 }
 
-// =============================================================================
-// 배경 그라데이션
-// =============================================================================
 class _BackgroundGradients extends StatelessWidget {
+  const _BackgroundGradients();
+
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned(
-          top: -100,
-          left: -100,
-          child: Container(
-            width: 400,
-            height: 400,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  const Color(0xFFFBCFE8).withValues(alpha: 0.32),
-                  const Color(0xFFFBCFE8).withValues(alpha: 0.0),
-                ],
-              ),
-            ),
-          ),
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFFBF8F6), Color(0xFFFAF7F5)],
         ),
-        Positioned(
-          bottom: -100,
-          right: -100,
-          child: Container(
-            width: 500,
-            height: 500,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  const Color(0xFFE9D5FF).withValues(alpha: 0.32),
-                  const Color(0xFFE9D5FF).withValues(alpha: 0.0),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
 
-// =============================================================================
-// 헤더
-// =============================================================================
-class _Header extends StatelessWidget {
-  final int notificationCount;
-  final VoidCallback? onAiPreference;
-  final VoidCallback? onNotification;
+class _TopBar extends StatelessWidget {
+  final int? notificationCount;
+  final Stream<int>? notificationStream;
+  final VoidCallback onAiPreference;
+  final VoidCallback onNotification;
 
-  const _Header({
-    required this.notificationCount,
-    this.onAiPreference,
-    this.onNotification,
+  const _TopBar({
+    this.notificationCount,
+    this.notificationStream,
+    required this.onAiPreference,
+    required this.onNotification,
   });
 
   @override
   Widget build(BuildContext context) {
-    final displayCount = notificationCount > 9 ? '9+' : '$notificationCount';
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primary = Theme.of(context).colorScheme.primary;
-    final titleColor =
-        isDark ? AppColorsDark.textPrimary : _AppColors.gray900;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
+    final titleColor = isDark
+        ? AppColorsDark.textPrimary
+        : const Color(0xFF393236);
+    return StreamBuilder<int>(
+      stream: notificationStream,
+      builder: (context, snapshot) {
+        final count = snapshot.data ?? notificationCount ?? 0;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(22, 12, 22, 6),
+          child: Row(
             children: [
               Icon(
                 CupertinoIcons.heart_fill,
-                size: 24,
-                color: primary,
+                color: Theme.of(context).colorScheme.primary,
               ),
               const SizedBox(width: 8),
               Text(
@@ -266,974 +171,866 @@ class _Header extends StatelessWidget {
                   fontFamily: 'Pretendard',
                   fontSize: 21,
                   fontWeight: FontWeight.w700,
-                  letterSpacing: -0.3,
                   color: titleColor,
+                ),
+              ),
+              const Spacer(),
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(40, 40),
+                onPressed: onAiPreference,
+                child: Icon(
+                  CupertinoIcons.sparkles,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 4),
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(40, 40),
+                onPressed: onNotification,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Icon(
+                      CupertinoIcons.bell,
+                      color: isDark
+                          ? AppColorsDark.textSecondary
+                          : const Color(0xFF6B7280),
+                    ),
+                    if (count > 0)
+                      Positioned(
+                        top: -5,
+                        right: -7,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primary,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            count > 9 ? '9+' : '$count',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ],
           ),
-          Expanded(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: onAiPreference,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? AppColorsDark.surfaceVariant
-                          : _AppColors.pink50,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: isDark
-                            ? AppColorsDark.border
-                            : _AppColors.pink100,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          CupertinoIcons.sparkles,
-                          size: 16,
-                          color: isDark
-                              ? AppColorsDark.primary
-                              : _AppColors.pink500,
-                        ),
-                        const SizedBox(width: 4),
-                        Flexible(
-                          child: Text(
-                            'AI에게 내 취향 알려주기',
-                            style: TextStyle(
-                              fontFamily: 'Pretendard',
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: titleColor,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: onNotification,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Icon(
-                        CupertinoIcons.bell,
-                        size: 24,
-                        color: isDark
-                            ? AppColorsDark.textSecondary
-                            : _AppColors.gray500,
-                      ),
-                      if (notificationCount > 0)
-                        Positioned(
-                          top: -4,
-                          right: -6,
-                          child: Container(
-                            constraints: const BoxConstraints(
-                              minWidth: 16,
-                              minHeight: 16,
-                            ),
-                            padding: const EdgeInsets.symmetric(horizontal: 3),
-                            decoration: BoxDecoration(
-                              color: primary,
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                color: isDark
-                                    ? AppColorsDark.background
-                                    : CupertinoColors.white,
-                                width: 2,
-                              ),
-                            ),
-                            child: Center(
-                              child: Text(
-                                displayCount,
-                                style: const TextStyle(
-                                  fontFamily: 'Pretendard',
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
-                                  color: CupertinoColors.white,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
 
-// =============================================================================
-// 메인 콘텐츠 (StatefulWidget — 인디케이터 인덱스 관리)
-// =============================================================================
-class _MainContent extends StatefulWidget {
-  final int remainingMatches;
-  final VoidCallback? onSettings;
-
-  const _MainContent({required this.remainingMatches, this.onSettings});
+class _LockerRecommendationContent extends StatefulWidget {
+  const _LockerRecommendationContent();
 
   @override
-  State<_MainContent> createState() => _MainContentState();
+  State<_LockerRecommendationContent> createState() =>
+      _LockerRecommendationContentState();
 }
 
-class _MainContentState extends State<_MainContent> {
-  late PageController _pageController;
-  int _currentIndex = 0;
-  List<AiRecommendedProfile> _profiles = [];
-  bool _isLoading = true;
-  bool _isPageInteracting = false;
-  bool _isCardFlipLocked = false;
-  bool _isForceSnapping = false;
-  String? _kakaoUserId;
-  Timer? _pageSettleTimer;
+class _LockerRecommendationContentState
+    extends State<_LockerRecommendationContent> {
   final _storageService = StorageService();
   final _askService = AskService();
+  final _userService = UserService();
+  List<AiRecommendedProfile> _profiles = [];
+  String? _userId;
+  String _userNickname = '회원';
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(viewportFraction: 0.85);
     _loadRecommendations();
   }
 
   Future<void> _loadRecommendations() async {
-    final kakaoUserId = await _storageService.getKakaoUserId();
-    if (mounted) setState(() => _kakaoUserId = kakaoUserId);
-
-    final aiService = AiRecommendationService();
-    final feed = await aiService.fetchMysteryFeed(
+    final userId = await _storageService.getKakaoUserId();
+    final profiles = await AiRecommendationService().fetchMysteryFeed(
       limit: 3,
-      userId: kakaoUserId,
+      userId: userId,
     );
-
+    final userProfile = userId == null
+        ? null
+        : await _userService.getUserProfile(userId);
+    final onboarding = userId == null
+        ? <String, dynamic>{}
+        : await _storageService.getOnboardingDraft(userId);
+    final nickname = userProfile?['nickname']?.toString().trim();
     if (!mounted) return;
     setState(() {
-      _profiles = feed;
+      _userId = userId;
+      _profiles = profiles;
+      _userNickname = nickname?.isNotEmpty == true
+          ? nickname!
+          : (onboarding['nickname']?.toString().trim().isNotEmpty == true
+                ? onboarding['nickname'].toString().trim()
+                : '회원');
       _isLoading = false;
     });
-
-    if (_profiles.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _recordImpression(0);
-      });
+    for (var index = 0; index < profiles.length; index++) {
+      _logEvent(profiles[index], index, 'impression');
     }
   }
 
-  void _recordImpression(int index) {
-    if (index >= _profiles.length) return;
-    final uid = _kakaoUserId;
-    if (uid == null) return;
-
-    final profile = _profiles[index];
-
-    final Map<String, dynamic> contextMetadata = {
+  void _logEvent(AiRecommendedProfile profile, int index, String eventType) {
+    final userId = _userId;
+    if (userId == null) return;
+    final contextData = <String, dynamic>{
       'screen': 'mystery_card_screen',
       'position': index,
+      'interaction': 'locker_post_it',
+      'algorithmVersion': profile.primaryAlgo,
     };
-    if (profile.rank != 999) contextMetadata['rank'] = profile.rank;
+    if (profile.rank != 999) contextData['rank'] = profile.rank;
     if (profile.sourceScores != null) {
-      contextMetadata['score'] = profile.sourceScores!;
+      contextData['score'] = profile.sourceScores;
     }
     if (profile.finalScore != null) {
-      contextMetadata['finalScore'] = profile.finalScore!;
+      contextData['finalScore'] = profile.finalScore;
     }
-    contextMetadata['algorithmVersion'] = profile.primaryAlgo;
-
     RecEventService()
         .logEvent(
-          userId: uid,
+          userId: userId,
           targetType: 'user_profile',
           targetId: profile.candidateUid,
           candidateUserId: profile.candidateUid,
-          eventType: 'impression',
-          surface: 'mystery_card',
+          eventType: eventType,
+          surface: 'mystery_locker',
           cardVariant: 'real_profile',
           exposureId: profile.exposureId,
-          context: contextMetadata,
+          context: contextData,
         )
         .catchError(
-          (e) => debugPrint('[RecEvent] mystery_card impression failed: $e'),
+          (error) => debugPrint('[RecEvent] locker event failed: $error'),
         );
   }
 
-  String _todayLabel() {
-    return DateFormat('MMM d', 'en_US').format(DateTime.now());
-  }
-
-  @override
-  void dispose() {
-    _pageSettleTimer?.cancel();
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  void _setPageInteracting(bool value) {
-    if (!mounted || _isPageInteracting == value) return;
-    setState(() => _isPageInteracting = value);
-  }
-
-  void _setCardFlipLocked(bool value) {
-    if (!mounted || _isCardFlipLocked == value) return;
-    setState(() => _isCardFlipLocked = value);
-  }
-
-  void _markPageMoving() {
-    _pageSettleTimer?.cancel();
-    _setPageInteracting(true);
-  }
-
-  Future<void> _forceSnapToNearestPage() async {
-    if (!mounted || !_pageController.hasClients || _isForceSnapping) return;
-    if (_profiles.isEmpty || _isCardFlipLocked) return;
-
-    final page = _pageController.page;
-    if (page == null || !page.isFinite) return;
-
-    final targetPage = page.round().clamp(0, _profiles.length - 1);
-    if ((page - targetPage).abs() < 0.001) return;
-
-    _isForceSnapping = true;
-    try {
-      await _pageController.animateToPage(
-        targetPage,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-      );
-    } finally {
-      _isForceSnapping = false;
-    }
-  }
-
-  void _handleScrollSettled() {
-    _pageSettleTimer?.cancel();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await _forceSnapToNearestPage();
-      if (!mounted) return;
-      _scheduleSnapVerification();
-    });
-  }
-
-  bool _isPageAligned() {
-    if (!_pageController.hasClients) return true;
-    final page = _pageController.page;
-    if (page == null || !page.isFinite) return true;
-    return (page - page.round()).abs() < 0.01;
-  }
-
-  void _scheduleSnapVerification([int retriesLeft = 2]) {
-    _pageSettleTimer?.cancel();
-    _pageSettleTimer = Timer(const Duration(milliseconds: 120), () async {
-      if (!mounted) return;
-      if (!_isPageAligned() && retriesLeft > 0) {
-        await _forceSnapToNearestPage();
-        if (!mounted) return;
-        _scheduleSnapVerification(retriesLeft - 1);
-        return;
-      }
-      _setPageInteracting(false);
-    });
+  void _openNote(AiRecommendedProfile profile, int index) {
+    HapticFeedback.mediumImpact();
+    _logEvent(profile, index, 'open');
+    showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: '추천 메모 닫기',
+      barrierColor: Colors.black.withValues(alpha: 0.56),
+      transitionDuration: const Duration(milliseconds: 280),
+      pageBuilder: (dialogContext, _, __) => _LockerNoteDialog(
+        profile: profile,
+        colorIndex: index,
+        onViewProfile: () {
+          Navigator.of(dialogContext).pop();
+          Navigator.of(context, rootNavigator: true).pushNamed(
+            RouteNames.profileSpecificDetail,
+            arguments: ProfileCardArgs.fromAi(profile),
+          );
+        },
+      ),
+      transitionBuilder: (_, animation, __, child) => FadeTransition(
+        opacity: animation,
+        child: SlideTransition(
+          position:
+              Tween<Offset>(
+                begin: const Offset(0, 0.04),
+                end: Offset.zero,
+              ).animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+              ),
+          child: AnimatedBuilder(
+            animation: animation,
+            builder: (_, child) => Transform.rotate(
+              angle: (1 - animation.value) * 0.026,
+              child: Transform.scale(
+                scale: 0.92 + animation.value * 0.08,
+                child: child,
+              ),
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final headlineColor =
-        isDark ? AppColorsDark.textPrimary : _AppColors.gray900;
-    final mutedColor =
-        isDark ? const Color(0xFF7A6B76) : _AppColors.gray400;
-    final primary = Theme.of(context).colorScheme.primary;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 0),
-      child: Column(
-        children: [
-          const SizedBox(height: 16),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Column(
+    final textColor = isDark
+        ? AppColorsDark.textPrimary
+        : const Color(0xFF111827);
+    final mutedColor = isDark
+        ? AppColorsDark.textSecondary
+        : const Color(0xFF6B7280);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? AppColorsDark.surfaceVariant
-                                : _AppColors.purple100,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            'AI CURATED',
-                            style: TextStyle(
-                              fontFamily: 'Pretendard',
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: isDark
-                                  ? AppColorsDark.primaryLight
-                                  : _AppColors.purple600,
-                            ),
-                          ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEDE9FE),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'AI CURATED',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF7C3AED),
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _todayLabel(),
-                          style: TextStyle(
-                            fontFamily: 'Pretendard',
-                            fontSize: 12,
-                            color: mutedColor,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 5),
                     Text(
-                      '오늘의 인연',
+                      '$_userNickname님, 새로운 쪽지가 붙어있네요!',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontFamily: 'Pretendard',
-                        fontSize: 30,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: -0.5,
-                        color: headlineColor,
+                        fontSize: 20,
+                        height: 1.28,
+                        fontWeight: FontWeight.w700,
+                        color: textColor,
                       ),
                     ),
-                  ],
-                ),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_kakaoUserId != null && _kakaoUserId!.isNotEmpty)
-                      StreamBuilder<int>(
-                        stream: _askService.unreadReceivedCount(_kakaoUserId!),
-                        builder: (context, askSnap) {
-                          final hasUnread = (askSnap.data ?? 0) > 0;
-                          return CupertinoButton(
-                            padding: EdgeInsets.zero,
-                            onPressed: () {
-                              HapticFeedback.lightImpact();
-                              Navigator.of(
-                                context,
-                                rootNavigator: true,
-                              ).pushNamed(RouteNames.asksInbox);
-                            },
-                            child: SizedBox(
-                              width: 40,
-                              height: 40,
-                              child: Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  Center(
-                                    child: Icon(
-                                      CupertinoIcons.tray_fill,
-                                      size: 23,
-                                      color: mutedColor,
-                                    ),
-                                  ),
-                                  if (hasUnread)
-                                    Positioned(
-                                      right: 4,
-                                      top: 4,
-                                      child: Container(
-                                        width: 10,
-                                        height: 10,
-                                        decoration: BoxDecoration(
-                                          color: primary,
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: isDark
-                                                ? AppColorsDark.background
-                                                : CupertinoColors.white,
-                                            width: 1.5,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      )
-                    else
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: () {
-                          HapticFeedback.lightImpact();
-                          Navigator.of(
-                            context,
-                            rootNavigator: true,
-                          ).pushNamed(RouteNames.asksInbox);
-                        },
-                        child: SizedBox(
-                          width: 40,
-                          height: 40,
-                          child: Center(
-                            child: Icon(
-                              CupertinoIcons.tray_fill,
-                              size: 23,
-                              color: mutedColor,
-                            ),
-                          ),
-                        ),
-                      ),
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      onPressed: () {
-                        Navigator.of(
-                          context,
-                          rootNavigator: true,
-                        ).pushNamed(RouteNames.sentHearts);
-                      },
-                      child: Icon(
-                        CupertinoIcons.heart,
-                        size: 24,
+                    const SizedBox(height: 3),
+                    Text(
+                      DateFormat('MMM d', 'en_US').format(DateTime.now()),
+                      style: TextStyle(
+                        fontFamily: 'Pretendard',
+                        fontSize: 13,
                         color: mutedColor,
                       ),
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CupertinoActivityIndicator())
-                : _profiles.isEmpty
-                ? Center(
-                    child: Text(
-                      '오늘의 미스터리 카드가 모두 소진되었습니다.',
-                      style: TextStyle(
-                        color: isDark
-                            ? AppColorsDark.textSecondary
-                            : _AppColors.gray500,
-                        fontFamily: 'Pretendard',
-                      ),
-                    ),
-                  )
-                : NotificationListener<ScrollNotification>(
-                    onNotification: (notification) {
-                      if (notification is ScrollStartNotification) {
-                        _markPageMoving();
-                      } else if (notification is ScrollUpdateNotification) {
-                        _markPageMoving();
-                      } else if (notification is ScrollEndNotification) {
-                        _handleScrollSettled();
-                      }
-                      return false;
-                    },
-                    child: PageView.builder(
-                      controller: _pageController,
-                      pageSnapping: true,
-                      physics: _isCardFlipLocked
-                          ? const NeverScrollableScrollPhysics()
-                          : const PageScrollPhysics(),
-                      itemCount: _profiles.length,
-                      onPageChanged: (idx) {
-                        setState(() => _currentIndex = idx);
-                        _recordImpression(idx);
-                      },
-                      itemBuilder: (context, index) {
-                        final isActive = index == _currentIndex;
-                        return AnimatedScale(
-                          scale: isActive ? 1.0 : 0.95,
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeOutCubic,
-                          child: Center(
-                            child: _MysteryCard(
-                              key: ValueKey(_profiles[index].candidateUid),
-                              profile: _profiles[index],
-                              isActive: isActive,
-                              allowSecureCapture: true,
-                              onFlipLockChanged: _setCardFlipLocked,
-                              kakaoUserId: _kakaoUserId,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+              ),
+              const SizedBox(width: 10),
+              StreamBuilder<int>(
+                stream: _userId == null
+                    ? null
+                    : _askService.unreadReceivedCount(_userId!),
+                builder: (context, snapshot) => CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  onPressed: () => Navigator.of(
+                    context,
+                    rootNavigator: true,
+                  ).pushNamed(RouteNames.asksInbox),
+                  child: Badge(
+                    isLabelVisible: (snapshot.data ?? 0) > 0,
+                    child: Icon(CupertinoIcons.tray_fill, color: mutedColor),
                   ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 24),
-          if (!_isLoading && _profiles.isNotEmpty)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(_profiles.length, (i) {
-                return Container(
-                  width: 8,
-                  height: 8,
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  decoration: BoxDecoration(
-                    color: i == _currentIndex
-                        ? (isDark
-                            ? AppColorsDark.textPrimary
-                            : _AppColors.gray900)
-                        : (isDark
-                            ? AppColorsDark.divider
-                            : _AppColors.gray300),
-                    shape: BoxShape.circle,
+        ),
+        const SizedBox(height: 12),
+        Expanded(
+          child: _isLoading
+              ? const Center(child: CupertinoActivityIndicator())
+              : _profiles.isEmpty
+              ? Center(
+                  child: Text(
+                    '오늘의 추천이 모두 소진되었습니다.',
+                    style: TextStyle(color: mutedColor),
                   ),
-                );
-              }),
-            ),
-          const SizedBox(height: 100),
-        ],
-      ),
+                )
+              : _LockerBoard(profiles: _profiles, onOpen: _openNote),
+        ),
+        const SizedBox(height: 104),
+      ],
     );
   }
 }
 
-// =============================================================================
-// 미스터리 카드
-// =============================================================================
-class _MysteryCard extends StatefulWidget {
-  final AiRecommendedProfile profile;
-  final bool isActive;
-  final bool allowSecureCapture;
-  final ValueChanged<bool>? onFlipLockChanged;
-  final String? kakaoUserId;
+class _LockerBoard extends StatelessWidget {
+  final List<AiRecommendedProfile> profiles;
+  final void Function(AiRecommendedProfile profile, int index) onOpen;
 
-  const _MysteryCard({
-    super.key,
-    required this.profile,
-    required this.isActive,
-    required this.allowSecureCapture,
-    this.onFlipLockChanged,
-    this.kakaoUserId,
-  });
-
-  @override
-  State<_MysteryCard> createState() => _MysteryCardState();
-}
-
-class _MysteryCardState extends State<_MysteryCard>
-    with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
-  bool _isRevealed = false;
-
-  @override
-  bool get wantKeepAlive => true;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 700),
-      vsync: this,
-    );
-    _animation = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOutCubic),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _onCardTap() {
-    if (!widget.isActive || _controller.isAnimating) return;
-
-    if (_isRevealed) {
-      HapticFeedback.lightImpact();
-      Future.delayed(const Duration(milliseconds: 150), () {
-        if (!mounted) return;
-        Navigator.of(context, rootNavigator: true).pushNamed(
-          RouteNames.profileSpecificDetail,
-          arguments: ProfileCardArgs.fromAi(widget.profile),
-        );
-      });
-    } else {
-      HapticFeedback.mediumImpact();
-      widget.onFlipLockChanged?.call(true);
-      final uid = widget.kakaoUserId;
-      if (uid != null) {
-        final Map<String, dynamic> contextMetadata = {
-          'screen': 'mystery_card_screen',
-        };
-        if (widget.profile.rank != 999) {
-          contextMetadata['rank'] = widget.profile.rank;
-        }
-        if (widget.profile.sourceScores != null) {
-          contextMetadata['score'] = widget.profile.sourceScores!;
-        }
-        if (widget.profile.finalScore != null) {
-          contextMetadata['finalScore'] = widget.profile.finalScore!;
-        }
-        contextMetadata['algorithmVersion'] = widget.profile.primaryAlgo;
-
-        RecEventService()
-            .logEvent(
-              userId: uid,
-              targetType: 'user_profile',
-              targetId: widget.profile.candidateUid,
-              candidateUserId: widget.profile.candidateUid,
-              eventType: 'open',
-              surface: 'mystery_card',
-              cardVariant: 'real_profile',
-              exposureId: widget.profile.exposureId,
-              context: contextMetadata,
-            )
-            .catchError(
-              (e) => debugPrint('[RecEvent] mystery_card open failed: $e'),
-            );
-      }
-      _controller.forward().then((_) {
-        if (mounted) {
-          setState(() => _isRevealed = true);
-        }
-      }).whenComplete(() {
-        widget.onFlipLockChanged?.call(false);
-      });
-    }
-  }
+  const _LockerBoard({required this.profiles, required this.onOpen});
 
   @override
   Widget build(BuildContext context) {
-    super.build(context);
-    final screenWidth = MediaQuery.of(context).size.width;
-    final cardWidth = screenWidth * 0.75;
-    final cardHeight = cardWidth * 1.33;
-    final staticBackFace = _isRevealed && !_controller.isAnimating;
-
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _onCardTap,
-      child: staticBackFace
-          ? _buildBackFace(cardWidth, cardHeight, applyMirrorTransform: false)
-          : AnimatedBuilder(
-              animation: _animation,
-              builder: (context, child) {
-                final angle = _animation.value * pi;
-                final isBackVisible = _animation.value >= 0.5;
-
-                return Transform(
-                  alignment: Alignment.center,
-                  transform: Matrix4.identity()
-                    ..setEntry(3, 2, 0.001)
-                    ..rotateY(angle),
-                  child: isBackVisible
-                      ? _buildBackFace(cardWidth, cardHeight)
-                      : _buildFrontFace(cardWidth, cardHeight),
-                );
-              },
-            ),
-    );
-  }
-
-  Widget _buildFrontFace(double cardWidth, double cardHeight) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardBg =
-        isDark ? AppColorsDark.surface : CupertinoColors.white;
-    final cardBorder =
-        isDark ? AppColorsDark.border : _AppColors.gray100;
-
-    return Container(
-      width: cardWidth,
-      height: cardHeight,
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: cardBorder),
-        boxShadow: widget.isActive
-            ? [
-                BoxShadow(
-                  color: CupertinoColors.black.withValues(alpha: 0.15),
-                  blurRadius: 60,
-                  offset: const Offset(0, 0),
-                ),
-                BoxShadow(
-                  color: CupertinoColors.black.withValues(alpha: 0.04),
-                  blurRadius: 20,
-                  offset: const Offset(0, 0),
-                ),
-              ]
-            : null,
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Container(
-            width: 160,
-            height: 160,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  _AppColors.primary.withValues(
-                    alpha: widget.isActive ? 0.16 : 0.08,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = math.min(constraints.maxWidth - 40, 355.0);
+        final height = width * 1.18;
+        final noteWidth = width * 0.27;
+        final positions = [
+          _NotePosition(top: height * 0.14, left: width * 0.07, angle: -0.061),
+          _NotePosition(
+            bottom: height * 0.14,
+            left: width * 0.36,
+            angle: 0.044,
+          ),
+          _NotePosition(top: height * 0.40, right: width * 0.06, angle: -0.026),
+        ];
+        return Center(
+          child: SizedBox(
+            width: width,
+            height: height,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Positioned.fill(child: _LockerCabinet()),
+                for (
+                  var index = 0;
+                  index < profiles.length && index < positions.length;
+                  index++
+                )
+                  _positionedNote(
+                    positions[index],
+                    _LockerPostIt(
+                      profile: profiles[index],
+                      width: noteWidth,
+                      angle: positions[index].angle,
+                      colorIndex: index,
+                      onTap: () => onOpen(profiles[index], index),
+                    ),
                   ),
-                  _AppColors.primary.withValues(alpha: 0),
-                ],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: _AppColors.primary.withValues(
-                    alpha: widget.isActive ? 0.16 : 0.08,
-                  ),
-                  blurRadius: widget.isActive ? 36 : 22,
-                  spreadRadius: widget.isActive ? 4 : 1,
-                ),
               ],
             ),
           ),
-          Text(
-            '?',
-            style: TextStyle(
-              fontFamily: 'Pretendard',
-              fontSize: 128,
-              fontWeight: FontWeight.w700,
-              color: widget.isActive
-                  ? _AppColors.primary
-                  : _AppColors.primary.withValues(alpha: 0.7),
-            ),
-          ),
-          if (widget.isActive)
-            Positioned(
-              bottom: 24,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: _AppColors.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      CupertinoIcons.hand_draw,
-                      size: 16,
-                      color: _AppColors.primary,
-                    ),
-                    SizedBox(width: 6),
-                    Text(
-                      '탭하여 확인하기',
-                      style: TextStyle(
-                        fontFamily: 'Pretendard',
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: _AppColors.primary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildBackFace(
-    double cardWidth,
-    double cardHeight, {
-    bool applyMirrorTransform = true,
-  }) {
-    final profile = widget.profile;
-    final shouldUseSecureCapture =
-        widget.allowSecureCapture &&
-        _isRevealed &&
-        !_controller.isAnimating;
+  Widget _positionedNote(_NotePosition position, Widget child) => Positioned(
+    top: position.top,
+    bottom: position.bottom,
+    left: position.left,
+    right: position.right,
+    child: child,
+  );
+}
 
-    final body = Container(
-        width: cardWidth,
-        height: cardHeight,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: _AppColors.primary.withValues(alpha: 0.25),
-              blurRadius: 40,
-              offset: const Offset(0, 0),
-            ),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            widget.profile.imageUrls.isNotEmpty
-                ? CaptureProtectedImage(
-                    imageUrl: widget.profile.imageUrls.first,
-                    fit: BoxFit.cover,
-                    borderRadius: 24,
-                    blurEnabled: true,
-                    blurSigma: kLockedProfilePhotoBlurSigma,
-                    blurBadgeText: '사진은 상세에서 채팅 후 선명하게 보여요',
-                    iosSecureCaptureEnabled: shouldUseSecureCapture,
-                    backgroundColor: _AppColors.gray300,
-                    placeholderIconColor: CupertinoColors.white,
-                    placeholderIconSize: 42,
-                  )
-                : Container(color: _AppColors.gray300),
-            Container(
+class _NotePosition {
+  final double? top;
+  final double? bottom;
+  final double? left;
+  final double? right;
+  final double angle;
+  const _NotePosition({
+    this.top,
+    this.bottom,
+    this.left,
+    this.right,
+    required this.angle,
+  });
+}
+
+class _LockerCabinet extends StatelessWidget {
+  const _LockerCabinet();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final frame = isDark ? const Color(0xFF65565C) : const Color(0xFFE8DDE0);
+    final panel = isDark ? const Color(0xFF76666C) : const Color(0xFFF7F2F3);
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: frame,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.11),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: List.generate(
+          3,
+          (index) => Expanded(
+            child: Container(
+              margin: EdgeInsets.only(right: index == 2 ? 0 : 2),
               decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(11),
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    CupertinoColors.black.withValues(alpha: 0),
-                    CupertinoColors.black.withValues(alpha: 0.15),
-                    CupertinoColors.black.withValues(alpha: 0.75),
+                    isDark ? const Color(0xFF87767C) : const Color(0xFFFFFFFF),
+                    panel,
                   ],
-                  stops: const [0.0, 0.5, 1.0],
                 ),
+                border: Border.all(color: frame.withValues(alpha: 0.7)),
               ),
+              child: _LockerDoor(frame: frame),
             ),
-            Positioned(
-              left: 24,
-              right: 24,
-              bottom: 24,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          profile.name,
-                          style: const TextStyle(
-                            fontFamily: 'Pretendard',
-                            fontSize: 28,
-                            fontWeight: FontWeight.w600,
-                            color: CupertinoColors.white,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: CupertinoColors.white.withValues(
-                                alpha: 0.2,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: CupertinoColors.white.withValues(
-                                  alpha: 0.1,
-                                ),
-                              ),
-                            ),
-                            child: Text(
-                              '${profile.sourceScores != null ? (profile.sourceScores! * 100).toInt() : 85}% Match',
-                              style: const TextStyle(
-                                fontFamily: 'Pretendard',
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                color: CupertinoColors.white,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    "${profile.major} • ${profile.age}",
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      fontSize: 14,
-                      fontWeight: FontWeight.w300,
-                      color: CupertinoColors.white.withValues(alpha: 0.8),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: profile.tags.take(3).map((tag) {
-                      return ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 5,
-                            ),
-                            decoration: BoxDecoration(
-                              color: CupertinoColors.black.withValues(
-                                alpha: 0.35,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: CupertinoColors.white.withValues(
-                                  alpha: 0.1,
-                                ),
-                              ),
-                            ),
-                            child: Text(
-                              tag,
-                              style: const TextStyle(
-                                fontFamily: 'Pretendard',
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                                color: CupertinoColors.white,
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ),
-            ),
-          ],
+          ),
         ),
-      );
-
-    if (!applyMirrorTransform) {
-      return body;
-    }
-
-    return Transform(
-      alignment: Alignment.center,
-      transform: Matrix4.identity()..rotateY(pi),
-      child: body,
+      ),
     );
   }
 }
 
+class _LockerDoor extends StatelessWidget {
+  final Color frame;
+  const _LockerDoor({required this.frame});
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    children: [
+      Positioned(
+        top: 18,
+        left: 13,
+        right: 13,
+        child: Column(
+          children: List.generate(
+            3,
+            (_) => Container(
+              height: 2,
+              margin: const EdgeInsets.only(bottom: 4),
+              color: frame.withValues(alpha: 0.48),
+            ),
+          ),
+        ),
+      ),
+      Positioned(
+        top: 58,
+        left: 13,
+        right: 13,
+        child: Container(
+          height: 14,
+          decoration: BoxDecoration(
+            border: Border.all(color: frame.withValues(alpha: 0.48)),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+      ),
+      Positioned(
+        top: 92,
+        right: 10,
+        child: Container(
+          width: 7,
+          height: 28,
+          decoration: BoxDecoration(
+            color: const Color(0xFF88767C),
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+      ),
+      Positioned(
+        top: 3,
+        left: 5,
+        child: Container(
+          width: 26,
+          height: 4,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.18),
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+class _LockerPostIt extends StatelessWidget {
+  final AiRecommendedProfile profile;
+  final double width;
+  final double angle;
+  final int colorIndex;
+  final VoidCallback onTap;
+
+  const _LockerPostIt({
+    required this.profile,
+    required this.width,
+    required this.angle,
+    required this.colorIndex,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _postItColor(colorIndex);
+    return Transform.rotate(
+      angle: angle,
+      child: _PressableScale(
+        onTap: onTap,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: width,
+              height: width * 0.86,
+              padding: const EdgeInsets.fromLTRB(10, 15, 10, 10),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(5),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 7,
+                    offset: const Offset(1, 4),
+                  ),
+                ],
+              ),
+              child: const Center(
+                child: Text(
+                  '확인하기',
+                  style: TextStyle(
+                    fontFamily: 'Pretendard',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF9B596B),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: -7,
+              left: width * 0.29,
+              child: Transform.rotate(
+                angle: -0.018,
+                child: Container(
+                  width: width * 0.40,
+                  height: 14,
+                  color: const Color(0xFFF6E9D2).withValues(alpha: 0.66),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PressableScale extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+  const _PressableScale({required this.child, required this.onTap});
+  @override
+  State<_PressableScale> createState() => _PressableScaleState();
+}
+
+class _PressableScaleState extends State<_PressableScale> {
+  bool _pressed = false;
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTapDown: (_) => setState(() => _pressed = true),
+    onTapCancel: () => setState(() => _pressed = false),
+    onTapUp: (_) => setState(() => _pressed = false),
+    onTap: widget.onTap,
+    child: AnimatedSlide(
+      duration: Duration(milliseconds: _pressed ? 100 : 150),
+      curve: Curves.easeOut,
+      offset: _pressed ? const Offset(0, 0.012) : Offset.zero,
+      child: AnimatedScale(
+        duration: Duration(milliseconds: _pressed ? 100 : 150),
+        curve: Curves.easeOut,
+        scale: _pressed ? 0.975 : 1,
+        child: widget.child,
+      ),
+    ),
+  );
+}
+
+class _LockerNoteDialog extends StatelessWidget {
+  final AiRecommendedProfile profile;
+  final int colorIndex;
+  final VoidCallback onViewProfile;
+  const _LockerNoteDialog({
+    required this.profile,
+    required this.colorIndex,
+    required this.onViewProfile,
+  });
+
+  String _greeting() {
+    const greetings = [
+      '안녕, 친해지고 싶어 :)',
+      '안녕, 우리 친해질래? :)',
+      '안녕, 같이 이야기해 보고 싶어 :)',
+    ];
+    return greetings[profile.candidateUid.hashCode.abs() % greetings.length];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final memoColor = isDark
+        ? const Color(0xFF352B31)
+        : _postItColor(colorIndex);
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+      backgroundColor: Colors.transparent,
+      child: _ReferenceMemoLayout(
+        profile: profile,
+        memoColor: memoColor,
+        isDark: isDark,
+        greeting: _greeting(),
+        onClose: () => Navigator.of(context).pop(),
+        onViewProfile: onViewProfile,
+      ),
+    );
+  }
+}
+
+class _ReferenceMemoLayout extends StatelessWidget {
+  final AiRecommendedProfile profile;
+  final Color memoColor;
+  final bool isDark;
+  final String greeting;
+  final VoidCallback onClose;
+  final VoidCallback onViewProfile;
+
+  const _ReferenceMemoLayout({
+    required this.profile,
+    required this.memoColor,
+    required this.isDark,
+    required this.greeting,
+    required this.onClose,
+    required this.onViewProfile,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final mainText = isDark ? const Color(0xFFF6EEF0) : const Color(0xFF55483F);
+    final subText = isDark ? const Color(0xFFD5C5CA) : const Color(0xFF78685D);
+    const handwriting = TextStyle(
+      fontFamily: 'LeeSeoyun',
+      fontSize: 20,
+      height: 1.0,
+    );
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 390),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: double.infinity,
+                height: 390,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: memoColor,
+                  borderRadius: BorderRadius.circular(5),
+                  border: Border.all(
+                    color: const Color(0xFFE0A041).withValues(alpha: 0.55),
+                    width: 2,
+                  ),
+                ),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: ColorFiltered(
+                        colorFilter: ColorFilter.mode(
+                          memoColor,
+                          BlendMode.multiply,
+                        ),
+                        child: Image.asset('postit.png', fit: BoxFit.cover),
+                      ),
+                    ),
+                    Positioned.fill(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 27, 24, 22),
+                        child: Column(
+                          children: [
+                            for (var index = 0; index < 8; index++)
+                              Expanded(
+                                child: Container(
+                                  alignment: Alignment.centerLeft,
+                                  decoration: BoxDecoration(
+                                    border: Border(
+                                      bottom: BorderSide(
+                                        color: mainText.withValues(alpha: 0.18),
+                                        width: 0.7,
+                                      ),
+                                    ),
+                                  ),
+                                  child: _HandwrittenMemoLine(
+                                    text: switch (index) {
+                                      0 => greeting,
+                                      2 => '나는 ${profile.name}이고,',
+                                      3 => '${profile.major}에 다니고 있어.',
+                                      4 =>
+                                        '성격: ${profile.tags.take(2).join(', ')}',
+                                      _ => '',
+                                    },
+                                    style: handwriting.copyWith(
+                                      color: index == 4 ? subText : mainText,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 12,
+                      right: 12,
+                      child: CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(32, 32),
+                        onPressed: onClose,
+                        child: Icon(
+                          CupertinoIcons.xmark,
+                          size: 18,
+                          color: subText,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      right: 20,
+                      bottom: 26,
+                      child: _MemoPolaroid(profile: profile),
+                    ),
+                  ],
+                ),
+              ),
+              Positioned(
+                top: -7,
+                left: 104,
+                child: Transform.rotate(
+                  angle: -0.025,
+                  child: Container(
+                    width: 94,
+                    height: 15,
+                    color: const Color(0xFFF1E3CA).withValues(alpha: 0.72),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: 214,
+            height: 48,
+            child: CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              color: isDark ? const Color(0xFF9B6575) : const Color(0xFFC8758C),
+              borderRadius: BorderRadius.circular(12),
+              onPressed: onViewProfile,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '상세 프로필 보기',
+                    style: handwriting.copyWith(
+                      fontSize: 20,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  const Icon(
+                    CupertinoIcons.chevron_right,
+                    size: 15,
+                    color: Colors.white,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HandwrittenMemoLine extends StatelessWidget {
+  final String text;
+  final TextStyle style;
+
+  const _HandwrittenMemoLine({required this.text, required this.style});
+
+  @override
+  Widget build(BuildContext context) =>
+      Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: style);
+}
+
+class _MemoPolaroid extends StatelessWidget {
+  final AiRecommendedProfile profile;
+  const _MemoPolaroid({required this.profile});
+
+  @override
+  Widget build(BuildContext context) => Transform.rotate(
+    angle: 0.11,
+    child: Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: 118,
+          height: 142,
+          padding: const EdgeInsets.fromLTRB(7, 7, 7, 20),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFFEFC),
+            borderRadius: BorderRadius.circular(2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.16),
+                blurRadius: 7,
+                offset: const Offset(1, 4),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: profile.imageUrls.isEmpty
+                ? Container(
+                    color: const Color(0xFFE8D9B4),
+                    child: const Icon(
+                      CupertinoIcons.person_fill,
+                      color: Colors.white,
+                      size: 42,
+                    ),
+                  )
+                : CaptureProtectedImage(
+                    imageUrl: profile.imageUrls.first,
+                    fit: BoxFit.cover,
+                    borderRadius: 2,
+                    blurEnabled: true,
+                    blurSigma: kLockedProfilePhotoBlurSigma,
+                    iosSecureCaptureEnabled: true,
+                    backgroundColor: const Color(0xFFE8D9B4),
+                    placeholderIconColor: Colors.white,
+                    placeholderIconSize: 42,
+                  ),
+          ),
+        ),
+        Positioned(
+          top: -8,
+          left: 34,
+          child: Transform.rotate(
+            angle: -0.10,
+            child: Container(
+              width: 50,
+              height: 16,
+              color: const Color(0xFFDCE9F2).withValues(alpha: 0.84),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}

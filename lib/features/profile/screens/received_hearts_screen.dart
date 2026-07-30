@@ -31,7 +31,7 @@ class _AppColors {
   static const Color gray500 = Color(0xFF6B7280);
 }
 
-const String _kFontFamily = 'Noto Sans KR';
+const String _kFontFamily = 'NanumSquareRound';
 
 // =============================================================================
 // Hydrated heart profile view model
@@ -222,7 +222,7 @@ class _ReceivedHeartsScreenState extends State<ReceivedHeartsScreen> {
                         child: Text(
                           '데이터를 불러올 수 없어요',
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 14,
                             color: _AppColors.gray500,
                           ),
@@ -450,7 +450,7 @@ class _ReceivedHeartCard extends StatelessWidget {
                         Text(
                           dateText,
                           style: const TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
                             letterSpacing: -0.3,
@@ -467,7 +467,7 @@ class _ReceivedHeartCard extends StatelessWidget {
                       if (item.university.isNotEmpty) item.university,
                     ].join(' • '),
                     style: const TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 12,
                       color: _AppColors.textSub,
                     ),

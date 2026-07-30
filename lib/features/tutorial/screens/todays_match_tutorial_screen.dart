@@ -147,7 +147,7 @@ class _TodaysMatchTutorialScreenState extends State<TodaysMatchTutorialScreen>
                             Text(
                               '다음',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 18,
                                 fontWeight: FontWeight.w700,
                                 color: CupertinoColors.white,
@@ -194,7 +194,7 @@ class _Header extends StatelessWidget {
             child: const Text(
               'Skip',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.5,
@@ -513,7 +513,7 @@ class _TitleSection extends StatelessWidget {
             textAlign: TextAlign.center,
             text: const TextSpan(
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 28,
                 fontWeight: FontWeight.w700,
                 height: 1.3,
@@ -539,7 +539,7 @@ class _TitleSection extends StatelessWidget {
             '마음에 드는 인연이 있다면\n재화를 사용하여 채팅을 진행해보세요!',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 16,
               height: 1.5,
               color: _AppColors.textSecondary,

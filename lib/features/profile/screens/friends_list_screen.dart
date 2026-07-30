@@ -97,7 +97,7 @@ class _FriendsListScreenState extends State<FriendsListScreen> {
         middle: const Text(
           '친구 목록',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontWeight: FontWeight.w700,
             color: FriendsListSharedColors.textMain,
           ),
