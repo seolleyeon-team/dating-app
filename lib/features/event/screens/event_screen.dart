@@ -8,7 +8,6 @@
 // home: const EventScreen(),
 // =============================================================================
 
-import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import '../../blind_meeting/presentation/widgets/blind_meeting_event_card.dart';
@@ -21,14 +20,6 @@ import '../widgets/team_invite_response_sheet.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
-
-// =============================================================================
-// 색상 상수
-// =============================================================================
-class _AppColors {
-  static const Color backgroundLight = Color(0xFFFFF5F8);
-  static const Color border = Color(0xFFE6DBDE);
-}
 
 // =============================================================================
 // 메인 화면
@@ -76,15 +67,14 @@ class _EventScreenState extends State<EventScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
     final handleBack = widget.onNavTap != null
         ? () => widget.onNavTap!.call(0)
         : () => Navigator.of(context).pop();
 
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+
     return CupertinoPageScaffold(
-      backgroundColor: Theme.of(context).brightness == Brightness.dark
-          ? AppColorsDark.background
-          : _AppColors.backgroundLight,
+      backgroundColor: seol.eventBackground,
       child: Stack(
         children: [
           // 메인 콘텐츠
@@ -327,8 +317,9 @@ class _SegmentTab extends StatelessWidget {
               style: TextStyle(
                 fontFamily: 'Pretendard',
                 fontSize: 14,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                color: isSelected ? primary : seol.sectionTitle,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                // 비선택 탭은 '비활성'이 아니라 '선택 가능'으로 읽혀야 한다.
+                color: isSelected ? primary : seol.bodyText,
               ),
             ),
           ),
@@ -528,9 +519,7 @@ class _StatusStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final seol = Theme.of(context).extension<SeolThemeColors>()!;
     final primary = Theme.of(context).colorScheme.primary;
-    final borderColor = Theme.of(context).brightness == Brightness.dark
-        ? AppColorsDark.border
-        : _AppColors.border;
+    final borderColor = seol.eventBorder;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -652,9 +641,9 @@ class _Divider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = Theme.of(context).brightness == Brightness.dark
-        ? AppColorsDark.border
-        : _AppColors.border;
+    final borderColor = Theme.of(
+      context,
+    ).extension<SeolThemeColors>()!.eventBorder;
 
     return Container(
       height: 1,
@@ -762,9 +751,7 @@ class _VenueCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final seol = Theme.of(context).extension<SeolThemeColors>()!;
     final primary = Theme.of(context).colorScheme.primary;
-    final borderColor = Theme.of(context).brightness == Brightness.dark
-        ? AppColorsDark.border
-        : _AppColors.border;
+    final borderColor = seol.eventBorder;
 
     return Container(
       padding: const EdgeInsets.all(12),
