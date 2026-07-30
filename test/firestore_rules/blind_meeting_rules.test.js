@@ -1,12 +1,17 @@
 /**
  * 3:3 블라인드 취향 미팅 — Firestore 보안 규칙 테스트
  *
- * 실행 요건 (이 환경에서는 충족되지 않아 실행하지 못했음):
- *   - firebase-tools 설치 (npm i -g firebase-tools)
- *   - Java 11 이상 (Firestore emulator 요구사항, 현재 환경은 Java 8)
+ * 실행 요건:
+ *   - firebase-tools (npx firebase 로도 가능)
+ *   - Java 11 이상 (Firestore emulator 요구사항)
  *
  * 실행:
- *   cd test/firestore_rules && npm install && npm test
+ *   cd test/firestore_rules && npm install
+ *   npx firebase emulators:exec --only firestore \
+ *     --project seolleyeon-rules-test "node --test blind_meeting_rules.test.js"
+ *
+ * 주의: 같은 emulator project를 쓰는 다른 테스트 파일과 동시에 실행하면
+ *       seed 데이터가 서로 간섭한다. 파일 단위로 실행할 것.
  */
 
 const assert = require("node:assert/strict");
@@ -56,6 +61,9 @@ before(async () => {
     await setDoc(doc(db, "blindMeetingApplications", A1), {
       userId: A1,
       open: true,
+      requestedDateKeys: ["2026-08-02", "2026-08-05"],
+      availabilityMode: "date_only",
+      scheduleSelectionVersion: 2,
     });
     await setDoc(doc(db, "blindMeetings", MEETING_ID), {
       meetingId: MEETING_ID,
@@ -65,6 +73,10 @@ before(async () => {
       teamAUserIds: [A1, A2],
       teamBUserIds: [B1],
       groupChatId: `blind_${MEETING_ID}`,
+      matchedDateKey: "2026-08-02",
+      commonAvailableDateKeys: ["2026-08-02", "2026-08-05"],
+      availabilityMode: "date_only",
+      scheduleSelectionVersion: 2,
     });
     await setDoc(
       doc(db, "blindMeetings", MEETING_ID, "participants", A1),
@@ -135,6 +147,130 @@ describe("신청 문서", () => {
     await assertFails(
       updateDoc(doc(authed(A1), "blindMeetingApplications", A1), { open: false })
     );
+  });
+});
+
+describe("참여 가능 날짜 (date-only)", () => {
+  // 날짜 검증은 submitBlindMeetingApplication callable에서만 수행된다.
+  // Rules는 클라이언트 쓰기를 전면 차단해 검증 우회 자체를 막는다.
+
+  it("본인 DNA의 availableDateKeys를 직접 쓸 수 없다", async () => {
+    await assertFails(
+      setDoc(doc(authed(A1), "blindMeetingDna", A1), {
+        availableDateKeys: ["2026-08-02"],
+      })
+    );
+    await assertFails(
+      updateDoc(doc(authed(A1), "blindMeetingDna", A1), {
+        availableDateKeys: ["2026-08-02"],
+      })
+    );
+  });
+
+  it("신청 문서의 requestedDateKeys를 직접 쓸 수 없다", async () => {
+    await assertFails(
+      updateDoc(doc(authed(A1), "blindMeetingApplications", A1), {
+        requestedDateKeys: ["2026-08-02"],
+      })
+    );
+  });
+
+  it("잘못된 날짜 형식도 애초에 쓸 수 없다", async () => {
+    for (const bad of [
+      ["2026-2-30"],
+      ["20260802"],
+      ["2026-02-30"],
+      ["2026-08-02", "2026-08-02"],
+      "2026-08-02",
+      [42],
+    ]) {
+      await assertFails(
+        updateDoc(doc(authed(A1), "blindMeetingApplications", A1), {
+          requestedDateKeys: bad,
+        })
+      );
+    }
+  });
+
+  it("legacy 시간대 필드로 검증을 우회할 수 없다", async () => {
+    await assertFails(
+      updateDoc(doc(authed(A1), "blindMeetingApplications", A1), {
+        requestedSlotIds: ["2026-08-02#evening"],
+      })
+    );
+    await assertFails(
+      updateDoc(doc(authed(A1), "blindMeetingDna", A1), {
+        availableSlotIds: ["2026-08-02#evening"],
+        availableSlots: ["2026-08-02#evening"],
+      })
+    );
+  });
+
+  it("다른 사용자의 날짜를 수정할 수 없다", async () => {
+    await assertFails(
+      updateDoc(doc(authed(A2), "blindMeetingApplications", A1), {
+        requestedDateKeys: ["2026-08-09"],
+      })
+    );
+    await assertFails(
+      setDoc(doc(authed(A2), "blindMeetingDna", A1), {
+        availableDateKeys: ["2026-08-09"],
+      })
+    );
+  });
+
+  it("비인증 사용자는 신청 문서를 읽거나 쓸 수 없다", async () => {
+    const anon = testEnv.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(anon, "blindMeetingApplications", A1)));
+    await assertFails(
+      setDoc(doc(anon, "blindMeetingApplications", A1), {
+        requestedDateKeys: ["2026-08-02"],
+      })
+    );
+    await assertFails(
+      setDoc(doc(anon, "blindMeetingDna", A1), {
+        availableDateKeys: ["2026-08-02"],
+      })
+    );
+  });
+
+  it("매칭 후 공통 날짜를 임의로 바꿔 그룹 조건을 깨뜨릴 수 없다", async () => {
+    await assertFails(
+      updateDoc(doc(authed(A1), "blindMeetings", MEETING_ID), {
+        commonAvailableDateKeys: ["2027-01-01"],
+      })
+    );
+    await assertFails(
+      updateDoc(doc(authed(A1), "blindMeetings", MEETING_ID), {
+        matchedDateKey: "2027-01-01",
+      })
+    );
+    await assertFails(
+      updateDoc(doc(authed(A1), "blindMeetings", MEETING_ID), {
+        slotId: "2027-01-01#evening",
+      })
+    );
+  });
+
+  it("참가자는 미팅의 공통 날짜를 읽을 수 있다", async () => {
+    const snap = await assertSucceeds(
+      getDoc(doc(authed(A1), "blindMeetings", MEETING_ID))
+    );
+    assert.deepEqual(snap.data().commonAvailableDateKeys, [
+      "2026-08-02",
+      "2026-08-05",
+    ]);
+    assert.equal(snap.data().availabilityMode, "date_only");
+  });
+
+  it("본인 신청 문서에서 선택 날짜를 복구할 수 있다", async () => {
+    const snap = await assertSucceeds(
+      getDoc(doc(authed(A1), "blindMeetingApplications", A1))
+    );
+    assert.deepEqual(snap.data().requestedDateKeys, [
+      "2026-08-02",
+      "2026-08-05",
+    ]);
   });
 });
 

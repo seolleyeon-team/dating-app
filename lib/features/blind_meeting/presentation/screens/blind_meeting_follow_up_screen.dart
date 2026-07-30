@@ -233,7 +233,7 @@ class _BlindMeetingFollowUpScreenState
             if (submitted)
               Text(
                 '선택을 제출했어요. 결과는 상호 선택이 확인되면 알려드려요.',
-                style: BlindMeetingText.caption(palette.sage),
+                style: BlindMeetingText.caption(palette.positive),
               )
             else if (closed)
               Text(
@@ -350,7 +350,7 @@ class _BlindMeetingFollowUpScreenState
               child: Icon(
                 selected ? Icons.check_circle : Icons.circle_outlined,
                 size: 22,
-                color: selected ? palette.plum : palette.inkFaint,
+                color: selected ? palette.accent : palette.inkFaint,
               ),
             ),
           ],

@@ -9,13 +9,21 @@ void main() {
         'blind_meeting_intro_viewed',
         'blind_meeting_dna_started',
         'blind_meeting_dna_completed',
-        'blind_meeting_application_submitted',
+        // 날짜 전용 선택 (v2)
+        'blind_meeting_schedule_viewed',
+        'blind_meeting_date_selected',
+        'blind_meeting_date_unselected',
+        'blind_meeting_schedule_submitted',
+        'blind_meeting_availability_relaxed',
         'blind_meeting_waitlisted',
         'blind_meeting_group_formed',
         'blind_meeting_recommendation_banner_shown',
         'blind_meeting_invitation_accepted',
         'blind_meeting_deposit_completed',
         'blind_meeting_group_chat_created',
+        // 약속잡기 funnel
+        'blind_meeting_schedule_vote_opened',
+        'blind_meeting_schedule_vote_submitted',
         'blind_meeting_schedule_confirmed',
         'blind_meeting_confirmation_24h',
         'blind_meeting_confirmation_3h',
@@ -46,13 +54,15 @@ void main() {
         'interests': ['커피'],
         'studentEmail': 'a@yonsei.ac.kr',
         'conversationAtmosphere': 'calm',
-        'slotCount': 3,
+        'selectedDateCount': 3,
+        'availabilityWindowDays': 21,
         'isAlcoholFree': true,
       });
 
       expect(sanitized.keys.toSet(), {
         'meetingId',
-        'slotCount',
+        'selectedDateCount',
+        'availabilityWindowDays',
         'isAlcoholFree',
       });
       expect(sanitized.containsKey('nickname'), isFalse);
@@ -68,6 +78,29 @@ void main() {
       expect(BlindMeetingAnalytics.hashUserId('user-123'), hash);
       expect(BlindMeetingAnalytics.hashUserId('user-124'), isNot(hash));
       expect(BlindMeetingAnalytics.hashUserId(''), '');
+    });
+
+    test('실제 선택 날짜와 시간대 키는 화이트리스트에 없다', () {
+      for (final key in const [
+        'availableDateKeys',
+        'requestedDateKeys',
+        'selectedDates',
+        'dateKey',
+        'selected_time_slot',
+        'morning_selected',
+        'afternoon_selected',
+        'evening_selected',
+        'slotCount',
+        'preferredSlotIds',
+        'commonAvailableDateKeys',
+        'matchedDateKey',
+      ]) {
+        expect(
+          blindMeetingAnalyticsAllowedParams.contains(key),
+          isFalse,
+          reason: key,
+        );
+      }
     });
 
     test('비공개 DNA 답변 키는 화이트리스트에 없다', () {

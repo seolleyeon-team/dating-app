@@ -3,7 +3,11 @@
 import 'package:seolleyeon/features/blind_meeting/domain/blind_meeting_enums.dart';
 import 'package:seolleyeon/features/blind_meeting/domain/matching/blind_meeting_candidate.dart';
 
+/// 최종 확정 시간 테스트용 슬롯 id (약속잡기 단계에서만 쓰인다).
 const String kSlot = '2026-08-01#evening';
+
+/// 매칭 기준 날짜. 세부 시간은 매칭 조건이 아니다.
+const String kDateKey = '2026-08-01';
 
 BlindMeetingCandidate candidate(
   String userId, {
@@ -18,7 +22,7 @@ BlindMeetingCandidate candidate(
   SmokingStatus smokingStatus = SmokingStatus.nonSmoker,
   Set<String> interests = const {'커피', '영화'},
   String? mbti = 'ENFP',
-  Set<String>? slots,
+  Set<String>? dateKeys,
   bool schoolVerified = true,
   bool eligible = true,
   Set<String> blocked = const <String>{},
@@ -36,7 +40,7 @@ BlindMeetingCandidate candidate(
     smokingStatus: smokingStatus,
     interestIds: interests,
     mbti: mbti,
-    availableSlotIds: slots ?? const {kSlot},
+    availableDateKeys: dateKeys ?? const {kDateKey},
     schoolVerified: schoolVerified,
     eligible: eligible,
     blockedUserIds: blocked,

@@ -8,8 +8,8 @@
 //   새로고침·앱 종료·재로그인 후에도 정확히 복구된다.
 // =============================================================================
 
+import 'blind_meeting_availability.dart';
 import 'blind_meeting_enums.dart';
-import 'blind_meeting_slot.dart';
 
 /// 매칭 대기 화면에 표시할 단계.
 enum BlindMeetingMatchingStage {
@@ -85,7 +85,9 @@ class BlindMeetingApplication {
   final String userId;
   final BlindMeetingParticipantStatus status;
   final BlindMeetingMatchingStage stage;
-  final List<BlindMeetingSlot> requestedSlots;
+
+  /// 신청한 참여 가능 날짜 (KST `yyyy-MM-dd`, 오름차순).
+  final List<String> requestedDateKeys;
   final bool prefersAlcoholFree;
   final bool waitlistOptIn;
 
@@ -98,18 +100,20 @@ class BlindMeetingApplication {
   /// 서버가 계산한 대기 시간(분).
   final int waitedMinutes;
 
-  const BlindMeetingApplication({
+  BlindMeetingApplication({
     required this.userId,
     required this.status,
     required this.stage,
-    this.requestedSlots = const <BlindMeetingSlot>[],
+    List<String> requestedDateKeys = const <String>[],
     this.prefersAlcoholFree = false,
     this.waitlistOptIn = true,
     this.meetingId,
     this.appliedAt,
     this.updatedAt,
     this.waitedMinutes = 0,
-  });
+  }) : requestedDateKeys = BlindMeetingAvailability.normalizeDateKeys(
+         requestedDateKeys,
+       );
 
   bool get isActive =>
       status != BlindMeetingParticipantStatus.cancelled &&
@@ -134,8 +138,10 @@ class BlindMeetingApplication {
         data['stage'],
         fallback: BlindMeetingMatchingStage.searchingCandidates,
       ),
-      requestedSlots: BlindMeetingSlot.parseList(
-        data['requestedSlotIds'] ?? data['requestedSlots'],
+      // 날짜 전용 필드를 우선 읽고, 없으면 legacy 슬롯에서 날짜만 복원한다.
+      requestedDateKeys: BlindMeetingAvailability.readDateKeys(
+        dateKeys: data['requestedDateKeys'],
+        legacySlots: data['requestedSlotIds'] ?? data['requestedSlots'],
       ),
       prefersAlcoholFree: data['prefersAlcoholFree'] == true,
       waitlistOptIn: data['waitlistOptIn'] != false,

@@ -20,13 +20,25 @@ enum BlindMeetingAnalyticsEvent {
   introViewed('blind_meeting_intro_viewed'),
   dnaStarted('blind_meeting_dna_started'),
   dnaCompleted('blind_meeting_dna_completed'),
-  applicationSubmitted('blind_meeting_application_submitted'),
+
+  // ── 날짜 전용 선택 (v2) ────────────────────────────────────────────────
+  scheduleViewed('blind_meeting_schedule_viewed'),
+  dateSelected('blind_meeting_date_selected'),
+  dateUnselected('blind_meeting_date_unselected'),
+  scheduleSubmitted('blind_meeting_schedule_submitted'),
+
+  /// 매칭 대기 중 조건 완화로 가능 날짜를 넓힘
+  availabilityRelaxed('blind_meeting_availability_relaxed'),
   waitlisted('blind_meeting_waitlisted'),
   groupFormed('blind_meeting_group_formed'),
   recommendationBannerShown('blind_meeting_recommendation_banner_shown'),
   invitationAccepted('blind_meeting_invitation_accepted'),
   depositCompleted('blind_meeting_deposit_completed'),
   groupChatCreated('blind_meeting_group_chat_created'),
+
+  /// 약속잡기 funnel: 시트 열림 → 투표 제출 → 확정
+  scheduleVoteOpened('blind_meeting_schedule_vote_opened'),
+  scheduleVoteSubmitted('blind_meeting_schedule_vote_submitted'),
   scheduleConfirmed('blind_meeting_schedule_confirmed'),
   confirmation24h('blind_meeting_confirmation_24h'),
   confirmation3h('blind_meeting_confirmation_3h'),
@@ -50,10 +62,19 @@ enum BlindMeetingAnalyticsEvent {
 /// analytics 파라미터로 허용되는 비민감 키.
 ///
 /// 여기 없는 키는 전송하지 않는다.
+/// 실제로 선택한 날짜 목록이나 생활 패턴이 드러나는 값은 넣지 않는다.
+/// 날짜 관련 파라미터는 개수·창 길이·월 경계 여부만 허용한다.
 const Set<String> blindMeetingAnalyticsAllowedParams = {
   'meetingId',
   'isAlcoholFree',
-  'slotCount',
+  'selectedDateCount',
+  'availabilityWindowDays',
+  'crossesMonthBoundary',
+  // 조건 완화 / 약속잡기 funnel (실제 날짜는 절대 넣지 않는다)
+  'relaxationChoice',
+  'addedDateCount',
+  'candidateDateCount',
+  'votedDateCount',
   'stage',
   'selectionCount',
   'depositStatus',

@@ -23,7 +23,7 @@ import {
   loadParticipants,
   updateParticipant,
 } from "./store";
-import { cancelMeeting, handleVacancy, runMatchingForSlot } from "./orchestrator";
+import { cancelMeeting, handleVacancy, runMatchingForDate } from "./orchestrator";
 import {
   BLIND_MEETING_COLLECTIONS,
   asNum,
@@ -183,7 +183,7 @@ async function forceBlindMeetingRematchHandler(request: AdminRequest) {
   }
   const meeting = await loadMeeting(meetingId);
   await cancelMeeting(meetingId, `ops_rematch:${adminUid}`);
-  const created = await runMatchingForSlot(meeting.slotId);
+  const created = await runMatchingForDate(meeting.matchedDateKey);
   logger.info("blindMeeting ops forced rematch", {
     meetingId,
     createdMeetings: created.length,

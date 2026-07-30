@@ -141,12 +141,12 @@ void main() {
   });
 
   group('세션 팀 조회', () {
-    const session = BlindMeetingSession(
+    final session = BlindMeetingSession(
       meetingId: 'm1',
       status: BlindMeetingStatus.chatOpen,
-      teamAUserIds: ['a1', 'a2', 'a3'],
-      teamBUserIds: ['b1', 'b2', 'b3'],
-      participantIds: ['a1', 'a2', 'a3', 'b1', 'b2', 'b3'],
+      teamAUserIds: const ['a1', 'a2', 'a3'],
+      teamBUserIds: const ['b1', 'b2', 'b3'],
+      participantIds: const ['a1', 'a2', 'a3', 'b1', 'b2', 'b3'],
     );
 
     test('참가자의 팀을 찾는다', () {
@@ -198,12 +198,7 @@ void main() {
       AlcoholCompanionPreference alcohol =
           AlcoholCompanionPreference.noPreference,
       DrinkingLevel drinking = DrinkingLevel.sometimes,
-      List<BlindMeetingSlot> slots = const [
-        BlindMeetingSlot(
-          dateKey: '2026-08-01',
-          timeBlock: BlindMeetingTimeBlock.evening,
-        ),
-      ],
+      List<String> dateKeys = const ['2026-08-01'],
       List<String> interests = const ['커피'],
     }) {
       return BlindMeetingDna(
@@ -216,7 +211,7 @@ void main() {
         interestIds: interests,
         drinkingLevelSnapshot: drinking,
         smokingStatusSnapshot: SmokingStatus.nonSmoker,
-        availableSlots: slots,
+        availableDateKeys: dateKeys,
       );
     }
 
@@ -240,9 +235,43 @@ void main() {
 
     test('가능한 날짜가 없으면 제출 불가', () {
       expect(
-        dna(slots: const []).validate(),
+        dna(dateKeys: const []).validate(),
         contains(BlindMeetingDnaViolation.missingAvailability),
       );
+    });
+
+    test('날짜는 중복 제거 후 오름차순으로 저장된다', () {
+      final payload = dna(
+        dateKeys: const ['2026-08-05', '2026-08-01', '2026-08-05'],
+      ).toWritePayload();
+      expect(payload['availableDateKeys'], ['2026-08-01', '2026-08-05']);
+      expect(payload['availabilityMode'], 'date_only');
+      expect(payload['scheduleSelectionVersion'], 2);
+    });
+
+    test('write payload에 시간대 필드가 없다', () {
+      final payload = dna().toWritePayload();
+      expect(payload.keys, isNot(contains('availableSlots')));
+      expect(payload.keys, isNot(contains('availableSlotIds')));
+    });
+
+    test('legacy 슬롯 문서에서 날짜만 복원한다', () {
+      final restored = BlindMeetingDna.fromMap('u1', {
+        'conversationAtmosphere': 'calm',
+        'conversationInitiative': 'adaptive',
+        'meetingPurpose': 'both',
+        'alcoholCompanionPreference': 'noPreference',
+        'smokingCompanionPreference': 'noPreference',
+        'interestIds': ['커피'],
+        'drinkingLevelSnapshot': 'sometimes',
+        'smokingStatusSnapshot': 'nonSmoker',
+        'availableSlotIds': [
+          '2026-08-05#lunch',
+          '2026-08-01#evening',
+          '2026-08-01#lateEvening',
+        ],
+      });
+      expect(restored!.availableDateKeys, ['2026-08-01', '2026-08-05']);
     });
 
     test('관심사가 없으면 제출 불가', () {
@@ -271,7 +300,7 @@ void main() {
         AlcoholCompanionPreference.lightOkay,
       );
       expect(restored.drinkingLevelSnapshot, DrinkingLevel.none);
-      expect(restored.availableSlots.length, 1);
+      expect(restored.availableDateKeys, ['2026-08-01']);
     });
   });
 

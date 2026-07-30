@@ -19,7 +19,7 @@ Map<String, dynamic> loadFixture() {
   return jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
 }
 
-BlindMeetingCandidate hydrate(Map<String, dynamic> raw, String slotId) {
+BlindMeetingCandidate hydrate(Map<String, dynamic> raw, String dateKey) {
   return BlindMeetingCandidate(
     userId: raw['userId'] as String,
     atmosphere: enumFromName(
@@ -59,7 +59,8 @@ BlindMeetingCandidate hydrate(Map<String, dynamic> raw, String slotId) {
     ),
     interestIds: (raw['interestIds'] as List).map((e) => '$e').toSet(),
     mbti: raw['mbti'] as String?,
-    availableSlotIds: {slotId},
+    // 골든 벡터는 점수 계산만 검증한다. 날짜는 전원 동일하게 둔다.
+    availableDateKeys: {dateKey},
   );
 }
 
@@ -97,7 +98,8 @@ void main() {
 
   group('매칭 골든 벡터', () {
     final fixture = loadFixture();
-    final slotId = fixture['slotId'] as String;
+    // 골든 벡터는 점수 계산만 다룬다. 날짜는 fixture 슬롯의 날짜 부분을 쓴다.
+    final dateKey = (fixture['slotId'] as String).split('#').first;
     final cases = (fixture['cases'] as List).cast<Map<String, dynamic>>();
     final expected = fixture['expected'] as Map<String, dynamic>;
 
@@ -116,11 +118,11 @@ void main() {
         final alcoholFree = testCase['alcoholFree'] == true;
         final teamA = (testCase['teamA'] as List)
             .cast<Map<String, dynamic>>()
-            .map((raw) => hydrate(raw, slotId))
+            .map((raw) => hydrate(raw, dateKey))
             .toList();
         final teamB = (testCase['teamB'] as List)
             .cast<Map<String, dynamic>>()
-            .map((raw) => hydrate(raw, slotId))
+            .map((raw) => hydrate(raw, dateKey))
             .toList();
 
         final want = expected[name] as Map<String, dynamic>;

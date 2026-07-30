@@ -196,17 +196,19 @@ class _BlindMeetingFeedbackScreenState
                         ),
                         decoration: BoxDecoration(
                           color: selected
-                              ? palette.plum.withValues(alpha: 0.10)
+                              ? palette.accent.withValues(alpha: 0.10)
                               : palette.surfaceMuted,
                           borderRadius: BorderRadius.circular(999),
                           border: Border.all(
-                            color: selected ? palette.plum : Colors.transparent,
+                            color: selected
+                                ? palette.accent
+                                : Colors.transparent,
                           ),
                         ),
                         child: Text(
                           reason.label,
                           style: BlindMeetingText.caption(
-                            selected ? palette.plum : palette.inkSoft,
+                            selected ? palette.accent : palette.inkSoft,
                           ),
                         ),
                       ),
@@ -239,7 +241,7 @@ class _BlindMeetingFeedbackScreenState
               ),
               Switch(
                 value: _safetyConcern,
-                activeThumbColor: palette.mutedRose,
+                activeThumbColor: palette.attention,
                 onChanged: (value) => setState(() => _safetyConcern = value),
               ),
             ],
@@ -273,16 +275,16 @@ class _BlindMeetingFeedbackScreenState
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: selected
-                ? palette.plum.withValues(alpha: 0.12)
+                ? palette.accent.withValues(alpha: 0.12)
                 : palette.surfaceMuted,
             border: Border.all(
-              color: selected ? palette.plum : Colors.transparent,
+              color: selected ? palette.accent : Colors.transparent,
             ),
           ),
           child: Text(
             '$score',
             style: BlindMeetingText.body(
-              selected ? palette.plum : palette.inkSoft,
+              selected ? palette.accent : palette.inkSoft,
             ),
           ),
         ),

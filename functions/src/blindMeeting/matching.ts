@@ -29,6 +29,7 @@ import {
   MeetingPurpose,
   SmokingCompanionPreference,
   SmokingStatus,
+  commonDateKeys,
 } from "./types";
 
 export type Candidate = {
@@ -42,7 +43,8 @@ export type Candidate = {
   smokingStatus: SmokingStatus;
   interestIds: string[];
   mbti: string | null;
-  availableSlotIds: string[];
+  /** 참여 가능한 날짜 (KST `yyyy-MM-dd`). 세부 시간은 매칭 조건이 아니다. */
+  availableDateKeys: string[];
   schoolVerified: boolean;
   eligible: boolean;
   blockedUserIds: string[];
@@ -53,7 +55,8 @@ export type Candidate = {
 export type ConstraintViolation =
   | "notSchoolVerified"
   | "notEligible"
-  | "slotUnavailable"
+  | "dateUnavailable"
+  | "noCommonDate"
   | "blockedContact"
   | "recentlyMet"
   | "alcoholFreeGroupRequired"
@@ -517,14 +520,14 @@ export function waitingTimeBonus(
 
 export function checkCandidateConstraints(
   candidate: Candidate,
-  slotId: string,
+  dateKey: string,
   alcoholFreeGroup: boolean
 ): ConstraintViolation[] {
   const violations: ConstraintViolation[] = [];
   if (!candidate.schoolVerified) violations.push("notSchoolVerified");
   if (!candidate.eligible) violations.push("notEligible");
-  if (!candidate.availableSlotIds.includes(slotId)) {
-    violations.push("slotUnavailable");
+  if (!candidate.availableDateKeys.includes(dateKey)) {
+    violations.push("dateUnavailable");
   }
   if (requiresAlcoholFreeGroup(candidate) && !alcoholFreeGroup) {
     violations.push("alcoholFreeGroupRequired");
@@ -571,9 +574,19 @@ export function checkPairConstraints(
   return violations;
 }
 
+/**
+ * 구성원 전원이 공통으로 가능한 날짜 (오름차순).
+ *
+ * 비어 있으면 같은 미팅으로 확정하지 않는다. 확정된 미팅에서는
+ * 단체 채팅방 약속잡기의 날짜 후보로 그대로 쓰인다.
+ */
+export function groupCommonDateKeys(members: Candidate[]): string[] {
+  return commonDateKeys(members.map((m) => m.availableDateKeys));
+}
+
 export function checkGroupConstraints(
   members: Candidate[],
-  slotId: string,
+  dateKey: string,
   alcoholFreeGroup: boolean,
   expectedSize?: number
 ): ConstraintViolation[] {
@@ -587,7 +600,7 @@ export function checkGroupConstraints(
     seen.add(member.userId);
     for (const v of checkCandidateConstraints(
       member,
-      slotId,
+      dateKey,
       alcoholFreeGroup
     )) {
       violations.add(v);
@@ -600,17 +613,20 @@ export function checkGroupConstraints(
       }
     }
   }
+  // 공통 가능 날짜 검사는 의도적으로 여기서 하지 않는다.
+  // 전원이 dateKey를 갖고 있어야 통과하므로 교집합은 항상 dateKey를 포함한다.
+  // 최종 6인 구성 검사는 createMeetingFromProposal 에서 한 번만 수행한다.
   return [...violations];
 }
 
 export function isGroupAllowed(
   members: Candidate[],
-  slotId: string,
+  dateKey: string,
   alcoholFreeGroup: boolean,
   expectedSize?: number
 ): boolean {
   return (
-    checkGroupConstraints(members, slotId, alcoholFreeGroup, expectedSize)
+    checkGroupConstraints(members, dateKey, alcoholFreeGroup, expectedSize)
       .length === 0
   );
 }
@@ -637,7 +653,10 @@ export type TeamProposal = {
 };
 
 export type GroupProposal = {
-  slotId: string;
+  /** 이 구성을 만든 기준 날짜 (KST `yyyy-MM-dd`) */
+  dateKey: string;
+  /** 여섯 명이 공통으로 가능한 날짜 전체 (약속잡기 후보) */
+  commonDateKeys: string[];
   alcoholFree: boolean;
   algorithmVersion: string;
   teamA: Candidate[];
@@ -671,7 +690,7 @@ function teamKey(members: Candidate[]): string {
 
 function eligiblePool(
   pool: Candidate[],
-  slotId: string,
+  dateKey: string,
   alcoholFree: boolean
 ): Candidate[] {
   const seen = new Set<string>();
@@ -680,7 +699,7 @@ function eligiblePool(
     if (seen.has(candidate.userId)) continue;
     seen.add(candidate.userId);
     if (
-      checkCandidateConstraints(candidate, slotId, alcoholFree).length === 0
+      checkCandidateConstraints(candidate, dateKey, alcoholFree).length === 0
     ) {
       result.push(candidate);
     }
@@ -691,17 +710,17 @@ function eligiblePool(
 
 export function buildTeamProposals(
   pool: Candidate[],
-  slotId: string,
+  dateKey: string,
   alcoholFree: boolean,
   config: MatchingConfig = CURRENT_MATCHING_CONFIG
 ): TeamProposal[] {
-  const eligible = eligiblePool(pool, slotId, alcoholFree);
+  const eligible = eligiblePool(pool, dateKey, alcoholFree);
   if (eligible.length < 3) return [];
 
   const byKey = new Map<string, TeamProposal>();
 
   const tryTeam = (trio: Candidate[]) => {
-    if (!isGroupAllowed(trio, slotId, alcoholFree, 3)) return;
+    if (!isGroupAllowed(trio, dateKey, alcoholFree, 3)) return;
     const ordered = orderTeamMembers(trio);
     const proposal: TeamProposal = {
       members: ordered,
@@ -750,11 +769,11 @@ export function buildTeamProposals(
 
 export function bestGroup(
   pool: Candidate[],
-  slotId: string,
+  dateKey: string,
   alcoholFree: boolean,
   config: MatchingConfig = CURRENT_MATCHING_CONFIG
 ): GroupProposal | null {
-  const teams = buildTeamProposals(pool, slotId, alcoholFree, config);
+  const teams = buildTeamProposals(pool, dateKey, alcoholFree, config);
   if (teams.length < 2) return null;
 
   const shortlist = teams.slice(0, config.teamShortlistSize);
@@ -774,7 +793,7 @@ export function bestGroup(
       if (overlaps) continue;
 
       const members = [...left.members, ...right.members];
-      if (!isGroupAllowed(members, slotId, alcoholFree, 6)) continue;
+      if (!isGroupAllowed(members, dateKey, alcoholFree, 6)) continue;
 
       const score = groupScore(
         left.members,
@@ -784,7 +803,8 @@ export function bestGroup(
       );
       const bonus = waitingTimeBonus(members, config);
       groups.push({
-        slotId,
+        dateKey,
+        commonDateKeys: groupCommonDateKeys(members),
         alcoholFree,
         algorithmVersion: config.algorithmVersion,
         teamA: left.members,
@@ -812,7 +832,7 @@ export function bestGroup(
 
 export function proposeGroups(
   pool: Candidate[],
-  slotId: string,
+  dateKey: string,
   alcoholFree: boolean,
   maxGroups = 1,
   config: MatchingConfig = CURRENT_MATCHING_CONFIG
@@ -820,7 +840,7 @@ export function proposeGroups(
   const selected: GroupProposal[] = [];
   let remaining = pool;
   for (let round = 0; round < maxGroups; round++) {
-    const group = bestGroup(remaining, slotId, alcoholFree, config);
+    const group = bestGroup(remaining, dateKey, alcoholFree, config);
     if (group == null) break;
     selected.push(group);
     const used = new Set([
@@ -847,7 +867,7 @@ export function evaluateReplacement(params: {
   vacantUserId: string;
   candidate: Candidate;
   baselineFinalGroupScore: number;
-  slotId: string;
+  dateKey: string;
   alcoholFree: boolean;
   urgent?: boolean;
   config?: MatchingConfig;
@@ -873,7 +893,7 @@ export function evaluateReplacement(params: {
   }
   for (const v of checkGroupConstraints(
     members,
-    params.slotId,
+    params.dateKey,
     params.alcoholFree,
     6
   )) {
@@ -914,7 +934,7 @@ export function rankReplacements(params: {
   vacantUserId: string;
   candidates: Candidate[];
   baselineFinalGroupScore: number;
-  slotId: string;
+  dateKey: string;
   alcoholFree: boolean;
   urgent?: boolean;
   limit?: number;

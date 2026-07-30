@@ -18,6 +18,7 @@ import {
   atmosphereCompatibility,
   bestGroup,
   checkGroupConstraints,
+  groupCommonDateKeys,
   checkPairConstraints,
   evaluateReplacement,
   groupScore,
@@ -41,14 +42,33 @@ import {
 import { interestTaxonomyFingerprint } from "../interestTaxonomy";
 import {
   DEFAULT_POLICY,
+  policyFromConfigDoc,
   refundAmountFor,
   resolveCancellation,
   resolveNoShowSanction,
 } from "../policy";
 import { buildNotificationIdempotencyKey } from "../../shared/notify";
-import { canTransitionMeeting, isValidSlotId, slotStartAt } from "../types";
+import {
+  BLIND_MEETING_AVAILABILITY_WINDOW_DAYS,
+  canTransitionMeeting,
+  commonDateKeys,
+  dateKeyOfSlotId,
+  dateKeysFromLegacySlots,
+  fallbackSlotIdFor,
+  isDateKeyWithinWindow,
+  isValidDateKey,
+  isValidSlotId,
+  legacySlotIdsForDate,
+  normalizeDateKeys,
+  readDateKeys,
+  selectableDateKeys,
+  slotStartAt,
+} from "../types";
 
 const SLOT = "2026-08-01#evening";
+
+/** 매칭 기준 날짜. 세부 시간은 매칭 조건이 아니다. */
+const DATE = "2026-08-01";
 
 function candidate(
   userId: string,
@@ -65,7 +85,7 @@ function candidate(
     smokingStatus: "nonSmoker",
     interestIds: ["커피", "영화"],
     mbti: "ENFP",
-    availableSlotIds: [SLOT],
+    availableDateKeys: [DATE],
     schoolVerified: true,
     eligible: true,
     blockedUserIds: [],
@@ -313,30 +333,148 @@ describe("hard constraint", () => {
     assert.ok(violations.includes("smokingRejected"));
   });
 
-  it("학교 인증/제재/시간 불가 후보는 제외된다", () => {
+  it("학교 인증/제재/날짜 불가 후보는 제외된다", () => {
     const violations = checkGroupConstraints(
       [
         candidate("a", { schoolVerified: false }),
         candidate("b", { eligible: false }),
-        candidate("c", { availableSlotIds: ["2026-09-09#lunch"] }),
+        candidate("c", { availableDateKeys: ["2026-09-09"] }),
       ],
-      SLOT,
+      DATE,
       false,
       3
     );
     assert.ok(violations.includes("notSchoolVerified"));
     assert.ok(violations.includes("notEligible"));
-    assert.ok(violations.includes("slotUnavailable"));
+    assert.ok(violations.includes("dateUnavailable"));
+  });
+
+  it("기준 날짜를 못 쓰는 후보는 dateUnavailable 로 걸러진다", () => {
+    const violations = checkGroupConstraints(
+      [
+        candidate("a", { availableDateKeys: [DATE, "2026-08-02"] }),
+        candidate("b", { availableDateKeys: [DATE, "2026-08-03"] }),
+        candidate("c", { availableDateKeys: ["2026-08-04"] }),
+      ],
+      DATE,
+      false,
+      3
+    );
+    assert.ok(violations.includes("dateUnavailable"));
+  });
+
+  it("전원이 기준 날짜를 쓸 수 있으면 공통 날짜는 항상 존재한다", () => {
+    // hot path에서 교집합을 다시 계산하지 않아도 되는 근거.
+    const members = [
+      candidate("a", { availableDateKeys: [DATE, "2026-08-02"] }),
+      candidate("b", { availableDateKeys: [DATE, "2026-08-03"] }),
+      candidate("c", { availableDateKeys: [DATE] }),
+    ];
+    assert.equal(checkGroupConstraints(members, DATE, false, 3).length, 0);
+    assert.deepEqual(groupCommonDateKeys(members), [DATE]);
   });
 
   it("동일 사용자 중복 참가를 막는다", () => {
     const violations = checkGroupConstraints(
       [candidate("a"), candidate("a"), candidate("b")],
-      SLOT,
+      DATE,
       false,
       3
     );
     assert.ok(violations.includes("duplicateParticipant"));
+  });
+});
+
+describe("날짜 전용 availability", () => {
+  it("내일부터 21일, 총 21개 날짜를 만든다", () => {
+    const nowMs = Date.UTC(2026, 6, 30, 3, 0, 0); // KST 2026-07-30 12:00
+    const keys = selectableDateKeys(nowMs);
+    assert.equal(keys.length, BLIND_MEETING_AVAILABILITY_WINDOW_DAYS);
+    assert.equal(keys[0], "2026-07-31");
+    assert.equal(keys[keys.length - 1], "2026-08-20");
+  });
+
+  it("오늘과 범위 밖 날짜를 거부한다", () => {
+    const nowMs = Date.UTC(2026, 6, 30, 3, 0, 0);
+    assert.equal(isDateKeyWithinWindow("2026-07-30", nowMs), false);
+    assert.equal(isDateKeyWithinWindow("2026-07-29", nowMs), false);
+    assert.equal(isDateKeyWithinWindow("2026-07-31", nowMs), true);
+    assert.equal(isDateKeyWithinWindow("2026-08-20", nowMs), true);
+    assert.equal(isDateKeyWithinWindow("2026-08-21", nowMs), false);
+  });
+
+  it("KST 자정 경계에서 날짜가 밀리지 않는다", () => {
+    // UTC 2026-07-30 15:30 == KST 2026-07-31 00:30
+    const nowMs = Date.UTC(2026, 6, 30, 15, 30, 0);
+    assert.equal(selectableDateKeys(nowMs)[0], "2026-08-01");
+  });
+
+  it("달력에 없는 날짜와 형식 오류를 거부한다", () => {
+    assert.equal(isValidDateKey("2026-02-30"), false);
+    assert.equal(isValidDateKey("2026-13-01"), false);
+    assert.equal(isValidDateKey("20260801"), false);
+    assert.equal(isValidDateKey("2028-02-29"), true); // 윤년
+  });
+
+  it("중복을 제거하고 오름차순 정렬한다", () => {
+    assert.deepEqual(
+      normalizeDateKeys(["2026-08-03", "2026-08-01", "2026-08-03", "bad"]),
+      ["2026-08-01", "2026-08-03"]
+    );
+  });
+
+  it("legacy 슬롯에서 날짜만 복원한다", () => {
+    assert.deepEqual(
+      dateKeysFromLegacySlots([
+        "2026-08-01#evening",
+        "2026-08-01#lunch",
+        "2026-08-05#afternoon",
+      ]),
+      ["2026-08-01", "2026-08-05"]
+    );
+  });
+
+  it("날짜 전용 필드가 없으면 legacy 슬롯을 읽는다", () => {
+    assert.deepEqual(readDateKeys(undefined, ["2026-08-02#evening"]), [
+      "2026-08-02",
+    ]);
+    assert.deepEqual(readDateKeys(["2026-08-09"], ["2026-08-02#evening"]), [
+      "2026-08-09",
+    ]);
+  });
+
+  it("여섯 명 공통 날짜 교집합을 계산한다", () => {
+    const common = commonDateKeys([
+      ["2026-08-01", "2026-08-02", "2026-08-03"],
+      ["2026-08-02", "2026-08-03"],
+      ["2026-08-02", "2026-08-03", "2026-08-09"],
+      ["2026-08-03", "2026-08-02"],
+      ["2026-08-02"],
+      ["2026-08-02", "2026-08-05"],
+    ]);
+    assert.deepEqual(common, ["2026-08-02"]);
+  });
+
+  it("공통 날짜가 없으면 빈 배열", () => {
+    assert.deepEqual(
+      commonDateKeys([["2026-08-01"], ["2026-08-02"]]),
+      []
+    );
+  });
+
+  it("legacy 슬롯 조회용 id를 만든다", () => {
+    assert.deepEqual(legacySlotIdsForDate("2026-08-01"), [
+      "2026-08-01#lunch",
+      "2026-08-01#afternoon",
+      "2026-08-01#evening",
+      "2026-08-01#lateEvening",
+    ]);
+    assert.deepEqual(legacySlotIdsForDate("bad"), []);
+  });
+
+  it("슬롯 id에서 날짜를 뽑는다", () => {
+    assert.equal(dateKeyOfSlotId(SLOT), "2026-08-01");
+    assert.equal(dateKeyOfSlotId("2026-08-01#none"), null);
   });
 });
 
@@ -371,7 +509,7 @@ describe("무알코올 후보군 분리", () => {
         drinkingLevel: "none",
       })
     );
-    assert.equal(bestGroup(pool, SLOT, true), null);
+    assert.equal(bestGroup(pool, DATE, true), null);
   });
 });
 
@@ -388,26 +526,26 @@ describe("optimizer", () => {
   }
 
   it("6명이면 3:3 구성이 만들어진다", () => {
-    const group = bestGroup(pool(6), SLOT, false);
+    const group = bestGroup(pool(6), DATE, false);
     assert.ok(group != null);
     assert.equal(group!.teamA.length, 3);
     assert.equal(group!.teamB.length, 3);
   });
 
   it("5명이면 구성되지 않는다", () => {
-    assert.equal(bestGroup(pool(5), SLOT, false), null);
+    assert.equal(bestGroup(pool(5), DATE, false), null);
   });
 
   it("입력 순서가 달라도 결과가 같다 (deterministic)", () => {
-    const first = bestGroup(pool(9), SLOT, false);
-    const second = bestGroup([...pool(9)].reverse(), SLOT, false);
+    const first = bestGroup(pool(9), DATE, false);
+    const second = bestGroup([...pool(9)].reverse(), DATE, false);
     assert.ok(first != null && second != null);
     assert.equal(first!.key, second!.key);
   });
 
   it("동점이면 정렬된 id로 tie-break", () => {
     const identical = Array.from({ length: 6 }, (_, i) => candidate(`u${i}`));
-    const group = bestGroup(identical, SLOT, false);
+    const group = bestGroup(identical, DATE, false);
     assert.equal(group!.key, "u0|u1|u2|u3|u4|u5");
   });
 
@@ -425,11 +563,11 @@ describe("optimizer", () => {
         candidate(`f${i}`, { purpose: "friendship", initiative: roles[i] })
       ),
     ];
-    assert.equal(bestGroup(candidates, SLOT, false), null);
+    assert.equal(bestGroup(candidates, DATE, false), null);
   });
 
   it("여러 구성은 서로 겹치지 않는다", () => {
-    const groups = proposeGroups(pool(18), SLOT, false, 3);
+    const groups = proposeGroups(pool(18), DATE, false, 3);
     assert.equal(groups.length, 3);
     const all = groups.flatMap((g) => [
       ...g.teamA.map((m) => m.userId),
@@ -456,7 +594,7 @@ describe("대체 후보", () => {
       vacantUserId: "b3",
       candidate: candidate("new", { initiative: "listener" }),
       baselineFinalGroupScore: baseline,
-      slotId: SLOT,
+      dateKey: DATE,
       alcoholFree: false,
     });
     assert.deepEqual(evaluation.violations, []);
@@ -470,7 +608,7 @@ describe("대체 후보", () => {
       vacantUserId: "b3",
       candidate: candidate("bad", { eligible: false }),
       baselineFinalGroupScore: baseline,
-      slotId: SLOT,
+      dateKey: DATE,
       alcoholFree: false,
       urgent: true,
     });
@@ -492,7 +630,7 @@ describe("대체 후보", () => {
       vacantUserId: "b3",
       candidates: [candidate("a1"), candidate("c1", { initiative: "listener" })],
       baselineFinalGroupScore: baseline,
-      slotId: SLOT,
+      dateKey: DATE,
       alcoholFree: false,
     });
     assert.ok(!ranked.some((r) => r.candidate.userId === "a1"));
@@ -510,7 +648,7 @@ describe("대체 후보", () => {
         })
       ),
       baselineFinalGroupScore: baseline,
-      slotId: SLOT,
+      dateKey: DATE,
       alcoholFree: false,
       limit: 3,
     });
@@ -562,7 +700,8 @@ describe("Dart 기준 구현과의 골든 벡터 일치", () => {
       smokingStatus: raw.smokingStatus as Candidate["smokingStatus"],
       interestIds: raw.interestIds as string[],
       mbti: (raw.mbti as string | null) ?? null,
-      availableSlotIds: [fixture.slotId],
+      // 골든 벡터는 점수 계산만 검증한다. 날짜는 전원 동일하게 둔다.
+      availableDateKeys: [DATE],
     });
   }
 
@@ -620,6 +759,72 @@ describe("Dart 기준 구현과의 골든 벡터 일치", () => {
       }
     });
   }
+});
+
+describe("약속잡기 미확정 구간 취소", () => {
+  // 날짜 전용 정책에서는 보증금을 낸 뒤에도 시간이 미확정인 구간이 있다.
+  // 이 구간을 '남은 시간 0'으로 취급하면 무환급이 되어 위약금을 잘못 물린다.
+  it("시작 시각이 없으면 전액 환급이다", () => {
+    const decision = resolveCancellation({
+      policy: DEFAULT_POLICY,
+      untilMeetingMs: null,
+      replacementFound: false,
+    });
+    assert.equal(decision.outcome, "full_refund");
+    assert.equal(decision.refundBasisPoints, 10000);
+    assert.equal(decision.appliesRestriction, false);
+  });
+
+  it("시작 시각이 없어도 대체 성공 여부와 무관하게 전액 환급이다", () => {
+    const decision = resolveCancellation({
+      policy: DEFAULT_POLICY,
+      untilMeetingMs: null,
+      replacementFound: true,
+    });
+    assert.equal(decision.outcome, "full_refund");
+  });
+
+  it("남은 시간 0(확정된 미팅 직전)은 여전히 무환급이다", () => {
+    const decision = resolveCancellation({
+      policy: DEFAULT_POLICY,
+      untilMeetingMs: 0,
+      replacementFound: false,
+    });
+    assert.equal(decision.outcome, "no_refund");
+  });
+
+  it("노쇼는 시작 시각이 없어도 제재 대상이다", () => {
+    const decision = resolveCancellation({
+      policy: DEFAULT_POLICY,
+      untilMeetingMs: null,
+      replacementFound: false,
+      isNoShowWithoutContact: true,
+    });
+    assert.equal(decision.outcome, "no_refund");
+    assert.equal(decision.appliesRestriction, true);
+  });
+});
+
+describe("약속잡기 자동 확정 정책", () => {
+  it("투표 기한과 인라인 매칭 상한이 정의되어 있다", () => {
+    assert.ok(DEFAULT_POLICY.scheduleVoteWindowMs > 0);
+    assert.ok(DEFAULT_POLICY.inlineMatchingDateLimit >= 1);
+    assert.ok(
+      DEFAULT_POLICY.inlineMatchingDateLimit <
+        BLIND_MEETING_AVAILABILITY_WINDOW_DAYS
+    );
+  });
+
+  it("fallback 슬롯은 유효한 슬롯 id다", () => {
+    const slotId = fallbackSlotIdFor("2026-08-02");
+    assert.equal(isValidSlotId(slotId), true);
+    assert.equal(dateKeyOfSlotId(slotId), "2026-08-02");
+  });
+
+  it("legacy 호환 조회는 정책으로 끌 수 있다", () => {
+    const off = policyFromConfigDoc({ legacySlotCompatEnabled: 0 });
+    assert.equal(off.legacySlotCompatEnabled, 0);
+  });
 });
 
 describe("취소 및 환급 정책", () => {

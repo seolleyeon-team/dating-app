@@ -35,6 +35,9 @@ import 'package:seolleyeon/router/route_names.dart';
 const String kMeetingId = 'meeting-1';
 const String kMe = 'me';
 
+/// 매칭 기준 날짜 (KST). 세부 시간은 단체 채팅방에서 정한다.
+const String kDateKey = '2026-08-01';
+
 class RecordingAnalyticsSink implements BlindMeetingAnalyticsSink {
   final List<String> events = <String>[];
   final List<Map<String, dynamic>> params = <Map<String, dynamic>>[];
@@ -56,13 +59,15 @@ class FakeBlindMeetingRepository extends BlindMeetingRepository {
       StreamController<BlindMeetingSession?>.broadcast();
 
   BlindMeetingApplication? application;
-  BlindMeetingSession session = const BlindMeetingSession(
+  BlindMeetingSession session = BlindMeetingSession(
     meetingId: kMeetingId,
     status: BlindMeetingStatus.awaitingAcceptance,
     algorithmVersion: 'blind_taste_v1',
-    teamAUserIds: [kMe, 'a2', 'a3'],
-    teamBUserIds: ['b1', 'b2', 'b3'],
-    participantIds: [kMe, 'a2', 'a3', 'b1', 'b2', 'b3'],
+    matchedDateKey: kDateKey,
+    commonAvailableDateKeys: const [kDateKey, '2026-08-02'],
+    teamAUserIds: const [kMe, 'a2', 'a3'],
+    teamBUserIds: const ['b1', 'b2', 'b3'],
+    participantIds: const [kMe, 'a2', 'a3', 'b1', 'b2', 'b3'],
   );
   BlindMeetingParticipant me = const BlindMeetingParticipant(
     userId: kMe,
@@ -103,6 +108,19 @@ class FakeBlindMeetingRepository extends BlindMeetingRepository {
   /// 설정하면 신청 상태 조회가 이 오류로 실패한다.
   Object? applicationReadError;
 
+  /// 일정 화면이 복구할 기존 DNA. null이면 이전 신청이 없는 상태.
+  BlindMeetingDna? storedDna;
+
+  /// 설정하면 기존 DNA 조회가 이 오류로 실패한다.
+  Object? dnaReadError;
+
+  @override
+  Future<BlindMeetingDna?> loadMyDna() async {
+    final error = dnaReadError;
+    if (error != null) throw error;
+    return storedDna;
+  }
+
   @override
   Stream<BlindMeetingApplication?> watchMyApplication() {
     final error = applicationReadError;
@@ -122,7 +140,7 @@ class FakeBlindMeetingRepository extends BlindMeetingRepository {
       userId: kMe,
       status: BlindMeetingParticipantStatus.applied,
       stage: BlindMeetingMatchingStage.searchingCandidates,
-      requestedSlots: dna.availableSlots,
+      requestedDateKeys: dna.availableDateKeys,
       prefersAlcoholFree: dna.belongsToAlcoholFreePool,
     );
     _pushApplication();
@@ -186,12 +204,14 @@ class FakeBlindMeetingRepository extends BlindMeetingRepository {
       status: BlindMeetingParticipantStatus.depositPending,
       depositStatus: BlindMeetingDepositStatus.pending,
     );
-    session = const BlindMeetingSession(
+    session = BlindMeetingSession(
       meetingId: kMeetingId,
       status: BlindMeetingStatus.awaitingDeposits,
-      teamAUserIds: [kMe, 'a2', 'a3'],
-      teamBUserIds: ['b1', 'b2', 'b3'],
-      participantIds: [kMe, 'a2', 'a3', 'b1', 'b2', 'b3'],
+      matchedDateKey: kDateKey,
+      commonAvailableDateKeys: const [kDateKey, '2026-08-02'],
+      teamAUserIds: const [kMe, 'a2', 'a3'],
+      teamBUserIds: const ['b1', 'b2', 'b3'],
+      participantIds: const [kMe, 'a2', 'a3', 'b1', 'b2', 'b3'],
     );
     _pushSession();
   }
@@ -205,13 +225,15 @@ class FakeBlindMeetingRepository extends BlindMeetingRepository {
       status: BlindMeetingParticipantStatus.confirmed,
       depositStatus: BlindMeetingDepositStatus.paid,
     );
-    session = const BlindMeetingSession(
+    session = BlindMeetingSession(
       meetingId: kMeetingId,
       status: BlindMeetingStatus.chatOpen,
       groupChatId: 'blind_$kMeetingId',
-      teamAUserIds: [kMe, 'a2', 'a3'],
-      teamBUserIds: ['b1', 'b2', 'b3'],
-      participantIds: [kMe, 'a2', 'a3', 'b1', 'b2', 'b3'],
+      matchedDateKey: kDateKey,
+      commonAvailableDateKeys: const [kDateKey, '2026-08-02'],
+      teamAUserIds: const [kMe, 'a2', 'a3'],
+      teamBUserIds: const ['b1', 'b2', 'b3'],
+      participantIds: const [kMe, 'a2', 'a3', 'b1', 'b2', 'b3'],
     );
     _pushSession();
     return const BlindMeetingDepositIntent(
@@ -428,17 +450,20 @@ void main() {
     await tester.tap(find.text('일정 선택하기'));
     await tester.pumpAndSettle();
 
-    // 3) 일정 선택 + 신청
+    // 3) 참여 가능 날짜 선택 + 신청 (시간대 선택은 없다)
     expect(find.byType(BlindMeetingScheduleScreen), findsOneWidget);
     expect(find.textContaining('무알코올 미팅으로 신청돼요'), findsOneWidget);
-    await tester.tap(find.text('저녁').first);
+    expect(find.textContaining('단체 채팅방에서 함께 정해요'), findsOneWidget);
+    expect(find.text('저녁'), findsNothing);
+    // 기준 시각이 KST 2026-08-01이므로 8월 2일부터 선택할 수 있다.
+    await tester.tap(find.text('2'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('참가 신청하기 (1개 선택)'));
+    await tester.tap(find.text('선택한 1개 날짜로 신청하기'));
     await pumpFrames(tester);
 
     expect(repository.submittedDna, isNotNull);
     expect(repository.submittedDna!.belongsToAlcoholFreePool, isTrue);
-    expect(repository.submittedDna!.availableSlots.length, 1);
+    expect(repository.submittedDna!.availableDateKeys, ['2026-08-02']);
     expect(repository.submittedDna!.interestIds, contains('커피'));
 
     // 4) 대기 화면에서 단계가 보인다
@@ -519,7 +544,9 @@ void main() {
     expect(sink.events, contains('blind_meeting_intro_viewed'));
     expect(sink.events, contains('blind_meeting_dna_started'));
     expect(sink.events, contains('blind_meeting_dna_completed'));
-    expect(sink.events, contains('blind_meeting_application_submitted'));
+    expect(sink.events, contains('blind_meeting_schedule_viewed'));
+    expect(sink.events, contains('blind_meeting_date_selected'));
+    expect(sink.events, contains('blind_meeting_schedule_submitted'));
     expect(sink.events, contains('blind_meeting_invitation_accepted'));
     expect(sink.events, contains('blind_meeting_deposit_completed'));
     expect(sink.events, contains('blind_meeting_feedback_submitted'));
@@ -530,6 +557,12 @@ void main() {
       expect(payload.keys, isNot(contains('nickname')));
       expect(payload.keys, isNot(contains('interests')));
       expect(payload.keys, isNot(contains('userId')));
+      // 실제 선택 날짜는 analytics로 나가지 않는다.
+      expect(payload.keys, isNot(contains('availableDateKeys')));
+      expect(payload.keys, isNot(contains('dateKey')));
+      for (final value in payload.values) {
+        expect('$value', isNot(matches(RegExp(r'^\d{4}-\d{2}-\d{2}$'))));
+      }
     }
   });
 

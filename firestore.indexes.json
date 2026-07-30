@@ -139,6 +139,14 @@
       "collectionGroup": "blindMeetingApplications",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "requestedDateKeys", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "open", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "blindMeetingApplications",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "requestedSlotIds", "arrayConfig": "CONTAINS" },
         { "fieldPath": "open", "order": "ASCENDING" }
       ]

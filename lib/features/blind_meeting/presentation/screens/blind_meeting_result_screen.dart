@@ -17,7 +17,7 @@ import '../../domain/blind_meeting_enums.dart';
 import '../../domain/blind_meeting_policy.dart';
 import '../../domain/blind_meeting_public_profile.dart';
 import '../../domain/blind_meeting_session.dart';
-import '../../domain/blind_meeting_slot.dart';
+import '../../domain/blind_meeting_availability.dart';
 import '../blind_meeting_route_args.dart';
 import '../theme/blind_meeting_palette.dart';
 import '../widgets/blind_meeting_action_sheets.dart';
@@ -181,7 +181,10 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
         _actionCard(palette, view, session),
         if (_actionNotice != null) ...[
           const SizedBox(height: 12),
-          Text(_actionNotice!, style: BlindMeetingText.caption(palette.sage)),
+          Text(
+            _actionNotice!,
+            style: BlindMeetingText.caption(palette.positive),
+          ),
         ],
         if (_actionError != null) ...[
           const SizedBox(height: 12),
@@ -218,18 +221,29 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
                 icon: session.isAlcoholFree
                     ? Icons.local_cafe_outlined
                     : Icons.people_outline,
-                color: session.isAlcoholFree ? palette.sage : palette.plum,
+                color: session.isAlcoholFree
+                    ? palette.positive
+                    : palette.accent,
               ),
               const SizedBox(width: 6),
               BlindMeetingBadge(
                 label: _statusLabel(session.status),
                 icon: Icons.timelapse_outlined,
-                color: palette.indigo,
+                color: palette.accentDeep,
               ),
             ],
           ),
           const SizedBox(height: 14),
           _infoRow(palette, '일정', slot?.label ?? '단체 채팅에서 함께 정해요'),
+          if (slot == null && session.scheduleDateCandidates.isNotEmpty)
+            _infoRow(
+              palette,
+              '가능한 날짜',
+              BlindMeetingAvailability.selectionSummary(
+                session.scheduleDateCandidates,
+                visibleCount: 3,
+              ),
+            ),
           _infoRow(palette, '장소', venue?.name ?? '단체 채팅에서 함께 정해요'),
           _infoRow(palette, '인원', '3:3 (여섯 명)'),
         ],
@@ -584,7 +598,7 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
     if (answered) {
       return Text(
         isFinalPhase ? '오늘 참석 확인을 완료했어요.' : '참석 확인을 완료했어요.',
-        style: BlindMeetingText.caption(palette.sage),
+        style: BlindMeetingText.caption(palette.positive),
       );
     }
 
@@ -628,20 +642,25 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
   }
 
   Future<void> _openScheduleVote(BlindMeetingSession session) async {
-    final dna = await _repository.loadMyDna();
     final venues = await _repository.loadVenueOptions(
       alcoholFreeOnly: session.isAlcoholFree,
     );
     if (!mounted) return;
 
-    final slots = <BlindMeetingSlot>{
-      if (session.slot != null) session.slot!,
-      ...?dna?.availableSlots,
-    }.toList()..sort();
-
+    // 날짜 후보는 여섯 명이 신청 단계에서 공통으로 고른 날짜만 쓴다.
+    // 세부 시간은 이 시트에서 정한다.
+    final candidateDateKeys = session.scheduleDateCandidates;
+    // analytics는 UI를 막지 않도록 await 하지 않는다.
+    _analytics.log(
+      BlindMeetingAnalyticsEvent.scheduleVoteOpened,
+      params: {
+        'meetingId': session.meetingId,
+        'candidateDateCount': candidateDateKeys.length,
+      },
+    );
     final vote = await showBlindMeetingScheduleVoteSheet(
       context,
-      candidateSlots: slots,
+      candidateDateKeys: candidateDateKeys,
       venueOptions: venues
           .map(
             (v) => BlindMeetingVenueOption(
@@ -665,6 +684,16 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
         preferredPlaceId: vote.preferredPlaceId,
       ),
       successNotice: '투표를 보냈어요. 전원이 투표하면 확정돼요.',
+    );
+    _analytics.log(
+      BlindMeetingAnalyticsEvent.scheduleVoteSubmitted,
+      params: {
+        'meetingId': session.meetingId,
+        'votedDateCount': vote.preferredSlotIds
+            .map((s) => s.split('#').first)
+            .toSet()
+            .length,
+      },
     );
   }
 
@@ -706,7 +735,7 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
               height: 6,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: isMyTeam ? palette.plum : palette.indigo,
+                color: isMyTeam ? palette.accent : palette.accentDeep,
               ),
             ),
             const SizedBox(width: 8),

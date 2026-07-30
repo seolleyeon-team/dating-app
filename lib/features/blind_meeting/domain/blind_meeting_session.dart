@@ -12,6 +12,7 @@
 // 수행하며, 여기 정의된 전환 표는 서버 로직과 UI 판단의 단일 기준이다.
 // =============================================================================
 
+import 'blind_meeting_availability.dart';
 import 'blind_meeting_enums.dart';
 import 'blind_meeting_public_profile.dart';
 import 'blind_meeting_slot.dart';
@@ -276,7 +277,16 @@ class BlindMeetingSession {
   final int schemaVersion;
   final String algorithmVersion;
   final BlindMeetingStatus status;
+
+  /// 단체 채팅방 약속잡기로 확정된 최종 시간. 확정 전에는 null.
   final BlindMeetingSlot? slot;
+
+  /// 매칭 기준 날짜 (KST `yyyy-MM-dd`).
+  final String? matchedDateKey;
+
+  /// 여섯 명이 공통으로 가능한 날짜 (약속잡기 날짜 후보, 오름차순).
+  final List<String> commonAvailableDateKeys;
+
   final BlindMeetingVenue? venue;
   final bool isAlcoholFree;
   final List<String> teamAUserIds;
@@ -299,13 +309,15 @@ class BlindMeetingSession {
   /// 5인 진행 투표가 열려 있는지.
   final bool fivePersonVoteOpen;
 
-  const BlindMeetingSession({
+  BlindMeetingSession({
     required this.meetingId,
     this.meetingType = BlindMeetingType.blindTasteMeeting,
     this.schemaVersion = currentSchemaVersion,
     this.algorithmVersion = 'unknown',
     required this.status,
     this.slot,
+    this.matchedDateKey,
+    List<String> commonAvailableDateKeys = const <String>[],
     this.venue,
     this.isAlcoholFree = false,
     this.teamAUserIds = const <String>[],
@@ -323,7 +335,19 @@ class BlindMeetingSession {
     this.archivedAt,
     this.fivePersonExceptionApproved = false,
     this.fivePersonVoteOpen = false,
-  });
+  }) : commonAvailableDateKeys = BlindMeetingAvailability.normalizeDateKeys(
+         commonAvailableDateKeys,
+       );
+
+  /// 약속잡기 날짜 후보. 공통 날짜가 비어 있으면 매칭 기준 날짜로 대체한다.
+  List<String> get scheduleDateCandidates {
+    if (commonAvailableDateKeys.isNotEmpty) return commonAvailableDateKeys;
+    final fallback = <String>{
+      if (matchedDateKey != null) matchedDateKey!,
+      if (slot != null) slot!.dateKey,
+    };
+    return BlindMeetingAvailability.normalizeDateKeys(fallback);
+  }
 
   /// 특정 사용자가 속한 팀. 참가자가 아니면 null.
   BlindMeetingTeam? teamOf(String userId) {
@@ -361,6 +385,15 @@ class BlindMeetingSession {
         fallback: BlindMeetingStatus.applicationOpen,
       ),
       slot: BlindMeetingSlot.tryParse(data['slotId'] ?? data['slot']),
+      // legacy 문서는 매칭 날짜를 slotId 안에만 갖고 있다.
+      matchedDateKey: BlindMeetingAvailability.readDateKeys(
+        dateKeys: [data['matchedDateKey']],
+        legacySlots: [data['slotId'] ?? data['slot']],
+      ).firstOrNull,
+      commonAvailableDateKeys: BlindMeetingAvailability.readDateKeys(
+        dateKeys: data['commonAvailableDateKeys'],
+        legacySlots: data['candidateSlotIds'],
+      ),
       venue: BlindMeetingVenue.fromMap(data['venue']),
       isAlcoholFree: data['isAlcoholFree'] == true,
       teamAUserIds: _stringList(data['teamAUserIds']),

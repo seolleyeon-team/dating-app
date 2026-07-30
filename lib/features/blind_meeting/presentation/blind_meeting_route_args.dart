@@ -6,7 +6,6 @@
 import '../data/blind_meeting_profile_snapshot.dart';
 import '../domain/blind_meeting_dna.dart';
 import '../domain/blind_meeting_enums.dart';
-import '../domain/blind_meeting_slot.dart';
 
 /// DNA wizard가 만든 답변 초안. 일정 선택 화면으로 전달된다.
 class BlindMeetingDnaDraft {
@@ -26,9 +25,11 @@ class BlindMeetingDnaDraft {
     required this.smokingPreference,
   });
 
-  /// 일정까지 고른 뒤 최종 DNA로 만든다.
+  /// 참여 가능한 날짜까지 고른 뒤 최종 DNA로 만든다.
+  ///
+  /// 세부 시간은 여기서 정하지 않는다 (팀 구성 후 단체 채팅방에서 결정).
   BlindMeetingDna toDna({
-    required List<BlindMeetingSlot> slots,
+    required List<String> dateKeys,
     required bool waitlistOptIn,
   }) {
     return BlindMeetingDna(
@@ -42,7 +43,7 @@ class BlindMeetingDnaDraft {
       drinkingLevelSnapshot: profile.drinkingLevel ?? DrinkingLevel.sometimes,
       smokingStatusSnapshot: profile.smokingStatus ?? SmokingStatus.nonSmoker,
       mbtiSnapshot: profile.mbti,
-      availableSlots: slots,
+      availableDateKeys: dateKeys,
       waitlistOptIn: waitlistOptIn,
     );
   }

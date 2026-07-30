@@ -26,7 +26,7 @@ void main() {
     test('학교 인증이 없으면 후보에서 제외된다', () {
       final violations = BlindMeetingHardConstraints.checkCandidate(
         candidate('a', schoolVerified: false),
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFreeGroup: false,
       );
       expect(
@@ -38,22 +38,83 @@ void main() {
     test('제재 상태면 후보에서 제외된다', () {
       final violations = BlindMeetingHardConstraints.checkCandidate(
         candidate('a', eligible: false),
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFreeGroup: false,
       );
       expect(violations, contains(BlindMeetingConstraintViolation.notEligible));
     });
 
-    test('같은 시간에 참여 불가하면 제외된다', () {
+    test('같은 날짜에 참여 불가하면 제외된다', () {
       final violations = BlindMeetingHardConstraints.checkCandidate(
-        candidate('a', slots: {'2026-09-09#lunch'}),
-        slotId: kSlot,
+        candidate('a', dateKeys: {'2026-09-09'}),
+        dateKey: kDateKey,
         alcoholFreeGroup: false,
       );
       expect(
         violations,
-        contains(BlindMeetingConstraintViolation.slotUnavailable),
+        contains(BlindMeetingConstraintViolation.dateUnavailable),
       );
+    });
+
+    test('세부 시간은 매칭 조건이 아니다 (같은 날짜면 통과)', () {
+      final violations = BlindMeetingHardConstraints.checkCandidate(
+        candidate('a', dateKeys: {kDateKey}),
+        dateKey: kDateKey,
+        alcoholFreeGroup: false,
+      );
+      expect(violations, isEmpty);
+    });
+
+    test('기준 날짜를 못 쓰는 참가자가 있으면 dateUnavailable로 걸러진다', () {
+      final members = [
+        ...balancedTeam('a'),
+        ...balancedTeam('b'),
+      ].map((c) => c.copyWith(availableDateKeys: {kDateKey})).toList();
+      // 한 명만 다른 날짜만 가능하게 바꾼다.
+      members[5] = members[5].copyWith(availableDateKeys: {'2026-08-09'});
+
+      final violations = BlindMeetingHardConstraints.checkGroup(
+        members,
+        dateKey: kDateKey,
+        alcoholFreeGroup: false,
+        expectedSize: 6,
+      );
+      expect(
+        violations,
+        contains(BlindMeetingConstraintViolation.dateUnavailable),
+      );
+    });
+
+    test('전원이 기준 날짜를 쓸 수 있으면 공통 날짜가 항상 존재한다', () {
+      // hot path에서 교집합을 다시 계산하지 않아도 되는 근거.
+      final members = [...balancedTeam('a'), ...balancedTeam('b')]
+          .map((c) => c.copyWith(availableDateKeys: {kDateKey, '2026-08-09'}))
+          .toList();
+      expect(
+        BlindMeetingHardConstraints.checkGroup(
+          members,
+          dateKey: kDateKey,
+          alcoholFreeGroup: false,
+          expectedSize: 6,
+        ),
+        isEmpty,
+      );
+      expect(BlindMeetingHardConstraints.commonDateKeys(members), [
+        kDateKey,
+        '2026-08-09',
+      ]);
+    });
+
+    test('공통 가능 날짜를 오름차순으로 계산한다', () {
+      final members = [
+        candidate('a', dateKeys: {'2026-08-03', '2026-08-01', '2026-08-02'}),
+        candidate('b', dateKeys: {'2026-08-02', '2026-08-03'}),
+        candidate('c', dateKeys: {'2026-08-02', '2026-08-03', '2026-08-09'}),
+      ];
+      expect(BlindMeetingHardConstraints.commonDateKeys(members), [
+        '2026-08-02',
+        '2026-08-03',
+      ]);
     });
 
     test('차단 관계는 같은 미팅에 들어갈 수 없다', () {
@@ -100,7 +161,7 @@ void main() {
       expect(
         BlindMeetingHardConstraints.checkGroup(
           duplicated,
-          slotId: kSlot,
+          dateKey: kDateKey,
           alcoholFreeGroup: false,
           expectedSize: 3,
         ),
@@ -157,7 +218,7 @@ void main() {
       ];
       final group = matcher.bestGroup(
         pool: BlindMeetingHardConstraints.alcoholFreePool(candidates),
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFree: true,
       );
       // 비음주 후보 5명뿐이므로 6인 구성이 만들어지지 않아야 한다.
@@ -176,7 +237,7 @@ void main() {
       ];
       final group = matcher.bestGroup(
         pool: candidates,
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFree: true,
       );
       expect(group, isNotNull);
@@ -189,7 +250,7 @@ void main() {
     test('6명 pool에서 3:3 구성이 만들어진다', () {
       final group = matcher.bestGroup(
         pool: pool(),
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFree: false,
       );
       expect(group, isNotNull);
@@ -202,7 +263,7 @@ void main() {
       expect(
         matcher.bestGroup(
           pool: pool(size: 5),
-          slotId: kSlot,
+          dateKey: kDateKey,
           alcoholFree: false,
         ),
         isNull,
@@ -212,7 +273,7 @@ void main() {
     test('algorithmVersion이 결과에 기록된다', () {
       final group = matcher.bestGroup(
         pool: pool(),
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFree: false,
       )!;
       expect(group.algorithmVersion, 'blind_taste_v1');
@@ -222,12 +283,12 @@ void main() {
     test('동일 입력은 항상 동일 결과 (deterministic)', () {
       final first = matcher.bestGroup(
         pool: pool(size: 9),
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFree: false,
       )!;
       final second = matcher.bestGroup(
         pool: pool(size: 9).reversed.toList(),
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFree: false,
       )!;
       expect(first.key, second.key);
@@ -242,7 +303,7 @@ void main() {
       final identical = List.generate(6, (i) => candidate('u$i'));
       final group = matcher.bestGroup(
         pool: identical,
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFree: false,
       )!;
       expect(group.key, 'u0|u1|u2|u3|u4|u5');
@@ -264,7 +325,11 @@ void main() {
           ),
       ];
       expect(
-        matcher.bestGroup(pool: candidates, slotId: kSlot, alcoholFree: false),
+        matcher.bestGroup(
+          pool: candidates,
+          dateKey: kDateKey,
+          alcoholFree: false,
+        ),
         isNull,
       );
     });
@@ -272,7 +337,7 @@ void main() {
     test('큰 pool에서도 겹치지 않는 여러 구성을 만들 수 있다', () {
       final groups = matcher.proposeGroups(
         pool: pool(size: 18),
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFree: false,
         maxGroups: 3,
       );
@@ -288,7 +353,7 @@ void main() {
       ];
       final group = matcher.bestGroup(
         pool: candidates,
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFree: false,
       )!;
       expect(group.participantIds, contains('z0'));
@@ -316,7 +381,7 @@ void main() {
           initiative: ConversationInitiative.listener,
         ),
         baselineFinalGroupScore: baseline(),
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFree: false,
       );
       expect(evaluation.violations, isEmpty);
@@ -335,7 +400,7 @@ void main() {
           smokingStatus: SmokingStatus.smoker,
         ).copyWith(eligible: false),
         baselineFinalGroupScore: baseline(),
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFree: false,
         urgent: true,
       );
@@ -362,7 +427,7 @@ void main() {
         vacantUserId: 'b3',
         candidate: poorCandidate,
         baselineFinalGroupScore: baseline(),
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFree: false,
       );
       final urgent = matcher.evaluateReplacement(
@@ -371,7 +436,7 @@ void main() {
         vacantUserId: 'b3',
         candidate: poorCandidate,
         baselineFinalGroupScore: baseline(),
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFree: false,
         urgent: true,
       );
@@ -394,7 +459,7 @@ void main() {
           candidate('c1', initiative: ConversationInitiative.listener),
         ],
         baselineFinalGroupScore: baseline(),
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFree: false,
       );
       expect(ranked.map((e) => e.candidate.userId), isNot(contains('a1')));
@@ -414,7 +479,7 @@ void main() {
           ),
         ),
         baselineFinalGroupScore: baseline(),
-        slotId: kSlot,
+        dateKey: kDateKey,
         alcoholFree: false,
         limit: 3,
       );
