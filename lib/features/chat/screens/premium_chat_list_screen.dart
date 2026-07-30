@@ -43,6 +43,7 @@ class _ChatItem {
   final bool isGrayscale;
   final int sortOrder;
   final bool isFakeAccountRoom;
+  final bool isWithdrawn;
 
   const _ChatItem({
     required this.id,
@@ -57,6 +58,7 @@ class _ChatItem {
     this.isGrayscale = false,
     this.sortOrder = 0,
     this.isFakeAccountRoom = false,
+    this.isWithdrawn = false,
   });
 
   _ChatItem copyWith({
@@ -72,6 +74,7 @@ class _ChatItem {
     bool? isGrayscale,
     int? sortOrder,
     bool? isFakeAccountRoom,
+    bool? isWithdrawn,
   }) {
     return _ChatItem(
       id: id ?? this.id,
@@ -86,6 +89,7 @@ class _ChatItem {
       isGrayscale: isGrayscale ?? this.isGrayscale,
       sortOrder: sortOrder ?? this.sortOrder,
       isFakeAccountRoom: isFakeAccountRoom ?? this.isFakeAccountRoom,
+      isWithdrawn: isWithdrawn ?? this.isWithdrawn,
     );
   }
 }
@@ -177,16 +181,24 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final partnerInfo = partnerId.isNotEmpty
         ? Map<String, dynamic>.from(participantInfo[partnerId] ?? {})
         : <String, dynamic>{};
+    final isWithdrawn =
+        partnerInfo['isWithdrawn'] == true ||
+        (data['withdrawnParticipantIds'] is List &&
+            (data['withdrawnParticipantIds'] as List)
+                .map((e) => '$e')
+                .contains(partnerId));
 
     final fallbackName = partnerId == 'fake_user_1' ? '가짜 계정 1' : '알 수 없음';
 
     return _ChatItem(
       id: partnerId,
       chatRoomId: doc.id,
-      name: (partnerInfo['nickname']?.toString().isNotEmpty ?? false)
+      name: isWithdrawn
+          ? '탈퇴한 사용자'
+          : (partnerInfo['nickname']?.toString().isNotEmpty ?? false)
           ? partnerInfo['nickname'].toString()
           : fallbackName,
-      avatarUrl: partnerInfo['avatarUrl']?.toString() ?? '',
+      avatarUrl: isWithdrawn ? '' : partnerInfo['avatarUrl']?.toString() ?? '',
       lastMessage: (data['lastMessage']?.toString().isNotEmpty ?? false)
           ? data['lastMessage'].toString()
           : '채팅을 시작해 보세요!',
@@ -194,9 +206,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
       isOnline: partnerId == 'fake_user_1',
       hasUnread: false,
       hasGradientBorder: false,
-      isGrayscale: false,
+      isGrayscale: isWithdrawn,
       sortOrder: 999999,
       isFakeAccountRoom: partnerId == 'fake_user_1',
+      isWithdrawn: isWithdrawn,
     );
   }
 
@@ -216,6 +229,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       isGrayscale: false,
       sortOrder: 999999,
       isFakeAccountRoom: true,
+      isWithdrawn: false,
     );
   }
 
@@ -323,7 +337,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                             child: Text(
                               '채팅 목록을 불러오지 못했어요',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 15,
                                 color: seol.gray400,
                               ),
@@ -445,7 +459,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                   ? '아직 받은 채팅이 없어요'
                                   : '채팅을 시작해 보세요!',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 15,
                                 color: seol.gray400,
                               ),
@@ -608,7 +622,7 @@ class _Header extends StatelessWidget {
             Text(
               '채팅',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 28,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.5,
@@ -751,7 +765,7 @@ class _TabChip extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 13,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                 color: isSelected ? CupertinoColors.white : seol.gray400,
@@ -808,7 +822,7 @@ class _ChatListItem extends StatelessWidget {
                       Text(
                         chat.name,
                         style: TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 15,
                           fontWeight: chat.hasUnread
                               ? FontWeight.w700
@@ -821,7 +835,7 @@ class _ChatListItem extends StatelessWidget {
                         Text(
                           chat.time,
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
                             color: seol.gray400,
@@ -838,7 +852,7 @@ class _ChatListItem extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 13,
                             fontWeight: chat.hasUnread
                                 ? FontWeight.w500

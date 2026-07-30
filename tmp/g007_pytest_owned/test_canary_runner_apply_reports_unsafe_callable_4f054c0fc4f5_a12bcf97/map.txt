@@ -1,1 +1,0 @@
-uid-a=C:\Users\samsung\StudioProjects\semisemifinal\tmp\g007_pytest_owned\test_canary_runner_apply_reports_unsafe_callable_4f054c0fc4f5_a12bcf97\uid_2_photo_plain.jpg

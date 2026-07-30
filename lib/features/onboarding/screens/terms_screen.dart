@@ -1,6 +1,6 @@
 // =============================================================================
 // 약관 동의 화면
-// 경로: lib/features/auth/screens/terms_screen.dart
+// 경로: lib/features/onboarding/screens/terms_screen.dart
 //
 // 사용 예시 (main.dart):
 // import 'package:seolleyeon/features/auth/screens/terms_screen.dart';
@@ -10,6 +10,7 @@
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import '../../../constants/legal_texts.dart';
 import '../../../router/route_names.dart';
 import 'terms_detail_sheet.dart';
 import '../../../services/storage_service.dart';
@@ -28,7 +29,6 @@ class _AppColors {
   static const Color textMuted = Color(0xFF9CA3AF);
   static const Color gray100 = Color(0xFFF3F4F6);
   static const Color gray200 = Color(0xFFE5E7EB);
-  static const Color gray300 = Color(0xFFD1D5DB);
 }
 
 // =============================================================================
@@ -62,21 +62,33 @@ class TermsScreen extends StatefulWidget {
 
 class _TermsScreenState extends State<TermsScreen> {
   final List<TermsItem> _requiredTerms = [
-    TermsItem(id: 'age', label: '만 19세 이상입니다', isRequired: true),
     TermsItem(
-      id: 'service',
+      id: LegalTexts.serviceTerms.id,
       label: '서비스 이용약관 동의',
       isRequired: true,
       hasDetail: true,
     ),
     TermsItem(
-      id: 'privacy',
-      label: '개인정보 수집 및 이용 동의',
+      id: LegalTexts.privacyPolicy.id,
+      label: '개인정보 처리방침 동의',
+      isRequired: true,
+      hasDetail: true,
+    ),
+    TermsItem(
+      id: LegalTexts.kakaoNamePhoneConsent.id,
+      label: '본인인증 정보 수집·이용 동의',
+      isRequired: true,
+      hasDetail: true,
+    ),
+    TermsItem(
+      id: LegalTexts.ageOver20Consent.id,
+      label: '연 나이 20세 이상입니다',
       isRequired: true,
       hasDetail: true,
     ),
   ];
 
+  bool _isSubmitting = false;
   bool _marketingChecked = false;
   bool _pushEnabled = false;
   bool _emailEnabled = false;
@@ -100,6 +112,7 @@ class _TermsScreenState extends State<TermsScreen> {
         kakaoUserId: 'fake_user_1',
         platform: 'web',
       );
+      await userService.saveLegalConsents(kakaoUserId: 'fake_user_1');
     }
 
     if (!mounted) return;
@@ -130,24 +143,47 @@ class _TermsScreenState extends State<TermsScreen> {
     HapticFeedback.selectionClick();
   }
 
-  void _onDetailPressed(TermsItem item) {
-    HapticFeedback.lightImpact();
-    TermsDetailSheet.show(
-      context,
-      title: item.label,
-      sections: const [
-        TermsSection(
-          title: '제1조',
-          content: '서비스 이용약관 더미 본문입니다. 실제 서비스에서는 전체 약관이 표시됩니다.',
-        ),
-      ],
-    );
+  List<TermsSection> _sheetSectionsFor(LegalTextDocument document) {
+    return document.sections
+        .map(
+          (section) =>
+              TermsSection(title: section.title, content: section.content),
+        )
+        .toList();
   }
 
-  void _onSubmit() {
-    if (_allRequiredChecked) {
+  LegalTextDocument? _documentFor(TermsItem item) {
+    return LegalTexts.findById(item.id);
+  }
+
+  Future<void> _onDetailPressed(TermsItem item) async {
+    final document = _documentFor(item);
+    if (document == null) return;
+
+    HapticFeedback.lightImpact();
+    final didAgree = await TermsDetailSheet.show(
+      context,
+      title: document.title,
+      sections: _sheetSectionsFor(document),
+    );
+    if (didAgree == true && mounted) {
+      _toggleItem(item, true);
+    }
+  }
+
+  Future<void> _onSubmit() async {
+    if (!_allRequiredChecked || _isSubmitting) return;
+
+    setState(() => _isSubmitting = true);
+    try {
+      await StorageService().savePendingLegalConsents();
       HapticFeedback.mediumImpact();
+      if (!mounted) return;
       Navigator.of(context).pushReplacementNamed(RouteNames.kakaoAuth);
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
     }
   }
 
@@ -233,6 +269,7 @@ class _TermsScreenState extends State<TermsScreen> {
                 _BottomCTA(
                   isEnabled: _allRequiredChecked,
                   onPressed: _onSubmit,
+                  isLoading: _isSubmitting,
                 ),
                 if (DevEntryPolicy.allowTestAccountEntry)
                   _TestAccountButton(onPressed: _enterWithTestAccount),
@@ -271,10 +308,10 @@ class _Header extends StatelessWidget {
           ),
           const Expanded(
             child: Text(
-              '약관 동의',
+              '필수 동의',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.textMain,
@@ -296,25 +333,53 @@ class _Headline extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RichText(
-      text: const TextSpan(
-        style: TextStyle(
-          fontFamily: 'Pretendard',
-          fontSize: 28,
-          fontWeight: FontWeight.w700,
-          height: 1.3,
-          letterSpacing: -0.5,
-          color: _AppColors.textMain,
-        ),
-        children: [
-          TextSpan(text: '서비스 이용을 위해\n'),
-          TextSpan(
-            text: '동의',
-            style: TextStyle(color: _AppColors.primary),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '서비스 이용을 위한\n필수 동의',
+          style: TextStyle(
+            fontFamily: 'NanumSquareRound',
+            fontSize: 28,
+            fontWeight: FontWeight.w700,
+            height: 1.3,
+            letterSpacing: -0.5,
+            color: _AppColors.textMain,
           ),
-          TextSpan(text: '가 필요해요'),
-        ],
-      ),
+        ),
+        const SizedBox(height: 14),
+        const Text(
+          '설레연은 안전한 대학생 인증 기반 매칭 커뮤니티 운영을 위해 필요한 최소한의 개인정보를 수집·이용합니다.',
+          style: TextStyle(
+            fontFamily: 'NanumSquareRound',
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
+            height: 1.55,
+            color: _AppColors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: _AppColors.primary.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: _AppColors.primary.withValues(alpha: 0.14),
+            ),
+          ),
+          child: const Text(
+            '이름, 휴대전화번호, 생년월일 및 본인인증 결과는 본인확인기관 기반 본인인증 과정에서 확인·수집될 수 있으며, 실사용자 확인, 성인 여부 확인, 중복 가입 방지, 신고 및 분쟁 대응 등 안전한 서비스 운영을 위해 사용됩니다.',
+            style: TextStyle(
+              fontFamily: 'NanumSquareRound',
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              height: 1.55,
+              color: _AppColors.textMain,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -405,7 +470,7 @@ class _TermsCard extends StatelessWidget {
                       child: RichText(
                         text: const TextSpan(
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 15,
                             fontWeight: FontWeight.w500,
                             color: _AppColors.textSecondary,
@@ -483,9 +548,9 @@ class _AllAgreeRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    '약관 전체 동의',
+                    '전체 동의',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.textMain,
@@ -493,9 +558,9 @@ class _AllAgreeRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '선택 포함 모든 약관에 동의합니다',
+                    '필수 항목과 선택 항목을 한 번에 동의합니다',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                       color: _AppColors.textMuted,
@@ -540,7 +605,7 @@ class _TermsItemRow extends StatelessWidget {
               child: RichText(
                 text: TextSpan(
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 15,
                     fontWeight: FontWeight.w500,
                     color: _AppColors.textSecondary,
@@ -563,12 +628,27 @@ class _TermsItemRow extends StatelessWidget {
             if (onDetailPressed != null)
               CupertinoButton(
                 padding: EdgeInsets.zero,
-                minimumSize: const Size(32, 32),
+                minimumSize: const Size(44, 32),
                 onPressed: onDetailPressed,
-                child: const Icon(
-                  CupertinoIcons.chevron_right,
-                  size: 18,
-                  color: _AppColors.gray300,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '보기',
+                      style: TextStyle(
+                        fontFamily: 'NanumSquareRound',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: _AppColors.primary,
+                      ),
+                    ),
+                    SizedBox(width: 2),
+                    Icon(
+                      CupertinoIcons.chevron_right,
+                      size: 15,
+                      color: _AppColors.primary,
+                    ),
+                  ],
                 ),
               ),
           ],
@@ -637,7 +717,7 @@ class _ToggleOption extends StatelessWidget {
         Text(
           label,
           style: const TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 14,
             fontWeight: FontWeight.w500,
             color: _AppColors.textMuted,
@@ -659,8 +739,13 @@ class _ToggleOption extends StatelessWidget {
 class _BottomCTA extends StatelessWidget {
   final bool isEnabled;
   final VoidCallback onPressed;
+  final bool isLoading;
 
-  const _BottomCTA({required this.isEnabled, required this.onPressed});
+  const _BottomCTA({
+    required this.isEnabled,
+    required this.onPressed,
+    required this.isLoading,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -682,7 +767,7 @@ class _BottomCTA extends StatelessWidget {
       ),
       child: CupertinoButton(
         padding: EdgeInsets.zero,
-        onPressed: isEnabled ? onPressed : null,
+        onPressed: isEnabled && !isLoading ? onPressed : null,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           width: double.infinity,
@@ -704,9 +789,9 @@ class _BottomCTA extends StatelessWidget {
           ),
           child: Center(
             child: Text(
-              '동의하고 시작하기',
+              isLoading ? '저장 중...' : '동의하고 카카오 로그인',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
                 color: isEnabled
@@ -747,7 +832,7 @@ class _TestAccountButton extends StatelessWidget {
             child: Text(
               '테스트 계정으로 둘러보기',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.primary,

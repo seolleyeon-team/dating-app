@@ -1,1 +1,0 @@
-{"rowCount": 2, "eligibleUploadRows": 1, "rows": [{"uidHash": "uid:a", "photoFile": "a.jpg", "eligibleForUpload": true, "blockers": []}, {"uidHash": "uid:b", "photoFile": "b.jpg", "eligibleForUpload": false, "blockers": ["approved_avatar_lock"]}]}
