@@ -102,15 +102,21 @@ import '../features/event/screens/event_team_invite_response_screen.dart';
 import '../features/event/models/event_team_route_args.dart';
 import '../features/event/screens/season_meeting_roulette_screen.dart';
 import '../features/event/screens/match_result_screen.dart';
-import '../features/event/screens/random_matching_screen1.dart';
 import '../features/event/screens/random_mathcing_screen.dart';
-import '../features/event/screens/random_meeting_screen.dart';
 import '../features/event/screens/three_vs_three_match_screen.dart';
 import '../features/event/screens/team_requests_screen.dart';
 import '../features/event/screens/team_request_declined_screen.dart';
 
-// Meeting
-import '../features/meeting/screens/meeting_application_screen.dart';
+// Blind taste meeting (3:3 블라인드 취향 미팅)
+import '../features/blind_meeting/data/blind_meeting_profile_snapshot.dart';
+import '../features/blind_meeting/presentation/blind_meeting_route_args.dart';
+import '../features/blind_meeting/presentation/screens/blind_meeting_dna_wizard_screen.dart';
+import '../features/blind_meeting/presentation/screens/blind_meeting_feedback_screen.dart';
+import '../features/blind_meeting/presentation/screens/blind_meeting_follow_up_screen.dart';
+import '../features/blind_meeting/presentation/screens/blind_meeting_intro_screen.dart';
+import '../features/blind_meeting/presentation/screens/blind_meeting_result_screen.dart';
+import '../features/blind_meeting/presentation/screens/blind_meeting_schedule_screen.dart';
+import '../features/blind_meeting/presentation/screens/blind_meeting_waiting_screen.dart';
 
 import '../shared/layouts/main_scaffold_args.dart';
 
@@ -394,14 +400,10 @@ class AppRouter {
       case RouteNames.matchResult:
         final args = settings.arguments as EventMatchResultArgs?;
         return _cupertino(MatchResultScreen(args: args));
-      case RouteNames.randomMatching:
-        return _cupertino(const RandomMatchingScreen());
       case RouteNames.randomMathcingWait:
         return _cupertino(
           const SlotMachineScreen(),
         ); // random_mathcing_screen.dart
-      case RouteNames.randomMeeting:
-        return _cupertino(const RandomMeetingScreen());
       case RouteNames.threeVsThreeMatch:
         final args = settings.arguments as ThreeVsThreeMatchArgs?;
         return _cupertino(ThreeVsThreeMatchScreen(args: args));
@@ -411,9 +413,56 @@ class AppRouter {
         final args = settings.arguments as TeamRequestDeclinedArgs?;
         return _cupertino(TeamRequestDeclinedScreen(args: args));
 
-      // Meeting
-      case RouteNames.meetingApplication:
-        return _cupertino(const MeetingApplicationScreen());
+      // Blind taste meeting (3:3 블라인드 취향 미팅)
+      //
+      // legacy 랜덤 미팅 deep link는 그대로 살려두고 새 소개 화면으로 보낸다.
+      case RouteNames.blindTasteMeeting:
+      case RouteNames.legacyRandomMatching:
+      case RouteNames.legacyRandomMeeting:
+      case RouteNames.legacyMeetingApplication:
+        return _cupertino(const BlindMeetingIntroScreen());
+      case RouteNames.blindTasteMeetingDna:
+        {
+          final profile = settings.arguments;
+          if (profile is! BlindMeetingProfileSnapshot) {
+            return _cupertino(const BlindMeetingIntroScreen());
+          }
+          return _cupertino(BlindMeetingDnaWizardScreen(profile: profile));
+        }
+      case RouteNames.blindTasteMeetingSchedule:
+        {
+          final draft = settings.arguments;
+          if (draft is! BlindMeetingDnaDraft) {
+            return _cupertino(const BlindMeetingIntroScreen());
+          }
+          return _cupertino(BlindMeetingScheduleScreen(draft: draft));
+        }
+      case RouteNames.blindTasteMeetingWaiting:
+        return _cupertino(const BlindMeetingWaitingScreen());
+      case RouteNames.blindTasteMeetingResult:
+        {
+          final args = settings.arguments;
+          if (args is! BlindMeetingMeetingArgs) {
+            return _cupertino(const BlindMeetingIntroScreen());
+          }
+          return _cupertino(BlindMeetingResultScreen(args: args));
+        }
+      case RouteNames.blindTasteMeetingFollowUp:
+        {
+          final args = settings.arguments;
+          if (args is! BlindMeetingMeetingArgs) {
+            return _cupertino(const BlindMeetingIntroScreen());
+          }
+          return _cupertino(BlindMeetingFollowUpScreen(args: args));
+        }
+      case RouteNames.blindTasteMeetingFeedback:
+        {
+          final args = settings.arguments;
+          if (args is! BlindMeetingMeetingArgs) {
+            return _cupertino(const BlindMeetingIntroScreen());
+          }
+          return _cupertino(BlindMeetingFeedbackScreen(args: args));
+        }
 
       default:
         return _cupertino(

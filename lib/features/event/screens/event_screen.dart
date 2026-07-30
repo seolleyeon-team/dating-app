@@ -11,6 +11,7 @@
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import '../../blind_meeting/presentation/widgets/blind_meeting_event_card.dart';
 import '../../chat/services/chat_service.dart';
 import '../../../router/route_names.dart';
 import '../../../services/event_team_service.dart';
@@ -167,7 +168,7 @@ class _EventScreenState extends State<EventScreen> {
                           ],
                         ),
                       )
-                    : const _RandomMatchingContent(),
+                    : const BlindMeetingEventCard(),
               ),
             ],
           ),
@@ -275,7 +276,7 @@ class _SegmentedControl extends StatelessWidget {
               onTap: () => onChanged(0),
             ),
             _SegmentTab(
-              label: '기타 이벤트',
+              label: '블라인드 취향 미팅',
               isSelected: selectedIndex == 1,
               onTap: () => onChanged(1),
             ),
@@ -904,157 +905,3 @@ class _VenueCard extends StatelessWidget {
     );
   }
 }
-
-// =============================================================================
-// 랜덤 매칭 콘텐츠 (기타 이벤트 탭)
-// =============================================================================
-class _RandomMatchingContent extends StatelessWidget {
-  const _RandomMatchingContent();
-
-  @override
-  Widget build(BuildContext context) {
-    final seol = Theme.of(context).extension<SeolThemeColors>()!;
-    final primary = Theme.of(context).colorScheme.primary;
-
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 랜덤 매칭 카드
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: seol.cardSurface,
-              borderRadius: BorderRadius.circular(32),
-              boxShadow: [
-                BoxShadow(
-                  color: primary.withValues(alpha: 0.12),
-                  blurRadius: 30,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(CupertinoIcons.shuffle, size: 14, color: primary),
-                      const SizedBox(width: 4),
-                      Text(
-                        'RANDOM MATCHING',
-                        style: TextStyle(
-                          fontFamily: 'Pretendard',
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.8,
-                          color: primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  '3:3 랜덤 매칭',
-                  style: TextStyle(
-                    fontFamily: 'Pretendard',
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    color: seol.gray800,
-                    letterSpacing: -0.3,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '같은 관심사를 가진 분들과 무작위로 매칭됩니다.',
-                  style: TextStyle(
-                    fontFamily: 'Pretendard',
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: seol.sectionTitle,
-                  ),
-                ),
-                const SizedBox(height: 28),
-                // 매칭 비주얼
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: seol.pink50,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: primary.withValues(alpha: 0.05)),
-                  ),
-                  child: Icon(
-                    CupertinoIcons.person_2_fill,
-                    size: 48,
-                    color: primary.withValues(alpha: 0.8),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          // CTA 버튼
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            onPressed: () {
-              HapticFeedback.mediumImpact();
-              Navigator.of(
-                context,
-                rootNavigator: true,
-              ).pushNamed(RouteNames.randomMatching);
-            },
-            child: Container(
-              width: double.infinity,
-              height: 56,
-              decoration: BoxDecoration(
-                color: primary,
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: [
-                  BoxShadow(
-                    color: primary.withValues(alpha: 0.35),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(
-                    CupertinoIcons.shuffle,
-                    size: 20,
-                    color: CupertinoColors.white,
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'Start matching',
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      color: CupertinoColors.white,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
