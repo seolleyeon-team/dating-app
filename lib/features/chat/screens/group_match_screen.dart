@@ -51,7 +51,7 @@ class GroupMatchScreen extends StatelessWidget {
         middle: const Text(
           '미팅 방',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontWeight: FontWeight.w700,
             color: _AppColors.textMain,
           ),
@@ -333,7 +333,7 @@ class _DepositProgressSection extends StatelessWidget {
                 RichText(
                   text: const TextSpan(
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.textMain,

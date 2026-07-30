@@ -5,6 +5,7 @@ import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/phone_hash_utils.dart';
+import 'auth_service.dart';
 import 'storage_service.dart';
 
 /// 연락처 차단 결과
@@ -30,19 +31,39 @@ class ContactBlockSyncResult {
   });
 }
 
+/// 카카오톡 친구를 추천에서 제외한 결과입니다.
+class KakaoFriendBlockSyncResult {
+  final int submittedFriendCount;
+  final int matchedUserCount;
+  final int newlyExcludedCount;
+  final int alreadyExcludedCount;
+  final int skippedSelfCount;
+
+  const KakaoFriendBlockSyncResult({
+    required this.submittedFriendCount,
+    required this.matchedUserCount,
+    required this.newlyExcludedCount,
+    required this.alreadyExcludedCount,
+    required this.skippedSelfCount,
+  });
+}
+
 enum ContactPermissionStatus { granted, denied, permanentlyDenied }
 
 class ContactBlockService {
-  final FirebaseFunctions _functions =
-      FirebaseFunctions.instanceFor(region: 'asia-northeast3');
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
+    region: 'asia-northeast3',
+  );
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final StorageService _storageService = StorageService();
+  final AuthService _authService = AuthService();
 
   /// 연락처 권한 요청 및 상태 확인
   Future<ContactPermissionStatus> checkPermission() async {
     try {
-      final status =
-          await FlutterContacts.permissions.request(PermissionType.read);
+      final status = await FlutterContacts.permissions.request(
+        PermissionType.read,
+      );
       switch (status) {
         case PermissionStatus.granted:
         case PermissionStatus.limited:
@@ -124,6 +145,64 @@ class ContactBlockService {
           (data['alreadyBlockedPairCount'] as num?)?.toInt() ?? 0,
       skippedSelfCount: (data['skippedSelfCount'] as num?)?.toInt() ?? 0,
       invalidHashCount: (data['invalidHashCount'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  /// 카카오톡 친구 중 설레연 계정과 일치하는 사용자를 추천에서 제외한다.
+  /// 친구의 닉네임이나 프로필은 저장하지 않고 카카오 서비스 사용자 ID만 전송한다.
+  Future<KakaoFriendBlockSyncResult> syncKakaoTalkFriendBlocks(
+    Iterable<int?> friendServiceUserIds,
+  ) async {
+    final friendUserIds = friendServiceUserIds
+        .whereType<int>()
+        .map((id) => id.toString())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    if (friendUserIds.isEmpty) {
+      return const KakaoFriendBlockSyncResult(
+        submittedFriendCount: 0,
+        matchedUserCount: 0,
+        newlyExcludedCount: 0,
+        alreadyExcludedCount: 0,
+        skippedSelfCount: 0,
+      );
+    }
+
+    final kakaoUserId = await _storageService.getKakaoUserId();
+    if (kakaoUserId == null || kakaoUserId.isEmpty) {
+      throw Exception('카카오 로그인 정보를 찾을 수 없어요. 다시 로그인해주세요.');
+    }
+
+    final hasFirebaseSession = await _authService.ensureFirebaseSessionForKakao(
+      kakaoUserId,
+    );
+    final payload = <String, dynamic>{'friendUserIds': friendUserIds};
+
+    if (!hasFirebaseSession) {
+      final accessToken = await _authService.getKakaoAccessTokenForFunctions();
+      if (accessToken == null || accessToken.isEmpty) {
+        throw Exception('카카오 로그인 세션을 확인할 수 없어요. 다시 로그인해주세요.');
+      }
+      payload['kakaoAccessToken'] = accessToken;
+    }
+
+    final callable = _functions.httpsCallable('syncKakaoTalkFriendBlocks');
+    final result = await callable.call<dynamic>(payload);
+    final data = Map<String, dynamic>.from(
+      (result.data as Map?)?.cast<String, dynamic>() ?? {},
+    );
+
+    return KakaoFriendBlockSyncResult(
+      submittedFriendCount:
+          (data['submittedFriendCount'] as num?)?.toInt() ??
+          friendUserIds.length,
+      matchedUserCount: (data['matchedUserCount'] as num?)?.toInt() ?? 0,
+      newlyExcludedCount: (data['newlyExcludedCount'] as num?)?.toInt() ?? 0,
+      alreadyExcludedCount:
+          (data['alreadyExcludedCount'] as num?)?.toInt() ?? 0,
+      skippedSelfCount: (data['skippedSelfCount'] as num?)?.toInt() ?? 0,
     );
   }
 

@@ -84,7 +84,7 @@ class _PromiseAgreementTutorialScreenState
                           '채팅을 보내고 약속을 잡아보세요',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 28,
                             fontWeight: FontWeight.w800,
                             color: CupertinoColors.white,
@@ -96,7 +96,7 @@ class _PromiseAgreementTutorialScreenState
                           '맘에 드는 상대와 채팅을 나누고,\n약속 잡기 기능으로 약속을 정할 수 있어요.\n약속 당일에는 안전도장으로 만남이\n정상적으로 진행되었는지도 확인해요.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 15,
                             fontWeight: FontWeight.w500,
                             color: Color(0xFFE8E4EA),
@@ -130,7 +130,7 @@ class _PromiseAgreementTutorialScreenState
                             Text(
                               '다음',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 17,
                                 fontWeight: FontWeight.w700,
                                 color: Color(0xFF211A21),
@@ -243,7 +243,7 @@ class _FlowStep extends StatelessWidget {
               Text(
                 title,
                 style: const TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF1E1820),
@@ -253,7 +253,7 @@ class _FlowStep extends StatelessWidget {
               Text(
                 description,
                 style: const TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
                   color: Color(0xFF766F78),

@@ -106,7 +106,7 @@ class _AiTasteTrainingTutorialScreenState
                               'AI에게 내 취향을 알려주세요',
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 28,
                                 fontWeight: FontWeight.w800,
                                 color: CupertinoColors.white,
@@ -118,7 +118,7 @@ class _AiTasteTrainingTutorialScreenState
                               '왼쪽으로 스와이프해 호감,\n오른쪽으로 스와이프해 비호감을 표시하세요.',
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 16,
                                 fontWeight: FontWeight.w500,
                                 color: CupertinoColors.white.withValues(
@@ -218,7 +218,7 @@ class _AiTasteTrainingTutorialScreenState
                                 Text(
                                   '다음',
                                   style: TextStyle(
-                                    fontFamily: 'Pretendard',
+                                    fontFamily: 'NanumSquareRound',
                                     fontSize: 17,
                                     fontWeight: FontWeight.w700,
                                     color: Color(0xFF211A21),
@@ -322,7 +322,7 @@ class _HeaderBrandPlaceholder extends StatelessWidget {
         Text(
           '설레연',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 21,
             fontWeight: FontWeight.w700,
             letterSpacing: -0.3,
@@ -400,7 +400,7 @@ class _AiTasteHighlightButton extends StatelessWidget {
                   Text(
                     'AI에게 내 취향 알려주기',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                       color: Color(0xFF1F2937),
@@ -473,7 +473,7 @@ class _AiPhotoCard extends StatelessWidget {
                 Text(
                   'AI 프로필 예시',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                     color: Color(0xFFFFD7E4),
@@ -483,7 +483,7 @@ class _AiPhotoCard extends StatelessWidget {
                 Text(
                   '스와이프로 취향을 학습해요',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
                     color: CupertinoColors.white,

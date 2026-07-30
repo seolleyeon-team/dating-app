@@ -278,7 +278,7 @@ class _Title extends StatelessWidget {
       isSelectingMin ? '이상형의 최소 키를\n선택해주세요' : '이상형의 최대 키를\n선택해주세요',
       textAlign: TextAlign.center,
       style: const TextStyle(
-        fontFamily: 'Pretendard',
+        fontFamily: 'NanumSquareRound',
         fontSize: 24,
         fontWeight: FontWeight.w700,
         height: 1.3,
@@ -335,7 +335,7 @@ class _HeightPicker extends StatelessWidget {
                 child: Text(
                   '$height cm',
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 18,
                     fontWeight: FontWeight.w500,
                     color: _AppColors.textMain,
@@ -417,7 +417,7 @@ class _HeightDisplay extends StatelessWidget {
             value,
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 20,
               fontWeight: FontWeight.w700,
               color: value.isNotEmpty
@@ -430,7 +430,7 @@ class _HeightDisplay extends StatelessWidget {
         Text(
           suffix,
           style: const TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 16,
             fontWeight: FontWeight.w400,
             color: _AppColors.textMain,
@@ -475,7 +475,7 @@ class _ActionButtons extends StatelessWidget {
                 child: Text(
                   '상관없어요',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
                     color: _AppColors.textSub,
@@ -513,7 +513,7 @@ class _ActionButtons extends StatelessWidget {
                 child: Text(
                   '다음',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                     color: CupertinoColors.white,

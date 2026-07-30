@@ -323,7 +323,7 @@ class _Header extends StatelessWidget {
           const Text(
             '3:3 시즌 미팅',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 18,
               fontWeight: FontWeight.w700,
               color: Color(0xFF1E293B),
@@ -363,7 +363,7 @@ class _Header extends StatelessWidget {
                     Text(
                       '$ticketCount',
                       style: const TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFF334155),
@@ -393,7 +393,7 @@ class _TitleSection extends StatelessWidget {
             '추천 팀으로 만나는\n시즌 미팅 룰렛',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 30,
               fontWeight: FontWeight.w800,
               color: const Color(0xFFFFFFFF),
@@ -410,7 +410,7 @@ class _TitleSection extends StatelessWidget {
           Text(
             '추천 시스템이 고른 상대 팀으로 릴이 함께 멈춰요.',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               fontWeight: FontWeight.w500,
               color: const Color(0xFFFFFFFF).withValues(alpha: 0.82),
@@ -471,7 +471,7 @@ class _StatusBanner extends StatelessWidget {
             child: Text(
               bannerMessage,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
                 color:
@@ -548,7 +548,7 @@ class _SpinButton extends StatelessWidget {
                 child: Text(
                   spinning ? '추천 팀을 맞추는 중...' : '추천 룰렛 돌리기',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.2,
@@ -624,7 +624,7 @@ class _SlotProfileCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFF34284A),
@@ -649,7 +649,7 @@ class _SlotProfileCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
                   color: Color(0xFF8B7BA4),

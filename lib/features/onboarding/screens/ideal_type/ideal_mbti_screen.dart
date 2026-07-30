@@ -200,7 +200,7 @@ class _Header extends StatelessWidget {
               '설레연',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.primary,
@@ -228,7 +228,7 @@ class _TitleSection extends StatelessWidget {
           '선호하는 상대의\nMBTI를 알려주세요',
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 24,
             fontWeight: FontWeight.w700,
             height: 1.3,
@@ -240,7 +240,7 @@ class _TitleSection extends StatelessWidget {
           '나와 잘 맞는 성향을 선택해보세요',
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 14,
             fontWeight: FontWeight.w400,
             color: _AppColors.textSub,
@@ -401,7 +401,7 @@ class _MbtiButton extends StatelessWidget {
             child: Text(
               letter,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 26,
                 fontWeight: FontWeight.w800,
                 color: isSelected
@@ -456,7 +456,7 @@ class _BottomButtons extends StatelessWidget {
                   child: Text(
                     '상관없어요',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.textMain,
@@ -491,7 +491,7 @@ class _BottomButtons extends StatelessWidget {
                     Text(
                       '선택',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 17,
                         fontWeight: FontWeight.w700,
                         color: CupertinoColors.white,

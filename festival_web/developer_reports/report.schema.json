@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FestivalDeveloperReport",
+  "type": "object",
+  "required": [
+    "status",
+    "source",
+    "reason",
+    "reporterTicketId",
+    "reportedTicketId",
+    "createdAt"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["open", "reviewing", "resolved"]
+    },
+    "source": {
+      "type": "string",
+      "enum": ["profile_detail", "chat_screen"]
+    },
+    "reason": { "type": "string" },
+    "details": { "type": "string" },
+    "reporterTicketId": { "type": "string" },
+    "reporterUid": { "type": "string" },
+    "reportedTicketId": { "type": "string" },
+    "reportedProfileSnapshot": { "type": "object" },
+    "reporterProfileSnapshot": { "type": "object" },
+    "roomId": { "type": "string" },
+    "createdAt": { "type": "string" },
+    "updatedAt": { "type": "string" }
+  }
+}

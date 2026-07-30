@@ -4,7 +4,9 @@ import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../router/route_names.dart';
+import '../../services/adult_verification_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/storage_service.dart';
 import '../../services/user_service.dart';
 
 class KakaoCallbackScreen extends StatefulWidget {
@@ -37,6 +39,19 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
     final query = uri.queryParameters;
     final error = query['error'];
     final errorDescription = query['error_description'];
+    final adultVerificationService = AdultVerificationService();
+
+    if (!AdultVerificationService.isTemporarilyDisabled &&
+        !await adultVerificationService.hasPendingKakaoLoginSession()) {
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = '본인인증 완료 후 카카오 로그인을 진행할 수 있어요.';
+      });
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil(RouteNames.adultVerification, (route) => false);
+      return;
+    }
 
     // 1) 카카오에서 에러로 리다이렉트된 경우
     if (error != null) {
@@ -84,19 +99,42 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
         'email': user.kakaoAccount?.email,
       };
 
-      // 4) 로그인 상태 저장 (AuthProvider 갱신)
+      // 4) 사용자 문서 셸 생성 후 로그인 상태 저장 (AuthProvider 갱신)
       if (!mounted) return;
       final authProvider = context.read<AuthProvider>();
-      await authProvider.setKakaoLogin(kakaoUserId, userInfo: userInfo);
       await UserService().upsertKakaoUser(
         kakaoUserId: kakaoUserId,
         nickname: userInfo['nickname']?.toString(),
         profileImageUrl: userInfo['profileImageUrl']?.toString(),
         email: userInfo['email']?.toString(),
       );
+      await authProvider.setKakaoLogin(kakaoUserId, userInfo: userInfo);
 
       final authService = AuthService();
       await authService.syncPendingLegalConsents(kakaoUserId);
+
+      if (!AdultVerificationService.isTemporarilyDisabled) {
+        if (!mounted) return;
+        setState(() => _statusMessage = '본인인증 결과를 서버에서 확인 중...');
+        final verificationResult = await adultVerificationService
+            .verifyPendingSessionAfterLogin();
+        if (!verificationResult.isVerified) {
+          await authService.signOutAll();
+          await StorageService().clearKakaoUserId();
+          await StorageService().clearUserId();
+          if (!mounted) return;
+          setState(() {
+            _statusMessage =
+                verificationResult.message ??
+                '서버 본인인증 검증이 완료되지 않았어요. 다시 인증해 주세요.';
+          });
+          Navigator.of(context).pushNamedAndRemoveUntil(
+            RouteNames.adultVerification,
+            (route) => false,
+          );
+          return;
+        }
+      }
 
       if (!mounted) return;
       setState(() => _statusMessage = '로그인 완료! 이동 중...');
@@ -151,13 +189,13 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
       appBar: AppBar(
         title: const Text(
           '카카오 로그인 콜백',
-          style: TextStyle(fontFamily: 'Pretendard'),
+          style: TextStyle(fontFamily: 'NanumSquareRound'),
         ),
       ),
       body: Center(
         child: Text(
           _statusMessage,
-          style: const TextStyle(fontFamily: 'Pretendard', fontSize: 16),
+          style: const TextStyle(fontFamily: 'NanumSquareRound', fontSize: 16),
         ),
       ),
     );

@@ -76,7 +76,7 @@ class PromisePlacePickerSheet extends StatelessWidget {
             middle: const Text(
               '장소 선택',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontWeight: FontWeight.w700,
                 color: _PickerColors.textMain,
               ),
@@ -87,7 +87,7 @@ class PromisePlacePickerSheet extends StatelessWidget {
               child: const Text(
                 '닫기',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontWeight: FontWeight.w600,
                   color: _PickerColors.primary,
                 ),
@@ -188,7 +188,7 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
               const Text(
                 '표시할 장소가 없어요',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                   color: _PickerColors.textMain,
@@ -203,7 +203,7 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
                         '(오프라인이면 마지막으로 받아 둔 캐시만 씁니다)',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 12,
                   height: 1.35,
                   color: _PickerColors.textSubtle,
@@ -228,7 +228,7 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
                 child: Text(
                   '카테고리',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: _PickerColors.textSubtle,
@@ -246,7 +246,7 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
                 child: const Text(
                   '새로고침',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: _PickerColors.primary,
@@ -300,7 +300,7 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
                   '이 카테고리에 해당하는 장소가 없어요',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 14,
                     color: _PickerColors.textSubtle,
                   ),
@@ -369,7 +369,7 @@ class _FilterChip extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 13,
               fontWeight: FontWeight.w700,
               color: selected ? _PickerColors.primary : _PickerColors.textMain,
@@ -429,7 +429,7 @@ class _ExpandablePlaceCard extends StatelessWidget {
                     maxLines: expanded ? 3 : 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
                       color: isInitial
@@ -441,7 +441,7 @@ class _ExpandablePlaceCard extends StatelessWidget {
                 Text(
                   PromisePlaceCategory.label(place.category),
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     color: _PickerColors.textSubtle,
@@ -567,7 +567,7 @@ class _InlinePlaceDetailState extends State<_InlinePlaceDetail> {
           Text(
             p.description.isNotEmpty ? p.description : '설명이 아직 없어요.',
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               height: 1.45,
               color: _PickerColors.textMain,
@@ -590,7 +590,7 @@ class _InlinePlaceDetailState extends State<_InlinePlaceDetail> {
                 child: Text(
                   p.address.isNotEmpty ? p.address : '주소 정보 없음',
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 14,
                     height: 1.4,
                     color: _PickerColors.textMain,
@@ -609,7 +609,7 @@ class _InlinePlaceDetailState extends State<_InlinePlaceDetail> {
             Text(
               '내 위치 기준 약 $_distanceLabel',
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
                 color: _PickerColors.primary,
@@ -619,7 +619,7 @@ class _InlinePlaceDetailState extends State<_InlinePlaceDetail> {
             Text(
               _locNote!,
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 12,
                 color: _PickerColors.textSubtle,
               ),
@@ -648,7 +648,7 @@ class _InlinePlaceDetailState extends State<_InlinePlaceDetail> {
                     child: const Text(
                       '네이버지도',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 14,
                         fontWeight: FontWeight.w800,
                         color: CupertinoColors.white,
@@ -679,7 +679,7 @@ class _InlinePlaceDetailState extends State<_InlinePlaceDetail> {
                     child: const Text(
                       '카카오맵',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 14,
                         fontWeight: FontWeight.w800,
                         color: Color(0xFF191919),
@@ -705,7 +705,7 @@ class _InlinePlaceDetailState extends State<_InlinePlaceDetail> {
               child: const Text(
                 '이 장소 선택',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
                   color: CupertinoColors.white,

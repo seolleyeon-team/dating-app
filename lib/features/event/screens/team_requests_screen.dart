@@ -178,7 +178,7 @@ class _Header extends StatelessWidget {
               '팀 미팅 요청',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.textMain,
@@ -269,7 +269,7 @@ class _SegmentTab extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
               color: isSelected ? _AppColors.primary : _AppColors.textSub,
@@ -313,7 +313,7 @@ class _RequestList extends StatelessWidget {
             child: Text(
               '데이터를 불러올 수 없어요',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 14,
                 color: _AppColors.gray400,
               ),
@@ -391,7 +391,7 @@ class _EmptyState extends StatelessWidget {
               message,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 15,
                 fontWeight: FontWeight.w500,
                 height: 1.55,

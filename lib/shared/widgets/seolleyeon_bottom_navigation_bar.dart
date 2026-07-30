@@ -11,8 +11,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Theme, Brightness;
 import 'package:flutter/services.dart';
 
-import '../../core/constants/app_colors.dart';
-
 // =============================================================================
 // 탭 enum
 // =============================================================================
@@ -41,8 +39,6 @@ class SeolleyeonBottomNavigationBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final seol = Theme.of(context).extension<SeolThemeColors>()!;
-
     // ── Bar background ──
     // Light: translucent ivory-white + soft lavender tint (frosted)
     // Dark: translucent charcoal-plum glass
@@ -201,7 +197,7 @@ class _SeolNavItem extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 10,
                   fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
                   color: isActive ? primary : inactiveColor,

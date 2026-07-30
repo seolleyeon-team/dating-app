@@ -21,6 +21,15 @@ import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 
+class _MyPageColors {
+  static const Color accent = AppColors.primary;
+
+  static Color accentFor(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
+      ? AppColorsDark.primary
+      : accent;
+}
+
 class MyPageScreen extends StatefulWidget {
   final Function(int)? onNavTap;
 
@@ -199,20 +208,29 @@ class _MyPageScreenState extends State<MyPageScreen> {
       context: context,
       useRootNavigator: true,
       builder: (dialogContext) => CupertinoAlertDialog(
-        title: const Text('로그아웃', style: TextStyle(fontFamily: 'Pretendard')),
+        title: const Text(
+          '로그아웃',
+          style: TextStyle(fontFamily: 'NanumSquareRound'),
+        ),
         content: const Text(
           '정말 로그아웃 하시겠습니까?',
-          style: TextStyle(fontFamily: 'Pretendard'),
+          style: TextStyle(fontFamily: 'NanumSquareRound'),
         ),
         actions: [
           CupertinoDialogAction(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('취소', style: TextStyle(fontFamily: 'Pretendard')),
+            child: const Text(
+              '취소',
+              style: TextStyle(fontFamily: 'NanumSquareRound'),
+            ),
           ),
           CupertinoDialogAction(
             isDestructiveAction: true,
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('확인', style: TextStyle(fontFamily: 'Pretendard')),
+            child: const Text(
+              '확인',
+              style: TextStyle(fontFamily: 'NanumSquareRound'),
+            ),
           ),
         ],
       ),
@@ -313,6 +331,15 @@ class _MyPageScreenState extends State<MyPageScreen> {
                 ),
               ),
               SliverToBoxAdapter(
+                child: _HeartBalanceCard(
+                  balance: 20,
+                  onRecharge: () => Navigator.of(
+                    context,
+                    rootNavigator: true,
+                  ).pushNamed(RouteNames.heartCharge),
+                ),
+              ),
+              SliverToBoxAdapter(
                 child: _MenuList(
                   onEditProfile: () async {
                     await Navigator.of(
@@ -395,7 +422,7 @@ class _InviteToast extends StatelessWidget {
         message,
         textAlign: TextAlign.center,
         style: const TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NanumSquareRound',
           fontSize: 14,
           fontWeight: FontWeight.w600,
           color: CupertinoColors.white,
@@ -420,7 +447,7 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     final seol = Theme.of(context).extension<SeolThemeColors>()!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primary = Theme.of(context).colorScheme.primary;
+    final primary = _MyPageColors.accentFor(context);
     final bgColor = isDark ? AppColorsDark.surface : const Color(0xFFFFFFFF);
     final textMain = isDark
         ? AppColorsDark.textPrimary
@@ -437,7 +464,7 @@ class _Header extends StatelessWidget {
             Text(
               '내 페이지',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 21,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.3,
@@ -673,7 +700,7 @@ class _ProfileCard extends StatelessWidget {
               Text(
                 userName,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 24,
                   fontWeight: FontWeight.w700,
                   color: textMain,
@@ -683,7 +710,7 @@ class _ProfileCard extends StatelessWidget {
               Text(
                 nickname,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
                   color: textSub,
@@ -731,7 +758,7 @@ class _StatItem extends StatelessWidget {
         Text(
           '$value',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 18,
             fontWeight: FontWeight.w700,
             color: seol.gray800,
@@ -741,7 +768,7 @@ class _StatItem extends StatelessWidget {
         Text(
           label,
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 12,
             color: seol.gray400,
           ),
@@ -769,7 +796,7 @@ class _MenuList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final seol = Theme.of(context).extension<SeolThemeColors>()!;
-    final primary = Theme.of(context).colorScheme.primary;
+    final primary = _MyPageColors.accentFor(context);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -799,7 +826,7 @@ class _MenuList extends StatelessWidget {
               icon: CupertinoIcons.creditcard,
               iconBgColor: seol.purple50,
               iconColor: seol.purple500,
-              label: '머니 충전',
+              label: '하트 충전',
               onTap: onRecharge,
             ),
             Container(height: 1, color: seol.gray100.withValues(alpha: 0.5)),
@@ -871,7 +898,7 @@ class _MenuItem extends StatelessWidget {
               child: Text(
                 label,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 15,
                   fontWeight: FontWeight.w500,
                   color: Theme.of(
@@ -896,6 +923,96 @@ class _MenuItem extends StatelessWidget {
   }
 }
 
+class _HeartBalanceCard extends StatelessWidget {
+  final int balance;
+  final VoidCallback? onRecharge;
+
+  const _HeartBalanceCard({required this.balance, this.onRecharge});
+
+  @override
+  Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = _MyPageColors.accentFor(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: seol.cardSurface,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: CupertinoColors.black.withValues(alpha: 0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: seol.pink50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(CupertinoIcons.heart_fill, size: 23, color: primary),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '보유 하트',
+                    style: TextStyle(
+                      fontFamily: 'NanumSquareRound',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: seol.gray400,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '$balance개',
+                    style: TextStyle(
+                      fontFamily: 'NanumSquareRound',
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: seol.gray800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              minimumSize: Size.zero,
+              borderRadius: BorderRadius.circular(999),
+              color: primary,
+              onPressed: () {
+                HapticFeedback.selectionClick();
+                onRecharge?.call();
+              },
+              child: const Text(
+                '충전',
+                style: TextStyle(
+                  fontFamily: 'NanumSquareRound',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: CupertinoColors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _LogoutButton extends StatelessWidget {
   final VoidCallback? onLogout;
 
@@ -912,7 +1029,7 @@ class _LogoutButton extends StatelessWidget {
           child: Text(
             '로그아웃',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 12,
               fontWeight: FontWeight.w500,
               color: Theme.of(context).extension<SeolThemeColors>()!.gray400,

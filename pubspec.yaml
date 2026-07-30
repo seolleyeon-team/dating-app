@@ -50,6 +50,7 @@ dependencies:
   app_links: ^7.0.0
   kakao_flutter_sdk_common: ^1.10.0
   kakao_flutter_sdk_share: ^1.10.0
+  kakao_flutter_sdk_talk: ^1.10.0
   kakao_flutter_sdk_user: ^1.10.0
   google_fonts: ^6.2.1
   image_picker: ^1.1.2
@@ -66,6 +67,7 @@ dependencies:
   ffi: ^2.1.4
   win32: ^5.14.0
   share_plus: ^12.0.2
+  portone_flutter: ^1.0.1
 
 dev_dependencies:
   flutter_test:
@@ -95,15 +97,29 @@ flutter:
     - mainlogo.png
     - sketchbook.png
     - aiprofile.png
+    - postit.png
   #   - images/a_dot_ham.jpeg
 
   fonts:
+    - family: NanumSquareRound
+      fonts:
+        - asset: assets/fonts/NanumSquareRoundL.ttf
+          weight: 300
+        - asset: assets/fonts/NanumSquareRoundR.ttf
+          weight: 400
+        - asset: assets/fonts/NanumSquareRoundB.ttf
+          weight: 700
+        - asset: assets/fonts/NanumSquareRoundEB.ttf
+          weight: 800
     - family: Pretendard
       fonts:
         - asset: assets/fonts/PretendardVariable.ttf
     - family: Noto Sans KR
       fonts:
         - asset: assets/fonts/NotoSansKR-Variable.ttf
+    - family: LeeSeoyun
+      fonts:
+        - asset: assets/fonts/LeeSeoyun.ttf
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

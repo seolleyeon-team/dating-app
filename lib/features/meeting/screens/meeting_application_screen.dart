@@ -15,7 +15,7 @@ import 'package:flutter/material.dart' show Colors, Icons, Divider;
 // =============================================================================
 // 색상 정의
 // =============================================================================
-const String _kFontFamily = 'Pretendard';
+const String _kFontFamily = 'NanumSquareRound';
 
 class _AppColors {
   static const Color primary = Color(0xFFE9639B); // #e9639b
@@ -124,7 +124,7 @@ class _Header extends StatelessWidget {
           const Text(
             '설레연 3:3 미팅',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 18,
               fontWeight: FontWeight.w700,
               color: _AppColors.textMain,
@@ -658,7 +658,7 @@ class _Watermark extends StatelessWidget {
         'WF-3V3-02',
         style: TextStyle(
           fontSize: 10,
-          fontFamily: 'monospace',
+          fontFamily: 'NanumSquareRound',
           color: Colors.grey,
         ),
       ),

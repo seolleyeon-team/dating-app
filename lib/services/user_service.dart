@@ -166,6 +166,10 @@ class UserService {
           consentData?['kakaoNamePhone'],
           fallback: true,
         ),
+        'ageOver20': _readConsentBool(
+          consentData?['ageOver20'],
+          fallback: true,
+        ),
         'ageOver18': _readConsentBool(
           consentData?['ageOver18'] ?? consentData?['ageOver14'],
           fallback: true,

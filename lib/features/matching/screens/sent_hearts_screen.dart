@@ -30,7 +30,7 @@ class _AppColors {
   static const Color gray500 = Color(0xFF6B7280);
 }
 
-const String _kFontFamily = 'Noto Sans KR';
+const String _kFontFamily = 'NanumSquareRound';
 
 // =============================================================================
 // Hydrated heart profile view model

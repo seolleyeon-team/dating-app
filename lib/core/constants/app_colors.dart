@@ -190,11 +190,18 @@ class SeolThemeColors extends ThemeExtension<SeolThemeColors> {
   }
 
   @override
-  SeolThemeColors lerp(covariant ThemeExtension<SeolThemeColors>? other, double t) {
+  SeolThemeColors lerp(
+    covariant ThemeExtension<SeolThemeColors>? other,
+    double t,
+  ) {
     if (other is! SeolThemeColors) return this;
     return SeolThemeColors(
       cardSurface: Color.lerp(cardSurface, other.cardSurface, t)!,
-      navBarBackground: Color.lerp(navBarBackground, other.navBarBackground, t)!,
+      navBarBackground: Color.lerp(
+        navBarBackground,
+        other.navBarBackground,
+        t,
+      )!,
       sectionTitle: Color.lerp(sectionTitle, other.sectionTitle, t)!,
       settingsIcon: Color.lerp(settingsIcon, other.settingsIcon, t)!,
       gray100: Color.lerp(gray100, other.gray100, t)!,
@@ -212,4 +219,3 @@ class SeolThemeColors extends ThemeExtension<SeolThemeColors> {
     );
   }
 }
-
