@@ -100,8 +100,15 @@ class FakeBlindMeetingRepository extends BlindMeetingRepository {
     );
   }
 
+  /// 설정하면 신청 상태 조회가 이 오류로 실패한다.
+  Object? applicationReadError;
+
   @override
   Stream<BlindMeetingApplication?> watchMyApplication() {
+    final error = applicationReadError;
+    if (error != null) {
+      return Stream<BlindMeetingApplication?>.error(error);
+    }
     Future.microtask(_pushApplication);
     return _applications.stream;
   }
@@ -540,6 +547,19 @@ void main() {
     await tester.tap(find.text('진행 상황 보기'));
     await pumpFrames(tester);
     expect(find.byType(BlindMeetingWaitingScreen), findsOneWidget);
+  });
+
+  testWidgets('신청 상태를 읽을 수 없어도 소개 화면은 열린다', (tester) async {
+    repository.applicationReadError = FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'permission-denied',
+      message: 'Missing or insufficient permissions.',
+    );
+
+    await pumpApp(tester);
+    expect(find.byType(BlindMeetingIntroScreen), findsOneWidget);
+    expect(find.text('미팅 DNA 작성하기'), findsOneWidget);
+    expect(find.text('잠시 문제가 생겼어요'), findsNothing);
   });
 
   testWidgets('무알코올 후보 부족 시 사용자가 직접 조건을 선택한다', (tester) async {
