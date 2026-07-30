@@ -451,86 +451,86 @@ class ChatService {
     final roomRef = _firestore.collection('chat_rooms').doc(resolvedRoomId);
     final participantIds = [currentUserId, partnerId]..sort();
 
-final DocumentSnapshot<Map<String, dynamic>> snap;
+    final DocumentSnapshot<Map<String, dynamic>> snap;
 
-try {
-  snap = await roomRef.get();
-} catch (e) {
-  debugPrint(
-    '[ChatService] ensureDirectRoom get failed room=$resolvedRoomId '
-    'authUid=$debugAuthUid kakao=$currentUserId: $e',
-  );
-  rethrow;
-}
+    try {
+      snap = await roomRef.get();
+    } catch (e) {
+      debugPrint(
+        '[ChatService] ensureDirectRoom get failed room=$resolvedRoomId '
+        'authUid=$debugAuthUid kakao=$currentUserId: $e',
+      );
+      rethrow;
+    }
 
-if (!snap.exists) {
-  try {
-    await roomRef.set({
-      'roomId': resolvedRoomId,
-      'participantIds': participantIds,
-      'updatedAt': FieldValue.serverTimestamp(),
-      'participantInfo': {
-        currentUserId: {
-          'nickname': currentUserName,
-          'avatarUrl': currentUserAvatarUrl ?? '',
-        },
-        partnerId: {
-          'nickname': partnerName,
-          'avatarUrl': partnerAvatarUrl ?? '',
-        },
-      },
-      'createdAt': FieldValue.serverTimestamp(),
-      'lastMessage': '',
-      'lastMessageAt': null,
-    });
-  } catch (e) {
-    debugPrint(
-      '[ChatService] ensureDirectRoom create failed '
-      'room=$resolvedRoomId: $e',
+    if (!snap.exists) {
+      try {
+        await roomRef.set({
+          'roomId': resolvedRoomId,
+          'participantIds': participantIds,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'participantInfo': {
+            currentUserId: {
+              'nickname': currentUserName,
+              'avatarUrl': currentUserAvatarUrl ?? '',
+            },
+            partnerId: {
+              'nickname': partnerName,
+              'avatarUrl': partnerAvatarUrl ?? '',
+            },
+          },
+          'createdAt': FieldValue.serverTimestamp(),
+          'lastMessage': '',
+          'lastMessageAt': null,
+        });
+      } catch (e) {
+        debugPrint(
+          '[ChatService] ensureDirectRoom create failed '
+          'room=$resolvedRoomId: $e',
+        );
+        rethrow;
+      }
+
+      return;
+    }
+
+    final existingData = snap.data() ?? <String, dynamic>{};
+    final existingParticipantIds = List<String>.from(
+      (existingData['participantIds'] as List? ?? const []).map((e) => '$e'),
     );
-    rethrow;
-  }
 
-  return;
-}
+    if (!existingParticipantIds.contains(currentUserId)) {
+      throw StateError(
+        '채팅방 참가자가 아닙니다. '
+        'authUid=$debugAuthUid room=$resolvedRoomId '
+        'participants=$existingParticipantIds',
+      );
+    }
 
-final existingData = snap.data() ?? <String, dynamic>{};
-final existingParticipantIds = List<String>.from(
-  (existingData['participantIds'] as List? ?? const []).map((e) => '$e'),
-);
+    final payload = <String, dynamic>{
+      'roomId': resolvedRoomId,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'participantInfo.$currentUserId.nickname': currentUserName,
+      'participantInfo.$currentUserId.avatarUrl': currentUserAvatarUrl ?? '',
+      'participantInfo.$currentUserId.isWithdrawn': FieldValue.delete(),
+      'participantInfo.$currentUserId.withdrawnAt': FieldValue.delete(),
+      'withdrawnParticipantIds': FieldValue.arrayRemove([currentUserId]),
+    };
 
-if (!existingParticipantIds.contains(currentUserId)) {
-  throw StateError(
-    '채팅방 참가자가 아닙니다. '
-    'authUid=$debugAuthUid room=$resolvedRoomId '
-    'participants=$existingParticipantIds',
-  );
-}
+    if (!isParticipantWithdrawnInRoomData(existingData, partnerId)) {
+      payload['participantInfo.$partnerId.nickname'] = partnerName;
+      payload['participantInfo.$partnerId.avatarUrl'] = partnerAvatarUrl ?? '';
+    }
 
-final payload = <String, dynamic>{
-  'roomId': resolvedRoomId,
-  'updatedAt': FieldValue.serverTimestamp(),
-  'participantInfo.$currentUserId.nickname': currentUserName,
-  'participantInfo.$currentUserId.avatarUrl': currentUserAvatarUrl ?? '',
-  'participantInfo.$currentUserId.isWithdrawn': FieldValue.delete(),
-  'participantInfo.$currentUserId.withdrawnAt': FieldValue.delete(),
-  'withdrawnParticipantIds': FieldValue.arrayRemove([currentUserId]),
-};
-
-if (!isParticipantWithdrawnInRoomData(existingData, partnerId)) {
-  payload['participantInfo.$partnerId.nickname'] = partnerName;
-  payload['participantInfo.$partnerId.avatarUrl'] = partnerAvatarUrl ?? '';
-}
-
-try {
-  await roomRef.set(payload, SetOptions(merge: true));
-} catch (e) {
-  debugPrint(
-    '[ChatService] ensureDirectRoom update failed '
-    'room=$resolvedRoomId authUid=$debugAuthUid: $e',
-  );
-  rethrow;
-}
+    try {
+      await roomRef.set(payload, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint(
+        '[ChatService] ensureDirectRoom update failed '
+        'room=$resolvedRoomId authUid=$debugAuthUid: $e',
+      );
+      rethrow;
+    }
   }
 
   Future<void> sendTextMessage({

@@ -25,11 +25,7 @@ enum FriendInviteAcceptStatus {
   error,
 }
 
-enum FriendInviteShareSurface {
-  kakaoTalkApp,
-  webSharePage,
-  desktopSharePage,
-}
+enum FriendInviteShareSurface { kakaoTalkApp, webSharePage, desktopSharePage }
 
 class FriendInviteShareResult {
   final FriendInviteShareSurface surface;
@@ -141,10 +137,10 @@ class FriendInviteService {
     FirebaseFunctions? functions,
     StorageService? storageService,
     AuthService? authService,
-  })  : _functions =
-            functions ?? FirebaseFunctions.instanceFor(region: _functionsRegion),
-        _storageService = storageService ?? StorageService(),
-        _authService = authService ?? AuthService();
+  }) : _functions =
+           functions ?? FirebaseFunctions.instanceFor(region: _functionsRegion),
+       _storageService = storageService ?? StorageService(),
+       _authService = authService ?? AuthService();
 
   static const String _functionsRegion = 'asia-northeast3';
   static const String inviteWebHost = 'seolleyeon.web.app';
@@ -170,8 +166,8 @@ class FriendInviteService {
         throw Exception('\uB85C\uADF8\uC778\uC774 \uD544\uC694\uD574\uC694.');
       }
 
-      final hasFirebaseSession =
-          await _authService.ensureFirebaseSessionForVerifiedUser(kakaoUserId);
+      final hasFirebaseSession = await _authService
+          .ensureFirebaseSessionForVerifiedUser(kakaoUserId);
 
       final kakaoAccessToken = FirebaseAuth.instance.currentUser == null
           ? await _authService.getKakaoAccessTokenForFunctions()
@@ -240,20 +236,14 @@ class FriendInviteService {
     final inviteUri = Uri.parse(payload.inviteUrl);
     debugPrint('[FriendInvite] share target url=$inviteUri');
 
-    final link = Link(
-      webUrl: inviteUri,
-      mobileWebUrl: inviteUri,
-    );
+    final link = Link(webUrl: inviteUri, mobileWebUrl: inviteUri);
 
     final template = TextTemplate(
       text:
           '\uC124\uB808\uC5F0\uC5D0\uC11C \uCE5C\uAD6C \uCD94\uAC00\uD558\uAE30\n${_shareDisplayName(inviterName)}\uB2D8\uC774 \uCE5C\uAD6C\uB85C \uCD08\uB300\uD588\uC5B4\uC694.',
       link: link,
       buttons: [
-        Button(
-          title: '\uCE5C\uAD6C \uCD94\uAC00\uD558\uAE30',
-          link: link,
-        ),
+        Button(title: '\uCE5C\uAD6C \uCD94\uAC00\uD558\uAE30', link: link),
       ],
       buttonTitle: '\uCE5C\uAD6C \uCD94\uAC00\uD558\uAE30',
     );
@@ -269,10 +259,7 @@ class FriendInviteService {
         );
         debugPrint('[FriendInvite] web sharer uri=$sharerUri');
 
-        final launched = await launchUrl(
-          sharerUri,
-          webOnlyWindowName: '_self',
-        );
+        final launched = await launchUrl(sharerUri, webOnlyWindowName: '_self');
         if (!launched) {
           throw Exception(
             '\uCE74\uCE74\uC624 \uACF5\uC720 \uD398\uC774\uC9C0\uB97C \uC5F4\uC9C0 \uBABB\uD588\uC5B4\uC694.',
@@ -307,8 +294,8 @@ class FriendInviteService {
         );
       }
 
-      final canShareToTalk =
-          await ShareClient.instance.isKakaoTalkSharingAvailable();
+      final canShareToTalk = await ShareClient.instance
+          .isKakaoTalkSharingAvailable();
       debugPrint('[FriendInvite] KakaoTalk available=$canShareToTalk');
 
       if (canShareToTalk) {
@@ -478,7 +465,8 @@ class FriendInviteService {
           (kakaoAccessToken == null || kakaoAccessToken.isEmpty)) {
         return const FriendInviteAcceptResult(
           status: FriendInviteAcceptStatus.pendingVerification,
-          message: '\uCE74\uCE74\uC624 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD574\uC694.',
+          message:
+              '\uCE74\uCE74\uC624 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD574\uC694.',
         );
       }
 

@@ -507,8 +507,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       try {
         final user = await _userService.getUserProfile(kakaoUserId);
         final onboarding = user?['onboarding'];
-        _currentUserName =
-            (onboarding is Map && onboarding['nickname'] != null)
+        _currentUserName = (onboarding is Map && onboarding['nickname'] != null)
             ? onboarding['nickname'].toString()
             : (user?['nickname']?.toString() ?? '나');
 

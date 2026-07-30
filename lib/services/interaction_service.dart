@@ -205,8 +205,10 @@ class InteractionService {
         .where('action', whereIn: ['like', 'super_like'])
         .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+        .map(
+          (snap) =>
+              snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
+        );
   }
 
   /// 나에게 like한 유저 목록 (실시간 스트림)
@@ -216,8 +218,10 @@ class InteractionService {
         .where('action', whereIn: ['like', 'super_like'])
         .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+        .map(
+          (snap) =>
+              snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
+        );
   }
 
   /// 특정 유저에게 이미 like/nope 했는지 확인 (중복 카드 방지)

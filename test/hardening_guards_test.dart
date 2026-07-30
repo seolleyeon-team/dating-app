@@ -23,7 +23,10 @@ void main() {
       ).readAsStringSync();
       expect(recharge.contains('InAppPurchasePolicy.allowPurchaseUi'), isTrue);
       expect(charge.contains('InAppPurchasePolicy.allowPurchaseUi'), isTrue);
-      expect(recharge.contains('InAppPurchasePolicy.unavailableMessage'), isTrue);
+      expect(
+        recharge.contains('InAppPurchasePolicy.unavailableMessage'),
+        isTrue,
+      );
       expect(charge.contains('InAppPurchasePolicy.unavailableMessage'), isTrue);
     });
   });

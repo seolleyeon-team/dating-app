@@ -24,8 +24,7 @@ class CaptureProtectedImage extends StatelessWidget {
     this.placeholderIconSize = 28,
   });
 
-  static const String _viewType =
-      'com.yonsei.dating/capture_protected_image';
+  static const String _viewType = 'com.yonsei.dating/capture_protected_image';
 
   final String imageUrl;
   final BoxFit fit;
@@ -89,7 +88,8 @@ class CaptureProtectedImage extends StatelessWidget {
       );
     }
 
-    if (!blurEnabled && (blurBadgeText == null || blurBadgeText!.trim().isEmpty)) {
+    if (!blurEnabled &&
+        (blurBadgeText == null || blurBadgeText!.trim().isEmpty)) {
       return child;
     }
 

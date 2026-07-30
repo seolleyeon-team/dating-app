@@ -10,16 +10,19 @@ void main() {
       );
     });
 
-    test('force debug overrides release default for local release APK tests', () {
-      expect(
-        shouldUseDebugAppCheckProvider(
-          isWeb: false,
-          isReleaseMode: true,
-          forceDebugProvider: true,
-        ),
-        isTrue,
-      );
-    });
+    test(
+      'force debug overrides release default for local release APK tests',
+      () {
+        expect(
+          shouldUseDebugAppCheckProvider(
+            isWeb: false,
+            isReleaseMode: true,
+            forceDebugProvider: true,
+          ),
+          isTrue,
+        );
+      },
+    );
 
     test('debug-signed Android release may use debug provider', () {
       expect(

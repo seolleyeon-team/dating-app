@@ -840,7 +840,17 @@ function eventTeamCandidateSnapshotToMap(
   };
 }
 
-function buildEventTeamMatchResultPreview(params: {
+function buildEventTeamParticipantUids(
+  requestingTeam: EventTeamCandidateSnapshot,
+  matchedTeam: EventTeamCandidateSnapshot
+): string[] {
+  return dedupeStrings([
+    ...requestingTeam.membersSnapshot.map((member) => member.uid),
+    ...matchedTeam.membersSnapshot.map((member) => member.uid),
+  ]).sort();
+}
+
+export function buildEventTeamMatchResultPreview(params: {
   resultId: string;
   dateKey: string;
   requestingTeamSetupId: string;
@@ -865,6 +875,10 @@ function buildEventTeamMatchResultPreview(params: {
       params.requestingTeam.groupId,
       params.matchedTeam.groupId,
     ],
+    participantUids: buildEventTeamParticipantUids(
+      params.requestingTeam,
+      params.matchedTeam
+    ),
     candidateGroupIds: params.candidateTeams.map((team) => team.groupId),
     candidateScores: params.candidateTeams.map((team) => team.score),
     selectedGroupIndex: params.selectedGroupIndex,

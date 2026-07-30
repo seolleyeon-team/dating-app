@@ -454,7 +454,9 @@ class _EventCard extends StatelessWidget {
                             if (onApply != null) {
                               onApply!();
                             } else {
-                              Navigator.of(context).pushNamed(RouteNames.teamSetup);
+                              Navigator.of(
+                                context,
+                              ).pushNamed(RouteNames.teamSetup);
                             }
                           },
                           child: Container(

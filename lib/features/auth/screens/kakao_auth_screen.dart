@@ -240,8 +240,8 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   Future<bool> _ensureAdultVerifiedBeforeKakao() async {
     if (AdultVerificationService.isTemporarilyDisabled) return true;
 
-    final canProceed =
-        await _adultVerificationService.hasPendingKakaoLoginSession();
+    final canProceed = await _adultVerificationService
+        .hasPendingKakaoLoginSession();
 
     if (canProceed) return true;
 
@@ -251,9 +251,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       _errorMessage = '본인인증 완료 후 카카오 로그인을 진행할 수 있어요.';
     });
 
-    Navigator.of(context).pushReplacementNamed(
-      RouteNames.adultVerification,
-    );
+    Navigator.of(context).pushReplacementNamed(RouteNames.adultVerification);
 
     return false;
   }
@@ -267,9 +265,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
 
     if (!mounted) return;
 
-    Navigator.of(context).pushReplacementNamed(
-      RouteNames.adultVerification,
-    );
+    Navigator.of(context).pushReplacementNamed(RouteNames.adultVerification);
   }
 
   Future<bool> _verifyAdultIdentityAfterKakaoLogin() async {
@@ -278,12 +274,11 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
     if (!mounted) return false;
 
     setState(() {
-      _serverVerificationMessage =
-          '카카오 로그인 완료 후 본인인증 결과를 서버에서 확인하고 있어요.';
+      _serverVerificationMessage = '카카오 로그인 완료 후 본인인증 결과를 서버에서 확인하고 있어요.';
     });
 
-    final verificationResult =
-        await _adultVerificationService.verifyPendingSessionAfterLogin();
+    final verificationResult = await _adultVerificationService
+        .verifyPendingSessionAfterLogin();
 
     if (verificationResult.isVerified) {
       if (mounted) {
@@ -306,10 +301,9 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
           verificationResult.message ?? '서버 본인인증 검증이 완료되지 않았어요. 다시 인증해 주세요.';
     });
 
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      RouteNames.adultVerification,
-      (route) => false,
-    );
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil(RouteNames.adultVerification, (route) => false);
 
     return false;
   }
@@ -350,16 +344,15 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
 
       await _authService.syncPendingLegalConsents(kakaoUserId);
 
-      final adultIdentityVerified =
-          await _verifyAdultIdentityAfterKakaoLogin();
+      final adultIdentityVerified = await _verifyAdultIdentityAfterKakaoLogin();
 
       if (!adultIdentityVerified) return;
       if (!mounted) return;
 
       if (reactivatedForRejoin) {
-        Navigator.of(context).pushReplacementNamed(
-          RouteNames.studentVerification,
-        );
+        Navigator.of(
+          context,
+        ).pushReplacementNamed(RouteNames.studentVerification);
         return;
       }
 
@@ -367,27 +360,26 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       // 연세대학교 인증 및 초기 설정이 완료된 경우 홈으로 이동
       if (existedBeforeLogin) {
         final isVerified = await _authService.isStudentVerified(kakaoUserId);
-        final isInitialSetupComplete =
-            await _authService.isInitialSetupComplete(kakaoUserId);
+        final isInitialSetupComplete = await _authService
+            .isInitialSetupComplete(kakaoUserId);
 
         if (isVerified && isInitialSetupComplete) {
           final handledInvite = await _handlePendingInviteAfterLogin();
 
           if (handledInvite || !mounted) return;
 
-          Navigator.of(context).pushNamedAndRemoveUntil(
-            RouteNames.main,
-            (route) => false,
-          );
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
           return;
         }
 
         if (!mounted) return;
 
         if (!isVerified) {
-          Navigator.of(context).pushReplacementNamed(
-            RouteNames.studentVerification,
-          );
+          Navigator.of(
+            context,
+          ).pushReplacementNamed(RouteNames.studentVerification);
           return;
         }
 
@@ -398,21 +390,20 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
 
           if (!mounted) return;
 
-          Navigator.of(context).pushReplacementNamed(
-            nextRoute ?? RouteNames.onboardingBasicInfo,
-          );
+          Navigator.of(
+            context,
+          ).pushReplacementNamed(nextRoute ?? RouteNames.onboardingBasicInfo);
           return;
         }
 
-        final hasSeenTutorial =
-            await _authService.hasSeenTutorial(kakaoUserId);
+        final hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
 
         if (!hasSeenTutorial) {
           if (!mounted) return;
 
-          Navigator.of(context).pushReplacementNamed(
-            RouteNames.welcomeTutorial,
-          );
+          Navigator.of(
+            context,
+          ).pushReplacementNamed(RouteNames.welcomeTutorial);
           return;
         }
       }
@@ -420,13 +411,11 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       // 신규 또는 설정이 완료되지 않은 사용자
       if (!mounted) return;
 
-      Navigator.of(context).pushReplacementNamed(
-        RouteNames.studentVerification,
-      );
+      Navigator.of(
+        context,
+      ).pushReplacementNamed(RouteNames.studentVerification);
     } catch (e) {
-      debugPrint(
-        '[KAKAO] login failed: ${PrivacyLogUtils.errorSummary(e)}',
-      );
+      debugPrint('[KAKAO] login failed: ${PrivacyLogUtils.errorSummary(e)}');
 
       final msg = _formatLoginErrorMessage(e.toString());
 
@@ -488,9 +477,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
               const SizedBox(height: 12),
               GestureDetector(
                 onLongPress: () {
-                  Clipboard.setData(
-                    ClipboardData(text: keyHash),
-                  );
+                  Clipboard.setData(ClipboardData(text: keyHash));
                   HapticFeedback.mediumImpact();
                 },
                 child: Container(
@@ -568,42 +555,40 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
 
       await _authService.syncPendingLegalConsents(kakaoUserId);
 
-      final adultIdentityVerified =
-          await _verifyAdultIdentityAfterKakaoLogin();
+      final adultIdentityVerified = await _verifyAdultIdentityAfterKakaoLogin();
 
       if (!adultIdentityVerified) return;
       if (!mounted) return;
 
       if (reactivatedForRejoin) {
-        Navigator.of(context).pushReplacementNamed(
-          RouteNames.studentVerification,
-        );
+        Navigator.of(
+          context,
+        ).pushReplacementNamed(RouteNames.studentVerification);
         return;
       }
 
       if (existedBeforeLogin) {
         final isVerified = await _authService.isStudentVerified(kakaoUserId);
-        final isInitialSetupComplete =
-            await _authService.isInitialSetupComplete(kakaoUserId);
+        final isInitialSetupComplete = await _authService
+            .isInitialSetupComplete(kakaoUserId);
 
         if (isVerified && isInitialSetupComplete) {
           final handledInvite = await _handlePendingInviteAfterLogin();
 
           if (handledInvite || !mounted) return;
 
-          Navigator.of(context).pushNamedAndRemoveUntil(
-            RouteNames.main,
-            (route) => false,
-          );
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
           return;
         }
 
         if (!mounted) return;
 
         if (!isVerified) {
-          Navigator.of(context).pushReplacementNamed(
-            RouteNames.studentVerification,
-          );
+          Navigator.of(
+            context,
+          ).pushReplacementNamed(RouteNames.studentVerification);
           return;
         }
 
@@ -614,30 +599,29 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
 
           if (!mounted) return;
 
-          Navigator.of(context).pushReplacementNamed(
-            nextRoute ?? RouteNames.onboardingBasicInfo,
-          );
+          Navigator.of(
+            context,
+          ).pushReplacementNamed(nextRoute ?? RouteNames.onboardingBasicInfo);
           return;
         }
 
-        final hasSeenTutorial =
-            await _authService.hasSeenTutorial(kakaoUserId);
+        final hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
 
         if (!hasSeenTutorial) {
           if (!mounted) return;
 
-          Navigator.of(context).pushReplacementNamed(
-            RouteNames.welcomeTutorial,
-          );
+          Navigator.of(
+            context,
+          ).pushReplacementNamed(RouteNames.welcomeTutorial);
           return;
         }
       }
 
       if (!mounted) return;
 
-      Navigator.of(context).pushReplacementNamed(
-        RouteNames.studentVerification,
-      );
+      Navigator.of(
+        context,
+      ).pushReplacementNamed(RouteNames.studentVerification);
     } catch (e) {
       debugPrint(
         '[KAKAO] web login failed: ${PrivacyLogUtils.errorSummary(e)}',
@@ -677,9 +661,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
       backgroundColor: const Color(0xFFFAFAFA),
-      navigationBar: const CupertinoNavigationBar(
-        middle: Text('카카오 로그인'),
-      ),
+      navigationBar: const CupertinoNavigationBar(middle: Text('카카오 로그인')),
       child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
@@ -712,9 +694,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
                   decoration: BoxDecoration(
                     color: const Color(0xFFFFE8EA),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: const Color(0xFFFFC2CC),
-                    ),
+                    border: Border.all(color: const Color(0xFFFFC2CC)),
                   ),
                   child: Text(
                     _errorMessage!,
@@ -734,9 +714,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
                   decoration: BoxDecoration(
                     color: const Color(0xFFF1F5F9),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: const Color(0xFFE2E8F0),
-                    ),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
                   ),
                   child: Text(
                     _serverVerificationMessage!,
@@ -760,9 +738,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
                   color: const Color(0xFFFF6B8A),
                   onPressed: _isLoading ? null : _login,
                   child: _isLoading
-                      ? const CupertinoActivityIndicator(
-                          color: Colors.white,
-                        )
+                      ? const CupertinoActivityIndicator(color: Colors.white)
                       : const Text(
                           '카카오로 로그인',
                           style: TextStyle(
@@ -811,10 +787,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
                           },
                     child: const Text(
                       '본인인증 화면 다시 보기',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF64748B),
-                      ),
+                      style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
                     ),
                   ),
                 ),
@@ -827,16 +800,13 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
                   onPressed: _isLoading
                       ? null
                       : () {
-                          Navigator.of(context).pushReplacementNamed(
-                            RouteNames.terms,
-                          );
+                          Navigator.of(
+                            context,
+                          ).pushReplacementNamed(RouteNames.terms);
                         },
                   child: const Text(
                     '약관으로 돌아가기',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF64748B),
-                    ),
+                    style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
                   ),
                 ),
               ),
@@ -852,10 +822,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
                     onPressed: _isLoading ? null : _showKeyHashIfAndroid,
                     child: const Text(
                       '키 해시 확인',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF94A3B8),
-                      ),
+                      style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
                     ),
                   ),
                 ),
