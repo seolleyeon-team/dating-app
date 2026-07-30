@@ -16,6 +16,7 @@ import '../../../services/friend_invite_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../shared/layouts/main_scaffold_args.dart';
 import '../../../utils/open_mail_app.dart';
+import '../../../shared/utils/privacy_log_utils.dart';
 import '../utils/email_link_continue_url.dart';
 
 class StudentVerificationScreen extends StatefulWidget {
@@ -223,7 +224,16 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
           context,
         ).pushReplacementNamed(RouteNames.onboardingBasicInfo);
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint(
+        '[StudentVerification] resume-after-verified failed: '
+        '${PrivacyLogUtils.errorSummary(e)}',
+      );
+      assert(() {
+        debugPrint('$st');
+        return true;
+      }());
+    }
   }
 
   // Web에서 이메일 링크로 들어온 경우에만 동작 (native는 app_links로 처리)

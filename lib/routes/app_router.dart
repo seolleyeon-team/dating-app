@@ -16,9 +16,17 @@ import '../screens/event/event_screen.dart';
 import '../screens/community/community_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import '../screens/tutorial/tutorial_screen.dart';
+import '../shared/utils/legacy_stub_policy.dart';
 
+/// DEPRECATED: This GoRouter tree is unused.
+/// Production navigation is `lib/router/app_router.dart` via [AppRouter.generateRoute].
+@Deprecated('Use lib/router/app_router.dart named routes instead')
 class AppRouter {
-  static GoRouter router(AuthProvider authProvider) => GoRouter(
+  static GoRouter router(AuthProvider authProvider) {
+    if (!LegacyStubPolicy.allowLegacyStubScreens) {
+      LegacyStubPolicy.denyInRelease('routes.AppRouter');
+    }
+    return GoRouter(
     initialLocation: '/splash', // ✅ 변경
     refreshListenable: authProvider,
     redirect: (context, state) {
@@ -202,6 +210,7 @@ class AppRouter {
       ),
     ],
   );
+  }
 }
 
 class _SplashScreen extends StatefulWidget {

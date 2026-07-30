@@ -12,6 +12,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors;
 import 'dart:ui';
 
+import '../../../shared/utils/in_app_purchase_policy.dart';
+
 // =============================================================================
 // 색상 정의
 // =============================================================================
@@ -21,6 +23,31 @@ class _AppColors {
   static const Color surfaceLight = CupertinoColors.white;
   static const Color textPrimary = Color(0xFF1A1A1A);
   static const Color textSecondary = Color(0xFF8E8E93);
+}
+
+Future<void> _showPurchaseUnavailable(BuildContext context) {
+  return showCupertinoDialog<void>(
+    context: context,
+    builder: (ctx) => CupertinoAlertDialog(
+      title: const Text('결제 준비 중'),
+      content: Text(InAppPurchasePolicy.unavailableMessage),
+      actions: [
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('확인'),
+        ),
+      ],
+    ),
+  );
+}
+
+void _onPurchaseAttempt(BuildContext context) {
+  if (!InAppPurchasePolicy.allowPurchaseUi) {
+    _showPurchaseUnavailable(context);
+    return;
+  }
+  // Real billing is not wired yet even when the flag is on.
+  _showPurchaseUnavailable(context);
 }
 
 // =============================================================================
@@ -287,7 +314,7 @@ class _PromoBanner extends StatelessWidget {
             bottom: 20,
             right: 24,
             child: GestureDetector(
-              onTap: () {},
+              onTap: () => _onPurchaseAttempt(context),
               child: Row(
                 children: const [
                   Text(
@@ -335,7 +362,10 @@ class _ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
+    return GestureDetector(
+      onTap: () => _onPurchaseAttempt(context),
+      behavior: HitTestBehavior.opaque,
+      child: Stack(
       children: [
         Container(
           padding: const EdgeInsets.all(20),
@@ -480,6 +510,7 @@ class _ProductCard extends StatelessWidget {
             ),
           ),
       ],
+    ),
     );
   }
 }

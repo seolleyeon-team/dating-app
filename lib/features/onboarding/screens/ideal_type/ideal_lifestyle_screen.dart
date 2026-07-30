@@ -16,6 +16,7 @@ import '../../../../router/route_names.dart';
 import '../../../../services/onboarding_save_helper.dart';
 import '../../../../services/storage_service.dart';
 import '../../../../services/user_service.dart';
+import '../../../../shared/utils/safe_catch.dart';
 
 // =============================================================================
 // 색상 상수
@@ -98,24 +99,32 @@ class _IdealLifestyleScreenState extends State<IdealLifestyleScreen> {
     final e = lifestyle['exercise']?.toString();
     final r = lifestyle['religion']?.toString();
     if (d != null && d.isNotEmpty) {
-      try {
-        _drinking = DrinkingFrequency.values.firstWhere((v) => v.name == d);
-      } catch (_) {}
+      _drinking = enumByNameOrNull(
+        DrinkingFrequency.values,
+        d,
+        tag: 'IdealLifestyleScreen',
+      );
     }
     if (s != null && s.isNotEmpty) {
-      try {
-        _smoking = SmokingStatus.values.firstWhere((v) => v.name == s);
-      } catch (_) {}
+      _smoking = enumByNameOrNull(
+        SmokingStatus.values,
+        s,
+        tag: 'IdealLifestyleScreen',
+      );
     }
     if (e != null && e.isNotEmpty) {
-      try {
-        _exercise = ExerciseFrequency.values.firstWhere((v) => v.name == e);
-      } catch (_) {}
+      _exercise = enumByNameOrNull(
+        ExerciseFrequency.values,
+        e,
+        tag: 'IdealLifestyleScreen',
+      );
     }
     if (r != null && r.isNotEmpty) {
-      try {
-        _religion = Religion.values.firstWhere((v) => v.name == r);
-      } catch (_) {}
+      _religion = enumByNameOrNull(
+        Religion.values,
+        r,
+        tag: 'IdealLifestyleScreen',
+      );
     }
     if (mounted) setState(() {});
   }

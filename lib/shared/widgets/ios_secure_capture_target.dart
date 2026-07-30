@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import '../utils/safe_catch.dart';
+
 class IosSecureCaptureTarget extends StatefulWidget {
   const IosSecureCaptureTarget({
     super.key,
@@ -75,7 +77,9 @@ class _IosSecureCaptureTargetState extends State<IosSecureCaptureTarget>
         'height': size.height,
         'borderRadius': widget.borderRadius,
       });
-    } catch (_) {}
+    } catch (e) {
+      logCaughtError('IosSecureCapture.registerSecureZone', e);
+    }
   }
 
   @override
