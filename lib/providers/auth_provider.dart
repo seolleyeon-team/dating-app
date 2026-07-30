@@ -549,12 +549,14 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
 
     try {
+      final kakaoUserId = _kakaoUserId;
       await _authService.signOutAll();
-      await _storageService.clearUserId();
-      await _storageService.clearKakaoUserId();
       await _friendInviteService.clearPendingInviteToken();
-      if (_kakaoUserId != null) {
-        await _storageService.clearStudentVerification(_kakaoUserId!);
+      if (kakaoUserId != null && kakaoUserId.isNotEmpty) {
+        await _storageService.clearUserScopedSession(kakaoUserId);
+      } else {
+        await _storageService.clearUserId();
+        await _storageService.clearKakaoUserId();
       }
 
       _currentUser = null;
