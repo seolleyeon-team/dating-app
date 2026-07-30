@@ -22,6 +22,16 @@ Blind-meeting domains are **not** represented.
 - Retry budget → `dead_letter`
 - Safety incomplete → `expire`
 
+## Dry-run runner
+
+```text
+functions/src/staleJobRepairRunner.ts
+```
+
+- `runStaleJobRepairDryRun` always returns `dryRun: true` and `applyBlocked: true`
+- Money/season domains listed in `NEVER_AUTO_APPLY`
+- Apply path intentionally absent until operator approval
+
 ## Next ops step (external)
 
-Wire a scheduled callable that queries stale docs and applies plans after manual approval / feature flag. Production mutation is blocked until approved.
+Wire a scheduled callable that queries stale docs and **only logs** dry-run plans in production first. Production mutation remains blocked until approved.
