@@ -25,6 +25,10 @@ accepted/declined are terminal
 
 Evidence: `functions/src/teamMeetingRequest.ts` + tests (idempotent respond, pair lock).
 
+## Concurrency helpers
+
+unctions/src/seasonMeetingConcurrency.ts — replacement seat optimistic lock + deposit callback dedupe (unit tested).
+
 ## Remaining gaps (tracked)
 
 | Gap | Status |

@@ -6,9 +6,9 @@
 |---------|-----------|------|--------|-------|
 | dart format --set-exit-if-changed lib test | root | 0 | PASS | |
 | flutter analyze --no-fatal-infos --no-fatal-warnings | root | 0 | PASS | 20 infos/warnings |
-| flutter test | root | 0 | PASS | 124 tests |
+| flutter test | root | 0 | PASS | 126 tests |
 | npm run lint | functions | 0 | PASS | |
-| npm test | functions | 0 | PASS | 190 tests |
+| npm test | functions | 0 | PASS | 192 tests |
 | pytest recsys/tests | root | 0 | PASS | 4 tests, PYTHONPATH=. |
 | Protected blind SHA256 | — | — | UNCHANGED | 94BA6240…8849C |
 
