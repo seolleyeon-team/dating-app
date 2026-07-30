@@ -686,7 +686,14 @@ service cloud.firestore {
               'onboardingCompletedAt',
               'idealType',
               'idealTypeUpdatedAt',
-              'updatedAt'
+              'updatedAt',
+              // App smoke / normal session writes (not avatar approval fields)
+              'hasSeenTutorial',
+              'preferenceVector',
+              'lastLoginAt',
+              'nickname',
+              'profileImageUrl',
+              'email'
             ])
           ) || (
             // Profile edit (onboarding data update) - keep existing rules and allow onboarding edits
@@ -702,7 +709,13 @@ service cloud.firestore {
               'profileImageMode',
               'idealType',
               'idealTypeUpdatedAt',
-              'updatedAt'
+              'updatedAt',
+              'hasSeenTutorial',
+              'preferenceVector',
+              'lastLoginAt',
+              'nickname',
+              'profileImageUrl',
+              'email'
             ])
           )
         );
