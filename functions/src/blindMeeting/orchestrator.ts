@@ -31,6 +31,12 @@ import {
 } from "./policy";
 import { refundDeposit, startDeposit } from "./payments";
 import {
+  onBlindMeetingCheckIn,
+  onBlindMeetingCheckOut,
+  stopBlindMeetingParticipantPrompts,
+  stopBlindMeetingSessionPrompts,
+} from "../meetingIcebreaker/blindMeetingHooks";
+import {
   ApplicationDoc,
   MeetingDoc,
   addSafetyFlag,
@@ -1172,6 +1178,15 @@ export async function settleCancellation(params: {
     },
   });
 
+  // 노쇼·취소·교체된 참가자에게는 아이스브레이킹 알림을 보내지 않는다.
+  await stopBlindMeetingParticipantPrompts({
+    meetingId: params.meetingId,
+    userId: params.userId,
+    reason: params.isNoShowWithoutContact
+      ? "participant_no_show"
+      : "participant_left",
+  });
+
   await setApplication(params.userId, {
     status: params.isNoShowWithoutContact ? "no_show" : "cancelled",
     stage: "cancelled",
@@ -1307,6 +1322,12 @@ export async function cancelMeeting(
     cancelReason: reason,
   });
 
+  // 미팅이 취소되면 예약된 아이스브레이킹 알림도 모두 취소한다.
+  await stopBlindMeetingSessionPrompts({
+    meetingId,
+    reason: "meeting_cancelled",
+  });
+
   if (meeting.groupChatId) {
     await setGroupChatWritable(meeting.groupChatId, false, "read_only");
   }
@@ -1356,6 +1377,12 @@ export async function markSafetyStamp(params: {
     await incrementStats(params.userId, { checkinCompleted: 1 });
     await transitionMeetingStatus(params.meetingId, "checkin_open");
     await maybeStartMeeting(params.meetingId);
+    // 시작 안전도장 완료 → 15분 뒤부터 아이스브레이킹 룰렛 알림
+    await onBlindMeetingCheckIn({
+      meetingId: params.meetingId,
+      userId: params.userId,
+      isAlcoholFree: meeting.isAlcoholFree,
+    });
     return;
   }
 
@@ -1367,6 +1394,11 @@ export async function markSafetyStamp(params: {
     },
   });
   await incrementStats(params.userId, { checkoutCompleted: 1 });
+  // 종료 안전도장 완료 → 해당 참가자 반복 알림 즉시 종료
+  await onBlindMeetingCheckOut({
+    meetingId: params.meetingId,
+    userId: params.userId,
+  });
   await maybeCompleteMeeting(params.meetingId);
 }
 
@@ -1393,6 +1425,12 @@ async function maybeCompleteMeeting(meetingId: string): Promise<void> {
     completedAt: FieldValue.serverTimestamp(),
   });
   if (!moved) return;
+
+  // 미팅 전체가 종료됐으면 남아 있는 아이스브레이킹 알림도 모두 정리한다.
+  await stopBlindMeetingSessionPrompts({
+    meetingId,
+    reason: "meeting_completed",
+  });
 
   const policy = await loadPolicy();
   for (const participant of attended) {

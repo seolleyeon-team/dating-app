@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "promptParticipants",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "isActive", "order": "ASCENDING" },
+        { "fieldPath": "nextPromptAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "asks",
       "queryScope": "COLLECTION",
       "fields": [

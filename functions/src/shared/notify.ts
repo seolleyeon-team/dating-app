@@ -8,8 +8,36 @@
  */
 
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
-import { getMessaging } from "firebase-admin/messaging";
+import {
+  getMessaging,
+  type AndroidConfig,
+  type ApnsConfig,
+} from "firebase-admin/messaging";
 import * as logger from "firebase-functions/logger";
+
+/**
+ * 기본 알림 채널 (소리 + 진동 + heads-up).
+ *
+ * 앱의 PushNotificationService가 같은 id로 채널을 만든다.
+ */
+export const DEFAULT_PUSH_CHANNEL_ID = "seolleyeon_high_importance";
+
+/**
+ * 조용한 알림 채널 (소리·진동 없음, 낮은 우선순위).
+ *
+ * 미팅 아이스브레이킹 룰렛처럼 15분마다 반복되는 안내에 사용한다.
+ * 알림 센터에는 문구가 남지만 소리·진동·강한 heads-up은 발생하지 않는다.
+ * 중요 채팅·안전 알림 채널과 분리되어 있어 사용자가 따로 끌 수 있다.
+ */
+export const QUIET_PUSH_CHANNEL_ID = "meeting_icebreaker_quiet";
+
+/**
+ * 푸시 전달 방식.
+ *
+ *  - default: 기존 알림 (소리 + 진동 + 높은 우선순위)
+ *  - quiet:   소리·진동 없음, 낮은 우선순위, 같은 collapseKey는 알림을 교체
+ */
+export type PushDeliveryStyle = "default" | "quiet";
 
 function db() {
   return getFirestore();
@@ -40,6 +68,9 @@ export function notificationCategoryForType(type: string): string | null {
     case "ask_received":
       return "asks";
     case "event_team_invite":
+      return "events";
+    case "meeting_icebreaker_roulette":
+      // 3:3 미팅 진행 중 아이스브레이킹 안내. 이벤트 카테고리를 따른다.
       return "events";
     case "safety_stamp_follow_up":
       return "safety";
@@ -114,7 +145,8 @@ export type InAppNotificationType =
   | "blind_meeting_follow_up_reminder"
   | "blind_meeting_mutual_match"
   | "blind_meeting_cancelled"
-  | "blind_meeting_refunded";
+  | "blind_meeting_refunded"
+  | "meeting_icebreaker_roulette";
 
 export type InAppNotificationDeeplinkType =
   | "chat"
@@ -124,7 +156,8 @@ export type InAppNotificationDeeplinkType =
   | "safety_stamp_follow_up"
   | "event_team_invite"
   | "blind_meeting"
-  | "blind_meeting_follow_up";
+  | "blind_meeting_follow_up"
+  | "meeting_icebreaker_roulette";
 
 export type InAppNotificationPayload = {
   type: InAppNotificationType;
@@ -141,6 +174,8 @@ export type InAppNotificationPayload = {
   teamSetupId?: string;
   inviteId?: string;
   meetingId?: string;
+  /** 미팅 아이스브레이킹 세션 식별자 (서버 검증용) */
+  sessionId?: string;
 };
 
 /**
@@ -192,6 +227,7 @@ export async function createInAppNotification(
     teamSetupId: payload.teamSetupId ?? null,
     inviteId: payload.inviteId ?? null,
     meetingId: payload.meetingId ?? null,
+    sessionId: payload.sessionId ?? null,
   });
 
   logger.info("In-app notification created", {
@@ -205,6 +241,71 @@ export async function createInAppNotification(
   return true;
 }
 
+function buildAndroidConfig(
+  style: PushDeliveryStyle,
+  collapseKey?: string
+): AndroidConfig {
+  if (style === "quiet") {
+    return {
+      priority: "normal",
+      ...(collapseKey ? { collapseKey } : {}),
+      notification: {
+        channelId: QUIET_PUSH_CHANNEL_ID,
+        // defaultSound=false + sound 미지정 → 소리 없음
+        defaultSound: false,
+        // defaultVibrateTimings=false + vibrateTimings 미지정 → 진동 없음
+        defaultVibrateTimings: false,
+        // 알림 자체의 우선순위도 낮춘다 (heads-up 방지).
+        priority: "low",
+        // 같은 tag는 알림을 쌓지 않고 교체한다 (같은 미팅 알림 누적 방지).
+        ...(collapseKey ? { tag: collapseKey } : {}),
+      },
+    };
+  }
+
+  return {
+    priority: "high",
+    notification: {
+      channelId: DEFAULT_PUSH_CHANNEL_ID,
+    },
+  };
+}
+
+function buildApnsConfig(
+  style: PushDeliveryStyle,
+  collapseKey?: string
+): ApnsConfig {
+  if (style === "quiet") {
+    const headers: Record<string, string> = {
+      // 5 = throttled. 즉시 깨우지 않는다.
+      "apns-priority": "5",
+    };
+    if (collapseKey) headers["apns-collapse-id"] = collapseKey;
+
+    // sound를 지정하지 않아 무음이고, badge도 올리지 않는다.
+    // interruption-level=passive는 iOS 15+에서 heads-up 배너 없이
+    // 알림 센터에만 조용히 표시되게 한다.
+    // admin SDK의 Aps 타입에 명시되지 않은 키라서 캐스팅해서 넣는다.
+    return {
+      headers,
+      payload: {
+        aps: { "interruption-level": "passive" },
+      },
+    } as unknown as ApnsConfig;
+  }
+
+  return {
+    headers: {
+      "apns-priority": "10",
+    },
+    payload: {
+      aps: {
+        sound: "default",
+      },
+    },
+  };
+}
+
 /** 여러 사용자에게 FCM 푸시 발송. 실패한 토큰은 정리한다. */
 export async function sendPushToUsers(
   userIds: string[],
@@ -212,6 +313,10 @@ export async function sendPushToUsers(
     title: string;
     body: string;
     data: Record<string, string>;
+    /** 기본값 default. quiet는 소리·진동 없는 조용한 알림. */
+    style?: PushDeliveryStyle;
+    /** 같은 키의 알림을 교체한다 (Android tag / apns-collapse-id). */
+    collapseKey?: string;
   }
 ): Promise<void> {
   const uniqueUserIds = [...new Set(userIds.filter((u) => u.length > 0))];
@@ -228,6 +333,7 @@ export async function sendPushToUsers(
     return;
   }
 
+  const style: PushDeliveryStyle = payload.style ?? "default";
   const response = await getMessaging().sendEachForMulticast({
     tokens,
     notification: {
@@ -235,22 +341,8 @@ export async function sendPushToUsers(
       body: payload.body,
     },
     data: payload.data,
-    android: {
-      priority: "high",
-      notification: {
-        channelId: "seolleyeon_high_importance",
-      },
-    },
-    apns: {
-      headers: {
-        "apns-priority": "10",
-      },
-      payload: {
-        aps: {
-          sound: "default",
-        },
-      },
-    },
+    android: buildAndroidConfig(style, payload.collapseKey),
+    apns: buildApnsConfig(style, payload.collapseKey),
   });
 
   const invalidTokens: string[] = [];
@@ -302,7 +394,13 @@ export function buildNotificationIdempotencyKey(
  */
 export async function sendPushOnce(
   userIds: string[],
-  payload: { title: string; body: string; data: Record<string, string> },
+  payload: {
+    title: string;
+    body: string;
+    data: Record<string, string>;
+    style?: PushDeliveryStyle;
+    collapseKey?: string;
+  },
   idempotencyKey: string
 ): Promise<boolean> {
   if (!idempotencyKey) {

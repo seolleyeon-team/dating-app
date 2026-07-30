@@ -47,6 +47,9 @@ import { createInAppNotification, sendPushToUsers } from "./shared/notify";
 // 3:3 블라인드 취향 미팅 (callables + 예약 작업)
 export * from "./blindMeeting";
 
+// 3:3 미팅 아이스브레이킹 룰렛 (조용한 15분 알림 + 진입 검증)
+export * from "./meetingIcebreaker";
+
 // Firebase Admin 초기화
 initializeApp();
 const db = getFirestore();
