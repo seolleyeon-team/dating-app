@@ -57,6 +57,22 @@ void main() {
     ]) {
       expect(File('$root/$path').existsSync(), isTrue, reason: path);
     }
+    final router = read('lib/router/app_router.dart');
+    expect(router, contains('AccountManagementScreen'));
+    expect(router, contains('accountManagement'));
+    final userService = read('lib/services/user_service.dart');
+    expect(userService, contains("cleanupAvatarMedia"));
+    expect(userService, contains("account_deletion"));
+    expect(userService, isNot(contains("'status': 'withdrawn'")));
+  });
+
+  test('private users docs are not the cross-user profile surface', () {
+    final userService = read('lib/services/user_service.dart');
+    expect(userService, contains('publicProfiles'));
+    expect(userService, contains('getPublicProfile'));
+    final rules = read('firestore.rules');
+    expect(rules, contains('match /publicProfiles/{uid}'));
+    expect(rules, contains('allow get: if isSelf(kakaoUserId)'));
   });
 
   test('push coordinator and season-meeting (non-blind) paths exist', () {
