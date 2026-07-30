@@ -6,6 +6,8 @@ import 'package:seolleyeon/features/blind_meeting/data/blind_meeting_profile_sna
 import 'package:seolleyeon/features/blind_meeting/domain/blind_meeting_enums.dart';
 import 'package:seolleyeon/features/blind_meeting/domain/blind_meeting_feedback.dart';
 import 'package:seolleyeon/features/blind_meeting/domain/blind_meeting_public_profile.dart';
+import 'package:seolleyeon/features/blind_meeting/domain/blind_meeting_slot.dart';
+import 'package:seolleyeon/features/blind_meeting/presentation/widgets/blind_meeting_action_sheets.dart';
 import 'package:seolleyeon/features/blind_meeting/presentation/blind_meeting_route_args.dart';
 import 'package:seolleyeon/features/blind_meeting/presentation/screens/blind_meeting_dna_wizard_screen.dart';
 import 'package:seolleyeon/features/blind_meeting/presentation/screens/blind_meeting_schedule_screen.dart';
@@ -359,6 +361,96 @@ void main() {
         BlindMeetingPalette.light,
       );
       expect(first, second);
+    });
+  });
+
+  group('약속잡기 투표 시트', () {
+    testWidgets('시간을 고르지 않으면 투표할 수 없다', (tester) async {
+      BlindMeetingScheduleVote? result;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () async {
+                  result = await showBlindMeetingScheduleVoteSheet(
+                    context,
+                    candidateSlots: const [
+                      BlindMeetingSlot(
+                        dateKey: '2026-08-01',
+                        timeBlock: BlindMeetingTimeBlock.evening,
+                      ),
+                    ],
+                    venueOptions: const [
+                      BlindMeetingVenueOption(
+                        placeId: 'p1',
+                        name: '보드게임 카페',
+                        category: '카페',
+                        alcoholFreeFriendly: true,
+                      ),
+                    ],
+                  );
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('약속잡기'), findsOneWidget);
+      expect(find.text('보드게임 카페 · 무알코올'), findsOneWidget);
+
+      final disabled = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, '투표하기'),
+      );
+      expect(disabled.onPressed, isNull);
+
+      await tester.tap(find.text('8월 1일 저녁'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('보드게임 카페 · 무알코올'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('투표하기'));
+      await tester.pumpAndSettle();
+
+      expect(result, isNotNull);
+      expect(result!.preferredSlotIds, ['2026-08-01#evening']);
+      expect(result!.preferredPlaceId, 'p1');
+    });
+  });
+
+  group('안전도장 확인', () {
+    testWidgets('도착/종료 안내 문구가 다르다', (tester) async {
+      bool? checkin;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () async {
+                  checkin = await confirmBlindMeetingSafetyStamp(
+                    context,
+                    isCheckout: false,
+                  );
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('도착 안전도장'), findsOneWidget);
+      expect(find.textContaining('전원이 완료되면 미팅이 시작돼요'), findsOneWidget);
+
+      await tester.tap(find.text('안전도장 찍기'));
+      await tester.pumpAndSettle();
+      expect(checkin, isTrue);
     });
   });
 

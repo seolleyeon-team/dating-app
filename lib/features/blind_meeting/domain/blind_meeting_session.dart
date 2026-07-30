@@ -296,6 +296,9 @@ class BlindMeetingSession {
   /// 당일 노쇼로 5인 진행이 승인되었는지.
   final bool fivePersonExceptionApproved;
 
+  /// 5인 진행 투표가 열려 있는지.
+  final bool fivePersonVoteOpen;
+
   const BlindMeetingSession({
     required this.meetingId,
     this.meetingType = BlindMeetingType.blindTasteMeeting,
@@ -319,6 +322,7 @@ class BlindMeetingSession {
     this.followupClosesAt,
     this.archivedAt,
     this.fivePersonExceptionApproved = false,
+    this.fivePersonVoteOpen = false,
   });
 
   /// 특정 사용자가 속한 팀. 참가자가 아니면 null.
@@ -373,6 +377,7 @@ class BlindMeetingSession {
       followupClosesAt: _dateTime(data['followupClosesAt']),
       archivedAt: _dateTime(data['archivedAt']),
       fivePersonExceptionApproved: data['fivePersonExceptionApproved'] == true,
+      fivePersonVoteOpen: data['fivePersonVoteOpen'] == true,
     );
   }
 }

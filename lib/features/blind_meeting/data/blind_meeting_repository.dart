@@ -80,6 +80,21 @@ class BlindMeetingDepositIntent {
   }
 }
 
+/// 약속 장소 후보.
+class BlindMeetingVenueCandidate {
+  final String placeId;
+  final String name;
+  final String? category;
+  final bool alcoholFreeFriendly;
+
+  const BlindMeetingVenueCandidate({
+    required this.placeId,
+    required this.name,
+    this.category,
+    this.alcoholFreeFriendly = false,
+  });
+}
+
 /// 참가 신청 제출 결과.
 class BlindMeetingApplicationResult {
   final bool accepted;
@@ -345,6 +360,39 @@ class BlindMeetingRepository {
             normalizeFirestoreMap(data),
           );
         });
+  }
+
+  /// 약속 장소 후보 (기존 promise 장소 카탈로그 재사용).
+  ///
+  /// 무알코올 미팅에서는 주류 중심 분류를 후보에서 제외한다.
+  Future<List<BlindMeetingVenueCandidate>> loadVenueOptions({
+    bool alcoholFreeOnly = false,
+    int limit = 12,
+  }) async {
+    final snapshot = await _firestore
+        .collection('place_catalog_items')
+        .limit(limit)
+        .get();
+
+    final result = <BlindMeetingVenueCandidate>[];
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final name = data['name']?.toString().trim() ?? '';
+      if (name.isEmpty) continue;
+      final category = _nullableString(data['category']);
+      final alcoholFreeFriendly =
+          category == null || !RegExp(r'술|바|펍|포차').hasMatch(category);
+      if (alcoholFreeOnly && !alcoholFreeFriendly) continue;
+      result.add(
+        BlindMeetingVenueCandidate(
+          placeId: doc.id,
+          name: name,
+          category: category,
+          alcoholFreeFriendly: alcoholFreeFriendly,
+        ),
+      );
+    }
+    return result;
   }
 
   // ---------------------------------------------------------------------------

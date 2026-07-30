@@ -17,8 +17,10 @@ import '../../domain/blind_meeting_enums.dart';
 import '../../domain/blind_meeting_policy.dart';
 import '../../domain/blind_meeting_public_profile.dart';
 import '../../domain/blind_meeting_session.dart';
+import '../../domain/blind_meeting_slot.dart';
 import '../blind_meeting_route_args.dart';
 import '../theme/blind_meeting_palette.dart';
+import '../widgets/blind_meeting_action_sheets.dart';
 import '../widgets/blind_meeting_common.dart';
 import '../widgets/blind_meeting_profile_card.dart';
 import '../widgets/blind_meeting_recommendation_banner.dart';
@@ -373,6 +375,15 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
       case BlindMeetingStatus.scheduleConfirmed:
       case BlindMeetingStatus.checkinOpen:
       case BlindMeetingStatus.inProgress:
+        final showCheckin =
+            session.status == BlindMeetingStatus.scheduleConfirmed ||
+            session.status == BlindMeetingStatus.checkinOpen ||
+            session.status == BlindMeetingStatus.inProgress;
+        final showCheckout =
+            (session.status == BlindMeetingStatus.checkinOpen ||
+                session.status == BlindMeetingStatus.inProgress) &&
+            (me?.checkedIn ?? false);
+
         return BlindMeetingCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -402,6 +413,68 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
                         ),
                       ),
               ),
+              const SizedBox(height: 10),
+              BlindMeetingSecondaryButton(
+                label: '약속 시간·장소 투표하기',
+                onPressed: _busy ? null : () => _openScheduleVote(session),
+              ),
+              if (session.status == BlindMeetingStatus.scheduleConfirmed) ...[
+                const SizedBox(height: 10),
+                _attendanceRow(palette, session, me),
+              ],
+              if (showCheckin) ...[
+                const SizedBox(height: 10),
+                BlindMeetingSecondaryButton(
+                  label: (me?.checkedIn ?? false) ? '도착 안전도장 완료' : '도착 안전도장 찍기',
+                  onPressed: (_busy || (me?.checkedIn ?? false))
+                      ? null
+                      : () => _markStamp(meetingId, isCheckout: false),
+                ),
+              ],
+              if (showCheckout) ...[
+                const SizedBox(height: 10),
+                BlindMeetingSecondaryButton(
+                  label: (me?.checkedOut ?? false)
+                      ? '종료 안전도장 완료'
+                      : '종료 안전도장 찍기',
+                  onPressed: (_busy || (me?.checkedOut ?? false))
+                      ? null
+                      : () => _markStamp(meetingId, isCheckout: true),
+                ),
+              ],
+              if (session.fivePersonVoteOpen) ...[
+                const SizedBox(height: 16),
+                Text(
+                  '참가자 한 분이 참석하지 못했어요.',
+                  style: BlindMeetingText.body(palette.ink),
+                ),
+                const SizedBox(height: 8),
+                BlindMeetingSecondaryButton(
+                  label: '다섯 명이서 미팅을 계속 진행할게요',
+                  onPressed: _busy
+                      ? null
+                      : () => _run(
+                          () => _repository.voteFivePersonException(
+                            meetingId: meetingId,
+                            agree: true,
+                          ),
+                          successNotice: '5인 진행에 동의했어요.',
+                        ),
+                ),
+                const SizedBox(height: 8),
+                BlindMeetingSecondaryButton(
+                  label: '오늘은 진행하지 않고 재매칭을 받을게요',
+                  onPressed: _busy
+                      ? null
+                      : () => _run(
+                          () => _repository.voteFivePersonException(
+                            meetingId: meetingId,
+                            agree: false,
+                          ),
+                          successNotice: '재매칭으로 처리할게요.',
+                        ),
+                ),
+              ],
               const SizedBox(height: 10),
               BlindMeetingSecondaryButton(
                 label: '참가 취소 요청',
@@ -489,6 +562,132 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
           ),
         );
     }
+  }
+
+  /// 24시간 / 3시간 전 참석 재확인.
+  Widget _attendanceRow(
+    BlindMeetingPalette palette,
+    BlindMeetingSession session,
+    BlindMeetingParticipant? me,
+  ) {
+    final startAt = session.scheduledStartAt;
+    final now = DateTime.now();
+    final untilStart = startAt == null
+        ? const Duration(days: 365)
+        : startAt.difference(now);
+    final isFinalPhase = untilStart <= const Duration(hours: 3);
+    final phase = isFinalPhase ? '3h' : '24h';
+    final answered = isFinalPhase
+        ? me?.attendanceConfirmation3h != AttendanceConfirmation.pending
+        : me?.attendanceConfirmation24h != AttendanceConfirmation.pending;
+
+    if (answered) {
+      return Text(
+        isFinalPhase ? '오늘 참석 확인을 완료했어요.' : '참석 확인을 완료했어요.',
+        style: BlindMeetingText.caption(palette.sage),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          isFinalPhase ? '오늘 미팅 참석 준비는 괜찮으신가요?' : '내일 블라인드 취향 미팅에 참석할 수 있나요?',
+          style: BlindMeetingText.body(palette.ink),
+        ),
+        const SizedBox(height: 8),
+        BlindMeetingSecondaryButton(
+          label: isFinalPhase ? '예정대로 참석해요' : '참석할게요',
+          onPressed: _busy
+              ? null
+              : () => _run(
+                  () => _repository.confirmAttendance(
+                    meetingId: session.meetingId,
+                    phase: phase,
+                    attending: true,
+                  ),
+                  successNotice: '참석 확인을 보냈어요.',
+                ),
+        ),
+        const SizedBox(height: 8),
+        BlindMeetingSecondaryButton(
+          label: isFinalPhase ? '문제가 생겼어요' : '참석이 어려워요',
+          onPressed: _busy
+              ? null
+              : () => _run(
+                  () => _repository.confirmAttendance(
+                    meetingId: session.meetingId,
+                    phase: phase,
+                    attending: false,
+                  ),
+                  successNotice: '대체 참가자를 찾아볼게요.',
+                ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openScheduleVote(BlindMeetingSession session) async {
+    final dna = await _repository.loadMyDna();
+    final venues = await _repository.loadVenueOptions(
+      alcoholFreeOnly: session.isAlcoholFree,
+    );
+    if (!mounted) return;
+
+    final slots = <BlindMeetingSlot>{
+      if (session.slot != null) session.slot!,
+      ...?dna?.availableSlots,
+    }.toList()..sort();
+
+    final vote = await showBlindMeetingScheduleVoteSheet(
+      context,
+      candidateSlots: slots,
+      venueOptions: venues
+          .map(
+            (v) => BlindMeetingVenueOption(
+              placeId: v.placeId,
+              name: v.name,
+              category: v.category,
+              alcoholFreeFriendly: v.alcoholFreeFriendly,
+            ),
+          )
+          .toList(),
+      initialSlotIds: session.slot == null
+          ? const <String>[]
+          : <String>[session.slot!.slotId],
+    );
+    if (vote == null || !mounted) return;
+
+    await _run(
+      () => _repository.voteSchedule(
+        meetingId: session.meetingId,
+        preferredSlotIds: vote.preferredSlotIds,
+        preferredPlaceId: vote.preferredPlaceId,
+      ),
+      successNotice: '투표를 보냈어요. 전원이 투표하면 확정돼요.',
+    );
+  }
+
+  Future<void> _markStamp(String meetingId, {required bool isCheckout}) async {
+    final confirmed = await confirmBlindMeetingSafetyStamp(
+      context,
+      isCheckout: isCheckout,
+    );
+    if (!confirmed || !mounted) return;
+    await _run(
+      () => _repository.markSafetyStamp(
+        meetingId: meetingId,
+        phase: isCheckout ? 'goodbye' : 'meetup',
+      ),
+      successNotice: isCheckout ? '종료 안전도장을 찍었어요.' : '도착 안전도장을 찍었어요.',
+    );
+    if (!mounted) return;
+    await _analytics.log(
+      isCheckout
+          ? BlindMeetingAnalyticsEvent.checkoutCompleted
+          : BlindMeetingAnalyticsEvent.checkinCompleted,
+      params: {'meetingId': meetingId},
+    );
   }
 
   Widget _teamSection(
