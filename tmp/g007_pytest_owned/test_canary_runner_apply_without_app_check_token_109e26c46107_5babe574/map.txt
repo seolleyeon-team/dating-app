@@ -1,1 +1,0 @@
-uid-1=C:\Users\samsung\StudioProjects\semisemifinal\tmp\g007_pytest_owned\test_canary_runner_apply_without_app_check_token_109e26c46107_5babe574\photo.jpeg

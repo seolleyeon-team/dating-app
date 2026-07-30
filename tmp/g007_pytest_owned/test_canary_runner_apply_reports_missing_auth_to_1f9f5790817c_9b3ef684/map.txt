@@ -1,1 +1,0 @@
-uid-a=C:\Users\samsung\StudioProjects\semisemifinal\tmp\g007_pytest_owned\test_canary_runner_apply_reports_missing_auth_to_1f9f5790817c_9b3ef684\uid_2_photo_plain.jpg

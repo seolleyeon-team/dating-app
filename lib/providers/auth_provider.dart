@@ -94,10 +94,30 @@ class AuthProvider with ChangeNotifier {
 
         final exists = await _authService.kakaoUserExists(kakaoUserId);
         if (exists) {
+          final isRejoinRestricted = await _authService.isRejoinRestricted(
+            kakaoUserId,
+          );
+          if (isRejoinRestricted) {
+            await _storageService.savePendingRejoinRestrictionNotice();
+            await _authService.signOutAll();
+            await _storageService.clearUserId();
+            await _storageService.clearKakaoUserId();
+            await _storageService.clearStudentVerification(kakaoUserId);
+            _kakaoUserId = null;
+            _isAuthenticated = false;
+            _isInitialSetupComplete = false;
+            _hasSeenTutorial = false;
+            _isStudentVerified = false;
+            _studentEmail = null;
+            return;
+          }
           _isInitialSetupComplete = await _authService.isInitialSetupComplete(
             kakaoUserId,
           );
           _hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
+          _isStudentVerified = await _authService.isStudentVerified(
+            kakaoUserId,
+          );
           _isStudentVerified = await _authService.isStudentVerified(
             kakaoUserId,
           );
@@ -423,6 +443,8 @@ class AuthProvider with ChangeNotifier {
     try {
       await _storageService.saveKakaoUserId(kakaoUserId);
       await PushNotificationService.instance.syncFcmToken();
+      await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
+      await _authService.syncPendingLegalConsents(kakaoUserId);
 
       _kakaoUserId = kakaoUserId;
       _isAuthenticated = true;

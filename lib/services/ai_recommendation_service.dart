@@ -268,9 +268,7 @@ class AiRecommendationService {
       }
       return await _emptyFeedBecauseNoModelRecs('profile_feed_no_modelRecs');
     } catch (e) {
-      debugPrint(
-        'fetchProfileFeed Error: ${PrivacyLogUtils.errorSummary(e)}',
-      );
+      debugPrint('fetchProfileFeed Error: ${PrivacyLogUtils.errorSummary(e)}');
       return await _emptyFeedBecauseNoModelRecs('profile_feed_error');
     }
   }
@@ -304,15 +302,15 @@ class AiRecommendationService {
         var items = data['items'] as List<dynamic>? ?? [];
 
         if (algoUsed == 'rrf') {
-          items = items.where((item) {
-            final r = (item['rank'] as num?)?.toInt() ?? 999;
-            return r >= 1 && r <= 3;
-          }).toList()
-            ..sort((a, b) {
-              final rankA = (a['rank'] as num?)?.toInt() ?? 999;
-              final rankB = (b['rank'] as num?)?.toInt() ?? 999;
-              return rankA.compareTo(rankB);
-            });
+          items =
+              items.where((item) {
+                final r = (item['rank'] as num?)?.toInt() ?? 999;
+                return r >= 1 && r <= 3;
+              }).toList()..sort((a, b) {
+                final rankA = (a['rank'] as num?)?.toInt() ?? 999;
+                final rankB = (b['rank'] as num?)?.toInt() ?? 999;
+                return rankA.compareTo(rankB);
+              });
         }
 
         return await _hydrateProfiles(
@@ -325,9 +323,7 @@ class AiRecommendationService {
       }
       return await _emptyFeedBecauseNoModelRecs('mystery_feed_no_modelRecs');
     } catch (e) {
-      debugPrint(
-        'fetchMysteryFeed Error: ${PrivacyLogUtils.errorSummary(e)}',
-      );
+      debugPrint('fetchMysteryFeed Error: ${PrivacyLogUtils.errorSummary(e)}');
       return await _emptyFeedBecauseNoModelRecs('mystery_feed_error');
     }
   }

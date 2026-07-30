@@ -1,1 +1,0 @@
-uid-1=C:\Users\samsung\StudioProjects\semisemifinal\tmp\g007_pytest_owned\test_canary_mapping_validator_blocks_invalid_con_0628abb1d9cf_bfabcc7a\normalized\photo_plain.jpg
