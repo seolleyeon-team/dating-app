@@ -15,7 +15,7 @@ class EventScreen extends StatelessWidget {
           // 3:3 Meeting Section
           _buildEventCard(
             title: '3대3 미팅',
-            description: 'Slot machine과 랜덤 매칭을 통해 3:3 미팅에 참여하세요',
+            description: '3:3 시즌 미팅과 블라인드 취향 미팅에 참여하세요',
             onTap: () {
               // TODO: Navigate to 3:3 meeting
             },

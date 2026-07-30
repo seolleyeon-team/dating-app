@@ -98,7 +98,7 @@ class _SlotMachineTutorialScreenState extends State<SlotMachineTutorialScreen>
                         const _SlotMachine(),
                         const SizedBox(height: 38),
                         const Text(
-                          '3:3 랜덤 미팅\n원하는 상대가 나올 때까지\n룰렛을 돌리세요',
+                          '3:3 시즌 미팅\n원하는 상대가 나올 때까지\n룰렛을 돌리세요',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontFamily: 'Pretendard',
