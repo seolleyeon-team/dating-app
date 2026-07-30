@@ -8,7 +8,6 @@
 // home: const EventScreen(),
 // =============================================================================
 
-import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import '../../chat/services/chat_service.dart';
@@ -75,7 +74,6 @@ class _EventScreenState extends State<EventScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
     final handleBack = widget.onNavTap != null
         ? () => widget.onNavTap!.call(0)
         : () => Navigator.of(context).pop();

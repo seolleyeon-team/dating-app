@@ -14,7 +14,6 @@ import '../../../data/models/event/team_meeting_request_model.dart';
 
 class _AppColors {
   static const Color primary = Color(0xFFB44AC0);
-  static const Color backgroundLight = Color(0xFFF8F6F6);
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color textMain = Color(0xFF2E243F);
   static const Color textSub = Color(0xFF776886);

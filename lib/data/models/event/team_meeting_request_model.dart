@@ -10,8 +10,9 @@ import 'event_team_match_model.dart';
 DateTime? _readDateTime(dynamic value) {
   if (value is Timestamp) return value.toDate();
   if (value is DateTime) return value;
-  if (value is String && value.trim().isNotEmpty)
+  if (value is String && value.trim().isNotEmpty) {
     return DateTime.tryParse(value);
+  }
   return null;
 }
 
