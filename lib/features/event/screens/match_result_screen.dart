@@ -396,7 +396,7 @@ class _GradientButton extends StatelessWidget {
             : Text(
                 label,
                 style: const TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
                   color: CupertinoColors.white,
@@ -458,7 +458,7 @@ class _AcceptDeclineFooter extends StatelessWidget {
                 : const Text(
                     '요청 수락하기',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                       color: CupertinoColors.white,
@@ -487,7 +487,7 @@ class _AcceptDeclineFooter extends StatelessWidget {
             child: const Text(
               '요청 거절하기',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
                 color: Color(0xFF776886),
@@ -517,7 +517,7 @@ class _ReadOnlyFooter extends StatelessWidget {
       child: Text(
         label,
         style: const TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NanumSquareRound',
           fontSize: 16,
           fontWeight: FontWeight.w600,
           color: Color(0xFF8A7AA0),
@@ -565,7 +565,7 @@ class _Header extends StatelessWidget {
               '매칭 결과',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF2E243F),
@@ -636,7 +636,7 @@ class _ResultHero extends StatelessWidget {
             child: const Text(
               '오늘 연결된 팀',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF8D5AAA),
@@ -647,7 +647,7 @@ class _ResultHero extends StatelessWidget {
           const Text(
             '룰렛이 멈춘 팀이에요.',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 26,
               fontWeight: FontWeight.w800,
               color: Color(0xFF2E243F),
@@ -658,7 +658,7 @@ class _ResultHero extends StatelessWidget {
           Text(
             '${team.memberCount}명의 프로필을 천천히 확인해 보세요.',
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               fontWeight: FontWeight.w500,
               color: Color(0xFF776886),
@@ -687,7 +687,7 @@ class _ResultHero extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
                         style: const TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
                           color: Color(0xFF45375C),
@@ -704,7 +704,7 @@ class _ResultHero extends StatelessWidget {
             const Text(
               '추천 페어',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF5E4E74),
@@ -731,7 +731,7 @@ class _ResultHero extends StatelessWidget {
                       child: Text(
                         label,
                         style: const TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                           color: Color(0xFF67557D),
@@ -824,7 +824,7 @@ class _MemberCard extends StatelessWidget {
                         child: Text(
                           member.displayName,
                           style: const TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
                             color: Color(0xFF2E243F),
@@ -844,7 +844,7 @@ class _MemberCard extends StatelessWidget {
                     Text(
                       subtitleParts.join(' · '),
                       style: const TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF746683),
@@ -864,7 +864,7 @@ class _MemberCard extends StatelessWidget {
                       child: Text(
                         mannerText,
                         style: const TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                           color: Color(0xFF8A5FB2),
@@ -877,7 +877,7 @@ class _MemberCard extends StatelessWidget {
                     Text(
                       member.shortIntro!,
                       style: const TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
                         height: 1.45,
@@ -975,7 +975,7 @@ class _EmptyState extends StatelessWidget {
               message,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
                 height: 1.45,

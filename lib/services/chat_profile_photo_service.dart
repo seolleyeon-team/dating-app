@@ -1,6 +1,8 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../shared/utils/safe_catch.dart';
+
 class ChatProfilePhotoResult {
   final String displayMode;
   final String imageUrl;
@@ -112,7 +114,8 @@ class ChatProfilePhotoService {
         _cache[cacheKey] = result;
       }
       return result;
-    } catch (_) {
+    } catch (e) {
+      logCaughtError('ChatProfilePhoto.backend', e);
       return ChatProfilePhotoResult.avatar(
         approvedAvatarUrl: fallbackAvatarUrl,
         reason: 'backend_unavailable',

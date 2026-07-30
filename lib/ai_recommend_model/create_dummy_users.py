@@ -4,7 +4,7 @@ Firestore users 컬렉션에 더미 사용자 100명 생성
 
 - ID: 1로 시작하는 10자리 난수
 - 템플릿: users/4705818223
-- avatarUrls: Firebase Storage ai_profiles/female 또는 ai_profiles/male (gender에 따라)
+- photoUrls: Firebase Storage ai_profiles/female 또는 ai_profiles/male (gender에 따라)
 """
 
 from __future__ import annotations
@@ -104,7 +104,7 @@ def create_dummy_user(
     gender = random.choice(["female", "male"])
     photo_pool = female_urls if gender == "female" else male_urls
 
-    # avatarUrls: gender에 맞는 폴더에서 2~6장 랜덤 선택 (해당 폴더 비어있으면 반대 성별 fallback)
+    # photoUrls: gender에 맞는 폴더에서 2~6장 랜덤 선택 (해당 폴더 비어있으면 반대 성별 fallback)
     if not photo_pool:
         photo_pool = male_urls if gender == "female" else female_urls
     if photo_pool:
@@ -120,15 +120,7 @@ def create_dummy_user(
         onboarding = {}
 
     onboarding["gender"] = gender
-    onboarding["avatarUrls"] = photo_urls
-    if photo_urls:
-        data["profileImageMode"] = "avatar"
-        data["avatar"] = {
-            "status": "approved",
-            "approvedAvatarUrl": photo_urls[0],
-            "approvedAvatarStoragePath": "",
-            "avatarId": f"dummy_avatar_{index + 1}",
-        }
+    onboarding["photoUrls"] = photo_urls
     onboarding["nickname"] = f"더미{index + 1}"
     onboarding["age"] = onboarding.get("age") or random.randint(22, 28)
     onboarding["height"] = onboarding.get("height") or random.randint(160, 185)
@@ -179,7 +171,7 @@ def main():
         print(f"    male: {len(male_urls)} images")
 
         if not female_urls and not male_urls:
-            print("[WARN] No images in ai_profiles. avatarUrls will be empty.")
+            print("[WARN] No images in ai_profiles. photoUrls will be empty.")
             print("       Upload images to gs://{}/ai_profiles/female/ and .../male/".format(BUCKET_NAME))
 
         print("[3] Generating dummy users...")
@@ -197,8 +189,8 @@ def main():
     if args.dry_run or args.offline_dry_run:
         print(f"[DRY RUN] Would create {len(dummy_users)} users.")
         for uid, data in dummy_users[:5]:
-            photos = data.get("onboarding", {}).get("avatarUrls", [])
-            print(f"  - {uid}: {data.get('onboarding', {}).get('nickname')} ({data.get('onboarding', {}).get('gender')}) avatarUrls: {len(photos)}")
+            photos = data.get("onboarding", {}).get("photoUrls", [])
+            print(f"  - {uid}: {data.get('onboarding', {}).get('nickname')} ({data.get('onboarding', {}).get('gender')}) photoUrls: {len(photos)}")
         return 0
 
     print("[4] Writing to Firestore...")

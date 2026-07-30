@@ -15,8 +15,11 @@ class _AppPrivacySplashOverlayState extends State<AppPrivacySplashOverlay>
 
   bool get _shouldShowOverlay {
     final state = _lastLifecycleState;
-    return state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden ||
+    // Do not cover on `inactive` alone.
+    // KakaoTalk / Universal Link handoff briefly parks the app in
+    // `inactive` on iPhone (incl. 15 Pro). Treating that as "hide UI"
+    // leaves a stuck splash that looks like the screen turned off.
+    return state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached;
   }
@@ -75,7 +78,7 @@ class _PrivacySplashView extends StatelessWidget {
             Text(
               '설레연',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 36,
                 fontWeight: FontWeight.w800,
                 color: Color(0xFFFF6B8A),

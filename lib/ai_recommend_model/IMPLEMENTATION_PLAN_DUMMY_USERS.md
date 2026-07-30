@@ -4,7 +4,7 @@
 - Firestore `users` 컬렉션에 더미 사용자 100명 생성
 - ID: 1로 시작하는 10자리 난수 (예: 1234567890)
 - 템플릿: `users/4705818223` 문서 구조 참고
-- avatarUrls: Firebase Storage `ai_profiles/` 폴더의 승인된 아바타
+- photoUrls: Firebase Storage `ai_profiles/` 폴더의 사진
   - `onboarding.gender` = female → `ai_profiles/female/` 사진만
   - `onboarding.gender` = male → `ai_profiles/male/` 사진만
 
@@ -25,7 +25,7 @@
   - nickname: 더미1, 더미2, ... 또는 랜덤 한국 이름
   - gender: 랜덤 50:50 (female/male)
   - age, height: 템플릿 기준 ±랜덤 변동
-  - avatarUrls: gender에 맞는 폴더에서 2~6장 랜덤 선택
+  - photoUrls: gender에 맞는 폴더에서 2~6장 랜덤 선택
 - 학생 인증 등 일부 필드는 더미용으로 조정 (isStudentVerified: true)
 
 ### 4. Firestore에 배치 쓰기

@@ -1526,14 +1526,20 @@ export const createFirebaseCustomToken = onCall(withAppCheck(), async (request) 
   const userRef = db.collection("users").doc(kakaoUser.userId);
   const userSnap = await userRef.get();
 
-  if (!userSnap.exists) {
-    throw new HttpsError(
-      "failed-precondition",
-      "가입 정보를 찾을 수 없어요. 다시 로그인해주세요."
-    );
+  let userData: Record<string, unknown>;
+  let created = false;
+  if (userSnap.exists) {
+    userData = (userSnap.data() ?? {}) as Record<string, unknown>;
+  } else {
+    // First Kakao login: minting a custom token alone is not enough — the
+    // client cannot create users/{kakaoUserId} under locked-down rules, so the
+    // Admin SDK creates a minimal shell here after Kakao token verification.
+    await userRef.set(buildKakaoUserShell(kakaoUser.userId), { merge: true });
+    userData = {};
+    created = true;
+    logger.info("createFirebaseCustomToken created missing user shell");
   }
 
-  const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
   const customToken = await getAuth().createCustomToken(kakaoUser.userId, {
     kakaoUserId: kakaoUser.userId,
   });
@@ -1541,6 +1547,7 @@ export const createFirebaseCustomToken = onCall(withAppCheck(), async (request) 
   return {
     customToken,
     userId: kakaoUser.userId,
+    created,
     isStudentVerified: userData.isStudentVerified === true,
   };
 });

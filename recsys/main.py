@@ -11,10 +11,6 @@ Usage (local):
 
 All steps default --date-key to today (KST YYYYMMDD) when omitted.
 Model steps (`clip`, `svd`, `knn`) dispatch to the v3 training/export scripts.
-
-Candidate policy filters and the RRF quality gates are on by default, so a
-caller that only passes --step/--date-key/--project/--bucket still gets a
-filtered feed. Pass --no-apply-policy-filters to opt out while debugging.
 """
 from __future__ import annotations
 
@@ -59,18 +55,6 @@ MODEL_SCRIPT_NAMES = {
     "knn": "seolleyeon_knn_train_export_v3.py",
 }
 
-RRF_SCRIPT_NAME = "seolleyeon_rrf_export.py"
-
-# Quality gates that `seolleyeon_run_all_v3.py` applies. The Cloud Workflow only
-# forwards --step/--date-key/--project/--bucket, so these have to be defaults
-# here or production silently runs the pipeline with none of them.
-DEFAULT_RRF_SOURCES = "clip,svd,knn"
-DEFAULT_RRF_REQUIRED_SOURCES = "clip"
-DEFAULT_RRF_MIN_SOURCES_PER_USER = 2
-DEFAULT_RRF_TOPN = 400
-DEFAULT_RRF_MAX_ITEMS_PER_SOURCE = 400
-DEFAULT_RRF_SOURCE_WEIGHTS = '{"clip":1.0,"svd":0.35,"knn":0.25}'
-
 
 # ---------------------------------------------------------------
 # Helpers
@@ -93,48 +77,6 @@ def _run_script(script_name: str, args: list[str], logger) -> int:
     else:
         logger.info(f"{script_name} completed successfully")
     return result.returncode
-
-
-def build_model_script_args(args, *, events_csv: str | None = None) -> list[str]:
-    """Build the CLI arguments for a clip/svd/knn training script."""
-    script_args: list[str] = []
-    if events_csv is not None:
-        script_args.extend(["--events_csv", events_csv])
-    script_args.extend([
-        "--firestore_project", args.project,
-        "--date_key", args.date_key,
-    ])
-    if args.database:
-        script_args.extend(["--firestore_database", args.database])
-    if args.apply_policy_filters:
-        script_args.append("--apply_policy_filters")
-        script_args.extend([
-            "--policy_min_meta_coverage", str(args.policy_min_meta_coverage),
-        ])
-    if not args.require_same_university:
-        script_args.append("--no_require_same_university")
-    # Scripts default firestore_blocks=True; only forward the opt-out.
-    if not args.firestore_blocks:
-        script_args.append("--no_firestore_blocks")
-    return script_args
-
-
-def build_rrf_script_args(args) -> list[str]:
-    """Build the CLI arguments for the RRF merge script."""
-    script_args = [
-        "--firestore_project", args.project,
-        "--date_key", args.date_key,
-        "--sources", args.rrf_sources,
-        "--topn", str(args.rrf_topn),
-        "--max_items_per_source", str(args.rrf_max_items_per_source),
-        "--min_sources_per_user", str(args.rrf_min_sources_per_user),
-        "--source_weights_json", args.rrf_source_weights_json,
-    ]
-    if args.database:
-        script_args.extend(["--firestore_database", args.database])
-    if args.rrf_required_sources:
-        script_args.extend(["--required_sources", args.rrf_required_sources])
-    return script_args
 
 
 def _download_events_csv(args, logger) -> str | None:
@@ -187,11 +129,15 @@ def step_svd(args, logger) -> int:
     if csv_path is None:
         return 1
 
-    return _run_script(
-        MODEL_SCRIPT_NAMES["svd"],
-        build_model_script_args(args, events_csv=csv_path),
-        logger,
-    )
+    script_args = [
+        "--events_csv", csv_path,
+        "--firestore_project", args.project,
+        "--date_key", args.date_key,
+    ]
+    if args.database:
+        script_args.extend(["--firestore_database", args.database])
+
+    return _run_script(MODEL_SCRIPT_NAMES["svd"], script_args, logger)
 
 
 def step_knn(args, logger) -> int:
@@ -199,23 +145,37 @@ def step_knn(args, logger) -> int:
     if csv_path is None:
         return 1
 
-    return _run_script(
-        MODEL_SCRIPT_NAMES["knn"],
-        build_model_script_args(args, events_csv=csv_path),
-        logger,
-    )
+    script_args = [
+        "--events_csv", csv_path,
+        "--firestore_project", args.project,
+        "--date_key", args.date_key,
+    ]
+    if args.database:
+        script_args.extend(["--firestore_database", args.database])
+
+    return _run_script(MODEL_SCRIPT_NAMES["knn"], script_args, logger)
 
 
 def step_clip(args, logger) -> int:
-    return _run_script(
-        MODEL_SCRIPT_NAMES["clip"],
-        build_model_script_args(args),
-        logger,
-    )
+    script_args = [
+        "--firestore_project", args.project,
+        "--date_key", args.date_key,
+    ]
+    if args.database:
+        script_args.extend(["--firestore_database", args.database])
+
+    return _run_script(MODEL_SCRIPT_NAMES["clip"], script_args, logger)
 
 
 def step_rrf(args, logger) -> int:
-    return _run_script(RRF_SCRIPT_NAME, build_rrf_script_args(args), logger)
+    script_args = [
+        "--firestore_project", args.project,
+        "--date_key", args.date_key,
+    ]
+    if args.database:
+        script_args.extend(["--firestore_database", args.database])
+
+    return _run_script("seolleyeon_rrf_export.py", script_args, logger)
 
 
 def step_verify(args, logger) -> int:
@@ -264,67 +224,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--lookback-days", dest="lookback_days", type=int, default=120)
     p.add_argument("--limit-users", dest="limit_users", type=int, default=None)
     p.add_argument("--dry-run", dest="dry_run", action="store_true")
-
-    policy = p.add_argument_group("candidate policy")
-    policy.add_argument(
-        "--apply-policy-filters", dest="apply_policy_filters",
-        action="store_true",
-        help="Filter candidates by verification, activity, manner score and preferences.",
-    )
-    policy.add_argument(
-        "--no-apply-policy-filters", dest="apply_policy_filters",
-        action="store_false",
-        help="Export unfiltered candidates. Only for debugging.",
-    )
-    policy.add_argument(
-        "--policy-min-meta-coverage", dest="policy_min_meta_coverage",
-        type=float, default=0.9,
-        help="Fail the job when policy metadata covers fewer than this share of users.",
-    )
-    policy.add_argument(
-        "--require-same-university", dest="require_same_university",
-        action="store_true",
-    )
-    policy.add_argument(
-        "--no-require-same-university", dest="require_same_university",
-        action="store_false",
-    )
-    policy.add_argument(
-        "--firestore-blocks", dest="firestore_blocks",
-        action="store_true",
-        help="Load Firestore blocks/{uid}/targets into mutual exclusions (default).",
-    )
-    policy.add_argument(
-        "--no-firestore-blocks", dest="firestore_blocks",
-        action="store_false",
-        help="Skip Firestore blocks; use recEvents block/report only.",
-    )
-    p.set_defaults(
-        apply_policy_filters=True,
-        require_same_university=True,
-        firestore_blocks=True,
-    )
-
-    rrf = p.add_argument_group("rrf merge")
-    rrf.add_argument("--rrf-sources", dest="rrf_sources", default=DEFAULT_RRF_SOURCES)
-    rrf.add_argument(
-        "--rrf-required-sources", dest="rrf_required_sources",
-        default=DEFAULT_RRF_REQUIRED_SOURCES,
-        help="Sources a user must have before any merged feed is exported.",
-    )
-    rrf.add_argument(
-        "--rrf-min-sources-per-user", dest="rrf_min_sources_per_user",
-        type=int, default=DEFAULT_RRF_MIN_SOURCES_PER_USER,
-    )
-    rrf.add_argument("--rrf-topn", dest="rrf_topn", type=int, default=DEFAULT_RRF_TOPN)
-    rrf.add_argument(
-        "--rrf-max-items-per-source", dest="rrf_max_items_per_source",
-        type=int, default=DEFAULT_RRF_MAX_ITEMS_PER_SOURCE,
-    )
-    rrf.add_argument(
-        "--rrf-source-weights-json", dest="rrf_source_weights_json",
-        default=DEFAULT_RRF_SOURCE_WEIGHTS,
-    )
     return p
 
 
@@ -344,14 +243,6 @@ def main() -> int:
     logger.info(
         f"Pipeline step={args.step} date_key={args.date_key} "
         f"run_id={run_id} project={args.project} bucket={args.bucket}",
-        extra={"date_key": args.date_key},
-    )
-    logger.info(
-        f"Policy: apply_policy_filters={args.apply_policy_filters} "
-        f"require_same_university={args.require_same_university} "
-        f"min_meta_coverage={args.policy_min_meta_coverage} | "
-        f"RRF: required_sources={args.rrf_required_sources or '(none)'} "
-        f"min_sources_per_user={args.rrf_min_sources_per_user}",
         extra={"date_key": args.date_key},
     )
 

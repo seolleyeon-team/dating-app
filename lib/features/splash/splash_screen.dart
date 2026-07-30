@@ -1,4 +1,3 @@
-import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/cupertino.dart';
 
@@ -31,6 +30,13 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!mounted) return;
 
     try {
+      if (await _storageService.consumePendingRejoinRestrictionNotice()) {
+        await _showRejoinRestrictedDialog();
+        if (!mounted) return;
+        Navigator.of(context).pushReplacementNamed(RouteNames.terms);
+        return;
+      }
+
       final kakaoUserId = await _storageService.getKakaoUserId();
       if (kakaoUserId == null || kakaoUserId.isEmpty) {
         // 재설치 등 로그아웃 상태: 딥링크로 카카오 콜백이 열렸을 수 있음 → 처리 후 가입+초기설정 완료면 홈으로
@@ -60,7 +66,23 @@ class _SplashScreenState extends State<SplashScreen> {
         return;
       }
 
+      final isRejoinRestricted = await _authService.isRejoinRestricted(
+        kakaoUserId,
+      );
+      if (isRejoinRestricted) {
+        await _storageService.savePendingRejoinRestrictionNotice();
+        await _authService.signOutAll();
+        await _storageService.clearUserId();
+        await _storageService.clearKakaoUserId();
+        await _storageService.clearStudentVerification(kakaoUserId);
+        await _showRejoinRestrictedDialog();
+        if (!mounted) return;
+        Navigator.of(context).pushReplacementNamed(RouteNames.terms);
+        return;
+      }
+
       final isVerified = await _authService.isStudentVerified(kakaoUserId);
+      final isAdultVerified = await _authService.isAdultVerified(kakaoUserId);
       final isInitialSetupComplete = await _authService.isInitialSetupComplete(
         kakaoUserId,
       );
@@ -74,6 +96,14 @@ class _SplashScreenState extends State<SplashScreen> {
           RouteNames.studentVerification,
           (route) => false,
         );
+        return;
+      }
+
+      if (!isAdultVerified) {
+        if (!mounted) return;
+        Navigator.of(
+          context,
+        ).pushReplacementNamed(RouteNames.adultVerification);
         return;
       }
 
@@ -97,11 +127,28 @@ class _SplashScreenState extends State<SplashScreen> {
 
       Navigator.of(context).pushReplacementNamed(RouteNames.terms);
     } catch (e) {
-      debugPrint('⚠️ Splash 네비게이션 오류: ${PrivacyLogUtils.errorSummary(e)}');
+      debugPrint('⚠️ Splash 네비게이션 오류: $e');
       if (!mounted) return;
       // 오류 발생 시 안전하게 terms 화면으로 이동
       Navigator.of(context).pushReplacementNamed(RouteNames.terms);
     }
+  }
+
+  Future<void> _showRejoinRestrictedDialog() async {
+    if (!mounted) return;
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('재가입이 제한된 계정입니다'),
+        content: const Text('운영 정책에 따라 현재 계정은 재가입 또는 로그인이 제한되어 있습니다.'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

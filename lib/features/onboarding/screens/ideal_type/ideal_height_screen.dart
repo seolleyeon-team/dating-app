@@ -16,13 +16,13 @@ import '../../../../services/storage_service.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFFF8FA3);
-  static const Color backgroundLight = Color(0xFFFFF5F7);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color backgroundLight = Color(0xFFFAFAFA);
   static const Color cardLight = Color(0xFFFFFFFF);
   static const Color textMain = Color(0xFF333333);
   static const Color textSub = Color(0xFF999999);
   static const Color gray200 = Color(0xFFE5E7EB);
-  static const Color pinkHighlight = Color(0xFFFFF0F3);
+  static const Color pinkHighlight = Color(0xFFF5F5F5);
 }
 
 // =============================================================================
@@ -88,7 +88,15 @@ class _IdealHeightScreenState extends State<IdealHeightScreen> {
       _isSelectingMin = true;
       _currentPickerHeight = 170;
     });
-    Navigator.of(context).pop();
+    () async {
+      final storage = StorageService();
+      final kakaoUserId = await storage.getKakaoUserId();
+      if (kakaoUserId != null) {
+        await storage.mergeOnboardingDraft(kakaoUserId, {'idealHeight': null});
+      }
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    }();
   }
 
   void _onNextPressed() {
@@ -125,9 +133,7 @@ class _IdealHeightScreenState extends State<IdealHeightScreen> {
         }
 
         if (!mounted) return;
-        Navigator.of(
-          context,
-        ).pop({'minHeight': minH, 'maxHeight': maxH});
+        Navigator.of(context).pop({'minHeight': minH, 'maxHeight': maxH});
       }();
     }
   }
@@ -205,7 +211,7 @@ class _BackgroundDecoration extends StatelessWidget {
             height: 200,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFFFFC0CB).withValues(alpha: 0.2),
+              color: const Color(0xFFEDE8EB).withValues(alpha: 0.22),
             ),
           ),
         ),
@@ -217,7 +223,7 @@ class _BackgroundDecoration extends StatelessWidget {
             height: 250,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFFFFE4E8).withValues(alpha: 0.3),
+              color: const Color(0xFFF5F5F5).withValues(alpha: 0.65),
             ),
           ),
         ),
@@ -272,7 +278,7 @@ class _Title extends StatelessWidget {
       isSelectingMin ? '이상형의 최소 키를\n선택해주세요' : '이상형의 최대 키를\n선택해주세요',
       textAlign: TextAlign.center,
       style: const TextStyle(
-        fontFamily: 'Pretendard',
+        fontFamily: 'NanumSquareRound',
         fontSize: 24,
         fontWeight: FontWeight.w700,
         height: 1.3,
@@ -329,7 +335,7 @@ class _HeightPicker extends StatelessWidget {
                 child: Text(
                   '$height cm',
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 18,
                     fontWeight: FontWeight.w500,
                     color: _AppColors.textMain,
@@ -411,7 +417,7 @@ class _HeightDisplay extends StatelessWidget {
             value,
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 20,
               fontWeight: FontWeight.w700,
               color: value.isNotEmpty
@@ -424,7 +430,7 @@ class _HeightDisplay extends StatelessWidget {
         Text(
           suffix,
           style: const TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 16,
             fontWeight: FontWeight.w400,
             color: _AppColors.textMain,
@@ -469,7 +475,7 @@ class _ActionButtons extends StatelessWidget {
                 child: Text(
                   '상관없어요',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
                     color: _AppColors.textSub,
@@ -507,7 +513,7 @@ class _ActionButtons extends StatelessWidget {
                 child: Text(
                   '다음',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                     color: CupertinoColors.white,

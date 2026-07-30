@@ -114,16 +114,23 @@
           "seolleyeon://invite/friend?target=friend_invite&token=" +
           encodeURIComponent(token);
 
+        const ua = navigator.userAgent || "";
+        const uaLower = ua.toLowerCase();
+        const isAndroid = uaLower.includes("android");
+        const isIOS =
+          /iphone|ipad|ipod/.test(uaLower) ||
+          (uaLower.includes("mac") && "ontouchend" in document);
+        const isKakaoInApp = /kakaotalk/i.test(ua);
+
         // Android WebView(카카오톡/인앱브라우저)에서는 custom scheme 이동이 막히는 경우가 많아서
         // intent:// 로 한 번 더 우회한다.
-        const ua = (navigator.userAgent || "").toLowerCase();
-        const isAndroid = ua.includes("android");
         const intentUrl =
           "intent://invite/friend?target=friend_invite&token=" +
           encodeURIComponent(token) +
           "#Intent;scheme=seolleyeon;package=com.yonsei.dating;" +
           "S.target=friend_invite;" +
-          "S.token=" + encodeURIComponent(token) +
+          "S.token=" +
+          encodeURIComponent(token) +
           ";end";
 
         const appUrl = isAndroid ? intentUrl : schemeUrl;
@@ -132,16 +139,45 @@
         retryButton.href = window.location.href;
         openAppButton.classList.remove("hidden");
 
-        const tryOpenApp = function () {
-          window.location.href = appUrl;
+        // custom scheme 으로 top-level 이동하면 카카오 인앱 WebView 가 검은 화면으로 남는 경우가 많다.
+        // iframe 시도는 현재 페이지를 유지한 채 앱 실행만 유도한다.
+        const tryOpenAppViaIframe = function () {
+          const iframe = document.createElement("iframe");
+          iframe.setAttribute("aria-hidden", "true");
+          iframe.style.cssText =
+            "position:absolute;width:0;height:0;border:0;visibility:hidden;";
+          iframe.src = schemeUrl;
+          document.body.appendChild(iframe);
+          window.setTimeout(function () {
+            try {
+              document.body.removeChild(iframe);
+            } catch (_) {}
+          }, 2000);
         };
 
-        window.setTimeout(tryOpenApp, 120);
-        window.setTimeout(function () {
+        const tryOpenApp = function () {
+          if (isAndroid) {
+            window.location.href = intentUrl;
+            return;
+          }
+          tryOpenAppViaIframe();
+        };
+
+        if (isIOS && isKakaoInApp) {
+          // iOS 카카오톡: 자동 location 이동은 WebView 블랙아웃을 유발한다.
+          // iframe 으로만 조용히 시도하고, 안내/버튼은 항상 보이게 둔다.
           message.textContent =
-            "앱이 자동으로 열리지 않았다면 아래 버튼을 눌러 설레연에서 이어서 진행해주세요.";
+            "아래 버튼을 누르면 설레연 앱에서 친구 초대를 이어서 확인할 수 있어요.";
           retryButton.classList.remove("hidden");
-        }, 1600);
+          window.setTimeout(tryOpenAppViaIframe, 80);
+        } else {
+          window.setTimeout(tryOpenApp, 120);
+          window.setTimeout(function () {
+            message.textContent =
+              "앱이 자동으로 열리지 않았다면 아래 버튼을 눌러 설레연에서 이어서 진행해주세요.";
+            retryButton.classList.remove("hidden");
+          }, 1600);
+        }
       })();
     </script>
   </body>

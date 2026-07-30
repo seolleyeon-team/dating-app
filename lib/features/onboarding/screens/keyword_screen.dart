@@ -1,5 +1,5 @@
 // =============================================================================
-// 나를 표현하는 키워드 선택 화면 (온보딩 4/6단계)
+// 나를 표현하는 키워드 선택 화면 (온보딩 Step 9)
 // 경로: lib/features/onboarding/screens/keyword_screen.dart
 //
 // 사용 예시 (main.dart):
@@ -19,12 +19,12 @@ import '../../../services/user_service.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFF04579);
-  static const Color backgroundLight = Color(0xFFFFFFFF);
-  static const Color surfaceLight = Color(0xFFF3F4F6);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color backgroundLight = Color(0xFFFAFAFA);
+  static const Color surfaceLight = Color(0xFFF5F5F5);
   static const Color textMain = Color(0xFF111827);
   static const Color textSecondary = Color(0xFF6B7280);
-  static const Color dotInactive = Color(0xFFE5E7EB);
+  static const Color dotInactive = Color(0xFFEDE8EB);
 }
 
 // =============================================================================
@@ -141,6 +141,7 @@ class _KeywordScreenState extends State<KeywordScreen> {
         backgroundColor: _AppColors.backgroundLight,
         child: Stack(
           children: [
+            const Positioned.fill(child: _SubtleBackgroundGradient()),
             SafeArea(
               bottom: false,
               child: Column(
@@ -148,47 +149,70 @@ class _KeywordScreenState extends State<KeywordScreen> {
                   // 헤더
                   _Header(
                     onBackPressed: _handleBack,
-                  currentStep: 8,
-                  totalSteps: 8,
-                ),
-                // 타이틀 섹션
-                const _TitleSection(),
-                // 키워드 그리드
-                Expanded(
-                  child: SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 120),
-                    child: Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: _KeywordData.keywords.map((keyword) {
-                        final isSelected = _selectedKeywords.contains(keyword);
-                        return _KeywordChip(
-                          label: keyword,
-                          isSelected: isSelected,
-                          onTap: () => _toggleKeyword(keyword),
-                        );
-                      }).toList(),
+                    currentStep: 9,
+                    totalSteps: 9,
+                  ),
+                  // 타이틀 섹션
+                  const _TitleSection(),
+                  // 키워드 그리드
+                  Expanded(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 120),
+                      child: Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: _KeywordData.keywords.map((keyword) {
+                          final isSelected = _selectedKeywords.contains(
+                            keyword,
+                          );
+                          return _KeywordChip(
+                            label: keyword,
+                            isSelected: isSelected,
+                            onTap: () => _toggleKeyword(keyword),
+                          );
+                        }).toList(),
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          // 하단 CTA 버튼
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _BottomCTA(
-              isEnabled: _canProceed,
-              selectedCount: _selectedKeywords.length,
-              onPressed: _onSavePressed,
+            // 하단 CTA 버튼
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _BottomCTA(
+                isEnabled: _canProceed,
+                selectedCount: _selectedKeywords.length,
+                onPressed: _onSavePressed,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
+    );
+  }
+}
+
+class _SubtleBackgroundGradient extends StatelessWidget {
+  const _SubtleBackgroundGradient();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFEDE8EB).withValues(alpha: 0.14),
+            _AppColors.backgroundLight,
+            CupertinoColors.white.withValues(alpha: 0.96),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -269,7 +293,7 @@ class _TitleSection extends StatelessWidget {
           Text(
             '나를 표현하는 키워드',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 30,
               fontWeight: FontWeight.w700,
               height: 1.2,
@@ -281,7 +305,7 @@ class _TitleSection extends StatelessWidget {
           Text(
             '나를 가장 잘 나타내는 키워드를 8개까지 선택해 주세요.',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 16,
               fontWeight: FontWeight.w400,
               height: 1.4,
@@ -333,7 +357,7 @@ class _KeywordChip extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
                 color: isSelected
@@ -375,7 +399,7 @@ class _BottomCTA extends StatelessWidget {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return Container(
-      padding: EdgeInsets.fromLTRB(24, 16, 24, bottomPadding + 16),
+      padding: EdgeInsets.fromLTRB(24, 16, 24, bottomPadding + 24),
       decoration: BoxDecoration(
         color: _AppColors.backgroundLight,
         gradient: LinearGradient(
@@ -399,11 +423,11 @@ class _BottomCTA extends StatelessWidget {
             color: isEnabled
                 ? _AppColors.primary
                 : _AppColors.primary.withValues(alpha: 0.4),
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(16),
             boxShadow: isEnabled
                 ? [
                     BoxShadow(
-                      color: const Color(0xFFFCE7F3),
+                      color: _AppColors.primary.withValues(alpha: 0.24),
                       blurRadius: 16,
                       offset: const Offset(0, 6),
                     ),
@@ -416,7 +440,7 @@ class _BottomCTA extends StatelessWidget {
               Text(
                 selectedCount > 0 ? '저장 ($selectedCount/8)' : '저장',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
                   color: isEnabled

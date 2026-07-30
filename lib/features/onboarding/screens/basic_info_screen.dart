@@ -21,14 +21,14 @@ import '../../../services/user_service.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFEF3976);
-  static const Color backgroundLight = Color(0xFFF8F6F6);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color backgroundLight = Color(0xFFFAFAFA);
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color textMain = Color(0xFF181113);
   static const Color textSub = Color(0xFF6B7280);
   static const Color border = Color(0xFFE5E7EB);
   static const Color inputBg = Color(0xFFF9FAFB); // gray-50
-  static const Color progressBg = Color(0xFFE6DBDF);
+  static const Color progressBg = Color(0xFFEDE8EB);
 }
 
 // =============================================================================
@@ -69,7 +69,7 @@ class BasicInfoScreen extends StatefulWidget {
   const BasicInfoScreen({
     super.key,
     this.currentStep = 1,
-    this.totalSteps = 8,
+    this.totalSteps = 9,
     this.onBack,
     this.onNext,
   });
@@ -79,6 +79,14 @@ class BasicInfoScreen extends StatefulWidget {
 }
 
 class _BasicInfoScreenState extends State<BasicInfoScreen> {
+  static const List<String> _gradeOptions = <String>[
+    '1학년',
+    '2학년',
+    '3학년',
+    '4학년',
+    '5학년 이상',
+  ];
+
   final TextEditingController _nicknameController = TextEditingController();
   final TextEditingController _heightController = TextEditingController();
   final StorageService _storageService = StorageService();
@@ -88,6 +96,9 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
   String? _selectedRegion;
   String? _selectedEducation;
   double _age = 23;
+  String _selectedGrade = _gradeOptions.first;
+  bool _isGradeExpanded = false;
+  bool _isRa = false;
 
   // MBTI
   MbtiE _mbtiE = MbtiE.e;
@@ -95,7 +106,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
   MbtiF _mbtiF = MbtiF.f;
   MbtiJ _mbtiJ = MbtiJ.j;
 
-  final List<String> _loveLanguages = ['인정하는 말 💬', '스킨십 ❤️']; // 초기값 예시
+  final List<String> _loveLanguages = [];
   RelationshipPreference _relationship = RelationshipPreference.serious;
   bool _isSavingOnExit = false;
 
@@ -118,6 +129,8 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
     final education = onboarding['education']?.toString();
     final height = onboarding['height'];
     final age = onboarding['age'];
+    final grade = onboarding['grade']?.toString();
+    final isRa = onboarding['isRa'];
     final mbtiStr = (onboarding['mbti']?.toString() ?? '').toLowerCase();
     final loveLanguagesRaw = onboarding['loveLanguages'];
     final relationshipStr = onboarding['relationship']?.toString() ?? '';
@@ -129,6 +142,12 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
     }
     if (age is int && age > 0) {
       _age = age.toDouble();
+    }
+    if (grade != null && _gradeOptions.contains(grade)) {
+      _selectedGrade = grade;
+    }
+    if (isRa is bool) {
+      _isRa = isRa;
     }
     if (region != null && region.isNotEmpty) {
       _selectedRegion = region;
@@ -192,15 +211,18 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
     if (_isSavingOnExit) return;
     _isSavingOnExit = true;
     try {
+      final nickname = _nicknameController.text.trim();
       final mbti =
           '${_mbtiE.name.toUpperCase()}${_mbtiN.name.toUpperCase()}${_mbtiF.name.toUpperCase()}${_mbtiJ.name.toUpperCase()}';
       await OnboardingSaveHelper.saveBasicInfo(
-        nickname: _nicknameController.text,
+        nickname: nickname,
         gender: _gender?.name ?? '',
         region: _selectedRegion ?? '',
         education: _selectedEducation ?? '',
         height: int.tryParse(_heightController.text) ?? 0,
         age: _age.round(),
+        grade: _selectedGrade,
+        isRa: _isRa,
         mbti: mbti,
         loveLanguages: _loveLanguages,
         relationship: _relationship.name,
@@ -227,15 +249,25 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
     super.dispose();
   }
 
-  void _toggleLoveLanguage(String language) {
+  bool _validateRequiredFields() {
+    final nickname = _nicknameController.text.trim();
+    final height = int.tryParse(_heightController.text.trim());
+    final hasNickname = nickname.isNotEmpty;
+    final hasHeight = height != null && height > 0;
+
+    if (hasNickname && hasHeight) {
+      return true;
+    }
+
     HapticFeedback.lightImpact();
-    setState(() {
-      if (_loveLanguages.contains(language)) {
-        _loveLanguages.remove(language);
-      } else {
-        _loveLanguages.add(language);
-      }
-    });
+    final message = !hasNickname ? '닉네임을 입력해주세요.' : '키를 입력해주세요.';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+      ),
+    );
+    return false;
   }
 
   @override
@@ -253,6 +285,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
           body: SafeArea(
             child: Stack(
               children: [
+                const Positioned.fill(child: _SubtleBackgroundGradient()),
                 Column(
                   children: [
                     // 헤더
@@ -292,7 +325,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                   Text(
                                     '기본 정보',
                                     style: TextStyle(
-                                      fontFamily: 'Pretendard',
+                                      fontFamily: 'NanumSquareRound',
                                       fontSize: 24,
                                       fontWeight: FontWeight.bold,
                                       color: _AppColors.textMain,
@@ -302,7 +335,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                   Text(
                                     '매칭을 위해 기본 정보를 입력해주세요.',
                                     style: TextStyle(
-                                      fontFamily: 'Pretendard',
+                                      fontFamily: 'NanumSquareRound',
                                       fontSize: 14,
                                       color: _AppColors.textSub,
                                     ),
@@ -329,7 +362,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                           const BoxConstraints(minWidth: 44),
                                     ),
                                 style: const TextStyle(
-                                  fontFamily: 'Pretendard',
+                                  fontFamily: 'NanumSquareRound',
                                   fontSize: 16,
                                 ),
                               ),
@@ -510,7 +543,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                       ),
                                     ),
                                     style: const TextStyle(
-                                      fontFamily: 'Pretendard',
+                                      fontFamily: 'NanumSquareRound',
                                       fontSize: 16,
                                     ),
                                   ),
@@ -562,7 +595,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                       Text(
                                         '${_age.round()}',
                                         style: const TextStyle(
-                                          fontFamily: 'Pretendard',
+                                          fontFamily: 'NanumSquareRound',
                                           fontSize: 24,
                                           fontWeight: FontWeight.bold,
                                           color: _AppColors.textMain,
@@ -581,6 +614,36 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                   ),
                                 ],
                               ),
+                            ),
+
+                            _LabelSection(
+                              label: '학년',
+                              child: _GradeDropdown(
+                                selectedGrade: _selectedGrade,
+                                options: _gradeOptions,
+                                isExpanded: _isGradeExpanded,
+                                onToggle: () {
+                                  HapticFeedback.selectionClick();
+                                  setState(
+                                    () => _isGradeExpanded = !_isGradeExpanded,
+                                  );
+                                },
+                                onSelect: (grade) {
+                                  HapticFeedback.selectionClick();
+                                  setState(() {
+                                    _selectedGrade = grade;
+                                    _isGradeExpanded = false;
+                                  });
+                                },
+                              ),
+                            ),
+
+                            _RaCheckbox(
+                              value: _isRa,
+                              onChanged: (value) {
+                                HapticFeedback.selectionClick();
+                                setState(() => _isRa = value);
+                              },
                             ),
 
                             // MBTI
@@ -692,64 +755,6 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                               color: _AppColors.border,
                             ),
 
-                            // 사랑의 언어
-                            _LabelSection(
-                              label: '사랑의 언어',
-                              subLabel: '(중복 선택 가능)',
-                              child: Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children:
-                                    [
-                                      '인정하는 말 💬',
-                                      '함께하는 시간 🕰️',
-                                      '선물 🎁',
-                                      '봉사 🧹',
-                                      '스킨십 ❤️',
-                                    ].map((lang) {
-                                      final isSelected = _loveLanguages
-                                          .contains(lang);
-                                      return GestureDetector(
-                                        onTap: () => _toggleLoveLanguage(lang),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 8,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: isSelected
-                                                ? _AppColors.primary.withValues(
-                                                    alpha: 0.1,
-                                                  )
-                                                : _AppColors.inputBg,
-                                            borderRadius: BorderRadius.circular(
-                                              20,
-                                            ),
-                                            border: Border.all(
-                                              color: isSelected
-                                                  ? _AppColors.primary
-                                                        .withValues(alpha: 0.2)
-                                                  : _AppColors.border,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            lang,
-                                            style: TextStyle(
-                                              color: isSelected
-                                                  ? _AppColors.primary
-                                                  : _AppColors.textSub,
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    }).toList(),
-                              ),
-                            ),
-
-                            const SizedBox(height: 24),
-
                             // 선호하는 관계
                             _LabelSection(
                               label: '선호하는 관계',
@@ -772,7 +777,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                   ),
                                   const SizedBox(height: 8),
                                   _RelationshipOption(
-                                    label: '일단 만나보고 결정할래요',
+                                    label: '상관없어요',
                                     value: RelationshipPreference.open,
                                     groupValue: _relationship,
                                     onChanged: (v) =>
@@ -795,6 +800,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                   child: _BottomButton(
                     onNext: () async {
                       HapticFeedback.mediumImpact();
+                      if (!_validateRequiredFields()) return;
                       try {
                         await _saveCurrentBasicInfo();
                       } catch (e) {
@@ -812,7 +818,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                           '${_mbtiE.name.toUpperCase()}${_mbtiN.name.toUpperCase()}${_mbtiF.name.toUpperCase()}${_mbtiJ.name.toUpperCase()}';
                       if (widget.onNext != null) {
                         widget.onNext!.call(
-                          _nicknameController.text,
+                          _nicknameController.text.trim(),
                           _gender!,
                           _selectedRegion ?? '',
                           _selectedEducation ?? '',
@@ -842,7 +848,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
     return InputDecoration(
       hintText: hint,
       hintStyle: const TextStyle(
-        fontFamily: 'Pretendard',
+        fontFamily: 'NanumSquareRound',
         color: Color(0xFF9CA3AF),
       ),
       filled: true,
@@ -904,6 +910,27 @@ class _Header extends StatelessWidget {
   }
 }
 
+class _SubtleBackgroundGradient extends StatelessWidget {
+  const _SubtleBackgroundGradient();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFEDE8EB).withValues(alpha: 0.16),
+            _AppColors.backgroundLight,
+            Colors.white.withValues(alpha: 0.96),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // =============================================================================
 // 입력 필드 컨테이너
 // =============================================================================
@@ -958,14 +985,9 @@ class _InputField extends StatelessWidget {
 // =============================================================================
 class _LabelSection extends StatelessWidget {
   final String label;
-  final String? subLabel;
   final Widget child;
 
-  const _LabelSection({
-    required this.label,
-    this.subLabel,
-    required this.child,
-  });
+  const _LabelSection({required this.label, required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -976,32 +998,196 @@ class _LabelSection extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.only(left: 4, bottom: 8),
-            child: Row(
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: _AppColors.textMain,
-                  ),
-                ),
-                if (subLabel != null) ...[
-                  const SizedBox(width: 4),
-                  Text(
-                    subLabel!,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.normal,
-                      color: Color(0xFF9CA3AF),
-                    ),
-                  ),
-                ],
-              ],
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: _AppColors.textMain,
+              ),
             ),
           ),
           child,
         ],
+      ),
+    );
+  }
+}
+
+class _GradeDropdown extends StatelessWidget {
+  final String selectedGrade;
+  final List<String> options;
+  final bool isExpanded;
+  final VoidCallback onToggle;
+  final ValueChanged<String> onSelect;
+
+  const _GradeDropdown({
+    required this.selectedGrade,
+    required this.options,
+    required this.isExpanded,
+    required this.onToggle,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: _AppColors.inputBg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isExpanded ? _AppColors.primary : _AppColors.border,
+            width: isExpanded ? 1.5 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onToggle,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.school_outlined,
+                      color: Color(0xFF9CA3AF),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        selectedGrade,
+                        style: const TextStyle(
+                          fontFamily: 'NanumSquareRound',
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: _AppColors.textMain,
+                        ),
+                      ),
+                    ),
+                    AnimatedRotation(
+                      turns: isExpanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 180),
+                      child: const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        color: _AppColors.textSub,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            AnimatedCrossFade(
+              firstChild: const SizedBox.shrink(),
+              secondChild: Column(
+                children: options
+                    .where((grade) => grade != selectedGrade)
+                    .map(
+                      (grade) => GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => onSelect(grade),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 48,
+                            vertical: 13,
+                          ),
+                          decoration: const BoxDecoration(
+                            border: Border(
+                              top: BorderSide(color: _AppColors.border),
+                            ),
+                          ),
+                          child: Text(
+                            grade,
+                            style: const TextStyle(
+                              fontFamily: 'NanumSquareRound',
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                              color: _AppColors.textSub,
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+              crossFadeState: isExpanded
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              duration: const Duration(milliseconds: 180),
+              sizeCurve: Curves.easeOutCubic,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RaCheckbox extends StatelessWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _RaCheckbox({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, right: 4, bottom: 24),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => onChanged(!value),
+        child: Row(
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: value ? _AppColors.primary : Colors.transparent,
+                borderRadius: BorderRadius.circular(5),
+                border: Border.all(
+                  color: value ? _AppColors.primary : _AppColors.border,
+                  width: 1.5,
+                ),
+              ),
+              child: value
+                  ? const Icon(
+                      Icons.check_rounded,
+                      size: 14,
+                      color: Colors.white,
+                    )
+                  : null,
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'RA 여부',
+              style: TextStyle(
+                fontFamily: 'NanumSquareRound',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: _AppColors.textMain,
+              ),
+            ),
+            const SizedBox(width: 6),
+            const Expanded(
+              child: Text(
+                '추천 생활권 분리에만 활용돼요',
+                style: TextStyle(
+                  fontFamily: 'NanumSquareRound',
+                  fontSize: 12,
+                  color: _AppColors.textSub,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1206,10 +1392,10 @@ class _BottomButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: EdgeInsets.fromLTRB(
+        24,
         16,
-        16,
-        16,
-        MediaQuery.of(context).padding.bottom + 16,
+        24,
+        MediaQuery.of(context).padding.bottom + 24,
       ),
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -1232,8 +1418,8 @@ class _BottomButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: _AppColors.primary.withValues(alpha: 0.3),
-                blurRadius: 12,
+                color: _AppColors.primary.withValues(alpha: 0.24),
+                blurRadius: 16,
                 offset: const Offset(0, 6),
               ),
             ],
@@ -1244,14 +1430,14 @@ class _BottomButton extends StatelessWidget {
               Text(
                 '다음',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
-                  fontSize: 18,
+                  fontFamily: 'NanumSquareRound',
+                  fontSize: 17,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
               ),
-              SizedBox(width: 8),
-              Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 20),
+              SizedBox(width: 6),
+              Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
             ],
           ),
         ),

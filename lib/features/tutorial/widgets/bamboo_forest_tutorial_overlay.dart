@@ -132,7 +132,7 @@ class _BambooForestTutorialOverlayState
                       child: Text(
                         'Skip',
                         style: TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                           color: CupertinoColors.white.withValues(alpha: 0.8),
@@ -180,7 +180,7 @@ class _BambooForestTutorialOverlayState
                               Text(
                                 '다음으로',
                                 style: TextStyle(
-                                  fontFamily: 'Pretendard',
+                                  fontFamily: 'NanumSquareRound',
                                   fontSize: 16,
                                   fontWeight: FontWeight.w700,
                                   color: CupertinoColors.white,
@@ -201,7 +201,7 @@ class _BambooForestTutorialOverlayState
                       Text(
                         '${widget.currentStep} / ${widget.totalSteps}',
                         style: TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                           letterSpacing: 2,
@@ -354,7 +354,7 @@ class _TutorialCard extends StatelessWidget {
                 '대나무숲에 오신걸\n환영해요! 🎋',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 24,
                   fontWeight: FontWeight.w700,
                   height: 1.3,
@@ -367,7 +367,7 @@ class _TutorialCard extends StatelessWidget {
                 textAlign: TextAlign.center,
                 text: TextSpan(
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 14,
                     height: 1.6,
                     color: CupertinoColors.white.withValues(alpha: 0.8),

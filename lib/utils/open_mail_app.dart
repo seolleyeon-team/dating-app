@@ -4,8 +4,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../shared/utils/safe_catch.dart';
-
 const _channel = MethodChannel('com.yonsei.dating/open_mail_app');
 
 Future<void> openGmailApp(BuildContext context) async {
@@ -14,18 +12,14 @@ Future<void> openGmailApp(BuildContext context) async {
     try {
       final launched = await _channel.invokeMethod<bool>('launchGmail');
       if (launched == true) return;
-    } catch (e) {
-      logCaughtError('OpenMailApp.launchGmail', e);
-    }
+    } catch (_) {}
     // 네이티브 실패 시 intent URL 시도
     try {
       final uri = Uri.parse(
         'intent://#Intent;package=com.google.android.gm;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;end',
       );
       if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
-    } catch (e) {
-      logCaughtError('OpenMailApp.androidIntent', e);
-    }
+    } catch (_) {}
   }
 
   // iOS: googlegmail 스킴 (LSApplicationQueriesSchemes에 googlegmail 추가됨)
@@ -37,9 +31,7 @@ Future<void> openGmailApp(BuildContext context) async {
     for (final uri in iosUris) {
       try {
         if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
-      } catch (e) {
-        logCaughtError('OpenMailApp.iosScheme', e);
-      }
+      } catch (_) {}
     }
   }
 

@@ -9,12 +9,9 @@ lib/*
 !lib/ai_recommend_model/
 !infra/
 !cloudbuild.yaml
-!cloudbuild.avatar-worker.yaml
 !Dockerfile
-!requirements_avatar_worker.txt
 
 # Exclude virtual environments and caches that might be inside included folders
 recsys/.venv/
 **/.venv/
 **/__pycache__/
-**/.omx/

@@ -1,4 +1,3 @@
-import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:flutter/cupertino.dart';
 import 'exceptions.dart';
 
@@ -40,10 +39,10 @@ class ErrorHandler {
   static void logError(Object error, [StackTrace? stackTrace]) {
     // TODO: 에러 로깅 서비스 연동 (Firebase Crashlytics 등)
     // ignore: avoid_print
-    print('[Error] ${PrivacyLogUtils.errorSummary(error)}');
+    print('[Error] $error');
     if (stackTrace != null) {
       // ignore: avoid_print
-      print('[Error] hasStackTrace=true');
+      print('[StackTrace] $stackTrace');
     }
   }
 }
