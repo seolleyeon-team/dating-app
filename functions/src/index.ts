@@ -45,6 +45,32 @@ import {
   PROMISE_REMINDER_QUEUE_PATH,
   type PromiseReminderTaskPayload,
 } from "./promiseReminder";
+import {
+  createGetCurrentAvatarGenerationStatusFunction,
+  createRetryCurrentAvatarGenerationFunction,
+  createUploadAvatarSourcePhotoFunction,
+} from "./avatarMedia";
+import {
+  createApproveAvatarCandidateFunction,
+  createGetAvatarJobCandidatesFunction,
+} from "./avatarApproval";
+import { createGetChatRealProfilePhotoFunction } from "./chatRealPhoto";
+import { createCleanupAvatarMediaFunction } from "./avatarCleanup";
+import {
+  createAvatarJobSourceRetentionTrigger,
+  createAvatarSourceRetentionRecoveryTrigger,
+  createClipEmbeddingSourceRetentionTrigger,
+} from "./avatarSourceRetention";
+import { createAvatarGenerationStateSyncTrigger } from "./avatarGenerationStateSync";
+import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
+export { isSafePublicAvatarUrl as isSafePublicMediaUrl } from "./publicMediaUrlPolicy";
+import {
+  createRespondTeamMeetingRequestFunction,
+  createTeamMeetingRequestFunction,
+} from "./teamMeetingRequest";
+import { createReportAndBlockUserFunction } from "./reportAndBlock";
+import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
+import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
 
 // Firebase Admin 초기화
 initializeApp();
@@ -1431,6 +1457,60 @@ async function resolveUserForFriendCallable(request: {
   const kakaoUser = await verifyKakaoAccessToken(accessToken);
   return await resolveVerifiedUserByKakaoId(kakaoUser.userId);
 }
+
+export const uploadAvatarSourcePhoto =
+  createUploadAvatarSourcePhotoFunction(db, resolveAuthedAppUser);
+
+export const getCurrentAvatarGenerationStatus =
+  createGetCurrentAvatarGenerationStatusFunction(db, resolveAuthedAppUser);
+
+export const retryCurrentAvatarGeneration =
+  createRetryCurrentAvatarGenerationFunction(db, resolveAuthedAppUser);
+
+export const getAvatarJobCandidates =
+  createGetAvatarJobCandidatesFunction(db, resolveAuthedAppUser);
+
+export const approveAvatarCandidate =
+  createApproveAvatarCandidateFunction(db, resolveAuthedAppUser);
+
+export const getChatRealProfilePhoto =
+  createGetChatRealProfilePhotoFunction(db, resolveAuthedAppUser);
+
+export const cleanupAvatarMedia =
+  createCleanupAvatarMediaFunction(db, resolveAuthedAppUser);
+
+export const purgeExpiredEmailLinkTokens =
+  createPurgeExpiredEmailLinkTokensSchedule(db);
+
+export const purgeAccountDeletionRetention =
+  createAccountDeletionRetentionPurgeSchedule(db);
+
+export const onAvatarJobSourceRetention =
+  createAvatarJobSourceRetentionTrigger(db);
+
+export const onClipEmbeddingSourceRetention =
+  createClipEmbeddingSourceRetentionTrigger(db);
+
+export const recoverAvatarSourceRetention =
+  createAvatarSourceRetentionRecoveryTrigger(db);
+
+export const onAvatarGenerationStateSync =
+  createAvatarGenerationStateSyncTrigger(db);
+
+export const createTeamMeetingRequest = createTeamMeetingRequestFunction(
+  db,
+  resolveUserForFriendCallable
+);
+
+export const respondTeamMeetingRequest = createRespondTeamMeetingRequestFunction(
+  db,
+  resolveUserForFriendCallable
+);
+
+export const reportAndBlockUser = createReportAndBlockUserFunction(
+  db,
+  resolveUserForFriendCallable
+);
 
 function readFriendName(
   snapshot: Record<string, unknown>,
@@ -3930,6 +4010,112 @@ export const sendDailyUnreadChatDigests = onSchedule(
 // =============================================================================
 // 전화번호 정규화 + 해시 (클라이언트와 동일 알고리즘)
 // =============================================================================
+export function readSafePhotoUrl(userData: Record<string, unknown>): string | null {
+  const avatar = readMap(userData.avatar);
+  const approvedAvatarUrl = asStringOrNull(avatar.approvedAvatarUrl);
+  if (avatar.status === "approved" && isSafePublicAvatarUrl(approvedAvatarUrl)) {
+    return approvedAvatarUrl;
+  }
+  return null;
+}
+
+export function isUnregisteredPushTokenError(code: string | null): boolean {
+  return (
+    code === "messaging/registration-token-not-registered" ||
+    code === "messaging/invalid-registration-token"
+  );
+}
+
+export function verifiedYonseiEmailFromAuthToken(
+  token: Record<string, unknown> | undefined
+): string | null {
+  if (!token) return null;
+  if (token.email_verified !== true) return null;
+  const raw = asNonEmptyString(token.email);
+  const email = raw ? raw.toLowerCase() : null;
+  return email && email.endsWith("@yonsei.ac.kr") ? email : null;
+}
+
+export type EmailLinkTokenRejection =
+  | "missing"
+  | "malformed"
+  | "kakao-mismatch"
+  | "email-mismatch"
+  | "expired"
+  | "mailbox-unproven"
+  | "already-exchanged";
+
+export type EmailLinkTokenDecision =
+  | { ok: true; kakaoUserId: string; email: string }
+  | { ok: false; reason: EmailLinkTokenRejection };
+
+/**
+ * Decides whether an emailLinkTokens document may be exchanged for a Firebase
+ * custom token.
+ *
+ * The document itself is written by an unauthenticated-at-the-time client, so
+ * its (kakaoUserId, email) pair is a *request*, not a credential. The only
+ * trustworthy field is `emailVerifiedUid`/`emailVerifiedAt`, which
+ * firestore.rules lets only the owner of the named mailbox write, after
+ * Firebase itself verified the email link.
+ */
+export function evaluateEmailLinkTokenExchange(params: {
+  tokenData: Record<string, unknown> | null | undefined;
+  requestedKakaoUserId?: string | null;
+  requestedStudentEmail?: string | null;
+  now: Date;
+  isTimestamp: (value: unknown) => boolean;
+  toDate: (value: unknown) => Date | null;
+}): EmailLinkTokenDecision {
+  const { tokenData, now, isTimestamp, toDate } = params;
+  if (!tokenData) return { ok: false, reason: "missing" };
+
+  const kakaoUserId = asNonEmptyString(tokenData.kakaoUserId);
+  const email = asNonEmptyString(tokenData.email)?.toLowerCase() ?? null;
+  if (!kakaoUserId || !email) return { ok: false, reason: "malformed" };
+
+  const requestedKakaoUserId = asNonEmptyString(params.requestedKakaoUserId);
+  if (requestedKakaoUserId && requestedKakaoUserId !== kakaoUserId) {
+    return { ok: false, reason: "kakao-mismatch" };
+  }
+
+  const requestedStudentEmail =
+    asNonEmptyString(params.requestedStudentEmail)?.toLowerCase() ?? null;
+  if (requestedStudentEmail && requestedStudentEmail !== email) {
+    return { ok: false, reason: "email-mismatch" };
+  }
+
+  // A missing or malformed expiry previously skipped the expiry check, which
+  // turned a forged document into a permanent credential.
+  const expiresAt = toDate(tokenData.expiresAt);
+  if (!expiresAt || expiresAt.getTime() < now.getTime()) {
+    return { ok: false, reason: "expired" };
+  }
+
+  if (
+    !asNonEmptyString(tokenData.emailVerifiedUid) ||
+    !isTimestamp(tokenData.emailVerifiedAt)
+  ) {
+    return { ok: false, reason: "mailbox-unproven" };
+  }
+
+  if (tokenData.exchangedAt != null) {
+    return { ok: false, reason: "already-exchanged" };
+  }
+
+  return { ok: true, kakaoUserId, email };
+}
+
+export function buildKakaoUserShell(kakaoUserId: string): Record<string, unknown> {
+  return {
+    kakaoUserId,
+    profileImageUrl: "",
+    profileImageMode: "avatar",
+    createdAt: FieldValue.serverTimestamp(),
+    lastLoginAt: FieldValue.serverTimestamp(),
+  };
+}
+
 export function normalizeKoreanPhone(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
