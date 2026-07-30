@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 
 import '../../../services/contact_block_service.dart';
+import '../../../shared/utils/safe_catch.dart';
 import '../../../utils/helpers.dart';
 
 class _AppColors {
@@ -94,7 +95,9 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
   Future<void> _openAppSettings() async {
     try {
       await FlutterContacts.permissions.openSettings();
-    } catch (_) {}
+    } catch (e) {
+      logCaughtError('ContactBlock.openSettings', e);
+    }
   }
 
   @override

@@ -11,6 +11,8 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
+import '../../../shared/utils/in_app_purchase_policy.dart';
+
 // =============================================================================
 // 색상 상수
 // =============================================================================
@@ -94,12 +96,29 @@ class _HeartRechargeScreenState extends State<HeartRechargeScreen> {
 
   void _onPackageTap(_HeartPackage package) {
     HapticFeedback.selectionClick();
-    // TODO: 결제 처리
+    _showPurchaseUnavailable();
   }
 
   void _onCouponTap() {
     HapticFeedback.lightImpact();
-    // TODO: 쿠폰 등록 화면
+    _showPurchaseUnavailable();
+  }
+
+  void _showPurchaseUnavailable() {
+    if (!mounted) return;
+    showCupertinoDialog<void>(
+      context: context,
+      builder: (ctx) => CupertinoAlertDialog(
+        title: const Text('결제 준비 중'),
+        content: Text(InAppPurchasePolicy.unavailableMessage),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
