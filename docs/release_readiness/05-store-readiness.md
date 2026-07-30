@@ -4,22 +4,29 @@
 
 ## Status
 
-PARTIAL — code/config inventory exists; **no store submission performed**.
-
-Related investigation artifact (uncommitted / separate): `docs/store-release-file-audit-20260731.md` if present in working tree.
+PARTIAL → hardened in-repo; **no store submission performed**.
 
 ## App version
 
-`pubspec.yaml`: `1.0.0+3`
+pubspec.yaml: 1.0.0+3
 
-## Checklist (must complete before submit)
+## Implemented this branch
 
-- [ ] Release signing (no debug keystore fallback)
-- [ ] AAB / archive build with production Firebase
-- [ ] PrivacyInfo.xcprivacy + Required Reason API
-- [ ] App Privacy / Data Safety tables vs code
-- [ ] Account deletion path verified for reviewers
+| Item | Evidence |
+|------|----------|
+| Android release no debug signing fallback | ndroid/app/build.gradle.kts + test |
+| key.properties example | ndroid/key.properties.example |
+| iOS PrivacyInfo.xcprivacy | ios/Runner/PrivacyInfo.xcprivacy in Resources |
+| Logout clears user-scoped prefs | StorageService.clearUserScopedSession |
+
+## Still EXTERNAL / operator
+
+- [ ] Create upload keystore + ndroid/key.properties (gitignored)
+- [ ] Play App Signing enrollment
+- [ ] AAB release build with production Firebase
+- [ ] App Privacy / Data Safety form submission
 - [ ] Reviewer demo account
-- [ ] Screenshots / icons / content rating
+- [ ] Screenshots / content rating
+- [ ] Legal review of PrivacyInfo data types vs actual SDK inventory
 
 Actual submit = EXTERNAL ACTION only.
