@@ -15,6 +15,7 @@ import * as logger from "firebase-functions/logger";
 
 import { refundDeposit } from "./payments";
 import { loadPolicy, refundAmountForOps } from "./opsHelpers";
+import { BLIND_MEETING_CALLABLE_OPTIONS } from "./runtime";
 import {
   applyRestriction,
   db,
@@ -55,7 +56,7 @@ function getData(request: AdminRequest): Record<string, unknown> {
 }
 
 /** 상태별 미팅 목록 */
-export const listBlindMeetingsForOps = onCall(async (request) => {
+async function listBlindMeetingsForOpsHandler(request: AdminRequest) {
   requireAdmin(request);
   const data = getData(request);
   const status = asTrimmedOrNull(data.serverStatus);
@@ -91,10 +92,10 @@ export const listBlindMeetingsForOps = onCall(async (request) => {
       };
     }),
   };
-});
+}
 
 /** 미팅 상세: 참가자, 대기자, 대체 제안, 환급, 안전 flag, 점수 요약 */
-export const getBlindMeetingOpsDetail = onCall(async (request) => {
+async function getBlindMeetingOpsDetailHandler(request: AdminRequest) {
   requireAdmin(request);
   const data = getData(request);
   const meetingId = asTrimmedOrNull(data.meetingId);
@@ -170,10 +171,10 @@ export const getBlindMeetingOpsDetail = onCall(async (request) => {
     scoreSummary: scores.data() ?? null,
     feedbackCount: feedback.size,
   };
-});
+}
 
 /** 수동 재매칭: 참가자를 다시 후보군으로 돌리고 매칭을 재시도한다. */
-export const forceBlindMeetingRematch = onCall(async (request) => {
+async function forceBlindMeetingRematchHandler(request: AdminRequest) {
   const adminUid = requireAdmin(request);
   const data = getData(request);
   const meetingId = asTrimmedOrNull(data.meetingId);
@@ -188,10 +189,10 @@ export const forceBlindMeetingRematch = onCall(async (request) => {
     createdMeetings: created.length,
   });
   return { ok: true, createdMeetings: created.length };
-});
+}
 
 /** 운영자 예외 환급 */
-export const overrideBlindMeetingRefund = onCall(async (request) => {
+async function overrideBlindMeetingRefundHandler(request: AdminRequest) {
   const adminUid = requireAdmin(request);
   const data = getData(request);
   const meetingId = asTrimmedOrNull(data.meetingId);
@@ -233,10 +234,10 @@ export const overrideBlindMeetingRefund = onCall(async (request) => {
     sandbox: result.sandbox,
     message: result.message ?? null,
   };
-});
+}
 
 /** 참여 제한 부여/해제 */
-export const setBlindMeetingRestriction = onCall(async (request) => {
+async function setBlindMeetingRestrictionHandler(request: AdminRequest) {
   const adminUid = requireAdmin(request);
   const data = getData(request);
   const userId = asTrimmedOrNull(data.userId);
@@ -251,10 +252,10 @@ export const setBlindMeetingRestriction = onCall(async (request) => {
     requiresOpsReview: false,
   });
   return { ok: true };
-});
+}
 
 /** 노쇼 수동 처리: 대체 후보 탐색을 다시 시작한다. */
-export const triggerBlindMeetingReplacement = onCall(async (request) => {
+async function triggerBlindMeetingReplacementHandler(request: AdminRequest) {
   requireAdmin(request);
   const data = getData(request);
   const meetingId = asTrimmedOrNull(data.meetingId);
@@ -268,10 +269,10 @@ export const triggerBlindMeetingReplacement = onCall(async (request) => {
     urgent: data.urgent === true,
   });
   return { ok: true, offered };
-});
+}
 
 /** 운영 검토 종료 */
-export const resolveBlindMeetingOpsReview = onCall(async (request) => {
+async function resolveBlindMeetingOpsReviewHandler(request: AdminRequest) {
   const adminUid = requireAdmin(request);
   const data = getData(request);
   const reviewId = asTrimmedOrNull(data.reviewId);
@@ -291,11 +292,10 @@ export const resolveBlindMeetingOpsReview = onCall(async (request) => {
       { merge: true }
     );
   return { ok: true };
-});
+}
 
 /** 알림 발송 상태 확인 */
-export const listBlindMeetingNotificationDispatches = onCall(
-  async (request) => {
+async function listBlindMeetingNotificationDispatchesHandler(request: AdminRequest) {
     requireAdmin(request);
     const data = getData(request);
     const meetingId = asTrimmedOrNull(data.meetingId);
@@ -319,5 +319,41 @@ export const listBlindMeetingNotificationDispatches = onCall(
         };
       });
     return { dispatches };
+}
+
+// -----------------------------------------------------------------------------
+// 운영 dispatcher
+//
+// 운영 callable도 단일 함수로 모은다 (region당 CPU 할당량 절약).
+// 권한 판정은 각 handler의 requireAdmin이 claim으로 수행한다.
+// -----------------------------------------------------------------------------
+
+type OpsHandler = (request: AdminRequest) => Promise<Record<string, unknown>>;
+
+const OPS_HANDLERS: Record<string, OpsHandler> = {
+  listBlindMeetingsForOps: listBlindMeetingsForOpsHandler,
+  getBlindMeetingOpsDetail: getBlindMeetingOpsDetailHandler,
+  forceBlindMeetingRematch: forceBlindMeetingRematchHandler,
+  overrideBlindMeetingRefund: overrideBlindMeetingRefundHandler,
+  setBlindMeetingRestriction: setBlindMeetingRestrictionHandler,
+  triggerBlindMeetingReplacement: triggerBlindMeetingReplacementHandler,
+  resolveBlindMeetingOpsReview: resolveBlindMeetingOpsReviewHandler,
+  listBlindMeetingNotificationDispatches:
+    listBlindMeetingNotificationDispatchesHandler,
+};
+
+export const BLIND_MEETING_OPS_ACTIONS = Object.keys(OPS_HANDLERS);
+
+export const blindMeetingOps = onCall(
+  BLIND_MEETING_CALLABLE_OPTIONS,
+  async (request) => {
+    const data = getData(request);
+    const action = asStr(data.action, "");
+    const handler = OPS_HANDLERS[action];
+    if (!handler) {
+      throw new HttpsError("invalid-argument", "지원하지 않는 운영 요청이에요.");
+    }
+    logger.info("blindMeetingOps", { action });
+    return handler(request);
   }
 );

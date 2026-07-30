@@ -33,12 +33,17 @@ import {
   readMeetingDoc,
   updateParticipant,
 } from "./store";
+import { BLIND_MEETING_SCHEDULE_OPTIONS } from "./runtime";
 import { BLIND_MEETING_COLLECTIONS } from "./types";
 
-const SCHEDULE_OPTIONS = {
-  timeZone: "Asia/Seoul",
-  retryCount: 2,
-} as const;
+/** 한 단계가 실패해도 나머지 단계는 계속 진행한다. */
+async function runStep(name: string, step: () => Promise<void>): Promise<void> {
+  try {
+    await step();
+  } catch (error) {
+    logger.error("blindMeeting scheduled step failed", { step: name, error });
+  }
+}
 
 async function loadMeetingsByStatuses(
   statuses: string[]
@@ -56,20 +61,15 @@ async function loadMeetingsByStatuses(
 }
 
 /** 10분마다 대기 중인 슬롯에 대해 팀 구성을 재시도한다. */
-export const runBlindMeetingMatching = onSchedule(
-  { schedule: "every 10 minutes", ...SCHEDULE_OPTIONS },
-  async () => {
+async function runBlindMeetingMatchingStep(): Promise<void> {
     const created = await runMatchingForAllSlots();
     logger.info("blindMeeting scheduled matching", {
       createdMeetings: created.length,
     });
-  }
-);
+}
 
 /** 15분마다 참석 재확인 알림과 미응답 위험 처리를 수행한다. */
-export const dispatchBlindMeetingAttendanceChecks = onSchedule(
-  { schedule: "every 15 minutes", ...SCHEDULE_OPTIONS },
-  async () => {
+async function dispatchBlindMeetingAttendanceChecksStep(): Promise<void> {
     const policy = await loadPolicy();
     const meetings = await loadMeetingsByStatuses([
       "chat_open",
@@ -120,13 +120,10 @@ export const dispatchBlindMeetingAttendanceChecks = onSchedule(
       await runPhase("24h", policy.firstAttendanceCheckBeforeMs, "attendance24h");
       await runPhase("3h", policy.secondAttendanceCheckBeforeMs, "attendance3h");
     }
-  }
-);
+}
 
 /** 미팅 시작 시각 전후로 도착 안전도장을 안내한다. */
-export const dispatchBlindMeetingCheckinReminders = onSchedule(
-  { schedule: "every 15 minutes", ...SCHEDULE_OPTIONS },
-  async () => {
+async function dispatchBlindMeetingCheckinRemindersStep(): Promise<void> {
     const meetings = await loadMeetingsByStatuses([
       "schedule_confirmed",
       "checkin_open",
@@ -152,17 +149,14 @@ export const dispatchBlindMeetingCheckinReminders = onSchedule(
         kind: "checkin",
       });
     }
-  }
-);
+}
 
 /**
  * 당일 노쇼 처리.
  *
  * 긴급 대체 탐색 기간이 지나도 도착 안전도장이 없으면 노쇼로 확정한다.
  */
-export const finalizeBlindMeetingNoShows = onSchedule(
-  { schedule: "every 15 minutes", ...SCHEDULE_OPTIONS },
-  async () => {
+async function finalizeBlindMeetingNoShowsStep(): Promise<void> {
     const policy = await loadPolicy();
     const meetings = await loadMeetingsByStatuses([
       "checkin_open",
@@ -192,13 +186,10 @@ export const finalizeBlindMeetingNoShows = onSchedule(
         });
       }
     }
-  }
-);
+}
 
 /** 종료 안전도장 안내 */
-export const dispatchBlindMeetingCheckoutReminders = onSchedule(
-  { schedule: "every 15 minutes", ...SCHEDULE_OPTIONS },
-  async () => {
+async function dispatchBlindMeetingCheckoutRemindersStep(): Promise<void> {
     const meetings = await loadMeetingsByStatuses(["in_progress"]);
     const now = Date.now();
 
@@ -220,17 +211,14 @@ export const dispatchBlindMeetingCheckoutReminders = onSchedule(
         kind: "checkout",
       });
     }
-  }
-);
+}
 
 /**
  * 미팅 종료 후 약 15분 뒤 후속 대화 선택 푸시.
  *
  * 조건: 종료 예정 시간 경과 + 종료 안전도장 완료 + 심각한 신고 없음.
  */
-export const openBlindMeetingFollowUps = onSchedule(
-  { schedule: "every 5 minutes", ...SCHEDULE_OPTIONS },
-  async () => {
+async function openBlindMeetingFollowUpsStep(): Promise<void> {
     const policy = await loadPolicy();
     const meetings = await loadMeetingsByStatuses(["completed"]);
     const now = Date.now();
@@ -241,13 +229,10 @@ export const openBlindMeetingFollowUps = onSchedule(
       if (now - completedAt.toMillis() < policy.followUpPushDelayMs) continue;
       await openFollowUp(meeting.meetingId);
     }
-  }
-);
+}
 
 /** 후속 선택 마감 전 리마인더 (미응답자에게 최대 1회) */
-export const remindBlindMeetingFollowUps = onSchedule(
-  { schedule: "every 30 minutes", ...SCHEDULE_OPTIONS },
-  async () => {
+async function remindBlindMeetingFollowUpsStep(): Promise<void> {
     const policy = await loadPolicy();
     const meetings = await loadMeetingsByStatuses(["followup_open"]);
     const now = Date.now();
@@ -289,13 +274,10 @@ export const remindBlindMeetingFollowUps = onSchedule(
         kind: "follow_up_reminder",
       });
     }
-  }
-);
+}
 
 /** 단체 채팅 lifecycle: 48시간 후 읽기 전용, 7일 후 보관 */
-export const applyBlindMeetingChatLifecycle = onSchedule(
-  { schedule: "every 60 minutes", ...SCHEDULE_OPTIONS },
-  async () => {
+async function applyBlindMeetingChatLifecycleStep(): Promise<void> {
     const meetings = await loadMeetingsByStatuses([
       "completed",
       "followup_open",
@@ -304,5 +286,38 @@ export const applyBlindMeetingChatLifecycle = onSchedule(
     for (const meeting of meetings) {
       await applyChatLifecycle(await loadMeeting(meeting.meetingId));
     }
+}
+
+// -----------------------------------------------------------------------------
+// 예약 작업 진입점
+//
+// 개별 스케줄러 7개를 2개로 모았다 (region당 CPU 할당량 절약).
+// 모든 단계는 idempotent 하므로 실행 주기가 잦아도 중복 처리되지 않는다.
+// -----------------------------------------------------------------------------
+
+/** 10분마다 팀 구성을 재시도한다. */
+export const blindMeetingMatchingTick = onSchedule(
+  { schedule: "every 10 minutes", ...BLIND_MEETING_SCHEDULE_OPTIONS },
+  async () => {
+    await runStep("matching", runBlindMeetingMatchingStep);
+  }
+);
+
+/**
+ * 5분마다 미팅 lifecycle을 진행한다.
+ *
+ * 참석 재확인 → 도착 도장 안내 → 노쇼 확정 → 종료 도장 안내
+ * → 후속 선택 개방(종료 15분 후) → 마감 전 리마인더 → 채팅 lifecycle
+ */
+export const blindMeetingLifecycleTick = onSchedule(
+  { schedule: "every 5 minutes", ...BLIND_MEETING_SCHEDULE_OPTIONS },
+  async () => {
+    await runStep("attendance", dispatchBlindMeetingAttendanceChecksStep);
+    await runStep("checkin", dispatchBlindMeetingCheckinRemindersStep);
+    await runStep("noShow", finalizeBlindMeetingNoShowsStep);
+    await runStep("checkout", dispatchBlindMeetingCheckoutRemindersStep);
+    await runStep("followUpOpen", openBlindMeetingFollowUpsStep);
+    await runStep("followUpReminder", remindBlindMeetingFollowUpsStep);
+    await runStep("chatLifecycle", applyBlindMeetingChatLifecycleStep);
   }
 );
