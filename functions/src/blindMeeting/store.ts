@@ -42,9 +42,11 @@ import {
   canTransitionMeeting,
   holdsChatMembership,
   isRecord,
-  isValidSlotId,
+  isValidDateKey,
+  legacySlotIdsForDate,
   oneOf,
   oneOfOrNull,
+  readDateKeys,
   slotStartAt,
 } from "./types";
 
@@ -116,7 +118,8 @@ export type ApplicationDoc = {
   userId: string;
   status: ParticipantStatus;
   stage: MatchingStage;
-  requestedSlotIds: string[];
+  /** 신청한 참여 가능 날짜 (KST `yyyy-MM-dd`, 오름차순) */
+  requestedDateKeys: string[];
   prefersAlcoholFree: boolean;
   waitlistOptIn: boolean;
   meetingId: string | null;
@@ -164,7 +167,11 @@ export function readApplicationDoc(
       raw.stage,
       "searchingCandidates"
     ),
-    requestedSlotIds: asStrArray(raw.requestedSlotIds).filter(isValidSlotId),
+    // 날짜 전용 필드를 우선 읽고, 없으면 legacy 슬롯에서 날짜만 복원한다.
+    requestedDateKeys: readDateKeys(
+      raw.requestedDateKeys,
+      raw.requestedSlotIds
+    ),
     prefersAlcoholFree: raw.prefersAlcoholFree === true,
     waitlistOptIn: raw.waitlistOptIn !== false,
     meetingId: asTrimmedOrNull(raw.meetingId),
@@ -292,8 +299,11 @@ export async function loadCandidate(
     ),
     interestIds: asStrArray(dna.interestIds),
     mbti: asTrimmedOrNull(dna.mbtiSnapshot),
-    availableSlotIds: asStrArray(dna.availableSlotIds ?? dna.availableSlots)
-      .filter(isValidSlotId),
+    // 날짜 전용 필드를 우선 읽고, 없으면 legacy 슬롯에서 날짜만 복원한다.
+    availableDateKeys: readDateKeys(
+      dna.availableDateKeys,
+      dna.availableSlotIds ?? dna.availableSlots
+    ),
     schoolVerified: user.isStudentVerified === true,
     eligible,
     blockedUserIds: blocked,
@@ -302,44 +312,79 @@ export async function loadCandidate(
   };
 }
 
-/** 특정 슬롯에 신청한 활성 지원자 목록 */
+/**
+ * 특정 날짜에 신청한 활성 지원자 목록.
+ *
+ * 신규 문서는 `requestedDateKeys`로 색인되고, legacy 문서(`requestedSlotIds`만
+ * 가진 문서)는 별도 쿼리로 모아 날짜로 정규화한 뒤 합친다.
+ */
 export async function loadOpenApplications(
-  slotId: string
+  dateKey: string
 ): Promise<ApplicationDoc[]> {
-  const snap = await db()
+  if (!isValidDateKey(dateKey)) return [];
+
+  const byDate = await db()
     .collection(BLIND_MEETING_COLLECTIONS.applications)
-    .where("requestedSlotIds", "array-contains", slotId)
+    .where("requestedDateKeys", "array-contains", dateKey)
     .where("open", "==", true)
     .get();
 
-  const result: ApplicationDoc[] = [];
-  for (const doc of snap.docs) {
-    const application = readApplicationDoc(doc.id, doc.data());
-    if (application == null) continue;
+  const byId = new Map<string, ApplicationDoc>();
+  const collect = (docId: string, raw: unknown) => {
+    const application = readApplicationDoc(docId, raw);
+    if (application == null) return;
+    if (!application.requestedDateKeys.includes(dateKey)) return;
     if (
       application.status !== "applied" &&
       application.status !== "waitlisted"
     ) {
-      continue;
+      return;
     }
-    result.push(application);
+    byId.set(docId, application);
+  };
+
+  for (const doc of byDate.docs) collect(doc.id, doc.data());
+
+  // legacy 호환: 날짜 필드가 없는 기존 신청도 매칭 대상에 남긴다.
+  // 이 쿼리는 날짜마다 한 번 더 컬렉션을 읽으므로 읽기 비용이 2배가 된다.
+  // 날짜 전용 backfill이 끝나면 policy.legacySlotCompatEnabled를 0으로 내린다.
+  const policy = await loadPolicy();
+  if (policy.legacySlotCompatEnabled > 0) {
+    const legacy = await db()
+      .collection(BLIND_MEETING_COLLECTIONS.applications)
+      .where(
+        "requestedSlotIds",
+        "array-contains-any",
+        legacySlotIdsForDate(dateKey)
+      )
+      .where("open", "==", true)
+      .get();
+    for (const doc of legacy.docs) {
+      if (byId.has(doc.id)) continue;
+      collect(doc.id, doc.data());
+    }
   }
-  return result;
+
+  return [...byId.values()].sort((a, b) => a.userId.localeCompare(b.userId));
 }
 
-/** 대기 중인 모든 슬롯 id 수집 */
-export async function loadOpenSlotIds(): Promise<string[]> {
+/** 대기 중인 모든 날짜 key 수집 */
+export async function loadOpenDateKeys(): Promise<string[]> {
   const snap = await db()
     .collection(BLIND_MEETING_COLLECTIONS.applications)
     .where("open", "==", true)
     .get();
-  const slots = new Set<string>();
+  const dates = new Set<string>();
   for (const doc of snap.docs) {
-    for (const slotId of asStrArray(doc.data()?.requestedSlotIds)) {
-      if (isValidSlotId(slotId)) slots.add(slotId);
+    const raw = doc.data();
+    for (const dateKey of readDateKeys(
+      raw?.requestedDateKeys,
+      raw?.requestedSlotIds
+    )) {
+      dates.add(dateKey);
     }
   }
-  return [...slots].sort();
+  return [...dates].sort();
 }
 
 // -----------------------------------------------------------------------------
@@ -416,7 +461,16 @@ export async function buildPublicProfile(
 export type MeetingDoc = {
   meetingId: string;
   status: BlindMeetingStatus;
+
+  /** 단체 채팅방 약속잡기로 확정된 최종 시간. 확정 전에는 빈 문자열. */
   slotId: string;
+
+  /** 매칭 기준 날짜 (KST `yyyy-MM-dd`) */
+  matchedDateKey: string;
+
+  /** 여섯 명이 공통으로 가능한 날짜 (약속잡기 후보) */
+  commonAvailableDateKeys: string[];
+
   isAlcoholFree: boolean;
   teamAUserIds: string[];
   teamBUserIds: string[];
@@ -449,6 +503,13 @@ export function readMeetingDoc(
     meetingId,
     status: toServerStatus(raw.status),
     slotId: asStr(raw.slotId, ""),
+    // legacy 미팅 문서는 매칭 날짜를 slotId 안에만 갖고 있다.
+    matchedDateKey:
+      readDateKeys([raw.matchedDateKey], [raw.slotId])[0] ?? "",
+    commonAvailableDateKeys: readDateKeys(
+      raw.commonAvailableDateKeys,
+      raw.candidateSlotIds
+    ),
     isAlcoholFree: raw.isAlcoholFree === true,
     teamAUserIds: asStrArray(raw.teamAUserIds),
     teamBUserIds: asStrArray(raw.teamBUserIds),

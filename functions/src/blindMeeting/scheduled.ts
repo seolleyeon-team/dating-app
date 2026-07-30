@@ -19,9 +19,10 @@ import * as logger from "firebase-functions/logger";
 import { notifyBlindMeeting } from "./notifications";
 import {
   applyChatLifecycle,
+  finalizeExpiredScheduleVotes,
   handleVacancy,
   openFollowUp,
-  runMatchingForAllSlots,
+  runMatchingForAllDates,
   settleCancellation,
 } from "./orchestrator";
 import {
@@ -60,12 +61,25 @@ async function loadMeetingsByStatuses(
   return result;
 }
 
-/** 10분마다 대기 중인 슬롯에 대해 팀 구성을 재시도한다. */
+/** 10분마다 대기 중인 날짜에 대해 팀 구성을 재시도한다. */
 async function runBlindMeetingMatchingStep(): Promise<void> {
-    const created = await runMatchingForAllSlots();
+    const created = await runMatchingForAllDates();
     logger.info("blindMeeting scheduled matching", {
       createdMeetings: created.length,
     });
+}
+
+/**
+ * 약속잡기 기한이 지난 미팅을 확정한다.
+ *
+ * 이 단계가 lifecycle의 나머지 단계보다 먼저 돌아야 한다.
+ * scheduledStartAt이 없으면 이후 단계가 모두 건너뛰어지기 때문이다.
+ */
+async function finalizeBlindMeetingScheduleVotesStep(): Promise<void> {
+  const finalized = await finalizeExpiredScheduleVotes();
+  if (finalized > 0) {
+    logger.info("blindMeeting schedule auto-confirmed", { finalized });
+  }
 }
 
 /** 15분마다 참석 재확인 알림과 미응답 위험 처리를 수행한다. */
@@ -306,12 +320,14 @@ export const blindMeetingMatchingTick = onSchedule(
 /**
  * 5분마다 미팅 lifecycle을 진행한다.
  *
- * 참석 재확인 → 도착 도장 안내 → 노쇼 확정 → 종료 도장 안내
- * → 후속 선택 개방(종료 15분 후) → 마감 전 리마인더 → 채팅 lifecycle
+ * 약속잡기 기한 확정 → 참석 재확인 → 도착 도장 안내 → 노쇼 확정
+ * → 종료 도장 안내 → 후속 선택 개방(종료 15분 후) → 마감 전 리마인더
+ * → 채팅 lifecycle
  */
 export const blindMeetingLifecycleTick = onSchedule(
   { schedule: "every 5 minutes", ...BLIND_MEETING_SCHEDULE_OPTIONS },
   async () => {
+    await runStep("scheduleVotes", finalizeBlindMeetingScheduleVotesStep);
     await runStep("attendance", dispatchBlindMeetingAttendanceChecksStep);
     await runStep("checkin", dispatchBlindMeetingCheckinRemindersStep);
     await runStep("noShow", finalizeBlindMeetingNoShowsStep);

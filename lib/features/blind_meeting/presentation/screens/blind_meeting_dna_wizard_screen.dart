@@ -232,7 +232,7 @@ class _BlindMeetingDnaWizardScreenState
             const SizedBox(height: 12),
             Text(
               '음주·흡연 정보가 없으면 조건 필터를 적용할 수 없어요. 프로필에서 먼저 보완해주세요.',
-              style: BlindMeetingText.caption(palette.mutedRose),
+              style: BlindMeetingText.caption(palette.attention),
             ),
             const SizedBox(height: 10),
             BlindMeetingSecondaryButton(

@@ -80,9 +80,9 @@ class _BlindMeetingRecommendationBannerState
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
         decoration: BoxDecoration(
-          color: palette.plum.withValues(alpha: 0.10),
+          color: palette.accent.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: palette.plum.withValues(alpha: 0.22)),
+          border: Border.all(color: palette.accent.withValues(alpha: 0.22)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -92,7 +92,7 @@ class _BlindMeetingRecommendationBannerState
                   ? Icons.local_cafe_outlined
                   : Icons.favorite_border,
               size: 18,
-              color: palette.plum,
+              color: palette.accent,
             ),
             const SizedBox(width: 10),
             Expanded(

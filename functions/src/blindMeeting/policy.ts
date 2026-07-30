@@ -55,6 +55,22 @@ export type BlindMeetingPolicy = {
   replacementOfferExpiryMs: number;
   /** 최근에 만난 사용자 재매칭 제외 기간 */
   recentlyMetLookbackMs: number;
+  /** 단체 채팅방 약속잡기 투표 제한 시간 (지나면 서버가 자동 확정한다) */
+  scheduleVoteWindowMs: number;
+  /**
+   * 신청 즉시 인라인으로 매칭을 시도할 최대 날짜 수.
+   *
+   * 나머지 날짜는 10분 주기 스케줄러가 처리한다. callable 타임아웃과
+   * cold start 비용을 제한하기 위한 값이다.
+   */
+  inlineMatchingDateLimit: number;
+  /**
+   * legacy 슬롯 필드(`requestedSlotIds`) 호환 조회 사용 여부.
+   *
+   * 날짜 전용 backfill이 끝나면 0으로 내려 읽기 비용을 절반으로 줄인다.
+   * (숫자 정책이라 config 문서로 override 가능: 0 = 비활성)
+   */
+  legacySlotCompatEnabled: number;
 };
 
 /**
@@ -87,6 +103,9 @@ export const DEFAULT_POLICY: BlindMeetingPolicy = {
   replacementOfferWaveSize: 3,
   replacementOfferExpiryMs: 30 * MINUTE,
   recentlyMetLookbackMs: 60 * DAY,
+  scheduleVoteWindowMs: 24 * HOUR,
+  inlineMatchingDateLimit: 3,
+  legacySlotCompatEnabled: 1,
 };
 
 /** 운영 설정 문서로 정책 일부를 덮어쓴다. */
@@ -108,7 +127,14 @@ export function policyFromConfigDoc(
 
 export function resolveCancellation(params: {
   policy: BlindMeetingPolicy;
-  untilMeetingMs: number;
+  /**
+   * 미팅 시작까지 남은 시간.
+   *
+   * null이면 약속잡기가 끝나지 않아 시작 시각이 아직 없다는 뜻이다.
+   * 날짜 전용 정책에서는 보증금을 낸 뒤에도 시간이 미확정인 구간이 존재하므로
+   * 이 구간의 취소는 항상 전액 환급이어야 한다. (0으로 취급하면 안 된다)
+   */
+  untilMeetingMs: number | null;
   replacementFound: boolean;
   isNoShowWithoutContact?: boolean;
   emergencyReviewRequested?: boolean;
@@ -130,6 +156,17 @@ export function resolveCancellation(params: {
       refundBasisPoints: 0,
       triggersWaitlistFill: false,
       appliesRestriction: true,
+    };
+  }
+
+  // 시간이 아직 확정되지 않은 구간의 취소는 전액 환급.
+  // 사용자가 알 수 없는 일정을 근거로 위약금을 물릴 수 없다.
+  if (untilMeetingMs == null) {
+    return {
+      outcome: "full_refund",
+      refundBasisPoints: 10000,
+      triggersWaitlistFill: true,
+      appliesRestriction: false,
     };
   }
 

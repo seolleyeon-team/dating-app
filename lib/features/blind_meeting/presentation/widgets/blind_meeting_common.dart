@@ -1,6 +1,9 @@
 // =============================================================================
 // 3:3 블라인드 취향 미팅 — 공통 위젯
 // 경로: lib/features/blind_meeting/presentation/widgets/blind_meeting_common.dart
+//
+// 카드 / CTA / pill 스타일은 이벤트 탭(3:3 시즌 미팅)에서 쓰는 값과 동일하게
+// 맞춘다. 형태 값은 blind_meeting_palette.dart의 kEvent* 상수를 쓴다.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -56,12 +59,18 @@ class BlindMeetingAppBar extends StatelessWidget {
   }
 }
 
-/// 부드러운 카드.
+/// 부드러운 카드 — 시즌 미팅 카드와 같은 radius / 핑크 기운 섀도를 쓴다.
 class BlindMeetingCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final Color? background;
   final bool highlighted;
+
+  /// 카드 radius. 히어로급 카드는 [kEventHeroRadius]를 넘긴다.
+  final double radius;
+
+  /// 외곽선 표시 여부. 시즌 미팅 히어로 카드는 선 없이 섀도만 쓴다.
+  final bool bordered;
 
   const BlindMeetingCard({
     super.key,
@@ -69,6 +78,8 @@ class BlindMeetingCard extends StatelessWidget {
     this.padding = const EdgeInsets.all(20),
     this.background,
     this.highlighted = false,
+    this.radius = kEventCardRadius,
+    this.bordered = true,
   });
 
   @override
@@ -78,17 +89,19 @@ class BlindMeetingCard extends StatelessWidget {
       padding: padding,
       decoration: BoxDecoration(
         color: background ?? palette.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: highlighted
-              ? palette.plum.withValues(alpha: 0.35)
-              : palette.border,
-        ),
+        borderRadius: BorderRadius.circular(radius),
+        border: bordered || highlighted
+            ? Border.all(
+                color: highlighted
+                    ? palette.accent.withValues(alpha: 0.35)
+                    : palette.border.withValues(alpha: 0.6),
+              )
+            : null,
         boxShadow: [
           BoxShadow(
             color: palette.overlay,
-            blurRadius: 18,
-            offset: const Offset(0, 6),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -97,7 +110,7 @@ class BlindMeetingCard extends StatelessWidget {
   }
 }
 
-/// 기본 CTA 버튼.
+/// 기본 CTA 버튼 — 시즌 미팅 '팀 만들고 시작하기' 버튼과 같은 시스템.
 class BlindMeetingPrimaryButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
@@ -120,43 +133,68 @@ class BlindMeetingPrimaryButton extends StatelessWidget {
       button: true,
       enabled: enabled,
       label: label,
-      child: SizedBox(
-        width: double.infinity,
-        height: 54,
-        child: FilledButton(
-          onPressed: enabled ? onPressed : null,
-          style: FilledButton.styleFrom(
-            backgroundColor: palette.plum,
-            disabledBackgroundColor: palette.plum.withValues(alpha: 0.35),
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            textStyle: const TextStyle(
-              fontFamily: BlindMeetingText.fontFamily,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          child: loading
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(kEventCtaHeight / 2),
+          boxShadow: enabled
+              ? [
+                  BoxShadow(
+                    color: palette.accent.withValues(alpha: 0.35),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
                   ),
-                )
-              : Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (icon != null) ...[
-                      Icon(icon, size: 18),
-                      const SizedBox(width: 8),
+                ]
+              : const [],
+        ),
+        child: SizedBox(
+          width: double.infinity,
+          height: kEventCtaHeight,
+          child: FilledButton(
+            onPressed: enabled ? onPressed : null,
+            style: FilledButton.styleFrom(
+              backgroundColor: palette.accent,
+              foregroundColor: Colors.white,
+              // 비활성: 핑크 톤은 유지하되 라벨을 흰색으로 두면 읽히지 않는다.
+              // 연한 로즈 배경 위에서 대비가 나오는 짙은 로즈를 쓴다.
+              disabledBackgroundColor: palette.accent.withValues(alpha: 0.28),
+              disabledForegroundColor: palette.attention,
+              elevation: 0,
+              shadowColor: Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(kEventCtaHeight / 2),
+              ),
+              textStyle: const TextStyle(
+                fontFamily: BlindMeetingText.fontFamily,
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            child: loading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (icon != null) ...[
+                        Icon(icon, size: 20),
+                        const SizedBox(width: 8),
+                      ],
+                      Flexible(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ],
-                    Text(label),
-                  ],
-                ),
+                  ),
+          ),
         ),
       ),
     );
@@ -183,15 +221,16 @@ class BlindMeetingSecondaryButton extends StatelessWidget {
       child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
-          foregroundColor: palette.ink,
-          side: BorderSide(color: palette.border),
+          foregroundColor: palette.accent,
+          backgroundColor: palette.surface,
+          side: BorderSide(color: palette.accent.withValues(alpha: 0.35)),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(26),
           ),
           textStyle: const TextStyle(
             fontFamily: BlindMeetingText.fontFamily,
             fontSize: 15,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w700,
           ),
         ),
         child: Text(label),
@@ -230,20 +269,20 @@ class BlindMeetingOptionTile extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.only(bottom: 10),
         child: Material(
-          color: selected
-              ? palette.plum.withValues(alpha: 0.08)
-              : palette.surface,
-          borderRadius: BorderRadius.circular(16),
+          color: selected ? palette.surfaceMuted : palette.surface,
+          borderRadius: BorderRadius.circular(kEventCardRadius),
           child: InkWell(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(kEventCardRadius),
             onTap: enabled ? onTap : null,
             child: Container(
               constraints: const BoxConstraints(minHeight: 56),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(kEventCardRadius),
                 border: Border.all(
-                  color: selected ? palette.plum : palette.border,
+                  color: selected
+                      ? palette.accent
+                      : palette.border.withValues(alpha: 0.6),
                   width: selected ? 1.6 : 1,
                 ),
               ),
@@ -258,7 +297,7 @@ class BlindMeetingOptionTile extends StatelessWidget {
                           const SizedBox(height: 4),
                           Text(
                             description!,
-                            style: BlindMeetingText.caption(palette.inkSoft),
+                            style: BlindMeetingText.caption(palette.inkFaint),
                           ),
                         ],
                       ],
@@ -270,7 +309,7 @@ class BlindMeetingOptionTile extends StatelessWidget {
                         ? Icons.radio_button_checked
                         : Icons.radio_button_unchecked,
                     size: 20,
-                    color: selected ? palette.plum : palette.inkFaint,
+                    color: selected ? palette.accent : palette.inkFaint,
                   ),
                 ],
               ),
@@ -305,7 +344,7 @@ class BlindMeetingStepProgress extends StatelessWidget {
         children: [
           Text(
             '$step/$totalSteps',
-            style: BlindMeetingText.label(palette.plum),
+            style: BlindMeetingText.label(palette.accent),
           ),
           const SizedBox(height: 8),
           ClipRRect(
@@ -314,7 +353,7 @@ class BlindMeetingStepProgress extends StatelessWidget {
               value: ratio,
               minHeight: 4,
               backgroundColor: palette.surfaceMuted,
-              valueColor: AlwaysStoppedAnimation<Color>(palette.plum),
+              valueColor: AlwaysStoppedAnimation<Color>(palette.accent),
             ),
           ),
         ],
@@ -323,7 +362,7 @@ class BlindMeetingStepProgress extends StatelessWidget {
   }
 }
 
-/// 정보/안내 배지.
+/// 정보/안내 pill — 시즌 미팅 'SAFE MATCHING' 배지와 같은 계열.
 class BlindMeetingBadge extends StatelessWidget {
   final String label;
   final IconData? icon;
@@ -339,21 +378,22 @@ class BlindMeetingBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = BlindMeetingPalette.of(context);
-    final tint = color ?? palette.sage;
+    final tint = color ?? palette.accent;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: tint.withValues(alpha: 0.12),
+        color: tint.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: tint.withValues(alpha: 0.12)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 12, color: tint),
+            Icon(icon, size: 14, color: tint),
             const SizedBox(width: 4),
           ],
-          Text(label, style: BlindMeetingText.caption(tint)),
+          Text(label, style: BlindMeetingText.label(tint)),
         ],
       ),
     );
@@ -413,6 +453,24 @@ class BlindMeetingEmptyState extends StatelessWidget {
           const SizedBox(height: 8),
           Text(description, style: BlindMeetingText.body(palette.inkSoft)),
         ],
+      ),
+    );
+  }
+}
+
+/// 시즌 미팅 하단 구분선과 같은 그라데이션 hairline.
+class BlindMeetingSectionDivider extends StatelessWidget {
+  const BlindMeetingSectionDivider({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = BlindMeetingPalette.of(context);
+    return Container(
+      height: 1,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.transparent, palette.border, Colors.transparent],
+        ),
       ),
     );
   }

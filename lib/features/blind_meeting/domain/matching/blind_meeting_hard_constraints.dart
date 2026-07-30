@@ -6,6 +6,7 @@
 // 자동으로 완화되지 않는다. 조건 완화는 사용자가 직접 선택해야 한다.
 // =============================================================================
 
+import '../blind_meeting_availability.dart';
 import '../blind_meeting_enums.dart';
 import 'blind_meeting_scoring.dart';
 import 'blind_meeting_candidate.dart';
@@ -18,8 +19,11 @@ enum BlindMeetingConstraintViolation {
   /// 정지·탈퇴·제재·반복 노쇼 제한 상태
   notEligible,
 
-  /// 해당 날짜/시간에 참여 불가
-  slotUnavailable,
+  /// 해당 날짜에 참여 불가
+  dateUnavailable,
+
+  /// 여섯 명이 공통으로 가능한 날짜가 없음 (최종 구성 확정 단계에서만 판정)
+  noCommonDate,
 
   /// 서로 차단했거나 안전 정책상 접촉 제한
   blockedContact,
@@ -63,7 +67,7 @@ class BlindMeetingHardConstraints {
   /// 개인 단위 조건.
   static Set<BlindMeetingConstraintViolation> checkCandidate(
     BlindMeetingCandidate candidate, {
-    required String slotId,
+    required String dateKey,
     required bool alcoholFreeGroup,
   }) {
     final violations = <BlindMeetingConstraintViolation>{};
@@ -73,8 +77,8 @@ class BlindMeetingHardConstraints {
     if (!candidate.eligible) {
       violations.add(BlindMeetingConstraintViolation.notEligible);
     }
-    if (!candidate.availableSlotIds.contains(slotId)) {
-      violations.add(BlindMeetingConstraintViolation.slotUnavailable);
+    if (!candidate.availableDateKeys.contains(dateKey)) {
+      violations.add(BlindMeetingConstraintViolation.dateUnavailable);
     }
     if (candidate.requiresAlcoholFreeGroup && !alcoholFreeGroup) {
       violations.add(BlindMeetingConstraintViolation.alcoholFreeGroupRequired);
@@ -120,7 +124,7 @@ class BlindMeetingHardConstraints {
   /// 팀 또는 그룹 전체 조건.
   static Set<BlindMeetingConstraintViolation> checkGroup(
     List<BlindMeetingCandidate> members, {
-    required String slotId,
+    required String dateKey,
     required bool alcoholFreeGroup,
     int? expectedSize,
   }) {
@@ -136,7 +140,7 @@ class BlindMeetingHardConstraints {
       violations.addAll(
         checkCandidate(
           member,
-          slotId: slotId,
+          dateKey: dateKey,
           alcoholFreeGroup: alcoholFreeGroup,
         ),
       );
@@ -146,22 +150,37 @@ class BlindMeetingHardConstraints {
         violations.addAll(checkPair(members[i], members[j]));
       }
     }
+    // 공통 가능 날짜 검사는 의도적으로 여기서 하지 않는다.
+    // 전원이 [dateKey]를 갖고 있어야 통과하므로 교집합은 항상 dateKey를 포함한다.
+    // 즉 여기서 교집합을 계산해도 판정이 달라지지 않으면서,
+    // 모든 3인 조합과 팀 쌍마다 반복 실행되는 비용만 생긴다.
+    // 최종 6인 구성에 대한 검사는 미팅 생성 시점([commonDateKeys] 호출부)에서 한다.
     return violations;
   }
 
   /// 그룹이 조건을 모두 만족하는지.
   static bool isGroupAllowed(
     List<BlindMeetingCandidate> members, {
-    required String slotId,
+    required String dateKey,
     required bool alcoholFreeGroup,
     int? expectedSize,
   }) {
     return checkGroup(
       members,
-      slotId: slotId,
+      dateKey: dateKey,
       alcoholFreeGroup: alcoholFreeGroup,
       expectedSize: expectedSize,
     ).isEmpty;
+  }
+
+  /// 구성원 전원이 공통으로 가능한 날짜 (오름차순).
+  ///
+  /// 이 목록이 비어 있으면 같은 미팅으로 확정하지 않는다. 확정된 미팅에서는
+  /// 단체 채팅방 약속잡기의 날짜 후보로 그대로 쓰인다.
+  static List<String> commonDateKeys(Iterable<BlindMeetingCandidate> members) {
+    return BlindMeetingAvailability.commonDateKeys(
+      members.map((m) => m.availableDateKeys),
+    );
   }
 
   /// 무알코올 전용 후보군으로 분리한다.

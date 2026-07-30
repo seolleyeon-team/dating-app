@@ -202,11 +202,11 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
                             alignment: Alignment.center,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: palette.plum.withValues(alpha: 0.12),
+                              color: palette.accent.withValues(alpha: 0.12),
                             ),
                             child: Text(
                               entry[0],
-                              style: BlindMeetingText.caption(palette.plum),
+                              style: BlindMeetingText.caption(palette.accent),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -269,7 +269,7 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
                         padding: const EdgeInsets.only(bottom: 4),
                         child: Text(
                           '· $reason',
-                          style: BlindMeetingText.caption(palette.mutedRose),
+                          style: BlindMeetingText.caption(palette.attention),
                         ),
                       ),
                   ],

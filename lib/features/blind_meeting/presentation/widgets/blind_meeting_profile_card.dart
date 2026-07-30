@@ -28,10 +28,10 @@ class BlindMeetingSilhouetteAvatar extends StatelessWidget {
   /// seed에서 결정적으로 색을 고른다 (같은 사용자는 항상 같은 색).
   static Color tintFor(String seed, BlindMeetingPalette palette) {
     final options = [
-      palette.plum,
-      palette.indigo,
-      palette.mutedRose,
-      palette.sage,
+      palette.accent,
+      palette.accentDeep,
+      palette.attention,
+      palette.positive,
     ];
     if (seed.isEmpty) return options.first;
     var hash = 0;
@@ -104,14 +104,14 @@ class BlindMeetingProfileCard extends StatelessWidget {
                             child: Text(
                               profile.nickname,
                               overflow: TextOverflow.ellipsis,
-                              style: BlindMeetingText.sectionTitle(palette.ink),
+                              style: BlindMeetingText.cardTitle(palette.ink),
                             ),
                           ),
                           if (isMe) ...[
                             const SizedBox(width: 6),
                             Text(
                               '(나)',
-                              style: BlindMeetingText.caption(palette.plum),
+                              style: BlindMeetingText.caption(palette.accent),
                             ),
                           ],
                         ],
@@ -138,13 +138,13 @@ class BlindMeetingProfileCard extends StatelessWidget {
                   BlindMeetingBadge(
                     label: '학교 인증',
                     icon: Icons.verified_outlined,
-                    color: palette.sage,
+                    color: palette.positive,
                   ),
                 if (safetyBadge != null)
                   BlindMeetingBadge(
                     label: safetyBadge,
                     icon: Icons.shield_outlined,
-                    color: palette.indigo,
+                    color: palette.accent,
                   ),
               ],
             ),

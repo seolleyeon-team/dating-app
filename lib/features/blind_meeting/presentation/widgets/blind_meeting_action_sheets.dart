@@ -8,6 +8,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../domain/blind_meeting_availability.dart';
 import '../../domain/blind_meeting_slot.dart';
 import '../theme/blind_meeting_palette.dart';
 import 'blind_meeting_common.dart';
@@ -25,10 +26,13 @@ class BlindMeetingScheduleVote {
 
 /// 약속잡기 투표 시트.
 ///
-/// 후보 시간은 내 DNA에 저장된 가능한 시간과 현재 배정된 시간을 합쳐 보여준다.
+/// 날짜 후보는 참가 신청 단계에서 여섯 명이 공통으로 선택한 날짜
+/// (`session.commonAvailableDateKeys`)만 쓴다. 구체적인 시간은 여기서 정한다.
+///
+/// 흐름: 날짜 하나 선택 → 그 날짜의 가능한 시간대 선택 → 장소 선택 → 투표.
 Future<BlindMeetingScheduleVote?> showBlindMeetingScheduleVoteSheet(
   BuildContext context, {
-  required List<BlindMeetingSlot> candidateSlots,
+  required List<String> candidateDateKeys,
   required List<BlindMeetingVenueOption> venueOptions,
   List<String> initialSlotIds = const <String>[],
   String? initialPlaceId,
@@ -38,7 +42,9 @@ Future<BlindMeetingScheduleVote?> showBlindMeetingScheduleVoteSheet(
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (sheetContext) => _ScheduleVoteSheet(
-      candidateSlots: candidateSlots,
+      candidateDateKeys: BlindMeetingAvailability.normalizeDateKeys(
+        candidateDateKeys,
+      ),
       venueOptions: venueOptions,
       initialSlotIds: initialSlotIds,
       initialPlaceId: initialPlaceId,
@@ -62,13 +68,13 @@ class BlindMeetingVenueOption {
 }
 
 class _ScheduleVoteSheet extends StatefulWidget {
-  final List<BlindMeetingSlot> candidateSlots;
+  final List<String> candidateDateKeys;
   final List<BlindMeetingVenueOption> venueOptions;
   final List<String> initialSlotIds;
   final String? initialPlaceId;
 
   const _ScheduleVoteSheet({
-    required this.candidateSlots,
+    required this.candidateDateKeys,
     required this.venueOptions,
     required this.initialSlotIds,
     this.initialPlaceId,
@@ -79,13 +85,49 @@ class _ScheduleVoteSheet extends StatefulWidget {
 }
 
 class _ScheduleVoteSheetState extends State<_ScheduleVoteSheet> {
-  late final Set<String> _slotIds = {...widget.initialSlotIds};
+  /// 선택한 날짜. 날짜를 먼저 정하고 그 날짜의 시간대를 고른다.
+  String? _dateKey;
+
+  /// 선택한 시간대 (선택한 날짜 기준).
+  final Set<BlindMeetingTimeBlock> _timeBlocks = <BlindMeetingTimeBlock>{};
+
   String? _placeId;
 
   @override
   void initState() {
     super.initState();
     _placeId = widget.initialPlaceId;
+    _restoreInitialSlots();
+  }
+
+  /// 기존 투표를 날짜 + 시간대 형태로 복구한다.
+  void _restoreInitialSlots() {
+    final slots = BlindMeetingSlot.parseList(
+      widget.initialSlotIds,
+    ).where((slot) => widget.candidateDateKeys.contains(slot.dateKey));
+    if (slots.isEmpty) {
+      _dateKey = widget.candidateDateKeys.length == 1
+          ? widget.candidateDateKeys.first
+          : null;
+      return;
+    }
+    _dateKey = slots.first.dateKey;
+    _timeBlocks.addAll(
+      slots.where((s) => s.dateKey == _dateKey).map((s) => s.timeBlock),
+    );
+  }
+
+  List<String> get _selectedSlotIds {
+    final dateKey = _dateKey;
+    if (dateKey == null || _timeBlocks.isEmpty) return const <String>[];
+    final blocks = _timeBlocks.toList()
+      ..sort((a, b) => a.index.compareTo(b.index));
+    return blocks
+        .map(
+          (block) =>
+              BlindMeetingSlot(dateKey: dateKey, timeBlock: block).slotId,
+        )
+        .toList();
   }
 
   @override
@@ -108,32 +150,63 @@ class _ScheduleVoteSheetState extends State<_ScheduleVoteSheet> {
               Text('약속잡기', style: BlindMeetingText.title(palette.ink)),
               const SizedBox(height: 6),
               Text(
-                '가능한 시간과 장소를 선택해주세요. 여섯 명의 투표를 모아 확정해요.',
+                '여섯 명이 모두 가능한 날짜예요. 날짜와 시간을 골라주세요.\n'
+                '투표를 모아 최종 시간과 장소를 확정해요.',
                 style: BlindMeetingText.caption(palette.inkSoft),
               ),
               const SizedBox(height: 18),
-              Text('후보 시간', style: BlindMeetingText.sectionTitle(palette.ink)),
+              Text('후보 날짜', style: BlindMeetingText.sectionTitle(palette.ink)),
               const SizedBox(height: 10),
-              if (widget.candidateSlots.isEmpty)
+              if (widget.candidateDateKeys.isEmpty)
                 Text(
-                  '선택할 수 있는 시간이 없어요.',
+                  '선택할 수 있는 날짜가 없어요.',
                   style: BlindMeetingText.caption(palette.inkFaint),
                 )
               else
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
-                  children: widget.candidateSlots.map((slot) {
-                    final selected = _slotIds.contains(slot.slotId);
+                  children: widget.candidateDateKeys.map((dateKey) {
+                    final selected = _dateKey == dateKey;
                     return _chip(
                       palette,
-                      label: slot.label,
+                      label: BlindMeetingAvailability.shortLabel(dateKey),
                       selected: selected,
                       onTap: () => setState(() {
                         if (selected) {
-                          _slotIds.remove(slot.slotId);
+                          _dateKey = null;
                         } else {
-                          _slotIds.add(slot.slotId);
+                          _dateKey = dateKey;
+                        }
+                        // 날짜가 바뀌면 시간 선택을 초기화한다.
+                        _timeBlocks.clear();
+                      }),
+                    );
+                  }).toList(),
+                ),
+              const SizedBox(height: 20),
+              Text('후보 시간', style: BlindMeetingText.sectionTitle(palette.ink)),
+              const SizedBox(height: 10),
+              if (_dateKey == null)
+                Text(
+                  '날짜를 먼저 선택하면 시간을 고를 수 있어요.',
+                  style: BlindMeetingText.caption(palette.inkFaint),
+                )
+              else
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: BlindMeetingTimeBlock.values.map((block) {
+                    final selected = _timeBlocks.contains(block);
+                    return _chip(
+                      palette,
+                      label: block.label,
+                      selected: selected,
+                      onTap: () => setState(() {
+                        if (selected) {
+                          _timeBlocks.remove(block);
+                        } else {
+                          _timeBlocks.add(block);
                         }
                       }),
                     );
@@ -168,11 +241,11 @@ class _ScheduleVoteSheetState extends State<_ScheduleVoteSheet> {
               const SizedBox(height: 24),
               BlindMeetingPrimaryButton(
                 label: '투표하기',
-                onPressed: _slotIds.isEmpty
+                onPressed: _selectedSlotIds.isEmpty
                     ? null
                     : () => Navigator.of(context).pop(
                         BlindMeetingScheduleVote(
-                          preferredSlotIds: _slotIds.toList(),
+                          preferredSlotIds: _selectedSlotIds,
                           preferredPlaceId: _placeId,
                         ),
                       ),
@@ -203,17 +276,17 @@ class _ScheduleVoteSheetState extends State<_ScheduleVoteSheet> {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             color: selected
-                ? palette.plum.withValues(alpha: 0.12)
+                ? palette.accent.withValues(alpha: 0.12)
                 : palette.surfaceMuted,
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
-              color: selected ? palette.plum : Colors.transparent,
+              color: selected ? palette.accent : Colors.transparent,
             ),
           ),
           child: Text(
             label,
             style: BlindMeetingText.caption(
-              selected ? palette.plum : palette.inkSoft,
+              selected ? palette.accent : palette.inkSoft,
             ),
           ),
         ),
@@ -250,7 +323,7 @@ Future<bool> confirmBlindMeetingSafetyStamp(
           child: Text('나중에', style: BlindMeetingText.body(palette.inkSoft)),
         ),
         FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: palette.plum),
+          style: FilledButton.styleFrom(backgroundColor: palette.accent),
           onPressed: () => Navigator.of(dialogContext).pop(true),
           child: const Text('안전도장 찍기'),
         ),
@@ -258,4 +331,159 @@ Future<bool> confirmBlindMeetingSafetyStamp(
     ),
   );
   return result == true;
+}
+
+// =============================================================================
+// 조건 완화 — 가능한 날짜 추가
+// =============================================================================
+
+/// 매칭 대기 중 '다른 날짜도 가능해요'를 고른 사용자가 날짜를 추가하는 시트.
+///
+/// 서버는 빈 목록을 거부하므로 이 시트 없이 완화를 요청하면 항상 실패한다.
+Future<List<String>?> showBlindMeetingExtraDatesSheet(
+  BuildContext context, {
+  required Set<String> alreadySelected,
+  DateTime? now,
+}) {
+  return showModalBottomSheet<List<String>>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => _ExtraDatesSheet(
+      alreadySelected: alreadySelected,
+      now: now ?? DateTime.now(),
+    ),
+  );
+}
+
+class _ExtraDatesSheet extends StatefulWidget {
+  final Set<String> alreadySelected;
+  final DateTime now;
+
+  const _ExtraDatesSheet({required this.alreadySelected, required this.now});
+
+  @override
+  State<_ExtraDatesSheet> createState() => _ExtraDatesSheetState();
+}
+
+class _ExtraDatesSheetState extends State<_ExtraDatesSheet> {
+  final Set<String> _picked = <String>{};
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = BlindMeetingPalette.of(context);
+    // 이미 신청한 날짜는 추가 대상이 아니다.
+    final options = BlindMeetingAvailability.selectableDateKeys(
+      widget.now,
+    ).where((key) => !widget.alreadySelected.contains(key)).toList();
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        decoration: BoxDecoration(
+          color: palette.background,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('가능한 날짜 추가', style: BlindMeetingText.title(palette.ink)),
+              const SizedBox(height: 6),
+              Text(
+                '날짜를 더 열어두면 팀이 더 빨리 만들어져요.\n'
+                '이미 신청한 날짜는 그대로 유지돼요.',
+                style: BlindMeetingText.caption(palette.inkSoft),
+              ),
+              const SizedBox(height: 18),
+              if (options.isEmpty)
+                Text(
+                  '추가할 수 있는 날짜가 없어요. 선택 가능한 기간의 모든 날짜를 이미 신청했어요.',
+                  style: BlindMeetingText.caption(palette.inkFaint),
+                )
+              else
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: options.map((key) {
+                    final selected = _picked.contains(key);
+                    return _PillChip(
+                      label: BlindMeetingAvailability.shortLabel(key),
+                      selected: selected,
+                      onTap: () => setState(() {
+                        if (selected) {
+                          _picked.remove(key);
+                        } else {
+                          _picked.add(key);
+                        }
+                      }),
+                    );
+                  }).toList(),
+                ),
+              const SizedBox(height: 20),
+              BlindMeetingPrimaryButton(
+                label: _picked.isEmpty
+                    ? '추가할 날짜를 선택해주세요'
+                    : '${_picked.length}개 날짜 추가하기',
+                onPressed: _picked.isEmpty
+                    ? null
+                    : () => Navigator.of(context).pop(
+                        BlindMeetingAvailability.normalizeDateKeys(_picked),
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 시트 안에서 쓰는 pill 형태 선택 chip.
+class _PillChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _PillChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = BlindMeetingPalette.of(context);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 40),
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected
+                ? palette.accent.withValues(alpha: 0.12)
+                : palette.surfaceMuted,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: selected ? palette.accent : Colors.transparent,
+            ),
+          ),
+          child: Text(
+            label,
+            style: BlindMeetingText.caption(
+              selected ? palette.accent : palette.ink,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

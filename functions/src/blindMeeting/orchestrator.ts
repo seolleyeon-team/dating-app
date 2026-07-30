@@ -51,8 +51,10 @@ import {
   incrementStats,
   loadCandidate,
   loadMeeting,
+  readApplicationDoc,
+  readMeetingDoc,
   loadOpenApplications,
-  loadOpenSlotIds,
+  loadOpenDateKeys,
   loadParticipants,
   loadPolicy,
   loadRecentNoShowCount,
@@ -67,14 +69,23 @@ import {
   updateParticipant,
 } from "./store";
 import {
+  BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
   BLIND_MEETING_COLLECTIONS,
+  BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
   BLIND_MEETING_SCHEMA_VERSION,
   BLIND_MEETING_TYPE,
   DEPOSIT_STATUS_TO_APP,
   MEETING_STATUS_TO_APP,
   PARTICIPANT_STATUS_TO_APP,
   asStrArray,
+  commonDateKeys,
+  dateKeyOfSlotId,
+  fallbackSlotIdFor,
+  isDateKeyWithinWindow,
+  isValidDateKey,
   isValidSlotId,
+  normalizeDateKeys,
+  readDateKeys,
   slotStartAt,
 } from "./types";
 
@@ -101,16 +112,19 @@ async function buildCandidatePool(
 }
 
 /**
- * 한 슬롯에 대해 매칭을 시도한다.
+ * 한 날짜에 대해 매칭을 시도한다.
+ *
+ * 세부 시간은 매칭 조건이 아니다. 여섯 명이 그 날짜에 모두 가능하고
+ * 공통 가능 날짜가 최소 1개인 구성만 확정한다.
  *
  * 무알코올 후보군과 일반 후보군을 분리해서 각각 구성하고,
  * 후보가 부족하면 음주 사용자로 자동 대체하지 않는다.
  */
-export async function runMatchingForSlot(slotId: string): Promise<string[]> {
-  if (!isValidSlotId(slotId)) return [];
+export async function runMatchingForDate(dateKey: string): Promise<string[]> {
+  if (!isValidDateKey(dateKey)) return [];
 
   const policy = await loadPolicy();
-  const applications = await loadOpenApplications(slotId);
+  const applications = await loadOpenApplications(dateKey);
   if (applications.length < 6) {
     await markStage(applications, "searchingCandidates");
     return [];
@@ -130,24 +144,32 @@ export async function runMatchingForSlot(slotId: string): Promise<string[]> {
     for (let round = 0; round < 5; round++) {
       const proposal = bestGroup(
         remaining,
-        slotId,
+        dateKey,
         alcoholFree,
         CURRENT_MATCHING_CONFIG
       );
       if (proposal == null) break;
 
-      const meetingId = await createMeetingFromProposal(proposal);
-      if (meetingId == null) break;
-      createdMeetingIds.push(meetingId);
-
       const used = new Set(proposal.key.split("|"));
+      const meetingId = await createMeetingFromProposal(proposal);
+      if (meetingId != null) {
+        createdMeetingIds.push(meetingId);
+      } else {
+        // transaction 실패(이미 배정된 사용자가 pool에 남아 있는 경우 등)는
+        // 해당 날짜의 매칭 전체를 중단시키면 안 된다. 그 구성만 버리고
+        // 참여자를 pool에서 빼고 계속 시도한다.
+        logger.info("blindMeeting proposal claim failed, retrying", {
+          participants: used.size,
+        });
+      }
+
       remaining = remaining.filter((c) => !used.has(c.userId));
       if (remaining.length < 6) break;
     }
   }
 
   // 아직 매칭되지 않은 신청자의 단계를 갱신한다.
-  const stillOpen = await loadOpenApplications(slotId);
+  const stillOpen = await loadOpenApplications(dateKey);
   await markStage(
     stillOpen,
     stillOpen.length >= 6 ? "checkingCrossTeam" : "searchingCandidates"
@@ -167,12 +189,12 @@ async function markStage(
   }
 }
 
-/** 모든 열린 슬롯에 대해 매칭을 시도한다 (스케줄러용) */
-export async function runMatchingForAllSlots(): Promise<string[]> {
-  const slotIds = await loadOpenSlotIds();
+/** 모든 열린 날짜에 대해 매칭을 시도한다 (스케줄러용) */
+export async function runMatchingForAllDates(): Promise<string[]> {
+  const dateKeys = await loadOpenDateKeys();
   const created: string[] = [];
-  for (const slotId of slotIds) {
-    const meetingIds = await runMatchingForSlot(slotId);
+  for (const dateKey of dateKeys) {
+    const meetingIds = await runMatchingForDate(dateKey);
     created.push(...meetingIds);
   }
   return created;
@@ -195,7 +217,14 @@ export async function createMeetingFromProposal(
   const teamAIds = proposal.teamA.map((m) => m.userId);
   const teamBIds = proposal.teamB.map((m) => m.userId);
   const participantIds = [...teamAIds, ...teamBIds];
-  const startAt = slotStartAt(proposal.slotId);
+
+  // 여섯 명이 공통으로 가능한 날짜가 없으면 확정하지 않는다.
+  if (proposal.commonDateKeys.length === 0) {
+    logger.warn("blindMeeting proposal rejected: no common date", {
+      dateKey: proposal.dateKey,
+    });
+    return null;
+  }
 
   const claimed = await db().runTransaction(async (tx) => {
     const refs = participantIds.map((userId) =>
@@ -218,7 +247,12 @@ export async function createMeetingFromProposal(
       algorithmVersion: proposal.algorithmVersion,
       status: MEETING_STATUS_TO_APP.awaiting_acceptance,
       serverStatus: "awaiting_acceptance",
-      slotId: proposal.slotId,
+      // 세부 시간은 단체 채팅방 약속잡기에서 정한다. 확정 전에는 비워둔다.
+      slotId: null,
+      matchedDateKey: proposal.dateKey,
+      commonAvailableDateKeys: proposal.commonDateKeys,
+      availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
+      scheduleSelectionVersion: BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
       isAlcoholFree: proposal.alcoholFree,
       teamAUserIds: teamAIds,
       teamBUserIds: teamBIds,
@@ -226,7 +260,7 @@ export async function createMeetingFromProposal(
       waitlistIds: [],
       groupChatId: null,
       venue: null,
-      scheduledStartAt: startAt ? Timestamp.fromDate(startAt) : null,
+      scheduledStartAt: null,
       fivePersonExceptionApproved: false,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -274,7 +308,8 @@ export async function createMeetingFromProposal(
         .doc("summary"),
       {
         algorithmVersion: proposal.algorithmVersion,
-        slotId: proposal.slotId,
+        matchedDateKey: proposal.dateKey,
+        commonAvailableDateKeys: proposal.commonDateKeys,
         isAlcoholFree: proposal.alcoholFree,
         internalTeamScores: {
           teamA: proposal.score.teamAInternal,
@@ -326,7 +361,7 @@ export async function createMeetingFromProposal(
 
   logger.info("blindMeeting created", {
     meetingId,
-    slotId: proposal.slotId,
+    commonDateCount: proposal.commonDateKeys.length,
     alcoholFree: proposal.alcoholFree,
     algorithmVersion: proposal.algorithmVersion,
   });
@@ -480,6 +515,7 @@ export async function beginDeposit(
 
 async function advanceAfterDeposit(meetingId: string): Promise<void> {
   const meeting = await loadMeeting(meetingId);
+  const policy = await loadPolicy();
   const participants = await loadParticipants(meetingId);
   const seatCount = meeting.participantIds.length;
   const settled = participants.filter(
@@ -521,7 +557,15 @@ async function advanceAfterDeposit(meetingId: string): Promise<void> {
     .collection(BLIND_MEETING_COLLECTIONS.meetings)
     .doc(meetingId)
     .set(
-      { groupChatId: roomId, updatedAt: FieldValue.serverTimestamp() },
+      {
+        groupChatId: roomId,
+        // 약속잡기 기한. 지나면 서버가 제출된 투표(없으면 기준 날짜)로 확정한다.
+        // 이 값이 없으면 시간 미확정 상태로 무기한 방치된다.
+        scheduleVoteDeadlineAt: Timestamp.fromMillis(
+          Date.now() + policy.scheduleVoteWindowMs
+        ),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
       { merge: true }
     );
   await transitionMeetingStatus(meetingId, "chat_open");
@@ -558,6 +602,24 @@ export async function voteSchedule(params: {
     throw new HttpsError("permission-denied", "참가 중인 미팅이 아니에요.");
   }
 
+  // 투표는 여섯 명이 공통으로 가능한 날짜 안에서만 유효하다.
+  const allowedDates = new Set(
+    meeting.commonAvailableDateKeys.length > 0
+      ? meeting.commonAvailableDateKeys
+      : [meeting.matchedDateKey].filter((d) => d.length > 0)
+  );
+  const preferredSlotIds = params.preferredSlotIds.filter((slotId) => {
+    if (!isValidSlotId(slotId)) return false;
+    const dateKey = dateKeyOfSlotId(slotId);
+    return dateKey != null && allowedDates.has(dateKey);
+  });
+  if (preferredSlotIds.length === 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      "여섯 명이 모두 가능한 날짜 중에서 시간을 선택해주세요."
+    );
+  }
+
   await db()
     .collection(BLIND_MEETING_COLLECTIONS.meetings)
     .doc(params.meetingId)
@@ -566,7 +628,7 @@ export async function voteSchedule(params: {
     .set(
       {
         userId: params.userId,
-        preferredSlotIds: params.preferredSlotIds.filter(isValidSlotId),
+        preferredSlotIds,
         preferredPlaceId: params.preferredPlaceId,
         votedAt: FieldValue.serverTimestamp(),
       },
@@ -576,8 +638,19 @@ export async function voteSchedule(params: {
   await maybeConfirmSchedule(params.meetingId);
 }
 
-/** 전원이 투표하면 최다 득표 시간과 장소로 확정한다. */
-async function maybeConfirmSchedule(meetingId: string): Promise<void> {
+/**
+ * 약속잡기 확정.
+ *
+ * 기본은 전원 투표 시 최다 득표로 확정한다. [force]가 true면 투표 기한이
+ * 지난 경우이므로 제출된 투표만으로 확정하고, 투표가 하나도 없으면
+ * 매칭 기준 날짜 + 기본 시간대로 fallback 한다.
+ *
+ * 어떤 경우에도 이미 지난 날짜로는 확정하지 않는다.
+ */
+async function maybeConfirmSchedule(
+  meetingId: string,
+  options: { force?: boolean } = {}
+): Promise<void> {
   const meeting = await loadMeeting(meetingId);
   if (meeting.status !== "chat_open") return;
 
@@ -586,7 +659,7 @@ async function maybeConfirmSchedule(meetingId: string): Promise<void> {
     .doc(meetingId)
     .collection("scheduleVotes")
     .get();
-  if (snap.size < meeting.participantIds.length) return;
+  if (!options.force && snap.size < meeting.participantIds.length) return;
 
   const slotTally = new Map<string, number>();
   const placeTally = new Map<string, number>();
@@ -600,6 +673,7 @@ async function maybeConfirmSchedule(meetingId: string): Promise<void> {
     }
   }
 
+  // 동점이면 정렬된 key로 tie-break 하므로 결과는 deterministic 하다.
   const pickTop = (tally: Map<string, number>): string | null => {
     let best: string | null = null;
     let bestCount = -1;
@@ -613,7 +687,46 @@ async function maybeConfirmSchedule(meetingId: string): Promise<void> {
     return best;
   };
 
-  const slotId = pickTop(slotTally) ?? meeting.slotId;
+  const now = Date.now();
+
+  /// 아직 시작하지 않은 슬롯만 확정 대상으로 둔다.
+  const isFutureSlot = (candidate: string): boolean => {
+    if (!isValidSlotId(candidate)) return false;
+    const start = slotStartAt(candidate);
+    return start != null && start.getTime() > now;
+  };
+
+  // 득표 순으로 보면서 이미 지난 시간은 건너뛴다.
+  const rankedSlots = [...slotTally.keys()]
+    .sort()
+    .sort((a, b) => (slotTally.get(b) ?? 0) - (slotTally.get(a) ?? 0));
+  let slotId = rankedSlots.find(isFutureSlot) ?? null;
+
+  // 투표가 없거나 전부 지난 시간이면 매칭 기준 날짜로 fallback 한다.
+  if (slotId == null) {
+    const fallbackDates = [
+      meeting.matchedDateKey,
+      ...meeting.commonAvailableDateKeys,
+    ].filter((d) => d.length > 0);
+    for (const dateKey of fallbackDates) {
+      const candidate = fallbackSlotIdFor(dateKey);
+      if (isFutureSlot(candidate)) {
+        slotId = candidate;
+        break;
+      }
+    }
+  }
+
+  // 후보 날짜가 모두 지났으면 확정할 수 없다. 미팅을 취소하고 전액 환급한다.
+  if (slotId == null) {
+    logger.warn("blindMeeting schedule expired without confirmation", {
+      meetingId,
+      voteCount: snap.size,
+    });
+    await cancelMeeting(meetingId, "schedule_window_expired");
+    return;
+  }
+
   const placeId = pickTop(placeTally);
   const startAt = slotStartAt(slotId);
 
@@ -644,7 +757,9 @@ async function maybeConfirmSchedule(meetingId: string): Promise<void> {
     .doc(meetingId)
     .set(
       {
+        // 최종 확정 시간. 참가 신청 단계의 날짜 선택과 구분되는 값이다.
         slotId,
+        confirmedDateKey: dateKeyOfSlotId(slotId),
         venue,
         scheduledStartAt: startAt ? Timestamp.fromDate(startAt) : null,
         scheduleConfirmedAt: FieldValue.serverTimestamp(),
@@ -731,9 +846,13 @@ export async function requestCancellation(params: {
   });
 
   const policy = await loadPolicy();
+  // 시간 미확정 구간에서는 '긴급 취소'로 취급하지 않는다.
   const untilMeetingMs =
-    (meeting.scheduledStartAtMs ?? Date.now()) - Date.now();
-  const urgent = untilMeetingMs < policy.lateCancellationBeforeMs;
+    meeting.scheduledStartAtMs == null
+      ? null
+      : meeting.scheduledStartAtMs - Date.now();
+  const urgent =
+    untilMeetingMs != null && untilMeetingMs < policy.lateCancellationBeforeMs;
 
   await handleVacancy({
     meetingId: params.meetingId,
@@ -761,8 +880,11 @@ export async function handleVacancy(params: {
   const policy = await loadPolicy();
 
   const seatIds = meeting.participantIds;
+  // 확정된 시간이 있으면 그 날짜, 없으면 매칭 기준 날짜로 대체 후보를 찾는다.
+  const vacancyDateKey =
+    dateKeyOfSlotId(meeting.slotId) ?? meeting.matchedDateKey;
   const candidates = await buildCandidatePool(
-    await loadOpenApplications(meeting.slotId),
+    await loadOpenApplications(vacancyDateKey),
     policy
   );
 
@@ -807,7 +929,7 @@ export async function handleVacancy(params: {
     vacantUserId: params.vacantUserId,
     candidates: eligibleCandidates,
     baselineFinalGroupScore: baseline,
-    slotId: meeting.slotId,
+    dateKey: vacancyDateKey,
     alcoholFree: meeting.isAlcoholFree,
     urgent: params.urgent,
     limit: policy.replacementOfferWaveSize,
@@ -949,12 +1071,29 @@ export async function respondReplacementOffer(params: {
       id === vacantUserId ? params.userId : id
     );
 
+    // 대체 참가자가 들어오면 여섯 명의 공통 가능 날짜가 달라진다.
+    // 갱신하지 않으면 새 참가자가 불가능한 날짜로 약속이 확정될 수 있다.
+    // (교집합은 결합법칙이 성립하므로 기존 공통 날짜 ∩ 신규 참가자 날짜로 충분하다)
+    const existingCommon = readDateKeys(
+      meetingData.commonAvailableDateKeys,
+      meetingData.candidateSlotIds
+    );
+    const joinerDates = readDateKeys(
+      applicationSnap.data()?.requestedDateKeys,
+      applicationSnap.data()?.requestedSlotIds
+    );
+    const nextCommon = commonDateKeys([existingCommon, joinerDates]);
+
     tx.set(
       meetingRef,
       {
         teamAUserIds: nextTeamA,
         teamBUserIds: nextTeamB,
         participantIds: nextParticipants,
+        // 교집합이 비면(있을 수 없는 상태) 기존 값을 유지해 약속잡기를 막지 않는다.
+        ...(nextCommon.length > 0
+          ? { commonAvailableDateKeys: nextCommon }
+          : {}),
         updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true }
@@ -1132,8 +1271,11 @@ export async function settleCancellation(params: {
 }): Promise<void> {
   const meeting = await loadMeeting(params.meetingId);
   const policy = await loadPolicy();
+  // null = 약속잡기 미완료로 시작 시각이 없는 구간 (전액 환급 대상)
   const untilMeetingMs =
-    (meeting.scheduledStartAtMs ?? Date.now()) - Date.now();
+    meeting.scheduledStartAtMs == null
+      ? null
+      : meeting.scheduledStartAtMs - Date.now();
 
   const decision = resolveCancellation({
     policy,
@@ -1714,6 +1856,39 @@ async function isBlockedEitherWay(a: string, b: string): Promise<boolean> {
 }
 
 /** 내 상호 선택 결과만 돌려준다 (일방 선택 정보 없음) */
+/**
+ * 약속잡기 기한이 지난 미팅을 서버가 확정한다.
+ *
+ * 날짜 전용 정책에서는 미팅 생성 시점에 `scheduledStartAt`이 없다.
+ * 이 단계가 없으면 투표하지 않은 그룹은 보증금이 묶인 채로 무기한 방치되고,
+ * lifecycle 스케줄러(참석 재확인·노쇼·후속)도 시작 시각이 없어 전부 건너뛴다.
+ */
+export async function finalizeExpiredScheduleVotes(): Promise<number> {
+  const snap = await db()
+    .collection(BLIND_MEETING_COLLECTIONS.meetings)
+    .where("serverStatus", "==", "chat_open")
+    .where("scheduleVoteDeadlineAt", "<=", Timestamp.now())
+    .get();
+
+  let finalized = 0;
+  for (const doc of snap.docs) {
+    const meeting = readMeetingDoc(doc.id, doc.data());
+    if (meeting == null) continue;
+    // 이미 확정된 시간이 있으면 건너뛴다.
+    if (meeting.scheduledStartAtMs != null) continue;
+    try {
+      await maybeConfirmSchedule(meeting.meetingId, { force: true });
+      finalized++;
+    } catch (error) {
+      logger.error("blindMeeting schedule auto-confirm failed", {
+        meetingId: meeting.meetingId,
+        error,
+      });
+    }
+  }
+  return finalized;
+}
+
 export async function loadMyMutualMatches(
   meetingId: string,
   userId: string
@@ -1766,8 +1941,31 @@ export async function applyChatLifecycle(meeting: MeetingDoc): Promise<void> {
 export async function applyRelaxationChoice(params: {
   userId: string;
   choice: string;
-  additionalSlotIds: string[];
+  additionalDateKeys: string[];
+  nowMs?: number;
 }): Promise<void> {
+  const nowMs = params.nowMs ?? Date.now();
+
+  // 이미 배정된 사용자가 신청을 다시 열면 매칭 pool을 오염시키고
+  // 매 라운드 transaction 실패를 유발한다. 대기 중일 때만 허용한다.
+  const applicationSnap = await db()
+    .collection(BLIND_MEETING_COLLECTIONS.applications)
+    .doc(params.userId)
+    .get();
+  const application = readApplicationDoc(params.userId, applicationSnap.data());
+  if (application == null) {
+    throw new HttpsError("failed-precondition", "진행 중인 신청이 없어요.");
+  }
+  if (
+    application.meetingId != null ||
+    (application.status !== "applied" && application.status !== "waitlisted")
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "이미 미팅이 배정돼 조건을 바꿀 수 없어요."
+    );
+  }
+
   switch (params.choice) {
     case "waitForAlcoholFree":
       await setApplication(params.userId, {
@@ -1777,16 +1975,22 @@ export async function applyRelaxationChoice(params: {
       });
       return;
     case "openToOtherDates": {
-      const valid = params.additionalSlotIds.filter(isValidSlotId);
+      // 클라이언트 값이 아니라 서버 기준 창으로 다시 검증한다.
+      const valid = normalizeDateKeys(params.additionalDateKeys).filter((key) =>
+        isDateKeyWithinWindow(key, nowMs)
+      );
       if (valid.length === 0) {
-        throw new HttpsError("invalid-argument", "추가 가능한 시간을 선택해주세요.");
+        throw new HttpsError("invalid-argument", "추가로 가능한 날짜를 선택해주세요.");
       }
       await db()
         .collection(BLIND_MEETING_COLLECTIONS.dna)
         .doc(params.userId)
         .set(
           {
-            availableSlotIds: FieldValue.arrayUnion(...valid),
+            availableDateKeys: FieldValue.arrayUnion(...valid),
+            availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
+            scheduleSelectionVersion:
+              BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
             updatedAt: FieldValue.serverTimestamp(),
           },
           { merge: true }
@@ -1795,7 +1999,7 @@ export async function applyRelaxationChoice(params: {
         stage: "searchingCandidates",
         open: true,
         extra: {
-          requestedSlotIds: FieldValue.arrayUnion(...valid),
+          requestedDateKeys: FieldValue.arrayUnion(...valid),
           relaxationChoice: params.choice,
         },
       });

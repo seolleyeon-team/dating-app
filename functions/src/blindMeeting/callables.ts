@@ -24,17 +24,25 @@ import {
   markSafetyStamp,
   requestCancellation,
   respondReplacementOffer,
-  runMatchingForSlot,
+  runMatchingForDate,
   submitFeedback,
   submitFollowUpChoice,
   voteFivePersonException,
   voteSchedule,
 } from "./orchestrator";
 import { BLIND_MEETING_CALLABLE_OPTIONS } from "./runtime";
-import { db, requireVerifiedUser, setApplication } from "./store";
+import {
+  db,
+  loadPolicy,
+  requireVerifiedUser,
+  setApplication,
+} from "./store";
 import {
   ALCOHOL_PREFERENCES,
+  BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
+  BLIND_MEETING_AVAILABILITY_WINDOW_DAYS,
   BLIND_MEETING_COLLECTIONS,
+  BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
   CONVERSATION_ATMOSPHERES,
   CONVERSATION_INITIATIVES,
   DRINKING_LEVELS,
@@ -45,8 +53,10 @@ import {
   asStr,
   asStrArray,
   asTrimmedOrNull,
+  isDateKeyWithinWindow,
   isRecord,
-  isValidSlotId,
+  isValidDateKey,
+  normalizeDateKeys,
   oneOfOrNull,
 } from "./types";
 
@@ -104,12 +114,50 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
     throw new HttpsError("invalid-argument", "미팅 DNA 답변이 올바르지 않아요.");
   }
 
-  const slotIds = asStrArray(dnaRaw.availableSlotIds ?? dnaRaw.availableSlots)
-    .filter(isValidSlotId);
-  if (slotIds.length === 0) {
+  // ── 참여 가능 날짜 검증 ─────────────────────────────────────────────────
+  // 클라이언트 시간이 아니라 서버 시간 기준 창으로 검증한다.
+  // legacy 슬롯 필드로 검증을 우회할 수 없도록 날짜만 받는다.
+  const rawDateKeys = dnaRaw.availableDateKeys;
+  if (!Array.isArray(rawDateKeys)) {
     throw new HttpsError(
       "invalid-argument",
-      "가능한 날짜와 시간을 한 개 이상 선택해주세요."
+      "참여 가능한 날짜를 한 개 이상 선택해주세요."
+    );
+  }
+  if (rawDateKeys.length > BLIND_MEETING_AVAILABILITY_WINDOW_DAYS) {
+    // 문서 크기 악용 방지: 창 길이보다 많은 값은 받지 않는다.
+    throw new HttpsError("invalid-argument", "선택한 날짜가 너무 많아요.");
+  }
+  if (rawDateKeys.some((item) => typeof item !== "string")) {
+    throw new HttpsError("invalid-argument", "날짜 형식이 올바르지 않아요.");
+  }
+  for (const item of rawDateKeys) {
+    if (!isValidDateKey(item)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "날짜 형식이 올바르지 않아요. (yyyy-MM-dd)"
+      );
+    }
+  }
+
+  const nowMs = Date.now();
+  const dateKeys = normalizeDateKeys(rawDateKeys);
+  if (dateKeys.length !== rawDateKeys.length) {
+    throw new HttpsError("invalid-argument", "중복된 날짜가 포함되어 있어요.");
+  }
+  const outOfWindow = dateKeys.filter(
+    (key) => !isDateKeyWithinWindow(key, nowMs)
+  );
+  if (outOfWindow.length > 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      `내일부터 ${BLIND_MEETING_AVAILABILITY_WINDOW_DAYS}일 안의 날짜만 선택할 수 있어요.`
+    );
+  }
+  if (dateKeys.length === 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      "참여 가능한 날짜를 한 개 이상 선택해주세요."
     );
   }
 
@@ -164,7 +212,10 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
         drinkingLevelSnapshot: drinkingLevel,
         smokingStatusSnapshot: smokingStatus,
         mbtiSnapshot: mbti,
-        availableSlotIds: slotIds,
+        // 날짜 전용 계약. 신규 신청에는 시간대 필드를 쓰지 않는다.
+        availableDateKeys: dateKeys,
+        availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
+        scheduleSelectionVersion: BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
         waitlistOptIn: dnaRaw.waitlistOptIn !== false,
         updatedAt: FieldValue.serverTimestamp(),
         createdAt: FieldValue.serverTimestamp(),
@@ -183,7 +234,7 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
     smokingStatus,
     interestIds,
     mbti,
-    availableSlotIds: slotIds,
+    availableDateKeys: dateKeys,
     schoolVerified: true,
     eligible: true,
     blockedUserIds: [],
@@ -198,18 +249,30 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
     meetingId: null,
     extra: {
       userId: user.userId,
-      requestedSlotIds: slotIds,
+      requestedDateKeys: dateKeys,
+      availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
+      scheduleSelectionVersion: BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
       prefersAlcoholFree,
       waitlistOptIn: dnaRaw.waitlistOptIn !== false,
       appliedAt: FieldValue.serverTimestamp(),
     },
   });
 
-  // 신청 즉시 해당 슬롯들에 대해 매칭을 시도한다.
+  // 신청 즉시 매칭을 시도하되 날짜 수만큼 선형으로 늘리지 않는다.
+  // 날짜를 21개 고른 사용자 때문에 callable이 타임아웃되면
+  // '많이 고르라'고 안내한 사용자가 오히려 실패하게 된다.
+  // 나머지 날짜는 10분 주기 스케줄러가 이어서 처리한다.
+  const policy = await loadPolicy();
+  const inlineDateKeys = dateKeys.slice(
+    0,
+    Math.max(1, policy.inlineMatchingDateLimit)
+  );
   const createdMeetingIds: string[] = [];
-  for (const slotId of slotIds) {
-    const created = await runMatchingForSlot(slotId);
+  for (const dateKey of inlineDateKeys) {
+    const created = await runMatchingForDate(dateKey);
     createdMeetingIds.push(...created);
+    // 이미 배정됐으면 남은 날짜를 더 볼 필요가 없다.
+    if (created.length > 0) break;
   }
 
   const applicationSnap = await db()
@@ -219,8 +282,10 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
   const stage = asStr(applicationSnap.data()?.stage, "searchingCandidates");
   const meetingId = asTrimmedOrNull(applicationSnap.data()?.meetingId);
 
+  // 실제 날짜는 로그에 남기지 않는다 (생활 패턴 노출 방지).
   logger.info("blindMeeting application submitted", {
-    slotCount: slotIds.length,
+    selectedDateCount: dateKeys.length,
+    availabilityWindowDays: BLIND_MEETING_AVAILABILITY_WINDOW_DAYS,
     prefersAlcoholFree,
     createdMeetings: createdMeetingIds.length,
   });
@@ -245,7 +310,7 @@ async function relaxBlindMeetingConditionsHandler(request: BlindMeetingRequest) 
   await applyRelaxationChoice({
     userId: user.userId,
     choice: asStr(data.choice, ""),
-    additionalSlotIds: asStrArray(data.additionalSlotIds),
+    additionalDateKeys: asStrArray(data.additionalDateKeys),
   });
   return { ok: true };
 }

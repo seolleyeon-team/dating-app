@@ -10,16 +10,20 @@
 import 'package:flutter/material.dart';
 
 import '../../../../router/route_names.dart';
+import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_repository.dart';
 import '../../domain/blind_meeting_application.dart';
+import '../../domain/blind_meeting_availability.dart';
 import '../blind_meeting_route_args.dart';
 import '../theme/blind_meeting_palette.dart';
+import '../widgets/blind_meeting_action_sheets.dart';
 import '../widgets/blind_meeting_common.dart';
 
 class BlindMeetingWaitingScreen extends StatefulWidget {
   final BlindMeetingRepository? repository;
+  final BlindMeetingAnalytics? analytics;
 
-  const BlindMeetingWaitingScreen({super.key, this.repository});
+  const BlindMeetingWaitingScreen({super.key, this.repository, this.analytics});
 
   @override
   State<BlindMeetingWaitingScreen> createState() =>
@@ -48,6 +52,41 @@ class _BlindMeetingWaitingScreenState extends State<BlindMeetingWaitingScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// 조건 완화 적용.
+  ///
+  /// '다른 날짜도 가능해요'는 추가 날짜가 반드시 있어야 한다.
+  /// 서버가 빈 목록을 거부하므로 날짜를 먼저 고르게 한다.
+  Future<void> _applyRelaxation(
+    BlindMeetingRelaxationChoice choice,
+    BlindMeetingApplication application,
+  ) async {
+    var additionalDateKeys = const <String>[];
+
+    if (choice == BlindMeetingRelaxationChoice.openToOtherDates) {
+      final picked = await showBlindMeetingExtraDatesSheet(
+        context,
+        alreadySelected: application.requestedDateKeys.toSet(),
+      );
+      if (picked == null || picked.isEmpty) return;
+      additionalDateKeys = picked;
+    }
+
+    await _run(
+      () => _repository.applyRelaxationChoice(
+        choice,
+        additionalDateKeys: additionalDateKeys,
+      ),
+    );
+
+    (widget.analytics ?? BlindMeetingAnalytics()).log(
+      BlindMeetingAnalyticsEvent.availabilityRelaxed,
+      params: {
+        'relaxationChoice': choice.name,
+        'addedDateCount': additionalDateKeys.length,
+      },
+    );
   }
 
   void _openMeeting(String meetingId) {
@@ -164,20 +203,27 @@ class _BlindMeetingWaitingScreenState extends State<BlindMeetingWaitingScreen> {
               Text('신청 정보', style: BlindMeetingText.sectionTitle(palette.ink)),
               const SizedBox(height: 10),
               Text(
-                '가능한 시간 ${application.requestedSlots.length}개',
+                '참여 가능한 날짜 ${application.requestedDateKeys.length}개',
                 style: BlindMeetingText.caption(palette.inkSoft),
               ),
               const SizedBox(height: 4),
               Text(
-                application.requestedSlots.map((s) => s.label).join(' · '),
+                application.requestedDateKeys
+                    .map(BlindMeetingAvailability.shortLabel)
+                    .join(' · '),
                 style: BlindMeetingText.caption(palette.ink),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '구체적인 시간은 팀이 구성된 뒤 단체 채팅방에서 함께 정해요.',
+                style: BlindMeetingText.caption(palette.inkFaint),
               ),
               if (application.prefersAlcoholFree) ...[
                 const SizedBox(height: 8),
                 BlindMeetingBadge(
                   label: '무알코올 미팅',
                   icon: Icons.local_cafe_outlined,
-                  color: palette.sage,
+                  color: palette.positive,
                 ),
               ],
             ],
@@ -232,9 +278,7 @@ class _BlindMeetingWaitingScreenState extends State<BlindMeetingWaitingScreen> {
                   label: choice.label,
                   onPressed: _busy
                       ? null
-                      : () => _run(
-                          () => _repository.applyRelaxationChoice(choice),
-                        ),
+                      : () => _applyRelaxation(choice, application),
                 ),
               ),
         ],
@@ -249,9 +293,9 @@ class _BlindMeetingWaitingScreenState extends State<BlindMeetingWaitingScreen> {
     required bool active,
   }) {
     final color = done
-        ? palette.sage
+        ? palette.positive
         : active
-        ? palette.plum
+        ? palette.accent
         : palette.inkFaint;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -281,7 +325,7 @@ class _BlindMeetingWaitingScreenState extends State<BlindMeetingWaitingScreen> {
               height: 14,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: palette.plum,
+                color: palette.accent,
               ),
             ),
         ],

@@ -26,8 +26,10 @@ class BlindMeetingCandidate {
   final Set<String> interestIds;
   final String? mbti;
 
-  /// 참가 가능한 슬롯 id 집합 (`2026-08-01#evening`).
-  final Set<String> availableSlotIds;
+  /// 참여 가능한 날짜 집합 (KST `yyyy-MM-dd`).
+  ///
+  /// 세부 시간은 매칭 조건이 아니다. 팀 구성 후 단체 채팅방에서 정한다.
+  final Set<String> availableDateKeys;
 
   /// 학교 인증 완료.
   final bool schoolVerified;
@@ -55,7 +57,7 @@ class BlindMeetingCandidate {
     required this.smokingStatus,
     required this.interestIds,
     this.mbti,
-    required this.availableSlotIds,
+    required this.availableDateKeys,
     this.schoolVerified = true,
     this.eligible = true,
     this.blockedUserIds = const <String>{},
@@ -82,7 +84,7 @@ class BlindMeetingCandidate {
     SmokingStatus? smokingStatus,
     Set<String>? interestIds,
     String? mbti,
-    Set<String>? availableSlotIds,
+    Set<String>? availableDateKeys,
     bool? schoolVerified,
     bool? eligible,
     Set<String>? blockedUserIds,
@@ -100,7 +102,7 @@ class BlindMeetingCandidate {
       smokingStatus: smokingStatus ?? this.smokingStatus,
       interestIds: interestIds ?? this.interestIds,
       mbti: mbti ?? this.mbti,
-      availableSlotIds: availableSlotIds ?? this.availableSlotIds,
+      availableDateKeys: availableDateKeys ?? this.availableDateKeys,
       schoolVerified: schoolVerified ?? this.schoolVerified,
       eligible: eligible ?? this.eligible,
       blockedUserIds: blockedUserIds ?? this.blockedUserIds,

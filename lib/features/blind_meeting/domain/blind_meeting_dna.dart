@@ -7,15 +7,15 @@
 // 공개용 스냅샷은 BlindMeetingPublicProfile 로 분리해서 저장한다.
 // =============================================================================
 
+import 'blind_meeting_availability.dart';
 import 'blind_meeting_enums.dart';
-import 'blind_meeting_slot.dart';
 
 /// 비공개 DNA 검증 실패 사유.
 enum BlindMeetingDnaViolation {
   /// 전원 비음주를 선택했지만 본인 프로필이 비음주가 아님
   allSoberRequiresSoberProfile,
 
-  /// 가능한 날짜/시간을 선택하지 않음
+  /// 참여 가능한 날짜를 선택하지 않음
   missingAvailability,
 
   /// 관심사가 비어 있음 (온보딩 데이터 필요)
@@ -26,8 +26,7 @@ extension BlindMeetingDnaViolationMessage on BlindMeetingDnaViolation {
   String get message => switch (this) {
     BlindMeetingDnaViolation.allSoberRequiresSoberProfile =>
       '전원 비음주 미팅은 내 프로필의 음주 정도가 \'전혀 안 함\'일 때 선택할 수 있어요.',
-    BlindMeetingDnaViolation.missingAvailability =>
-      '가능한 날짜와 시간을 한 개 이상 선택해주세요.',
+    BlindMeetingDnaViolation.missingAvailability => '참여 가능한 날짜를 한 개 이상 선택해주세요.',
     BlindMeetingDnaViolation.missingInterests => '관심사를 먼저 등록해주세요.',
   };
 }
@@ -35,7 +34,9 @@ extension BlindMeetingDnaViolationMessage on BlindMeetingDnaViolation {
 /// 비공개 미팅 DNA.
 class BlindMeetingDna {
   /// 현재 스키마 버전. 필드를 추가/변경하면 올린다.
-  static const int currentSchemaVersion = 1;
+  ///
+  /// v2에서 날짜 × 시간대 슬롯 선택이 날짜 전용 선택으로 바뀌었다.
+  static const int currentSchemaVersion = blindMeetingScheduleSelectionVersion;
 
   final String userId;
   final int schemaVersion;
@@ -53,7 +54,10 @@ class BlindMeetingDna {
   final SmokingStatus smokingStatusSnapshot;
   final String? mbtiSnapshot;
 
-  final List<BlindMeetingSlot> availableSlots;
+  /// 참여 가능한 날짜 (KST `yyyy-MM-dd`, 오름차순·중복 제거).
+  ///
+  /// 세부 시간은 팀 구성 후 단체 채팅방 약속잡기에서 정한다.
+  final List<String> availableDateKeys;
 
   /// 정원이 차지 않았을 때 대기자로 참여할지 여부.
   final bool waitlistOptIn;
@@ -61,7 +65,7 @@ class BlindMeetingDna {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
-  const BlindMeetingDna({
+  BlindMeetingDna({
     required this.userId,
     this.schemaVersion = currentSchemaVersion,
     required this.conversationAtmosphere,
@@ -73,11 +77,13 @@ class BlindMeetingDna {
     required this.drinkingLevelSnapshot,
     required this.smokingStatusSnapshot,
     this.mbtiSnapshot,
-    required this.availableSlots,
+    required List<String> availableDateKeys,
     this.waitlistOptIn = true,
     this.createdAt,
     this.updatedAt,
-  });
+  }) : availableDateKeys = BlindMeetingAvailability.normalizeDateKeys(
+         availableDateKeys,
+       );
 
   /// 무알코올 전용 후보군으로 분리되어야 하는지.
   ///
@@ -93,7 +99,7 @@ class BlindMeetingDna {
         !drinkingLevelSnapshot.isSober) {
       violations.add(BlindMeetingDnaViolation.allSoberRequiresSoberProfile);
     }
-    if (availableSlots.isEmpty) {
+    if (availableDateKeys.isEmpty) {
       violations.add(BlindMeetingDnaViolation.missingAvailability);
     }
     if (interestIds.isEmpty) {
@@ -114,7 +120,7 @@ class BlindMeetingDna {
     DrinkingLevel? drinkingLevelSnapshot,
     SmokingStatus? smokingStatusSnapshot,
     String? mbtiSnapshot,
-    List<BlindMeetingSlot>? availableSlots,
+    List<String>? availableDateKeys,
     bool? waitlistOptIn,
   }) {
     return BlindMeetingDna(
@@ -135,7 +141,7 @@ class BlindMeetingDna {
       smokingStatusSnapshot:
           smokingStatusSnapshot ?? this.smokingStatusSnapshot,
       mbtiSnapshot: mbtiSnapshot ?? this.mbtiSnapshot,
-      availableSlots: availableSlots ?? this.availableSlots,
+      availableDateKeys: availableDateKeys ?? this.availableDateKeys,
       waitlistOptIn: waitlistOptIn ?? this.waitlistOptIn,
       createdAt: createdAt,
       updatedAt: updatedAt,
@@ -157,8 +163,10 @@ class BlindMeetingDna {
     'drinkingLevelSnapshot': drinkingLevelSnapshot.name,
     'smokingStatusSnapshot': smokingStatusSnapshot.name,
     'mbtiSnapshot': mbtiSnapshot,
-    'availableSlots': availableSlots.map((s) => s.slotId).toList(),
-    'availableSlotIds': availableSlots.map((s) => s.slotId).toList(),
+    // 날짜 전용 계약. 신규 신청에는 시간대 필드를 쓰지 않는다.
+    'availableDateKeys': availableDateKeys,
+    'availabilityMode': blindMeetingAvailabilityModeDateOnly,
+    'scheduleSelectionVersion': blindMeetingScheduleSelectionVersion,
     'waitlistOptIn': waitlistOptIn,
   };
 
@@ -207,8 +215,10 @@ class BlindMeetingDna {
         fallback: SmokingStatus.nonSmoker,
       ),
       mbtiSnapshot: _asTrimmedStringOrNull(data['mbtiSnapshot']),
-      availableSlots: BlindMeetingSlot.parseList(
-        data['availableSlots'] ?? data['availableSlotIds'],
+      // 날짜 전용 필드를 우선 읽고, 없으면 legacy 슬롯에서 날짜만 복원한다.
+      availableDateKeys: BlindMeetingAvailability.readDateKeys(
+        dateKeys: data['availableDateKeys'],
+        legacySlots: data['availableSlotIds'] ?? data['availableSlots'],
       ),
       waitlistOptIn: data['waitlistOptIn'] != false,
       createdAt: _asDateTime(data['createdAt']),

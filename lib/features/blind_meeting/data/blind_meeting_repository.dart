@@ -259,11 +259,11 @@ class BlindMeetingRepository {
   /// 무알코올 조건 완화는 사용자가 직접 선택해야만 적용된다.
   Future<void> applyRelaxationChoice(
     BlindMeetingRelaxationChoice choice, {
-    List<String> additionalSlotIds = const <String>[],
+    List<String> additionalDateKeys = const <String>[],
   }) async {
     await _call('relaxBlindMeetingConditions', {
       'choice': choice.name,
-      'additionalSlotIds': additionalSlotIds,
+      'additionalDateKeys': additionalDateKeys,
     });
   }
 

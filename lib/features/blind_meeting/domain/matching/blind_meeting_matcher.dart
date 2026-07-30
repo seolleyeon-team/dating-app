@@ -32,7 +32,14 @@ class BlindMeetingTeamProposal {
 
 /// 최종 6인 구성 제안.
 class BlindMeetingGroupProposal {
-  final String slotId;
+  /// 이 구성을 만든 기준 날짜 (KST `yyyy-MM-dd`).
+  final String dateKey;
+
+  /// 여섯 명이 공통으로 가능한 날짜 전체 (오름차순).
+  ///
+  /// 단체 채팅방 약속잡기의 날짜 후보로 그대로 전달된다.
+  final List<String> commonDateKeys;
+
   final bool alcoholFree;
   final String algorithmVersion;
   final BlindMeetingTeamProposal teamA;
@@ -42,15 +49,16 @@ class BlindMeetingGroupProposal {
   /// 대기 시간 보정이 반영된 정렬용 점수. 사용자에게 노출하지 않는다.
   final double adjustedScore;
 
-  const BlindMeetingGroupProposal({
-    required this.slotId,
+  BlindMeetingGroupProposal({
+    required this.dateKey,
+    required List<String> commonDateKeys,
     required this.alcoholFree,
     required this.algorithmVersion,
     required this.teamA,
     required this.teamB,
     required this.score,
     required this.adjustedScore,
-  });
+  }) : commonDateKeys = List<String>.unmodifiable(commonDateKeys);
 
   List<String> get teamAUserIds => teamA.members.map((m) => m.userId).toList();
   List<String> get teamBUserIds => teamB.members.map((m) => m.userId).toList();
@@ -61,7 +69,8 @@ class BlindMeetingGroupProposal {
 
   Map<String, dynamic> toMatchingResultMap() => {
     'algorithmVersion': algorithmVersion,
-    'slotId': slotId,
+    'matchedDateKey': dateKey,
+    'commonAvailableDateKeys': commonDateKeys,
     'isAlcoholFree': alcoholFree,
     'internalTeamScores': {
       'teamA': score.teamAInternal,
@@ -130,12 +139,12 @@ class BlindMeetingMatcher {
   /// 반환 목록은 (내부 점수 내림차순, key 오름차순) 으로 정렬된 deterministic 결과다.
   List<BlindMeetingTeamProposal> buildTeamProposals({
     required List<BlindMeetingCandidate> pool,
-    required String slotId,
+    required String dateKey,
     required bool alcoholFree,
   }) {
     final eligible = _eligiblePool(
       pool: pool,
-      slotId: slotId,
+      dateKey: dateKey,
       alcoholFree: alcoholFree,
     );
     if (eligible.length < 3) return const <BlindMeetingTeamProposal>[];
@@ -145,7 +154,7 @@ class BlindMeetingMatcher {
     void tryTeam(List<BlindMeetingCandidate> trio) {
       if (!BlindMeetingHardConstraints.isGroupAllowed(
         trio,
-        slotId: slotId,
+        dateKey: dateKey,
         alcoholFreeGroup: alcoholFree,
         expectedSize: 3,
       )) {
@@ -209,7 +218,7 @@ class BlindMeetingMatcher {
   /// [maxGroups] 개까지 서로 겹치지 않는 구성을 점수 순으로 돌려준다.
   List<BlindMeetingGroupProposal> proposeGroups({
     required List<BlindMeetingCandidate> pool,
-    required String slotId,
+    required String dateKey,
     required bool alcoholFree,
     int maxGroups = 1,
   }) {
@@ -218,7 +227,7 @@ class BlindMeetingMatcher {
     for (var round = 0; round < maxGroups; round++) {
       final group = _bestGroupFrom(
         pool: remaining,
-        slotId: slotId,
+        dateKey: dateKey,
         alcoholFree: alcoholFree,
       );
       if (group == null) break;
@@ -234,20 +243,24 @@ class BlindMeetingMatcher {
   /// 가장 좋은 6인 구성 하나. 없으면 null.
   BlindMeetingGroupProposal? bestGroup({
     required List<BlindMeetingCandidate> pool,
-    required String slotId,
+    required String dateKey,
     required bool alcoholFree,
   }) {
-    return _bestGroupFrom(pool: pool, slotId: slotId, alcoholFree: alcoholFree);
+    return _bestGroupFrom(
+      pool: pool,
+      dateKey: dateKey,
+      alcoholFree: alcoholFree,
+    );
   }
 
   BlindMeetingGroupProposal? _bestGroupFrom({
     required List<BlindMeetingCandidate> pool,
-    required String slotId,
+    required String dateKey,
     required bool alcoholFree,
   }) {
     final teams = buildTeamProposals(
       pool: pool,
-      slotId: slotId,
+      dateKey: dateKey,
       alcoholFree: alcoholFree,
     );
     if (teams.length < 2) return null;
@@ -264,7 +277,7 @@ class BlindMeetingMatcher {
         final members = [...left.members, ...right.members];
         if (!BlindMeetingHardConstraints.isGroupAllowed(
           members,
-          slotId: slotId,
+          dateKey: dateKey,
           alcoholFreeGroup: alcoholFree,
           expectedSize: 6,
         )) {
@@ -280,7 +293,8 @@ class BlindMeetingMatcher {
         final bonus = waitingTimeBonus(members, config: config);
         groups.add(
           BlindMeetingGroupProposal(
-            slotId: slotId,
+            dateKey: dateKey,
+            commonDateKeys: BlindMeetingHardConstraints.commonDateKeys(members),
             alcoholFree: alcoholFree,
             algorithmVersion: algorithmVersion,
             teamA: left,
@@ -313,7 +327,7 @@ class BlindMeetingMatcher {
     required String vacantUserId,
     required BlindMeetingCandidate candidate,
     required double baselineFinalGroupScore,
-    required String slotId,
+    required String dateKey,
     required bool alcoholFree,
     bool urgent = false,
   }) {
@@ -334,7 +348,7 @@ class BlindMeetingMatcher {
     violations.addAll(
       BlindMeetingHardConstraints.checkGroup(
         members,
-        slotId: slotId,
+        dateKey: dateKey,
         alcoholFreeGroup: alcoholFree,
         expectedSize: 6,
       ),
@@ -379,7 +393,7 @@ class BlindMeetingMatcher {
     required String vacantUserId,
     required List<BlindMeetingCandidate> candidates,
     required double baselineFinalGroupScore,
-    required String slotId,
+    required String dateKey,
     required bool alcoholFree,
     bool urgent = false,
     int limit = 3,
@@ -397,7 +411,7 @@ class BlindMeetingMatcher {
         vacantUserId: vacantUserId,
         candidate: candidate,
         baselineFinalGroupScore: baselineFinalGroupScore,
-        slotId: slotId,
+        dateKey: dateKey,
         alcoholFree: alcoholFree,
         urgent: urgent,
       );
@@ -421,7 +435,7 @@ class BlindMeetingMatcher {
 
   List<BlindMeetingCandidate> _eligiblePool({
     required List<BlindMeetingCandidate> pool,
-    required String slotId,
+    required String dateKey,
     required bool alcoholFree,
   }) {
     final seen = <String>{};
@@ -430,7 +444,7 @@ class BlindMeetingMatcher {
       if (!seen.add(candidate.userId)) continue;
       final violations = BlindMeetingHardConstraints.checkCandidate(
         candidate,
-        slotId: slotId,
+        dateKey: dateKey,
         alcoholFreeGroup: alcoholFree,
       );
       if (violations.isEmpty) result.add(candidate);
