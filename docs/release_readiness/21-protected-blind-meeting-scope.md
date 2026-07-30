@@ -78,7 +78,22 @@ lib/data/models/event/event_team_match_model.dart
 
 (읽기 중 발견 시 아래에만 기록 — 수정하지 않음)
 
-_없음 — 초기 스냅샷 시점_
+```text
+DEFERRED_PROTECTED_SCOPE
+
+ID: BM-PREEXIST-FONT
+영역: blind SlotMachineScreen typography
+발견 내용: Pretendard → NanumSquareRound 변경이 kakao-message 조상 커밋 f0d2508e에 이미 존재
+영향 가능성: UI 폰트만; 매칭 로직 없음
+수정하지 않은 이유: release/grok45-integrated-readiness 작업 구간(733a7764..HEAD)에서 해당 파일 diff 0; 보호 정책상 본 브랜치에서 되돌리거나 수정하지 않음
+향후 별도 작업 필요 여부: 보호 범위 전용 브랜치에서만 검토
+```
+
+## Session integrity note (2026-07-31)
+
+- `release/grok45-integrated-readiness` 기준 `git diff 733a7764..HEAD -- lib/features/event/screens/random_mathcing_screen.dart` = **empty**
+- SHA256 baseline/final identical: `94BA6240…8849C`
+- Independent review that flagged this file was comparing against `main`, not this session’s branch base
 
 ## Regression protocol for shared-file edits
 
