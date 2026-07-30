@@ -165,16 +165,14 @@ class BlindMeetingRepository {
     return userId;
   }
 
+  /// 블라인드 미팅 callable은 서버에서 Firebase Auth uid만 검증하므로
+  /// 카카오 액세스 토큰을 함께 보내지 않는다. (요청마다 카카오 API를
+  /// 왕복하지 않고, 토큰 만료가 미팅 흐름에 영향을 주지도 않는다.)
   Future<Map<String, dynamic>> _callablePayload(
     Map<String, dynamic> extra,
   ) async {
     final userId = await _requireSession();
-    final token = await _authService.getKakaoAccessTokenForFunctions();
-    final payload = <String, dynamic>{...extra, 'userId': userId};
-    if (token != null && token.isNotEmpty) {
-      payload['kakaoAccessToken'] = token;
-    }
-    return payload;
+    return <String, dynamic>{...extra, 'userId': userId};
   }
 
   Future<Map<String, dynamic>> _call(

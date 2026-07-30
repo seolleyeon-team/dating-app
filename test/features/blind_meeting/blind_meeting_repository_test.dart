@@ -22,6 +22,7 @@ class _FakeAuthService extends AuthService {
 
   final bool sessionAttached;
   int ensureCalls = 0;
+  int kakaoTokenCalls = 0;
 
   @override
   Future<bool> ensureFirebaseSessionForKakao(String kakaoUserId) async {
@@ -30,7 +31,10 @@ class _FakeAuthService extends AuthService {
   }
 
   @override
-  Future<String?> getKakaoAccessTokenForFunctions() async => null;
+  Future<String?> getKakaoAccessTokenForFunctions() async {
+    kakaoTokenCalls++;
+    return null;
+  }
 }
 
 void main() {
@@ -100,6 +104,17 @@ void main() {
     test('세션 없이도 userId는 조회할 수 있다', () async {
       final repository = build(sessionAttached: false);
       expect(await repository.currentUserId(), 'u1');
+    });
+  });
+
+  group('callable payload', () {
+    test('카카오 액세스 토큰을 요청하지 않는다', () async {
+      // 서버가 Firebase Auth uid만 검증하므로 만료된 카카오 토큰 왕복이 없어야 한다.
+      final auth = _FakeAuthService(sessionAttached: true);
+      final repository = build(auth: auth);
+      await repository.cancelApplication().catchError((_) {});
+      expect(auth.ensureCalls, 1);
+      expect(auth.kakaoTokenCalls, 0);
     });
   });
 }

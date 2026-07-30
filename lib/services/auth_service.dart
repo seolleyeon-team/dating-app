@@ -525,6 +525,15 @@ class AuthService {
               '[Auth] Kakao logout after invalid token failed: $logoutErr',
             );
           }
+          // logout이 실패하면 무효 토큰이 로컬에 그대로 남아, 이후 모든 호출이
+          // 같은 -401 왕복을 반복한다. 로컬 토큰 저장소를 직접 비워서
+          // 다음 호출은 네트워크 요청 없이 곧바로 null을 반환하게 한다.
+          try {
+            await TokenManagerProvider.instance.manager.clear();
+            debugPrint('[Auth] Cleared invalid local Kakao token');
+          } catch (clearErr) {
+            debugPrint('[Auth] Kakao token clear failed: $clearErr');
+          }
         }
         return null;
       }
