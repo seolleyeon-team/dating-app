@@ -24,7 +24,9 @@
 | `premium_chat_list_screen` fake room inject | error/empty → invent fake room | KEEP_WITH_JUSTIFICATION | already gated by `DevEntryPolicy` on branch |
 | `ApiService` placeholder | `api.example.com` client | REPLACE | throw in `kReleaseMode` |
 | Kakao scheme empty catches | silent swallow | REPLACE | `logCaughtError` |
+| `functions/src/index.ts` bare `onCall` | App Check regression | REPLACE | all public callables re-wrapped with `withAppCheck` |
+| Heart charge/recharge package tap | TODO / silent no-op | REPLACE | `InAppPurchasePolicy` + unavailable dialog |
 
 Production mock admin / release test UID bypass: **not present** (release gated).
 
-**Note:** Release builds now require real adult (PortOne) verification. If PortOne is not ready for prod, treat as external ops blocker before store ship.
+**Note:** Release builds now require real adult (PortOne) verification. If PortOne is not ready for prod, treat as external ops blocker before store ship. Firebase Console App Check **Enforce** remains external.
