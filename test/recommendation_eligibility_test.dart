@@ -44,18 +44,12 @@ void main() {
         recommendable(candidate(overrides: {'isSuspended': true})),
         isFalse,
       );
-      expect(
-        recommendable(candidate(overrides: {'isDeleted': true})),
-        isFalse,
-      );
+      expect(recommendable(candidate(overrides: {'isDeleted': true})), isFalse);
       expect(
         recommendable(candidate(overrides: {'status': 'blocked'})),
         isFalse,
       );
-      expect(
-        recommendable(candidate(overrides: {'isActive': false})),
-        isFalse,
-      );
+      expect(recommendable(candidate(overrides: {'isActive': false})), isFalse);
     });
 
     test('프로필이 미완성이면 제외된다', () {
@@ -67,7 +61,13 @@ void main() {
 
     test('승인된 아바타가 없으면 제외된다', () {
       expect(
-        recommendable(candidate(overrides: {'avatar': {'status': 'pending'}})),
+        recommendable(
+          candidate(
+            overrides: {
+              'avatar': {'status': 'pending'},
+            },
+          ),
+        ),
         isFalse,
       );
       expect(recommendable(candidate(overrides: {'avatar': null})), isFalse);
@@ -121,7 +121,10 @@ void main() {
       final viewer = candidate()
         ..remove('onboarding')
         ..['gender'] = 'female';
-      expect(recommendable(candidate(gender: 'female'), viewer: viewer), isFalse);
+      expect(
+        recommendable(candidate(gender: 'female'), viewer: viewer),
+        isFalse,
+      );
     });
   });
 

@@ -306,7 +306,10 @@ class _SafetyStampFollowUpScreenState extends State<SafetyStampFollowUpScreen> {
                 minLines: 4,
                 padding: const EdgeInsets.all(14),
                 placeholder: '사유를 입력해주세요',
-                style: const TextStyle(fontFamily: 'NanumSquareRound', fontSize: 14),
+                style: const TextStyle(
+                  fontFamily: 'NanumSquareRound',
+                  fontSize: 14,
+                ),
                 decoration: BoxDecoration(
                   color: _AppColors.surface,
                   borderRadius: BorderRadius.circular(16),

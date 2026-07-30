@@ -254,150 +254,153 @@ class _ProductCard extends StatelessWidget {
       padding: EdgeInsets.zero,
       onPressed: onTap,
       child: Stack(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: _AppColors.surfaceLight,
-            borderRadius: BorderRadius.circular(16),
-            border: isPopular
-                ? Border.all(
-                    color: _AppColors.primary.withValues(alpha: 0.1),
-                    width: 2,
-                  )
-                : Border.all(color: Colors.transparent),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // 좌측 아이콘 및 정보
-              Row(
-                children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFCE4EC), // pink-50
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: _AppColors.primary.withValues(alpha: 0.3),
-                          blurRadius: 10,
-                          spreadRadius: 0,
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      CupertinoIcons.heart_fill,
-                      color: _AppColors.primary,
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '$hearts하트',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: _AppColors.textPrimary,
-                        ),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: _AppColors.surfaceLight,
+              borderRadius: BorderRadius.circular(16),
+              border: isPopular
+                  ? Border.all(
+                      color: _AppColors.primary.withValues(alpha: 0.1),
+                      width: 2,
+                    )
+                  : Border.all(color: Colors.transparent),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // 좌측 아이콘 및 정보
+                Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFCE4EC), // pink-50
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: _AppColors.primary.withValues(alpha: 0.3),
+                            blurRadius: 10,
+                            spreadRadius: 0,
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '1하트당 $unitPrice원',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: _AppColors.textSecondary,
-                        ),
+                      child: const Icon(
+                        CupertinoIcons.heart_fill,
+                        color: _AppColors.primary,
+                        size: 24,
                       ),
-                    ],
-                  ),
-                ],
-              ),
-              // 우측 가격 정보
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  if (originalPrice != null && discountPercent != null)
-                    Row(
+                    ),
+                    const SizedBox(width: 16),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '$originalPrice',
+                          '$hearts하트',
                           style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFFBDBDBD),
-                            decoration: TextDecoration.lineThrough,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: _AppColors.textPrimary,
                           ),
                         ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFCE4EC), // pink-100
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            '$discountPercent% 할인',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: _AppColors.primary,
-                            ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '1하트당 $unitPrice원',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: _AppColors.textSecondary,
                           ),
                         ),
                       ],
                     ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '₩$price',
-                    style: TextStyle(
-                      fontSize: isPopular ? 20 : 18,
-                      fontWeight: FontWeight.w700,
-                      color: _AppColors.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        if (isPopular)
-          Positioned(
-            top: 0,
-            right: 0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              decoration: BoxDecoration(
-                color: _AppColors.primary.withValues(alpha: 0.1),
-                borderRadius: const BorderRadius.only(
-                  topRight: Radius.circular(14), // Border width 고려 살짝 줄임
-                  bottomLeft: Radius.circular(12),
+                  ],
                 ),
-              ),
-              child: const Text(
-                'POPULAR',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                  color: _AppColors.primary,
+                // 우측 가격 정보
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (originalPrice != null && discountPercent != null)
+                      Row(
+                        children: [
+                          Text(
+                            '$originalPrice',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFFBDBDBD),
+                              decoration: TextDecoration.lineThrough,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFCE4EC), // pink-100
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '$discountPercent% 할인',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: _AppColors.primary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '₩$price',
+                      style: TextStyle(
+                        fontSize: isPopular ? 20 : 18,
+                        fontWeight: FontWeight.w700,
+                        color: _AppColors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (isPopular)
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: _AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: const BorderRadius.only(
+                    topRight: Radius.circular(14), // Border width 고려 살짝 줄임
+                    bottomLeft: Radius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'POPULAR',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: _AppColors.primary,
+                  ),
                 ),
               ),
             ),
-          ),
-      ],
+        ],
       ),
     );
   }

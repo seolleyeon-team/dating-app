@@ -26,10 +26,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
-      ),
+      body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _currentIndex,
@@ -39,26 +36,11 @@ class _MainScreenState extends State<MainScreen> {
           });
         },
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.favorite),
-            label: '설레연',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.chat),
-            label: '채팅',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.event),
-            label: '이벤트',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.forest),
-            label: '대나무숲',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: '내 페이지',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.favorite), label: '설레연'),
+          BottomNavigationBarItem(icon: Icon(Icons.chat), label: '채팅'),
+          BottomNavigationBarItem(icon: Icon(Icons.event), label: '이벤트'),
+          BottomNavigationBarItem(icon: Icon(Icons.forest), label: '대나무숲'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: '내 페이지'),
         ],
       ),
     );

@@ -6,7 +6,8 @@ class AppPrivacySplashOverlay extends StatefulWidget {
   const AppPrivacySplashOverlay({super.key, required this.child});
 
   @override
-  State<AppPrivacySplashOverlay> createState() => _AppPrivacySplashOverlayState();
+  State<AppPrivacySplashOverlay> createState() =>
+      _AppPrivacySplashOverlayState();
 }
 
 class _AppPrivacySplashOverlayState extends State<AppPrivacySplashOverlay>

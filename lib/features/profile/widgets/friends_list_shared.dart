@@ -14,10 +14,7 @@ class FriendsListSharedColors {
   static const Color empty = Color(0xFFB7B7C2);
 }
 
-enum FriendsListStreamMode {
-  browse,
-  picker,
-}
+enum FriendsListStreamMode { browse, picker }
 
 class FriendsListStreamBody extends StatelessWidget {
   final String currentUserId;
@@ -106,9 +103,7 @@ class FriendsListStreamBody extends StatelessWidget {
             }
             var friends = friendsSnapshot.data ?? const <FriendListItem>[];
             friends = friends
-                .where(
-                  (f) => !excludedFriendUserIds.contains(f.friendUserId),
-                )
+                .where((f) => !excludedFriendUserIds.contains(f.friendUserId))
                 .toList();
             if (friends.isEmpty) {
               return const FriendsListEmptyMessage(
@@ -126,14 +121,16 @@ class FriendsListStreamBody extends StatelessWidget {
                 final item = friends[index];
                 final addedAtText = formatAddedAt(item.createdAt);
                 final isPicker = mode == FriendsListStreamMode.picker;
-                final selected =
-                    selectedFriendUserIds.contains(item.friendUserId);
-                final atPickLimit = isPicker &&
+                final selected = selectedFriendUserIds.contains(
+                  item.friendUserId,
+                );
+                final atPickLimit =
+                    isPicker &&
                     pickerMaxAdditionalSelections >= 0 &&
                     !selected &&
                     pickerSelectedCount >= pickerMaxAdditionalSelections;
-                final disabled = disabledFriendUserIds
-                        .contains(item.friendUserId) ||
+                final disabled =
+                    disabledFriendUserIds.contains(item.friendUserId) ||
                     atPickLimit;
 
                 return FriendListTileWidget(

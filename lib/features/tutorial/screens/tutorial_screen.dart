@@ -57,17 +57,12 @@ class _TutorialScreenState extends State<TutorialScreen>
       child: Stack(
         children: [
           const IgnorePointer(
-            child: MysteryCardScreen(
-              notificationCount: 1,
-              remainingMatches: 2,
-            ),
+            child: MysteryCardScreen(notificationCount: 1, remainingMatches: 2),
           ),
           Positioned.fill(
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
-              child: Container(
-                color: const Color(0xAA0F0B10),
-              ),
+              child: Container(color: const Color(0xAA0F0B10)),
             ),
           ),
           SafeArea(
@@ -145,9 +140,9 @@ class _TutorialScreenState extends State<TutorialScreen>
                               borderRadius: BorderRadius.circular(20),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFFF24D82).withValues(
-                                    alpha: 0.25,
-                                  ),
+                                  color: const Color(
+                                    0xFFF24D82,
+                                  ).withValues(alpha: 0.25),
                                   blurRadius: 20,
                                   offset: const Offset(0, 10),
                                 ),

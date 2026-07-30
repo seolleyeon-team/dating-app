@@ -103,7 +103,8 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     if (onboarding is Map) {
       // 온보딩이 { gender: 'female', ... } 형태로 저장된 경우 (saveOnboardingBasicInfo가 basicInfo 객체를 onboarding에 그대로 저장)
       final gAtOnboarding = onboarding['gender']?.toString();
-      if (gAtOnboarding != null && gAtOnboarding.trim().isNotEmpty) return gAtOnboarding.trim();
+      if (gAtOnboarding != null && gAtOnboarding.trim().isNotEmpty)
+        return gAtOnboarding.trim();
       final basicInfo = onboarding['basicInfo'];
       if (basicInfo is Map) {
         final g = basicInfo['gender']?.toString();
@@ -131,13 +132,15 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     final raw = (userGender ?? '').trim();
     final normalized = raw.toLowerCase();
     // 남성: male, m, 남성, 남자, man
-    final isMale = normalized == 'male' ||
+    final isMale =
+        normalized == 'male' ||
         normalized == 'm' ||
         raw == '남성' ||
         raw == '남자' ||
         normalized == 'man';
     // 여성: female, f, 여성, 여자, woman
-    final isFemale = normalized == 'female' ||
+    final isFemale =
+        normalized == 'female' ||
         normalized == 'f' ||
         raw == '여성' ||
         raw == '여자' ||
@@ -170,10 +173,7 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     _idBag
       ..clear()
       ..addAll(
-        List<int>.generate(
-          pool.maxId - pool.minId + 1,
-          (i) => pool.minId + i,
-        ),
+        List<int>.generate(pool.maxId - pool.minId + 1, (i) => pool.minId + i),
       );
     _idBag.shuffle(_rng);
     _idBagIndex = 0;
@@ -193,7 +193,8 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     return id;
   }
 
-  String _storagePathFor(String folder, int id) => 'ai_profiles/$folder/$id.png';
+  String _storagePathFor(String folder, int id) =>
+      'ai_profiles/$folder/$id.png';
 
   /// Storage miss must not look like a successful profile image.
   Future<String?> _getDownloadUrl(String storagePath) async {
@@ -218,7 +219,10 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     try {
       final cached = _heightTagCacheById[id];
       if (cached != null) {
-        return _HeightFetchResult(tag: cached, debug: _heightDebugCacheById[id] ?? 'cache');
+        return _HeightFetchResult(
+          tag: cached,
+          debug: _heightDebugCacheById[id] ?? 'cache',
+        );
       }
 
       final snap = await _firestore.collection('ai_profiles').doc('$id').get();
@@ -244,8 +248,10 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
       if (tag != null) {
         _heightTagCacheById[id] = tag;
         _heightDebugCacheById[id] = 'ok';
-        return const _HeightFetchResult(tag: null, debug: 'ok')
-            .copyWith(tag: tag); // keep const + dynamic tag
+        return const _HeightFetchResult(
+          tag: null,
+          debug: 'ok',
+        ).copyWith(tag: tag); // keep const + dynamic tag
       }
 
       if (metadata == null) {
@@ -259,7 +265,9 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     } on FirebaseException catch (e) {
       final d = 'fs-${e.code}';
       _heightDebugCacheById[id] = d;
-      debugPrint('[AI_PREF] height load failed id=$id code=${e.code} msg=${e.message}');
+      debugPrint(
+        '[AI_PREF] height load failed id=$id code=${e.code} msg=${e.message}',
+      );
       return _HeightFetchResult(tag: null, debug: d);
     } catch (e) {
       debugPrint('[AI_PREF] height parse failed id=$id err=$e');
@@ -299,8 +307,10 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     }
 
     // fallback: 문자열 어디든 "000cm" 패턴이 있으면 사용 (최후의 수단)
-    final cm = RegExp(r'([0-9]{2,3})\s*cm', caseSensitive: false)
-        .firstMatch(metadata);
+    final cm = RegExp(
+      r'([0-9]{2,3})\s*cm',
+      caseSensitive: false,
+    ).firstMatch(metadata);
     if (cm != null) return cm.group(1);
 
     return null;
@@ -530,9 +540,10 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
                   CupertinoButton(
                     padding: const EdgeInsets.only(bottom: 10),
                     onPressed: () {
-                      Navigator.of(context, rootNavigator: true).pushNamed(
-                        RouteNames.aiTasteTraining,
-                      );
+                      Navigator.of(
+                        context,
+                        rootNavigator: true,
+                      ).pushNamed(RouteNames.aiTasteTraining);
                     },
                     child: const Text(
                       '스와이프 가이드 보기(튜토리얼)',
@@ -668,29 +679,29 @@ class _AiImageCardState extends State<_AiImageCard> {
           ),
 
           // height 태그 (디버깅 겸 항상 표시)
-            Positioned(
-              left: 14,
-              bottom: 14,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: CupertinoColors.black.withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: CupertinoColors.white.withValues(alpha: 0.18),
-                  ),
+          Positioned(
+            left: 14,
+            bottom: 14,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: CupertinoColors.black.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: CupertinoColors.white.withValues(alpha: 0.18),
                 ),
-                child: Text(
-                  _heightTag ?? 'HEIGHT(?)  ($_heightDebug)',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: CupertinoColors.white,
-                    letterSpacing: 0.2,
-                  ),
+              ),
+              child: Text(
+                _heightTag ?? 'HEIGHT(?)  ($_heightDebug)',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: CupertinoColors.white,
+                  letterSpacing: 0.2,
                 ),
               ),
             ),
+          ),
         ],
       ),
     );
@@ -728,9 +739,7 @@ class _RoundActionButton extends StatelessWidget {
             ),
           ],
         ),
-        child: Center(
-          child: Icon(icon, size: 34, color: iconColor),
-        ),
+        child: Center(child: Icon(icon, size: 34, color: iconColor)),
       ),
     );
   }
@@ -760,10 +769,8 @@ class _HeightFetchResult {
 
   const _HeightFetchResult({required this.tag, required this.debug});
 
-  _HeightFetchResult copyWith({String? tag, String? debug}) => _HeightFetchResult(
-        tag: tag ?? this.tag,
-        debug: debug ?? this.debug,
-      );
+  _HeightFetchResult copyWith({String? tag, String? debug}) =>
+      _HeightFetchResult(tag: tag ?? this.tag, debug: debug ?? this.debug);
 }
 
 class _TargetPool {
@@ -771,5 +778,9 @@ class _TargetPool {
   final int minId;
   final int maxId;
 
-  const _TargetPool({required this.folder, required this.minId, required this.maxId});
+  const _TargetPool({
+    required this.folder,
+    required this.minId,
+    required this.maxId,
+  });
 }

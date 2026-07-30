@@ -71,10 +71,7 @@ class _AvatarCandidateSelectionDialogState
         SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 24,
-                vertical: 16,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxHeight: maxModalHeight),
                 child: Material(
@@ -296,10 +293,8 @@ class _ConfirmButton extends StatelessWidget {
     required this.onPressed,
   });
 
-  static const Color _plumSoft =
-      _AvatarCandidateSelectionDialogState._plumSoft;
-  static const Color _deepPlum =
-      _AvatarCandidateSelectionDialogState._deepPlum;
+  static const Color _plumSoft = _AvatarCandidateSelectionDialogState._plumSoft;
+  static const Color _deepPlum = _AvatarCandidateSelectionDialogState._deepPlum;
   static const Color _surfaceContainer =
       _AvatarCandidateSelectionDialogState._surfaceContainer;
   static const Color _textSecondary =

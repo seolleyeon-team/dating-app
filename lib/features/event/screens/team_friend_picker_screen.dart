@@ -84,9 +84,7 @@ class _TeamFriendPickerScreenState extends State<TeamFriendPickerScreen> {
     }
     if (willSelect && _selected.length >= remainingSlots) {
       HapticFeedback.selectionClick();
-      _toast(
-        '함께할 수 있는 자리가 부족해요. (최대 3명, 본인 포함)',
-      );
+      _toast('함께할 수 있는 자리가 부족해요. (최대 3명, 본인 포함)');
       return;
     }
     HapticFeedback.selectionClick();
@@ -122,10 +120,10 @@ class _TeamFriendPickerScreenState extends State<TeamFriendPickerScreen> {
     if (e is FirebaseFunctionsException) {
       return e.message ?? '요청을 처리하지 못했어요.';
     }
-    return e.toString().replaceFirst('Exception: ', '').replaceFirst(
-          'StateError: ',
-          '',
-        );
+    return e
+        .toString()
+        .replaceFirst('Exception: ', '')
+        .replaceFirst('StateError: ', '');
   }
 
   Future<void> _sendInvites() async {
@@ -197,162 +195,153 @@ class _TeamFriendPickerScreenState extends State<TeamFriendPickerScreen> {
         child: !_ready
             ? const Center(child: CupertinoActivityIndicator())
             : _currentUserId == null || _currentUserId!.isEmpty
-                ? const Center(
-                    child: Text(
-                      '로그인이 필요해요',
-                      style: TextStyle(
-                        fontFamily: 'NanumSquareRound',
-                        color: _Colors.textSub,
-                      ),
+            ? const Center(
+                child: Text(
+                  '로그인이 필요해요',
+                  style: TextStyle(
+                    fontFamily: 'NanumSquareRound',
+                    color: _Colors.textSub,
+                  ),
+                ),
+              )
+            : !_canReadFriends
+            ? const Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 28),
+                  child: Text(
+                    '학교 이메일 인증이 완료된 계정에서 친구 목록을 열 수 있어요.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'NanumSquareRound',
+                      fontSize: 14,
+                      height: 1.45,
+                      color: _Colors.textSub,
                     ),
-                  )
-                : !_canReadFriends
-                    ? const Center(
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 28),
-                          child: Text(
-                            '학교 이메일 인증이 완료된 계정에서 친구 목록을 열 수 있어요.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontFamily: 'NanumSquareRound',
-                              fontSize: 14,
-                              height: 1.45,
-                              color: _Colors.textSub,
-                            ),
+                  ),
+                ),
+              )
+            : StreamBuilder<EventTeamSetupState?>(
+                stream: _eventTeamService.watchTeamSetup(
+                  widget.args.teamSetupId,
+                ),
+                builder: (context, teamSnap) {
+                  final team = teamSnap.data;
+                  if (teamSnap.connectionState == ConnectionState.waiting &&
+                      team == null) {
+                    return const Center(child: CupertinoActivityIndicator());
+                  }
+                  if (team == null) {
+                    return const Center(
+                      child: Text(
+                        '팀 정보를 찾을 수 없어요',
+                        style: TextStyle(
+                          fontFamily: 'NanumSquareRound',
+                          color: _Colors.textSub,
+                        ),
+                      ),
+                    );
+                  }
+                  if (_currentUserId != team.leaderUserId) {
+                    return const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 24),
+                        child: Text(
+                          '이 팀의 리더만 친구를 초대할 수 있어요.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'NanumSquareRound',
+                            color: _Colors.textSub,
                           ),
                         ),
-                      )
-                    : StreamBuilder<EventTeamSetupState?>(
-                        stream: _eventTeamService.watchTeamSetup(
-                          widget.args.teamSetupId,
-                        ),
-                        builder: (context, teamSnap) {
-                          final team = teamSnap.data;
-                          if (teamSnap.connectionState ==
-                                  ConnectionState.waiting &&
-                              team == null) {
-                            return const Center(
-                              child: CupertinoActivityIndicator(),
-                            );
-                          }
-                          if (team == null) {
-                            return const Center(
-                              child: Text(
-                                '팀 정보를 찾을 수 없어요',
-                                style: TextStyle(
-                                  fontFamily: 'NanumSquareRound',
-                                  color: _Colors.textSub,
-                                ),
-                              ),
-                            );
-                          }
-                          if (_currentUserId != team.leaderUserId) {
-                            return const Center(
-                              child: Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 24),
-                                child: Text(
-                                  '이 팀의 리더만 친구를 초대할 수 있어요.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontFamily: 'NanumSquareRound',
-                                    color: _Colors.textSub,
-                                  ),
-                                ),
-                              ),
-                            );
-                          }
-
-                          final remaining = _remainingSlots(team);
-                          final excluded = {
-                            ...team.acceptedUserIds,
-                            ...team.pendingInviteeIds,
-                          };
-
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  20,
-                                  12,
-                                  20,
-                                  4,
-                                ),
-                                child: Text(
-                                  remaining <= 0
-                                      ? '지금은 더 초대할 수 있는 자리가 없어요.'
-                                      : '최대 $remaining명까지 선택할 수 있어요.',
-                                  style: const TextStyle(
-                                    fontFamily: 'NanumSquareRound',
-                                    fontSize: 13,
-                                    color: _Colors.textSub,
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                child: FriendsListStreamBody(
-                                  currentUserId: _currentUserId!,
-                                  friendService: _friendService,
-                                  mode: FriendsListStreamMode.picker,
-                                  excludedFriendUserIds: excluded,
-                                  selectedFriendUserIds: _selected,
-                                  formatAddedAt: _formatAddedAt,
-                                  pickerMaxAdditionalSelections: remaining,
-                                  pickerSelectedCount: _selected.length,
-                                  onPickerToggle: (item, willSelect) =>
-                                      _onToggle(item, willSelect, remaining),
-                                ),
-                              ),
-                              Padding(
-                                padding: EdgeInsets.fromLTRB(
-                                  20,
-                                  8,
-                                  20,
-                                  16 + MediaQuery.paddingOf(context).bottom,
-                                ),
-                                child: CupertinoButton(
-                                  padding: EdgeInsets.zero,
-                                  onPressed: _sending ||
-                                          _selected.isEmpty ||
-                                          remaining <= 0
-                                      ? null
-                                      : _sendInvites,
-                                  child: Container(
-                                    width: double.infinity,
-                                    height: 50,
-                                    alignment: Alignment.center,
-                                    decoration: BoxDecoration(
-                                      color: _sending ||
-                                              _selected.isEmpty ||
-                                              remaining <= 0
-                                          ? _Colors.line
-                                          : _Colors.primary,
-                                      borderRadius: BorderRadius.circular(25),
-                                    ),
-                                    child: _sending
-                                        ? const CupertinoActivityIndicator(
-                                            color: CupertinoColors.white,
-                                          )
-                                        : Text(
-                                            '초대 보내기'
-                                                '${_selected.isEmpty ? '' : ' (${_selected.length})'}',
-                                            style: TextStyle(
-                                              fontFamily: 'NanumSquareRound',
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w700,
-                                              color: _selected.isEmpty ||
-                                                      remaining <= 0
-                                                  ? _Colors.textSub
-                                                  : CupertinoColors.white,
-                                            ),
-                                          ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          );
-                        },
                       ),
+                    );
+                  }
+
+                  final remaining = _remainingSlots(team);
+                  final excluded = {
+                    ...team.acceptedUserIds,
+                    ...team.pendingInviteeIds,
+                  };
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+                        child: Text(
+                          remaining <= 0
+                              ? '지금은 더 초대할 수 있는 자리가 없어요.'
+                              : '최대 $remaining명까지 선택할 수 있어요.',
+                          style: const TextStyle(
+                            fontFamily: 'NanumSquareRound',
+                            fontSize: 13,
+                            color: _Colors.textSub,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: FriendsListStreamBody(
+                          currentUserId: _currentUserId!,
+                          friendService: _friendService,
+                          mode: FriendsListStreamMode.picker,
+                          excludedFriendUserIds: excluded,
+                          selectedFriendUserIds: _selected,
+                          formatAddedAt: _formatAddedAt,
+                          pickerMaxAdditionalSelections: remaining,
+                          pickerSelectedCount: _selected.length,
+                          onPickerToggle: (item, willSelect) =>
+                              _onToggle(item, willSelect, remaining),
+                        ),
+                      ),
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          20,
+                          8,
+                          20,
+                          16 + MediaQuery.paddingOf(context).bottom,
+                        ),
+                        child: CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed:
+                              _sending || _selected.isEmpty || remaining <= 0
+                              ? null
+                              : _sendInvites,
+                          child: Container(
+                            width: double.infinity,
+                            height: 50,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color:
+                                  _sending ||
+                                      _selected.isEmpty ||
+                                      remaining <= 0
+                                  ? _Colors.line
+                                  : _Colors.primary,
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                            child: _sending
+                                ? const CupertinoActivityIndicator(
+                                    color: CupertinoColors.white,
+                                  )
+                                : Text(
+                                    '초대 보내기'
+                                    '${_selected.isEmpty ? '' : ' (${_selected.length})'}',
+                                    style: TextStyle(
+                                      fontFamily: 'NanumSquareRound',
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                      color: _selected.isEmpty || remaining <= 0
+                                          ? _Colors.textSub
+                                          : CupertinoColors.white,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
       ),
     );
   }
