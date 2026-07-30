@@ -13,3 +13,9 @@
 | Protected blind SHA256 | — | — | UNCHANGED | 94BA6240…8849C |
 
 Not run yet in this session: flutter build apk/web, local firebase emulators:exec, bandit, trivy.
+
+| flutter build apk --debug | root | 0 | PASS | app-debug.apk built after a11y fix |
+| flutter build web | root | 0 | PASS | build/web |
+| firebase emulators:exec (rules) | root | 1 | BLOCKED | Java not on PATH locally; CI rules job remains source of truth |
+| accessibility_semantics_test | root | 0 | PASS | nav/auth semantics |
+
