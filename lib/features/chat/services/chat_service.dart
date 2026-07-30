@@ -1,42 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 
 import '../utils/safety_stamp_availability.dart';
 
 class ChatService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  /// Auth uid currently attached to the Firebase client (debug aid).
-  String get debugAuthUid => FirebaseAuth.instance.currentUser?.uid ?? '(null)';
-
   static Map<String, dynamic> _coerceStringMap(dynamic raw) {
     if (raw is Map) {
       return Map<String, dynamic>.from(raw as Map<Object?, Object?>);
     }
     return <String, dynamic>{};
-  }
-
-  static bool isParticipantWithdrawnInRoomData(
-    Map<String, dynamic>? roomData,
-    String userId,
-  ) {
-    if (roomData == null || userId.isEmpty) return false;
-
-    final withdrawnIds = roomData['withdrawnParticipantIds'];
-    if (withdrawnIds is List &&
-        withdrawnIds.map((e) => '$e').contains(userId)) {
-      return true;
-    }
-
-    final participantInfo = roomData['participantInfo'];
-    if (participantInfo is! Map) return false;
-    final userInfo = participantInfo[userId];
-    if (userInfo is! Map) return false;
-
-    return userInfo['isWithdrawn'] == true ||
-        userInfo['status'] == 'withdrawn' ||
-        userInfo['loginDisabled'] == true;
   }
 
   static Map<String, dynamic> _promisePlaceExtras({
@@ -96,7 +69,6 @@ class ChatService {
   }) async {
     final roomRef = _firestore.collection('chat_rooms').doc(roomId);
     final promiseRef = roomRef.collection('promises').doc(promiseId);
-    final cancelledMessageRef = roomRef.collection('messages').doc();
     final now = DateTime.now();
     final cancelledMessageText = '약속이 취소되었어요 (${_formatKoreanDateTime(now)})';
 
@@ -131,21 +103,6 @@ class ChatService {
         'status': 'cancelled',
         'cancelledAt': FieldValue.serverTimestamp(),
         'cancelledReason': 'safety_stamp_timeout',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      tx.set(cancelledMessageRef, {
-        'senderId': 'system',
-        'text': cancelledMessageText,
-        'type': 'promise_deleted',
-        'promiseId': promiseId,
-        'dateTime': FieldValue.serverTimestamp(),
-        'place': activePromise['place'],
-        'placeCategory': activePromise['placeCategory'],
-        'status': 'cancelled',
-        'cancelledReason': 'safety_stamp_timeout',
-        'readBy': const <String>[],
-        'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
@@ -451,103 +408,44 @@ class ChatService {
     final roomRef = _firestore.collection('chat_rooms').doc(resolvedRoomId);
     final participantIds = [currentUserId, partnerId]..sort();
 
-    final DocumentSnapshot<Map<String, dynamic>> snap;
+    final payload = {
+      'roomId': resolvedRoomId,
+      'participantIds': participantIds,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'participantInfo': {
+        currentUserId: {
+          'nickname': currentUserName,
+          'avatarUrl': currentUserAvatarUrl ?? '',
+        },
+        partnerId: {
+          'nickname': partnerName,
+          'avatarUrl': partnerAvatarUrl ?? '',
+        },
+      },
+    };
 
-    try {
-      snap = await roomRef.get();
-    } catch (e) {
-      debugPrint(
-        '[ChatService] ensureDirectRoom get failed room=$resolvedRoomId '
-        'authUid=$debugAuthUid kakao=$currentUserId: $e',
-      );
-      rethrow;
-    }
+    final snap = await roomRef.get();
 
     if (!snap.exists) {
-      try {
-        await roomRef.set({
-          'roomId': resolvedRoomId,
-          'participantIds': participantIds,
-          'updatedAt': FieldValue.serverTimestamp(),
-          'participantInfo': {
-            currentUserId: {
-              'nickname': currentUserName,
-              'avatarUrl': currentUserAvatarUrl ?? '',
-            },
-            partnerId: {
-              'nickname': partnerName,
-              'avatarUrl': partnerAvatarUrl ?? '',
-            },
-          },
-          'createdAt': FieldValue.serverTimestamp(),
-          'lastMessage': '',
-          'lastMessageAt': null,
-        });
-      } catch (e) {
-        debugPrint(
-          '[ChatService] ensureDirectRoom create failed '
-          'room=$resolvedRoomId: $e',
-        );
-        rethrow;
-      }
-
+      await roomRef.set({
+        ...payload,
+        'createdAt': FieldValue.serverTimestamp(),
+        'lastMessage': '',
+        'lastMessageAt': null,
+      });
       return;
     }
 
-    final existingData = snap.data() ?? <String, dynamic>{};
-    final existingParticipantIds = List<String>.from(
-      (existingData['participantIds'] as List? ?? const []).map((e) => '$e'),
-    );
-
-    if (!existingParticipantIds.contains(currentUserId)) {
-      throw StateError(
-        '채팅방 참가자가 아닙니다. '
-        'authUid=$debugAuthUid room=$resolvedRoomId '
-        'participants=$existingParticipantIds',
-      );
-    }
-
-    final payload = <String, dynamic>{
-      'roomId': resolvedRoomId,
-      'updatedAt': FieldValue.serverTimestamp(),
-      'participantInfo.$currentUserId.nickname': currentUserName,
-      'participantInfo.$currentUserId.avatarUrl': currentUserAvatarUrl ?? '',
-      'participantInfo.$currentUserId.isWithdrawn': FieldValue.delete(),
-      'participantInfo.$currentUserId.withdrawnAt': FieldValue.delete(),
-      'withdrawnParticipantIds': FieldValue.arrayRemove([currentUserId]),
-    };
-
-    if (!isParticipantWithdrawnInRoomData(existingData, partnerId)) {
-      payload['participantInfo.$partnerId.nickname'] = partnerName;
-      payload['participantInfo.$partnerId.avatarUrl'] = partnerAvatarUrl ?? '';
-    }
-
-    try {
-      await roomRef.set(payload, SetOptions(merge: true));
-    } catch (e) {
-      debugPrint(
-        '[ChatService] ensureDirectRoom update failed '
-        'room=$resolvedRoomId authUid=$debugAuthUid: $e',
-      );
-      rethrow;
-    }
+    await roomRef.set(payload, SetOptions(merge: true));
   }
 
   Future<void> sendTextMessage({
     required String roomId,
     required String senderId,
     required String text,
-    String? recipientId,
   }) async {
     final roomRef = _firestore.collection('chat_rooms').doc(roomId);
     final msgRef = roomRef.collection('messages').doc();
-
-    final roomSnap = await roomRef.get();
-    final roomData = roomSnap.data();
-    if (recipientId != null &&
-        isParticipantWithdrawnInRoomData(roomData, recipientId)) {
-      throw StateError('탈퇴한 사용자가 포함된 채팅방에는 메시지를 보낼 수 없습니다.');
-    }
 
     final batch = _firestore.batch();
 
@@ -587,12 +485,6 @@ class ChatService {
     final roomRef = _firestore.collection('chat_rooms').doc(roomId);
     final promiseRef = roomRef.collection('promises').doc();
     final messageRef = roomRef.collection('messages').doc();
-
-    final roomSnap = await roomRef.get();
-    final roomData = roomSnap.data();
-    if (isParticipantWithdrawnInRoomData(roomData, requestedTo)) {
-      throw StateError('탈퇴한 사용자가 포함된 채팅방에는 약속을 만들 수 없습니다.');
-    }
 
     final batch = _firestore.batch();
 

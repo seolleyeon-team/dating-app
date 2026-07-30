@@ -11,6 +11,7 @@ import '../../../router/route_names.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/privacy_log_utils.dart';
 import '../../../shared/widgets/seol_swipe_deck.dart';
 
 /// AI 취향 알려주기 화면
@@ -68,7 +69,7 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
 
     final kakaoUserId = await _storageService.getKakaoUserId();
     _kakaoUserId = kakaoUserId;
-    debugPrint('[AI_PREF] kakaoUserId=$kakaoUserId');
+    debugPrint('[AI_PREF] ${PrivacyLogUtils.idFingerprint(kakaoUserId)}');
 
     String? gender;
     if (kakaoUserId != null && kakaoUserId.isNotEmpty) {
@@ -206,11 +207,15 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
       return url;
     } on FirebaseException catch (e) {
       debugPrint(
-        '[AI_PREF] Storage miss/error code=${e.code} path=$storagePath',
+        '[AI_PREF] Storage miss/error ${PrivacyLogUtils.errorSummary(e)} '
+        '${PrivacyLogUtils.pathFingerprint(storagePath)}',
       );
       return null;
     } catch (e) {
-      debugPrint('[AI_PREF] Storage error path=$storagePath err=$e');
+      debugPrint(
+        '[AI_PREF] Storage error ${PrivacyLogUtils.pathFingerprint(storagePath)} '
+        '${PrivacyLogUtils.errorSummary(e)}',
+      );
       return null;
     }
   }
@@ -266,11 +271,13 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
       final d = 'fs-${e.code}';
       _heightDebugCacheById[id] = d;
       debugPrint(
-        '[AI_PREF] height load failed id=$id code=${e.code} msg=${e.message}',
+        '[AI_PREF] height load failed id=$id ${PrivacyLogUtils.errorSummary(e)}',
       );
       return _HeightFetchResult(tag: null, debug: d);
     } catch (e) {
-      debugPrint('[AI_PREF] height parse failed id=$id err=$e');
+      debugPrint(
+        '[AI_PREF] height parse failed id=$id ${PrivacyLogUtils.errorSummary(e)}',
+      );
       _heightDebugCacheById[id] = 'err';
       return const _HeightFetchResult(tag: null, debug: 'err');
     }
@@ -362,7 +369,11 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
           ),
         );
       } catch (e) {
-        debugPrint('[AI_PREF] _fillCards failed id=$id path=$path err=$e');
+        debugPrint(
+          '[AI_PREF] _fillCards failed id=$id '
+          '${PrivacyLogUtils.pathFingerprint(path)} '
+          '${PrivacyLogUtils.errorSummary(e)}',
+        );
       }
     }
 
@@ -439,7 +450,9 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
         },
       );
     } catch (e) {
-      debugPrint('[AI_PREF] ❌ recEvent $label 실패: $e');
+      debugPrint(
+        '[AI_PREF] recEvent $label failed ${PrivacyLogUtils.errorSummary(e)}',
+      );
     }
   }
 

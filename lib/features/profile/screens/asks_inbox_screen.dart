@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
@@ -5,9 +6,10 @@ import 'package:flutter/services.dart';
 import '../../../services/ask_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/chat_unlocked_profile_avatar.dart';
 
-const String _kFontFamily = 'NanumSquareRound';
+const String _kFontFamily = 'Noto Sans KR';
 
 class _C {
   static const Color primary = Color(0xFFF0428B);
@@ -268,7 +270,7 @@ class _AskCard extends StatelessWidget {
         : <String, dynamic>{};
 
     final nickname = snapshot['nickname']?.toString() ?? '';
-    final avatarUrl = snapshot['profileImageUrl']?.toString() ?? '';
+    final avatarUrl = ProfileDisplayImageResolver.resolve(snapshot);
     final university = snapshot['universityName']?.toString() ?? '';
     final otherUserId =
         (isReceived ? data['fromUserId'] : data['toUserId'])?.toString() ?? '';
@@ -387,7 +389,11 @@ class _AskCard extends StatelessWidget {
     if (isUnread) {
       askService
           .markAsRead(askId)
-          .catchError((e) => debugPrint('[AskInbox] markAsRead failed: $e'));
+          .catchError(
+            (e) => debugPrint(
+              '[AskInbox] markAsRead failed: ${PrivacyLogUtils.errorSummary(e)}',
+            ),
+          );
     }
 
     showCupertinoModalPopup(
@@ -474,7 +480,7 @@ class _AskDetailSheet extends StatelessWidget {
         : <String, dynamic>{};
 
     final nickname = snapshot['nickname']?.toString() ?? '사용자';
-    final avatarUrl = snapshot['profileImageUrl']?.toString() ?? '';
+    final avatarUrl = ProfileDisplayImageResolver.resolve(snapshot);
     final university = snapshot['universityName']?.toString() ?? '';
     final otherUserId =
         (isReceived ? data['fromUserId'] : data['toUserId'])?.toString() ?? '';

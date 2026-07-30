@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
@@ -52,7 +53,7 @@ class RecEventService {
     };
 
     debugPrint(
-      '[RecEvent] 🚀 시도: $eventType | surface=$surface | target=$targetUid | userId=$userId',
+      '[RecEvent] 시도: $eventType surface=$surface ${PrivacyLogUtils.idFingerprint(targetUid)} ${PrivacyLogUtils.idFingerprint(userId)}',
     );
 
     try {
@@ -60,13 +61,15 @@ class RecEventService {
         'lastEventAt': nowString,
       }, SetOptions(merge: true));
     } catch (e) {
-      debugPrint('[RecEvent] ⚠️ 부모 문서 set 실패 (무시하고 계속): $e');
+      debugPrint(
+        '[RecEvent] ⚠️ 부모 문서 set 실패 (무시하고 계속): ${PrivacyLogUtils.errorSummary(e)}',
+      );
     }
 
     await _eventsRef(userId).add(payload);
 
     debugPrint(
-      '[RecEvent] ✅ 기록 성공: $eventType surface=$surface userId=$userId',
+      '[RecEvent] 기록 성공: $eventType surface=$surface ${PrivacyLogUtils.idFingerprint(userId)}',
     );
   }
 
