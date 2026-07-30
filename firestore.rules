@@ -896,8 +896,16 @@ service cloud.firestore {
             'exposureId',
             'sessionId',
             'dateKey',
-            'context'
-          ]);
+            'context',
+            'schemaVersion'
+          ]) &&
+          (
+            !('schemaVersion' in request.resource.data) ||
+            (
+              request.resource.data.schemaVersion is int &&
+              request.resource.data.schemaVersion == 1
+            )
+          );
     }
 
     match /recEvents/{userId} {

@@ -134,3 +134,22 @@ test("parent lastEventAt metadata remains writable by the owner", async () => {
     setDoc(doc(alice, "recEvents", ALICE), { lastEventAt: "2026-07-27T00:00:00.000Z" }, { merge: true })
   );
 });
+
+test("schemaVersion 1 is accepted and invalid schemaVersion is rejected", async () => {
+  await withClearedDb();
+  const alice = await kakaoSession(ALICE);
+
+  await assertSucceeds(
+    addDoc(
+      collection(alice, "recEvents", ALICE, "events"),
+      validLike({ schemaVersion: 1 })
+    )
+  );
+
+  await assertFails(
+    addDoc(
+      collection(alice, "recEvents", ALICE, "events"),
+      validLike({ schemaVersion: 99 })
+    )
+  );
+});
