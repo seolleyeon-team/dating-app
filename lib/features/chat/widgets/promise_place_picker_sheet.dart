@@ -35,10 +35,7 @@ bool _placeMatchesFilter(PromisePlace p, _PlaceCategoryFilter f) {
 
 /// 약속 장소 선택: 카테고리 필터 → 행 탭 시 같은 목록 안에서 펼쳐 상세 표시.
 class PromisePlacePickerSheet extends StatelessWidget {
-  const PromisePlacePickerSheet({
-    super.key,
-    this.initialPlaceId,
-  });
+  const PromisePlacePickerSheet({super.key, this.initialPlaceId});
 
   final String? initialPlaceId;
 
@@ -48,9 +45,7 @@ class PromisePlacePickerSheet extends StatelessWidget {
   }) {
     return showCupertinoModalPopup<PromisePlace>(
       context: context,
-      builder: (ctx) => PromisePlacePickerSheet(
-        initialPlaceId: initialPlaceId,
-      ),
+      builder: (ctx) => PromisePlacePickerSheet(initialPlaceId: initialPlaceId),
     );
   }
 
@@ -96,9 +91,7 @@ class PromisePlacePickerSheet extends StatelessWidget {
           ),
           child: SafeArea(
             top: false,
-            child: _PromisePlaceListBody(
-              initialPlaceId: initialPlaceId,
-            ),
+            child: _PromisePlaceListBody(initialPlaceId: initialPlaceId),
           ),
         ),
       ),
@@ -199,8 +192,8 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
                 _error != null
                     ? _error!
                     : 'Firebase에 place_catalog_items 를 추가하고,\n'
-                        'place_catalog_meta/current 의 version 을 올려 주세요.\n'
-                        '(오프라인이면 마지막으로 받아 둔 캐시만 씁니다)',
+                          'place_catalog_meta/current 의 version 을 올려 주세요.\n'
+                          '(오프라인이면 마지막으로 받아 둔 캐시만 씁니다)',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontFamily: 'NanumSquareRound',
@@ -559,10 +552,7 @@ class _InlinePlaceDetailState extends State<_InlinePlaceDetail> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            height: 1,
-            color: _PickerColors.stone100,
-          ),
+          Container(height: 1, color: _PickerColors.stone100),
           const SizedBox(height: 14),
           Text(
             p.description.isNotEmpty ? p.description : '설명이 아직 없어요.',

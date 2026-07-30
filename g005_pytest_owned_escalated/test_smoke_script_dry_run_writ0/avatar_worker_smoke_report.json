@@ -1,0 +1,20 @@
+{
+  "status": "failed",
+  "mode": "dry_run",
+  "jobId": "avatar_job_1",
+  "uid": "u1",
+  "sourceRef": "gs://<private-source-photo-redacted>",
+  "candidateCount": 4,
+  "dependencies": {
+    "torch": {
+      "available": true,
+      "version": "2.11.0+cpu",
+      "cudaAvailable": false
+    },
+    "diffusersFlux2KleinPipeline": {
+      "available": false,
+      "error": "ModuleNotFoundError"
+    }
+  },
+  "error": "'FakeCollection' object has no attribute 'stream'"
+}

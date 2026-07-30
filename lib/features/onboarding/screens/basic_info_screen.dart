@@ -250,17 +250,23 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
   }
 
   bool _validateRequiredFields() {
-    if (_nicknameController.text.trim().isNotEmpty) {
+    final nickname = _nicknameController.text.trim();
+    final height = int.tryParse(_heightController.text.trim());
+    final hasNickname = nickname.isNotEmpty;
+    final hasHeight = height != null && height > 0;
+
+    if (hasNickname && hasHeight) {
       return true;
     }
 
     HapticFeedback.lightImpact();
+
+    final message = !hasNickname ? '닉네임을 입력해주세요.' : '키를 입력해주세요.';
+
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('닉네임을 입력해주세요.'),
-        backgroundColor: Colors.red,
-      ),
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
+
     return false;
   }
 

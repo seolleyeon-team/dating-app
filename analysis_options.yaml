@@ -11,9 +11,36 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   exclude:
-    # This repo contains a nested legacy Flutter package under `dating-app/`.
-    # Exclude it so `flutter analyze` reports issues for the actual app only.
+    # Keep root analysis scoped to the Flutter app and its Dart tests. This
+    # workspace also contains Python/Node tooling, evidence, and nested repos.
+    - .agents/**
+    - .cache/**
+    - .g002narrow/**
+    - .g003_pytest_tmp/**
+    - .omx/**
+    - .pytest_cache/**
+    - .tmp/**
+    - .venv/**
+    - .venv_mediapipe_preflight/**
+    - build/**
+    - canary_inputs/**
+    - config/**
     - dating-app/**
+    - docs/**
+    - festival_web/**
+    - functions/**
+    - g005_pytest_owned_escalated/**
+    - g005_pytest_owned_escalated_2/**
+    - infra/**
+    - out/**
+    - pytest_tmp_avatar_qa_escalated/**
+    - recsys/**
+    - rules_tests/**
+    - scripts/**
+    - seolleyeon-iniitial/**
+    - seolleyeon-initial/**
+    - tests/**
+    - tmp/**
 
 linter:
   # The lint rules applied to this project can be customized in the

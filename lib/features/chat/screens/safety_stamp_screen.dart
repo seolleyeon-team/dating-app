@@ -395,14 +395,15 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
             final myAnim = _myStampController.value;
             final partnerAnim = _partnerStampController.value;
             final isAnyAnimating =
-                (myAnim > 0 && myAnim < 1) || (partnerAnim > 0 && partnerAnim < 1);
+                (myAnim > 0 && myAnim < 1) ||
+                (partnerAnim > 0 && partnerAnim < 1);
             final controlsOpacity = isAnyAnimating ? 0.0 : 1.0;
             final trimmedPartnerName = widget.partnerName.trim();
             final partnerSlotLabel = trimmedPartnerName.isEmpty
                 ? '상대방 칸'
                 : trimmedPartnerName.endsWith('님')
-                    ? '$trimmedPartnerName 칸'
-                    : '$trimmedPartnerName님 칸';
+                ? '$trimmedPartnerName 칸'
+                : '$trimmedPartnerName님 칸';
 
             return Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
@@ -442,8 +443,8 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
                                 helperText: _isMyStamped
                                     ? null
                                     : visualPhase == SafetyStampPhase.goodbye
-                                        ? '헤어질 때 벚꽃 스티커를 남겨요'
-                                        : '만남 후 벚꽃 스티커를 남겨요',
+                                    ? '헤어질 때 벚꽃 스티커를 남겨요'
+                                    : '만남 후 벚꽃 스티커를 남겨요',
                               ),
                             ],
                           ),
@@ -478,7 +479,8 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
                             width: double.infinity,
                             height: 56,
                             child: material.ElevatedButton(
-                              onPressed: (_holdMeetupSuccessView ||
+                              onPressed:
+                                  (_holdMeetupSuccessView ||
                                       isCompleted ||
                                       _isMyStamped ||
                                       _isSubmittingMyStamp)
@@ -541,7 +543,6 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
       ),
     );
   }
-
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -611,10 +612,7 @@ class _StickerSlotCard extends StatelessWidget {
                 fit: StackFit.expand,
                 children: [
                   // sketchbook.png 질감 배경
-                  Image.asset(
-                    'sketchbook.png',
-                    fit: BoxFit.cover,
-                  ),
+                  Image.asset('sketchbook.png', fit: BoxFit.cover),
                   // 아주 연한 화이트 오버레이 — 과한 빈티지 억제
                   Container(color: const Color(0x18FFFFFF)),
                   // 라벨
@@ -691,7 +689,6 @@ class _StickerPose {
     this.scaleY = 1.0,
     this.opacity = 1.0,
   });
-
 }
 
 // 4개 포즈 — 스티커가 내려와 붙을 때 거치는 기준 포즈들
@@ -715,7 +712,13 @@ List<_StickerPose> _buildPoses(double stickerSize, double finalRotDeg) {
     // F2: 카드 직상단
     _StickerPose(dx: fx - 18, dy: -s * 0.22, rotDeg: -7),
     // F3: 찰싹 붙으며 정착
-    _StickerPose(dx: fx, dy: fy, rotDeg: finalRotDeg, scaleX: 1.04, scaleY: 0.96),
+    _StickerPose(
+      dx: fx,
+      dy: fy,
+      rotDeg: finalRotDeg,
+      scaleX: 1.04,
+      scaleY: 0.96,
+    ),
   ];
 }
 
@@ -796,7 +799,8 @@ class _AnimatedCherrySticker extends StatelessWidget {
 
   _StickerPose _poseAt(List<_StickerPose> poses, double progress) {
     final interpolated = _interpolatePose(poses, progress);
-    final sway = math.sin(progress * math.pi * 3.2) *
+    final sway =
+        math.sin(progress * math.pi * 3.2) *
         (stickerSize * 0.045) *
         (1 - progress);
 

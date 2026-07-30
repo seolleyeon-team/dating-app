@@ -9,10 +9,7 @@ import '../../chat/screens/premium_chat_list_screen.dart';
 class PromiseAgreementTutorialScreen extends StatefulWidget {
   final VoidCallback? onAgree;
 
-  const PromiseAgreementTutorialScreen({
-    super.key,
-    this.onAgree,
-  });
+  const PromiseAgreementTutorialScreen({super.key, this.onAgree});
 
   @override
   State<PromiseAgreementTutorialScreen> createState() =>
@@ -66,9 +63,7 @@ class _PromiseAgreementTutorialScreenState
           Positioned.fill(
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 2.5, sigmaY: 2.5),
-              child: Container(
-                color: const Color(0xC40E0A11),
-              ),
+              child: Container(color: const Color(0xC40E0A11)),
             ),
           ),
           SafeArea(

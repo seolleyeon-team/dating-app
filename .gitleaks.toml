@@ -1,0 +1,14 @@
+title = "seolleyeon gitleaks"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Client Firebase configs and known test fixtures"
+paths = [
+  '''android/app/google-services.json''',
+  '''ios/Runner/GoogleService-Info.plist''',
+  '''lib/firebase_options.dart''',
+  '''test/auth_service_diagnostics_test.dart''',
+  '''tmp/.*''',
+]

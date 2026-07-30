@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../shared/utils/privacy_log_utils.dart';
 import '../utils/phone_hash_utils.dart';
 import 'auth_service.dart';
 import 'storage_service.dart';
@@ -76,7 +77,9 @@ class ContactBlockService {
           return ContactPermissionStatus.denied;
       }
     } catch (e) {
-      debugPrint('[ContactBlock] checkPermission error: $e');
+      debugPrint(
+        '[ContactBlock] checkPermission ${PrivacyLogUtils.errorSummary(e)}',
+      );
       return ContactPermissionStatus.denied;
     }
   }
@@ -221,7 +224,9 @@ class ContactBlockService {
 
       return snap.docs.map((d) => d.id).toSet();
     } catch (e) {
-      debugPrint('[ContactBlock] getBlockedUserIds error: $e');
+      debugPrint(
+        '[ContactBlock] getBlockedUserIds ${PrivacyLogUtils.errorSummary(e)}',
+      );
       return {};
     }
   }

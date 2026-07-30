@@ -10,6 +10,7 @@
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import 'package:seolleyeon/shared/utils/in_app_purchase_policy.dart';
 
 // =============================================================================
 // 색상 상수
@@ -94,12 +95,43 @@ class _HeartRechargeScreenState extends State<HeartRechargeScreen> {
 
   void _onPackageTap(_HeartPackage package) {
     HapticFeedback.selectionClick();
-    // TODO: 결제 처리
+    if (!InAppPurchasePolicy.allowPurchaseUi) {
+      showCupertinoDialog<void>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: const Text('하트 충전'),
+          content: Text(InAppPurchasePolicy.unavailableMessage),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    // Real billing is behind ENABLE_IN_APP_PURCHASE=true only.
   }
 
   void _onCouponTap() {
     HapticFeedback.lightImpact();
-    // TODO: 쿠폰 등록 화면
+    if (!InAppPurchasePolicy.allowPurchaseUi) {
+      showCupertinoDialog<void>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: const Text('쿠폰 등록'),
+          content: Text(InAppPurchasePolicy.unavailableMessage),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
   }
 
   @override

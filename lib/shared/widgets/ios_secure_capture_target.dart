@@ -25,8 +25,7 @@ class _IosSecureCaptureTargetState extends State<IosSecureCaptureTarget>
   );
 
   final GlobalKey _targetKey = GlobalKey();
-  bool get _enabled =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+  bool get _enabled => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
   @override
   void initState() {
@@ -94,9 +93,6 @@ class _IosSecureCaptureTargetState extends State<IosSecureCaptureTarget>
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncRect());
-    return KeyedSubtree(
-      key: _targetKey,
-      child: widget.child,
-    );
+    return KeyedSubtree(key: _targetKey, child: widget.child);
   }
 }

@@ -135,11 +135,7 @@ class _EventTeamInviteResponseScreenState
                 color: _C.plumLight,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                CupertinoIcons.mail,
-                size: 28,
-                color: _C.plumAccent,
-              ),
+              child: Icon(CupertinoIcons.mail, size: 28, color: _C.plumAccent),
             ),
             const SizedBox(height: 20),
             Text(

@@ -1,0 +1,189 @@
+{
+  "userId": "4705828086",
+  "user_idx": 1,
+  "pos_item_count": 21,
+  "eligible_for_export_loop": true,
+  "note": "model_rank is order from recommend_for_user (nope/self/already-interacted excluded only)",
+  "top": [
+    {
+      "model_rank": 1,
+      "uid": "male_20",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 2,
+      "uid": "male_58",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 3,
+      "uid": "male_250",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 4,
+      "uid": "male_55",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 5,
+      "uid": "male_43",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 6,
+      "uid": "male_229",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 7,
+      "uid": "male_1",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 8,
+      "uid": "male_166",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 9,
+      "uid": "male_111",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 10,
+      "uid": "male_145",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 11,
+      "uid": "male_190",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 12,
+      "uid": "male_192",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 13,
+      "uid": "male_201",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 14,
+      "uid": "male_138",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 15,
+      "uid": "male_36",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 16,
+      "uid": "male_124",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 17,
+      "uid": "male_240",
+      "score": 0.0,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "ai_profile"
+      ]
+    },
+    {
+      "model_rank": 18,
+      "uid": "1021521516",
+      "score": -2.1457672119140625e-06,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "same_gender"
+      ]
+    },
+    {
+      "model_rank": 19,
+      "uid": "1025694410",
+      "score": -2.294778823852539e-06,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "same_gender"
+      ]
+    },
+    {
+      "model_rank": 20,
+      "uid": "1026333035",
+      "score": -2.652406692504883e-06,
+      "would_be_skipped": true,
+      "skip_reasons": [
+        "same_gender"
+      ]
+    }
+  ]
+}

@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import 'storage_service.dart';
 import 'user_service.dart';
+import '../shared/utils/privacy_log_utils.dart';
 
 // =============================================================================
 // 공통 AI 추천 프로필 모델
@@ -63,7 +64,7 @@ class AiRecommendationService {
           .get();
       return snap.docs.map((d) => d.id).toSet();
     } catch (e) {
-      debugPrint('[AI] _fetchBlockedUids error: $e');
+      debugPrint('[AI] _fetchBlockedUids ${PrivacyLogUtils.errorSummary(e)}');
       return {};
     }
   }
@@ -230,73 +231,18 @@ class AiRecommendationService {
     return results;
   }
 
-  /// modelRecs 비어있을 때 users 컬렉션에서 폴백 프로필 로드
-  Future<List<AiRecommendedProfile>> _fetchFallbackFromUsers(
-    String currentUserId,
-    int limit, {
-    Set<String> blockedUids = const {},
-  }) async {
-    final uuid = const Uuid();
-    final todayKey = _generateKstDateKey(DateTime.now());
-    final snapshot = await _firestore
-        .collection('users')
-        .limit(30) // 본인 제외·필터 후 limit 채우기 위해 여유
-        .get();
-
-    final results = <AiRecommendedProfile>[];
-    for (final doc in snapshot.docs) {
-      if (doc.id == currentUserId) continue;
-      if (blockedUids.contains(doc.id)) continue;
-      if (results.length >= limit) break;
-
-      final data = doc.data();
-      if (data['status'] == 'withdrawn' ||
-          data['isWithdrawn'] == true ||
-          data['profileVisible'] == false) {
-        continue;
-      }
-      if (data['isStudentVerified'] != true) continue;
-
-      final onboarding = data['onboarding'];
-      if (onboarding is! Map) continue;
-
-      final photoUrls = onboarding['photoUrls'];
-      final images = photoUrls is List && photoUrls.isNotEmpty
-          ? List<String>.from(photoUrls)
-          : <String>[];
-      if (images.isEmpty) continue; // 사진 있는 유저만
-
-      final nickname = onboarding['nickname'] as String? ?? '익명';
-      int age = 20;
-      final birthYear = onboarding['birthYear'];
-      if (birthYear != null) {
-        final y = int.tryParse(birthYear.toString());
-        if (y != null) age = DateTime.now().year - y;
-      }
-      final major = onboarding['major'] as String? ?? '전공 미상';
-
-      results.add(
-        AiRecommendedProfile(
-          candidateUid: doc.id,
-          name: nickname,
-          age: age,
-          major: major,
-          bio: '',
-          university: '',
-          imageUrls: images,
-          tags: [],
-          rank: 999,
-          primaryAlgo: 'fallback',
-          dateKey: todayKey,
-          exposureId: uuid.v4(),
-        ),
-      );
-    }
-    return results;
+  /// modelRecs가 없을 때의 안전한 동작: 빈 피드.
+  ///
+  /// 과거 `/users` collection scan 폴백은 인증된 클라이언트의 전체 roster 조회를
+  /// 유도했고, 차단·탈퇴 정책을 우회할 위험도 있어 제거했다.
+  Future<List<AiRecommendedProfile>> _emptyFeedBecauseNoModelRecs(
+    String reason,
+  ) async {
+    debugPrint('[AI] refusing users-collection fallback ($reason)');
+    return const <AiRecommendedProfile>[];
   }
 
-  /// Profile Card (일반 스와이프 추천) 피드를 불러옵니다.
-  /// modelRecs 없으면 users 폴백 사용.
+  /// Profile Card 피드. modelRecs 없으면 빈 목록 (users 스캔 폴백 없음).
   Future<List<AiRecommendedProfile>> fetchProfileFeed({
     int limit = 10,
     String? userId,
@@ -307,7 +253,7 @@ class AiRecommendationService {
     try {
       final blockedUids = await _fetchBlockedUids(uid);
 
-      var result = await _fetchRawRecs(uid, 'svd');
+      final result = await _fetchRawRecs(uid, 'svd');
       if (result != null) {
         final data = result['data'] as Map<String, dynamic>;
         final dateKey = result['dateKey'] as String;
@@ -320,28 +266,14 @@ class AiRecommendationService {
           blockedUids: blockedUids,
         );
       }
-      if (kDebugMode) {
-        debugPrint(
-          '[AI] fetchProfileFeed: modelRecs empty, using users fallback',
-        );
-      }
-      return await _fetchFallbackFromUsers(
-        uid,
-        limit,
-        blockedUids: blockedUids,
-      );
+      return await _emptyFeedBecauseNoModelRecs('profile_feed_no_modelRecs');
     } catch (e) {
-      debugPrint('fetchProfileFeed Error: $e');
-      if (kDebugMode) {
-        debugPrint('[AI] fetchProfileFeed: error, trying users fallback');
-      }
-      return await _fetchFallbackFromUsers(uid, limit);
+      debugPrint('fetchProfileFeed Error: ${PrivacyLogUtils.errorSummary(e)}');
+      return await _emptyFeedBecauseNoModelRecs('profile_feed_error');
     }
   }
 
-  /// Mystery Card (RRF 통합 / CLIP / SVD) 피드를 불러옵니다.
-  /// modelRecs/{uid}/daily/{오늘}/sources/rrf 의 rank 1~3 순서대로 표시.
-  /// modelRecs 없으면 users 폴백 사용.
+  /// Mystery Card 피드. modelRecs 없으면 빈 목록 (users 스캔 폴백 없음).
   Future<List<AiRecommendedProfile>> fetchMysteryFeed({
     int limit = 3,
     String? userId,
@@ -353,7 +285,7 @@ class AiRecommendationService {
       final blockedUids = await _fetchBlockedUids(uid);
 
       var result = await _fetchRawRecs(uid, 'rrf');
-      String algoUsed = 'rrf';
+      var algoUsed = 'rrf';
 
       if (result == null) {
         result = await _fetchRawRecs(uid, 'clip');
@@ -369,7 +301,6 @@ class AiRecommendationService {
         final dateKey = result['dateKey'] as String;
         var items = data['items'] as List<dynamic>? ?? [];
 
-        // RRF인 경우 rank 1~3만 필터, 순서 보장
         if (algoUsed == 'rrf') {
           items =
               items.where((item) {
@@ -390,22 +321,10 @@ class AiRecommendationService {
           blockedUids: blockedUids,
         );
       }
-      if (kDebugMode) {
-        debugPrint(
-          '[AI] fetchMysteryFeed: modelRecs empty, using users fallback',
-        );
-      }
-      return await _fetchFallbackFromUsers(
-        uid,
-        limit,
-        blockedUids: blockedUids,
-      );
+      return await _emptyFeedBecauseNoModelRecs('mystery_feed_no_modelRecs');
     } catch (e) {
-      debugPrint('fetchMysteryFeed Error: $e');
-      if (kDebugMode) {
-        debugPrint('[AI] fetchMysteryFeed: error, trying users fallback');
-      }
-      return await _fetchFallbackFromUsers(uid, limit);
+      debugPrint('fetchMysteryFeed Error: ${PrivacyLogUtils.errorSummary(e)}');
+      return await _emptyFeedBecauseNoModelRecs('mystery_feed_error');
     }
   }
 
