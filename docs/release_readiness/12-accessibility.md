@@ -4,13 +4,19 @@
 
 ## Status
 
-PARTIAL — no dedicated a11y golden suite yet in this branch.
+PARTIAL → improved in this branch for high-traffic controls.
 
-## Immediate priorities
+## Implemented
 
-- Semantics labels on primary CTAs (auth, like, chat send, team invite)
-- Touch target ≥ 44px on bottom nav / primary buttons
-- Text scale 1.3 / 1.6 smoke on onboarding + chat
-- Reduce-motion respect for slot/roulette animations (season only; do not edit blind SlotMachineScreen)
+- Bottom nav: Semantics button/selected + 44px minimum target
+- Kakao auth: primary CTA + back button semantics
+- Chat composer: attach + send semantics and 44px targets
+- Tests: 	est/accessibility_semantics_test.dart
+
+## Remaining
+
+- Text scale 1.3 / 1.6 smoke across onboarding/profile
+- Reduce-motion for season roulette only (not blind SlotMachineScreen)
+- Broader semantics pass on report/block/delete flows
 
 Protected blind UI excluded from a11y edits.
