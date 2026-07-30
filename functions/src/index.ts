@@ -70,6 +70,7 @@ import {
 import { createReportAndBlockUserFunction } from "./reportAndBlock";
 import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
 import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
+import { canAcceptInviteIntoTeam } from "./eventTeamInviteAcceptPolicy";
 
 // Firebase Admin 초기화
 initializeApp();
@@ -2542,19 +2543,11 @@ export const respondEventTeamInvite = onCall(withAppCheck(), async (request) => 
       return { ok: false as const, code: "stale_invite" as const };
     }
 
-    if (acc.length >= 3) {
-      tx.update(inviteRef, {
-        status: "expired",
-        respondedAt: FieldValue.serverTimestamp(),
-      });
-      tx.update(teamRef, {
-        pendingInviteeIds: FieldValue.arrayRemove(inviteeUserId),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-      return { ok: false as const, code: "team_full" as const };
-    }
-
-    if (acc.includes(inviteeUserId)) {
+    const acceptGate = canAcceptInviteIntoTeam({
+      acceptedUserIds: acc,
+      inviteeUserId,
+    });
+    if (!acceptGate.ok && acceptGate.reason === "already_accepted") {
       tx.update(inviteRef, {
         status: "accepted",
         respondedAt: FieldValue.serverTimestamp(),
@@ -2565,12 +2558,7 @@ export const respondEventTeamInvite = onCall(withAppCheck(), async (request) => 
       });
       return { ok: true as const, status: "accepted" as const };
     }
-
-    const nextAccepted = [...acc];
-    if (!nextAccepted.includes(inviteeUserId)) {
-      nextAccepted.push(inviteeUserId);
-    }
-    if (nextAccepted.length > 3) {
+    if (!acceptGate.ok) {
       tx.update(inviteRef, {
         status: "expired",
         respondedAt: FieldValue.serverTimestamp(),
@@ -2582,12 +2570,15 @@ export const respondEventTeamInvite = onCall(withAppCheck(), async (request) => 
       return { ok: false as const, code: "team_full" as const };
     }
 
+    // Use arrayUnion so concurrent invite accepts cannot clobber each other.
+    // Capacity is still gated on the transactionally re-read `acc` snapshot.
+
     tx.update(inviteRef, {
       status: "accepted",
       respondedAt: FieldValue.serverTimestamp(),
     });
     tx.update(teamRef, {
-      acceptedUserIds: nextAccepted,
+      acceptedUserIds: FieldValue.arrayUnion(inviteeUserId),
       pendingInviteeIds: FieldValue.arrayRemove(inviteeUserId),
       updatedAt: FieldValue.serverTimestamp(),
     });

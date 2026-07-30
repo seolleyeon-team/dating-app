@@ -153,3 +153,14 @@ test("schemaVersion 1 is accepted and invalid schemaVersion is rejected", async 
     )
   );
 });
+
+test("legacy recEvents without schemaVersion remain creatable", async () => {
+  await withClearedDb();
+  const alice = await kakaoSession(ALICE);
+  const legacy = validLike();
+  delete legacy.schemaVersion;
+
+  await assertSucceeds(
+    addDoc(collection(alice, "recEvents", ALICE, "events"), legacy)
+  );
+});
