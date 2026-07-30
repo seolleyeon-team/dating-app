@@ -58,6 +58,9 @@ dependencies:
 
   firebase_messaging: ^16.1.2
   flutter_local_notifications: ^17.2.3
+  # 3:3 미팅 아이스브레이킹 폭탄 돌리기 효과음 (로컬 asset 재생 전용).
+  # 버전을 고정한다: 6.8.x는 Flutter >= 3.44 를 요구한다.
+  audioplayers: 6.7.1
   flutter_contacts: ^2.0.1
   crypto: ^3.0.7
   firebase_app_check: ^0.4.2
@@ -95,6 +98,10 @@ flutter:
     - mainlogo.png
     - sketchbook.png
     - aiprofile.png
+    # 3:3 미팅 아이스브레이킹 폭탄 돌리기 효과음
+    # (tools/generate_meeting_icebreaker_audio.js 로 생성한 자체 제작 asset)
+    - assets/audio/bomb_tick_loop.wav
+    - assets/audio/bomb_explosion.wav
   #   - images/a_dot_ham.jpeg
 
   fonts:
