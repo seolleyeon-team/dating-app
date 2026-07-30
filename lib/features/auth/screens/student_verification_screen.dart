@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -10,10 +11,12 @@ import 'package:uuid/uuid.dart';
 
 import '../../../router/route_names.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/firebase_diagnostics.dart';
 import '../../../services/friend_invite_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../shared/layouts/main_scaffold_args.dart';
 import '../../../utils/open_mail_app.dart';
+import '../utils/email_link_continue_url.dart';
 
 class StudentVerificationScreen extends StatefulWidget {
   const StudentVerificationScreen({super.key});
@@ -40,10 +43,12 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
   static const String _yonseiDomain = '@yonsei.ac.kr';
 
   String _buildContinueUrl(String token) {
-    if (kIsWeb) {
-      return '${Uri.base.origin}/auth/email-link?t=$token';
-    }
-    return 'https://seolleyeon.web.app/auth/email-link?t=$token';
+    return buildStudentEmailLinkContinueUrl(
+      token: token,
+      isWeb: kIsWeb,
+      webOrigin: kIsWeb ? Uri.base.origin : '',
+      firebaseProjectId: Firebase.app().options.projectId,
+    );
   }
 
   String _buildYonseiEmail(String input) {
@@ -59,15 +64,10 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     if (!mounted) return;
     await showCupertinoDialog<void>(
       context: context,
-      builder: (dialogContext) => CupertinoAlertDialog(
+      builder: (_) => CupertinoAlertDialog(
         title: Text(title),
         content: Text(message),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('확인'),
-          ),
-        ],
+        actions: const [CupertinoDialogAction(child: Text('확인'))],
       ),
     );
   }
@@ -86,7 +86,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
 
     const detailMessage =
         '학생 인증은 확인됐지만 현재 브라우저의 로그인 세션을 복구하지 못했어요.\n\n'
-        '학생 인증 자체는 완료되었으니, 앱으로 돌아가 다시 진행해 주세요.';
+        '가장 최근에 받은 인증 메일 링크를 이 브라우저에서 다시 열어주세요.';
 
     setState(() {
       _statusMessage = '학생 인증은 확인됐지만 현재 브라우저 로그인 세션을 복구하지 못했어요.';
@@ -211,11 +211,12 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     try {
       final isVerified = await _authService.isStudentVerified(kakaoUserId);
       if (isVerified && mounted) {
-        await _ensureFirebaseSessionAfterVerification(
-          kakaoUserId,
-          showDialogOnFailure: false,
-        );
-        if (!mounted) return;
+        final hasFirebaseSession =
+            await _ensureFirebaseSessionAfterVerification(
+              kakaoUserId,
+              showDialogOnFailure: false,
+            );
+        if (!hasFirebaseSession || !mounted) return;
         final handledInvite = await _handlePendingInviteAfterVerification();
         if (handledInvite || !mounted) return;
         Navigator.of(
@@ -278,11 +279,10 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         studentEmail: email,
       );
       await _storageService.saveKakaoUserId(kakaoUserId);
-      await _ensureFirebaseSessionAfterVerification(
+      final hasFirebaseSession = await _ensureFirebaseSessionAfterVerification(
         kakaoUserId,
-        showDialogOnFailure: false,
       );
-      if (!mounted) return;
+      if (!hasFirebaseSession || !mounted) return;
 
       if (!mounted) return;
       setState(() => _statusMessage = '학생 인증 완료!');
@@ -321,9 +321,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       final token = const Uuid().v4();
 
       // 1) 토큰 문서 저장 (웹이 이걸 읽어서 email/kakaoUserId를 알아냄)
-      debugPrint(
-        '📧 STEP 1: Firestore emailLinkTokens 문서 생성 시작 (token=$token, email=$email)',
-      );
+      debugPrint('📧 STEP 1: Firestore emailLinkTokens 문서 생성 시작');
       try {
         await FirebaseFirestore.instance
             .collection('emailLinkTokens')
@@ -338,7 +336,10 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
             });
         debugPrint('✅ STEP 1 성공: Firestore 문서 생성 완료');
       } catch (e) {
-        debugPrint('❌ STEP 1 실패: Firestore 문서 생성 오류 → $e');
+        debugPrint(
+          '❌ STEP 1 실패: Firestore 문서 생성 오류 → '
+          '${FirebaseDiagnostics.safeErrorForLog(e)}',
+        );
         rethrow;
       }
 
@@ -346,7 +347,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       final continueUrl = _buildContinueUrl(token);
 
       // 3) Firebase 이메일 링크 전송
-      debugPrint('📧 STEP 2: sendSignInLinkToEmail 시작 (email=$email)');
+      debugPrint('📧 STEP 2: sendSignInLinkToEmail 시작');
       try {
         await _authService.sendStudentEmailLink(
           email: email,
@@ -354,7 +355,10 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         );
         debugPrint('✅ STEP 2 성공: 이메일 링크 전송 완료');
       } catch (e) {
-        debugPrint('❌ STEP 2 실패: sendSignInLinkToEmail 오류 → $e');
+        debugPrint(
+          '❌ STEP 2 실패: sendSignInLinkToEmail 오류 → '
+          '${FirebaseDiagnostics.safeErrorForLog(e)}',
+        );
         rethrow;
       }
 
@@ -364,18 +368,18 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       await _storageService.setStudentVerified(kakaoUserId, false);
 
       if (!mounted) return;
-      setState(
-        () => _statusMessage = '연세 메일로 인증 링크를 보냈습니다. 받은편지함과 스팸함을 모두 확인해주세요.',
+      setState(() => _statusMessage = '연세 메일로 인증 링크를 보냈습니다');
+    } catch (e) {
+      final safeError = FirebaseDiagnostics.safeErrorForLog(e);
+      debugPrint(
+        '[StudentVerification] email link '
+        '${FirebaseDiagnostics.safeErrorForLog(e)}',
       );
-    } catch (e, stack) {
-      debugPrint('❌ 이메일 인증 링크 전송 실패');
-      debugPrint(e.toString());
-      debugPrint(stack.toString());
 
       if (!mounted) return;
-      setState(() => _statusMessage = '전송 실패: ${e.toString()}');
+      setState(() => _statusMessage = '전송 실패: $safeError');
 
-      await _showDialogMessage('전송 실패', e.toString());
+      await _showDialogMessage('전송 실패', safeError);
     } finally {
       if (mounted) setState(() => _isSending = false);
     }
@@ -422,11 +426,9 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         // 로컬에도 verified 기록 (다음 실행에서 UX 개선)
         await _storageService.saveKakaoUserId(kakaoUserId);
         await _storageService.setStudentVerified(kakaoUserId, true);
-        await _ensureFirebaseSessionAfterVerification(
-          kakaoUserId,
-          showDialogOnFailure: false,
-        );
-        if (!mounted) return;
+        final hasFirebaseSession =
+            await _ensureFirebaseSessionAfterVerification(kakaoUserId);
+        if (!hasFirebaseSession || !mounted) return;
 
         if (!mounted) return;
         setState(() => _statusMessage = '학생 인증이 확인되었습니다!');
@@ -473,7 +475,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
                     const Text(
                       '연세대학교 이메일\n인증이 필요해요',
                       style: TextStyle(
-                        fontFamily: 'NanumSquareRound',
+                        fontFamily: 'Pretendard',
                         fontSize: 26,
                         fontWeight: FontWeight.w800,
                         height: 1.25,
@@ -483,11 +485,9 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      '@yonsei.ac.kr 메일로 인증 링크를 보내드릴게요.\n'
-                      '메일에서 인증을 완료한 뒤, 아래에서 확인을 눌러주세요.\n'
-                      '받은편지함에 메일이 없으면 스팸함도 함께 확인해주세요.',
+                      '@yonsei.ac.kr 메일로 인증 링크를 보내드릴게요.\n메일에서 인증을 완료한 뒤, 아래에서 확인을 눌러주세요.',
                       style: TextStyle(
-                        fontFamily: 'NanumSquareRound',
+                        fontFamily: 'Pretendard',
                         fontSize: 15,
                         height: 1.5,
                         color: _AppColors.textSub,
@@ -501,9 +501,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
                         child: TextFormField(
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,
-                          style: const TextStyle(
-                            fontFamily: 'NanumSquareRound',
-                          ),
+                          style: const TextStyle(fontFamily: 'Pretendard'),
                           decoration: InputDecoration(
                             labelText: '연세 메일 아이디',
                             hintText: 'example',
@@ -558,7 +556,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
                       Text(
                         _statusMessage!,
                         style: const TextStyle(
-                          fontFamily: 'NanumSquareRound',
+                          fontFamily: 'Pretendard',
                           fontSize: 13,
                           height: 1.35,
                           color: _AppColors.textSub,
@@ -596,7 +594,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
                           : const Text(
                               '인증 링크 보내기',
                               style: TextStyle(
-                                fontFamily: 'NanumSquareRound',
+                                fontFamily: 'Pretendard',
                                 fontSize: 17,
                                 fontWeight: FontWeight.w700,
                                 color: Colors.white,
@@ -627,7 +625,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
                                 Text(
                                   '메일 앱 열기',
                                   style: TextStyle(
-                                    fontFamily: 'NanumSquareRound',
+                                    fontFamily: 'Pretendard',
                                     fontSize: 15,
                                     fontWeight: FontWeight.w600,
                                     color: _AppColors.textMain,
@@ -656,7 +654,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
                                 : const Text(
                                     '인증 완료 확인',
                                     style: TextStyle(
-                                      fontFamily: 'NanumSquareRound',
+                                      fontFamily: 'Pretendard',
                                       fontSize: 15,
                                       fontWeight: FontWeight.w700,
                                       color: Colors.white,

@@ -64,7 +64,7 @@ class AiRecommendationService {
           .get();
       return snap.docs.map((d) => d.id).toSet();
     } catch (e) {
-      debugPrint('[AI] _fetchBlockedUids error: $e');
+      debugPrint('[AI] _fetchBlockedUids ${PrivacyLogUtils.errorSummary(e)}');
       return {};
     }
   }

@@ -40,7 +40,6 @@ class FirestoreCommunityRepository implements CommunityRepository {
     final docRef = _posts.doc();
     // authorId는 항상 문자열로 저장 (Firestore 숫자 vs 문자열 불일치 방지)
     final authorIdStr = authorId.trim().toString();
-    debugPrint('[FirestoreCommunity] createPost authorId="$authorIdStr"');
 
     await docRef.set({
       'postId': docRef.id,
@@ -133,12 +132,6 @@ class FirestoreCommunityRepository implements CommunityRepository {
     int limit = 5,
     DocumentSnapshot<Map<String, dynamic>>? lastDocument,
   }) async {
-    if (tab.trim() == '내가 쓴 글') {
-      debugPrint(
-        '[FirestoreCommunity] 내가 쓴 글 쿼리 currentUserId="$currentUserId"',
-      );
-    }
-
     Query<Map<String, dynamic>> query = _buildListQuery(
       tab: tab,
       currentUserId: currentUserId,
@@ -152,10 +145,6 @@ class FirestoreCommunityRepository implements CommunityRepository {
     final snapshot = await query.get();
     if (tab.trim() == '내가 쓴 글') {
       debugPrint('[FirestoreCommunity] 내가 쓴 글 결과 ${snapshot.docs.length}건');
-      if (snapshot.docs.isNotEmpty) {
-        final first = snapshot.docs.first.data();
-        debugPrint('[FirestoreCommunity] 첫글 authorId="${first['authorId']}"');
-      }
     }
     return snapshot;
   }
