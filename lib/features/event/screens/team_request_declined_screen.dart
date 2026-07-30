@@ -29,7 +29,8 @@ class TeamRequestDeclinedScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final otherTeam = args?.otherTeamSnapshot;
-    final members = otherTeam?.members ?? const <EventTeamMatchMemberSnapshot>[];
+    final members =
+        otherTeam?.members ?? const <EventTeamMatchMemberSnapshot>[];
 
     return CupertinoPageScaffold(
       backgroundColor: _AppColors.backgroundLight,
@@ -97,13 +98,19 @@ class TeamRequestDeclinedScreen extends StatelessWidget {
                                 color: CupertinoColors.white,
                                 borderRadius: BorderRadius.circular(20),
                                 border: Border.all(
-                                  color: _AppColors.primary.withValues(alpha: 0.06),
+                                  color: _AppColors.primary.withValues(
+                                    alpha: 0.06,
+                                  ),
                                 ),
                               ),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  for (var i = 0; i < members.length && i < 3; i++) ...[
+                                  for (
+                                    var i = 0;
+                                    i < members.length && i < 3;
+                                    i++
+                                  ) ...[
                                     if (i > 0) const SizedBox(width: 10),
                                     _MiniAvatar(
                                       photoUrl: members[i].photoUrl,
@@ -219,10 +226,7 @@ class _MiniAvatar extends StatelessWidget {
           height: 48,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(
-              color: _AppColors.gray100,
-              width: 2,
-            ),
+            border: Border.all(color: _AppColors.gray100, width: 2),
           ),
           clipBehavior: Clip.antiAlias,
           child: photoUrl != null && photoUrl!.isNotEmpty

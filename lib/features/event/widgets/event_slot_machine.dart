@@ -74,10 +74,7 @@ class EventSlotMachine extends StatelessWidget {
           top: 0,
           bottom: 0,
           child: Center(
-            child: SlotMachineLever(
-              onPull: onLeverPull,
-              disabled: spinning,
-            ),
+            child: SlotMachineLever(onPull: onLeverPull, disabled: spinning),
           ),
         ),
       ],
@@ -109,11 +106,7 @@ class _InnerFrame extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFFF5F0FA),
-            Color(0xFFFFFFFF),
-            Color(0xFFF0EAF5),
-          ],
+          colors: [Color(0xFFF5F0FA), Color(0xFFFFFFFF), Color(0xFFF0EAF5)],
         ),
         borderRadius: BorderRadius.circular(28),
         boxShadow: [

@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
@@ -6,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 
 import '../../../router/route_names.dart';
-import '../../../services/adult_verification_service.dart';
 import '../../../screens/auth/kakao_callback_screen.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/friend_invite_service.dart';
@@ -14,6 +14,7 @@ import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/layouts/main_scaffold_args.dart';
 import '../../../utils/kakao_key_hash_util.dart';
+import '../services/kakao_login_firestore_bootstrap.dart';
 
 /// 카카오 인증 화면
 class KakaoAuthScreen extends StatefulWidget {
@@ -29,11 +30,10 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   final _storageService = StorageService();
   final _friendInviteService = FriendInviteService();
   final _userService = UserService();
-  final _adultVerificationService = AdultVerificationService();
+  late final KakaoLoginFirestoreBootstrap _firestoreBootstrap;
 
   bool _isLoading = false;
   String? _errorMessage;
-  String? _serverVerificationMessage;
   bool _showWebLoginFallback = false;
 
   String get _currentPlatformLabel {
@@ -65,11 +65,11 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   @override
   void initState() {
     super.initState();
+    _firestoreBootstrap = KakaoLoginFirestoreBootstrap(
+      authService: _authService,
+      userService: _userService,
+    );
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showPendingRejoinRestrictionNotice();
-      _redirectIfAdultVerificationMissing();
-    });
   }
 
   @override
@@ -104,26 +104,6 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         ),
       );
     } catch (_) {}
-  }
-
-  Future<void> _showPendingRejoinRestrictionNotice() async {
-    final hasNotice = await _storageService
-        .consumePendingRejoinRestrictionNotice();
-    if (!hasNotice || !mounted) return;
-
-    await showCupertinoDialog<void>(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('재가입이 제한된 계정입니다'),
-        content: const Text('운영 정책에 따라 현재 계정은 재가입 또는 로그인이 제한되어 있습니다.'),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('확인'),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<bool> _handlePendingInviteAfterLogin() async {
@@ -171,134 +151,12 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
     return true;
   }
 
-  Future<bool> _ensureUserShellIfMissing({
-    required String kakaoUserId,
-    required Map<String, dynamic> userInfo,
-  }) async {
-    final existedBeforeLogin = await _authService.kakaoUserExists(kakaoUserId);
-    if (existedBeforeLogin) {
-      return true;
-    }
-
-    await _userService.upsertKakaoUser(
-      kakaoUserId: kakaoUserId,
-      nickname: userInfo['nickname']?.toString(),
-      profileImageUrl: userInfo['profileImageUrl']?.toString(),
-      email: userInfo['email']?.toString(),
-    );
-
-    debugPrint('[KAKAO] recreated missing users/$kakaoUserId shell document');
-    return false;
-  }
-
-  Future<bool> _stopIfRejoinRestrictedAccount(String kakaoUserId) async {
-    final isRestricted = await _userService.isRejoinRestricted(kakaoUserId);
-    if (!isRestricted) return false;
-
-    await _authService.signOutAll();
-    await _storageService.clearKakaoUserId();
-    await _storageService.clearUserId();
-    await _storageService.clearStudentVerification(kakaoUserId);
-
-    if (!mounted) return true;
-    await showCupertinoDialog<void>(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('재가입이 제한된 계정입니다'),
-        content: const Text('운영 정책에 따라 현재 계정은 재가입 또는 로그인이 제한되어 있습니다.'),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('확인'),
-          ),
-        ],
-      ),
-    );
-    return true;
-  }
-
-  Future<bool> _reactivateIfWithdrawnForRejoin({
-    required String kakaoUserId,
-    required Map<String, dynamic> userInfo,
-  }) async {
-    final isWithdrawn = await _userService.isAccountWithdrawn(kakaoUserId);
-    if (!isWithdrawn) return false;
-
-    await _userService.reactivateForRejoin(
-      kakaoUserId: kakaoUserId,
-      nickname: userInfo['nickname']?.toString(),
-      profileImageUrl: userInfo['profileImageUrl']?.toString(),
-      email: userInfo['email']?.toString(),
-    );
-    await _storageService.clearStudentVerification(kakaoUserId);
-    await _storageService.clearOnboardingDraft(kakaoUserId);
-    return true;
-  }
-
-  Future<bool> _ensureAdultVerifiedBeforeKakao() async {
-    if (AdultVerificationService.isTemporarilyDisabled) return true;
-
-    final canProceed = await _adultVerificationService
-        .hasPendingKakaoLoginSession();
-    if (canProceed) return true;
-
-    if (!mounted) return false;
-    setState(() {
-      _errorMessage = '본인인증 완료 후 카카오 로그인을 진행할 수 있어요.';
-    });
-    Navigator.of(context).pushReplacementNamed(RouteNames.adultVerification);
-    return false;
-  }
-
-  Future<void> _redirectIfAdultVerificationMissing() async {
-    if (AdultVerificationService.isTemporarilyDisabled) return;
-
-    if (await _adultVerificationService.hasPendingKakaoLoginSession()) return;
-    if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed(RouteNames.adultVerification);
-  }
-
-  Future<bool> _verifyAdultIdentityAfterKakaoLogin() async {
-    if (AdultVerificationService.isTemporarilyDisabled) return true;
-
-    if (!mounted) return false;
-    setState(() {
-      _serverVerificationMessage = '카카오 로그인 완료 후 본인인증 결과를 서버에서 확인하고 있어요.';
-    });
-
-    final verificationResult = await _adultVerificationService
-        .verifyPendingSessionAfterLogin();
-    if (verificationResult.isVerified) {
-      if (mounted) {
-        setState(() => _serverVerificationMessage = null);
-      }
-      return true;
-    }
-
-    await _authService.signOutAll();
-    await _storageService.clearKakaoUserId();
-    await _storageService.clearUserId();
-
-    if (!mounted) return false;
-    setState(() {
-      _serverVerificationMessage = null;
-      _errorMessage =
-          verificationResult.message ?? '서버 본인인증 검증이 완료되지 않았어요. 다시 인증해 주세요.';
-    });
-    Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil(RouteNames.adultVerification, (route) => false);
-    return false;
-  }
-
   Future<void> _login() async {
     if (_isLoading) return;
-    if (!await _ensureAdultVerifiedBeforeKakao()) return;
 
     setState(() {
       _isLoading = true;
       _errorMessage = null;
-      _serverVerificationMessage = null;
     });
 
     try {
@@ -310,36 +168,12 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       }
 
       await _storageService.saveKakaoUserId(kakaoUserId);
-      final existedBeforeLogin = await _ensureUserShellIfMissing(
-        kakaoUserId: kakaoUserId,
-        userInfo: userInfo,
-      );
-      final firebaseAttached = await _authService.ensureFirebaseSessionForKakao(
-        kakaoUserId,
-      );
-      if (!firebaseAttached) {
-        throw Exception('Firebase 로그인 연결에 실패했습니다. 다시 시도해 주세요.');
-      }
-      if (await _stopIfRejoinRestrictedAccount(kakaoUserId)) return;
-      final reactivatedForRejoin = await _reactivateIfWithdrawnForRejoin(
-        kakaoUserId: kakaoUserId,
-        userInfo: userInfo,
-      );
-      await _userService.setLastActivePlatform(
+      final existedBeforeLogin = await _firestoreBootstrap.bootstrap(
         kakaoUserId: kakaoUserId,
         platform: _currentPlatformLabel,
       );
-      await _authService.syncPendingLegalConsents(kakaoUserId);
-      final adultIdentityVerified = await _verifyAdultIdentityAfterKakaoLogin();
-      if (!adultIdentityVerified) return;
 
       if (!mounted) return;
-      if (reactivatedForRejoin) {
-        Navigator.of(
-          context,
-        ).pushReplacementNamed(RouteNames.studentVerification);
-        return;
-      }
       // ✅ 이미 서버에 등록된 유저(재설치 후 약관→카카오 로그인 포함): 연세+초기설정 완료 시 홈으로
       if (existedBeforeLogin) {
         final isVerified = await _authService.isStudentVerified(kakaoUserId);
@@ -388,8 +222,8 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       Navigator.of(
         context,
       ).pushReplacementNamed(RouteNames.studentVerification);
-    } catch (e, st) {
-      debugPrint('[KAKAO] login failed: $e\n$st');
+    } catch (e) {
+      debugPrint('[KAKAO] login failed: ${PrivacyLogUtils.errorSummary(e)}');
       final msg = _formatLoginErrorMessage(e.toString());
       if (!mounted) return;
       final isKeyHashError =
@@ -452,7 +286,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
                   child: SelectableText(
                     keyHash,
                     style: const TextStyle(
-                      fontFamily: 'NanumSquareRound',
+                      fontFamily: 'monospace',
                       fontSize: 14,
                     ),
                   ),
@@ -482,11 +316,9 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   /// iOS 번들 ID 오류 등으로 카카오톡 앱 로그인이 안 될 때만 사용 (웹 로그인)
   Future<void> _loginWithWeb() async {
     if (_isLoading) return;
-    if (!await _ensureAdultVerifiedBeforeKakao()) return;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
-      _serverVerificationMessage = null;
       _showWebLoginFallback = false;
     });
     try {
@@ -496,35 +328,11 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         throw Exception('카카오 사용자 ID를 가져오지 못했습니다.');
       }
       await _storageService.saveKakaoUserId(kakaoUserId);
-      final existedBeforeLogin = await _ensureUserShellIfMissing(
-        kakaoUserId: kakaoUserId,
-        userInfo: userInfo,
-      );
-      final firebaseAttached = await _authService.ensureFirebaseSessionForKakao(
-        kakaoUserId,
-      );
-      if (!firebaseAttached) {
-        throw Exception('Firebase 로그인 연결에 실패했습니다. 다시 시도해 주세요.');
-      }
-      if (await _stopIfRejoinRestrictedAccount(kakaoUserId)) return;
-      final reactivatedForRejoin = await _reactivateIfWithdrawnForRejoin(
-        kakaoUserId: kakaoUserId,
-        userInfo: userInfo,
-      );
-      await _userService.setLastActivePlatform(
+      final existedBeforeLogin = await _firestoreBootstrap.bootstrap(
         kakaoUserId: kakaoUserId,
         platform: _currentPlatformLabel,
       );
-      await _authService.syncPendingLegalConsents(kakaoUserId);
-      final adultIdentityVerified = await _verifyAdultIdentityAfterKakaoLogin();
-      if (!adultIdentityVerified) return;
       if (!mounted) return;
-      if (reactivatedForRejoin) {
-        Navigator.of(
-          context,
-        ).pushReplacementNamed(RouteNames.studentVerification);
-        return;
-      }
       if (existedBeforeLogin) {
         final isVerified = await _authService.isStudentVerified(kakaoUserId);
         final isInitialSetupComplete = await _authService
@@ -568,8 +376,10 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       Navigator.of(
         context,
       ).pushReplacementNamed(RouteNames.studentVerification);
-    } catch (e, st) {
-      debugPrint('[KAKAO] web login failed: $e\n$st');
+    } catch (e) {
+      debugPrint(
+        '[KAKAO] web login failed: ${PrivacyLogUtils.errorSummary(e)}',
+      );
       if (!mounted) return;
       final msg = _formatLoginErrorMessage(e.toString());
       final isKeyHashError =
@@ -610,7 +420,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
               ),
               const SizedBox(height: 10),
               const Text(
-                '약관 동의 후\n카카오 계정 로그인을 진행해 주세요.',
+                '카카오 계정으로 로그인하면\n바로 프로필 설정을 진행할 수 있어요.',
                 style: TextStyle(
                   fontSize: 15,
                   height: 1.4,
@@ -633,27 +443,6 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
                       fontSize: 13,
                       color: Color(0xFFB42318),
                       height: 1.35,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-              if (_serverVerificationMessage != null) ...[
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Text(
-                    _serverVerificationMessage!,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF475569),
-                      height: 1.35,
-                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -702,24 +491,6 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
                 ),
               ],
               const SizedBox(height: 10),
-              if (!AdultVerificationService.isTemporarilyDisabled)
-                Center(
-                  child: CupertinoButton(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 6,
-                    ),
-                    onPressed: _isLoading
-                        ? null
-                        : () => Navigator.of(
-                            context,
-                          ).pushReplacementNamed(RouteNames.adultVerification),
-                    child: const Text(
-                      '본인인증 화면 다시 보기',
-                    style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
-                    ),
-                  ),
-                ),
               Center(
                 child: CupertinoButton(
                   padding: const EdgeInsets.symmetric(

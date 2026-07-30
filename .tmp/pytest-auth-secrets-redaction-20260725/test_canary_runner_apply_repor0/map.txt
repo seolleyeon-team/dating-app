@@ -1,0 +1,1 @@
+uid-a=C:\Users\samsung\StudioProjects\semisemifinal\.tmp\pytest-auth-secrets-redaction-20260725\test_canary_runner_apply_repor0\uid_2_photo_plain.jpg

@@ -11,8 +11,11 @@ import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../router/route_names.dart';
 import '../../../services/storage_service.dart';
+import '../../../shared/widgets/chat_profile_photo_avatar.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
+import '../../../shared/utils/dev_entry_policy.dart';
+import '../../../shared/utils/privacy_log_utils.dart';
 import '../models/chat_room_data.dart';
 import '../services/chat_service.dart';
 
@@ -128,7 +131,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Future<void> _loadCurrentUser() async {
     final kakaoUserId = await _storageService.getKakaoUserId();
 
-    debugPrint('CHAT LIST current user: $kakaoUserId');
+    debugPrint(
+      'CHAT LIST current user: ${PrivacyLogUtils.idFingerprint(kakaoUserId)}',
+    );
 
     if (!mounted) return;
 
@@ -272,9 +277,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   stream: _chatService.chatRoomsStream(currentUserId),
                   builder: (context, snapshot) {
                     if (snapshot.hasError) {
-                      debugPrint('CHAT LIST ERROR: ${snapshot.error}');
+                      debugPrint(
+                        'CHAT LIST ERROR: ${PrivacyLogUtils.errorSummary(snapshot.error!)}',
+                      );
 
-                      if (currentUserId != 'fake_user_1') {
+                      if (DevEntryPolicy.allowTestAccountEntry &&
+                          currentUserId != 'fake_user_1') {
                         final fallbackChats = <_ChatItem>[
                           _buildFakeRoomItem(currentUserId),
                         ];
@@ -344,7 +352,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     }
 
                     if (!snapshot.hasData) {
-                      if (currentUserId != 'fake_user_1') {
+                      if (DevEntryPolicy.allowTestAccountEntry &&
+                          currentUserId != 'fake_user_1') {
                         final fallbackChats = <_ChatItem>[
                           _buildFakeRoomItem(currentUserId),
                         ];
@@ -431,7 +440,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
                       }
                     }
 
-                    if (currentUserId != 'fake_user_1') {
+                    if (DevEntryPolicy.allowTestAccountEntry &&
+                        currentUserId != 'fake_user_1') {
                       fakeChatRoom ??= _buildFakeRoomItem(currentUserId);
                     }
 
@@ -798,6 +808,9 @@ class _ChatListItem extends StatelessWidget {
           children: [
             _Avatar(
               imageUrl: chat.avatarUrl,
+              chatRoomId: chat.chatRoomId,
+              targetUid: chat.id,
+              useChatRealPhoto: !chat.isFakeAccountRoom,
               isOnline: chat.isOnline,
               hasGradientBorder: chat.hasGradientBorder,
               isGrayscale: chat.isGrayscale,
@@ -848,11 +861,7 @@ class _ChatListItem extends StatelessWidget {
                             fontWeight: chat.hasUnread
                                 ? FontWeight.w500
                                 : FontWeight.w400,
-                            color: chat.hasUnread
-                                ? seol.gray800
-                                : chat.isWithdrawn
-                                ? seol.gray400
-                                : seol.gray400,
+                            color: chat.hasUnread ? seol.gray800 : seol.gray400,
                             height: 1.3,
                           ),
                         ),
@@ -893,12 +902,18 @@ class _ChatListItem extends StatelessWidget {
 // =============================================================================
 class _Avatar extends StatelessWidget {
   final String imageUrl;
+  final String? chatRoomId;
+  final String targetUid;
+  final bool useChatRealPhoto;
   final bool isOnline;
   final bool hasGradientBorder;
   final bool isGrayscale;
 
   const _Avatar({
     required this.imageUrl,
+    required this.targetUid,
+    this.chatRoomId,
+    this.useChatRealPhoto = false,
     this.isOnline = false,
     this.hasGradientBorder = false,
     this.isGrayscale = false,
@@ -909,6 +924,37 @@ class _Avatar extends StatelessWidget {
     final seol = Theme.of(context).extension<SeolThemeColors>()!;
     final safeImageUrl = imageUrl;
     final ringColor = seol.cardSurface;
+    final canUseChatRealPhoto =
+        useChatRealPhoto &&
+        (chatRoomId?.isNotEmpty ?? false) &&
+        targetUid.isNotEmpty;
+
+    Widget avatarImage({double size = 60}) {
+      if (canUseChatRealPhoto) {
+        return ChatProfilePhotoAvatar(
+          chatRoomId: chatRoomId!,
+          targetUid: targetUid,
+          fallbackImageUrl: safeImageUrl,
+          size: size,
+          grayscale: isGrayscale,
+          backgroundColor: seol.gray100,
+          placeholderIconColor: _AppColors.gray400,
+          placeholderIconSize: 28,
+        );
+      }
+      if (safeImageUrl.isEmpty) {
+        return Icon(CupertinoIcons.person_fill, color: seol.gray400, size: 28);
+      }
+      return CaptureProtectedImage(
+        imageUrl: safeImageUrl,
+        shape: CaptureProtectedImageShape.circle,
+        fit: BoxFit.cover,
+        grayscale: isGrayscale,
+        backgroundColor: seol.gray100,
+        placeholderIconColor: _AppColors.gray400,
+        placeholderIconSize: 28,
+      );
+    }
 
     Widget avatar = Container(
       width: 60,
@@ -919,17 +965,7 @@ class _Avatar extends StatelessWidget {
         color: seol.gray100,
       ),
       clipBehavior: Clip.antiAlias,
-      child: safeImageUrl.isEmpty
-          ? Icon(CupertinoIcons.person_fill, color: seol.gray400, size: 28)
-          : CaptureProtectedImage(
-              imageUrl: safeImageUrl,
-              shape: CaptureProtectedImageShape.circle,
-              fit: BoxFit.cover,
-              grayscale: isGrayscale,
-              backgroundColor: seol.gray100,
-              placeholderIconColor: _AppColors.gray400,
-              placeholderIconSize: 28,
-            ),
+      child: avatarImage(),
     );
 
     if (hasGradientBorder) {
@@ -951,15 +987,7 @@ class _Avatar extends StatelessWidget {
             border: Border.all(color: ringColor, width: 2),
           ),
           clipBehavior: Clip.antiAlias,
-          child: CaptureProtectedImage(
-            imageUrl: safeImageUrl,
-            shape: CaptureProtectedImageShape.circle,
-            fit: BoxFit.cover,
-            grayscale: isGrayscale,
-            backgroundColor: seol.gray100,
-            placeholderIconColor: _AppColors.gray400,
-            placeholderIconSize: 28,
-          ),
+          child: avatarImage(size: 56),
         ),
       );
     }

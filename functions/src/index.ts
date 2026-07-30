@@ -22,9 +22,9 @@ import {
   onDocumentUpdated,
 } from "firebase-functions/v2/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { withAppCheck } from "./appCheckPolicy";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onTaskDispatched } from "firebase-functions/v2/tasks";
-import { defineSecret } from "firebase-functions/params";
 import * as logger from "firebase-functions/logger";
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
@@ -44,6 +44,32 @@ import {
   PROMISE_REMINDER_QUEUE_PATH,
   type PromiseReminderTaskPayload,
 } from "./promiseReminder";
+import {
+  createGetCurrentAvatarGenerationStatusFunction,
+  createRetryCurrentAvatarGenerationFunction,
+  createUploadAvatarSourcePhotoFunction,
+} from "./avatarMedia";
+import {
+  createApproveAvatarCandidateFunction,
+  createGetAvatarJobCandidatesFunction,
+} from "./avatarApproval";
+import { createGetChatRealProfilePhotoFunction } from "./chatRealPhoto";
+import { createCleanupAvatarMediaFunction } from "./avatarCleanup";
+import {
+  createAvatarJobSourceRetentionTrigger,
+  createAvatarSourceRetentionRecoveryTrigger,
+  createClipEmbeddingSourceRetentionTrigger,
+} from "./avatarSourceRetention";
+import { createAvatarGenerationStateSyncTrigger } from "./avatarGenerationStateSync";
+import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
+export { isSafePublicAvatarUrl as isSafePublicMediaUrl } from "./publicMediaUrlPolicy";
+import {
+  createRespondTeamMeetingRequestFunction,
+  createTeamMeetingRequestFunction,
+} from "./teamMeetingRequest";
+import { createReportAndBlockUserFunction } from "./reportAndBlock";
+import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
+import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
 
 // Firebase Admin 초기화
 initializeApp();
@@ -51,7 +77,8 @@ const db = getFirestore();
 const FRIEND_INVITE_HOST = "seolleyeon.web.app";
 const FRIEND_INVITE_PATH = "/invite/friend";
 const FRIEND_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
-const PORTONE_API_SECRET = defineSecret("PORTONE_API_SECRET");
+// PortOne secret is read from env / .env only until Secret Manager is configured.
+// Binding defineSecret here blocks all-function deploys when the secret is unset.
 const PORTONE_STORE_ID = "store-ec95a751-307e-4b85-97bd-7c6fa0bbe0e2";
 const ADULT_VERIFICATION_PROVIDER = "kg_inicis_via_portone_test";
 
@@ -154,13 +181,7 @@ function readPortOneVerificationPayload(
 }
 
 function getPortOneSecret(): string {
-  const fromEnv = asNonEmptyString(process.env.PORTONE_API_SECRET);
-  if (fromEnv) return fromEnv;
-  try {
-    return PORTONE_API_SECRET.value();
-  } catch {
-    return "";
-  }
+  return asNonEmptyString(process.env.PORTONE_API_SECRET) ?? "";
 }
 
 function buildDirectRoomId(userA: string, userB: string): string {
@@ -819,7 +840,17 @@ function eventTeamCandidateSnapshotToMap(
   };
 }
 
-function buildEventTeamMatchResultPreview(params: {
+function buildEventTeamParticipantUids(
+  requestingTeam: EventTeamCandidateSnapshot,
+  matchedTeam: EventTeamCandidateSnapshot
+): string[] {
+  return dedupeStrings([
+    ...requestingTeam.membersSnapshot.map((member) => member.uid),
+    ...matchedTeam.membersSnapshot.map((member) => member.uid),
+  ]).sort();
+}
+
+export function buildEventTeamMatchResultPreview(params: {
   resultId: string;
   dateKey: string;
   requestingTeamSetupId: string;
@@ -844,6 +875,10 @@ function buildEventTeamMatchResultPreview(params: {
       params.requestingTeam.groupId,
       params.matchedTeam.groupId,
     ],
+    participantUids: buildEventTeamParticipantUids(
+      params.requestingTeam,
+      params.matchedTeam
+    ),
     candidateGroupIds: params.candidateTeams.map((team) => team.groupId),
     candidateScores: params.candidateTeams.map((team) => team.score),
     selectedGroupIndex: params.selectedGroupIndex,
@@ -1431,6 +1466,60 @@ async function resolveUserForFriendCallable(request: {
   return await resolveVerifiedUserByKakaoId(kakaoUser.userId);
 }
 
+export const uploadAvatarSourcePhoto =
+  createUploadAvatarSourcePhotoFunction(db, resolveAuthedAppUser);
+
+export const getCurrentAvatarGenerationStatus =
+  createGetCurrentAvatarGenerationStatusFunction(db, resolveAuthedAppUser);
+
+export const retryCurrentAvatarGeneration =
+  createRetryCurrentAvatarGenerationFunction(db, resolveAuthedAppUser);
+
+export const getAvatarJobCandidates =
+  createGetAvatarJobCandidatesFunction(db, resolveAuthedAppUser);
+
+export const approveAvatarCandidate =
+  createApproveAvatarCandidateFunction(db, resolveAuthedAppUser);
+
+export const getChatRealProfilePhoto =
+  createGetChatRealProfilePhotoFunction(db, resolveAuthedAppUser);
+
+export const cleanupAvatarMedia =
+  createCleanupAvatarMediaFunction(db, resolveAuthedAppUser);
+
+export const purgeExpiredEmailLinkTokens =
+  createPurgeExpiredEmailLinkTokensSchedule(db);
+
+export const purgeAccountDeletionRetention =
+  createAccountDeletionRetentionPurgeSchedule(db);
+
+export const onAvatarJobSourceRetention =
+  createAvatarJobSourceRetentionTrigger(db);
+
+export const onClipEmbeddingSourceRetention =
+  createClipEmbeddingSourceRetentionTrigger(db);
+
+export const recoverAvatarSourceRetention =
+  createAvatarSourceRetentionRecoveryTrigger(db);
+
+export const onAvatarGenerationStateSync =
+  createAvatarGenerationStateSyncTrigger(db);
+
+export const createTeamMeetingRequest = createTeamMeetingRequestFunction(
+  db,
+  resolveUserForFriendCallable
+);
+
+export const respondTeamMeetingRequest = createRespondTeamMeetingRequestFunction(
+  db,
+  resolveUserForFriendCallable
+);
+
+export const reportAndBlockUser = createReportAndBlockUserFunction(
+  db,
+  resolveUserForFriendCallable
+);
+
 function readFriendName(
   snapshot: Record<string, unknown>,
   fallback: string
@@ -1438,7 +1527,7 @@ function readFriendName(
   return asString(snapshot.nickname ?? fallback, fallback);
 }
 
-export const createFirebaseCustomToken = onCall(async (request) => {
+export const createFirebaseCustomToken = onCall(withAppCheck(), async (request) => {
   logger.info("createFirebaseCustomToken invoked", {
     hasAccessToken: !!asNonEmptyString(request.data?.accessToken),
   });
@@ -1451,14 +1540,20 @@ export const createFirebaseCustomToken = onCall(async (request) => {
   const userRef = db.collection("users").doc(kakaoUser.userId);
   const userSnap = await userRef.get();
 
-  if (!userSnap.exists) {
-    throw new HttpsError(
-      "failed-precondition",
-      "가입 정보를 찾을 수 없어요. 다시 로그인해주세요."
-    );
+  let userData: Record<string, unknown>;
+  let created = false;
+  if (userSnap.exists) {
+    userData = (userSnap.data() ?? {}) as Record<string, unknown>;
+  } else {
+    // First Kakao login: minting a custom token alone is not enough — the
+    // client cannot create users/{kakaoUserId} under locked-down rules, so the
+    // Admin SDK creates a minimal shell here after Kakao token verification.
+    await userRef.set(buildKakaoUserShell(kakaoUser.userId), { merge: true });
+    userData = {};
+    created = true;
+    logger.info("createFirebaseCustomToken created missing user shell");
   }
 
-  const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
   const customToken = await getAuth().createCustomToken(kakaoUser.userId, {
     kakaoUserId: kakaoUser.userId,
   });
@@ -1466,6 +1561,7 @@ export const createFirebaseCustomToken = onCall(async (request) => {
   return {
     customToken,
     userId: kakaoUser.userId,
+    created,
     isStudentVerified: userData.isStudentVerified === true,
   };
 });
@@ -1566,7 +1662,7 @@ async function assertUniqueIdentityNotReused(
 }
 
 export const verifyAdultIdentityAfterLogin = onCall(
-  { secrets: [PORTONE_API_SECRET] },
+  withAppCheck(),
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) {
@@ -1749,6 +1845,7 @@ export const verifyAdultIdentityAfterLogin = onCall(
 );
 
 export const createFirebaseCustomTokenFromEmailLinkToken = onCall(
+  withAppCheck(),
   async (request) => {
     const data = getCallableData(request);
     const verificationToken = asNonEmptyString(data.verificationToken);
@@ -1859,7 +1956,7 @@ export const createFirebaseCustomTokenFromEmailLinkToken = onCall(
   }
 );
 
-export const createFriendInvite = onCall(async (request) => {
+export const createFriendInvite = onCall(withAppCheck(), async (request) => {
   const requestData = getCallableData(request);
   logger.info("createFriendInvite request", {
     hasAuthUid: !!request.auth?.uid,
@@ -1898,7 +1995,7 @@ export const createFriendInvite = onCall(async (request) => {
   };
 });
 
-export const acceptFriendInvite = onCall(async (request) => {
+export const acceptFriendInvite = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const rawToken = asNonEmptyString(data.token);
   logger.info("acceptFriendInvite invoked", {
@@ -2179,11 +2276,11 @@ async function writeEventTeamInviteNotification(params: {
 }
 
 export const ensureEventTeamSetup = onCall(
-  {
+  withAppCheck({
     cpu: "gcf_gen1",
     concurrency: 1,
     maxInstances: 2,
-  },
+  }),
   async (request) => {
   const data = getCallableData(request);
   const leader = await resolveUserForFriendCallable(request);
@@ -2223,7 +2320,7 @@ export const ensureEventTeamSetup = onCall(
   }
 );
 
-export const createEventTeamInvite = onCall(async (request) => {
+export const createEventTeamInvite = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const inviter = await resolveUserForFriendCallable(request);
   const teamSetupId = asNonEmptyString(data.teamSetupId);
@@ -2357,7 +2454,7 @@ export const createEventTeamInvite = onCall(async (request) => {
   return { inviteId, teamSetupId };
 });
 
-export const respondEventTeamInvite = onCall(async (request) => {
+export const respondEventTeamInvite = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const user = await resolveUserForFriendCallable(request);
   const inviteId = asNonEmptyString(data.inviteId);
@@ -2518,7 +2615,7 @@ export const onEventTeamSetupWritten = onDocumentWritten(
   }
 );
 
-export const spinSeasonMeetingRoulette = onCall(async (request) => {
+export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const user = await resolveUserForFriendCallable(request);
   const requestedTeamSetupId = asNonEmptyString(data.teamSetupId);
@@ -3928,6 +4025,112 @@ export const sendDailyUnreadChatDigests = onSchedule(
 // =============================================================================
 // 전화번호 정규화 + 해시 (클라이언트와 동일 알고리즘)
 // =============================================================================
+export function readSafePhotoUrl(userData: Record<string, unknown>): string | null {
+  const avatar = readMap(userData.avatar);
+  const approvedAvatarUrl = asStringOrNull(avatar.approvedAvatarUrl);
+  if (avatar.status === "approved" && isSafePublicAvatarUrl(approvedAvatarUrl)) {
+    return approvedAvatarUrl;
+  }
+  return null;
+}
+
+export function isUnregisteredPushTokenError(code: string | null): boolean {
+  return (
+    code === "messaging/registration-token-not-registered" ||
+    code === "messaging/invalid-registration-token"
+  );
+}
+
+export function verifiedYonseiEmailFromAuthToken(
+  token: Record<string, unknown> | undefined
+): string | null {
+  if (!token) return null;
+  if (token.email_verified !== true) return null;
+  const raw = asNonEmptyString(token.email);
+  const email = raw ? raw.toLowerCase() : null;
+  return email && email.endsWith("@yonsei.ac.kr") ? email : null;
+}
+
+export type EmailLinkTokenRejection =
+  | "missing"
+  | "malformed"
+  | "kakao-mismatch"
+  | "email-mismatch"
+  | "expired"
+  | "mailbox-unproven"
+  | "already-exchanged";
+
+export type EmailLinkTokenDecision =
+  | { ok: true; kakaoUserId: string; email: string }
+  | { ok: false; reason: EmailLinkTokenRejection };
+
+/**
+ * Decides whether an emailLinkTokens document may be exchanged for a Firebase
+ * custom token.
+ *
+ * The document itself is written by an unauthenticated-at-the-time client, so
+ * its (kakaoUserId, email) pair is a *request*, not a credential. The only
+ * trustworthy field is `emailVerifiedUid`/`emailVerifiedAt`, which
+ * firestore.rules lets only the owner of the named mailbox write, after
+ * Firebase itself verified the email link.
+ */
+export function evaluateEmailLinkTokenExchange(params: {
+  tokenData: Record<string, unknown> | null | undefined;
+  requestedKakaoUserId?: string | null;
+  requestedStudentEmail?: string | null;
+  now: Date;
+  isTimestamp: (value: unknown) => boolean;
+  toDate: (value: unknown) => Date | null;
+}): EmailLinkTokenDecision {
+  const { tokenData, now, isTimestamp, toDate } = params;
+  if (!tokenData) return { ok: false, reason: "missing" };
+
+  const kakaoUserId = asNonEmptyString(tokenData.kakaoUserId);
+  const email = asNonEmptyString(tokenData.email)?.toLowerCase() ?? null;
+  if (!kakaoUserId || !email) return { ok: false, reason: "malformed" };
+
+  const requestedKakaoUserId = asNonEmptyString(params.requestedKakaoUserId);
+  if (requestedKakaoUserId && requestedKakaoUserId !== kakaoUserId) {
+    return { ok: false, reason: "kakao-mismatch" };
+  }
+
+  const requestedStudentEmail =
+    asNonEmptyString(params.requestedStudentEmail)?.toLowerCase() ?? null;
+  if (requestedStudentEmail && requestedStudentEmail !== email) {
+    return { ok: false, reason: "email-mismatch" };
+  }
+
+  // A missing or malformed expiry previously skipped the expiry check, which
+  // turned a forged document into a permanent credential.
+  const expiresAt = toDate(tokenData.expiresAt);
+  if (!expiresAt || expiresAt.getTime() < now.getTime()) {
+    return { ok: false, reason: "expired" };
+  }
+
+  if (
+    !asNonEmptyString(tokenData.emailVerifiedUid) ||
+    !isTimestamp(tokenData.emailVerifiedAt)
+  ) {
+    return { ok: false, reason: "mailbox-unproven" };
+  }
+
+  if (tokenData.exchangedAt != null) {
+    return { ok: false, reason: "already-exchanged" };
+  }
+
+  return { ok: true, kakaoUserId, email };
+}
+
+export function buildKakaoUserShell(kakaoUserId: string): Record<string, unknown> {
+  return {
+    kakaoUserId,
+    profileImageUrl: "",
+    profileImageMode: "avatar",
+    createdAt: FieldValue.serverTimestamp(),
+    lastLoginAt: FieldValue.serverTimestamp(),
+  };
+}
+
 export function normalizeKoreanPhone(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -3966,7 +4169,7 @@ export function hashPhoneNumber(normalized: string): string {
 // =============================================================================
 const MAX_CONTACT_HASHES = 5000;
 
-export const syncContactBlocks = onCall(async (request) => {
+export const syncContactBlocks = onCall(withAppCheck(), async (request) => {
   const callerUid = request.auth?.uid;
   if (!callerUid) {
     throw new HttpsError("unauthenticated", "로그인이 필요해요.");
@@ -4112,7 +4315,7 @@ export const syncContactBlocks = onCall(async (request) => {
 // =============================================================================
 const MAX_KAKAO_TALK_FRIEND_IDS = 1000;
 
-export const syncKakaoTalkFriendBlocks = onCall(async (request) => {
+export const syncKakaoTalkFriendBlocks = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   let callerUid = asNonEmptyString(request.auth?.uid);
 
@@ -4331,7 +4534,7 @@ export const onUserPhoneHashUpsert = onDocumentWritten(
 // =============================================================================
 // saveUserPhoneHash — 카카오 로그인 후 전화번호 해시 저장 Callable
 // =============================================================================
-export const saveUserPhoneHash = onCall(async (request) => {
+export const saveUserPhoneHash = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const phoneHash = asNonEmptyString(data.phoneHash);
   const phoneSource = asNonEmptyString(data.phoneSource) ?? "kakao";

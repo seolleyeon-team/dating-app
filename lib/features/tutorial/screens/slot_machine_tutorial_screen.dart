@@ -7,11 +7,7 @@ class SlotMachineTutorialScreen extends StatefulWidget {
   final VoidCallback? onStart;
   final VoidCallback? onSkip;
 
-  const SlotMachineTutorialScreen({
-    super.key,
-    this.onStart,
-    this.onSkip,
-  });
+  const SlotMachineTutorialScreen({super.key, this.onStart, this.onSkip});
 
   @override
   State<SlotMachineTutorialScreen> createState() =>
@@ -142,9 +138,9 @@ class _SlotMachineTutorialScreenState extends State<SlotMachineTutorialScreen>
                           borderRadius: BorderRadius.circular(18),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFFF24D82).withValues(
-                                alpha: 0.22,
-                              ),
+                              color: const Color(
+                                0xFFF24D82,
+                              ).withValues(alpha: 0.22),
                               blurRadius: 18,
                               offset: const Offset(0, 10),
                             ),
@@ -461,7 +457,9 @@ class _TutorialNavBar extends StatelessWidget {
                       style: TextStyle(
                         fontFamily: 'NanumSquareRound',
                         fontSize: 11,
-                        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
                         color: selected
                             ? const Color(0xFFF24D82)
                             : const Color(0xFF8F8A92),

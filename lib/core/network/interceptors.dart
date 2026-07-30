@@ -4,6 +4,8 @@
 /// 현재는 기본 HttpClient를 사용하므로 스텁으로 제공됩니다.
 library;
 
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
+
 abstract class Interceptor {
   /// 요청 전 처리
   Future<void> onRequest(Map<String, dynamic> request);
@@ -20,7 +22,10 @@ class LoggingInterceptor implements Interceptor {
   @override
   Future<void> onRequest(Map<String, dynamic> request) async {
     // ignore: avoid_print
-    print('[API Request] ${request['method']} ${request['url']}');
+    print(
+      '[API Request] method=${request['method']} '
+      '${PrivacyLogUtils.pathFingerprint(request['url']?.toString())}',
+    );
   }
 
   @override
@@ -32,7 +37,7 @@ class LoggingInterceptor implements Interceptor {
   @override
   Future<void> onError(Object error) async {
     // ignore: avoid_print
-    print('[API Error] $error');
+    print('[API Error] ${PrivacyLogUtils.errorSummary(error)}');
   }
 }
 

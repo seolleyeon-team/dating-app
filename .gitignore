@@ -47,3 +47,16 @@ app.*.map.json
 # Firebase / Google Cloud credentials (절대 커밋 금지)
 **/serviceAccountKey.json
 **/*-service-account*.json
+.local_secrets/
+.venv_mediapipe_preflight/
+.cache/
+functions/.env.seolleyeon-final
+*.backup-production-if-any
+
+# Local avatar canary inputs, exact consent maps, and generated reports
+canary_inputs/
+canary_uid_photo_map.txt
+canary_uid_photo_consent.txt
+canary_consent.txt
+pr84_uid_photo_consent_map.txt
+out/

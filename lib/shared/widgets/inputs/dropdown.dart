@@ -19,7 +19,9 @@ class SeolDropdown<T> extends StatelessWidget {
 
   void _showPicker(BuildContext context) {
     final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
-    final pickerBg = isDark ? const Color(0xFF261E2C) : CupertinoColors.systemBackground;
+    final pickerBg = isDark
+        ? const Color(0xFF261E2C)
+        : CupertinoColors.systemBackground;
 
     showCupertinoModalPopup(
       context: context,
@@ -68,12 +70,18 @@ class SeolDropdown<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
     final fieldBg = isDark ? const Color(0xFF302838) : CupertinoColors.white;
-    final borderColor = isDark ? const Color(0xFF3E3548) : const Color(0xFFE6DBDF);
-    final textColor = isDark ? const Color(0xFFF0E8ED) : const Color(0xFF181113);
+    final borderColor = isDark
+        ? const Color(0xFF3E3548)
+        : const Color(0xFFE6DBDF);
+    final textColor = isDark
+        ? const Color(0xFFF0E8ED)
+        : const Color(0xFF181113);
     final hintColor = isDark
         ? const Color(0xFF7A6B76)
         : const Color(0xFF89616F).withValues(alpha: 0.6);
-    final iconColor = isDark ? const Color(0xFF7A6B76) : const Color(0xFF89616F);
+    final iconColor = isDark
+        ? const Color(0xFF7A6B76)
+        : const Color(0xFF89616F);
 
     return GestureDetector(
       onTap: () => _showPicker(context),
@@ -95,11 +103,7 @@ class SeolDropdown<T> extends StatelessWidget {
                 color: value != null ? textColor : hintColor,
               ),
             ),
-            Icon(
-              CupertinoIcons.chevron_down,
-              size: 18,
-              color: iconColor,
-            ),
+            Icon(CupertinoIcons.chevron_down, size: 18, color: iconColor),
           ],
         ),
       ),

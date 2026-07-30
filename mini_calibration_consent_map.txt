@@ -1,0 +1,16 @@
+아래 참여자들은 각 행에 명시된 정확한 UID/사진 쌍을 seolleyeon-final staging AI 아바타 mini calibration에 사용하는 것에 명시적으로 동의합니다.
+본 사용은 production 배포 전 아바타 품질, 개인정보 보호, 안전성 및 비용·성능 검증을 위한 내부 테스트이며 public production rollout이 아닙니다.
+원본 사진은 공개 프로필에 노출하지 않고 승인된 privacy-preserving avatar만 프로필 표시 검증에 사용합니다.
+
+Exact UID/photo consent rows:
+
+l4ytIDKVdBNYAjgYQu9NMjNPZHw1=C:\Users\samsung\StudioProjects\semisemifinal\.local_secrets\avatar_mini_calibration\photos\participant_001.jpeg
+FK7Rwu8TDIQcfRauAmjPnKDvGAn2=C:\Users\samsung\StudioProjects\semisemifinal\.local_secrets\avatar_mini_calibration\photos\participant_002.jpeg
+Iv84vsB2V7dW8aN78qb24tAnNKL2=C:\Users\samsung\StudioProjects\semisemifinal\.local_secrets\avatar_mini_calibration\photos\participant_003.jpeg
+zfBBEwtFgIWaIiQ9Y6hEsA3dCKV2=C:\Users\samsung\StudioProjects\semisemifinal\.local_secrets\avatar_mini_calibration\photos\participant_004.jpeg
+X8pDWZifaacbG7rSL8nhOJlm7Il2=C:\Users\samsung\StudioProjects\semisemifinal\.local_secrets\avatar_mini_calibration\photos\participant_005.jpeg
+c7W9iPfTf9arhZeCq5MXBha8SG92=C:\Users\samsung\StudioProjects\semisemifinal\.local_secrets\avatar_mini_calibration\photos\participant_006.jpeg
+91JxM1lz1VSJ3yIQXg04dOQt8Bi1=C:\Users\samsung\StudioProjects\semisemifinal\.local_secrets\avatar_mini_calibration\photos\participant_007.jpeg
+HZlwzkbwv7af6sA3yGPMxvAO0d73=C:\Users\samsung\StudioProjects\semisemifinal\.local_secrets\avatar_mini_calibration\photos\participant_008.jpeg
+ouxBI6GzBqhAwMy8vGQVWluMyeZ2=C:\Users\samsung\StudioProjects\semisemifinal\.local_secrets\avatar_mini_calibration\photos\participant_009.jpeg
+HsVG8fwG7KhcGNgp9ATpEzIvJfI3=C:\Users\samsung\StudioProjects\semisemifinal\.local_secrets\avatar_mini_calibration\photos\participant_010.jpeg

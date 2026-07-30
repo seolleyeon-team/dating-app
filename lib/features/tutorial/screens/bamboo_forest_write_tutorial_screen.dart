@@ -227,7 +227,9 @@ class _TutorialNavBar extends StatelessWidget {
                       style: TextStyle(
                         fontFamily: 'NanumSquareRound',
                         fontSize: 11,
-                        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
                         color: selected
                             ? const Color(0xFFF43F85)
                             : const Color(0xFF8F8A92),

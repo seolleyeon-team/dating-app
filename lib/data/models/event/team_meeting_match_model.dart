@@ -10,7 +10,8 @@ import 'event_team_match_model.dart';
 DateTime? _readDateTime(dynamic value) {
   if (value is Timestamp) return value.toDate();
   if (value is DateTime) return value;
-  if (value is String && value.trim().isNotEmpty) return DateTime.tryParse(value);
+  if (value is String && value.trim().isNotEmpty)
+    return DateTime.tryParse(value);
   return null;
 }
 
@@ -65,10 +66,14 @@ class TeamMeetingMatchDoc {
       leftTeamId: data['leftTeamId']?.toString() ?? '',
       rightTeamId: data['rightTeamId']?.toString() ?? '',
       leftTeamSnapshot: data['leftTeamSnapshot'] is Map
-          ? EventTeamMatchTeamSnapshot.fromMap(_readMap(data['leftTeamSnapshot']))
+          ? EventTeamMatchTeamSnapshot.fromMap(
+              _readMap(data['leftTeamSnapshot']),
+            )
           : null,
       rightTeamSnapshot: data['rightTeamSnapshot'] is Map
-          ? EventTeamMatchTeamSnapshot.fromMap(_readMap(data['rightTeamSnapshot']))
+          ? EventTeamMatchTeamSnapshot.fromMap(
+              _readMap(data['rightTeamSnapshot']),
+            )
           : null,
       leftMemberUids: _readStringList(data['leftMemberUids']),
       rightMemberUids: _readStringList(data['rightMemberUids']),

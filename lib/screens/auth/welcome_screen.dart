@@ -17,18 +17,12 @@ class WelcomeScreen extends StatelessWidget {
               // App Logo or Title
               const Text(
                 '설레연',
-                style: TextStyle(
-                  fontSize: 48,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
               const Text(
                 '연세대학교 데이팅 앱',
-                style: TextStyle(
-                  fontSize: 18,
-                  color: Colors.grey,
-                ),
+                style: TextStyle(fontSize: 18, color: Colors.grey),
               ),
               const Spacer(),
               // Check if user is registered

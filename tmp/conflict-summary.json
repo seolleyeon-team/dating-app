@@ -1,0 +1,380 @@
+﻿[
+    {
+        "file":  ".firebase/hosting.cHVibGlj.cache",
+        "line":  1,
+        "header":  "",
+        "main":  "privacy.html,1778343434102,9d77e2d79f1f2017750247b163d99fe6f7e008056172d1638a61ab0bb17b7e52 | invite-friend.html,1775744943235,8ce744bd80a8a7c45de111e04c228ab21a9f6b8f8f622b489c5fb0049d3cacc6 | index.html,1772354478499,c845705a47ab27325481b7e244e1387d7427041d202dcb15eb3a72f8cfdc2c69 | assetlinks.json,1776228918110,8d35bad5c03ee68de1f15c98ff0cc55fd6a1ca19602291fbffc64ef657622c68 | apple-app-site-association,1776228918110,45f34d4c733c688963137fc2ef3ccad31c3e6261939b0d598959cc1aea85fe48 | 404.html,1771328630000,b6abfbdc894d37c260154e281499dc6415bb6ad76b32f01ef94dee93aa897ac4",
+        "semisemifinal":  "invite-friend.html,1776279244468,0f9e5e7d987f44fed9fa084074cb53c4481f9017734751e20c6369f850bc073c | assetlinks.json,1776279244465,6796f8994e089b6252af1837df076dd666bd082d70c81cbdac38a06f206941bb | apple-app-site-association,1776279244463,14fc1b5b330d8daa1018c02b63f9814f6d49143b00b2bf9e161c398c69981ac0 | 404.html,1773048569894,762bf484ba67404bd1a3b181546ea28d60dfddf18e9dd4795d8d25bcf3c1a890 | legal/terms.html,1774777194618,9e280b66f43ed1842a3d98e9e2bed726c2b973706ef1b2898aff295f7692ce96 | index.html,1779265287390,df83af93c06b2fa1c179aa0fe1968c9edee058b2fb9c179da73114c6af711406"
+    },
+    {
+        "file":  "firebase.json",
+        "line":  45,
+        "header":  "\"source\": \"functions\"",
+        "main":  "",
+        "semisemifinal":  ""
+    },
+    {
+        "file":  "firestore.rules",
+        "line":  390,
+        "header":  "allow create: if publicUserMediaOk(request.resource.data) \u0026\u0026",
+        "main":  "",
+        "semisemifinal":  ""
+    },
+    {
+        "file":  "lib/features/auth/screens/kakao_auth_screen.dart",
+        "line":  176,
+        "header":  "Future\u003cbool\u003e _handlePendingInviteAfterLogin() async {",
+        "main":  "",
+        "semisemifinal":  ""
+    },
+    {
+        "file":  "lib/features/auth/screens/kakao_auth_screen.dart",
+        "line":  260,
+        "header":  "throw Exception(\u0027카카오 사용자 ID를 가져오지 못했습니다.\u0027);",
+        "main":  "if (kakaoUserId == null || kakaoUserId.isEmpty) { |         throw Exception(\u0027카카오 사용자 ID를 가져오지 못했습니다.\u0027); |       } |       await _storageService.saveKakaoUserId(kakaoUserId); | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD |       await _authService.ensureFirebaseSessionForKakao(kakaoUserId);",
+        "semisemifinal":  "final existedBeforeLogin = await _firestoreBootstrap.bootstrap("
+    },
+    {
+        "file":  "lib/features/auth/screens/kakao_auth_screen.dart",
+        "line":  441,
+        "header":  "throw Exception(\u0027카카오 사용자 ID를 가져오지 못했습니다.\u0027);",
+        "main":  "final kakaoUserId = userInfo[\u0027id\u0027]?.toString(); |       if (kakaoUserId == null || kakaoUserId.isEmpty) { |         throw Exception(\u0027카카오 사용자 ID를 가져오지 못했습니다.\u0027); |       } |       await _storageService.saveKakaoUserId(kakaoUserId); | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "final existedBeforeLogin = await _firestoreBootstrap.bootstrap("
+    },
+    {
+        "file":  "lib/features/auth/screens/student_verification_screen.dart",
+        "line":  70,
+        "header":  "Future\u003cvoid\u003e _showDialogMessage(String title, String message) async {",
+        "main":  "await showCupertinoDialog\u003cvoid\u003e( |       context: context, |       builder: (dialogContext) =\u003e CupertinoAlertDialog( |         title: Text(title), |         content: Text(message), | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "actions: const [CupertinoDialogAction(child: Text(\u0027확인\u0027))],"
+    },
+    {
+        "file":  "lib/features/auth/screens/student_verification_screen.dart",
+        "line":  223,
+        "header":  "Future\u003cvoid\u003e _checkVerificationOnResume() async {",
+        "main":  "if (kakaoUserId == null) return; |     try { |       final isVerified = await _authService.isStudentVerified(kakaoUserId); |       if (isVerified \u0026\u0026 mounted) { | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD |         await _ensureFirebaseSessionAfterVerification(",
+        "semisemifinal":  "final hasFirebaseSession = |             await _ensureFirebaseSessionAfterVerification( |               kakaoUserId, |               showDialogOnFailure: false, |             ); |         if (!hasFirebaseSession || !mounted) return;"
+    },
+    {
+        "file":  "lib/features/auth/screens/student_verification_screen.dart",
+        "line":  496,
+        "header":  "return CupertinoPageScaffold(",
+        "main":  "",
+        "semisemifinal":  ""
+    },
+    {
+        "file":  "lib/features/chat/screens/chat_room_screen.dart",
+        "line":  270,
+        "header":  "Future\u003cvoid\u003e _openPartnerProfileCard() async {",
+        "main":  "",
+        "semisemifinal":  ""
+    },
+    {
+        "file":  "lib/features/chat/screens/chat_room_screen.dart",
+        "line":  1308,
+        "header":  "Widget build(BuildContext context) {",
+        "main":  "? AppColorsDark.textPrimary |         : _AppColors.textMain; |     final textSubColor = isDark |         ? AppColorsDark.textSecondary |         : _AppColors.textSubtle; | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "\u003e\u003e\u003e\u003e\u003e\u003e\u003e d1bb80b5db2cd88e8fcf8b6b89d7ecce26022037 | ======="
+    },
+    {
+        "file":  "lib/features/chat/screens/chat_room_screen.dart",
+        "line":  1831,
+        "header":  "Widget build(BuildContext context) {",
+        "main":  "@override |   Widget build(BuildContext context) { |     if (message.shouldHideAsExpired) return const SizedBox.shrink(); |     final isDark = Theme.of(context).brightness == Brightness.dark; |     final cardBg = isDark ? AppColorsDark.surface : CupertinoColors.white; | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "final cardBorder = isDark ? AppColorsDark.border : _AppColors.stone200;"
+    },
+    {
+        "file":  "lib/features/chat/screens/chat_room_screen.dart",
+        "line":  2163,
+        "header":  "Widget build(BuildContext context) {",
+        "main":  "@override |   Widget build(BuildContext context) { |     final isDark = Theme.of(context).brightness == Brightness.dark; |     final bgColor = isDark ? const Color(0xFF1A2922) : const Color(0xFFEAF5EE); | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "final borderColor = isDark |         ? const Color(0xFF2A4A34) |         : const Color(0xFFC7E5D0);"
+    },
+    {
+        "file":  "lib/features/chat/screens/chat_room_screen.dart",
+        "line":  2251,
+        "header":  "Widget build(BuildContext context) {",
+        "main":  "@override |   Widget build(BuildContext context) { |     final isDark = Theme.of(context).brightness == Brightness.dark; |     final bgColor = isDark ? const Color(0xFF2A2314) : const Color(0xFFFFF7E8); | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "final borderColor = isDark |         ? const Color(0xFF4A3A1E) |         : const Color(0xFFF0D7A6);"
+    },
+    {
+        "file":  "lib/features/chat/screens/premium_chat_list_screen.dart",
+        "line":  855,
+        "header":  "const SizedBox(height: 4),",
+        "main":  "fontFamily: \u0027Pretendard\u0027, |                             fontSize: 13, |                             fontWeight: chat.hasUnread |                                 ? FontWeight.w500 |                                 : FontWeight.w400, | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "color: chat.hasUnread ? seol.gray800 : seol.gray400,"
+    },
+    {
+        "file":  "lib/features/chat/screens/premium_chat_list_screen.dart",
+        "line":  967,
+        "header":  "Widget avatar = Container(",
+        "main":  "shape: BoxShape.circle, |         border: Border.all(color: seol.gray100), |         color: seol.gray100, |       ), |       clipBehavior: Clip.antiAlias, | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "child: avatarImage(),"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/basic_info_screen.dart",
+        "line":  146,
+        "header":  "Future\u003cvoid\u003e _loadExistingBasicInfo() async {",
+        "main":  "_heightController.text = height.toString(); |     } |     if (age is int \u0026\u0026 age \u003e 0) { |       _age = age.toDouble(); |     } | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "\u003e\u003e\u003e\u003e\u003e\u003e\u003e d1bb80b5db2cd88e8fcf8b6b89d7ecce26022037 | ======="
+    },
+    {
+        "file":  "lib/features/onboarding/screens/basic_info_screen.dart",
+        "line":  217,
+        "header":  "Future\u003cvoid\u003e _saveCurrentBasicInfo() async {",
+        "main":  "Future\u003cvoid\u003e _saveCurrentBasicInfo() async { |     if (_isSavingOnExit) return; |     _isSavingOnExit = true; |     try { | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD |       final nickname = _nicknameController.text.trim();",
+        "semisemifinal":  "\u003e\u003e\u003e\u003e\u003e\u003e\u003e d1bb80b5db2cd88e8fcf8b6b89d7ecce26022037 | ======="
+    },
+    {
+        "file":  "lib/features/onboarding/screens/basic_info_screen.dart",
+        "line":  619,
+        "header":  "const Text(",
+        "main":  "",
+        "semisemifinal":  ""
+    },
+    {
+        "file":  "lib/features/onboarding/screens/basic_info_screen.dart",
+        "line":  761,
+        "header":  "const Divider(",
+        "main":  "height: 48, |                               thickness: 1, |                               color: _AppColors.border, |                             ), | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  ""
+    },
+    {
+        "file":  "lib/features/onboarding/screens/basic_info_screen.dart",
+        "line":  844,
+        "header":  "const SizedBox(height: 8),",
+        "main":  "onChanged: (v) =\u003e |                                         setState(() =\u003e _relationship = v), |                                   ), |                                   const SizedBox(height: 8), |                                   _RelationshipOption( | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "label: \u0027일단 만나보고 결정할래요\u0027,"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/basic_info_screen.dart",
+        "line":  871,
+        "header":  "const SizedBox(height: 8),",
+        "main":  "right: 0, |                   bottom: 0, |                   child: _BottomButton( |                     onNext: () async { |                       HapticFeedback.mediumImpact(); | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "\u003e\u003e\u003e\u003e\u003e\u003e\u003e d1bb80b5db2cd88e8fcf8b6b89d7ecce26022037 | ======="
+    },
+    {
+        "file":  "lib/features/onboarding/screens/basic_info_screen.dart",
+        "line":  892,
+        "header":  "widget.onNext!.call(",
+        "main":  "if (!context.mounted) return; |                       final mbti = |                           \u0027${_mbtiE.name.toUpperCase()}${_mbtiN.name.toUpperCase()}${_mbtiF.name.toUpperCase()}${_mbtiJ.name.toUpperCase()}\u0027; |                       if (widget.onNext != null) { |                         widget.onNext!.call( | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "_nicknameController.text,"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/ideal_type/ideal_department_screen.dart",
+        "line":  236,
+        "header":  "widget.onNext!.call(list);",
+        "main":  "await storage.mergeOnboardingDraft(kakaoUserId, { |                       \u0027idealDepartment\u0027: list.map((m) =\u003e m.name).toList(), |                     }); |                   } | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD |                   if (!mounted) return;",
+        "semisemifinal":  "if (!context.mounted) return; |                   Navigator.of(context).pop();"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/ideal_type/ideal_lifestyle_screen.dart",
+        "line":  106,
+        "header":  "Future\u003cvoid\u003e _loadExistingIdealLifestyle() async {",
+        "main":  "if (lifestyle is! Map) return; |     final d = lifestyle[\u0027drinking\u0027]?.toString(); |     final s = lifestyle[\u0027smoking\u0027]?.toString(); |     final e = lifestyle[\u0027exercise\u0027]?.toString(); |     final r = lifestyle[\u0027religion\u0027]?.toString(); | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "\u003e\u003e\u003e\u003e\u003e\u003e\u003e d1bb80b5db2cd88e8fcf8b6b89d7ecce26022037 | ======="
+    },
+    {
+        "file":  "lib/features/onboarding/screens/ideal_type/ideal_lifestyle_screen.dart",
+        "line":  188,
+        "header":  "await _handleBack();",
+        "main":  "child: Scaffold( |         backgroundColor: _AppColors.backgroundLight, |         body: SafeArea( |           child: Stack( |             children: [ | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "\u003e\u003e\u003e\u003e\u003e\u003e\u003e d1bb80b5db2cd88e8fcf8b6b89d7ecce26022037 | ======="
+    },
+    {
+        "file":  "lib/features/onboarding/screens/ideal_type/ideal_lifestyle_screen.dart",
+        "line":  199,
+        "header":  "await _handleBack();",
+        "main":  "// 헤더 |                   _Header( |                     currentStep: widget.currentStep, |                     totalSteps: widget.totalSteps, |                     onBack: _handleBack, | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "\u003e\u003e\u003e\u003e\u003e\u003e\u003e d1bb80b5db2cd88e8fcf8b6b89d7ecce26022037 | ======="
+    },
+    {
+        "file":  "lib/features/onboarding/screens/ideal_type/ideal_lifestyle_screen.dart",
+        "line":  296,
+        "header":  "const SizedBox(height: 40),",
+        "main":  "child: Wrap( |                               spacing: 12, |                               runSpacing: 12, |                               children: [ |                                 _SelectionChip( | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "\u003e\u003e\u003e\u003e\u003e\u003e\u003e d1bb80b5db2cd88e8fcf8b6b89d7ecce26022037 | ======="
+    },
+    {
+        "file":  "lib/features/onboarding/screens/ideal_type/ideal_lifestyle_screen.dart",
+        "line":  329,
+        "header":  "const SizedBox(height: 40),",
+        "main":  "ExerciseFrequency.breathingOnly, |                                   onTap: () =\u003e _updateExercise( |                                     ExerciseFrequency.breathingOnly, |                                   ), |                                 ), | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "_SelectionChip( |                                   label: \u0027운동 매니아\u0027, |                                   isSelected: |                                       _exercise == ExerciseFrequency.mania, |                                   onTap: () =\u003e |                                       _updateExercise(ExerciseFrequency.mania),"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/ideal_type/ideal_lifestyle_screen.dart",
+        "line":  397,
+        "header":  "const SizedBox(height: 40),",
+        "main":  "right: 0, |                 bottom: 0, |                 child: _BottomButton( |                   onNext: () async { |                     HapticFeedback.mediumImpact(); | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "await _saveCurrentIdealLifestyle(); |                     if (!context.mounted) return;"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/ideal_type/ideal_lifestyle_screen.dart",
+        "line":  413,
+        "header":  "widget.onNext!.call(",
+        "main":  "_smoking, |                         _exercise, |                         _religion, |                       ); |                     } else { | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "Navigator.of( |                         context, |                         rootNavigator: true, |                       ).pushReplacementNamed(RouteNames.welcomeTutorial); |                     } |                   },"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/interests_selection_screen.dart",
+        "line":  434,
+        "header":  "widget.onComplete ??",
+        "main":  "bottom: 0, |                 child: _BottomFloatingArea( |                   onNext: |                       widget.onComplete ?? |                       () async { | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "await _saveCurrentInterests(); |                         if (!context.mounted) return; |                         Navigator.of( |                           context, |                         ).pushNamed(RouteNames.onboardingLifestyle);"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/interests_selection_screen.dart",
+        "line":  451,
+        "header":  "await _saveCurrentInterests();",
+        "main":  "}, |                 ), |               ), |             ], |           ), | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  ""
+    },
+    {
+        "file":  "lib/features/onboarding/screens/lifestyle_screen.dart",
+        "line":  167,
+        "header":  "await _handleBack();",
+        "main":  "child: Scaffold( |         backgroundColor: _AppColors.backgroundLight, |         body: SafeArea( |           child: Stack( |             children: [ | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "\u003e\u003e\u003e\u003e\u003e\u003e\u003e d1bb80b5db2cd88e8fcf8b6b89d7ecce26022037 | ======="
+    },
+    {
+        "file":  "lib/features/onboarding/screens/lifestyle_screen.dart",
+        "line":  271,
+        "header":  "const SizedBox(height: 40),",
+        "main":  "child: Wrap( |                               spacing: 12, |                               runSpacing: 12, |                               children: [ |                                 _SelectionChip( | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "\u003e\u003e\u003e\u003e\u003e\u003e\u003e d1bb80b5db2cd88e8fcf8b6b89d7ecce26022037 | ======="
+    },
+    {
+        "file":  "lib/features/onboarding/screens/lifestyle_screen.dart",
+        "line":  304,
+        "header":  "const SizedBox(height: 40),",
+        "main":  "ExerciseFrequency.breathingOnly, |                                   onTap: () =\u003e _updateExercise( |                                     ExerciseFrequency.breathingOnly, |                                   ), |                                 ), | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "_SelectionChip( |                                   label: \u0027운동 매니아\u0027, |                                   isSelected: |                                       _exercise == ExerciseFrequency.mania, |                                   onTap: () =\u003e |                                       _updateExercise(ExerciseFrequency.mania),"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/lifestyle_screen.dart",
+        "line":  372,
+        "header":  "const SizedBox(height: 40),",
+        "main":  "right: 0, |                 bottom: 0, |                 child: _BottomButton( |                   onNext: () async { |                     HapticFeedback.mediumImpact(); | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "await _saveCurrentLifestyle(); |                     if (!context.mounted) return;"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/lifestyle_screen.dart",
+        "line":  388,
+        "header":  "widget.onNext!.call(",
+        "main":  "_smoking, |                         _exercise, |                         _religion, |                       ); |                     } else { | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "Navigator.of( |                         context, |                       ).pushNamed(RouteNames.onboardingMajor);"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/major_selection_screen.dart",
+        "line":  220,
+        "header":  "await _handleBack();",
+        "main":  "), |                   // 콘텐츠 |                   Expanded( |                     child: SingleChildScrollView( |                       physics: const BouncingScrollPhysics(), | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "padding: const EdgeInsets.fromLTRB(16, 24, 16, 140),"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/major_selection_screen.dart",
+        "line":  234,
+        "header":  "const SizedBox(height: 32),",
+        "main":  "const SizedBox(height: 32), |                           // 옵션 그리드 |                           _OptionsGrid( |                             options: _options, |                             selectedMajor: _selectedMajor, | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "onSelect: (major) { |                               HapticFeedback.selectionClick(); |                               setState(() =\u003e _selectedMajor = major); |                             },"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/major_selection_screen.dart",
+        "line":  250,
+        "header":  "const SizedBox(height: 32),",
+        "main":  "), |                   ), |                 ], |               ), |             ), | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "// 하단 버튼 |             Positioned( |               left: 0, |               right: 0, |               bottom: 0, |               child: _BottomButtons("
+    },
+    {
+        "file":  "lib/features/onboarding/screens/major_selection_screen.dart",
+        "line":  616,
+        "header":  "class _MajorHeroFlightCard extends StatelessWidget {",
+        "main":  "",
+        "semisemifinal":  ""
+    },
+    {
+        "file":  "lib/features/onboarding/screens/photo_upload_screen.dart",
+        "line":  1,
+        "header":  "",
+        "main":  "import \u0027package:firebase_auth/firebase_auth.dart\u0027; | import \u0027package:firebase_storage/firebase_storage.dart\u0027;",
+        "semisemifinal":  "import \u0027dart:async\u0027; | import \u0027package:cloud_functions/cloud_functions.dart\u0027;"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/photo_upload_screen.dart",
+        "line":  218,
+        "header":  "throw Exception(\u0027사용자 정보를 찾을 수 없습니다. 다시 로그인해주세요.\u0027);",
+        "main":  "final String? kakaoUserId = await _storage.getKakaoUserId(); |       if (kakaoUserId == null || kakaoUserId.isEmpty) { |         throw Exception(\u0027사용자 정보를 찾을 수 없습니다. 다시 로그인해주세요.\u0027); |       } | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD |       final path = pickedFile.path;",
+        "semisemifinal":  "final hasFirebaseSession = await _auth |           .ensureFirebaseSessionForVerifiedUser(kakaoUserId); |       if (!hasFirebaseSession) { |         throw Exception( |           \u0027Firebase login session is required for private upload.\u0027, |         );"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/photo_upload_screen.dart",
+        "line":  240,
+        "header":  "throw Exception(",
+        "main":  "file: pickedFile, |         slotIndex: index, |         uid: kakaoUserId, |         chatPartnerRealPhotoDisclosure: _chatPartnerRealPhotoDisclosure, |       ); | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "_logAvatarFlow( |         \u0027avatar_upload_success\u0027, |         jobId: result.jobId, |         photoId: result.photoId, |         rawStatus: result.avatarStatus,"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/photo_upload_screen.dart",
+        "line":  1424,
+        "header":  "const SizedBox(height: 14),",
+        "main":  "disabledForegroundColor: Colors.white.withValues(alpha: 0.7), |                   shape: RoundedRectangleBorder( |                     borderRadius: BorderRadius.circular(16), |                   ), |                 ), | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  ""
+    },
+    {
+        "file":  "lib/features/onboarding/screens/profile_qa_screen.dart",
+        "line":  224,
+        "header":  "const SizedBox(height: 32),",
+        "main":  "), |                             const SizedBox(height: 32), |                             // 건너뛰기 버튼 |                             Center( |                               child: CupertinoButton( | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "onPressed: () { |                                   HapticFeedback.lightImpact(); |                                   widget.onSkip?.call();"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/profile_qa_screen.dart",
+        "line":  275,
+        "header":  "const SizedBox(height: 40),",
+        "main":  "_AppColors.backgroundLight, |                         ], |                       ), |                     ), |                     padding: EdgeInsets.fromLTRB( | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  ""
+    },
+    {
+        "file":  "lib/features/onboarding/screens/profile_qa_screen.dart",
+        "line":  312,
+        "header":  "widget.onComplete!.call();",
+        "main":  "decoration: BoxDecoration( |                           color: _AppColors.primary, |                           borderRadius: BorderRadius.circular(16), |                           boxShadow: [ |                             BoxShadow( | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "color: _AppColors.primary.withValues(alpha: 0.3), |                               blurRadius: 12,"
+    },
+    {
+        "file":  "lib/features/onboarding/screens/profile_qa_screen.dart",
+        "line":  323,
+        "header":  "widget.onComplete!.call();",
+        "main":  "\u003e\u003e\u003e\u003e\u003e\u003e\u003e d1bb80b5db2cd88e8fcf8b6b89d7ecce26022037 |                               offset: const Offset(0, 6), |                             ), |                           ], |                         ), | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  ""
+    },
+    {
+        "file":  "lib/features/onboarding/screens/profile_qa_screen.dart",
+        "line":  366,
+        "header":  "const Icon(",
+        "main":  "], |             ), |           ), |         ), |       ), | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "\u003e\u003e\u003e\u003e\u003e\u003e\u003e d1bb80b5db2cd88e8fcf8b6b89d7ecce26022037 | ======="
+    },
+    {
+        "file":  "lib/features/splash/splash_screen.dart",
+        "line":  65,
+        "header":  "await _showRejoinRestrictedDialog();",
+        "main":  "} |       final exists = await _authService.kakaoUserExists(kakaoUserId); |       if (!exists) { |         if (!mounted) return; | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD |         Navigator.of(context).pushReplacementNamed(RouteNames.terms);",
+        "semisemifinal":  "\u003e\u003e\u003e\u003e\u003e\u003e\u003e d1bb80b5db2cd88e8fcf8b6b89d7ecce26022037 | ======="
+    },
+    {
+        "file":  "lib/services/auth_service.dart",
+        "line":  278,
+        "header":  "Future\u003cString?\u003e getOnboardingNextRoute(String kakaoUserId) async {",
+        "main":  "return RouteNames.onboardingLifestyle; |     } |     if (_isEmpty(onboarding[\u0027major\u0027])) { |       return RouteNames.onboardingMajor; |     } | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "final uploadedPhotoCount = onboarding[\u0027sourcePhotoUploadCount\u0027]; |     if (uploadedPhotoCount is! num || uploadedPhotoCount \u003c= 0) {"
+    },
+    {
+        "file":  "lib/services/auth_service.dart",
+        "line":  404,
+        "header":  "await _signOutFirebaseIfMismatched(kakaoUserId);",
+        "main":  "final kakaoToken = await TokenManagerProvider.instance.manager.getToken(); |       final accessToken = kakaoToken?.accessToken.trim() ?? \u0027\u0027; |       if (accessToken.isEmpty) { | \u003c\u003c\u003c\u003c\u003c\u003c\u003c HEAD",
+        "semisemifinal":  "FirebaseDiagnostics.logAuthBridgePhase( |           \u0027kakao_access_token_missing\u0027, |           kakaoUserId: kakaoUserId, |         );"
+    }
+]
