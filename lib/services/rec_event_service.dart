@@ -27,7 +27,7 @@ class RecEventService {
     Map<String, dynamic>? context,
   }) async {
     final nowString = DateTime.now().toUtc().toIso8601String();
-    
+
     // dateKey가 없으면 오늘 날짜(KST) 기반으로 생성 (프론트에서 넣어주지 않은 경우)
     final dKey = dateKey ?? _generateDateKey();
 
@@ -51,8 +51,10 @@ class RecEventService {
       if (context != null && context.isNotEmpty) 'context': context,
     };
 
-    debugPrint('[RecEvent] 🚀 시도: $eventType | surface=$surface | target=$targetUid | userId=$userId');
-    
+    debugPrint(
+      '[RecEvent] 🚀 시도: $eventType | surface=$surface | target=$targetUid | userId=$userId',
+    );
+
     try {
       await _firestore.collection('recEvents').doc(userId).set({
         'lastEventAt': nowString,
@@ -62,8 +64,10 @@ class RecEventService {
     }
 
     await _eventsRef(userId).add(payload);
-    
-    debugPrint('[RecEvent] ✅ 기록 성공: $eventType surface=$surface userId=$userId');
+
+    debugPrint(
+      '[RecEvent] ✅ 기록 성공: $eventType surface=$surface userId=$userId',
+    );
   }
 
   String _generateDateKey() {
@@ -76,7 +80,7 @@ class RecEventService {
   }
 
   // ===========================================================================
-  // 기존 레거시 호환 메서드들 
+  // 기존 레거시 호환 메서드들
   // (이들을 호출하던 기존 로직도 점차 logEvent 직접 호출로 수정 요망)
   // ===========================================================================
 

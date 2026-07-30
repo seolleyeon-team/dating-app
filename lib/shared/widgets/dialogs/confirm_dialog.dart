@@ -38,10 +38,7 @@ class ConfirmDialog extends StatelessWidget {
       ),
       content: Text(
         message,
-        style: TextStyle(
-          fontFamily: 'NanumSquareRound',
-          color: textSecondary,
-        ),
+        style: TextStyle(fontFamily: 'NanumSquareRound', color: textSecondary),
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       actions: [
@@ -65,10 +62,7 @@ class ConfirmDialog extends StatelessWidget {
           },
           child: Text(
             confirmText,
-            style: TextStyle(
-              fontFamily: 'NanumSquareRound',
-              color: primary,
-            ),
+            style: TextStyle(fontFamily: 'NanumSquareRound', color: primary),
           ),
         ),
       ],

@@ -46,8 +46,8 @@ class RecommendationEligibility {
   static String? genderOf(Map<String, dynamic>? profile) {
     if (profile == null) return null;
     final onboarding = profile['onboarding'];
-    final raw = (onboarding is Map ? onboarding['gender'] : null)
-        ?? profile['gender'];
+    final raw =
+        (onboarding is Map ? onboarding['gender'] : null) ?? profile['gender'];
     final text = raw?.toString().trim().toLowerCase();
     return (text == null || text.isEmpty) ? null : text;
   }

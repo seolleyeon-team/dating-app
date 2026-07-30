@@ -77,11 +77,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
 
   void _onShare() {
     HapticFeedback.lightImpact();
-    SharePlus.instance.share(
-      ShareParams(
-        text: '설레연에서 함께 3:3 미팅해요! 🎉',
-      ),
-    );
+    SharePlus.instance.share(ShareParams(text: '설레연에서 함께 3:3 미팅해요! 🎉'));
   }
 
   void _onStartMatching() {

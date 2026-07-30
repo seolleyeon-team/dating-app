@@ -131,7 +131,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Future<void> _loadCurrentUser() async {
     final kakaoUserId = await _storageService.getKakaoUserId();
 
-    debugPrint('CHAT LIST current user: ${PrivacyLogUtils.idFingerprint(kakaoUserId)}');
+    debugPrint(
+      'CHAT LIST current user: ${PrivacyLogUtils.idFingerprint(kakaoUserId)}',
+    );
 
     if (!mounted) return;
 
@@ -275,7 +277,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   stream: _chatService.chatRoomsStream(currentUserId),
                   builder: (context, snapshot) {
                     if (snapshot.hasError) {
-                      debugPrint('CHAT LIST ERROR: ${PrivacyLogUtils.errorSummary(snapshot.error!)}');
+                      debugPrint(
+                        'CHAT LIST ERROR: ${PrivacyLogUtils.errorSummary(snapshot.error!)}',
+                      );
 
                       if (DevEntryPolicy.allowTestAccountEntry &&
                           currentUserId != 'fake_user_1') {

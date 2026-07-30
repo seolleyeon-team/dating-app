@@ -42,9 +42,10 @@ class _SlotMachineLeverState extends State<SlotMachineLever>
       vsync: this,
       duration: const Duration(milliseconds: 400),
     );
-    _animation = Tween<double>(begin: 0.0, end: 0.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
-    );
+    _animation = Tween<double>(
+      begin: 0.0,
+      end: 0.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.elasticOut));
     _controller.addListener(() {
       if (!_isDragging) {
         setState(() => _dragValue = _animation.value);
@@ -67,13 +68,17 @@ class _SlotMachineLeverState extends State<SlotMachineLever>
   void _animatePull(double peak, {required bool triggerSpin}) {
     _animation = TweenSequence<double>([
       TweenSequenceItem(
-        tween: Tween(begin: _dragValue, end: peak)
-            .chain(CurveTween(curve: Curves.easeOut)),
+        tween: Tween(
+          begin: _dragValue,
+          end: peak,
+        ).chain(CurveTween(curve: Curves.easeOut)),
         weight: 30,
       ),
       TweenSequenceItem(
-        tween: Tween(begin: peak, end: 0.0)
-            .chain(CurveTween(curve: Curves.elasticOut)),
+        tween: Tween(
+          begin: peak,
+          end: 0.0,
+        ).chain(CurveTween(curve: Curves.elasticOut)),
         weight: 70,
       ),
     ]).animate(_controller);

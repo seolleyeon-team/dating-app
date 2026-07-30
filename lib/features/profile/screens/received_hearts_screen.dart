@@ -104,7 +104,9 @@ class _ReceivedHeartsScreenState extends State<ReceivedHeartsScreen> {
     });
   }
 
-  Future<List<_HeartItem>> _hydrate(List<Map<String, dynamic>> interactions) async {
+  Future<List<_HeartItem>> _hydrate(
+    List<Map<String, dynamic>> interactions,
+  ) async {
     // dedupe: 같은 fromUserId 중 최신 1개만
     final Map<String, Map<String, dynamic>> deduped = {};
     for (final doc in interactions) {
@@ -126,7 +128,8 @@ class _ReceivedHeartsScreenState extends State<ReceivedHeartsScreen> {
       final profile = _profileCache[otherId];
       final onboarding = profile?['onboarding'] as Map?;
 
-      final nickname = profile?['nickname'] as String? ??
+      final nickname =
+          profile?['nickname'] as String? ??
           (onboarding?['nickname'] as String?) ??
           '익명';
 
@@ -149,16 +152,18 @@ class _ReceivedHeartsScreenState extends State<ReceivedHeartsScreen> {
       final ts = doc['createdAt'];
       if (ts is Timestamp) createdAt = ts.toDate();
 
-      items.add(_HeartItem(
-        interactionId: doc['id'] as String? ?? '',
-        otherUserId: otherId,
-        createdAt: createdAt,
-        name: nickname,
-        imageUrl: imageUrl,
-        department: major,
-        university: university,
-        age: age,
-      ));
+      items.add(
+        _HeartItem(
+          interactionId: doc['id'] as String? ?? '',
+          otherUserId: otherId,
+          createdAt: createdAt,
+          name: nickname,
+          imageUrl: imageUrl,
+          department: major,
+          university: university,
+          age: age,
+        ),
+      );
     }
     return items;
   }
@@ -194,7 +199,10 @@ class _ReceivedHeartsScreenState extends State<ReceivedHeartsScreen> {
         children: [
           // 배경 그라데이션
           Positioned(
-            top: 0, left: 0, right: 0, height: 256,
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 256,
             child: Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -245,7 +253,8 @@ class _ReceivedHeartsScreenState extends State<ReceivedHeartsScreen> {
                               ),
                             ),
                             // 빈 상태
-                            if (items.isEmpty && hydSnap.connectionState == ConnectionState.done)
+                            if (items.isEmpty &&
+                                hydSnap.connectionState == ConnectionState.done)
                               SliverFillRemaining(
                                 hasScrollBody: false,
                                 child: Center(
@@ -255,7 +264,9 @@ class _ReceivedHeartsScreenState extends State<ReceivedHeartsScreen> {
                                       Icon(
                                         CupertinoIcons.heart,
                                         size: 48,
-                                        color: _AppColors.gray400.withValues(alpha: 0.5),
+                                        color: _AppColors.gray400.withValues(
+                                          alpha: 0.5,
+                                        ),
                                       ),
                                       const SizedBox(height: 16),
                                       const Text(
@@ -274,16 +285,26 @@ class _ReceivedHeartsScreenState extends State<ReceivedHeartsScreen> {
                               // 리스트
                               SliverPadding(
                                 padding: EdgeInsets.fromLTRB(
-                                    16, 8, 16, bottomPadding + 24),
+                                  16,
+                                  8,
+                                  16,
+                                  bottomPadding + 24,
+                                ),
                                 sliver: SliverList(
                                   delegate: SliverChildBuilderDelegate(
                                     (context, index) => Padding(
-                                      padding: const EdgeInsets.only(bottom: 12),
+                                      padding: const EdgeInsets.only(
+                                        bottom: 12,
+                                      ),
                                       child: _ReceivedHeartCard(
                                         item: items[index],
                                         currentUserId: _currentUserId!,
-                                        dateText: _formatDate(items[index].createdAt),
-                                        onTap: () => _onProfileTap(items[index].otherUserId),
+                                        dateText: _formatDate(
+                                          items[index].createdAt,
+                                        ),
+                                        onTap: () => _onProfileTap(
+                                          items[index].otherUserId,
+                                        ),
                                       ),
                                     ),
                                     childCount: items.length,
@@ -393,9 +414,7 @@ class _ReceivedHeartCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: _AppColors.surfaceLight,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: _AppColors.primary.withValues(alpha: 0.08),
-          ),
+          border: Border.all(color: _AppColors.primary.withValues(alpha: 0.08)),
           boxShadow: [
             BoxShadow(
               color: _AppColors.primary.withValues(alpha: 0.04),

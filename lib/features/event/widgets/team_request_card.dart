@@ -59,9 +59,7 @@ class TeamRequestCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: _AppColors.surfaceLight,
           borderRadius: BorderRadius.circular(22),
-          border: Border.all(
-            color: _AppColors.primary.withValues(alpha: 0.08),
-          ),
+          border: Border.all(color: _AppColors.primary.withValues(alpha: 0.08)),
           boxShadow: [
             BoxShadow(
               color: const Color(0xFF8E74B3).withValues(alpha: 0.06),
@@ -97,10 +95,7 @@ class TeamRequestCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      _StatusChip(
-                        status: request.status,
-                        isReceived: !_isSent,
-                      ),
+                      _StatusChip(status: request.status, isReceived: !_isSent),
                     ],
                   ),
                   const SizedBox(height: 4),

@@ -58,10 +58,10 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
 
   Future<void> _loadData() async {
     try {
-      final inviterFuture =
-          _eventTeam.getInviterProfile(widget.invite.inviterUserId);
-      final teamFuture =
-          _eventTeam.getTeamSetupOnce(widget.invite.teamSetupId);
+      final inviterFuture = _eventTeam.getInviterProfile(
+        widget.invite.inviterUserId,
+      );
+      final teamFuture = _eventTeam.getTeamSetupOnce(widget.invite.teamSetupId);
 
       final results = await Future.wait([inviterFuture, teamFuture]);
       final inviter = results[0] as InviterProfile;
@@ -289,16 +289,15 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
         children: [
           // 프로필 이미지
           ClipOval(
-            child:
-                p.imageUrl != null && p.imageUrl!.isNotEmpty
-                    ? Image.network(
-                        p.imageUrl!,
-                        width: 56,
-                        height: 56,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _fallbackAvatar(),
-                      )
-                    : _fallbackAvatar(),
+            child: p.imageUrl != null && p.imageUrl!.isNotEmpty
+                ? Image.network(
+                    p.imageUrl!,
+                    width: 56,
+                    height: 56,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _fallbackAvatar(),
+                  )
+                : _fallbackAvatar(),
           ),
           const SizedBox(width: 14),
           // 정보
@@ -386,8 +385,10 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
 
     final currentCount = team.acceptedCount + team.pendingInviteeIds.length;
     final members = _memberProfiles ?? [];
-    final memberNames =
-        members.where((m) => !m.isPending).map((m) => m.name).toList();
+    final memberNames = members
+        .where((m) => !m.isPending)
+        .map((m) => m.name)
+        .toList();
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -424,8 +425,10 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
               ),
               const Spacer(),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: _C.plumLight,
                   borderRadius: BorderRadius.circular(10),
@@ -488,9 +491,7 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
             ),
             alignment: Alignment.center,
             child: _busy
-                ? const CupertinoActivityIndicator(
-                    color: CupertinoColors.white,
-                  )
+                ? const CupertinoActivityIndicator(color: CupertinoColors.white)
                 : const Text(
                     '팀 참여하기',
                     style: TextStyle(

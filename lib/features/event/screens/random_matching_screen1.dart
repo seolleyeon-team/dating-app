@@ -25,7 +25,9 @@ class RandomMatchingScreen extends StatelessWidget {
       backgroundColor: _AppColors.backgroundLight,
       navigationBar: CupertinoNavigationBar(
         backgroundColor: _AppColors.surfaceLight.withValues(alpha: 0.9),
-        border: const Border(bottom: BorderSide(color: CupertinoColors.systemGrey6)),
+        border: const Border(
+          bottom: BorderSide(color: CupertinoColors.systemGrey6),
+        ),
         leading: CupertinoButton(
           padding: EdgeInsets.zero,
           child: const Icon(CupertinoIcons.back, color: _AppColors.textMain),
@@ -45,7 +47,10 @@ class RandomMatchingScreen extends StatelessWidget {
             Expanded(
               child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 24,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -61,10 +66,7 @@ class RandomMatchingScreen extends StatelessWidget {
                     const SizedBox(height: 8),
                     Text(
                       '같은 관심사를 가진 분들과 무작위로 매칭됩니다.',
-                      style: TextStyle(
-                        fontSize: 15,
-                        color: _AppColors.textSub,
-                      ),
+                      style: TextStyle(fontSize: 15, color: _AppColors.textSub),
                     ),
                     const SizedBox(height: 48),
                     Container(
@@ -83,7 +85,11 @@ class RandomMatchingScreen extends StatelessWidget {
                       ),
                       child: Column(
                         children: [
-                          Icon(CupertinoIcons.person_2_fill, size: 48, color: _AppColors.primary.withValues(alpha: 0.8)),
+                          Icon(
+                            CupertinoIcons.person_2_fill,
+                            size: 48,
+                            color: _AppColors.primary.withValues(alpha: 0.8),
+                          ),
                           const SizedBox(height: 16),
                           Text(
                             'Start matching',
@@ -96,7 +102,10 @@ class RandomMatchingScreen extends StatelessWidget {
                           const SizedBox(height: 8),
                           Text(
                             '매칭을 시작하면 팀이 구성됩니다.',
-                            style: TextStyle(fontSize: 14, color: _AppColors.textSub),
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: _AppColors.textSub,
+                            ),
                             textAlign: TextAlign.center,
                           ),
                         ],
@@ -107,12 +116,19 @@ class RandomMatchingScreen extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: EdgeInsets.fromLTRB(24, 16, 24, 16 + MediaQuery.of(context).padding.bottom),
+              padding: EdgeInsets.fromLTRB(
+                24,
+                16,
+                24,
+                16 + MediaQuery.of(context).padding.bottom,
+              ),
               child: CupertinoButton(
                 padding: EdgeInsets.zero,
                 onPressed: () {
                   HapticFeedback.mediumImpact();
-                  Navigator.of(context).pushNamed(RouteNames.meetingApplication);
+                  Navigator.of(
+                    context,
+                  ).pushNamed(RouteNames.meetingApplication);
                 },
                 child: Container(
                   width: double.infinity,

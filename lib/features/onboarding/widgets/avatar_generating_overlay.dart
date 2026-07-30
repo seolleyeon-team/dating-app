@@ -36,10 +36,7 @@ class AvatarGeneratingOverlay extends StatelessWidget {
                     child: Container(color: _deepPlum.withValues(alpha: 0.20)),
                   ),
                 ),
-                ModalBarrier(
-                  color: Colors.transparent,
-                  dismissible: false,
-                ),
+                ModalBarrier(color: Colors.transparent, dismissible: false),
                 const Center(child: _GeneratingCard()),
               ],
             )
@@ -64,10 +61,7 @@ class _GeneratingCard extends StatelessWidget {
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 28,
-                vertical: 32,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
               decoration: BoxDecoration(
                 color: AvatarGeneratingOverlay._warmOffWhite.withValues(
                   alpha: 0.95,
@@ -96,7 +90,8 @@ class _GeneratingCard extends StatelessWidget {
                     child: CircularProgressIndicator(
                       strokeWidth: 4,
                       color: AvatarGeneratingOverlay._deepPlum,
-                      backgroundColor: AvatarGeneratingOverlay._surfaceContainer,
+                      backgroundColor:
+                          AvatarGeneratingOverlay._surfaceContainer,
                     ),
                   ),
                   SizedBox(height: 22),

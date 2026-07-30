@@ -261,15 +261,10 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
 
     HapticFeedback.lightImpact();
 
-    final message = !hasNickname
-        ? '닉네임을 입력해주세요.'
-        : '키를 입력해주세요.';
+    final message = !hasNickname ? '닉네임을 입력해주세요.' : '키를 입력해주세요.';
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-      ),
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
 
     return false;

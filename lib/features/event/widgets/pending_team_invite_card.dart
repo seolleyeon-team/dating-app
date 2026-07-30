@@ -6,14 +6,14 @@ import '../../../services/user_service.dart';
 /// 이벤트 탭 상단 pending invite 카드 / 배너
 /// warm off-white · plum 포인트 · 라운드 카드 · 부드러운 shadow
 class _Colors {
-  static const Color cardBg = Color(0xFFFFFBF7);       // warm ivory
-  static const Color cardBorder = Color(0xFFF2E6E9);    // subtle plum border
-  static const Color plumAccent = Color(0xFF9B5A6A);    // plum 라벨
-  static const Color plumLight = Color(0xFFF5EBF0);     // plum tint bg
+  static const Color cardBg = Color(0xFFFFFBF7); // warm ivory
+  static const Color cardBorder = Color(0xFFF2E6E9); // subtle plum border
+  static const Color plumAccent = Color(0xFF9B5A6A); // plum 라벨
+  static const Color plumLight = Color(0xFFF5EBF0); // plum tint bg
   static const Color textMain = Color(0xFF3D2C33);
   static const Color textSub = Color(0xFF89616B);
-  static const Color btnConfirm = Color(0xFFE8466E);    // 확인하기
-  static const Color btnLater = Color(0xFFD4C4C8);      // 나중에 보기
+  static const Color btnConfirm = Color(0xFFE8466E); // 확인하기
+  static const Color btnLater = Color(0xFFD4C4C8); // 나중에 보기
 }
 
 class PendingTeamInviteCard extends StatefulWidget {
@@ -67,8 +67,9 @@ class _PendingTeamInviteCardState extends State<PendingTeamInviteCard> {
       return;
     }
     final raw = user['onboarding'];
-    final ob =
-        raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+    final ob = raw is Map
+        ? Map<String, dynamic>.from(raw)
+        : <String, dynamic>{};
     if (ob['nickname']?.toString().trim().isNotEmpty == true) {
       setState(() => _inviterName = ob['nickname'].toString());
     } else if (user['nickname']?.toString().trim().isNotEmpty == true) {

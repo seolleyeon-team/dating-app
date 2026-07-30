@@ -219,10 +219,7 @@ class _SeasonMeetingRouletteScreenState
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(24, 12, 24, 36),
-                  child: _SpinButton(
-                    onPressed: _spin,
-                    spinning: isBusy,
-                  ),
+                  child: _SpinButton(onPressed: _spin, spinning: isBusy),
                 ),
               ],
             ),
@@ -435,7 +432,8 @@ class _StatusBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bannerMessage = errorMessage ??
+    final bannerMessage =
+        errorMessage ??
         message ??
         (hasResolvedTeams
             ? '추천된 팀 프로필로 릴이 정렬되어 있어요.'
@@ -447,22 +445,20 @@ class _StatusBanner extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: (isError
-                ? const Color(0xFFF7D7E0)
-                : const Color(0xFFFFFFFF))
+        color: (isError ? const Color(0xFFF7D7E0) : const Color(0xFFFFFFFF))
             .withValues(alpha: 0.78),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: (isError
-                  ? const Color(0xFFE87A97)
-                  : const Color(0xFFE6DCEF))
+          color: (isError ? const Color(0xFFE87A97) : const Color(0xFFE6DCEF))
               .withValues(alpha: 0.9),
         ),
       ),
       child: Row(
         children: [
           Icon(
-            isError ? CupertinoIcons.exclamationmark_circle : CupertinoIcons.sparkles,
+            isError
+                ? CupertinoIcons.exclamationmark_circle
+                : CupertinoIcons.sparkles,
             size: 18,
             color: isError ? const Color(0xFFD94C72) : const Color(0xFF8D66B8),
           ),
@@ -474,8 +470,9 @@ class _StatusBanner extends StatelessWidget {
                 fontFamily: 'NanumSquareRound',
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color:
-                    isError ? const Color(0xFF8E304C) : const Color(0xFF5A4A71),
+                color: isError
+                    ? const Color(0xFF8E304C)
+                    : const Color(0xFF5A4A71),
               ),
             ),
           ),
@@ -489,10 +486,7 @@ class _SpinButton extends StatelessWidget {
   final VoidCallback onPressed;
   final bool spinning;
 
-  const _SpinButton({
-    required this.onPressed,
-    required this.spinning,
-  });
+  const _SpinButton({required this.onPressed, required this.spinning});
 
   @override
   Widget build(BuildContext context) {
@@ -586,14 +580,9 @@ class _SlotProfileCard extends StatelessWidget {
           gradient: const LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFFDFBFF),
-              Color(0xFFF3EDF8),
-            ],
+            colors: [Color(0xFFFDFBFF), Color(0xFFF3EDF8)],
           ),
-          border: Border.all(
-            color: const Color(0xFFE1D4EE),
-          ),
+          border: Border.all(color: const Color(0xFFE1D4EE)),
           boxShadow: [
             BoxShadow(
               color: const Color(0xFF8A70AF).withValues(alpha: 0.08),
@@ -676,10 +665,7 @@ class _PlaceholderSlotProfileCard extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFFDFBFF),
-              Color(0xFFF3EDF8),
-            ],
+            colors: [Color(0xFFFDFBFF), Color(0xFFF3EDF8)],
           ),
         ),
         child: Center(
@@ -723,10 +709,7 @@ class _ProfileImageFallback extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFFF1E8F8),
-            Color(0xFFE1D4EE),
-          ],
+          colors: [Color(0xFFF1E8F8), Color(0xFFE1D4EE)],
         ),
       ),
       child: const Center(

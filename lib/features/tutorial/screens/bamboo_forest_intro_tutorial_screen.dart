@@ -269,7 +269,9 @@ class _BambooForestIntroTutorialScreenState
                           padding: EdgeInsets.zero,
                           borderRadius: BorderRadius.circular(16),
                           onPressed: () {
-                            Navigator.of(context).pushNamed(RouteNames.bambooForestWriteTutorial);
+                            Navigator.of(
+                              context,
+                            ).pushNamed(RouteNames.bambooForestWriteTutorial);
                           },
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
