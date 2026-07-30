@@ -75,7 +75,7 @@ class _PrivacySplashView extends StatelessWidget {
             Text(
               '설레연',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 36,
                 fontWeight: FontWeight.w800,
                 color: Color(0xFFFF6B8A),

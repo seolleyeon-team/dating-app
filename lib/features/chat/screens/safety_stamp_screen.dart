@@ -369,7 +369,7 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
         middle: Text(
           title,
           style: const TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontWeight: FontWeight.w700,
             color: Color(0xFF222222),
           ),
@@ -498,7 +498,7 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
                               child: Text(
                                 buttonLabel,
                                 style: const TextStyle(
-                                  fontFamily: 'Pretendard',
+                                  fontFamily: 'NanumSquareRound',
                                   fontSize: 17,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -522,7 +522,7 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
                               child: const Text(
                                 '홈으로 돌아가기',
                                 style: TextStyle(
-                                  fontFamily: 'Pretendard',
+                                  fontFamily: 'NanumSquareRound',
                                   fontSize: 18,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -624,7 +624,7 @@ class _StickerSlotCard extends StatelessWidget {
                     child: Text(
                       label,
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: emphasis
@@ -643,7 +643,7 @@ class _StickerSlotCard extends StatelessWidget {
                           helperText ?? '아직 확인 전이에요',
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 13,
                             fontWeight: FontWeight.w400,
                             color: Color(0xFFB0A9A3),
@@ -899,7 +899,7 @@ class _StatusRow extends StatelessWidget {
           child: Text(
             title,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               fontWeight: FontWeight.w700,
               color: Color(0xFF333333),
@@ -915,7 +915,7 @@ class _StatusRow extends StatelessWidget {
           child: Text(
             value,
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 12,
               fontWeight: FontWeight.w700,
               color: isDone ? const Color(0xFFD95C7D) : const Color(0xFF8A8A8A),
@@ -961,7 +961,7 @@ class _SuccessBanner extends StatelessWidget {
             title,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 24,
               fontWeight: FontWeight.w800,
               color: Color(0xFF222222),
@@ -972,7 +972,7 @@ class _SuccessBanner extends StatelessWidget {
             subtitle,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 13,
               fontWeight: FontWeight.w600,
               color: Color(0xFF666666),

@@ -3,6 +3,7 @@
 // =============================================================================
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart' show Theme, Brightness;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -12,6 +13,9 @@ import '../../../providers/theme_provider.dart';
 import '../../../router/route_names.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+
+const bool _showKakaoReviewTools =
+    kDebugMode || bool.fromEnvironment('KAKAO_REVIEW_TOOLS');
 
 // =============================================================================
 // 메인 화면
@@ -168,7 +172,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         middle: Text(
           '설정',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 18,
             fontWeight: FontWeight.w700,
             color: textMain,
@@ -250,6 +254,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ],
                   ),
+                  if (_showKakaoReviewTools) ...[
+                    const SizedBox(height: 32),
+                    _SectionTitle(title: '심사 도구'),
+                    _SettingsCard(
+                      children: [
+                        _SettingsItem(
+                          icon: CupertinoIcons.checkmark_seal,
+                          title: 'Kakao Friend / Message Test',
+                          subtitle: '카카오 친구 조회와 메시지 발송 확인',
+                          hasChevron: true,
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            Navigator.of(
+                              context,
+                            ).pushNamed(RouteNames.kakaoFriendMessageTest);
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 32),
                   _SectionTitle(title: '계정'),
                   _SettingsCard(
@@ -270,7 +294,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: Text(
                             '카카오 연동됨',
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
                               color: seol.kakaoBrown,
@@ -304,7 +328,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         trailing: Text(
                           '설정',
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 14,
                             fontWeight: FontWeight.w500,
                             color: primary,
@@ -391,7 +415,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Text(
                       '버전 1.0.0',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
                         color: seol.gray400,
@@ -424,7 +448,7 @@ class _SectionTitle extends StatelessWidget {
       child: Text(
         title.toUpperCase(),
         style: TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NanumSquareRound',
           fontSize: 12,
           fontWeight: FontWeight.w700,
           letterSpacing: 1,
@@ -527,7 +551,7 @@ class _SettingsItem extends StatelessWidget {
                   Text(
                     title,
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
                       color: textMain,
@@ -538,7 +562,7 @@ class _SettingsItem extends StatelessWidget {
                     Text(
                       subtitle!,
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 13,
                         color: textSub,
                       ),
@@ -604,7 +628,7 @@ class _SettingsToggle extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
                     color: textMain,
@@ -615,7 +639,7 @@ class _SettingsToggle extends StatelessWidget {
                   Text(
                     subtitle!,
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 13,
                       color: isDark
                           ? AppColorsDark.textSecondary

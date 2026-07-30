@@ -39,6 +39,7 @@ class AdultVerificationService {
   static const String providerPortOneKgInicis =
       PortOneConfig.verificationProvider;
   static const String providerMock = 'mock_debug';
+  static const bool isTemporarilyDisabled = true;
 
   final StorageService _storageService;
   final FirebaseFunctions _functions;
@@ -53,11 +54,15 @@ class AdultVerificationService {
   }
 
   Future<bool> hasVerifiedServerResult() async {
+    if (isTemporarilyDisabled) return true;
+
     final result = await getPendingSession();
     return result.isVerified;
   }
 
   Future<bool> hasPendingKakaoLoginSession() async {
+    if (isTemporarilyDisabled) return true;
+
     final result = await getPendingSession();
     if (result.isExpired) {
       await clearPendingSession();
@@ -143,6 +148,16 @@ class AdultVerificationService {
   }
 
   Future<AdultVerificationResult> verifyPendingSessionAfterLogin() async {
+    if (isTemporarilyDisabled) {
+      return AdultVerificationResult(
+        status: AdultVerificationStatus.verified,
+        provider: providerMock,
+        verifiedAt: DateTime.now().toUtc(),
+        message: '본인인증 절차가 임시 비활성화되어 있어요.',
+        providerPayload: const {'temporaryBypass': true},
+      );
+    }
+
     final pending = await getPendingSession();
     if (!pending.canProceedToKakao) {
       final failed = AdultVerificationResult(

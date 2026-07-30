@@ -66,7 +66,7 @@ class TermsWebViewScreen extends StatelessWidget {
         middle: Text(
           '약관 보기',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 18,
             fontWeight: FontWeight.w700,
             color: textMain,
@@ -93,7 +93,7 @@ class TermsWebViewScreen extends StatelessWidget {
                   Text(
                     '설레연 약관 및 개인정보 안내',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 21,
                       fontWeight: FontWeight.w800,
                       height: 1.35,
@@ -104,7 +104,7 @@ class TermsWebViewScreen extends StatelessWidget {
                   Text(
                     '서비스 이용약관, 개인정보 처리방침, 본인인증 정보 수집·이용 동의 내용을 확인할 수 있어요.',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                       height: 1.55,
@@ -197,7 +197,7 @@ class _LegalDocumentRow extends StatelessWidget {
                   Text(
                     document.title,
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                       color: textMain,
@@ -207,7 +207,7 @@ class _LegalDocumentRow extends StatelessWidget {
                   Text(
                     document.summary,
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
                       height: 1.35,

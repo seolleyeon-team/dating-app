@@ -429,7 +429,7 @@ class _SkipLaterButtonState extends State<_SkipLaterButton>
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 11.5,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.primary,
@@ -486,7 +486,7 @@ class _TitleSection extends StatelessWidget {
         Text(
           '이상형 정보',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 24,
             fontWeight: FontWeight.w800,
             color: _AppColors.textMain,
@@ -496,7 +496,7 @@ class _TitleSection extends StatelessWidget {
         Text(
           '매칭을 위해 이상형 정보를 입력해주세요.',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 14,
             fontWeight: FontWeight.w400,
             color: _AppColors.textSub,
@@ -538,7 +538,7 @@ class _InputField extends StatelessWidget {
             Text(
               label,
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.textMain,
@@ -549,7 +549,7 @@ class _InputField extends StatelessWidget {
               Text(
                 labelSuffix!,
                 style: const TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 14,
                   fontWeight: FontWeight.w400,
                   color: _AppColors.gray400,
@@ -579,7 +579,7 @@ class _InputField extends StatelessWidget {
                   child: Text(
                     value,
                     style: const TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                       color: _AppColors.textSub,
@@ -590,7 +590,7 @@ class _InputField extends StatelessWidget {
                   Text(
                     suffix!,
                     style: const TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                       color: _AppColors.textSub,
@@ -653,7 +653,7 @@ class _BottomCTA extends StatelessWidget {
               Text(
                 label,
                 style: const TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
                   color: CupertinoColors.white,

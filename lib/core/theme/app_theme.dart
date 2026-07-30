@@ -76,9 +76,7 @@ class AppTheme {
         color: AppColors.divider,
         thickness: 1,
       ),
-      extensions: const <ThemeExtension>[
-        SeolThemeColors.light,
-      ],
+      extensions: const <ThemeExtension>[SeolThemeColors.light],
     );
   }
 
@@ -152,7 +150,10 @@ class AppTheme {
         type: BottomNavigationBarType.fixed,
         elevation: 8,
       ),
-      cardTheme: const CardThemeData(color: AppColorsDark.surface, elevation: 2),
+      cardTheme: const CardThemeData(
+        color: AppColorsDark.surface,
+        elevation: 2,
+      ),
       dividerTheme: const DividerThemeData(
         color: AppColorsDark.divider,
         thickness: 1,
@@ -200,10 +201,7 @@ class AppTheme {
           return const Color(0xFF3E3548);
         }),
       ),
-      extensions: const <ThemeExtension>[
-        SeolThemeColors.dark,
-      ],
+      extensions: const <ThemeExtension>[SeolThemeColors.dark],
     );
   }
 }
-

@@ -17,7 +17,7 @@ import 'shared/widgets/app_privacy_splash_overlay.dart';
 class SeolleyeonApp extends StatefulWidget {
   const SeolleyeonApp({super.key});
 
-  static const String fontFamily = 'Pretendard';
+  static const String fontFamily = 'NanumSquareRound';
 
   static const Color primaryColor = Color(0xFFFF6B8A);
   static const Color backgroundColor = Color(0xFFFAFAFA);
@@ -38,16 +38,11 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider<ThemeProvider>(
-          create: (_) => ThemeProvider(),
-        ),
-        ChangeNotifierProvider<AuthProvider>(
-          create: (_) => AuthProvider(),
-        ),
+        ChangeNotifierProvider<ThemeProvider>(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider<AuthProvider>(create: (_) => AuthProvider()),
         ChangeNotifierProvider<CommunityProvider>(
-          create: (ctx) => CommunityProvider(
-            authProvider: ctx.read<AuthProvider>(),
-          ),
+          create: (ctx) =>
+              CommunityProvider(authProvider: ctx.read<AuthProvider>()),
         ),
       ],
       child: Consumer<ThemeProvider>(
@@ -134,23 +129,23 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
         primaryColor: SeolleyeonApp.primaryColor,
         brightness: Brightness.light,
         scaffoldBackgroundColor: SeolleyeonApp.backgroundColor,
-        textTheme: CupertinoThemeData(brightness: Brightness.light)
-            .textTheme
+        textTheme: CupertinoThemeData(brightness: Brightness.light).textTheme
             .copyWith(
               textStyle: CupertinoThemeData(brightness: Brightness.light)
                   .textTheme
                   .textStyle
                   .copyWith(fontFamily: SeolleyeonApp.fontFamily),
-              navTitleTextStyle: CupertinoThemeData(brightness: Brightness.light)
-                  .textTheme
-                  .navTitleTextStyle
-                  .copyWith(
+              navTitleTextStyle:
+                  CupertinoThemeData(
+                    brightness: Brightness.light,
+                  ).textTheme.navTitleTextStyle.copyWith(
                     fontFamily: SeolleyeonApp.fontFamily,
                     fontWeight: FontWeight.w600,
                   ),
-              navLargeTitleTextStyle: CupertinoThemeData(
-                brightness: Brightness.light,
-              ).textTheme.navLargeTitleTextStyle.copyWith(
+              navLargeTitleTextStyle:
+                  CupertinoThemeData(
+                    brightness: Brightness.light,
+                  ).textTheme.navLargeTitleTextStyle.copyWith(
                     fontFamily: SeolleyeonApp.fontFamily,
                     fontWeight: FontWeight.w700,
                   ),
@@ -162,9 +157,7 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
           TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
         },
       ),
-      extensions: const <ThemeExtension>[
-        SeolThemeColors.light,
-      ],
+      extensions: const <ThemeExtension>[SeolThemeColors.light],
     );
   }
 
@@ -243,8 +236,7 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
         brightness: Brightness.dark,
         scaffoldBackgroundColor: darkBg,
         barBackgroundColor: darkSurface.withValues(alpha: 0.9),
-        textTheme: CupertinoThemeData(brightness: Brightness.dark)
-            .textTheme
+        textTheme: CupertinoThemeData(brightness: Brightness.dark).textTheme
             .copyWith(
               textStyle: CupertinoThemeData(brightness: Brightness.dark)
                   .textTheme
@@ -261,9 +253,10 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
                     fontWeight: FontWeight.w600,
                     color: darkText,
                   ),
-              navLargeTitleTextStyle: CupertinoThemeData(
-                brightness: Brightness.dark,
-              ).textTheme.navLargeTitleTextStyle.copyWith(
+              navLargeTitleTextStyle:
+                  CupertinoThemeData(
+                    brightness: Brightness.dark,
+                  ).textTheme.navLargeTitleTextStyle.copyWith(
                     fontFamily: SeolleyeonApp.fontFamily,
                     fontWeight: FontWeight.w700,
                     color: darkText,
@@ -273,13 +266,13 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
       dialogTheme: const DialogThemeData(
         backgroundColor: darkSurface,
         titleTextStyle: TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NanumSquareRound',
           fontSize: 18,
           fontWeight: FontWeight.w600,
           color: darkText,
         ),
         contentTextStyle: TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NanumSquareRound',
           fontSize: 14,
           color: AppColorsDark.textSecondary,
         ),
@@ -293,9 +286,7 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
           TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
         },
       ),
-      extensions: const <ThemeExtension>[
-        SeolThemeColors.dark,
-      ],
+      extensions: const <ThemeExtension>[SeolThemeColors.dark],
     );
   }
 }

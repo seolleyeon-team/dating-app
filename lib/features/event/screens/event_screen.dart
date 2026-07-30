@@ -226,7 +226,7 @@ class _TopAppBar extends StatelessWidget {
                 'Event',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                   color: textColor,
@@ -324,7 +324,7 @@ class _SegmentTab extends StatelessWidget {
             child: Text(
               label,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 14,
                 fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                 color: isSelected ? primary : seol.sectionTitle,
@@ -379,7 +379,7 @@ class _HeroCard extends StatelessWidget {
                 Text(
                   'SAFE MATCHING',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.8,
@@ -394,7 +394,7 @@ class _HeroCard extends StatelessWidget {
           Text(
             '두근두근 3:3 시즌 미팅',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 22,
               fontWeight: FontWeight.w700,
               color: seol.gray800,
@@ -405,7 +405,7 @@ class _HeroCard extends StatelessWidget {
           Text(
             '검증된 회원들과 안전하고 설레는 만남',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               fontWeight: FontWeight.w500,
               color: seol.sectionTitle,
@@ -551,7 +551,7 @@ class _StatusStrip extends StatelessWidget {
                     Text(
                       '오늘 1회 무료',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
                         color: seol.gray800,
@@ -564,7 +564,7 @@ class _StatusStrip extends StatelessWidget {
                   child: Text(
                     '추가 돌리기 3,000원',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 12,
                       fontWeight: FontWeight.w400,
                       color: seol.sectionTitle,
@@ -630,7 +630,7 @@ class _PrimaryCTA extends StatelessWidget {
             const Text(
               '팀 만들고 시작하기',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
                 color: CupertinoColors.white,
@@ -688,7 +688,7 @@ class _PartnerVenueSection extends StatelessWidget {
               Text(
                 '제휴 장소 추천',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                   color: seol.gray800,
@@ -716,7 +716,7 @@ class _PartnerVenueSection extends StatelessWidget {
                   child: Text(
                     '전체보기',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                       color: seol.sectionTitle,
@@ -820,7 +820,7 @@ class _VenueCard extends StatelessWidget {
                         Text(
                           location,
                           style: const TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 9,
                             fontWeight: FontWeight.w500,
                             color: CupertinoColors.white,
@@ -842,7 +842,7 @@ class _VenueCard extends StatelessWidget {
                 Text(
                   name,
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
                     color: seol.gray800,
@@ -854,7 +854,7 @@ class _VenueCard extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 12,
                     fontWeight: FontWeight.w400,
                     color: seol.sectionTitle,
@@ -881,7 +881,7 @@ class _VenueCard extends StatelessWidget {
                         Text(
                           '혜택 보기',
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
                             color: primary,
@@ -956,7 +956,7 @@ class _RandomMatchingContent extends StatelessWidget {
                       Text(
                         'RANDOM MATCHING',
                         style: TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
                           letterSpacing: 0.8,
@@ -970,7 +970,7 @@ class _RandomMatchingContent extends StatelessWidget {
                 Text(
                   '3:3 랜덤 매칭',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 22,
                     fontWeight: FontWeight.w700,
                     color: seol.gray800,
@@ -981,7 +981,7 @@ class _RandomMatchingContent extends StatelessWidget {
                 Text(
                   '같은 관심사를 가진 분들과 무작위로 매칭됩니다.',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
                     color: seol.sectionTitle,
@@ -1042,7 +1042,7 @@ class _RandomMatchingContent extends StatelessWidget {
                   const Text(
                     'Start matching',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                       color: CupertinoColors.white,
@@ -1057,4 +1057,3 @@ class _RandomMatchingContent extends StatelessWidget {
     );
   }
 }
-

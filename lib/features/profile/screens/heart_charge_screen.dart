@@ -116,7 +116,7 @@ class _Header extends StatelessWidget {
           const Text(
             '하트 충전',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 24,
               fontWeight: FontWeight.w700,
               color: _AppColors.textPrimary,

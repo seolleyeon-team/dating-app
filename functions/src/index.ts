@@ -4107,6 +4107,113 @@ export const syncContactBlocks = onCall(async (request) => {
   };
 });
 
+// =============================================================================
+// syncKakaoTalkFriendBlocks — 카카오톡 친구 추천 제외 Callable
+// =============================================================================
+const MAX_KAKAO_TALK_FRIEND_IDS = 1000;
+
+export const syncKakaoTalkFriendBlocks = onCall(async (request) => {
+  const data = getCallableData(request);
+  let callerUid = asNonEmptyString(request.auth?.uid);
+
+  if (!callerUid) {
+    const accessToken = asNonEmptyString(data.kakaoAccessToken);
+    if (!accessToken) {
+      throw new HttpsError("unauthenticated", "로그인이 필요해요.");
+    }
+    callerUid = (await verifyKakaoAccessToken(accessToken)).userId;
+  }
+
+  const rawFriendUserIds = data.friendUserIds;
+  if (!Array.isArray(rawFriendUserIds)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "friendUserIds 배열이 필요합니다."
+    );
+  }
+
+  const seen = new Set<string>();
+  const friendUserIds: string[] = [];
+  for (const rawId of rawFriendUserIds) {
+    const friendUserId = asString(rawId, "").trim();
+    if (!/^\d+$/.test(friendUserId) || seen.has(friendUserId)) continue;
+    seen.add(friendUserId);
+    friendUserIds.push(friendUserId);
+    if (friendUserIds.length >= MAX_KAKAO_TALK_FRIEND_IDS) break;
+  }
+
+  let matchedUserCount = 0;
+  let newlyExcludedCount = 0;
+  let alreadyExcludedCount = 0;
+  let skippedSelfCount = 0;
+  const CHUNK_SIZE = 400;
+
+  for (let i = 0; i < friendUserIds.length; i += CHUNK_SIZE) {
+    const chunk = friendUserIds.slice(i, i + CHUNK_SIZE);
+    const candidateIds = chunk.filter((id) => {
+      if (id === callerUid) {
+        skippedSelfCount++;
+        return false;
+      }
+      return true;
+    });
+
+    if (candidateIds.length === 0) continue;
+
+    const userRefs = candidateIds.map((id) => db.collection("users").doc(id));
+    const blockRefs = candidateIds.map((id) =>
+      db.collection("blocks").doc(callerUid).collection("targets").doc(id)
+    );
+    const [userDocs, existingBlockDocs] = await Promise.all([
+      db.getAll(...userRefs),
+      db.getAll(...blockRefs),
+    ]);
+    const batch = db.batch();
+    let chunkNewlyExcludedCount = 0;
+
+    for (let index = 0; index < candidateIds.length; index++) {
+      if (!userDocs[index].exists) continue;
+
+      matchedUserCount++;
+      if (existingBlockDocs[index].exists) {
+        alreadyExcludedCount++;
+        continue;
+      }
+
+      batch.set(blockRefs[index], {
+        fromUserId: callerUid,
+        toUserId: candidateIds[index],
+        reason: "kakao_talk_friend",
+        source: "kakao_talk_friends",
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      newlyExcludedCount++;
+      chunkNewlyExcludedCount++;
+    }
+
+    if (chunkNewlyExcludedCount > 0) {
+      await batch.commit();
+    }
+  }
+
+  logger.info("syncKakaoTalkFriendBlocks completed", {
+    callerUid,
+    submittedFriendCount: friendUserIds.length,
+    matchedUserCount,
+    newlyExcludedCount,
+    alreadyExcludedCount,
+    skippedSelfCount,
+  });
+
+  return {
+    submittedFriendCount: friendUserIds.length,
+    matchedUserCount,
+    newlyExcludedCount,
+    alreadyExcludedCount,
+    skippedSelfCount,
+  };
+});
+
 /**
  * A↔B 상호 block을 blocks/{uid}/targets/{targetUid}에 생성.
  * 이미 양쪽 다 있으면 false 반환(이미 차단).
