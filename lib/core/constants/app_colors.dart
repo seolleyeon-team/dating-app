@@ -93,6 +93,24 @@ class SeolThemeColors extends ThemeExtension<SeolThemeColors> {
   final Color kakao;
   final Color kakaoBrown;
 
+  // ── 이벤트 탭 공통 토큰 ──────────────────────────────────────────────
+  // 3:3 시즌 미팅 / 블라인드 취향 미팅이 같은 캔버스를 쓰도록 공용화한다.
+
+  /// 이벤트 탭 배경 (연한 핑크 오프화이트)
+  final Color eventBackground;
+
+  /// 이벤트 탭 카드/패널 외곽선 (웜 로즈 그레이)
+  final Color eventBorder;
+
+  /// 본문 / 비활성 탭 라벨용 중간 회색 (sectionTitle보다 진해 읽힌다)
+  final Color bodyText;
+
+  /// 본문 크기 텍스트에 쓸 수 있는 짙은 로즈 (주의·보완 안내)
+  final Color rose700;
+
+  /// 본문 크기 텍스트에 쓸 수 있는 짙은 에메랄드 (완료·긍정)
+  final Color emerald700;
+
   const SeolThemeColors({
     required this.cardSurface,
     required this.navBarBackground,
@@ -110,6 +128,11 @@ class SeolThemeColors extends ThemeExtension<SeolThemeColors> {
     required this.emerald500,
     required this.kakao,
     required this.kakaoBrown,
+    required this.eventBackground,
+    required this.eventBorder,
+    required this.bodyText,
+    required this.rose700,
+    required this.emerald700,
   });
 
   static const light = SeolThemeColors(
@@ -129,6 +152,11 @@ class SeolThemeColors extends ThemeExtension<SeolThemeColors> {
     emerald500: Color(0xFF10B981),
     kakao: Color(0xFFFEE500),
     kakaoBrown: Color(0xFF3C1E1E),
+    eventBackground: Color(0xFFFFF5F8),
+    eventBorder: Color(0xFFE6DBDE),
+    bodyText: Color(0xFF666666),
+    rose700: Color(0xFFC2185B),
+    emerald700: Color(0xFF047857),
   );
 
   static const dark = SeolThemeColors(
@@ -148,6 +176,11 @@ class SeolThemeColors extends ThemeExtension<SeolThemeColors> {
     emerald500: Color(0xFF34D399),
     kakao: Color(0xFFFEE500),
     kakaoBrown: Color(0xFF3C1E1E),
+    eventBackground: Color(0xFF1C1520),
+    eventBorder: Color(0xFF3E3548),
+    bodyText: Color(0xFFB0A0AC),
+    rose700: Color(0xFFF7A8C0),
+    emerald700: Color(0xFF6EE7B7),
   );
 
   @override
@@ -168,6 +201,11 @@ class SeolThemeColors extends ThemeExtension<SeolThemeColors> {
     Color? emerald500,
     Color? kakao,
     Color? kakaoBrown,
+    Color? eventBackground,
+    Color? eventBorder,
+    Color? bodyText,
+    Color? rose700,
+    Color? emerald700,
   }) {
     return SeolThemeColors(
       cardSurface: cardSurface ?? this.cardSurface,
@@ -186,15 +224,27 @@ class SeolThemeColors extends ThemeExtension<SeolThemeColors> {
       emerald500: emerald500 ?? this.emerald500,
       kakao: kakao ?? this.kakao,
       kakaoBrown: kakaoBrown ?? this.kakaoBrown,
+      eventBackground: eventBackground ?? this.eventBackground,
+      eventBorder: eventBorder ?? this.eventBorder,
+      bodyText: bodyText ?? this.bodyText,
+      rose700: rose700 ?? this.rose700,
+      emerald700: emerald700 ?? this.emerald700,
     );
   }
 
   @override
-  SeolThemeColors lerp(covariant ThemeExtension<SeolThemeColors>? other, double t) {
+  SeolThemeColors lerp(
+    covariant ThemeExtension<SeolThemeColors>? other,
+    double t,
+  ) {
     if (other is! SeolThemeColors) return this;
     return SeolThemeColors(
       cardSurface: Color.lerp(cardSurface, other.cardSurface, t)!,
-      navBarBackground: Color.lerp(navBarBackground, other.navBarBackground, t)!,
+      navBarBackground: Color.lerp(
+        navBarBackground,
+        other.navBarBackground,
+        t,
+      )!,
       sectionTitle: Color.lerp(sectionTitle, other.sectionTitle, t)!,
       settingsIcon: Color.lerp(settingsIcon, other.settingsIcon, t)!,
       gray100: Color.lerp(gray100, other.gray100, t)!,
@@ -209,7 +259,11 @@ class SeolThemeColors extends ThemeExtension<SeolThemeColors> {
       emerald500: Color.lerp(emerald500, other.emerald500, t)!,
       kakao: Color.lerp(kakao, other.kakao, t)!,
       kakaoBrown: Color.lerp(kakaoBrown, other.kakaoBrown, t)!,
+      eventBackground: Color.lerp(eventBackground, other.eventBackground, t)!,
+      eventBorder: Color.lerp(eventBorder, other.eventBorder, t)!,
+      bodyText: Color.lerp(bodyText, other.bodyText, t)!,
+      rose700: Color.lerp(rose700, other.rose700, t)!,
+      emerald700: Color.lerp(emerald700, other.emerald700, t)!,
     );
   }
 }
-
