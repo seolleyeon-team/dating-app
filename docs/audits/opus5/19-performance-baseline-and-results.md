@@ -13,7 +13,9 @@
 | App Check policy tests | `flutter test test/app_check_provider_policy_test.dart` | 4 tests | 8 pass | 정책 확장 |
 | Avatar auth pytest | `pytest tests/test_avatar_exact_replay_auth.py` | — | 11 pass / 9.0s | 미커밋 완화 포함 |
 | Flutter startup / frame time | device profiler | **UNMEASURED** | **UNMEASURED** | 실기기/DevTools 세션 없음 |
-| APK / Web bundle size | `flutter build` size analysis | **UNMEASURED** | **UNMEASURED** | 본 세션에서 full release build 미실행 |
+| CupertinoIcons font (release tree-shake) | `flutter build apk --analyze-size` (partial) | 257628 B | **17000 B (−93.4%)** | Gradle assembleRelease 중 관측 |
+| MaterialIcons font (release tree-shake) | same | 1645184 B | **8756 B (−99.5%)** | same |
+| APK total / Web bundle size | full `--analyze-size` | **UNMEASURED** | **INCOMPLETE** | arm64 release Gradle가 28분+ 정체되어 중단. 재실행: `flutter build apk --release --target-platform android-arm64 --analyze-size` |
 | Firestore read count (recs/chat) | production metrics | **UNMEASURED** | code-level N+1 review | 운영 메트릭 접근 없음 |
 
 ---
@@ -27,6 +29,8 @@
 | Retention purge | collectionGroup + composite index | Index added to `firestore.indexes.json` (deploy = external) |
 | Duplicate FCM / auth listeners | Known residual | Tracked L-16; targeted fixes when found |
 | Recommendation N+1 | Prior Opus fix for blocks | Verified defaults in `recsys/main.py` |
+| Silent catch / legacy stubs / IAP | Release risk | Logged catches; stub fail-closed; purchase gated |
+| Heart charge fake purchase | Empty onTap / TODO pay | Shows "결제 준비 중" until `ENABLE_IN_APP_PURCHASE` + real billing |
 
 ---
 
