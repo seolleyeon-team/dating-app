@@ -590,10 +590,9 @@ service cloud.firestore {
     }
 
     match /users/{kakaoUserId} {
-      // Signed-in get of a known document id is required for matching/chat.
-      // Collection list is denied: it enabled roster dumps and powered the
-      // unsafe client recommendation fallback that scanned /users.
-      allow get: if isSignedIn();
+      // PRIVATE_OWNER_ONLY (+ Admin SDK). Cross-user reads must use
+      // publicProfiles/{uid}. Collection list stays denied.
+      allow get: if isSelf(kakaoUserId);
       allow list: if false;
 
       // Initial creation through Yonsei email student verification
@@ -679,6 +678,8 @@ service cloud.firestore {
             resource.data.isStudentVerified == true &&
             request.resource.data.isStudentVerified == true &&
             usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
+            // Client-writable allowlist only. Moderation / withdrawal /
+            // verification timestamps / loginDisabled are server-only.
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
               'kakaoUserId',
               'nickname',
@@ -700,22 +701,9 @@ service cloud.firestore {
               'notificationSettings',
               'notificationSettingsUpdatedAt',
               'preferenceVector',
-              'status',
-              'isWithdrawn',
-              'withdrawnAt',
-              'scheduledHardDeleteAt',
-              'withdrawalRetentionDays',
-              'withdrawalReason',
-              'withdrawalPolicy',
               'profileVisible',
-              'canRejoin',
-              'rejoinRestricted',
-              'rejoinRestrictedUntil',
-              'rejoinRestrictionReason',
-              'rejoinedAt',
               'lastLoginAt',
               'hasSeenTutorial',
-              'loginDisabled',
               'updatedAt'
             ])
           ) || (
@@ -741,27 +729,12 @@ service cloud.firestore {
               'notificationSettings',
               'notificationSettingsUpdatedAt',
               'preferenceVector',
-              'status',
-              'isWithdrawn',
-              'withdrawnAt',
-              'scheduledHardDeleteAt',
-              'withdrawalRetentionDays',
-              'withdrawalReason',
-              'withdrawalPolicy',
               'profileVisible',
-              'canRejoin',
-              'rejoinRestricted',
-              'rejoinRestrictedUntil',
-              'rejoinRestrictionReason',
-              'rejoinedAt',
               'lastLoginAt',
               'hasSeenTutorial',
               'initialSetupComplete',
               'initialSetupCompletedAt',
               'onboardingCompletedAt',
-              'studentVerifiedAt',
-              'verifiedAt',
-              'loginDisabled',
               'updatedAt'
             ])
           )
@@ -1285,6 +1258,23 @@ service cloud.firestore {
     match /eventThreeVsThreeMatches/{matchId} {
       allow read: if isEventTeamMatchParticipant(resource.data);
       allow write: if false;
+    }
+
+    // AUTHENTICATED_LIMITED_PROFILE — server-synced display surface only.
+    // Never store email, studentEmail, preferenceVector, tokens, or
+    // moderation internals here.
+    match /publicProfiles/{uid} {
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    // Season meeting money/ops — Admin SDK / callables only.
+    match /seasonDepositIntents/{intentId} {
+      allow read, write: if false;
+    }
+    match /seasonMeetingCancelAudit/{id} {
+      allow read, write: if false;
     }
 
     // -----------------------------------------------------------------------
