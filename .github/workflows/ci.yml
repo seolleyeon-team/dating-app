@@ -73,8 +73,9 @@ jobs:
           pip install pytest
           if [ -f recsys/requirements.txt ]; then pip install -r recsys/requirements.txt || true; fi
       - run: pytest -q tests/test_avatar_exact_replay_auth.py --maxfail=10
-      - run: |
-          if [ -d recsys/tests ]; then pytest -q recsys/tests --maxfail=20; else echo "no recsys/tests"; fi
+      - run: pytest -q recsys/tests --maxfail=20
+        env:
+          PYTHONPATH: .
 
   secret-scan:
     name: Secret scan (gitleaks)
