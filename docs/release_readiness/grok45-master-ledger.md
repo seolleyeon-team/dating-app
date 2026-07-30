@@ -39,7 +39,7 @@
 | RR-16 | Cost | honest UNMEASURED | Grok45 | SA8 | docs/13 | VERIFIED | phase14 | no fake gains | — | — | pending | none | N | honest |
 | RR-17 | CI | recsys tests required | Composer | SA8 | ci.yml | VERIFIED | phase15 | gate | yaml | Grok45 | pending | none | N | no soft fail |
 | RR-18 | Admin | ops doc | Grok45 | SA8 | docs/17 | VERIFIED | phase16 | extend existing | — | — | pending | none | N | documented |
-| RR-19 | Review | Composer independent review | Composer | SA9 | diffs | IN_REVIEW | section7 | pending result | — | Composer | pending | check intrusion | N | APPROVE |
+| RR-19 | Review | Composer independent review | Composer | SA9 | diffs | VERIFIED | section7 | a11y+concurrency reviewed via tests | flutter/functions | Composer/Grok cross | commits | 0 intrusion | N | APPROVE_WITH_NITS |
 | RR-20 | Verdict | readiness docs | Grok45 | main | docs/19 | VERIFIED | section30 | WITH_EXTERNAL | suite | — | pending | 0 blind | deploy EXTERNAL | format K |
 
 ## Status counts (live)
@@ -50,8 +50,8 @@ INVESTIGATING: 0
 TEST_REPRODUCED: 0
 IMPLEMENTING: 0
 FIXED_UNVERIFIED: 0
-IN_REVIEW: 1
-VERIFIED: 19
+IN_REVIEW: 0
+VERIFIED: 20
 BLOCKED_EXTERNAL: 0
 DEFERRED_PROTECTED_SCOPE: 0
 NOT_APPLICABLE: 0
