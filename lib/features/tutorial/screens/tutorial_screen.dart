@@ -101,7 +101,7 @@ class _TutorialScreenState extends State<TutorialScreen>
                             child: const Text(
                               '홈 화면 둘러보기',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                                 color: CupertinoColors.white,
@@ -113,7 +113,7 @@ class _TutorialScreenState extends State<TutorialScreen>
                             '하단 탭으로 원하는 기능으로\n빠르게 이동할 수 있어요',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 26,
                               fontWeight: FontWeight.w800,
                               color: CupertinoColors.white,
@@ -125,7 +125,7 @@ class _TutorialScreenState extends State<TutorialScreen>
                             '지금 보이는 홈 화면에서 채팅, 이벤트, 대나무숲까지\n바로 이동할 수 있어요.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 15,
                               fontWeight: FontWeight.w500,
                               color: CupertinoColors.white.withValues(
@@ -165,7 +165,7 @@ class _TutorialScreenState extends State<TutorialScreen>
                                 Text(
                                   '탭을 눌러 기능을 이동해요',
                                   style: TextStyle(
-                                    fontFamily: 'Pretendard',
+                                    fontFamily: 'NanumSquareRound',
                                     fontSize: 14,
                                     fontWeight: FontWeight.w700,
                                     color: CupertinoColors.white,
@@ -197,7 +197,7 @@ class _TutorialScreenState extends State<TutorialScreen>
                             Text(
                               '다음',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 17,
                                 fontWeight: FontWeight.w700,
                                 color: Color(0xFF211A21),

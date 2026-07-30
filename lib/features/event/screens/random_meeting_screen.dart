@@ -16,7 +16,7 @@ import 'dart:ui'; // for ImageFilter
 // =============================================================================
 // 색상 정의
 // =============================================================================
-const String _kFontFamily = 'Pretendard';
+const String _kFontFamily = 'NanumSquareRound';
 
 class _AppColors {
   static const Color primary = Color(0xFFEE2B7C); // #ee2b7c
@@ -405,7 +405,7 @@ class _ActionFooter extends StatelessWidget {
             'WF-3V3-03',
             style: TextStyle(
               fontSize: 10,
-              fontFamily: 'monospace',
+              fontFamily: 'NanumSquareRound',
               color: Color(0xFFE0E0E0),
             ),
           ),

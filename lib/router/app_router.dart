@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'route_names.dart';
 
 // Splash & Auth (로그인 화면 없음: /login → 카카오 인증 화면으로 통일)
@@ -83,6 +84,7 @@ import '../features/profile/screens/account_management_screen.dart';
 import '../features/profile/screens/notification_settings_screen.dart';
 import '../features/profile/screens/safety_stamp_log_screen.dart';
 import '../features/profile/screens/contact_block_screen.dart';
+import '../features/profile/screens/kakao_friend_message_test_screen.dart';
 import '../features/matching/models/profile_card_args.dart';
 import '../features/profile/screens/terms_webview_screen.dart';
 import '../features/profile/screens/faq_screen.dart';
@@ -116,6 +118,9 @@ import '../features/meeting/screens/meeting_application_screen.dart';
 import '../shared/layouts/main_scaffold_args.dart';
 import '../services/auth_service.dart';
 import '../services/storage_service.dart';
+
+const bool _showKakaoReviewTools =
+    kDebugMode || bool.fromEnvironment('KAKAO_REVIEW_TOOLS');
 
 /// 앱 라우터 (CupertinoPageRoute, 흐름도 단일 소스)
 class AppRouter {
@@ -319,6 +324,12 @@ class AppRouter {
         return _cupertino(const SafetyStampLogScreen());
       case RouteNames.contactBlock:
         return _cupertino(const ContactBlockScreen());
+      case RouteNames.kakaoFriendMessageTest:
+        return _cupertino(
+          _showKakaoReviewTools
+              ? const KakaoFriendMessageTestScreen()
+              : const SizedBox.shrink(),
+        );
       case RouteNames.asksInbox:
         return _cupertino(const AsksInboxScreen());
       case RouteNames.termsWebview:
@@ -501,7 +512,7 @@ class _AdultVerifiedRouteGuardState extends State<_AdultVerifiedRouteGuard> {
             child: Text(
               '본인인증 완료 후 이용할 수 있어요.',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 15,
                 color: Color(0xFF64748B),
               ),

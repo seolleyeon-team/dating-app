@@ -56,12 +56,12 @@ class SeolTextField extends StatelessWidget {
             border: Border.all(color: borderColor),
           ),
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 16,
             color: textColor,
           ),
           placeholderStyle: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 16,
             color: placeholderColor,
           ),
@@ -71,7 +71,7 @@ class SeolTextField extends StatelessWidget {
           Text(
             errorText!,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 12,
               color: CupertinoColors.destructiveRed,
             ),

@@ -7,7 +7,7 @@ import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/widgets/chat_unlocked_profile_avatar.dart';
 
-const String _kFontFamily = 'Noto Sans KR';
+const String _kFontFamily = 'NanumSquareRound';
 
 class _C {
   static const Color primary = Color(0xFFF0428B);

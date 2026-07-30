@@ -1043,6 +1043,16 @@ class FestivalBackend {
       );
     }
 
+    final schedule = await _eventSchedule.load();
+    if (schedule?.enabled == true) {
+      return RecommendationBundle(
+        currentGender: currentGender,
+        targetGender: targetGender,
+        availableCount: 0,
+        slots: List<FestivalProfile?>.filled(3, null),
+      );
+    }
+
     // Fall back to legacy festivalModelRecs-based engine
     final engine = FestivalRecommendationEngine(_db);
     final result = await engine.loadRecommendations(

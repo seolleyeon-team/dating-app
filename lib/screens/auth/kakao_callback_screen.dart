@@ -41,7 +41,8 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
     final errorDescription = query['error_description'];
     final adultVerificationService = AdultVerificationService();
 
-    if (!await adultVerificationService.hasPendingKakaoLoginSession()) {
+    if (!AdultVerificationService.isTemporarilyDisabled &&
+        !await adultVerificationService.hasPendingKakaoLoginSession()) {
       if (!mounted) return;
       setState(() {
         _statusMessage = '본인인증 완료 후 카카오 로그인을 진행할 수 있어요.';
@@ -112,25 +113,27 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
       final authService = AuthService();
       await authService.syncPendingLegalConsents(kakaoUserId);
 
-      if (!mounted) return;
-      setState(() => _statusMessage = '본인인증 결과를 서버에서 확인 중...');
-      final verificationResult = await adultVerificationService
-          .verifyPendingSessionAfterLogin();
-      if (!verificationResult.isVerified) {
-        await authService.signOutAll();
-        await StorageService().clearKakaoUserId();
-        await StorageService().clearUserId();
+      if (!AdultVerificationService.isTemporarilyDisabled) {
         if (!mounted) return;
-        setState(() {
-          _statusMessage =
-              verificationResult.message ??
-              '서버 본인인증 검증이 완료되지 않았어요. 다시 인증해 주세요.';
-        });
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          RouteNames.adultVerification,
-          (route) => false,
-        );
-        return;
+        setState(() => _statusMessage = '본인인증 결과를 서버에서 확인 중...');
+        final verificationResult = await adultVerificationService
+            .verifyPendingSessionAfterLogin();
+        if (!verificationResult.isVerified) {
+          await authService.signOutAll();
+          await StorageService().clearKakaoUserId();
+          await StorageService().clearUserId();
+          if (!mounted) return;
+          setState(() {
+            _statusMessage =
+                verificationResult.message ??
+                '서버 본인인증 검증이 완료되지 않았어요. 다시 인증해 주세요.';
+          });
+          Navigator.of(context).pushNamedAndRemoveUntil(
+            RouteNames.adultVerification,
+            (route) => false,
+          );
+          return;
+        }
       }
 
       if (!mounted) return;
@@ -186,13 +189,13 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
       appBar: AppBar(
         title: const Text(
           '카카오 로그인 콜백',
-          style: TextStyle(fontFamily: 'Pretendard'),
+          style: TextStyle(fontFamily: 'NanumSquareRound'),
         ),
       ),
       body: Center(
         child: Text(
           _statusMessage,
-          style: const TextStyle(fontFamily: 'Pretendard', fontSize: 16),
+          style: const TextStyle(fontFamily: 'NanumSquareRound', fontSize: 16),
         ),
       ),
     );

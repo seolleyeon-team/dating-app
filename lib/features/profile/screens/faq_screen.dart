@@ -66,7 +66,7 @@ class FaqScreen extends StatelessWidget {
         middle: Text(
           '자주 묻는 질문',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 18,
             fontWeight: FontWeight.w700,
             color: textMain,
@@ -123,7 +123,7 @@ class _FaqTile extends StatelessWidget {
           Text(
             item.question,
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 16,
               fontWeight: FontWeight.w800,
               height: 1.35,
@@ -134,7 +134,7 @@ class _FaqTile extends StatelessWidget {
           Text(
             item.answer,
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               fontWeight: FontWeight.w500,
               height: 1.5,

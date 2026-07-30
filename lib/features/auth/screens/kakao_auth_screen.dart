@@ -236,6 +236,8 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   }
 
   Future<bool> _ensureAdultVerifiedBeforeKakao() async {
+    if (AdultVerificationService.isTemporarilyDisabled) return true;
+
     final canProceed = await _adultVerificationService
         .hasPendingKakaoLoginSession();
     if (canProceed) return true;
@@ -249,12 +251,16 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   }
 
   Future<void> _redirectIfAdultVerificationMissing() async {
+    if (AdultVerificationService.isTemporarilyDisabled) return;
+
     if (await _adultVerificationService.hasPendingKakaoLoginSession()) return;
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed(RouteNames.adultVerification);
   }
 
   Future<bool> _verifyAdultIdentityAfterKakaoLogin() async {
+    if (AdultVerificationService.isTemporarilyDisabled) return true;
+
     if (!mounted) return false;
     setState(() {
       _serverVerificationMessage = '카카오 로그인 완료 후 본인인증 결과를 서버에서 확인하고 있어요.';
@@ -446,7 +452,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
                   child: SelectableText(
                     keyHash,
                     style: const TextStyle(
-                      fontFamily: 'monospace',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 14,
                     ),
                   ),
@@ -604,7 +610,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
               ),
               const SizedBox(height: 10),
               const Text(
-                '본인인증이 완료된 상태에서\n카카오 계정 로그인을 진행해 주세요.',
+                '약관 동의 후\n카카오 계정 로그인을 진행해 주세요.',
                 style: TextStyle(
                   fontSize: 15,
                   height: 1.4,
@@ -696,23 +702,24 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
                 ),
               ],
               const SizedBox(height: 10),
-              Center(
-                child: CupertinoButton(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 6,
-                  ),
-                  onPressed: _isLoading
-                      ? null
-                      : () => Navigator.of(
-                          context,
-                        ).pushReplacementNamed(RouteNames.adultVerification),
-                  child: const Text(
-                    '본인인증 화면 다시 보기',
+              if (!AdultVerificationService.isTemporarilyDisabled)
+                Center(
+                  child: CupertinoButton(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
+                    onPressed: _isLoading
+                        ? null
+                        : () => Navigator.of(
+                            context,
+                          ).pushReplacementNamed(RouteNames.adultVerification),
+                    child: const Text(
+                      '본인인증 화면 다시 보기',
                     style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
+                    ),
                   ),
                 ),
-              ),
               Center(
                 child: CupertinoButton(
                   padding: const EdgeInsets.symmetric(
