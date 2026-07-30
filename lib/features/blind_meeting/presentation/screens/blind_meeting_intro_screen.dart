@@ -6,6 +6,7 @@
 // (화면 메모리가 아니라 blindMeetingApplications/{uid} 문서가 단일 소스)
 // =============================================================================
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../router/route_names.dart';
@@ -53,7 +54,21 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
     });
     try {
       final profile = await _repository.loadProfileSnapshot();
-      final application = await _repository.watchMyApplication().first;
+
+      // 진행 중인 신청 조회는 선택 정보다. 아직 신청 이력이 없거나
+      // 읽기 권한이 준비되지 않은 환경에서도 소개 화면은 열려야 하므로
+      // 실패를 화면 전체 오류로 올리지 않는다.
+      BlindMeetingApplication? application;
+      try {
+        application = await _repository.watchMyApplication().first;
+      } on FirebaseException catch (error) {
+        if (error.code != 'permission-denied') rethrow;
+        debugPrint(
+          '[BlindMeeting] 신청 상태를 읽을 수 없어요 (rules 배포 확인 필요): ${error.code}',
+        );
+        application = null;
+      }
+
       if (!mounted) return;
       setState(() {
         _profile = profile;
