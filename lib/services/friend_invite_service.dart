@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'auth_service.dart';
 import 'storage_service.dart';
 import '../shared/utils/privacy_log_utils.dart';
+import '../shared/utils/safe_catch.dart';
 
 enum FriendInviteAcceptStatus {
   accepted,
@@ -402,7 +403,9 @@ class FriendInviteService {
         if (token != null && token.isNotEmpty) {
           return token;
         }
-      } catch (_) {}
+      } catch (e) {
+        logCaughtError('FriendInvite.extractInviteToken', e);
+      }
     }
 
     return null;

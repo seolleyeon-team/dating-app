@@ -17,6 +17,7 @@ import '../../../router/route_names.dart';
 import '../../../services/onboarding_save_helper.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/safe_catch.dart';
 
 // =============================================================================
 // 색상 상수
@@ -101,9 +102,11 @@ class _MajorSelectionScreenState extends State<MajorSelectionScreen> {
     if (onboarding is! Map) return;
     final majorStr = onboarding['major']?.toString();
     if (majorStr != null && majorStr.isNotEmpty) {
-      try {
-        _selectedMajor = MajorType.values.firstWhere((v) => v.name == majorStr);
-      } catch (_) {}
+      _selectedMajor = enumByNameOrNull(
+        MajorType.values,
+        majorStr,
+        tag: 'MajorSelectionScreen',
+      );
       if (mounted) setState(() {});
     }
   }
