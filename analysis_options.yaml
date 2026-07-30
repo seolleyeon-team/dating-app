@@ -27,6 +27,7 @@ analyzer:
     - config/**
     - dating-app/**
     - docs/**
+    - festival_web/**
     - functions/**
     - g005_pytest_owned_escalated/**
     - g005_pytest_owned_escalated_2/**
