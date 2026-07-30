@@ -16,7 +16,10 @@ class Helpers {
   }
 
   // Format DateTime
-  static String formatDateTime(DateTime dateTime, {String format = 'yyyy-MM-dd HH:mm'}) {
+  static String formatDateTime(
+    DateTime dateTime, {
+    String format = 'yyyy-MM-dd HH:mm',
+  }) {
     return DateFormat(format).format(dateTime);
   }
 

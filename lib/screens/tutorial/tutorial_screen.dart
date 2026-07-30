@@ -19,14 +19,8 @@ class _TutorialScreenState extends State<TutorialScreen> {
       title: '앱 하단 바 설명',
       description: '설레연, 채팅, 이벤트, 대나무숲, 내 페이지를 쉽게 이동할 수 있어요',
     ),
-    TutorialPage(
-      title: '상호작용',
-      description: '호감 표시, 채팅, 알림 기능을 활용해보세요',
-    ),
-    TutorialPage(
-      title: '이벤트',
-      description: '3:3 미팅 등 다양한 이벤트에 참여해보세요',
-    ),
+    TutorialPage(title: '상호작용', description: '호감 표시, 채팅, 알림 기능을 활용해보세요'),
+    TutorialPage(title: '이벤트', description: '3:3 미팅 등 다양한 이벤트에 참여해보세요'),
   ];
 
   @override
@@ -49,7 +43,7 @@ class _TutorialScreenState extends State<TutorialScreen> {
                 child: const Text('건너뛰기'),
               ),
             ),
-            
+
             // Page View
             Expanded(
               child: PageView.builder(
@@ -65,7 +59,7 @@ class _TutorialScreenState extends State<TutorialScreen> {
                 },
               ),
             ),
-            
+
             // Page Indicator
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -74,9 +68,9 @@ class _TutorialScreenState extends State<TutorialScreen> {
                 (index) => _buildPageIndicator(index == _currentPage),
               ),
             ),
-            
+
             const SizedBox(height: 32),
-            
+
             // Next/Complete Button
             Padding(
               padding: const EdgeInsets.all(16.0),
@@ -87,9 +81,7 @@ class _TutorialScreenState extends State<TutorialScreen> {
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size(double.infinity, 50),
                 ),
-                child: Text(
-                  _currentPage == _pages.length - 1 ? '시작하기' : '다음',
-                ),
+                child: Text(_currentPage == _pages.length - 1 ? '시작하기' : '다음'),
               ),
             ),
           ],
@@ -104,27 +96,17 @@ class _TutorialScreenState extends State<TutorialScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
-            Icons.info_outline,
-            size: 80,
-            color: Colors.blue,
-          ),
+          const Icon(Icons.info_outline, size: 80, color: Colors.blue),
           const SizedBox(height: 32),
           Text(
             page.title,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),
           Text(
             page.description,
-            style: const TextStyle(
-              fontSize: 16,
-              color: Colors.grey,
-            ),
+            style: const TextStyle(fontSize: 16, color: Colors.grey),
             textAlign: TextAlign.center,
           ),
         ],
@@ -163,8 +145,5 @@ class TutorialPage {
   final String title;
   final String description;
 
-  TutorialPage({
-    required this.title,
-    required this.description,
-  });
+  TutorialPage({required this.title, required this.description});
 }

@@ -34,7 +34,9 @@ class LoginScreen extends StatelessWidget {
               // 카카오 로그인 버튼 → 카카오 인증 화면(연세메일/홈 분기)
               ElevatedButton(
                 onPressed: () {
-                  Navigator.of(context).pushReplacementNamed(RouteNames.kakaoAuth);
+                  Navigator.of(
+                    context,
+                  ).pushReplacementNamed(RouteNames.kakaoAuth);
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFFEE500),

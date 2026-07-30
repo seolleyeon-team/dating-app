@@ -6,7 +6,8 @@ class AppPrivacySplashOverlay extends StatefulWidget {
   const AppPrivacySplashOverlay({super.key, required this.child});
 
   @override
-  State<AppPrivacySplashOverlay> createState() => _AppPrivacySplashOverlayState();
+  State<AppPrivacySplashOverlay> createState() =>
+      _AppPrivacySplashOverlayState();
 }
 
 class _AppPrivacySplashOverlayState extends State<AppPrivacySplashOverlay>
@@ -15,8 +16,11 @@ class _AppPrivacySplashOverlayState extends State<AppPrivacySplashOverlay>
 
   bool get _shouldShowOverlay {
     final state = _lastLifecycleState;
-    return state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden ||
+    // Do not cover on `inactive` alone.
+    // KakaoTalk / Universal Link handoff briefly parks the app in
+    // `inactive` on iPhone (incl. 15 Pro). Treating that as "hide UI"
+    // leaves a stuck splash that looks like the screen turned off.
+    return state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached;
   }

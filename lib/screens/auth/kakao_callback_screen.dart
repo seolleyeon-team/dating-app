@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
@@ -63,14 +64,20 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
       Navigator.of(
         context,
       ).pushNamedAndRemoveUntil(RouteNames.kakaoAuth, (route) => false);
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil(RouteNames.kakaoAuth, (route) => false);
       return;
     }
 
     // 2) 앱이 카카오 리다이렉트 URL로 켜졌을 때 네이티브에서 URL을 SDK에 전달 (iOS/Android)
     try {
       await receiveKakaoScheme();
-    } catch (_) {}
-
+    } catch (e) {
+      debugPrint(
+        '[KakaoCallback] receiveKakaoScheme failed: ${PrivacyLogUtils.errorSummary(e)}',
+      );
+    }
     // 3) URL에 code가 있으면 토큰 발급 후 저장 (iOS에서 네이티브가 URL을 안 넘겨도 동작하도록)
     final code = query['code'];
     if (code != null && code.isNotEmpty) {
@@ -81,7 +88,9 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
         );
         await TokenManagerProvider.instance.manager.setToken(token);
       } catch (e) {
-        debugPrint('[KakaoCallback] issueAccessToken failed: $e');
+        debugPrint(
+          '[KakaoCallback] issueAccessToken failed: ${PrivacyLogUtils.errorSummary(e)}',
+        );
       }
     }
 
@@ -175,7 +184,9 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
       ).pushNamedAndRemoveUntil(RouteNames.kakaoAuth, (route) => false);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _statusMessage = '로그인 처리 실패: $e');
+      setState(
+        () => _statusMessage = '로그인 처리 실패: ${PrivacyLogUtils.errorSummary(e)}',
+      );
       if (!mounted) return;
       Navigator.of(
         context,

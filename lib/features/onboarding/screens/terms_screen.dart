@@ -15,6 +15,7 @@ import '../../../router/route_names.dart';
 import 'terms_detail_sheet.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/dev_entry_policy.dart';
 
 // =============================================================================
 // 색상 상수
@@ -98,6 +99,10 @@ class _TermsScreenState extends State<TermsScreen> {
   bool get _allChecked => _allRequiredChecked && _marketingChecked;
 
   Future<void> _enterWithTestAccount() async {
+    // Belt-and-suspenders: the button is already hidden in release, but the
+    // handler must refuse even if something else invokes it.
+    if (!DevEntryPolicy.allowTestAccountEntry) return;
+
     final storage = StorageService();
     final userService = UserService();
     await storage.saveKakaoUserId("fake_user_1");
@@ -266,7 +271,8 @@ class _TermsScreenState extends State<TermsScreen> {
                   onPressed: _onSubmit,
                   isLoading: _isSubmitting,
                 ),
-                _TestAccountButton(onPressed: _enterWithTestAccount),
+                if (DevEntryPolicy.allowTestAccountEntry)
+                  _TestAccountButton(onPressed: _enterWithTestAccount),
               ],
             ),
           ),

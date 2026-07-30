@@ -5,10 +5,7 @@ class PromisePlaceExternalLinks {
   final String? kakaoPlaceId;
   final String? naverPlaceId;
 
-  const PromisePlaceExternalLinks({
-    this.kakaoPlaceId,
-    this.naverPlaceId,
-  });
+  const PromisePlaceExternalLinks({this.kakaoPlaceId, this.naverPlaceId});
 
   factory PromisePlaceExternalLinks.fromMap(Map<String, dynamic>? raw) {
     if (raw == null) return const PromisePlaceExternalLinks();
@@ -19,11 +16,11 @@ class PromisePlaceExternalLinks {
   }
 
   Map<String, dynamic> toMap() => {
-        if (kakaoPlaceId != null && kakaoPlaceId!.isNotEmpty)
-          'kakaoPlaceId': kakaoPlaceId,
-        if (naverPlaceId != null && naverPlaceId!.isNotEmpty)
-          'naverPlaceId': naverPlaceId,
-      };
+    if (kakaoPlaceId != null && kakaoPlaceId!.isNotEmpty)
+      'kakaoPlaceId': kakaoPlaceId,
+    if (naverPlaceId != null && naverPlaceId!.isNotEmpty)
+      'naverPlaceId': naverPlaceId,
+  };
 }
 
 /// Firestore `place_catalog_items.category` — 소문자 키만 사용:
@@ -163,20 +160,20 @@ class PromisePlace {
   }
 
   Map<String, dynamic> toJsonMap() => {
-        'placeId': placeId,
-        'name': name,
-        'category': category,
-        'description': description,
-        'address': address,
-        'lat': lat,
-        'lng': lng,
-        'thumbnailUrl': thumbnailUrl,
-        'imageUrls': imageUrls,
-        'isActive': isActive,
-        'sortOrder': sortOrder,
-        'tags': tags,
-        'externalLinks': externalLinks.toMap(),
-      };
+    'placeId': placeId,
+    'name': name,
+    'category': category,
+    'description': description,
+    'address': address,
+    'lat': lat,
+    'lng': lng,
+    'thumbnailUrl': thumbnailUrl,
+    'imageUrls': imageUrls,
+    'isActive': isActive,
+    'sortOrder': sortOrder,
+    'tags': tags,
+    'externalLinks': externalLinks.toMap(),
+  };
 
   /// 로컬 캐시 / JSON 복원용 (placeId 필수).
   static List<PromisePlace> listFromJsonList(List<dynamic>? raw) {

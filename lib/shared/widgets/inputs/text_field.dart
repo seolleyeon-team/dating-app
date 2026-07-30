@@ -32,7 +32,9 @@ class SeolTextField extends StatelessWidget {
     final borderColor = errorText != null
         ? CupertinoColors.destructiveRed
         : (isDark ? const Color(0xFF3E3548) : const Color(0xFFE6DBDF));
-    final textColor = isDark ? const Color(0xFFF0E8ED) : const Color(0xFF181113);
+    final textColor = isDark
+        ? const Color(0xFFF0E8ED)
+        : const Color(0xFF181113);
     final placeholderColor = isDark
         ? const Color(0xFF7A6B76)
         : const Color(0xFF89616F).withValues(alpha: 0.6);

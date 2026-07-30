@@ -107,28 +107,25 @@ class _TeamRequestsScreenState extends State<TeamRequestsScreen> {
               child: _loading
                   ? const Center(child: CupertinoActivityIndicator(radius: 14))
                   : _currentTeamId == null
-                      ? const _EmptyState(
-                          icon: CupertinoIcons.person_3,
-                          message: '아직 팀이 구성되지 않았어요.\n팀을 완성하면 요청을 확인할 수 있어요.',
-                        )
-                      : _selectedTab == 0
-                          ? _RequestList(
-                              stream: _service
-                                  .watchReceivedRequests(_currentTeamId!),
-                              currentTeamId: _currentTeamId!,
-                              onCardTap: _onCardTap,
-                              emptyIcon: CupertinoIcons.tray,
-                              emptyMessage: '받은 요청이 아직 없어요.\n상대 팀의 요청이 오면 여기에 표시돼요.',
-                            )
-                          : _RequestList(
-                              stream:
-                                  _service.watchSentRequests(_currentTeamId!),
-                              currentTeamId: _currentTeamId!,
-                              onCardTap: _onCardTap,
-                              emptyIcon: CupertinoIcons.paperplane,
-                              emptyMessage:
-                                  '보낸 요청이 아직 없어요.\n슬롯 결과에서 팀에 요청을 보내보세요.',
-                            ),
+                  ? const _EmptyState(
+                      icon: CupertinoIcons.person_3,
+                      message: '아직 팀이 구성되지 않았어요.\n팀을 완성하면 요청을 확인할 수 있어요.',
+                    )
+                  : _selectedTab == 0
+                  ? _RequestList(
+                      stream: _service.watchReceivedRequests(_currentTeamId!),
+                      currentTeamId: _currentTeamId!,
+                      onCardTap: _onCardTap,
+                      emptyIcon: CupertinoIcons.tray,
+                      emptyMessage: '받은 요청이 아직 없어요.\n상대 팀의 요청이 오면 여기에 표시돼요.',
+                    )
+                  : _RequestList(
+                      stream: _service.watchSentRequests(_currentTeamId!),
+                      currentTeamId: _currentTeamId!,
+                      onCardTap: _onCardTap,
+                      emptyIcon: CupertinoIcons.paperplane,
+                      emptyMessage: '보낸 요청이 아직 없어요.\n슬롯 결과에서 팀에 요청을 보내보세요.',
+                    ),
             ),
           ],
         ),
@@ -200,10 +197,7 @@ class _SegmentControl extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onChanged;
 
-  const _SegmentControl({
-    required this.selectedIndex,
-    required this.onChanged,
-  });
+  const _SegmentControl({required this.selectedIndex, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -214,9 +208,7 @@ class _SegmentControl extends StatelessWidget {
         decoration: BoxDecoration(
           color: CupertinoColors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: _AppColors.primary.withValues(alpha: 0.08),
-          ),
+          border: Border.all(color: _AppColors.primary.withValues(alpha: 0.08)),
         ),
         child: Row(
           children: [

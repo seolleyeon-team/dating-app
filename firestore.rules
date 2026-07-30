@@ -7,12 +7,27 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
-    // Email-link token exchange (앱 -> Firestore token 저장, Web -> token 조회)
+    // Email-link token exchange (app stores Firestore token, web reads token)
     // -----------------------------------------------------------------------
+    // A token document is NOT proof of identity. It only carries the
+    // (kakaoUserId, email) pair from the app to the verification web page.
+    // Anyone who can write one for an arbitrary uid can have a Firebase custom
+    // token minted for that uid, so creation is bound to the caller's session.
+    // KakaoLoginFirestoreBootstrap guarantees uid == kakaoUserId before this
+    // screen is reachable.
     match /emailLinkTokens/{token} {
-      allow create: if request.resource.data.email is string &&
+      allow create: if request.auth != null &&
           request.resource.data.kakaoUserId is string &&
+          request.auth.uid == request.resource.data.kakaoUserId &&
+          request.resource.data.email is string &&
           isYonseiEmail(request.resource.data.email) &&
+          request.resource.data.expiresAt is timestamp &&
+          request.resource.data.keys().hasOnly([
+            'email',
+            'kakaoUserId',
+            'createdAt',
+            'expiresAt'
+          ]) &&
           request.resource.data.keys().hasAll([
             'email',
             'kakaoUserId',
@@ -20,83 +35,637 @@ service cloud.firestore {
             'expiresAt'
           ]);
 
+      // The verification page is unauthenticated when the email link opens it,
+      // so it has to read the document it was handed. The document id is a
+      // UUIDv4 that only ever travels inside the email link.
       allow get: if true;
       allow list: if false;
-      allow update: if false;
-      allow delete: if request.auth != null;
+
+      // Records that the email-link sign-in actually happened. Only the holder
+      // of the verified mailbox named in the token may write it, and only these
+      // two fields may change. createFirebaseCustomTokenFromEmailLinkToken
+      // requires this marker before it mints a session.
+      allow update: if request.auth != null &&
+          request.auth.token.email is string &&
+          request.auth.token.email_verified == true &&
+          resource.data.email is string &&
+          request.auth.token.email.lower() == resource.data.email.lower() &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'emailVerifiedUid',
+            'emailVerifiedAt'
+          ]) &&
+          request.resource.data.emailVerifiedUid == request.auth.uid;
+
+      allow delete: if request.auth != null &&
+          (
+            request.auth.uid == resource.data.kakaoUserId ||
+            (
+              request.auth.token.email is string &&
+              request.auth.token.email_verified == true &&
+              resource.data.email is string &&
+              request.auth.token.email.lower() == resource.data.email.lower()
+            )
+          );
     }
 
         // -----------------------------------------------------------------------
     // Users
     // -----------------------------------------------------------------------
-    // users 문서에 kakaoUserId 필드가 없으면 규칙에서 null 로 평가됨 -> 프로필 수정 허용
+    // If users doc has no kakaoUserId field, rules evaluate it as null and allow profile edits.
     function usersDocKakaoIdOk(data, docKakaoId) {
       return data.kakaoUserId == null || data.kakaoUserId == docKakaoId;
     }
 
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Community counters are client-written via FieldValue.increment(±1).
+    // Without a ±1 gate anyone can set likeCount/score7d to an arbitrary rank.
+    function intFieldUnchangedOrDeltaOne(field) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([field]) ||
+        (
+          request.resource.data[field] is int &&
+          resource.data[field] is int &&
+          (
+            request.resource.data[field] == resource.data[field] + 1 ||
+            request.resource.data[field] == resource.data[field] - 1
+          )
+        );
+    }
+
+    function nonNegativeIntField(field) {
+      return !(field in request.resource.data) ||
+        (
+          request.resource.data[field] is int &&
+          request.resource.data[field] >= 0
+        );
+    }
+
+    function bambooPostCounterUpdateOk() {
+      return intFieldUnchangedOrDeltaOne('likeCount') &&
+        intFieldUnchangedOrDeltaOne('commentCount') &&
+        intFieldUnchangedOrDeltaOne('score7d') &&
+        nonNegativeIntField('likeCount') &&
+        nonNegativeIntField('commentCount') &&
+        nonNegativeIntField('score7d');
+    }
+
+    function bambooCommentCounterUpdateOk() {
+      return intFieldUnchangedOrDeltaOne('likeCount') &&
+        nonNegativeIntField('likeCount');
+    }
+
     function isVerifiedOwner(kakaoUserId) {
+      return isSelf(kakaoUserId);
+    }
+
+    // True when the caller holds a *verified* Yonsei mailbox. Used as the trust
+    // anchor for student verification: the only thing that may set
+    // isStudentVerified is a session Firebase itself proved owns the mailbox.
+    function hasVerifiedYonseiEmail() {
       return request.auth != null &&
-          request.auth.uid == kakaoUserId;
+          request.auth.token.email is string &&
+          request.auth.token.email_verified == true &&
+          isYonseiEmail(request.auth.token.email);
+    }
+
+    function writesOwnStudentEmail(data) {
+      return data.studentEmail is string &&
+          data.studentEmail.lower() == request.auth.token.email.lower();
+    }
+
+    // A mailbox may be bound to a user document once. Rebinding is the profile
+    // takeover primitive: isUserDocOwner() derives ownership from studentEmail,
+    // so whoever can rewrite that field inherits the account.
+    function studentEmailIsUnboundOrMine(existing) {
+      return !existing.keys().hasAny(['studentEmail']) ||
+          existing.studentEmail == null ||
+          existing.studentEmail == "" ||
+          existing.studentEmail.lower() == request.auth.token.email.lower();
+    }
+
+    function doesNotSelfAssertStudentVerification(data) {
+      return (!data.keys().hasAny(['isStudentVerified']) ||
+              data.isStudentVerified != true) &&
+          (!data.keys().hasAny(['studentEmail']) ||
+              data.studentEmail == null ||
+              data.studentEmail == "");
+    }
+
+    function isUserDocOwner(kakaoUserId) {
+      return request.auth != null &&
+          (
+            request.auth.uid == kakaoUserId ||
+            (
+              request.auth.token.email is string &&
+              request.auth.token.email_verified == true &&
+              isYonseiEmail(request.auth.token.email) &&
+              resource.data.studentEmail is string &&
+              isYonseiEmail(resource.data.studentEmail) &&
+              request.auth.token.email == resource.data.studentEmail
+            )
+          );
+    }
+
+    function isStorageSourcePath(value) {
+      return value is string &&
+          (
+            value.lower().matches('^https://storage\\.googleapis\\.com/.*') ||
+            value.lower().matches('^https://firebasestorage\\.googleapis\\.com/.*')
+          ) &&
+          (
+            value.lower().matches('.*/source/.*') ||
+            value.lower().matches('.*%2fsource%2f.*')
+          );
+    }
+
+    function isSafePublicMediaUrl(value) {
+      return value is string &&
+          !value.lower().matches('^gs://.*') &&
+          !value.lower().matches('^gcs://.*') &&
+          !value.lower().matches('.*seolleyeon-private-source-photos.*') &&
+          !value.lower().matches('.*seolleyeon-final-private-source-photos.*') &&
+          !value.lower().matches('.*seolleyeon-festival-private-source-photos.*') &&
+          !value.lower().matches('.*seolleyeon-avatar-temp.*') &&
+          !value.lower().matches('.*seolleyeon-final-avatar-temp.*') &&
+          !value.lower().matches('.*seolleyeon-festival-avatar-temp.*') &&
+          !value.lower().matches('.*seolleyeon-chat-profile-photos.*') &&
+          !value.lower().matches('.*seolleyeon-final-chat-profile-photos.*') &&
+          !value.lower().matches('.*seolleyeon-festival-chat-profile-photos.*') &&
+          !value.lower().matches('.*x-goog-.*') &&
+          !value.lower().matches('.*x-amz-.*') &&
+          !value.lower().matches('.*googleaccessid.*') &&
+          !value.lower().matches('.*signature=.*') &&
+          !value.lower().matches('.*expires=.*') &&
+          !value.lower().matches('.*awsaccesskeyid.*') &&
+          !value.lower().matches('.*signedurl.*') &&
+          !isStorageSourcePath(value);
+    }
+
+    function isApprovedAvatarStoragePath(value) {
+      return value is string &&
+          (
+            value.matches('^gs://seolleyeon-approved-avatars/users/[^/]+/avatar/[^/]+$') ||
+            value.matches('^gs://seolleyeon-final-approved-avatars/users/[^/]+/avatar/[^/]+$') ||
+            value.matches('^gs://seolleyeon-festival-approved-avatars/users/[^/]+/avatar/[^/]+$')
+          );
+    }
+
+    function avatarPublicMediaOk(avatar) {
+      return avatar is map &&
+          !avatar.keys().hasAny([
+            'sourcePhotos',
+            'sourcePhotoUrls',
+            'sourcePhotoRefs',
+            'sourcePhotoIds',
+            'sourcePhotoGcsUri',
+            'gcsUri',
+            'clipEmbedding',
+            'clipEmbeddings',
+            'vector',
+            'faceEmbedding',
+            'faceEmbeddings',
+            'qaEmbeddings',
+            'signedUrl',
+            'signedUrls',
+            'previewUrl',
+            'previewUrls',
+            'candidatePreviewUrl',
+            'candidatePreviewUrls'
+          ]) &&
+          (!avatar.keys().hasAny(['approvedAvatarUrl']) ||
+            avatar.approvedAvatarUrl == null ||
+            avatar.approvedAvatarUrl == "" ||
+            isSafePublicMediaUrl(avatar.approvedAvatarUrl)) &&
+          (!avatar.keys().hasAny(['approvedAvatarStoragePath']) ||
+            avatar.approvedAvatarStoragePath == null ||
+            avatar.approvedAvatarStoragePath == "" ||
+            isApprovedAvatarStoragePath(avatar.approvedAvatarStoragePath));
+    }
+
+    function onboardingPhotoUrlsOk(onboarding, data) {
+      return !onboarding.keys().hasAny(['photoUrls']) ||
+          (
+            onboarding.photoUrls is list &&
+            onboarding.photoUrls.size() <= 1 &&
+            (
+              onboarding.photoUrls.size() == 0 ||
+              (
+                data.avatar is map &&
+                data.avatar.approvedAvatarUrl is string &&
+                onboarding.photoUrls[0] == data.avatar.approvedAvatarUrl &&
+                isSafePublicMediaUrl(onboarding.photoUrls[0])
+              )
+            )
+          );
+    }
+
+    function onboardingPublicMediaOk(onboarding, data) {
+      return onboarding is map &&
+          !onboarding.keys().hasAny([
+            'sourcePhotos',
+            'sourcePhotoUrls',
+            'sourcePhotoRefs',
+            'sourcePhotoIds',
+            'sourcePhotoGcsUri',
+            'gcsUri',
+            'clipEmbedding',
+            'clipEmbeddings',
+            'vector',
+            'faceEmbedding',
+            'faceEmbeddings',
+            'signedUrl',
+            'signedUrls',
+            'previewUrl',
+            'previewUrls',
+            'candidatePreviewUrl',
+            'candidatePreviewUrls'
+          ]) &&
+          onboardingPhotoUrlsOk(onboarding, data) &&
+          (
+            !onboarding.keys().hasAny(['avatarUrls']) ||
+            (
+              onboarding.avatarUrls is list &&
+              onboarding.avatarUrls.size() <= 1 &&
+              (
+                onboarding.avatarUrls.size() == 0 ||
+                isSafePublicMediaUrl(onboarding.avatarUrls[0])
+              )
+            )
+          );
+    }
+
+    function avatarApprovalFieldsAbsent(data) {
+      return !data.keys().hasAny(['avatar']) ||
+          !(data.avatar is map) ||
+          !data.avatar.keys().hasAny([
+            'approvedAvatarUrl',
+            'approvedAvatarStoragePath'
+          ]);
+    }
+
+    function onboardingAvatarPhotoFieldsAbsent(data) {
+      return !data.keys().hasAny(['onboarding']) ||
+          !(data.onboarding is map) ||
+          !data.onboarding.keys().hasAny([
+            'avatarUrls',
+            'photoUrls'
+          ]);
+    }
+
+    function avatarApprovalFieldsUnchanged() {
+      return (
+          request.resource.data.keys().hasAny(['avatar']) &&
+          resource.data.keys().hasAny(['avatar']) &&
+          request.resource.data.avatar is map &&
+          resource.data.avatar is map &&
+          !request.resource.data.avatar.diff(resource.data.avatar).affectedKeys().hasAny([
+            'approvedAvatarUrl',
+            'approvedAvatarStoragePath'
+          ])
+        ) || (
+          !(
+            request.resource.data.keys().hasAny(['avatar']) &&
+            request.resource.data.avatar is map &&
+            request.resource.data.avatar.keys().hasAny([
+              'approvedAvatarUrl',
+              'approvedAvatarStoragePath'
+            ])
+          ) &&
+          !(
+            resource.data.keys().hasAny(['avatar']) &&
+            resource.data.avatar is map &&
+            resource.data.avatar.keys().hasAny([
+              'approvedAvatarUrl',
+              'approvedAvatarStoragePath'
+            ])
+          )
+        );
+    }
+
+    function onboardingAvatarPhotoFieldsUnchanged() {
+      return (
+          request.resource.data.keys().hasAny(['onboarding']) &&
+          resource.data.keys().hasAny(['onboarding']) &&
+          request.resource.data.onboarding is map &&
+          resource.data.onboarding is map &&
+          !request.resource.data.onboarding.diff(resource.data.onboarding).affectedKeys().hasAny([
+            'avatarUrls',
+            'photoUrls'
+          ])
+        ) || (
+          !(
+            request.resource.data.keys().hasAny(['onboarding']) &&
+            request.resource.data.onboarding is map &&
+            request.resource.data.onboarding.keys().hasAny([
+              'avatarUrls',
+              'photoUrls'
+            ])
+          ) &&
+          !(
+            resource.data.keys().hasAny(['onboarding']) &&
+            resource.data.onboarding is map &&
+            resource.data.onboarding.keys().hasAny([
+              'avatarUrls',
+              'photoUrls'
+            ])
+          )
+        );
+    }
+
+    function clientDoesNotCreateAvatarDisplayFields(data) {
+      return avatarApprovalFieldsAbsent(data) &&
+          onboardingAvatarPhotoFieldsAbsent(data);
+    }
+
+    function clientDoesNotModifyAvatarDisplayFields() {
+      return avatarApprovalFieldsUnchanged() &&
+          onboardingAvatarPhotoFieldsUnchanged();
+    }
+
+    function publicUserMediaOk(data) {
+      return !data.keys().hasAny([
+            'sourcePhotos',
+            'sourcePhotoUrls',
+            'sourcePhotoRefs',
+            'sourcePhotoIds',
+            'sourcePhotoGcsUri',
+            'sourcePhotoGcsUris',
+            'chatRealPhoto',
+            'chatRealPhotoUrl',
+            'realPhotoUrl',
+            'realProfilePhotoUrl',
+            'gcsUri',
+            'signedUrl',
+            'signedUrls',
+            'candidatePreviewUrl',
+            'candidatePreviewUrls',
+            'previewUrl',
+            'previewUrls',
+            'clipEmbedding',
+            'clipEmbeddings',
+            'vector',
+            'faceEmbedding',
+            'faceEmbeddings',
+            'qaEmbeddings'
+          ]) &&
+          (!data.keys().hasAny(['profileImageUrl']) ||
+            data.profileImageUrl == null ||
+            data.profileImageUrl == "" ||
+            (
+              data.avatar is map &&
+              data.avatar.approvedAvatarUrl is string &&
+              data.profileImageUrl == data.avatar.approvedAvatarUrl &&
+              isSafePublicMediaUrl(data.profileImageUrl)
+            )) &&
+          (!data.keys().hasAny(['avatar']) ||
+            avatarPublicMediaOk(data.avatar)) &&
+          (!data.keys().hasAny(['onboarding']) ||
+            onboardingPublicMediaOk(data.onboarding, data));
+    }
+
+    function chatRoomParticipantIds(data) {
+      return data.participantIds is list ? data.participantIds : [];
+    }
+
+    function isChatRoomParticipant() {
+      return isSignedIn() && request.auth.uid in chatRoomParticipantIds(resource.data);
+    }
+
+    function isChatRoomParticipantAfter() {
+      return isSignedIn() && request.auth.uid in chatRoomParticipantIds(request.resource.data);
+    }
+
+    function chatRoomParticipantIdsUnchanged() {
+      return request.resource.data.participantIds == resource.data.participantIds;
+    }
+
+    function isExistingChatRoomParticipant(roomId) {
+      return isSignedIn() &&
+          request.auth.uid in chatRoomParticipantIds(
+            get(/databases/$(database)/documents/chat_rooms/$(roomId)).data
+          );
+    }
+
+    function isParticipantMessageAuthor(roomId) {
+      return isExistingChatRoomParticipant(roomId) &&
+          request.resource.data.senderId is string &&
+          request.resource.data.senderId == request.auth.uid;
+    }
+
+    // Participants mark messages read by appending themselves to readBy.
+    // Anything else — especially rewriting someone else's text — is denied.
+    function onlyMessageReadReceiptUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['readBy', 'updatedAt']);
+    }
+
+    // Promise cards are updated in-place (request → confirmed / rejected /
+    // cancelled / edited). Free-form chat text must never enter this path, so
+    // the *existing* message must already be a promise_* type.
+    function isExistingPromiseMessage() {
+      return resource.data.keys().hasAny(['type']) &&
+          resource.data.type is string &&
+          resource.data.type.matches('promise_.*');
+    }
+
+    function onlyPromiseMessageLifecycleUpdate() {
+      return isExistingPromiseMessage() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'type',
+            'text',
+            'dateTime',
+            'place',
+            'placeCategory',
+            'placeId',
+            'placeAddress',
+            'placeLat',
+            'placeLng',
+            'placeThumbnailUrl',
+            'status',
+            'readBy',
+            'updatedAt',
+            'isEdited',
+            'editedAt'
+          ]) &&
+          request.resource.data.senderId == resource.data.senderId &&
+          request.resource.data.type is string &&
+          request.resource.data.type.matches('promise_.*');
+    }
+
+    function canUpdateChatMessage(roomId) {
+      return isExistingChatRoomParticipant(roomId) &&
+          (onlyMessageReadReceiptUpdate() || onlyPromiseMessageLifecycleUpdate());
+    }
+
+    function isAskParticipant(data) {
+      return isSignedIn() &&
+          (
+            data.fromUserId == request.auth.uid ||
+            data.toUserId == request.auth.uid
+          );
+    }
+
+    function isInteractionParticipant(data) {
+      return isSignedIn() &&
+          (
+            data.fromUserId == request.auth.uid ||
+            data.toUserId == request.auth.uid
+          );
+    }
+
+    function isMatchParticipant(data) {
+      return isSignedIn() &&
+          data.userIds is list &&
+          request.auth.uid in data.userIds;
+    }
+
+    function matchStatusOnlyMovesToUnmatched() {
+      return resource.data.status == 'active' &&
+          request.resource.data.status == 'unmatched' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'unmatchedAt'
+          ]);
+    }
+
+    function isEventTeamSetupParticipant(data) {
+      return isSignedIn() &&
+          (
+            data.leaderUserId == request.auth.uid ||
+            (
+              data.acceptedUserIds is list &&
+              request.auth.uid in data.acceptedUserIds
+            ) ||
+            (
+              data.pendingInviteeIds is list &&
+              request.auth.uid in data.pendingInviteeIds
+            )
+          );
+    }
+
+    function isEventTeamInviteParticipant(data) {
+      return isSignedIn() &&
+          (
+            data.inviterUserId == request.auth.uid ||
+            data.inviteeUserId == request.auth.uid
+          );
+    }
+
+    function isEventTeamMatchParticipant(data) {
+      return isSignedIn() &&
+          data.participantUids is list &&
+          request.auth.uid in data.participantUids;
+    }
+
+    function chatRoomDoesNotPersistPrivateMedia(data) {
+      return !data.keys().hasAny([
+          'sourcePhotos',
+          'sourcePhotoUrls',
+          'sourcePhotoRefs',
+          'sourcePhotoIds',
+          'sourcePhotoGcsUri',
+          'sourcePhotoGcsUris',
+          'chatRealPhoto',
+          'chatRealPhotoUrl',
+          'realPhotoUrl',
+          'realProfilePhotoUrl',
+          'gcsUri',
+          'gcsUris',
+          'signedUrl',
+          'signedUrls',
+          'privatePhotoUrl',
+          'privatePhotoUrls',
+          'clipEmbedding',
+          'clipEmbeddings',
+          'vector',
+          'faceEmbedding',
+          'faceEmbeddings'
+        ]);
     }
 
     match /users/{kakaoUserId} {
-      allow get: if true;
-      allow list: if true;
+      // Signed-in get of a known document id is required for matching/chat.
+      // Collection list is denied: it enabled roster dumps and powered the
+      // unsafe client recommendation fallback that scanned /users.
+      allow get: if isSignedIn();
+      allow list: if false;
 
-      // 연세 메일 학생 인증으로 최초 생성
-      allow create: if request.auth != null &&
-          isYonseiEmail(request.auth.token.email) &&
-          request.resource.data.keys().hasOnly([
-            'kakaoUserId',
-            'isStudentVerified',
-            'studentEmail',
-            'studentVerifiedAt',
-            'verifiedAt'
-          ]) &&
-          (request.resource.data.kakaoUserId == null ||
-            request.resource.data.kakaoUserId == kakaoUserId) &&
-          request.resource.data.studentEmail is string &&
-          isYonseiEmail(request.resource.data.studentEmail) &&
-          request.resource.data.isStudentVerified == true;
+      // Initial creation through Yonsei email student verification
+      allow create: if publicUserMediaOk(request.resource.data) &&
+          clientDoesNotCreateAvatarDisplayFields(request.resource.data) &&
+          (
+            (
+              hasVerifiedYonseiEmail() &&
+              writesOwnStudentEmail(request.resource.data) &&
+              request.resource.data.keys().hasOnly([
+                'kakaoUserId',
+                'isStudentVerified',
+                'studentEmail',
+                'studentVerifiedAt',
+                'verifiedAt'
+              ]) &&
+              (request.resource.data.kakaoUserId == null ||
+                request.resource.data.kakaoUserId == kakaoUserId) &&
+              request.resource.data.studentEmail is string &&
+              isYonseiEmail(request.resource.data.studentEmail) &&
+              request.resource.data.isStudentVerified == true
+            ) ||
+            (
+              // Kakao-bridged app session creating its own shell document.
+              // It may not assert student verification for itself.
+              isSelf(kakaoUserId) &&
+              doesNotSelfAssertStudentVerification(request.resource.data) &&
+              usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
+              request.resource.data.keys().hasOnly([
+                'kakaoUserId',
+                'nickname',
+                'profileImageUrl',
+                'email',
+                'createdAt',
+                'lastLoginAt',
+                'lastActivePlatform',
+                'lastActivePlatformUpdatedAt',
+                'onboarding',
+                'onboardingUpdatedAt',
+                'profileImageMode',
+                'initialSetupComplete',
+                'initialSetupCompletedAt',
+                'onboardingCompletedAt',
+                'idealType',
+                'idealTypeUpdatedAt',
+                'updatedAt',
+                'hasSeenTutorial',
+                'isStudentVerified',
+                'studentEmail',
+                'studentVerifiedAt',
+                'verifiedAt',
+                'legalConsents',
+                'privacySettings',
+                'privacySettingsUpdatedAt',
+                'notificationSettings',
+                'notificationSettingsUpdatedAt',
+                'preferenceVector'
+              ])
+            )
+          );
 
-      // 카카오 로그인 후 users/{kakaoUserId} 최초 생성 (Firebase Auth 없음)
-      // saveOnboarding* 등은 문서 ID가 곧 kakaoUserId 이므로 필드 생략 가능
-      allow create: if usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
-          request.resource.data.keys().hasOnly([
-            'kakaoUserId',
-            'nickname',
-            'profileImageUrl',
-            'email',
-            'createdAt',
-            'lastLoginAt',
-            'lastActivePlatform',
-            'lastActivePlatformUpdatedAt',
-            'onboarding',
-            'onboardingUpdatedAt',
-            'initialSetupComplete',
-            'initialSetupCompletedAt',
-            'onboardingCompletedAt',
-            'idealType',
-            'idealTypeUpdatedAt',
-            'updatedAt',
-            'hasSeenTutorial',
-            'isStudentVerified',
-            'studentEmail',
-            'studentVerifiedAt',
-            'verifiedAt',
-            'legalConsents',
-            'privacySettings',
-            'privacySettingsUpdatedAt',
-            'notificationSettings',
-            'notificationSettingsUpdatedAt',
-            'preferenceVector'
-          ]);
 
-      allow update: if (
-            request.auth != null &&
-            isYonseiEmail(request.auth.token.email) &&
-            request.resource.data.studentEmail is string &&
-            isYonseiEmail(request.resource.data.studentEmail) &&
+      allow update: if publicUserMediaOk(request.resource.data) &&
+          clientDoesNotModifyAvatarDisplayFields() && (
+          (
+            // Student verification write, performed by the email-link session
+            // (public/index.html, or the in-app link handler). The mailbox must
+            // be Firebase-verified, must be the one being written, and must not
+            // already belong to someone else.
+            hasVerifiedYonseiEmail() &&
+            writesOwnStudentEmail(request.resource.data) &&
+            studentEmailIsUnboundOrMine(resource.data) &&
             request.resource.data.isStudentVerified == true &&
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
               'kakaoUserId',
@@ -106,6 +675,7 @@ service cloud.firestore {
               'verifiedAt'
             ])
           ) || (
+            isUserDocOwner(kakaoUserId) &&
             resource.data.isStudentVerified == true &&
             request.resource.data.isStudentVerified == true &&
             usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
@@ -114,12 +684,11 @@ service cloud.firestore {
               'nickname',
               'profileImageUrl',
               'email',
-              'studentEmail',
-              'isStudentVerified',
               'lastActivePlatform',
               'lastActivePlatformUpdatedAt',
               'onboarding',
               'onboardingUpdatedAt',
+              'profileImageMode',
               'initialSetupComplete',
               'initialSetupCompletedAt',
               'onboardingCompletedAt',
@@ -150,7 +719,8 @@ service cloud.firestore {
               'updatedAt'
             ])
           ) || (
-            // 프로필 수정(온보딩 데이터 갱신) - 기존 규칙 유지 + 온보딩 편집 허용
+            // Profile edit (onboarding data update) - keep existing rules and allow onboarding edits
+            isUserDocOwner(kakaoUserId) &&
             (request.resource.data.kakaoUserId == null ||
               request.resource.data.kakaoUserId == kakaoUserId) &&
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -158,12 +728,11 @@ service cloud.firestore {
               'nickname',
               'profileImageUrl',
               'email',
-              'studentEmail',
-              'isStudentVerified',
               'lastActivePlatform',
               'lastActivePlatformUpdatedAt',
               'onboarding',
               'onboardingUpdatedAt',
+              'profileImageMode',
               'idealType',
               'idealTypeUpdatedAt',
               'legalConsents',
@@ -195,21 +764,22 @@ service cloud.firestore {
               'loginDisabled',
               'updatedAt'
             ])
-          );
+          )
+        );
 
       // ---------------------------------------------------------------------
       // Device tokens
       // ---------------------------------------------------------------------
       match /deviceTokens/{token} {
-        allow get, list: if true;
+        allow get, list: if isSelf(kakaoUserId);
 
-        allow create, update: if
+        allow create, update: if isSelf(kakaoUserId) &&
           request.resource.data.userId is string &&
           request.resource.data.userId == kakaoUserId &&
           request.resource.data.token is string &&
           request.resource.data.token == token;
 
-        allow delete: if true;
+        allow delete: if isSelf(kakaoUserId);
       }
 
       // ---------------------------------------------------------------------
@@ -217,21 +787,17 @@ service cloud.firestore {
       // users/{kakaoUserId}/notifications/{notificationId}
       // ---------------------------------------------------------------------
       match /notifications/{notificationId} {
-        allow get, list: if true;
+        allow get, list: if isSelf(kakaoUserId);
 
-        allow create: if
-          request.resource.data.type is string &&
-          request.resource.data.title is string &&
-          request.resource.data.body is string &&
-          request.resource.data.isRead is bool;
+        allow create: if false;
 
-        allow update: if
+        allow update: if isSelf(kakaoUserId) &&
           request.resource.data.diff(resource.data).changedKeys().hasOnly([
             'isRead',
             'readAt'
           ]);
 
-        allow delete: if true;
+        allow delete: if false;
       }
 
       // ---------------------------------------------------------------------
@@ -244,7 +810,7 @@ service cloud.firestore {
       }
 
       // ---------------------------------------------------------------------
-      // Contact blocked hashes (연락처 차단 - server-side callable로만 쓰기)
+      // Contact blocked hashes (contact blocking - writes only through server-side callable)
       // users/{kakaoUserId}/contactBlockedHashes/{phoneHash}
       // ---------------------------------------------------------------------
       match /contactBlockedHashes/{phoneHash} {
@@ -252,6 +818,25 @@ service cloud.firestore {
           request.auth.uid == kakaoUserId;
         allow create, update, delete: if false;
       }
+    }
+
+    // -----------------------------------------------------------------------
+    // Backend-only private media and embeddings
+    // -----------------------------------------------------------------------
+    match /userPrivateMedia/{userId} {
+      allow read, write: if false;
+    }
+
+    match /clipEmbeddings/{userId} {
+      allow read, write: if false;
+    }
+
+    match /avatarJobs/{jobId} {
+      allow read, write: if false;
+    }
+
+    match /avatarCandidates/{candidateId} {
+      allow read, write: if false;
     }
 
     // -----------------------------------------------------------------------
@@ -266,13 +851,64 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
-    // RecEvents (추천 학습용 이벤트 로그: open, like, nope 등)
+    // RecEvents (recommendation training event log: open, like, nope, etc.)
+    // Clients may append their own events, but must not rewrite history —
+    // forged updates would let someone manufacture mutual likes after the fact.
     // -----------------------------------------------------------------------
+    function isAllowedRecEventType(eventType) {
+      return eventType in [
+        'impression',
+        'open',
+        'detail_open',
+        'view',
+        'like',
+        'nope',
+        'super_like',
+        'swipe_right',
+        'block',
+        'report'
+      ];
+    }
+
+    function isValidRecEventCreate(userId) {
+      return request.resource.data.userId is string &&
+          request.resource.data.userId == userId &&
+          request.resource.data.type is string &&
+          isAllowedRecEventType(request.resource.data.type) &&
+          request.resource.data.eventType is string &&
+          request.resource.data.eventType == request.resource.data.type &&
+          request.resource.data.targetUserId is string &&
+          request.resource.data.targetUserId.size() > 0 &&
+          request.resource.data.targetUserId != userId &&
+          request.resource.data.keys().hasOnly([
+            'userId',
+            'targetType',
+            'targetId',
+            'targetUserId',
+            'candidateUserId',
+            'type',
+            'eventType',
+            'surface',
+            'source',
+            'cardVariant',
+            'eventTime',
+            'createdAt',
+            'exposureId',
+            'sessionId',
+            'dateKey',
+            'context'
+          ]);
+    }
+
     match /recEvents/{userId} {
-      allow read, write: if true;
+      allow read: if isSelf(userId);
+      allow create, update: if isSelf(userId);
+      allow delete: if false;
 
       match /events/{eventId} {
-        allow read, write: if true;
+        allow read: if isSelf(userId);
+        allow create: if isSelf(userId) && isValidRecEventCreate(userId);
+        allow update, delete: if false;
       }
     }
 
@@ -280,18 +916,26 @@ service cloud.firestore {
     // Chat
     // -----------------------------------------------------------------------
     match /chat_rooms/{roomId} {
-      allow read, create, update: if true;
+      allow read: if isChatRoomParticipant();
+      allow create: if isChatRoomParticipantAfter() &&
+        chatRoomDoesNotPersistPrivateMedia(request.resource.data);
+      // participantIds is immutable after create — changing it would let a
+      // participant add a third party who can then read the full history.
+      allow update: if isChatRoomParticipant() &&
+        isChatRoomParticipantAfter() &&
+        chatRoomParticipantIdsUnchanged() &&
+        chatRoomDoesNotPersistPrivateMedia(request.resource.data);
       allow delete: if false;
 
       match /messages/{messageId} {
-        allow read, create: if true;
-        allow update: if true;
-
+        allow read: if isExistingChatRoomParticipant(roomId);
+        allow create: if isParticipantMessageAuthor(roomId);
+        allow update: if canUpdateChatMessage(roomId);
         allow delete: if false;
       }
 
       match /promises/{promiseId} {
-        allow read, create, update: if true;
+        allow read, create, update: if isExistingChatRoomParticipant(roomId);
         allow delete: if false;
       }
     }
@@ -300,26 +944,12 @@ service cloud.firestore {
     // Promise place catalog
     // -----------------------------------------------------------------------
     match /place_catalog_meta/{docId} {
-      allow read: if true;
+      allow read: if isSignedIn();
       allow write: if false;
     }
 
     match /place_catalog_items/{placeId} {
-      allow read: if true;
-      allow write: if false;
-    }
-
-
-    // -----------------------------------------------------------------------
-    // Promise place catalog
-    // -----------------------------------------------------------------------
-    match /place_catalog_meta/{docId} {
-      allow read: if true;
-      allow write: if false;
-    }
-
-    match /place_catalog_items/{placeId} {
-      allow read: if true;
+      allow read: if isSignedIn();
       allow write: if false;
     }
 
@@ -327,9 +957,11 @@ service cloud.firestore {
     // Bamboo Forest (Community)
     // -----------------------------------------------------------------------
     match /bamboo_posts/{postId} {
-      allow get, list: if true;
+      allow get, list: if isSignedIn();
 
       allow create: if
+        isSignedIn() &&
+        request.resource.data.authorId == request.auth.uid &&
         request.resource.data.postId is string &&
         request.resource.data.authorId is string &&
         request.resource.data.authorId.size() > 0 &&
@@ -346,15 +978,21 @@ service cloud.firestore {
 
       allow update: if
         (
+          resource.data.authorId == request.auth.uid &&
           resource.data.authorId == request.resource.data.authorId &&
           request.resource.data.isDeleted == true
         )
         ||
         (
+          isSignedIn() &&
           request.resource.data.authorId == resource.data.authorId &&
           request.resource.data.content == resource.data.content &&
           request.resource.data.category == resource.data.category &&
-          request.resource.data.tags == resource.data.tags
+          request.resource.data.tags == resource.data.tags &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'likeCount', 'commentCount', 'score7d', 'updatedAt'
+          ]) &&
+          bambooPostCounterUpdateOk()
         );
 
       allow delete: if false;
@@ -363,13 +1001,14 @@ service cloud.firestore {
       // Post likes
       // ---------------------------------------------------------------------
       match /likes/{userId} {
-        allow get, list: if true;
+        allow get, list: if isSignedIn();
 
         allow create: if
+          isSelf(userId) &&
           request.resource.data.userId is string &&
-          request.resource.data.userId == userId;
+          request.resource.data.userId == request.auth.uid;
 
-        allow delete: if true;
+        allow delete: if isSelf(userId);
         allow update: if false;
       }
 
@@ -377,9 +1016,11 @@ service cloud.firestore {
       // Comments / Replies
       // ---------------------------------------------------------------------
       match /comments/{commentId} {
-        allow get, list: if true;
+        allow get, list: if isSignedIn();
 
         allow create: if
+          isSignedIn() &&
+          request.resource.data.authorId == request.auth.uid &&
           request.resource.data.commentId is string &&
           request.resource.data.authorId is string &&
           request.resource.data.authorId.size() > 0 &&
@@ -391,14 +1032,20 @@ service cloud.firestore {
 
         allow update: if
           (
+            resource.data.authorId == request.auth.uid &&
             resource.data.authorId == request.resource.data.authorId &&
             request.resource.data.isDeleted == true
           )
           ||
           (
+            isSignedIn() &&
             request.resource.data.authorId == resource.data.authorId &&
             request.resource.data.content == resource.data.content &&
-            request.resource.data.parentCommentId == resource.data.parentCommentId
+            request.resource.data.parentCommentId == resource.data.parentCommentId &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'likeCount', 'updatedAt'
+            ]) &&
+            bambooCommentCounterUpdateOk()
           );
 
         allow delete: if false;
@@ -407,13 +1054,14 @@ service cloud.firestore {
         // Comment likes
         // -------------------------------------------------------------------
         match /likes/{userId} {
-          allow get, list: if true;
+          allow get, list: if isSignedIn();
 
           allow create: if
+            isSelf(userId) &&
             request.resource.data.userId is string &&
-            request.resource.data.userId == userId;
+            request.resource.data.userId == request.auth.uid;
 
-          allow delete: if true;
+          allow delete: if isSelf(userId);
           allow update: if false;
         }
       }
@@ -422,37 +1070,36 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // Blocks and Reports
     // -----------------------------------------------------------------------
+    // Blocks are written only by the server (reportAndBlockUser,
+    // syncContactBlocks). A block must exist in both directions, and a client
+    // can only ever write its own side, so client writes are denied here.
+    // Reads stay open to the owner for defensive filtering in the feed.
     match /blocks/{viewerUid} {
-      allow read: if true;
-      allow create, update: if true;
-      allow delete: if true;
+      allow read: if isSelf(viewerUid);
+      allow create, update: if false;
+      allow delete: if isSelf(viewerUid);
 
       match /targets/{targetUid} {
-        allow read: if true;
-        allow create, update: if
-          request.resource.data.fromUserId is string &&
-          request.resource.data.toUserId is string &&
-          request.resource.data.fromUserId == viewerUid &&
-          request.resource.data.toUserId == targetUid;
-        allow delete: if true;
+        allow read: if isSelf(viewerUid);
+        allow create, update: if false;
+        allow delete: if isSelf(viewerUid);
       }
     }
 
+    // User reports go through the reportAndBlockUser callable so that the
+    // report and both block directions are written atomically.
     match /reports/{reportId} {
-      allow create: if
-        request.resource.data.reporterId is string &&
-        request.resource.data.reportedId is string &&
-        request.resource.data.reason is string &&
-        request.resource.data.reason.size() > 0 &&
-        request.resource.data.status is string;
-      allow read: if true;
-      allow update: if true;
-      allow delete: if true;
+      allow create: if false;
+      allow read: if false;
+      allow update: if false;
+      allow delete: if false;
     }
 
     match /app_issue_reports/{reportId} {
       allow create: if
+        isSignedIn() &&
         request.resource.data.reporterId is string &&
+        request.resource.data.reporterId == request.auth.uid &&
         request.resource.data.category is string &&
         request.resource.data.category.size() > 0 &&
         request.resource.data.content is string &&
@@ -462,14 +1109,16 @@ service cloud.firestore {
         request.resource.data.platform is string &&
         request.resource.data.status is string;
 
-      allow read: if true;
-      allow update: if true;
-      allow delete: if true;
+      allow read: if false;
+      allow update: if false;
+      allow delete: if false;
     }
 
     match /app_inquiries/{inquiryId} {
       allow create: if
+        isSignedIn() &&
         request.resource.data.inquirerId is string &&
+        request.resource.data.inquirerId == request.auth.uid &&
         request.resource.data.category is string &&
         request.resource.data.category.size() > 0 &&
         request.resource.data.content is string &&
@@ -479,13 +1128,13 @@ service cloud.firestore {
         request.resource.data.platform is string &&
         request.resource.data.status is string;
 
-      allow read: if true;
-      allow update: if true;
-      allow delete: if true;
+      allow read: if false;
+      allow update: if false;
+      allow delete: if false;
     }
 
     // -----------------------------------------------------------------------
-    // User Private (전화번호 해시 등 민감 정보 - server callable로만 쓰기)
+    // User Private (phone hash and other sensitive data - writes only through server callable)
     // -----------------------------------------------------------------------
     match /userPrivate/{uid} {
       allow get: if request.auth != null && request.auth.uid == uid;
@@ -495,22 +1144,21 @@ service cloud.firestore {
 
     // -----------------------------------------------------------------------
     // User Private Verifications
-    // 본인인증 원문/식별값은 서버 함수(Admin SDK)만 저장·조회한다.
-    // 앱 클라이언트는 본인 문서라도 직접 읽거나 쓸 필요가 없다.
+    // Identity-verification source data and identifiers are server-only.
     // -----------------------------------------------------------------------
     match /userPrivateVerifications/{uid} {
       allow read, write: if false;
     }
 
     // -----------------------------------------------------------------------
-    // Phone Hash Index (역매칭 - server/admin only)
+    // Phone Hash Index (reverse matching - server/admin only)
     // -----------------------------------------------------------------------
     match /phoneHashIndex/{phoneHash} {
       allow read, write: if false;
     }
 
     // -----------------------------------------------------------------------
-    // Contact Blocked Hash Index (연락처 차단 역인덱스 - server/admin only)
+    // Contact Blocked Hash Index (contact block reverse index - server/admin only)
     // -----------------------------------------------------------------------
     match /contactBlockedHashIndex/{phoneHash} {
       allow read, write: if false;
@@ -520,38 +1168,43 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
-    // AI Profiles (더미 프로필 메타데이터: height 등, AI 취향 화면용)
+    // AI Profiles (dummy profile metadata such as height, for AI preference screens)
     // -----------------------------------------------------------------------
     match /ai_profiles/{profileId} {
-      allow get, list: if true;
+      allow get, list: if isSignedIn();
       allow create, update, delete: if false;
     }
 
     // -----------------------------------------------------------------------
-    // Model Recs (AI 추천 결과: rrf, clip, svd, knn - 서버에서 저장, 앱에서 읽기)
-    // Kakao 로그인 시 request.auth가 null일 수 있어 read는 허용
+    // Model Recs (AI recommendation results: rrf, clip, svd, knn - stored by server, read by app)
+    // Reads may be allowed when Kakao login leaves request.auth null.
     // -----------------------------------------------------------------------
     match /modelRecs/{userId}/daily/{dateKey}/sources/{algo} {
-      allow read: if true;
+      allow read: if isSelf(userId);
       allow write: if false;
     }
 
     // -----------------------------------------------------------------------
-    // Asks (무물: 1:1 질문)
+    // Asks (anonymous questions: 1:1 question)
     // -----------------------------------------------------------------------
     match /asks/{askId} {
-      allow read: if true;
+      allow read: if isAskParticipant(resource.data);
 
       allow create: if
+        isSignedIn() &&
         request.resource.data.fromUserId is string &&
-        request.resource.data.fromUserId.size() > 0 &&
+        request.resource.data.fromUserId == request.auth.uid &&
         request.resource.data.toUserId is string &&
         request.resource.data.toUserId.size() > 0 &&
         request.resource.data.text is string &&
         request.resource.data.text.size() > 0 &&
-        request.resource.data.status is string;
+        request.resource.data.status == 'sent';
 
       allow update: if
+        isSignedIn() &&
+        resource.data.toUserId == request.auth.uid &&
+        resource.data.status == 'sent' &&
+        request.resource.data.status == 'read' &&
         request.resource.data.diff(resource.data).changedKeys().hasOnly([
           'status', 'readAt', 'updatedAt'
         ]);
@@ -563,10 +1216,11 @@ service cloud.firestore {
     // Interactions (like / nope / view / message)
     // -----------------------------------------------------------------------
     match /interactions/{interactionId} {
-      allow read: if true;
+      allow read: if isInteractionParticipant(resource.data);
       allow create: if
+        isSignedIn() &&
         request.resource.data.fromUserId is string &&
-        request.resource.data.fromUserId.size() > 0 &&
+        request.resource.data.fromUserId == request.auth.uid &&
         request.resource.data.toUserId is string &&
         request.resource.data.toUserId.size() > 0 &&
         request.resource.data.action is string &&
@@ -579,37 +1233,49 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
-    // Matches (매치 성사 기록)
+    // Matches (match records)
     // -----------------------------------------------------------------------
     match /matches/{matchId} {
-      allow read: if true;
-      allow create: if
-        request.resource.data.userIds is list &&
-        request.resource.data.userIds.size() == 2 &&
-        request.resource.data.matchType is string &&
-        request.resource.data.status is string &&
-        request.resource.data.keys().hasOnly([
-          'userIds', 'matchType', 'matchedAt', 'status', 'chatRoomId'
-        ]);
-      allow update: if
-        request.resource.data.diff(resource.data).changedKeys().hasOnly([
-          'status',
-          'unmatchedAt',
-          'chatRoomId'
-        ]);
+      allow read: if isMatchParticipant(resource.data);
+      allow create: if false;
+      allow update: if isMatchParticipant(resource.data) &&
+        matchStatusOnlyMovesToUnmatched();
       allow delete: if false;
     }
 
     // -----------------------------------------------------------------------
-    // Event 3인 팀 (초대·상태 - 쓰기는 Cloud Functions만, 읽기는 앱 동기화용)
+    // Event 3-person teams (invites/status - writes only by Cloud Functions, reads for app sync)
     // -----------------------------------------------------------------------
     match /eventTeamSetups/{teamSetupId} {
-      allow read: if true;
+      allow read: if isEventTeamSetupParticipant(resource.data);
       allow write: if false;
     }
 
     match /eventTeamInvites/{inviteId} {
-      allow read: if true;
+      allow read: if isEventTeamInviteParticipant(resource.data);
+      allow write: if false;
+    }
+
+    match /eventTeamMatches/{matchId} {
+      allow read: if isEventTeamMatchParticipant(resource.data);
+      allow write: if false;
+    }
+
+    match /eventTeamMatchLocks/{lockId} {
+      allow read, write: if false;
+    }
+
+    match /eventTeamMeetingRequests/{requestId} {
+      allow read: if isEventTeamMatchParticipant(resource.data);
+      allow write: if false;
+    }
+
+    match /eventTeamMeetingRequestLocks/{lockId} {
+      allow read, write: if false;
+    }
+
+    match /eventThreeVsThreeMatches/{matchId} {
+      allow read: if isEventTeamMatchParticipant(resource.data);
       allow write: if false;
     }
 

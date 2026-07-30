@@ -7,11 +7,7 @@ class WelcomeTutorialScreen extends StatelessWidget {
   final VoidCallback? onNext;
   final VoidCallback? onSkip;
 
-  const WelcomeTutorialScreen({
-    super.key,
-    this.onNext,
-    this.onSkip,
-  });
+  const WelcomeTutorialScreen({super.key, this.onNext, this.onSkip});
 
   void _handleNext(BuildContext context) {
     HapticFeedback.mediumImpact();
@@ -148,9 +144,9 @@ class WelcomeTutorialScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(18),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFFF24D82).withValues(
-                              alpha: 0.28,
-                            ),
+                            color: const Color(
+                              0xFFF24D82,
+                            ).withValues(alpha: 0.28),
                             blurRadius: 18,
                             offset: const Offset(0, 10),
                           ),

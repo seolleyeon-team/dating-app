@@ -286,8 +286,7 @@ class _PromiseCard extends StatelessWidget {
             iconColor: _AppColors.blue500,
             iconBgColor: _AppColors.blue50,
             title: '존중하는 매너',
-            description:
-                '상대방에게 불쾌감을 줄 수 있는 언행이나 행동 시\n서비스 이용이 제한될 수 있습니다.',
+            description: '상대방에게 불쾌감을 줄 수 있는 언행이나 행동 시\n서비스 이용이 제한될 수 있습니다.',
           ),
         ],
       ),
@@ -383,11 +382,7 @@ class _SecurityNote extends StatelessWidget {
       child: const Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            CupertinoIcons.lock_fill,
-            size: 14,
-            color: _AppColors.gray400,
-          ),
+          Icon(CupertinoIcons.lock_fill, size: 14, color: _AppColors.gray400),
           SizedBox(width: 8),
           Text(
             '모든 정보는 안전하게 암호화되어 관리됩니다.',

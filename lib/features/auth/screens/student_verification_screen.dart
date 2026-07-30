@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -10,10 +11,12 @@ import 'package:uuid/uuid.dart';
 
 import '../../../router/route_names.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/firebase_diagnostics.dart';
 import '../../../services/friend_invite_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../shared/layouts/main_scaffold_args.dart';
 import '../../../utils/open_mail_app.dart';
+import '../utils/email_link_continue_url.dart';
 
 class StudentVerificationScreen extends StatefulWidget {
   const StudentVerificationScreen({super.key});
@@ -40,10 +43,12 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
   static const String _yonseiDomain = '@yonsei.ac.kr';
 
   String _buildContinueUrl(String token) {
-    if (kIsWeb) {
-      return '${Uri.base.origin}/auth/email-link?t=$token';
-    }
-    return 'https://seolleyeon.web.app/auth/email-link?t=$token';
+    return buildStudentEmailLinkContinueUrl(
+      token: token,
+      isWeb: kIsWeb,
+      webOrigin: kIsWeb ? Uri.base.origin : '',
+      firebaseProjectId: Firebase.app().options.projectId,
+    );
   }
 
   String _buildYonseiEmail(String input) {
@@ -59,15 +64,10 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     if (!mounted) return;
     await showCupertinoDialog<void>(
       context: context,
-      builder: (dialogContext) => CupertinoAlertDialog(
+      builder: (_) => CupertinoAlertDialog(
         title: Text(title),
         content: Text(message),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('확인'),
-          ),
-        ],
+        actions: const [CupertinoDialogAction(child: Text('확인'))],
       ),
     );
   }
@@ -76,8 +76,8 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     String kakaoUserId, {
     bool showDialogOnFailure = true,
   }) async {
-    final hasFirebaseSession =
-        await _authService.ensureFirebaseSessionForVerifiedUser(kakaoUserId);
+    final hasFirebaseSession = await _authService
+        .ensureFirebaseSessionForVerifiedUser(kakaoUserId);
     if (hasFirebaseSession) {
       return true;
     }
@@ -86,11 +86,10 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
 
     const detailMessage =
         '학생 인증은 확인됐지만 현재 브라우저의 로그인 세션을 복구하지 못했어요.\n\n'
-        '학생 인증 자체는 완료되었으니, 앱으로 돌아가 다시 진행해 주세요.';
+        '가장 최근에 받은 인증 메일 링크를 이 브라우저에서 다시 열어주세요.';
 
     setState(() {
-      _statusMessage =
-          '학생 인증은 확인됐지만 현재 브라우저 로그인 세션을 복구하지 못했어요.';
+      _statusMessage = '학생 인증은 확인됐지만 현재 브라우저 로그인 세션을 복구하지 못했어요.';
     });
 
     if (showDialogOnFailure) {
@@ -105,9 +104,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       '[FriendInvite] after verification pendingTokenExists=${pendingToken != null && pendingToken.trim().isNotEmpty}',
     );
     final result = await _friendInviteService.processPendingInviteIfPossible();
-    debugPrint(
-      '[FriendInvite] after verification result=${result?.status}',
-    );
+    debugPrint('[FriendInvite] after verification result=${result?.status}');
     if (!mounted || result == null) return false;
 
     if (result.status == FriendInviteAcceptStatus.pendingLogin ||
@@ -214,14 +211,17 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     try {
       final isVerified = await _authService.isStudentVerified(kakaoUserId);
       if (isVerified && mounted) {
-        await _ensureFirebaseSessionAfterVerification(
-          kakaoUserId,
-          showDialogOnFailure: false,
-        );
-        if (!mounted) return;
+        final hasFirebaseSession =
+            await _ensureFirebaseSessionAfterVerification(
+              kakaoUserId,
+              showDialogOnFailure: false,
+            );
+        if (!hasFirebaseSession || !mounted) return;
         final handledInvite = await _handlePendingInviteAfterVerification();
         if (handledInvite || !mounted) return;
-        Navigator.of(context).pushReplacementNamed(RouteNames.onboardingBasicInfo);
+        Navigator.of(
+          context,
+        ).pushReplacementNamed(RouteNames.onboardingBasicInfo);
       }
     } catch (_) {}
   }
@@ -248,7 +248,9 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         throw Exception('카카오 로그인 정보가 없습니다.');
       }
       // 로컬 ID 유지 (AuthProvider 부트스트랩·이메일 링크 타이밍과 무관하게 동일 키로 저장)
-      final verificationToken = Uri.tryParse(link)?.queryParameters['t']?.trim();
+      final verificationToken = Uri.tryParse(
+        link,
+      )?.queryParameters['t']?.trim();
       if (verificationToken != null && verificationToken.isNotEmpty) {
         await _storageService.saveStudentVerificationToken(
           kakaoUserId,
@@ -257,9 +259,10 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       }
       await _storageService.saveKakaoUserId(kakaoUserId);
 
-      final savedEmail = (await _storageService.getStudentEmail(kakaoUserId) ?? '')
-          .trim()
-          .toLowerCase();
+      final savedEmail =
+          (await _storageService.getStudentEmail(kakaoUserId) ?? '')
+              .trim()
+              .toLowerCase();
       final email = savedEmail.isNotEmpty
           ? savedEmail
           : _buildYonseiEmail(_emailController.text);
@@ -276,17 +279,18 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         studentEmail: email,
       );
       await _storageService.saveKakaoUserId(kakaoUserId);
-      await _ensureFirebaseSessionAfterVerification(
+      final hasFirebaseSession = await _ensureFirebaseSessionAfterVerification(
         kakaoUserId,
-        showDialogOnFailure: false,
       );
-      if (!mounted) return;
+      if (!hasFirebaseSession || !mounted) return;
 
       if (!mounted) return;
       setState(() => _statusMessage = '학생 인증 완료!');
       final handledInvite = await _handlePendingInviteAfterVerification();
       if (handledInvite || !mounted) return;
-      Navigator.of(context).pushReplacementNamed(RouteNames.onboardingBasicInfo);
+      Navigator.of(
+        context,
+      ).pushReplacementNamed(RouteNames.onboardingBasicInfo);
     } catch (e) {
       if (!mounted) return;
       setState(() => _statusMessage = '인증 실패: ${e.toString()}');
@@ -317,22 +321,25 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       final token = const Uuid().v4();
 
       // 1) 토큰 문서 저장 (웹이 이걸 읽어서 email/kakaoUserId를 알아냄)
-      debugPrint('📧 STEP 1: Firestore emailLinkTokens 문서 생성 시작 (token=$token, email=$email)');
+      debugPrint('📧 STEP 1: Firestore emailLinkTokens 문서 생성 시작');
       try {
         await FirebaseFirestore.instance
             .collection('emailLinkTokens')
             .doc(token)
             .set({
-          'email': email,
-          'kakaoUserId': kakaoUserId,
-          'createdAt': FieldValue.serverTimestamp(),
-          'expiresAt': Timestamp.fromDate(
-            DateTime.now().add(const Duration(minutes: 30)),
-          ),
-        });
+              'email': email,
+              'kakaoUserId': kakaoUserId,
+              'createdAt': FieldValue.serverTimestamp(),
+              'expiresAt': Timestamp.fromDate(
+                DateTime.now().add(const Duration(minutes: 30)),
+              ),
+            });
         debugPrint('✅ STEP 1 성공: Firestore 문서 생성 완료');
       } catch (e) {
-        debugPrint('❌ STEP 1 실패: Firestore 문서 생성 오류 → $e');
+        debugPrint(
+          '❌ STEP 1 실패: Firestore 문서 생성 오류 → '
+          '${FirebaseDiagnostics.safeErrorForLog(e)}',
+        );
         rethrow;
       }
 
@@ -340,12 +347,18 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       final continueUrl = _buildContinueUrl(token);
 
       // 3) Firebase 이메일 링크 전송
-      debugPrint('📧 STEP 2: sendSignInLinkToEmail 시작 (email=$email)');
+      debugPrint('📧 STEP 2: sendSignInLinkToEmail 시작');
       try {
-        await _authService.sendStudentEmailLink(email: email, continueUrl: continueUrl);
+        await _authService.sendStudentEmailLink(
+          email: email,
+          continueUrl: continueUrl,
+        );
         debugPrint('✅ STEP 2 성공: 이메일 링크 전송 완료');
       } catch (e) {
-        debugPrint('❌ STEP 2 실패: sendSignInLinkToEmail 오류 → $e');
+        debugPrint(
+          '❌ STEP 2 실패: sendSignInLinkToEmail 오류 → '
+          '${FirebaseDiagnostics.safeErrorForLog(e)}',
+        );
         rethrow;
       }
 
@@ -355,19 +368,18 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       await _storageService.setStudentVerified(kakaoUserId, false);
 
       if (!mounted) return;
-      setState(
-        () => _statusMessage =
-            '연세 메일로 인증 링크를 보냈습니다. 받은편지함과 스팸함을 모두 확인해주세요.',
+      setState(() => _statusMessage = '연세 메일로 인증 링크를 보냈습니다');
+    } catch (e) {
+      final safeError = FirebaseDiagnostics.safeErrorForLog(e);
+      debugPrint(
+        '[StudentVerification] email link '
+        '${FirebaseDiagnostics.safeErrorForLog(e)}',
       );
-    } catch (e, stack) {
-      debugPrint('❌ 이메일 인증 링크 전송 실패');
-      debugPrint(e.toString());
-      debugPrint(stack.toString());
 
       if (!mounted) return;
-      setState(() => _statusMessage = '전송 실패: ${e.toString()}');
+      setState(() => _statusMessage = '전송 실패: $safeError');
 
-      await _showDialogMessage('전송 실패', e.toString());
+      await _showDialogMessage('전송 실패', safeError);
     } finally {
       if (mounted) setState(() => _isSending = false);
     }
@@ -386,9 +398,10 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       }
 
       // ✅ 사용자가 이 기기에서 인증 링크를 보낸 적이 없으면 통과 불가
-      final savedEmail = (await _storageService.getStudentEmail(kakaoUserId) ?? '')
-          .trim()
-          .toLowerCase();
+      final savedEmail =
+          (await _storageService.getStudentEmail(kakaoUserId) ?? '')
+              .trim()
+              .toLowerCase();
       if (savedEmail.isEmpty) {
         if (!mounted) return;
         setState(() => _statusMessage = '❗ 아직 이메일 인증이 완료되지 않았습니다');
@@ -413,18 +426,18 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         // 로컬에도 verified 기록 (다음 실행에서 UX 개선)
         await _storageService.saveKakaoUserId(kakaoUserId);
         await _storageService.setStudentVerified(kakaoUserId, true);
-        await _ensureFirebaseSessionAfterVerification(
-          kakaoUserId,
-          showDialogOnFailure: false,
-        );
-        if (!mounted) return;
+        final hasFirebaseSession =
+            await _ensureFirebaseSessionAfterVerification(kakaoUserId);
+        if (!hasFirebaseSession || !mounted) return;
 
         if (!mounted) return;
         setState(() => _statusMessage = '학생 인증이 확인되었습니다!');
         HapticFeedback.mediumImpact();
         final handledInvite = await _handlePendingInviteAfterVerification();
         if (handledInvite || !mounted) return;
-        Navigator.of(context).pushReplacementNamed(RouteNames.onboardingBasicInfo);
+        Navigator.of(
+          context,
+        ).pushReplacementNamed(RouteNames.onboardingBasicInfo);
         return;
       }
 
@@ -446,202 +459,219 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     return CupertinoPageScaffold(
       key: ValueKey('student_verification_$_resumeKey'),
       backgroundColor: _AppColors.backgroundLight,
-      navigationBar: const CupertinoNavigationBar(
-        middle: Text('연세 이메일 인증'),
-      ),
+      navigationBar: const CupertinoNavigationBar(middle: Text('연세 이메일 인증')),
       child: SafeArea(
         child: Column(
           children: [
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.manual,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                  const SizedBox(height: 8),
-                  const Text(
-                    '연세대학교 이메일\n인증이 필요해요',
-                    style: TextStyle(
-                      fontFamily: 'NanumSquareRound',
-                      fontSize: 26,
-                      fontWeight: FontWeight.w800,
-                      height: 1.25,
-                      letterSpacing: -0.4,
-                      color: _AppColors.textMain,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    '@yonsei.ac.kr 메일로 인증 링크를 보내드릴게요.\n'
-                    '메일에서 인증을 완료한 뒤, 아래에서 확인을 눌러주세요.\n'
-                    '받은편지함에 메일이 없으면 스팸함도 함께 확인해주세요.',
-                    style: TextStyle(
-                      fontFamily: 'NanumSquareRound',
-                      fontSize: 15,
-                      height: 1.5,
-                      color: _AppColors.textSub,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Form(
-                    key: _formKey,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: TextFormField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        style: const TextStyle(fontFamily: 'NanumSquareRound'),
-                        decoration: InputDecoration(
-                          labelText: '연세 메일 아이디',
-                          hintText: 'example',
-                          suffixText: _yonseiDomain,
-                          filled: true,
-                          fillColor: _AppColors.surfaceLight,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: const BorderSide(color: _AppColors.border),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: const BorderSide(color: _AppColors.border),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: const BorderSide(
-                              color: _AppColors.primary,
-                              width: 2,
-                            ),
-                          ),
-                        ),
-                        validator: (value) {
-                          final raw = (value ?? '').trim().toLowerCase();
-                          if (raw.isEmpty) return '아이디를 입력해주세요';
-
-                          // 전체 이메일을 붙여넣는 케이스도 허용하되, 연세 도메인만 통과
-                          if (raw.contains('@')) {
-                            if (!raw.endsWith(_yonseiDomain)) {
-                              return '연세 이메일만 가능합니다';
-                            }
-                          }
-
-                          final local = raw.contains('@') ? raw.split('@').first : raw;
-                          final isValidLocal = RegExp(r'^[a-z0-9._-]{2,}$').hasMatch(local);
-                          if (!isValidLocal) return '아이디 형식을 확인해주세요';
-                          return null;
-                        },
+                    const SizedBox(height: 8),
+                    const Text(
+                      '연세대학교 이메일\n인증이 필요해요',
+                      style: TextStyle(
+                        fontFamily: 'Pretendard',
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
+                        height: 1.25,
+                        letterSpacing: -0.4,
+                        color: _AppColors.textMain,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  if (_statusMessage != null) ...[
-                    Text(
-                      _statusMessage!,
-                      style: const TextStyle(
-                        fontFamily: 'NanumSquareRound',
-                        fontSize: 13,
-                        height: 1.35,
+                    const SizedBox(height: 10),
+                    const Text(
+                      '@yonsei.ac.kr 메일로 인증 링크를 보내드릴게요.\n메일에서 인증을 완료한 뒤, 아래에서 확인을 눌러주세요.',
+                      style: TextStyle(
+                        fontFamily: 'Pretendard',
+                        fontSize: 15,
+                        height: 1.5,
                         color: _AppColors.textSub,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 18),
+                    Form(
+                      key: _formKey,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: TextFormField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          style: const TextStyle(fontFamily: 'Pretendard'),
+                          decoration: InputDecoration(
+                            labelText: '연세 메일 아이디',
+                            hintText: 'example',
+                            suffixText: _yonseiDomain,
+                            filled: true,
+                            fillColor: _AppColors.surfaceLight,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: const BorderSide(
+                                color: _AppColors.border,
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: const BorderSide(
+                                color: _AppColors.border,
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: const BorderSide(
+                                color: _AppColors.primary,
+                                width: 2,
+                              ),
+                            ),
+                          ),
+                          validator: (value) {
+                            final raw = (value ?? '').trim().toLowerCase();
+                            if (raw.isEmpty) return '아이디를 입력해주세요';
+
+                            // 전체 이메일을 붙여넣는 케이스도 허용하되, 연세 도메인만 통과
+                            if (raw.contains('@')) {
+                              if (!raw.endsWith(_yonseiDomain)) {
+                                return '연세 이메일만 가능합니다';
+                              }
+                            }
+
+                            final local = raw.contains('@')
+                                ? raw.split('@').first
+                                : raw;
+                            final isValidLocal = RegExp(
+                              r'^[a-z0-9._-]{2,}$',
+                            ).hasMatch(local);
+                            if (!isValidLocal) return '아이디 형식을 확인해주세요';
+                            return null;
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (_statusMessage != null) ...[
+                      Text(
+                        _statusMessage!,
+                        style: const TextStyle(
+                          fontFamily: 'Pretendard',
+                          fontSize: 13,
+                          height: 1.35,
+                          color: _AppColors.textSub,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                   ],
-                ],
                 ),
               ),
             ),
             // Bottom actions (스크롤 영역 아래에 배치 → 키보드 시 가려지지 않음)
             Container(
-                padding: EdgeInsets.fromLTRB(24, 14, 24, bottomPadding + 16),
-                decoration: BoxDecoration(
-                  color: _AppColors.backgroundLight.withValues(alpha: 0.96),
-                  border: const Border(top: BorderSide(color: _AppColors.divider)),
-                ),
-                child: Column(
-                  children: [
-                    SizedBox(
-                      width: double.infinity,
-                      height: 54,
-                      child: CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        borderRadius: BorderRadius.circular(28),
-                        color: _AppColors.primary,
-                        onPressed: _isSending ? null : _sendEmailLink,
-                        child: _isSending
-                            ? const CupertinoActivityIndicator(color: Colors.white)
-                            : const Text(
-                                '인증 링크 보내기',
-                                style: TextStyle(
-                                  fontFamily: 'NanumSquareRound',
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                ),
-                              ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: SizedBox(
-                            height: 48,
-                            child: CupertinoButton(
-                              padding: EdgeInsets.zero,
-                              borderRadius: BorderRadius.circular(14),
-                              color: _AppColors.surfaceLight,
-                              onPressed: () => openGmailApp(context),
-                              child: const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(CupertinoIcons.mail, size: 18, color: _AppColors.textMain),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    '메일 앱 열기',
-                                    style: TextStyle(
-                                      fontFamily: 'NanumSquareRound',
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
-                                      color: _AppColors.textMain,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: SizedBox(
-                            height: 48,
-                            child: CupertinoButton(
-                              padding: EdgeInsets.zero,
-                              borderRadius: BorderRadius.circular(14),
-                              color: _AppColors.gray700,
-                              onPressed: _isVerifying ? null : _checkVerificationStatus,
-                              child: _isVerifying
-                                  ? const CupertinoActivityIndicator(color: Colors.white)
-                                  : const Text(
-                                      '인증 완료 확인',
-                                      style: TextStyle(
-                                        fontFamily: 'NanumSquareRound',
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (_isVerifying) ...[
-                      const SizedBox(height: 10),
-                      const CupertinoActivityIndicator(),
-                    ],
-                  ],
+              padding: EdgeInsets.fromLTRB(24, 14, 24, bottomPadding + 16),
+              decoration: BoxDecoration(
+                color: _AppColors.backgroundLight.withValues(alpha: 0.96),
+                border: const Border(
+                  top: BorderSide(color: _AppColors.divider),
                 ),
               ),
+              child: Column(
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    height: 54,
+                    child: CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      borderRadius: BorderRadius.circular(28),
+                      color: _AppColors.primary,
+                      onPressed: _isSending ? null : _sendEmailLink,
+                      child: _isSending
+                          ? const CupertinoActivityIndicator(
+                              color: Colors.white,
+                            )
+                          : const Text(
+                              '인증 링크 보내기',
+                              style: TextStyle(
+                                fontFamily: 'Pretendard',
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: 48,
+                          child: CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            borderRadius: BorderRadius.circular(14),
+                            color: _AppColors.surfaceLight,
+                            onPressed: () => openGmailApp(context),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  CupertinoIcons.mail,
+                                  size: 18,
+                                  color: _AppColors.textMain,
+                                ),
+                                SizedBox(width: 6),
+                                Text(
+                                  '메일 앱 열기',
+                                  style: TextStyle(
+                                    fontFamily: 'Pretendard',
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: _AppColors.textMain,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SizedBox(
+                          height: 48,
+                          child: CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            borderRadius: BorderRadius.circular(14),
+                            color: _AppColors.gray700,
+                            onPressed: _isVerifying
+                                ? null
+                                : _checkVerificationStatus,
+                            child: _isVerifying
+                                ? const CupertinoActivityIndicator(
+                                    color: Colors.white,
+                                  )
+                                : const Text(
+                                    '인증 완료 확인',
+                                    style: TextStyle(
+                                      fontFamily: 'Pretendard',
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_isVerifying) ...[
+                    const SizedBox(height: 10),
+                    const CupertinoActivityIndicator(),
+                  ],
+                ],
+              ),
+            ),
           ],
         ),
       ),

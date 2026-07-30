@@ -1,0 +1,17 @@
+{
+  "generatedAt": "2026-07-25T14:55:54.713915+00:00",
+  "dryRun": false,
+  "status": "COMPLETE_WITH_ERRORS",
+  "eligibleCount": 1,
+  "requiredMinUsers": 1,
+  "jobErrorCount": 1,
+  "responseSafetyViolationCount": 0,
+  "blocked": [],
+  "jobs": [
+    {
+      "uidHash": "uid:c1b41cff1441",
+      "photoFile": "uid_2_photo_plain.jpg",
+      "error": "missing_auth_token"
+    }
+  ]
+}

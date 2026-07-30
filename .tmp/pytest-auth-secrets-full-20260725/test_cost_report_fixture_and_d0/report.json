@@ -1,0 +1,63 @@
+{
+  "actuals": {
+    "candidateCount": 4,
+    "dailyCount": 1,
+    "dailyUsd": 1.28,
+    "generatedCount": 1,
+    "monthlyCount": 1,
+    "monthlyUsd": 1.28,
+    "pricingVersion": "cloud_run_l4_2026_05",
+    "totalUsd": 1.28
+  },
+  "alerts": [],
+  "dryRun": true,
+  "generatedAt": "2026-07-25T14:55:53.892270+00:00",
+  "limits": {
+    "dailyAlertUsd": 10.0,
+    "enforceBudget": false,
+    "hardDailyGenerationLimit": 500,
+    "hardMonthlyGenerationLimit": 10000,
+    "killSwitchEnabled": false,
+    "monthlyAlertUsd": 200.0
+  },
+  "pricing": {
+    "cpuUsdPerVcpuSecond": 0.01,
+    "defaultsAreConfigurableAssumptions": true,
+    "excludedCosts": [
+      "storage",
+      "network_egress",
+      "artifact_registry"
+    ],
+    "gpuUsdPerSecond": 0.1,
+    "gpuZonalRedundancy": false,
+    "memoryGib": 8.0,
+    "memoryUsdPerGibSecond": 0.001,
+    "vcpu": 2.0,
+    "version": "cloud_run_l4_2026_05"
+  },
+  "privacy": {
+    "jobIdsEmitted": false,
+    "sourceRefsEmitted": false,
+    "userIdsEmitted": false
+  },
+  "scenario": {
+    "candidateCount": 4000,
+    "candidatesPerUser": 4,
+    "estimatedCost": {
+      "breakdown": {
+        "cpuUsd": 2400.0,
+        "gpuUsd": 12000.0,
+        "gpuZonalRedundancy": false,
+        "memoryGib": 8.0,
+        "memoryUsd": 960.0,
+        "vcpu": 2.0
+      },
+      "durationSeconds": 120000.0,
+      "pricingVersion": "cloud_run_l4_2026_05",
+      "usd": 15360.0
+    },
+    "secondsPerUser": 120.0,
+    "totalDurationSeconds": 120000.0,
+    "users": 1000
+  }
+}

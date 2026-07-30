@@ -66,8 +66,9 @@ class _SlotReelWidgetState extends State<SlotReelWidget> {
   @override
   void initState() {
     super.initState();
-    _scrollController =
-        FixedExtentScrollController(initialItem: widget.initialIndex);
+    _scrollController = FixedExtentScrollController(
+      initialItem: widget.initialIndex,
+    );
     widget.controller._attach(this);
   }
 

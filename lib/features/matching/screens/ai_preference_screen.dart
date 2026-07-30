@@ -11,6 +11,7 @@ import '../../../router/route_names.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/privacy_log_utils.dart';
 import '../../../shared/widgets/seol_swipe_deck.dart';
 
 /// AI 취향 알려주기 화면
@@ -68,7 +69,7 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
 
     final kakaoUserId = await _storageService.getKakaoUserId();
     _kakaoUserId = kakaoUserId;
-    debugPrint('[AI_PREF] kakaoUserId=$kakaoUserId');
+    debugPrint('[AI_PREF] ${PrivacyLogUtils.idFingerprint(kakaoUserId)}');
 
     String? gender;
     if (kakaoUserId != null && kakaoUserId.isNotEmpty) {
@@ -103,7 +104,8 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     if (onboarding is Map) {
       // 온보딩이 { gender: 'female', ... } 형태로 저장된 경우 (saveOnboardingBasicInfo가 basicInfo 객체를 onboarding에 그대로 저장)
       final gAtOnboarding = onboarding['gender']?.toString();
-      if (gAtOnboarding != null && gAtOnboarding.trim().isNotEmpty) return gAtOnboarding.trim();
+      if (gAtOnboarding != null && gAtOnboarding.trim().isNotEmpty)
+        return gAtOnboarding.trim();
       final basicInfo = onboarding['basicInfo'];
       if (basicInfo is Map) {
         final g = basicInfo['gender']?.toString();
@@ -127,17 +129,19 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     return null;
   }
 
-  _TargetPool _decideTargetPool(String? userGender) {
+  _TargetPool? _decideTargetPool(String? userGender) {
     final raw = (userGender ?? '').trim();
     final normalized = raw.toLowerCase();
     // 남성: male, m, 남성, 남자, man
-    final isMale = normalized == 'male' ||
+    final isMale =
+        normalized == 'male' ||
         normalized == 'm' ||
         raw == '남성' ||
         raw == '남자' ||
         normalized == 'man';
     // 여성: female, f, 여성, 여자, woman
-    final isFemale = normalized == 'female' ||
+    final isFemale =
+        normalized == 'female' ||
         normalized == 'f' ||
         raw == '여성' ||
         raw == '여자' ||
@@ -152,10 +156,9 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
       return const _TargetPool(folder: 'male', minId: 1, maxId: 250);
     }
 
-    // 성별을 못 알면: 둘 중 랜덤 fallback
-    return _rng.nextBool()
-        ? const _TargetPool(folder: 'female', minId: 251, maxId: 500)
-        : const _TargetPool(folder: 'male', minId: 1, maxId: 250);
+    // 성별 미상: 랜덤 폴백 금지 (반대 성별 카드가 섞이면 취향 학습이 오염됨)
+    debugPrint('[AI_PREF] gender unknown — refusing random pool fallback');
+    return null;
   }
 
   void _ensureIdBagForPool(_TargetPool pool) {
@@ -171,10 +174,7 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     _idBag
       ..clear()
       ..addAll(
-        List<int>.generate(
-          pool.maxId - pool.minId + 1,
-          (i) => pool.minId + i,
-        ),
+        List<int>.generate(pool.maxId - pool.minId + 1, (i) => pool.minId + i),
       );
     _idBag.shuffle(_rng);
     _idBagIndex = 0;
@@ -194,13 +194,11 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     return id;
   }
 
-  String _storagePathFor(String folder, int id) => 'ai_profiles/$folder/$id.png';
+  String _storagePathFor(String folder, int id) =>
+      'ai_profiles/$folder/$id.png';
 
-  /// Storage에 없을 때 사용할 플레이스홀더 (404 시)
-  static const String _placeholderUrl =
-      'https://placehold.co/400x600/e2e8f0/64748b?text=No+Image';
-
-  Future<String> _getDownloadUrl(String storagePath) async {
+  /// Storage miss must not look like a successful profile image.
+  Future<String?> _getDownloadUrl(String storagePath) async {
     final cached = _urlCacheByPath[storagePath];
     if (cached != null) return cached;
     try {
@@ -208,21 +206,17 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
       _urlCacheByPath[storagePath] = url;
       return url;
     } on FirebaseException catch (e) {
-      if (e.code == 'object-not-found' ||
-          e.code == 'storage/object-not-found' ||
-          (e.message?.contains('404') ?? false) ||
-          (e.message?.toLowerCase().contains('not found') ?? false)) {
-        debugPrint('[AI_PREF] Storage 404: $storagePath (파일 없음)');
-        _urlCacheByPath[storagePath] = _placeholderUrl;
-        return _placeholderUrl;
-      }
-      debugPrint('[AI_PREF] Storage FirebaseException: $storagePath code=${e.code} msg=${e.message}');
-      _urlCacheByPath[storagePath] = _placeholderUrl;
-      return _placeholderUrl;
+      debugPrint(
+        '[AI_PREF] Storage miss/error ${PrivacyLogUtils.errorSummary(e)} '
+        '${PrivacyLogUtils.pathFingerprint(storagePath)}',
+      );
+      return null;
     } catch (e) {
-      debugPrint('[AI_PREF] Storage 기타 예외: $storagePath err=$e');
-      _urlCacheByPath[storagePath] = _placeholderUrl;
-      return _placeholderUrl;
+      debugPrint(
+        '[AI_PREF] Storage error ${PrivacyLogUtils.pathFingerprint(storagePath)} '
+        '${PrivacyLogUtils.errorSummary(e)}',
+      );
+      return null;
     }
   }
 
@@ -230,7 +224,10 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     try {
       final cached = _heightTagCacheById[id];
       if (cached != null) {
-        return _HeightFetchResult(tag: cached, debug: _heightDebugCacheById[id] ?? 'cache');
+        return _HeightFetchResult(
+          tag: cached,
+          debug: _heightDebugCacheById[id] ?? 'cache',
+        );
       }
 
       final snap = await _firestore.collection('ai_profiles').doc('$id').get();
@@ -256,8 +253,10 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
       if (tag != null) {
         _heightTagCacheById[id] = tag;
         _heightDebugCacheById[id] = 'ok';
-        return const _HeightFetchResult(tag: null, debug: 'ok')
-            .copyWith(tag: tag); // keep const + dynamic tag
+        return const _HeightFetchResult(
+          tag: null,
+          debug: 'ok',
+        ).copyWith(tag: tag); // keep const + dynamic tag
       }
 
       if (metadata == null) {
@@ -271,10 +270,14 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     } on FirebaseException catch (e) {
       final d = 'fs-${e.code}';
       _heightDebugCacheById[id] = d;
-      debugPrint('[AI_PREF] height load failed id=$id code=${e.code} msg=${e.message}');
+      debugPrint(
+        '[AI_PREF] height load failed id=$id ${PrivacyLogUtils.errorSummary(e)}',
+      );
       return _HeightFetchResult(tag: null, debug: d);
     } catch (e) {
-      debugPrint('[AI_PREF] height parse failed id=$id err=$e');
+      debugPrint(
+        '[AI_PREF] height parse failed id=$id ${PrivacyLogUtils.errorSummary(e)}',
+      );
       _heightDebugCacheById[id] = 'err';
       return const _HeightFetchResult(tag: null, debug: 'err');
     }
@@ -311,8 +314,10 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     }
 
     // fallback: 문자열 어디든 "000cm" 패턴이 있으면 사용 (최후의 수단)
-    final cm = RegExp(r'([0-9]{2,3})\s*cm', caseSensitive: false)
-        .firstMatch(metadata);
+    final cm = RegExp(
+      r'([0-9]{2,3})\s*cm',
+      caseSensitive: false,
+    ).firstMatch(metadata);
     if (cm != null) return cm.group(1);
 
     return null;
@@ -335,17 +340,23 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
   }
 
   Future<void> _fillCards({required int targetCount}) async {
+    final pool = _decideTargetPool(_userGender);
+    if (pool == null) {
+      debugPrint('[AI_PREF] cannot fill cards without known gender');
+      return;
+    }
+
     var attempts = 0;
     final maxAttempts = (targetCount * 6).clamp(30, 400);
 
     while (_cards.length < targetCount && attempts < maxAttempts) {
       attempts++;
-      final pool = _decideTargetPool(_userGender);
       final id = _nextProfileId(pool);
       final path = _storagePathFor(pool.folder, id);
 
       try {
         final url = await _getDownloadUrl(path);
+        if (url == null || url.isEmpty) continue;
         final heightRes = await _fetchHeightForProfileId(id);
         _cards.add(
           _AiCardData(
@@ -357,32 +368,18 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
             heightDebug: heightRes.debug,
           ),
         );
-      } catch (e, st) {
-        debugPrint('[AI_PREF] _fillCards 실패 id=$id path=$path: $e');
-        debugPrint('[AI_PREF] stack: $st');
+      } catch (e) {
+        debugPrint(
+          '[AI_PREF] _fillCards failed id=$id '
+          '${PrivacyLogUtils.pathFingerprint(path)} '
+          '${PrivacyLogUtils.errorSummary(e)}',
+        );
       }
     }
 
     if (_cards.isEmpty && targetCount > 0) {
-      debugPrint('[AI_PREF] Storage/Firestore에서 카드 로드 실패 → 플레이스홀더 폴백');
-      _addPlaceholderFallbackCards(targetCount);
-    }
-  }
-
-  void _addPlaceholderFallbackCards(int count) {
-    final pool = _decideTargetPool(_userGender);
-    for (var i = 0; i < count; i++) {
-      final id = pool.minId + (i % (pool.maxId - pool.minId + 1));
-      final path = _storagePathFor(pool.folder, id);
-      _cards.add(
-        _AiCardData(
-          id: id,
-          folder: pool.folder,
-          storagePath: path,
-          imageUrl: _placeholderUrl,
-          heightTag: null,
-          heightDebug: 'fallback',
-        ),
+      debugPrint(
+        '[AI_PREF] no real Storage cards loaded — empty feed (no placeholder)',
       );
     }
   }
@@ -453,7 +450,9 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
         },
       );
     } catch (e) {
-      debugPrint('[AI_PREF] ❌ recEvent $label 실패: $e');
+      debugPrint(
+        '[AI_PREF] recEvent $label failed ${PrivacyLogUtils.errorSummary(e)}',
+      );
     }
   }
 
@@ -554,9 +553,10 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
                   CupertinoButton(
                     padding: const EdgeInsets.only(bottom: 10),
                     onPressed: () {
-                      Navigator.of(context, rootNavigator: true).pushNamed(
-                        RouteNames.aiTasteTraining,
-                      );
+                      Navigator.of(
+                        context,
+                        rootNavigator: true,
+                      ).pushNamed(RouteNames.aiTasteTraining);
                     },
                     child: const Text(
                       '스와이프 가이드 보기(튜토리얼)',
@@ -692,29 +692,29 @@ class _AiImageCardState extends State<_AiImageCard> {
           ),
 
           // height 태그 (디버깅 겸 항상 표시)
-            Positioned(
-              left: 14,
-              bottom: 14,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: CupertinoColors.black.withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: CupertinoColors.white.withValues(alpha: 0.18),
-                  ),
+          Positioned(
+            left: 14,
+            bottom: 14,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: CupertinoColors.black.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: CupertinoColors.white.withValues(alpha: 0.18),
                 ),
-                child: Text(
-                  _heightTag ?? 'HEIGHT(?)  ($_heightDebug)',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: CupertinoColors.white,
-                    letterSpacing: 0.2,
-                  ),
+              ),
+              child: Text(
+                _heightTag ?? 'HEIGHT(?)  ($_heightDebug)',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: CupertinoColors.white,
+                  letterSpacing: 0.2,
                 ),
               ),
             ),
+          ),
         ],
       ),
     );
@@ -752,9 +752,7 @@ class _RoundActionButton extends StatelessWidget {
             ),
           ],
         ),
-        child: Center(
-          child: Icon(icon, size: 34, color: iconColor),
-        ),
+        child: Center(child: Icon(icon, size: 34, color: iconColor)),
       ),
     );
   }
@@ -784,10 +782,8 @@ class _HeightFetchResult {
 
   const _HeightFetchResult({required this.tag, required this.debug});
 
-  _HeightFetchResult copyWith({String? tag, String? debug}) => _HeightFetchResult(
-        tag: tag ?? this.tag,
-        debug: debug ?? this.debug,
-      );
+  _HeightFetchResult copyWith({String? tag, String? debug}) =>
+      _HeightFetchResult(tag: tag ?? this.tag, debug: debug ?? this.debug);
 }
 
 class _TargetPool {
@@ -795,5 +791,9 @@ class _TargetPool {
   final int minId;
   final int maxId;
 
-  const _TargetPool({required this.folder, required this.minId, required this.maxId});
+  const _TargetPool({
+    required this.folder,
+    required this.minId,
+    required this.maxId,
+  });
 }

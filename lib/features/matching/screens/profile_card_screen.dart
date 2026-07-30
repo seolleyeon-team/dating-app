@@ -16,6 +16,7 @@ import '../../../services/storage_service.dart';
 import '../../../services/interaction_service.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/ai_recommendation_service.dart';
+import '../../../shared/utils/privacy_log_utils.dart';
 import '../../../shared/widgets/profile_photo_blur.dart';
 import '../../../shared/widgets/seol_swipe_deck.dart';
 
@@ -70,7 +71,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
   Future<void> _loadRecommendations() async {
     try {
       final kakaoUserId = await _storageService.getKakaoUserId();
-      debugPrint('[ProfileCard] kakaoUserId from storage: $kakaoUserId');
+      debugPrint('[ProfileCard] ${PrivacyLogUtils.idFingerprint(kakaoUserId)}');
       if (mounted) setState(() => _kakaoUserId = kakaoUserId);
 
       if (kakaoUserId == null || kakaoUserId.isEmpty) {
@@ -97,9 +98,10 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
           (_) => _recordImpressionAndOpenForTopCard(0),
         );
       }
-    } catch (e, st) {
-      debugPrint('[ProfileCard] ❌ _loadRecommendations 실패: $e');
-      debugPrint('[ProfileCard] stack: $st');
+    } catch (e) {
+      debugPrint(
+        '[ProfileCard] load recommendations ${PrivacyLogUtils.errorSummary(e)}',
+      );
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -116,7 +118,8 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
   void _onSwiped(int index, SwipeDirection direction) {
     final uid = _kakaoUserId;
     debugPrint(
-      '[ProfileCard] _onSwiped: index=$index, dir=$direction, uid=$uid, profiles=${_profiles.length}',
+      '[ProfileCard] _onSwiped index=$index dir=$direction '
+      '${PrivacyLogUtils.idFingerprint(uid)} profiles=${_profiles.length}',
     );
 
     if (uid == null) {
@@ -182,7 +185,9 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
         context: contextMetadata,
       );
     } catch (e) {
-      debugPrint('[ProfileCard] ❌ recEvent $label 실패: $e');
+      debugPrint(
+        '[ProfileCard] recEvent $label ${PrivacyLogUtils.errorSummary(e)}',
+      );
     }
   }
 
@@ -263,7 +268,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                             '오늘의 추천이 모두 소진되었습니다.',
                             style: TextStyle(
                               color: _AppColors.gray500,
-                              fontFamily: 'NanumSquareRound',
+                              fontFamily: 'Pretendard',
                             ),
                           ),
                         )
@@ -356,16 +361,13 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
               },
               child: const Text(
                 '신고 및 차단',
-                style: TextStyle(fontFamily: 'NanumSquareRound'),
+                style: TextStyle(fontFamily: 'Pretendard'),
               ),
             ),
           ],
           cancelButton: CupertinoActionSheetAction(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text(
-              '취소',
-              style: TextStyle(fontFamily: 'NanumSquareRound'),
-            ),
+            child: const Text('취소', style: TextStyle(fontFamily: 'Pretendard')),
           ),
         );
       },
@@ -383,22 +385,22 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
             return CupertinoAlertDialog(
               title: const Text(
                 '신고 및 차단',
-                style: TextStyle(fontFamily: 'NanumSquareRound'),
+                style: TextStyle(fontFamily: 'Pretendard'),
               ),
               content: Column(
                 children: [
                   const SizedBox(height: 10),
                   const Text(
                     '이 사용자를 신고하고 추천에서 차단하시겠습니까?\n사유를 간략히 적어주세요.',
-                    style: TextStyle(fontFamily: 'NanumSquareRound'),
+                    style: TextStyle(fontFamily: 'Pretendard'),
                   ),
                   const SizedBox(height: 16),
                   CupertinoTextField(
                     controller: reasonController,
                     placeholder: '신고 사유 입력',
-                    style: const TextStyle(fontFamily: 'NanumSquareRound'),
+                    style: const TextStyle(fontFamily: 'Pretendard'),
                     placeholderStyle: TextStyle(
-                      fontFamily: 'NanumSquareRound',
+                      fontFamily: 'Pretendard',
                       color: CupertinoColors.placeholderText,
                     ),
                   ),
@@ -410,7 +412,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                   onPressed: () => Navigator.pop(ctx),
                   child: const Text(
                     '취소',
-                    style: TextStyle(fontFamily: 'NanumSquareRound'),
+                    style: TextStyle(fontFamily: 'Pretendard'),
                   ),
                 ),
                 CupertinoDialogAction(
@@ -438,14 +440,16 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                             }
                           } catch (e) {
                             setState(() => isSubmitting = false);
-                            debugPrint('Report error: $e');
+                            debugPrint(
+                              '[ProfileCard] report ${PrivacyLogUtils.errorSummary(e)}',
+                            );
                           }
                         },
                   child: isSubmitting
                       ? const CupertinoActivityIndicator()
                       : const Text(
                           '확인',
-                          style: TextStyle(fontFamily: 'NanumSquareRound'),
+                          style: TextStyle(fontFamily: 'Pretendard'),
                         ),
                 ),
               ],
@@ -589,7 +593,7 @@ class _ProfileCard extends StatelessWidget {
                           Text(
                             profile.name,
                             style: const TextStyle(
-                              fontFamily: 'NanumSquareRound',
+                              fontFamily: 'Pretendard',
                               fontSize: 32,
                               fontWeight: FontWeight.w700,
                               color: CupertinoColors.white,
@@ -599,7 +603,7 @@ class _ProfileCard extends StatelessWidget {
                           Text(
                             '${profile.age}',
                             style: TextStyle(
-                              fontFamily: 'NanumSquareRound',
+                              fontFamily: 'Pretendard',
                               fontSize: 24,
                               fontWeight: FontWeight.w300,
                               color: CupertinoColors.white.withValues(
@@ -693,7 +697,7 @@ class _ProfileCard extends StatelessWidget {
                       Text(
                         '기본 정보 및 라이프스타일',
                         style: TextStyle(
-                          fontFamily: 'NanumSquareRound',
+                          fontFamily: 'Pretendard',
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                           letterSpacing: 0.5,
@@ -742,7 +746,7 @@ class _ProfileCard extends StatelessWidget {
                                 Text(
                                   tag,
                                   style: const TextStyle(
-                                    fontFamily: 'NanumSquareRound',
+                                    fontFamily: 'Pretendard',
                                     fontSize: 12,
                                     fontWeight: FontWeight.w500,
                                     color: CupertinoColors.white,

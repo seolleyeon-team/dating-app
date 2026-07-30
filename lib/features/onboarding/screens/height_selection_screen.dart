@@ -77,8 +77,9 @@ class _HeightSelectionScreenState extends State<HeightSelectionScreen> {
     if (onboarding is! Map) return;
 
     final raw = onboarding['height'];
-    final parsed =
-        raw is int ? raw : int.tryParse(raw?.toString().trim() ?? '');
+    final parsed = raw is int
+        ? raw
+        : int.tryParse(raw?.toString().trim() ?? '');
     if (parsed == null) return;
 
     final clamped = parsed.clamp(widget.minHeight, widget.maxHeight).toInt();

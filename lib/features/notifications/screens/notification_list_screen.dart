@@ -231,7 +231,10 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
         border: const Border(
           bottom: BorderSide(color: _AppColors.gray200, width: 0.6),
         ),
-        middle: const Text('알림', style: TextStyle(fontFamily: 'NanumSquareRound')),
+        middle: const Text(
+          '알림',
+          style: TextStyle(fontFamily: 'NanumSquareRound'),
+        ),
         leading: CupertinoButton(
           padding: EdgeInsets.zero,
           onPressed: () => Navigator.of(context).maybePop(),

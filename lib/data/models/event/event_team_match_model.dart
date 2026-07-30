@@ -25,9 +25,7 @@ int? _readInt(dynamic value) {
 Map<String, dynamic> _readMap(dynamic value) {
   if (value is Map<String, dynamic>) return value;
   if (value is Map) {
-    return value.map(
-      (key, item) => MapEntry(key.toString(), item),
-    );
+    return value.map((key, item) => MapEntry(key.toString(), item));
   }
   return <String, dynamic>{};
 }
@@ -120,8 +118,10 @@ class EventTeamMatchTeamSnapshot {
   factory EventTeamMatchTeamSnapshot.fromMap(Map<String, dynamic> map) {
     final memberMaps = map['membersSnapshot'] is List
         ? (map['membersSnapshot'] as List)
-            .map((item) => EventTeamMatchMemberSnapshot.fromMap(_readMap(item)))
-            .toList()
+              .map(
+                (item) => EventTeamMatchMemberSnapshot.fromMap(_readMap(item)),
+              )
+              .toList()
         : <EventTeamMatchMemberSnapshot>[];
     return EventTeamMatchTeamSnapshot(
       groupId: map['groupId']?.toString() ?? '',
@@ -196,10 +196,7 @@ class EventTeamMatchResult {
     this.updatedAt,
   });
 
-  factory EventTeamMatchResult.fromDoc(
-    String id,
-    Map<String, dynamic> map,
-  ) {
+  factory EventTeamMatchResult.fromDoc(String id, Map<String, dynamic> map) {
     return EventTeamMatchResult(
       resultId: id,
       source: map['source']?.toString() ?? 'slot_machine',
@@ -212,20 +209,20 @@ class EventTeamMatchResult {
       matchedGroupId: map['matchedGroupId']?.toString() ?? '',
       groupIds: map['groupIds'] is List
           ? (map['groupIds'] as List)
-              .map((item) => item.toString())
-              .where((item) => item.isNotEmpty)
-              .toList()
+                .map((item) => item.toString())
+                .where((item) => item.isNotEmpty)
+                .toList()
           : <String>[],
       candidateGroupIds: map['candidateGroupIds'] is List
           ? (map['candidateGroupIds'] as List)
-              .map((item) => item.toString())
-              .where((item) => item.isNotEmpty)
-              .toList()
+                .map((item) => item.toString())
+                .where((item) => item.isNotEmpty)
+                .toList()
           : <String>[],
       candidateScores: map['candidateScores'] is List
           ? (map['candidateScores'] as List)
-              .map((item) => _readDouble(item) ?? 0)
-              .toList()
+                .map((item) => _readDouble(item) ?? 0)
+                .toList()
           : <double>[],
       selectedGroupIndex: _readInt(map['selectedGroupIndex']) ?? 0,
       algorithm: map['algorithm']?.toString() ?? '',
@@ -243,14 +240,12 @@ class EventTeamMatchResult {
           : null,
       candidateTeams: map['candidateTeamsSnapshot'] is List
           ? (map['candidateTeamsSnapshot'] as List)
-              .map(
-                (item) => EventTeamMatchTeamSnapshot.fromMap(_readMap(item)),
-              )
-              .toList()
+                .map(
+                  (item) => EventTeamMatchTeamSnapshot.fromMap(_readMap(item)),
+                )
+                .toList()
           : <EventTeamMatchTeamSnapshot>[],
-      matchedPairs: _readMapList(
-        map['matchedPairMeta'] ?? map['matchedPairs'],
-      ),
+      matchedPairs: _readMapList(map['matchedPairMeta'] ?? map['matchedPairs']),
       createdAt: _readDateTime(map['createdAt']),
       updatedAt: _readDateTime(map['updatedAt']),
     );
@@ -283,7 +278,9 @@ class EventTeamMatchResult {
       'status': status,
       'requestingTeamSnapshot': requestingTeam?.toMap(),
       'matchedTeamSnapshot': matchedTeam?.toMap(),
-      'candidateTeamsSnapshot': candidateTeams.map((team) => team.toMap()).toList(),
+      'candidateTeamsSnapshot': candidateTeams
+          .map((team) => team.toMap())
+          .toList(),
       'matchedPairMeta': matchedPairs,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
