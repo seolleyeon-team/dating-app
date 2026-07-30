@@ -10,9 +10,8 @@
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors;
-import 'dart:ui';
-
-import '../../../shared/utils/in_app_purchase_policy.dart';
+import 'package:flutter/services.dart';
+import 'package:seolleyeon/shared/utils/in_app_purchase_policy.dart';
 
 // =============================================================================
 // 색상 정의
@@ -25,36 +24,28 @@ class _AppColors {
   static const Color textSecondary = Color(0xFF8E8E93);
 }
 
-Future<void> _showPurchaseUnavailable(BuildContext context) {
-  return showCupertinoDialog<void>(
-    context: context,
-    builder: (ctx) => CupertinoAlertDialog(
-      title: const Text('결제 준비 중'),
-      content: Text(InAppPurchasePolicy.unavailableMessage),
-      actions: [
-        CupertinoDialogAction(
-          onPressed: () => Navigator.of(ctx).pop(),
-          child: const Text('확인'),
-        ),
-      ],
-    ),
-  );
-}
-
-void _onPurchaseAttempt(BuildContext context) {
-  if (!InAppPurchasePolicy.allowPurchaseUi) {
-    _showPurchaseUnavailable(context);
-    return;
-  }
-  // Real billing is not wired yet even when the flag is on.
-  _showPurchaseUnavailable(context);
-}
-
 // =============================================================================
 // 메인 화면
 // =============================================================================
 class HeartChargeScreen extends StatelessWidget {
   const HeartChargeScreen({super.key});
+
+  void _showPurchaseUnavailable(BuildContext context) {
+    HapticFeedback.selectionClick();
+    showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('하트 충전'),
+        content: Text(InAppPurchasePolicy.unavailableMessage),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -65,16 +56,14 @@ class HeartChargeScreen extends StatelessWidget {
           SafeArea(
             child: Column(
               children: [
-                // 상당 고정 영역 (헤더 + 배너)
+                // 상단 고정 영역 (헤더 + 현재 보유 하트)
                 Container(
                   color: _AppColors.surfaceLight,
                   child: Column(
                     children: [
                       _Header(onClose: () => Navigator.of(context).pop()),
                       const _CurrentBalance(balance: 20),
-                      const SizedBox(height: 8),
-                      const _PromoBanner(),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
                     ],
                   ),
                 ),
@@ -86,17 +75,31 @@ class HeartChargeScreen extends StatelessWidget {
                       horizontal: 20,
                       vertical: 16,
                     ),
-                    children: const [
-                      _ProductCard(hearts: 6, price: 1500, unitPrice: 250),
-                      SizedBox(height: 16),
+                    children: [
+                      _ProductCard(
+                        hearts: 6,
+                        price: 1500,
+                        unitPrice: 250,
+                        onTap: () {
+                          if (!InAppPurchasePolicy.allowPurchaseUi) {
+                            _showPurchaseUnavailable(context);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
                       _ProductCard(
                         hearts: 18,
                         price: 4400,
                         originalPrice: 4500,
                         unitPrice: 245,
                         discountPercent: 2,
+                        onTap: () {
+                          if (!InAppPurchasePolicy.allowPurchaseUi) {
+                            _showPurchaseUnavailable(context);
+                          }
+                        },
                       ),
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       _ProductCard(
                         hearts: 43,
                         price: 9900,
@@ -104,18 +107,28 @@ class HeartChargeScreen extends StatelessWidget {
                         unitPrice: 231,
                         discountPercent: 7,
                         isPopular: true,
+                        onTap: () {
+                          if (!InAppPurchasePolicy.allowPurchaseUi) {
+                            _showPurchaseUnavailable(context);
+                          }
+                        },
                       ),
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       _ProductCard(
                         hearts: 120,
                         price: 25000,
                         originalPrice: 30000,
                         unitPrice: 209,
                         discountPercent: 16,
+                        onTap: () {
+                          if (!InAppPurchasePolicy.allowPurchaseUi) {
+                            _showPurchaseUnavailable(context);
+                          }
+                        },
                       ),
-                      SizedBox(height: 24),
-                      _FooterNote(),
-                      SizedBox(height: 100), // 하단 여백
+                      const SizedBox(height: 24),
+                      const _FooterNote(),
+                      const SizedBox(height: 100), // 하단 여백
                     ],
                   ),
                 ),
@@ -146,7 +159,7 @@ class _Header extends StatelessWidget {
           const Text(
             '하트 충전',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 24,
               fontWeight: FontWeight.w700,
               color: _AppColors.textPrimary,
@@ -214,133 +227,6 @@ class _CurrentBalance extends StatelessWidget {
 }
 
 // =============================================================================
-// 프로모션 배너
-// =============================================================================
-class _PromoBanner extends StatelessWidget {
-  const _PromoBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 24),
-      height: 140, // 적절한 높이 설정
-      child: Stack(
-        children: [
-          // 배경 그라데이션 및 장식
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              gradient: const LinearGradient(
-                colors: [
-                  Color(0xFFFCE4EC),
-                  Color(0xFFF3E5F5),
-                ], // pink-100 to purple-100
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-              ),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 4,
-                        offset: Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    CupertinoIcons.heart_fill,
-                    color: _AppColors.primary,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Text(
-                        '다양한 활동엔 하트가 필요해요!',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: _AppColors.textPrimary,
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        '친구 초대, 좋아요 보내기 등\n더 많은 연결을 위해 하트를 충전해보세요.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF616161),
-                          height: 1.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // 배경 장식 (Blob 효과 흉내)
-          Positioned(
-            top: -40,
-            right: -40,
-            child: Container(
-              width: 128,
-              height: 128,
-              decoration: BoxDecoration(
-                color: _AppColors.primary.withValues(alpha: 0.2),
-                shape: BoxShape.circle,
-              ),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-                child: Container(color: Colors.transparent),
-              ),
-            ),
-          ),
-          // 쿠폰 등록 버튼
-          Positioned(
-            bottom: 20,
-            right: 24,
-            child: GestureDetector(
-              onTap: () => _onPurchaseAttempt(context),
-              child: Row(
-                children: const [
-                  Text(
-                    '쿠폰 등록',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: _AppColors.primary,
-                    ),
-                  ),
-                  Icon(
-                    CupertinoIcons.chevron_right,
-                    size: 14,
-                    color: _AppColors.primary,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// =============================================================================
 // 상품 카드
 // =============================================================================
 class _ProductCard extends StatelessWidget {
@@ -350,6 +236,7 @@ class _ProductCard extends StatelessWidget {
   final int unitPrice;
   final int? discountPercent;
   final bool isPopular;
+  final VoidCallback onTap;
 
   const _ProductCard({
     required this.hearts,
@@ -358,13 +245,14 @@ class _ProductCard extends StatelessWidget {
     required this.unitPrice,
     this.discountPercent,
     this.isPopular = false,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => _onPurchaseAttempt(context),
-      behavior: HitTestBehavior.opaque,
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: onTap,
       child: Stack(
       children: [
         Container(
@@ -510,7 +398,7 @@ class _ProductCard extends StatelessWidget {
             ),
           ),
       ],
-    ),
+      ),
     );
   }
 }

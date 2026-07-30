@@ -1,19 +1,19 @@
 /**
- * ?ㅻ젅??Cloud Functions
+ * 설레연 Cloud Functions
  *
- * Trigger list:
- *   1) onRecEventCreated         - recEvents logging + match check
- *   2) onInteractionCreated      - profile like notification + match creation + chat room
- *   3) onChatMessageCreated      - new chat message push notification
- *   4) onBambooCommentCreated    - community comment/reply push + in-app notification
- *   5) onBambooPostLikeCreated   - community post like push + in-app notification
- *   6) onAskCreated              - ask creation notification + push
- *   7) onMatchUpdated            - deactivate chat room on unmatch
- *   8) autoCompleteExpiredGoodbyeSafetyStamps - auto-complete expired goodbye safety stamps + follow-up notification
- *   9) schedulePromiseReminderTask - schedule exact one-hour promise reminder
- *   10) dispatchPromiseReminder ???덉빟???쎌냽 1?쒓컙 ???몄떆 ?ㅽ뻾
- *   11) sendUpcomingPromiseReminderPushes - legacy 15-minute reminder (disabled)
- *   12) sendDailyUnreadChatDigests - daily 1 PM unread chat digest push + in-app notification
+ * 트리거 목록:
+ *   1) onRecEventCreated         — recEvents 이벤트 로깅 + 매치 체크
+ *   2) onInteractionCreated      — interactions like/super_like → 프로필 좋아요 알림 + 매치 생성 + 채팅방
+ *   3) onChatMessageCreated      — 새 채팅 메시지 푸시 알림
+ *   4) onBambooCommentCreated    — 대나무숲 댓글/답글 푸시 + 인앱 알림
+ *   5) onBambooPostLikeCreated   — 대나무숲 글 좋아요 푸시 + 인앱 알림
+ *   6) onAskCreated              — 무물(ask) 생성 시 알림 + 푸시
+ *   7) onMatchUpdated            — 매치 해제 시 채팅방 비활성화
+ *   8) autoCompleteExpiredGoodbyeSafetyStamps — 헤어짐 도장 24시간 초과 약속 자동 완료 + 후속 알림
+ *   9) schedulePromiseReminderTask — 약속 확정 시 정확한 1시간 전 리마인더 예약
+ *   10) dispatchPromiseReminder — 예약된 약속 1시간 전 푸시 실행
+ *   11) sendUpcomingPromiseReminderPushes — 기존 15분 리마인더(비활성화)
+ *   12) sendDailyUnreadChatDigests — 매일 오후 1시 unread chat digest 푸시 + 인앱 알림
  */
 
 import { setGlobalOptions } from "firebase-functions/v2";
@@ -23,13 +23,9 @@ import {
 } from "firebase-functions/v2/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { withAppCheck } from "./appCheckPolicy";
-import { ensureMutualMatch } from "./mutualMatchCreation";
-import {
-  createFirestorePushRecipientLoader,
-  filterPushRecipientIds,
-} from "./pushRecipientPolicy";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onTaskDispatched } from "firebase-functions/v2/tasks";
+import { defineSecret } from "firebase-functions/params";
 import * as logger from "firebase-functions/logger";
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
@@ -49,48 +45,25 @@ import {
   PROMISE_REMINDER_QUEUE_PATH,
   type PromiseReminderTaskPayload,
 } from "./promiseReminder";
-import {
-  createGetCurrentAvatarGenerationStatusFunction,
-  createRetryCurrentAvatarGenerationFunction,
-  createUploadAvatarSourcePhotoFunction,
-} from "./avatarMedia";
-import {
-  createApproveAvatarCandidateFunction,
-  createGetAvatarJobCandidatesFunction,
-} from "./avatarApproval";
-import { createGetChatRealProfilePhotoFunction } from "./chatRealPhoto";
-import { createCleanupAvatarMediaFunction } from "./avatarCleanup";
-import {
-  createAvatarJobSourceRetentionTrigger,
-  createAvatarSourceRetentionRecoveryTrigger,
-  createClipEmbeddingSourceRetentionTrigger,
-} from "./avatarSourceRetention";
-import { createAvatarGenerationStateSyncTrigger } from "./avatarGenerationStateSync";
-import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
-export { isSafePublicAvatarUrl as isSafePublicMediaUrl } from "./publicMediaUrlPolicy";
-import {
-  createRespondTeamMeetingRequestFunction,
-  createTeamMeetingRequestFunction,
-} from "./teamMeetingRequest";
-import { createReportAndBlockUserFunction } from "./reportAndBlock";
-import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
-import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
 
-// Initialize Firebase Admin
+// Firebase Admin 초기화
 initializeApp();
 const db = getFirestore();
 const FRIEND_INVITE_HOST = "seolleyeon.web.app";
 const FRIEND_INVITE_PATH = "/invite/friend";
 const FRIEND_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+const PORTONE_API_SECRET = defineSecret("PORTONE_API_SECRET");
+const PORTONE_STORE_ID = "store-ec95a751-307e-4b85-97bd-7c6fa0bbe0e2";
+const ADULT_VERIFICATION_PROVIDER = "kg_inicis_via_portone_test";
 
-// ?꾩뿭 ?듭뀡
+// 전역 옵션
 setGlobalOptions({
   region: "asia-northeast3",
   maxInstances: 10,
 });
 
 // =============================================================================
-// Common helpers
+// 공통 헬퍼
 // =============================================================================
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -127,6 +100,73 @@ function asDate(v: unknown): Date | null {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
   return null;
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function normalizeDigits(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.replace(/\D/g, "");
+  return normalized.length > 0 ? normalized : null;
+}
+
+function getKstFullYear(now = new Date()): number {
+  return new Date(now.getTime() + 9 * 60 * 60 * 1000).getUTCFullYear();
+}
+
+function readBirthYear(customer: Record<string, unknown>): number | null {
+  const directYear = firstInteger(customer.birthYear);
+  if (directYear != null && directYear >= 1900) return directYear;
+
+  const birthDate = firstNonEmptyString(
+    customer.birthDate,
+    customer.birthdate,
+    customer.dateOfBirth
+  );
+  const digits = normalizeDigits(birthDate);
+  if (!digits || digits.length < 4) return null;
+  const year = Number(digits.slice(0, 4));
+  return Number.isFinite(year) && year >= 1900 ? year : null;
+}
+
+function isAdultByKoreanYear(birthYear: number, now = new Date()): boolean {
+  return getKstFullYear(now) - birthYear >= 19;
+}
+
+function readPortOneCustomer(
+  verification: Record<string, unknown>
+): Record<string, unknown> {
+  const verifiedCustomer = readMap(verification.verifiedCustomer);
+  if (Object.keys(verifiedCustomer).length > 0) return verifiedCustomer;
+
+  const customer = readMap(verification.customer);
+  if (Object.keys(customer).length > 0) return customer;
+
+  return readMap(verification.requestedCustomer);
+}
+
+function readPortOneVerificationPayload(
+  body: Record<string, unknown>
+): Record<string, unknown> {
+  const nested = readMap(body.identityVerification);
+  return Object.keys(nested).length > 0 ? nested : body;
+}
+
+function getPortOneSecret(): string {
+  const fromEnv = asNonEmptyString(process.env.PORTONE_API_SECRET);
+  if (fromEnv) return fromEnv;
+  try {
+    return PORTONE_API_SECRET.value();
+  } catch {
+    return "";
+  }
+}
+
+function buildDirectRoomId(userA: string, userB: string): string {
+  const ids = [userA, userB].sort();
+  return `dm_${ids[0]}_${ids[1]}`;
 }
 
 function getKstDateKey(now = new Date()): string {
@@ -243,13 +283,17 @@ function firstInteger(...values: unknown[]): number | null {
   return parsed == null ? null : Math.trunc(parsed);
 }
 
-export function readSafePhotoUrl(userData: Record<string, unknown>): string | null {
-  const avatar = readMap(userData.avatar);
-  const approvedAvatarUrl = asStringOrNull(avatar.approvedAvatarUrl);
-  if (avatar.status === "approved" && isSafePublicAvatarUrl(approvedAvatarUrl)) {
-    return approvedAvatarUrl;
-  }
-  return null;
+function readPhotoUrl(userData: Record<string, unknown>): string | null {
+  const onboarding = readMap(userData.onboarding);
+  const photoUrls = normalizeStringList(onboarding.photoUrls);
+  return (
+    photoUrls[0] ??
+    firstNonEmptyString(
+      onboarding.profileImageUrl,
+      onboarding.representativeImageUrl,
+      userData.profileImageUrl
+    )
+  );
 }
 
 function truncateText(value: string | null, maxLength = 90): string | null {
@@ -274,7 +318,7 @@ function buildEventTeamMemberSnapshot(
   return {
     uid,
     displayName: firstNonEmptyString(onboarding.nickname, userData.nickname, uid) ?? uid,
-    photoUrl: readSafePhotoUrl(userData),
+    photoUrl: readPhotoUrl(userData),
     universityId: firstNonEmptyString(
       onboarding.universityId,
       userData.universityId,
@@ -501,7 +545,7 @@ function readTeamCandidateSnapshot(
     .filter((item) => isRecord(item))
     .map((item) => ({
       uid: asString(item.uid ?? ""),
-      displayName: asString(item.displayName ?? "Unknown user", "Unknown user"),
+      displayName: asString(item.displayName ?? "알 수 없는 사용자", "알 수 없는 사용자"),
       photoUrl: asStringOrNull(item.photoUrl) ?? null,
       universityId: asStringOrNull(item.universityId) ?? null,
       universityName: asStringOrNull(item.universityName) ?? null,
@@ -761,16 +805,6 @@ function buildEventTeamMatchLockId(dateKey: string, groupId: string): string {
   return `${dateKey}_${groupId}`;
 }
 
-function buildEventTeamParticipantUids(
-  requestingTeam: EventTeamCandidateSnapshot,
-  matchedTeam: EventTeamCandidateSnapshot
-): string[] {
-  return dedupeStrings([
-    ...requestingTeam.membersSnapshot.map((member) => member.uid),
-    ...matchedTeam.membersSnapshot.map((member) => member.uid),
-  ]).sort();
-}
-
 function eventTeamCandidateSnapshotToMap(
   candidate: EventTeamCandidateSnapshot
 ): Record<string, unknown> {
@@ -786,7 +820,7 @@ function eventTeamCandidateSnapshotToMap(
   };
 }
 
-export function buildEventTeamMatchResultPreview(params: {
+function buildEventTeamMatchResultPreview(params: {
   resultId: string;
   dateKey: string;
   requestingTeamSetupId: string;
@@ -807,10 +841,6 @@ export function buildEventTeamMatchResultPreview(params: {
     requestingEventTeamSetupId: params.requestingTeamSetupId,
     requestingGroupId: params.requestingTeam.groupId,
     matchedGroupId: params.matchedTeam.groupId,
-    participantUids: buildEventTeamParticipantUids(
-      params.requestingTeam,
-      params.matchedTeam
-    ),
     groupIds: [
       params.requestingTeam.groupId,
       params.matchedTeam.groupId,
@@ -847,11 +877,16 @@ async function getUserDisplayInfo(userId: string): Promise<{
   const onboarding = isRecord(onboardingRaw) ? onboardingRaw : {};
 
   const nickname = asString(
-    onboarding.nickname ?? data.nickname ?? "\uC720\uC800",
-    "\uC720\uC800"
+    onboarding.nickname ?? data.nickname ?? "유저",
+    "유저"
   );
 
-  const avatarUrl = readSafePhotoUrl(data);
+  const avatarUrl =
+    asStringOrNull(
+      onboarding.profileImageUrl ??
+        onboarding.representativeImageUrl ??
+        data.profileImageUrl
+    ) ?? null;
 
   return {
     nickname,
@@ -859,29 +894,63 @@ async function getUserDisplayInfo(userId: string): Promise<{
   };
 }
 
-/**
- * Whether a failed FCM send means the token is permanently gone.
- *
- * Deleting on any failure is wrong: a transient FCM outage or quota error would
- * unregister a working device, and the user then silently stops receiving push
- * forever with nothing in the app to indicate it. Only these two codes mean the
- * token itself is dead.
- */
-export function isUnregisteredPushTokenError(code: string | null): boolean {
-  return (
-    code === "messaging/registration-token-not-registered" ||
-    code === "messaging/invalid-registration-token"
-  );
+function notificationCategoryForType(type: string): string | null {
+  switch (type) {
+    case "chat":
+    case "chat_digest":
+      return "chat";
+    case "profile_like":
+      return "matching";
+    case "community_post_like":
+    case "community_comment":
+    case "community_reply":
+      return "community";
+    case "ask_received":
+      return "asks";
+    case "event_team_invite":
+      return "events";
+    case "safety_stamp_follow_up":
+      return "safety";
+    default:
+      return null;
+  }
 }
 
-async function fetchUserTokens(userId: string): Promise<string[]> {
-  const snap = await db
-    .collection("users")
-    .doc(userId)
-    .collection("deviceTokens")
-    .get();
+function isPushEnabledForType(
+  settingsRaw: unknown,
+  notificationType: string
+): boolean {
+  if (!isRecord(settingsRaw)) return true;
+  if (settingsRaw.all === false) return false;
 
-  return snap.docs.map((d) => d.id).filter((t) => t.length > 0);
+  const category = notificationCategoryForType(notificationType);
+  if (category == null) return true;
+  return settingsRaw[category] !== false;
+}
+
+async function fetchUserTokens(
+  userId: string,
+  notificationType: string
+): Promise<string[]> {
+  const userRef = db.collection("users").doc(userId);
+  const userSnap = await userRef.get();
+  const userSettings = userSnap.data()?.notificationSettings;
+
+  if (!isPushEnabledForType(userSettings, notificationType)) {
+    return [];
+  }
+
+  const snap = await userRef.collection("deviceTokens").get();
+
+  return snap.docs
+    .filter((doc) => {
+      const data = doc.data();
+      if (data.notificationsEnabled === false) return false;
+      const tokenSettings = data.notificationSettings ?? userSettings;
+      return isPushEnabledForType(tokenSettings, notificationType);
+    })
+    .map((d) => d.id)
+    .filter((t) => t.length > 0);
 }
 
 type InAppNotificationPayload = {
@@ -933,7 +1002,7 @@ async function createInAppNotification(
     const existing = await notifRef.get();
     if (existing.exists) {
       logger.info("Notification already exists, skipping (idempotent)", {
-        userIdHash: logHashPrefix(userId),
+        userId,
         notificationId,
       });
       return false;
@@ -958,7 +1027,7 @@ async function createInAppNotification(
   });
 
   logger.info("In-app notification created", {
-    userIdHash: logHashPrefix(userId),
+    userId,
     notificationId: notifRef.id,
     type: payload.type,
     deeplinkType: payload.deeplinkType,
@@ -1005,54 +1074,19 @@ async function sendPushToUsers(
     title: string;
     body: string;
     data: Record<string, string>;
-    /** When set, recipients who mutually blocked this actor are skipped. */
-    actorUserId?: string;
   }
 ): Promise<void> {
   const uniqueUserIds = [...new Set(userIds.filter((u) => u.length > 0))];
   if (uniqueUserIds.length === 0) return;
 
-  const actorUserId =
-    asNonEmptyString(payload.actorUserId) ??
-    asNonEmptyString(payload.data.actorUserId) ??
-    asNonEmptyString(payload.data.inviterUserId) ??
-    undefined;
-
-  const { allowed: eligibleUserIds, skipped } = await filterPushRecipientIds(
-    uniqueUserIds,
-    {
-      actorUserId,
-      ...createFirestorePushRecipientLoader(db),
-    }
+  const notificationType = asString(payload.data.type, "");
+  const tokenLists = await Promise.all(
+    uniqueUserIds.map((uid) => fetchUserTokens(uid, notificationType))
   );
-  if (skipped.length > 0) {
-    logger.info("Push recipients filtered", {
-      actorUserIdHash: actorUserId ? logHashPrefix(actorUserId) : null,
-      skippedCount: skipped.length,
-      skippedReasons: skipped.map((s) => s.reason),
-      skippedUserIdHashes: logHashPrefixes(skipped.map((s) => s.uid)),
-    });
-  }
-  if (eligibleUserIds.length === 0) return;
-
-  const tokenLists = await Promise.all(eligibleUserIds.map(fetchUserTokens));
-  // Keep each token bound to the user it came from. The multicast response is
-  // index-aligned with this list, and a token document is only ever valid to
-  // delete under its own owner.
-  const tokenOwners: { uid: string; token: string }[] = [];
-  tokenLists.forEach((list, index) => {
-    const uid = eligibleUserIds[index];
-    for (const token of list) {
-      if (token) tokenOwners.push({ uid, token });
-    }
-  });
-  const tokens = tokenOwners.map((entry) => entry.token);
+  const tokens = tokenLists.flat().filter(Boolean);
 
   if (tokens.length === 0) {
-    logger.info("No device tokens found for users", {
-      userCount: eligibleUserIds.length,
-      userIdHashes: logHashPrefixes(eligibleUserIds),
-    });
+    logger.info("No device tokens found for users", { userIds: uniqueUserIds });
     return;
   }
 
@@ -1081,32 +1115,28 @@ async function sendPushToUsers(
     },
   });
 
-  const unregistered: { uid: string; token: string }[] = [];
+  const invalidTokens: string[] = [];
   response.responses.forEach((r, i) => {
-    if (r.success) return;
-    const owner = tokenOwners[i];
-    if (!owner) return;
-
-    const errorCode = r.error?.code ?? null;
-    const drop = isUnregisteredPushTokenError(errorCode);
-    if (drop) unregistered.push(owner);
-
-    logger.warn("Push send failed", {
-      tokenHash: logHashPrefix(owner.token),
-      userIdHash: logHashPrefix(owner.uid),
-      errorCode,
-      droppingToken: drop,
-    });
+    if (!r.success) {
+      const token = tokens[i];
+      if (token) invalidTokens.push(token);
+      logger.warn("Push send failed", {
+        token,
+        error: r.error?.message,
+      });
+    }
   });
 
-  if (unregistered.length > 0) {
-    const batch = db.batch();
-    for (const { uid, token } of unregistered) {
-      batch.delete(
-        db.collection("users").doc(uid).collection("deviceTokens").doc(token)
-      );
+  if (invalidTokens.length > 0) {
+    for (const uid of uniqueUserIds) {
+      const batch = db.batch();
+      for (const token of invalidTokens) {
+        batch.delete(
+          db.collection("users").doc(uid).collection("deviceTokens").doc(token)
+        );
+      }
+      await batch.commit();
     }
-    await batch.commit();
   }
 }
 
@@ -1183,26 +1213,6 @@ function buildFriendPairId(userA: string, userB: string): string {
   return `${ids[0]}_${ids[1]}`;
 }
 
-function logHashPrefix(value: unknown): string | null {
-  const normalized = asStringOrNull(value);
-  return normalized ? createHash("sha256").update(normalized).digest("hex").slice(0, 12) : null;
-}
-
-function logHashPrefixes(values: string[]): string[] {
-  return values.map((value) => logHashPrefix(value)).filter((value): value is string => value !== null);
-}
-
-function logErrorTypeCode(error: unknown): { type: string; code: string | null } {
-  const type = error instanceof Error
-    ? error.name
-    : error === null
-      ? "null"
-      : typeof error;
-  const rawCode = isRecord(error) ? asStringOrNull(error.code) : null;
-  const code =
-    rawCode && /^[A-Za-z0-9_.:/-]{1,80}$/.test(rawCode) ? rawCode : null;
-  return { type, code };
-}
 function hashInviteToken(rawToken: string): string {
   return createHash("sha256").update(rawToken).digest("hex");
 }
@@ -1219,7 +1229,17 @@ function buildFriendProfileSnapshot(
 ): Record<string, unknown> {
   const onboardingRaw = data.onboarding;
   const onboarding = isRecord(onboardingRaw) ? onboardingRaw : {};
-  const profileImageUrl = readSafePhotoUrl(data);
+  const photoUrlsRaw = onboarding.photoUrls;
+  const photoUrls = Array.isArray(photoUrlsRaw)
+    ? photoUrlsRaw.map((value) => asString(value)).filter((value) => value)
+    : [];
+
+  const profileImageUrl = asStringOrNull(
+    onboarding.profileImageUrl ??
+      onboarding.representativeImageUrl ??
+      (photoUrls.length > 0 ? photoUrls[0] : null) ??
+      data.profileImageUrl
+  );
   const universityName = asStringOrNull(
     onboarding.university ?? data.universityName
   );
@@ -1269,128 +1289,18 @@ async function verifyKakaoAccessToken(
   return { userId };
 }
 
-export function verifiedYonseiEmailFromAuthToken(
+function emailFromAuthToken(
   token: Record<string, unknown> | undefined
 ): string | null {
   if (!token) return null;
-  if (token.email_verified !== true) return null;
   const raw = asNonEmptyString(token.email);
-  const email = raw ? raw.toLowerCase() : null;
-  return email && email.endsWith("@yonsei.ac.kr") ? email : null;
-}
-
-export type EmailLinkTokenRejection =
-  | "missing"
-  | "malformed"
-  | "kakao-mismatch"
-  | "email-mismatch"
-  | "expired"
-  | "mailbox-unproven"
-  | "already-exchanged";
-
-export type EmailLinkTokenDecision =
-  | { ok: true; kakaoUserId: string; email: string }
-  | { ok: false; reason: EmailLinkTokenRejection };
-
-/**
- * Decides whether an emailLinkTokens document may be exchanged for a Firebase
- * custom token.
- *
- * The document itself is written by an unauthenticated-at-the-time client, so
- * its (kakaoUserId, email) pair is a *request*, not a credential. The only
- * trustworthy field is `emailVerifiedUid`/`emailVerifiedAt`, which
- * firestore.rules lets only the owner of the named mailbox write, after
- * Firebase itself verified the email link.
- */
-export function evaluateEmailLinkTokenExchange(params: {
-  tokenData: Record<string, unknown> | null | undefined;
-  requestedKakaoUserId?: string | null;
-  requestedStudentEmail?: string | null;
-  now: Date;
-  isTimestamp: (value: unknown) => boolean;
-  toDate: (value: unknown) => Date | null;
-}): EmailLinkTokenDecision {
-  const { tokenData, now, isTimestamp, toDate } = params;
-  if (!tokenData) return { ok: false, reason: "missing" };
-
-  const kakaoUserId = asNonEmptyString(tokenData.kakaoUserId);
-  const email = asNonEmptyString(tokenData.email)?.toLowerCase() ?? null;
-  if (!kakaoUserId || !email) return { ok: false, reason: "malformed" };
-
-  const requestedKakaoUserId = asNonEmptyString(params.requestedKakaoUserId);
-  if (requestedKakaoUserId && requestedKakaoUserId !== kakaoUserId) {
-    return { ok: false, reason: "kakao-mismatch" };
-  }
-
-  const requestedStudentEmail =
-    asNonEmptyString(params.requestedStudentEmail)?.toLowerCase() ?? null;
-  if (requestedStudentEmail && requestedStudentEmail !== email) {
-    return { ok: false, reason: "email-mismatch" };
-  }
-
-  // A missing or malformed expiry previously skipped the expiry check, which
-  // turned a forged document into a permanent credential.
-  const expiresAt = toDate(tokenData.expiresAt);
-  if (!expiresAt || expiresAt.getTime() < now.getTime()) {
-    return { ok: false, reason: "expired" };
-  }
-
-  if (
-    !asNonEmptyString(tokenData.emailVerifiedUid) ||
-    !isTimestamp(tokenData.emailVerifiedAt)
-  ) {
-    return { ok: false, reason: "mailbox-unproven" };
-  }
-
-  if (tokenData.exchangedAt != null) {
-    return { ok: false, reason: "already-exchanged" };
-  }
-
-  return { ok: true, kakaoUserId, email };
-}
-
-const EMAIL_LINK_TOKEN_REJECTION_CODES: Record<
-  EmailLinkTokenRejection,
-  "failed-precondition" | "permission-denied"
-> = {
-  missing: "failed-precondition",
-  malformed: "failed-precondition",
-  "kakao-mismatch": "permission-denied",
-  "email-mismatch": "permission-denied",
-  expired: "failed-precondition",
-  "mailbox-unproven": "failed-precondition",
-  "already-exchanged": "failed-precondition",
-};
-
-const EMAIL_LINK_TOKEN_REJECTION_MESSAGES: Record<
-  EmailLinkTokenRejection,
-  string
-> = {
-  missing: "인증 세션이 없어요. 이메일 인증 링크를 다시 보내주세요.",
-  malformed: "인증 세션 정보가 올바르지 않아요. 이메일 인증을 다시 진행해주세요.",
-  "kakao-mismatch": "인증 세션이 현재 계정과 일치하지 않아요.",
-  "email-mismatch": "인증 세션 이메일이 현재 계정과 일치하지 않아요.",
-  expired: "인증 세션이 만료되었어요. 이메일 인증 링크를 다시 보내주세요.",
-  "mailbox-unproven":
-    "이메일 인증이 아직 완료되지 않았어요. 인증 메일 링크를 다시 열어주세요.",
-  "already-exchanged":
-    "이미 사용된 인증 세션이에요. 이메일 인증 링크를 다시 보내주세요.",
-};
-
-export function buildKakaoUserShell(kakaoUserId: string): Record<string, unknown> {
-  return {
-    kakaoUserId,
-    profileImageUrl: "",
-    profileImageMode: "avatar",
-    createdAt: FieldValue.serverTimestamp(),
-    lastLoginAt: FieldValue.serverTimestamp(),
-  };
+  return raw ? raw.toLowerCase() : null;
 }
 
 /**
- * Firestore users document used for callable authentication.
- * - Custom token (UID = Kakao ID): read users/{uid} directly
- * - Email-link login (UID != Kakao ID): use JWT email to find matching studentEmail document
+ * Callable 인증 사용자 → Firestore users 문서.
+ * - 커스텀 토큰(UID = 카카오 ID): users/{uid} 직접 조회
+ * - 이메일 링크 로그인(UID ≠ 카카오 ID): JWT의 email로 studentEmail 일치 문서 조회
  */
 async function resolveAuthedAppUser(
   auth: { uid?: string; token?: Record<string, unknown> } | null | undefined
@@ -1405,8 +1315,8 @@ async function resolveAuthedAppUser(
   let doc = await db.collection("users").doc(authUid).get();
 
   if (!doc.exists) {
-    const email = verifiedYonseiEmailFromAuthToken(token);
-    if (email) {
+    const email = emailFromAuthToken(token);
+    if (email && email.endsWith("@yonsei.ac.kr")) {
       const q = await db
         .collection("users")
         .where("studentEmail", "==", email)
@@ -1416,7 +1326,7 @@ async function resolveAuthedAppUser(
         doc = q.docs[0];
         logger.info(
           "resolveAuthedAppUser: matched user by studentEmail (email-link auth uid differs from kakao doc id)",
-          { authUidHash: logHashPrefix(authUid), resolvedUserIdHash: logHashPrefix(doc.id) }
+          { authUid, resolvedUserId: doc.id }
         );
       }
     }
@@ -1448,45 +1358,6 @@ async function resolveAuthedAppUser(
   };
 }
 
-export const uploadAvatarSourcePhoto =
-  createUploadAvatarSourcePhotoFunction(db, resolveAuthedAppUser);
-
-export const getCurrentAvatarGenerationStatus =
-  createGetCurrentAvatarGenerationStatusFunction(db, resolveAuthedAppUser);
-
-export const retryCurrentAvatarGeneration =
-  createRetryCurrentAvatarGenerationFunction(db, resolveAuthedAppUser);
-
-export const getAvatarJobCandidates =
-  createGetAvatarJobCandidatesFunction(db, resolveAuthedAppUser);
-
-export const approveAvatarCandidate =
-  createApproveAvatarCandidateFunction(db, resolveAuthedAppUser);
-
-export const getChatRealProfilePhoto =
-  createGetChatRealProfilePhotoFunction(db, resolveAuthedAppUser);
-
-export const cleanupAvatarMedia =
-  createCleanupAvatarMediaFunction(db, resolveAuthedAppUser);
-
-export const purgeExpiredEmailLinkTokens =
-  createPurgeExpiredEmailLinkTokensSchedule(db);
-
-export const purgeAccountDeletionRetention =
-  createAccountDeletionRetentionPurgeSchedule(db);
-
-export const onAvatarJobSourceRetention =
-  createAvatarJobSourceRetentionTrigger(db);
-
-export const onClipEmbeddingSourceRetention =
-  createClipEmbeddingSourceRetentionTrigger(db);
-
-export const recoverAvatarSourceRetention =
-  createAvatarSourceRetentionRecoveryTrigger(db);
-
-export const onAvatarGenerationStateSync =
-  createAvatarGenerationStateSyncTrigger(db);
-
 function getCallableData(request: {
   data?: unknown;
   rawRequest?: { body?: unknown } | null;
@@ -1508,7 +1379,7 @@ function getCallableData(request: {
   return {};
 }
 
-/** When called without Firebase Auth, the client passes a verified Kakao access token. */
+/** Firebase Auth 없이 호출될 때: 클라이언트가 검증된 카카오 액세스 토큰을 넘김 */
 async function resolveVerifiedUserByKakaoId(
   kakaoUserId: string
 ): Promise<ResolvedAppUser> {
@@ -1537,7 +1408,7 @@ async function resolveVerifiedUserByKakaoId(
 }
 
 /**
- * Friend invite callable: verify identity by Firebase session (request.auth) or Kakao access token
+ * 친구 초대 Callable: Firebase 세션(request.auth) 또는 카카오 액세스 토큰으로 본인 확인
  */
 async function resolveUserForFriendCallable(request: {
   auth?: { uid?: string; token?: Record<string, unknown> } | null;
@@ -1581,17 +1452,14 @@ export const createFirebaseCustomToken = onCall(withAppCheck(), async (request) 
   const userRef = db.collection("users").doc(kakaoUser.userId);
   const userSnap = await userRef.get();
 
-  let userData: Record<string, unknown>;
-  if (userSnap.exists) {
-    userData = (userSnap.data() ?? {}) as Record<string, unknown>;
-  } else {
-    await userRef.set(buildKakaoUserShell(kakaoUser.userId), { merge: true });
-    userData = {};
-    logger.info("createFirebaseCustomToken created missing user shell", {
-      userIdHash: logHashPrefix(kakaoUser.userId),
-    });
+  if (!userSnap.exists) {
+    throw new HttpsError(
+      "failed-precondition",
+      "가입 정보를 찾을 수 없어요. 다시 로그인해주세요."
+    );
   }
 
+  const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
   const customToken = await getAuth().createCustomToken(kakaoUser.userId, {
     kakaoUserId: kakaoUser.userId,
   });
@@ -1602,6 +1470,284 @@ export const createFirebaseCustomToken = onCall(withAppCheck(), async (request) 
     isStudentVerified: userData.isStudentVerified === true,
   };
 });
+
+async function fetchPortOneIdentityVerification(
+  identityVerificationId: string,
+  apiSecret: string
+): Promise<Record<string, unknown>> {
+  const response = await fetch(
+    `https://api.portone.io/identity-verifications/${encodeURIComponent(
+      identityVerificationId
+    )}`,
+    {
+      method: "GET",
+      headers: {
+        "Authorization": `PortOne ${apiSecret}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  const rawBody = await response.text();
+  let parsed: unknown = {};
+  if (rawBody.trim().length > 0) {
+    try {
+      parsed = JSON.parse(rawBody);
+    } catch {
+      parsed = { message: rawBody };
+    }
+  }
+
+  if (!response.ok) {
+    logger.warn("PortOne identity verification lookup failed", {
+      status: response.status,
+      identityVerificationId,
+      body: parsed,
+    });
+    throw new HttpsError(
+      "failed-precondition",
+      "포트원 본인인증 결과를 확인하지 못했어요."
+    );
+  }
+
+  if (!isRecord(parsed)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "포트원 본인인증 응답 형식이 올바르지 않아요."
+    );
+  }
+
+  return readPortOneVerificationPayload(parsed);
+}
+
+async function assertIdentityVerificationNotReused(
+  uid: string,
+  identityVerificationId: string
+): Promise<void> {
+  const reused = await db
+    .collection("userPrivateVerifications")
+    .where("identityVerificationId", "==", identityVerificationId)
+    .limit(1)
+    .get();
+
+  if (!reused.empty && reused.docs[0].id !== uid) {
+    throw new HttpsError(
+      "already-exists",
+      "이미 다른 계정에 연결된 본인인증 세션입니다."
+    );
+  }
+}
+
+async function assertUniqueIdentityNotReused(
+  uid: string,
+  ciHash: string | null,
+  diHash: string | null,
+  uniqueKeyHash: string | null
+): Promise<void> {
+  const checks = [
+    ["ciHash", ciHash],
+    ["diHash", diHash],
+    ["uniqueKeyHash", uniqueKeyHash],
+  ] as const;
+
+  for (const [field, value] of checks) {
+    if (!value) continue;
+    const snap = await db
+      .collection("userPrivateVerifications")
+      .where(field, "==", value)
+      .limit(1)
+      .get();
+    if (!snap.empty && snap.docs[0].id !== uid) {
+      throw new HttpsError(
+        "already-exists",
+        "이미 다른 계정에 연결된 본인인증 정보입니다."
+      );
+    }
+  }
+}
+
+export const verifyAdultIdentityAfterLogin = onCall(
+  withAppCheck({ secrets: [PORTONE_API_SECRET] }),
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Firebase 로그인이 필요해요.");
+    }
+
+    const data = getCallableData(request);
+    const identityVerificationId = asNonEmptyString(
+      data.identityVerificationId
+    );
+    const identityVerificationTxId =
+      asNonEmptyString(data.identityVerificationTxId) ?? null;
+
+    if (!identityVerificationId) {
+      throw new HttpsError(
+        "invalid-argument",
+        "identityVerificationId가 필요합니다."
+      );
+    }
+
+    const isEmulator = process.env.FUNCTIONS_EMULATOR === "true";
+    const isMock = identityVerificationId.startsWith("mock-");
+    const apiSecret = getPortOneSecret();
+
+    if (!apiSecret && !(isEmulator && isMock)) {
+      throw new HttpsError(
+        "failed-precondition",
+        "PORTONE_API_SECRET 서버 Secret이 설정되지 않았습니다."
+      );
+    }
+
+    await assertIdentityVerificationNotReused(uid, identityVerificationId);
+
+    const verification = isEmulator && isMock
+      ? {
+        status: "VERIFIED",
+        id: identityVerificationId,
+        verifiedCustomer: {
+          name: "개발용 테스트",
+          phoneNumber: "01012345678",
+          birthDate: "20000101",
+          ci: `mock-ci-${uid}`,
+          di: `mock-di-${uid}`,
+        },
+      }
+      : await fetchPortOneIdentityVerification(identityVerificationId, apiSecret);
+
+    const status = asString(verification.status, "");
+    if (status !== "VERIFIED") {
+      await db.collection("users").doc(uid).set(
+        {
+          adultVerified: false,
+          realNameVerified: false,
+          registrationStatus: "adult_verification_required",
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      throw new HttpsError(
+        "failed-precondition",
+        "완료된 본인인증 결과가 아니에요."
+      );
+    }
+
+    const returnedStoreId = firstNonEmptyString(
+      verification.storeId,
+      readMap(verification.store).id
+    );
+    if (returnedStoreId && returnedStoreId !== PORTONE_STORE_ID) {
+      throw new HttpsError(
+        "failed-precondition",
+        "본인인증 상점 정보가 설레연 테스트 채널과 일치하지 않아요."
+      );
+    }
+
+    const customer = readPortOneCustomer(verification);
+    const name = firstNonEmptyString(customer.name, customer.fullName);
+    const phoneNumber = normalizeDigits(
+      firstNonEmptyString(customer.phoneNumber, customer.phone)
+    );
+    const birthYear = readBirthYear(customer);
+    const birthDate = firstNonEmptyString(
+      customer.birthDate,
+      customer.birthdate,
+      customer.dateOfBirth,
+      birthYear == null ? null : String(birthYear)
+    );
+    const ci = firstNonEmptyString(customer.ci, customer.CI);
+    const di = firstNonEmptyString(customer.di, customer.DI);
+    const uniqueKey = firstNonEmptyString(
+      customer.id,
+      customer.uniqueKey,
+      customer.uniqueIdentifier,
+      ci,
+      di
+    );
+
+    if (!name || !phoneNumber || birthYear == null || !uniqueKey) {
+      throw new HttpsError(
+        "failed-precondition",
+        "본인인증 결과의 필수 항목을 확인하지 못했어요."
+      );
+    }
+
+    const phoneLast4 = phoneNumber.slice(-4);
+    const ciHash = ci ? sha256Hex(ci) : null;
+    const diHash = di ? sha256Hex(di) : null;
+    const uniqueKeyHash = sha256Hex(uniqueKey);
+    const adult = isAdultByKoreanYear(birthYear);
+
+    await assertUniqueIdentityNotReused(uid, ciHash, diHash, uniqueKeyHash);
+
+    const userRef = db.collection("users").doc(uid);
+    const privateRef = db.collection("userPrivateVerifications").doc(uid);
+    const now = FieldValue.serverTimestamp();
+
+    await db.runTransaction(async (tx) => {
+      const userSnap = await tx.get(userRef);
+      if (!userSnap.exists) {
+        throw new HttpsError(
+          "failed-precondition",
+          "사용자 계정을 찾을 수 없어요."
+        );
+      }
+
+      tx.set(
+        privateRef,
+        {
+          name,
+          phoneNumber,
+          birthDate,
+          ciHash,
+          diHash,
+          uniqueKeyHash,
+          provider: ADULT_VERIFICATION_PROVIDER,
+          identityVerificationId,
+          identityVerificationTxId,
+          verificationStatus: adult ? "adult_verified" : "under_age",
+          verifiedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      tx.set(
+        userRef,
+        {
+          adultVerified: adult,
+          realNameVerified: adult,
+          adultVerifiedAt: adult ? now : FieldValue.delete(),
+          verificationProvider: ADULT_VERIFICATION_PROVIDER,
+          registrationStatus: adult
+            ? "adult_verified"
+            : "adult_verification_under_age",
+          birthYear,
+          phoneLast4,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+    });
+
+    if (!adult) {
+      throw new HttpsError(
+        "permission-denied",
+        "설레연은 연 나이 20세 이상만 이용할 수 있어요."
+      );
+    }
+
+    return {
+      success: true,
+      adultVerified: true,
+      realNameVerified: true,
+      status: "adult_verified",
+      birthYear,
+      phoneLast4,
+    };
+  }
+);
 
 export const createFirebaseCustomTokenFromEmailLinkToken = onCall(
   withAppCheck(),
@@ -1621,7 +1767,7 @@ export const createFirebaseCustomTokenFromEmailLinkToken = onCall(
     if (!verificationToken) {
       throw new HttpsError(
         "invalid-argument",
-        "\uC774\uBA54\uC77C \uC778\uC99D \uC138\uC158 \uD1A0\uD070\uC774 \uD544\uC694\uD574\uC694."
+        "이메일 인증 세션 토큰이 필요해요."
       );
     }
 
@@ -1634,33 +1780,44 @@ export const createFirebaseCustomTokenFromEmailLinkToken = onCall(
       );
     }
 
-    const decision = evaluateEmailLinkTokenExchange({
-      tokenData: (tokenSnap.data() ?? {}) as Record<string, unknown>,
-      requestedKakaoUserId,
-      requestedStudentEmail,
-      now: new Date(),
-      isTimestamp: (value) => value instanceof Timestamp,
-      toDate: (value) =>
-        value instanceof Timestamp
-          ? value.toDate()
-          : value instanceof Date
-            ? value
-            : null,
-    });
+    const tokenData = (tokenSnap.data() ?? {}) as Record<string, unknown>;
+    const tokenKakaoUserId = asNonEmptyString(tokenData.kakaoUserId);
+    const tokenEmail = asNonEmptyString(tokenData.email)?.toLowerCase() ?? null;
+    const expiresAtRaw = tokenData.expiresAt;
+    const expiresAt =
+      expiresAtRaw instanceof Timestamp
+        ? expiresAtRaw.toDate()
+        : expiresAtRaw instanceof Date
+          ? expiresAtRaw
+          : null;
 
-    if (!decision.ok) {
-      logger.warn("email link token exchange rejected", {
-        reason: decision.reason,
-        tokenIdHash: logHashPrefix(verificationToken),
-      });
+    if (!tokenKakaoUserId || !tokenEmail) {
       throw new HttpsError(
-        EMAIL_LINK_TOKEN_REJECTION_CODES[decision.reason],
-        EMAIL_LINK_TOKEN_REJECTION_MESSAGES[decision.reason]
+        "failed-precondition",
+        "인증 세션 정보가 올바르지 않아요. 이메일 인증을 다시 진행해주세요."
       );
     }
 
-    const tokenKakaoUserId = decision.kakaoUserId;
-    const tokenEmail = decision.email;
+    if (requestedKakaoUserId && requestedKakaoUserId !== tokenKakaoUserId) {
+      throw new HttpsError(
+        "permission-denied",
+        "인증 세션이 현재 계정과 일치하지 않아요."
+      );
+    }
+
+    if (requestedStudentEmail && requestedStudentEmail !== tokenEmail) {
+      throw new HttpsError(
+        "permission-denied",
+        "인증 세션 이메일이 현재 계정과 일치하지 않아요."
+      );
+    }
+
+    if (expiresAt && expiresAt.getTime() < Date.now()) {
+      throw new HttpsError(
+        "failed-precondition",
+        "인증 세션이 만료되었어요. 이메일 인증 링크를 다시 보내주세요."
+      );
+    }
 
     const userSnap = await db.collection("users").doc(tokenKakaoUserId).get();
     if (!userSnap.exists) {
@@ -1682,27 +1839,13 @@ export const createFirebaseCustomTokenFromEmailLinkToken = onCall(
       );
     }
 
-    // Claim the token atomically so two concurrent calls cannot both mint a
-    // session from one mailbox proof.
-    await db.runTransaction(async (tx) => {
-      const fresh = await tx.get(tokenRef);
-      if (!fresh.exists) {
-        throw new HttpsError(
-          "failed-precondition",
-          "인증 세션이 없어요. 이메일 인증 링크를 다시 보내주세요."
-        );
-      }
-      if ((fresh.data() ?? {}).exchangedAt) {
-        throw new HttpsError(
-          "failed-precondition",
-          "이미 사용된 인증 세션이에요. 이메일 인증 링크를 다시 보내주세요."
-        );
-      }
-      tx.update(tokenRef, {
-        exchangedAt: FieldValue.serverTimestamp(),
-        exchangedKakaoUserId: tokenKakaoUserId,
-      });
-    });
+    await tokenRef.set(
+      {
+        lastRecoveredAt: FieldValue.serverTimestamp(),
+        lastRecoveredKakaoUserId: tokenKakaoUserId,
+      },
+      { merge: true }
+    );
 
     const customToken = await getAuth().createCustomToken(tokenKakaoUserId, {
       kakaoUserId: tokenKakaoUserId,
@@ -1775,7 +1918,7 @@ export const acceptFriendInvite = onCall(withAppCheck(), async (request) => {
 
   const acceptor = await resolveUserForFriendCallable(request);
   logger.info("acceptFriendInvite resolved acceptor", {
-    acceptorUserIdHash: logHashPrefix(acceptor.userId),
+    acceptorUserId: acceptor.userId,
   });
   const tokenHash = hashInviteToken(rawToken);
   const inviteQuery = await db
@@ -1980,8 +2123,8 @@ export const acceptFriendInvite = onCall(withAppCheck(), async (request) => {
 
   logger.info("Friend invite processed", {
     inviteId,
-    inviterUserIdHash: logHashPrefix(inviterUserId),
-    acceptorUserIdHash: logHashPrefix(acceptor.userId),
+    inviterUserId,
+    acceptorUserId: acceptor.userId,
     pairId,
     status: transactionResult.status,
   });
@@ -1990,7 +2133,7 @@ export const acceptFriendInvite = onCall(withAppCheck(), async (request) => {
 });
 
 // =============================================================================
-// Event 3-person team invite (friend selection, push, update team on acceptance)
+// 이벤트 3인 팀 초대 (친구 선택 → 푸시 → 수락 시 팀 반영)
 // =============================================================================
 
 async function assertUsersAreFriends(
@@ -2024,8 +2167,8 @@ async function writeEventTeamInviteNotification(params: {
 
   await notifRef.set({
     type: "event_team_invite",
-    title: "Team invite",
-    body: `${params.inviterName} invited you to a 3-person team.`,
+    title: "팀 초대가 도착했어요",
+    body: `${params.inviterName}님이 3인 팀 참여를 요청했어요.`,
     isRead: false,
     createdAt: FieldValue.serverTimestamp(),
     actorId: params.inviterUserId,
@@ -2202,7 +2345,6 @@ export const createEventTeamInvite = onCall(withAppCheck(), async (request) => {
   await sendPushToUsers([inviteeUserId], {
     title: "팀 초대",
     body: `${inviterInfo.nickname}님이 3인 팀 참여를 요청했어요.`,
-    actorUserId: inviter.userId,
     data: {
       type: "event_team_invite",
       inviteId,
@@ -2212,11 +2354,7 @@ export const createEventTeamInvite = onCall(withAppCheck(), async (request) => {
     },
   });
 
-  logger.info("createEventTeamInvite ok", {
-    inviteId,
-    teamSetupId,
-    inviteeUserIdHash: logHashPrefix(inviteeUserId),
-  });
+  logger.info("createEventTeamInvite ok", { inviteId, teamSetupId, inviteeUserId });
 
   return { inviteId, teamSetupId };
 });
@@ -2380,21 +2518,6 @@ export const onEventTeamSetupWritten = onDocumentWritten(
 
     await syncMeetingGroupFromEventTeamSetup(teamSetupId, afterData);
   }
-);
-
-export const createTeamMeetingRequest = createTeamMeetingRequestFunction(
-  db,
-  resolveUserForFriendCallable
-);
-
-export const respondTeamMeetingRequest = createRespondTeamMeetingRequestFunction(
-  db,
-  resolveUserForFriendCallable
-);
-
-export const reportAndBlockUser = createReportAndBlockUserFunction(
-  db,
-  resolveUserForFriendCallable
 );
 
 export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) => {
@@ -2696,8 +2819,8 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
 });
 
 // =============================================================================
-// 1) recEvents onCreate trigger
-//    Rules path: recEvents/{userId}/events/{eventId}
+// 1) recEvents onCreate 트리거
+//    rules 기준: recEvents/{userId}/events/{eventId}
 // =============================================================================
 export const onRecEventCreated = onDocumentCreated(
   "recEvents/{userId}/events/{eventId}",
@@ -2716,8 +2839,8 @@ export const onRecEventCreated = onDocumentCreated(
 
     logger.info("recEvent created", {
       eventId: event.params.eventId,
-      userIdHash: logHashPrefix(userId),
-      targetUserIdHash: logHashPrefix(targetUserId),
+      userId,
+      targetUserId,
       eventType,
       source,
     });
@@ -2731,7 +2854,7 @@ export const onRecEventCreated = onDocumentCreated(
 );
 
 // =============================================================================
-// 2) Profile like notification + match decision + chat room creation based on interactions
+// 2) interactions 기반 프로필 좋아요 알림 + 매치 판정 + 채팅방 생성
 // =============================================================================
 export const onInteractionCreated = onDocumentCreated(
   "interactions/{interactionId}",
@@ -2748,15 +2871,15 @@ export const onInteractionCreated = onDocumentCreated(
     if (action !== "like" && action !== "super_like") return;
 
     // -----------------------------------------------------------------------
-    // Profile like notification: in-app notification (idempotent) + push to the other user
+    // 프로필 좋아요 알림: 상대방에게 인앱 알림(idempotent) + 푸시
     // -----------------------------------------------------------------------
     if (fromUserId !== toUserId) {
       const interactionId = event.params.interactionId;
       const notificationId = `like_${interactionId}`;
 
       const actorInfo = await getUserDisplayInfo(fromUserId);
-      const title = "New like";
-      const body = `${actorInfo.nickname} liked your profile.`;
+      const title = "새로운 관심이 도착했어요";
+      const body = `${actorInfo.nickname}님이 좋아요를 보냈어요`;
 
       const created = await createInAppNotification(
         toUserId,
@@ -2776,7 +2899,6 @@ export const onInteractionCreated = onDocumentCreated(
         await sendPushToUsers([toUserId], {
           title,
           body,
-          actorUserId: fromUserId,
           data: {
             type: "profile_like",
             notificationId,
@@ -2787,8 +2909,8 @@ export const onInteractionCreated = onDocumentCreated(
         });
 
         logger.info("Profile like push + in-app notification sent", {
-          fromUserIdHash: logHashPrefix(fromUserId),
-          toUserIdHash: logHashPrefix(toUserId),
+          fromUserId,
+          toUserId,
           action,
           notificationId,
         });
@@ -2796,7 +2918,7 @@ export const onInteractionCreated = onDocumentCreated(
     }
 
     // -----------------------------------------------------------------------
-    // Check existing mutual like and create match
+    // 기존 mutual like 체크 → 매치 생성
     // -----------------------------------------------------------------------
     const reverseQuery = await db
       .collection("interactions")
@@ -2808,47 +2930,89 @@ export const onInteractionCreated = onDocumentCreated(
 
     if (reverseQuery.empty) return;
 
+    const existingMatches = await db
+      .collection("matches")
+      .where("userIds", "array-contains", fromUserId)
+      .get();
+
+    for (const doc of existingMatches.docs) {
+      const ids = (doc.data().userIds || []) as string[];
+      if (ids.includes(toUserId)) {
+        logger.info("Match already exists", { matchId: doc.id });
+        return;
+      }
+    }
+
+    const roomId = buildDirectRoomId(fromUserId, toUserId);
+    const matchRef = db.collection("matches").doc();
+    const roomRef = db.collection("chat_rooms").doc(roomId);
+
     const [userA, userB] = await Promise.all([
       getUserDisplayInfo(fromUserId),
       getUserDisplayInfo(toUserId),
     ]);
 
-    const systemMessage = "매칭이 성사되었어요! 먼저 인사해보세요";
-    const { matchId, roomId, created } = await ensureMutualMatch(db, {
-      userA: fromUserId,
-      userB: toUserId,
-      matchType: "mutual_like",
-      chatRoom: {
-        participantInfo: {
-          [fromUserId]: {
-            nickname: userA.nickname,
-            avatarUrl: userA.avatarUrl,
-          },
-          [toUserId]: {
-            nickname: userB.nickname,
-            avatarUrl: userB.avatarUrl,
-          },
-        },
-        systemMessage,
+    const participantInfo = {
+      [fromUserId]: {
+        nickname: userA.nickname,
+        avatarUrl: userA.avatarUrl,
       },
+      [toUserId]: {
+        nickname: userB.nickname,
+        avatarUrl: userB.avatarUrl,
+      },
+    };
+
+    const batch = db.batch();
+
+    batch.set(matchRef, {
+      userIds: [fromUserId, toUserId],
+      matchType: "mutual_like",
+      matchedAt: FieldValue.serverTimestamp(),
+      status: "active",
+      chatRoomId: roomId,
     });
 
-    if (!created) {
-      logger.info("Match already exists", { matchId });
-      return;
-    }
+    batch.set(
+      roomRef,
+      {
+        roomId,
+        type: "one_to_one",
+        status: "active",
+        participantIds: [fromUserId, toUserId],
+        participantInfo,
+        matchId: matchRef.id,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        lastMessage: "매칭이 성사되었어요! 먼저 인사해보세요 💕",
+        lastMessageAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    const msgRef = roomRef.collection("messages").doc();
+    batch.set(msgRef, {
+      senderId: "system",
+      text: "매칭이 성사되었어요! 먼저 인사해보세요 💕",
+      content: "매칭이 성사되었어요! 먼저 인사해보세요 💕",
+      type: "system",
+      createdAt: FieldValue.serverTimestamp(),
+      readBy: [],
+    });
+
+    await batch.commit();
 
     logger.info("Match created", {
-      matchId,
-      roomIdHash: roomId ? logHashPrefix(roomId) : null,
-      fromUserIdHash: logHashPrefix(fromUserId),
-      toUserIdHash: logHashPrefix(toUserId),
+      matchId: matchRef.id,
+      roomId,
+      fromUserId,
+      toUserId,
     });
   }
 );
 
 // =============================================================================
-// 3) New chat message push notification
+// 3) 새 채팅 메시지 → 푸시 알림
 // =============================================================================
 export const onChatMessageCreated = onDocumentCreated(
   "chat_rooms/{roomId}/messages/{messageId}",
@@ -2891,7 +3055,6 @@ export const onChatMessageCreated = onDocumentCreated(
     await sendPushToUsers(targetUserIds, {
       title: senderName,
       body: body || "메시지가 도착했어요.",
-      actorUserId: senderId,
       data: {
         type: "chat",
         roomId,
@@ -2899,15 +3062,57 @@ export const onChatMessageCreated = onDocumentCreated(
     });
 
     logger.info("Chat push sent", {
-      roomIdHash: logHashPrefix(roomId),
-      senderIdHash: logHashPrefix(senderId),
-      targetCount: targetUserIds.length,
+      roomId,
+      senderId,
+      targets: targetUserIds,
+    });
+  }
+);
+
+export const onFestivalChatMessageCreated = onDocumentCreated(
+  "festivalChatRooms/{roomId}/messages/{messageId}",
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+
+    const roomId = event.params.roomId;
+    const message = snap.data();
+    const senderUid = asString(message.senderUid ?? "");
+    if (!senderUid) return;
+
+    const roomSnap = await db.collection("festivalChatRooms").doc(roomId).get();
+    if (!roomSnap.exists) return;
+
+    const room = (roomSnap.data() ?? {}) as Record<string, unknown>;
+    const participantUids = asStringArray(room.participantUids);
+    const targetUserIds = participantUids.filter((uid) => uid !== senderUid);
+    if (targetUserIds.length === 0) return;
+
+    const participantProfiles = readMap(room.participantProfiles);
+    const senderTicketId = asString(message.senderTicketId ?? "");
+    const senderProfile = readMap(participantProfiles[senderTicketId]);
+    const senderName = asString(senderProfile.name, "새 메시지");
+    const body = asString(message.text ?? "메시지가 도착했어요.").trim();
+
+    await sendPushToUsers(targetUserIds, {
+      title: senderName,
+      body: body || "메시지가 도착했어요.",
+      data: {
+        type: "festival_chat",
+        roomId,
+      },
+    });
+
+    logger.info("Festival chat push sent", {
+      roomId,
+      senderUid,
+      targets: targetUserIds,
     });
   }
 );
 
 // =============================================================================
-// 4) Community comment/reply push + in-app notification
+// 4) 대나무숲 댓글/답글 푸시 + 인앱 알림
 // =============================================================================
 export const onBambooCommentCreated = onDocumentCreated(
   "bamboo_posts/{postId}/comments/{commentId}",
@@ -2933,13 +3138,12 @@ export const onBambooCommentCreated = onDocumentCreated(
     const post = (postSnap.data() ?? {}) as Record<string, unknown>;
     const postAuthorId = asString(post.authorId ?? "");
 
-    // Regular comment: push + in-app notification to post author
+    // 일반 댓글: 글 작성자에게 푸시 + 인앱 알림
     if (!parentCommentId) {
       if (postAuthorId && postAuthorId !== authorId) {
         await sendPushToUsers([postAuthorId], {
           title: "내 글에 새 댓글이 달렸어요",
-          body: content || "\uB313\uAE00\uC774 \uB3C4\uCC29\uD588\uC5B4\uC694.",
-          actorUserId: authorId,
+          body: content || "댓글이 도착했어요.",
           data: {
             type: "community_comment",
             postId,
@@ -2961,14 +3165,14 @@ export const onBambooCommentCreated = onDocumentCreated(
         logger.info("Community comment push + in-app notification sent", {
           postId,
           commentId,
-          targetHash: logHashPrefix(postAuthorId),
-          authorIdHash: logHashPrefix(authorId),
+          target: postAuthorId,
+          authorId,
         });
       }
       return;
     }
 
-    // Reply: push + in-app notification to parent comment author
+    // 답글: 부모 댓글 작성자에게 푸시 + 인앱 알림
     const parentSnap = await db
       .collection("bamboo_posts")
       .doc(postId)
@@ -2987,7 +3191,6 @@ export const onBambooCommentCreated = onDocumentCreated(
       await sendPushToUsers(targets, {
         title: "내 댓글에 답글이 달렸어요",
         body: content || "답글이 도착했어요.",
-        actorUserId: authorId,
         data: {
           type: "community_reply",
           postId,
@@ -3010,15 +3213,15 @@ export const onBambooCommentCreated = onDocumentCreated(
         postId,
         commentId,
         parentCommentId,
-        targetCount: targets.length,
-        authorIdHash: logHashPrefix(authorId),
+        targets,
+        authorId,
       });
     }
   }
 );
 
 // =============================================================================
-// 5) Community post like push + in-app notification
+// 5) 대나무숲 글 좋아요 푸시 + 인앱 알림
 // =============================================================================
 export const onBambooPostLikeCreated = onDocumentCreated(
   "bamboo_posts/{postId}/likes/{userId}",
@@ -3049,8 +3252,8 @@ export const onBambooPostLikeCreated = onDocumentCreated(
     if (existingCount >= 5) {
       logger.info("Skipped post like notification due to 5-notification limit", {
         postId,
-        postAuthorIdHash: logHashPrefix(postAuthorId),
-        likerUserIdHash: logHashPrefix(likerUserId),
+        postAuthorId,
+        likerUserId,
         existingCount,
       });
       return;
@@ -3061,7 +3264,6 @@ export const onBambooPostLikeCreated = onDocumentCreated(
     await sendPushToUsers([postAuthorId], {
       title: "내 글에 좋아요가 눌렸어요",
       body: "누군가가 회원님의 글을 좋아합니다.",
-      actorUserId: likerUserId,
       data: {
         type: "community_post_like",
         postId,
@@ -3081,15 +3283,15 @@ export const onBambooPostLikeCreated = onDocumentCreated(
 
     logger.info("Community post like push + in-app notification sent", {
       postId,
-      postAuthorIdHash: logHashPrefix(postAuthorId),
-      likerUserIdHash: logHashPrefix(likerUserId),
+      postAuthorId,
+      likerUserId,
       existingCount: existingCount + 1,
     });
   }
 );
 
 // =============================================================================
-// 6) Ask creation notification + push
+// 6) 무물(ask) 생성 시 알림 + 푸시
 // =============================================================================
 export const onAskCreated = onDocumentCreated(
   "asks/{askId}",
@@ -3127,7 +3329,6 @@ export const onAskCreated = onDocumentCreated(
       await sendPushToUsers([toUserId], {
         title,
         body,
-        actorUserId: fromUserId,
         data: {
           type: "ask_received",
           notificationId,
@@ -3139,8 +3340,8 @@ export const onAskCreated = onDocumentCreated(
 
       logger.info("Ask notification + push sent", {
         askId,
-        fromUserIdHash: logHashPrefix(fromUserId),
-        toUserIdHash: logHashPrefix(toUserId),
+        fromUserId,
+        toUserId,
         notificationId,
       });
     }
@@ -3148,7 +3349,7 @@ export const onAskCreated = onDocumentCreated(
 );
 
 // =============================================================================
-// 7) Deactivate chat room on unmatch (onMatchUpdated)
+// 7) 매치 해제 시 채팅방 비활성화 (onMatchUpdated)
 // =============================================================================
 export const onMatchUpdated = onDocumentUpdated(
   "matches/{matchId}",
@@ -3191,14 +3392,14 @@ export const onMatchUpdated = onDocumentUpdated(
 
       logger.info("Match closed and chat room updated", {
         matchId: event.params.matchId,
-        chatRoomIdHash: logHashPrefix(chatRoomId),
+        chatRoomId,
       });
     }
   }
 );
 
 // =============================================================================
-// 8) Auto-complete promises when goodbye safety stamp is missing for 24 hours + follow-up notification
+// 8) 헤어짐 도장 24시간 초과 약속 자동 완료 + 후속 알림
 // =============================================================================
 export const autoCompleteExpiredGoodbyeSafetyStamps = onSchedule(
   {
@@ -3394,9 +3595,9 @@ export const autoCompleteExpiredGoodbyeSafetyStamps = onSchedule(
         }
       } catch (error) {
         logger.error("Failed to auto-complete expired goodbye safety stamp", {
-          roomIdHash: logHashPrefix(roomId),
+          roomId,
           promiseId,
-          error: logErrorTypeCode(error),
+          error,
         });
       }
     }
@@ -3408,7 +3609,7 @@ export const autoCompleteExpiredGoodbyeSafetyStamps = onSchedule(
 );
 
 // =============================================================================
-// 9) Schedule exact one-hour reminder when promise is confirmed
+// 9) 약속 확정 시 정확한 1시간 전 리마인더 예약
 // =============================================================================
 export const schedulePromiseReminderTask = onDocumentWritten(
   {
@@ -3431,7 +3632,7 @@ export const schedulePromiseReminderTask = onDocumentWritten(
     const promiseDateTime = asDate(afterData.dateTime);
     if (!promiseDateTime) {
       logger.warn("Skipped exact promise reminder scheduling: invalid dateTime", {
-        roomIdHash: logHashPrefix(roomId),
+        roomId,
         promiseId,
       });
       return;
@@ -3444,7 +3645,7 @@ export const schedulePromiseReminderTask = onDocumentWritten(
       logger.info(
         "Skipped exact promise reminder scheduling: less than 1 hour left",
         {
-          roomIdHash: logHashPrefix(roomId),
+          roomId,
           promiseId,
           scheduledForMs,
         }
@@ -3493,7 +3694,7 @@ export const schedulePromiseReminderTask = onDocumentWritten(
     );
 
     logger.info("Scheduled exact promise reminder task", {
-      roomIdHash: logHashPrefix(roomId),
+      roomId,
       promiseId,
       scheduledForMs,
     });
@@ -3501,7 +3702,7 @@ export const schedulePromiseReminderTask = onDocumentWritten(
 );
 
 // =============================================================================
-// 10) Dispatch scheduled one-hour-before promise push
+// 10) 예약된 약속 1시간 전 푸시 실행
 // =============================================================================
 export const dispatchPromiseReminder = onTaskDispatched(
   {
@@ -3523,12 +3724,7 @@ export const dispatchPromiseReminder = onTaskDispatched(
       typeof data.scheduledForMs === "number" ? data.scheduledForMs : 0;
 
     if (!roomId || !promiseId || !taskToken || scheduledForMs <= 0) {
-      logger.warn("Invalid exact promise reminder payload", {
-        hasRoomId: !!roomId,
-        hasPromiseId: !!promiseId,
-        hasTaskToken: !!taskToken,
-        hasScheduledForMs: scheduledForMs > 0,
-      });
+      logger.warn("Invalid exact promise reminder payload", { data });
       return;
     }
 
@@ -3615,7 +3811,7 @@ export const dispatchPromiseReminder = onTaskDispatched(
 
     if (!result) {
       logger.info("Skipped exact promise reminder dispatch", {
-        roomIdHash: logHashPrefix(roomId),
+        roomId,
         promiseId,
       });
       return;
@@ -3632,7 +3828,7 @@ export const dispatchPromiseReminder = onTaskDispatched(
     });
 
     logger.info("Dispatched exact promise reminder push", {
-      roomIdHash: logHashPrefix(roomId),
+      roomId,
       promiseId,
       participantCount: result.participantIds.length,
     });
@@ -3640,7 +3836,7 @@ export const dispatchPromiseReminder = onTaskDispatched(
 );
 
 // =============================================================================
-// 11) One-hour promise push reminder (legacy 15-minute scheduler disabled)
+// 11) 약속 1시간 전 푸시 리마인더 (기존 15분 스케줄러 비활성화)
 // =============================================================================
 export const sendUpcomingPromiseReminderPushes = onSchedule(
   {
@@ -3655,7 +3851,7 @@ export const sendUpcomingPromiseReminderPushes = onSchedule(
 );
 
 // =============================================================================
-// 12) Daily 1 PM unread chat digest push + in-app notification
+// 12) 매일 오후 1시 unread chat digest 푸시 + 인앱 알림
 // =============================================================================
 export const sendDailyUnreadChatDigests = onSchedule(
   {
@@ -3679,7 +3875,7 @@ export const sendDailyUnreadChatDigests = onSchedule(
         const alreadySent = await hasChatDigestForDate(userId, digestDate);
         if (alreadySent) {
           logger.info("Skipped chat digest: already sent today", {
-            userIdHash: logHashPrefix(userId),
+            userId,
             digestDate,
           });
           continue;
@@ -3692,10 +3888,10 @@ export const sendDailyUnreadChatDigests = onSchedule(
           continue;
         }
 
-        const title = "\uc77d\uc9c0 \uc54a\uc740 \uba54\uc2dc\uc9c0\uac00 \uc788\uc5b4\uc694";
+        const title = "읽지 않은 메시지가 있어요";
         const body = previewSenderName
-          ? `${previewSenderName}\ub2d8 \uc678 \uc77d\uc9c0 \uc54a\uc740 \uba54\uc2dc\uc9c0\uac00 ${unreadCount}\uac1c \uc788\uc2b5\ub2c8\ub2e4.`
-          : `\uc77d\uc9c0 \uc54a\uc740 \uba54\uc2dc\uc9c0 ${unreadCount}\uac1c\uac00 \uc788\uc5b4\uc694.`;
+          ? `${previewSenderName}님 외 읽지 않은 메시지가 ${unreadCount}개 있습니다.`
+          : `읽지 않은 메시지가 ${unreadCount}개 있습니다.`;
 
         await sendPushToUsers([userId], {
           title,
@@ -3714,15 +3910,15 @@ export const sendDailyUnreadChatDigests = onSchedule(
         });
 
         logger.info("Daily unread chat digest sent", {
-          userIdHash: logHashPrefix(userId),
+          userId,
           unreadCount,
           digestDate,
         });
       } catch (error) {
         logger.error("Failed to send daily unread chat digest", {
-          userIdHash: logHashPrefix(userId),
+          userId,
           digestDate,
-          error: logErrorTypeCode(error),
+          error,
         });
       }
     }
@@ -3732,7 +3928,7 @@ export const sendDailyUnreadChatDigests = onSchedule(
 );
 
 // =============================================================================
-// Normalize and hash phone numbers (same algorithm as client)
+// 전화번호 정규화 + 해시 (클라이언트와 동일 알고리즘)
 // =============================================================================
 export function normalizeKoreanPhone(raw: string): string | null {
   const trimmed = raw.trim();
@@ -3768,7 +3964,7 @@ export function hashPhoneNumber(normalized: string): string {
 }
 
 // =============================================================================
-// syncContactBlocks - contact block sync callable
+// syncContactBlocks — 연락처 차단 동기화 Callable
 // =============================================================================
 const MAX_CONTACT_HASHES = 5000;
 
@@ -3892,7 +4088,7 @@ export const syncContactBlocks = onCall(withAppCheck(), async (request) => {
   }
 
   logger.info("syncContactBlocks completed", {
-    callerUidHash: logHashPrefix(callerUid),
+    callerUid,
     submittedHashCount: rawHashes.length,
     storedHashCount: validHashes.length,
     matchedUserCount,
@@ -3913,9 +4109,116 @@ export const syncContactBlocks = onCall(withAppCheck(), async (request) => {
   };
 });
 
+// =============================================================================
+// syncKakaoTalkFriendBlocks — 카카오톡 친구 추천 제외 Callable
+// =============================================================================
+const MAX_KAKAO_TALK_FRIEND_IDS = 1000;
+
+export const syncKakaoTalkFriendBlocks = onCall(withAppCheck(), async (request) => {
+  const data = getCallableData(request);
+  let callerUid = asNonEmptyString(request.auth?.uid);
+
+  if (!callerUid) {
+    const accessToken = asNonEmptyString(data.kakaoAccessToken);
+    if (!accessToken) {
+      throw new HttpsError("unauthenticated", "로그인이 필요해요.");
+    }
+    callerUid = (await verifyKakaoAccessToken(accessToken)).userId;
+  }
+
+  const rawFriendUserIds = data.friendUserIds;
+  if (!Array.isArray(rawFriendUserIds)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "friendUserIds 배열이 필요합니다."
+    );
+  }
+
+  const seen = new Set<string>();
+  const friendUserIds: string[] = [];
+  for (const rawId of rawFriendUserIds) {
+    const friendUserId = asString(rawId, "").trim();
+    if (!/^\d+$/.test(friendUserId) || seen.has(friendUserId)) continue;
+    seen.add(friendUserId);
+    friendUserIds.push(friendUserId);
+    if (friendUserIds.length >= MAX_KAKAO_TALK_FRIEND_IDS) break;
+  }
+
+  let matchedUserCount = 0;
+  let newlyExcludedCount = 0;
+  let alreadyExcludedCount = 0;
+  let skippedSelfCount = 0;
+  const CHUNK_SIZE = 400;
+
+  for (let i = 0; i < friendUserIds.length; i += CHUNK_SIZE) {
+    const chunk = friendUserIds.slice(i, i + CHUNK_SIZE);
+    const candidateIds = chunk.filter((id) => {
+      if (id === callerUid) {
+        skippedSelfCount++;
+        return false;
+      }
+      return true;
+    });
+
+    if (candidateIds.length === 0) continue;
+
+    const userRefs = candidateIds.map((id) => db.collection("users").doc(id));
+    const blockRefs = candidateIds.map((id) =>
+      db.collection("blocks").doc(callerUid).collection("targets").doc(id)
+    );
+    const [userDocs, existingBlockDocs] = await Promise.all([
+      db.getAll(...userRefs),
+      db.getAll(...blockRefs),
+    ]);
+    const batch = db.batch();
+    let chunkNewlyExcludedCount = 0;
+
+    for (let index = 0; index < candidateIds.length; index++) {
+      if (!userDocs[index].exists) continue;
+
+      matchedUserCount++;
+      if (existingBlockDocs[index].exists) {
+        alreadyExcludedCount++;
+        continue;
+      }
+
+      batch.set(blockRefs[index], {
+        fromUserId: callerUid,
+        toUserId: candidateIds[index],
+        reason: "kakao_talk_friend",
+        source: "kakao_talk_friends",
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      newlyExcludedCount++;
+      chunkNewlyExcludedCount++;
+    }
+
+    if (chunkNewlyExcludedCount > 0) {
+      await batch.commit();
+    }
+  }
+
+  logger.info("syncKakaoTalkFriendBlocks completed", {
+    callerUid,
+    submittedFriendCount: friendUserIds.length,
+    matchedUserCount,
+    newlyExcludedCount,
+    alreadyExcludedCount,
+    skippedSelfCount,
+  });
+
+  return {
+    submittedFriendCount: friendUserIds.length,
+    matchedUserCount,
+    newlyExcludedCount,
+    alreadyExcludedCount,
+    skippedSelfCount,
+  };
+});
+
 /**
- * Create mutual A/B block documents at blocks/{uid}/targets/{targetUid}.
- * Return false when both sides already exist (already blocked).
+ * A↔B 상호 block을 blocks/{uid}/targets/{targetUid}에 생성.
+ * 이미 양쪽 다 있으면 false 반환(이미 차단).
  */
 async function ensureMutualContactBlock(
   uidA: string,
@@ -3963,7 +4266,7 @@ async function ensureMutualContactBlock(
 }
 
 // =============================================================================
-// onUserPhoneHashUpsert - when phoneHash is added, apply existing contact blocks mutually
+// onUserPhoneHashUpsert — phoneHash가 생기면 기존 연락처 차단과 상호 block
 // =============================================================================
 export const onUserPhoneHashUpsert = onDocumentWritten(
   "userPrivate/{uid}",
@@ -3992,7 +4295,7 @@ export const onUserPhoneHashUpsert = onDocumentWritten(
       await db.collection("phoneHashIndex").doc(oldHash).delete();
     }
 
-    // 3. Find owners that have this hash in contactBlockedHashIndex
+    // 3. contactBlockedHashIndex에서 이 해시를 가진 owner 찾기
     const ownersSnap = await db
       .collection("contactBlockedHashIndex")
       .doc(newHash)
@@ -4020,22 +4323,22 @@ export const onUserPhoneHashUpsert = onDocumentWritten(
     }
 
     logger.info("onUserPhoneHashUpsert: processed", {
-      uidHash: logHashPrefix(uid),
-      phoneHashPrefix: logHashPrefix(newHash),
+      uid,
+      phoneHash: newHash,
       ownerCount: ownersSnap.size,
     });
   }
 );
 
 // =============================================================================
-// saveUserPhoneHash - save phone hash after Kakao login
+// saveUserPhoneHash — 카카오 로그인 후 전화번호 해시 저장 Callable
 // =============================================================================
 export const saveUserPhoneHash = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const phoneHash = asNonEmptyString(data.phoneHash);
   const phoneSource = asNonEmptyString(data.phoneSource) ?? "kakao";
 
-  // Resolve uid from auth or kakaoAccessToken
+  // auth 또는 kakaoAccessToken으로 uid 결정
   let uid = request.auth?.uid;
   if (!uid) {
     const accessToken = asNonEmptyString(data.kakaoAccessToken);
@@ -4066,7 +4369,7 @@ export const saveUserPhoneHash = onCall(withAppCheck(), async (request) => {
 });
 
 // =============================================================================
-// Helper to check matches based on recEvents
+// recEvents 기반 매치 체크 헬퍼
 // =============================================================================
 async function checkAndCreateRecMatch(
   userA: string,
@@ -4082,50 +4385,40 @@ async function checkAndCreateRecMatch(
     .get();
 
   if (reverseQuery.empty) {
-    logger.info("No mutual like found", {
-      userAHash: logHashPrefix(userA),
-      userBHash: logHashPrefix(userB),
-    });
+    logger.info("No mutual like found", { userA, userB });
     return null;
   }
 
-  const [userAInfo, userBInfo] = await Promise.all([
-    getUserDisplayInfo(userA),
-    getUserDisplayInfo(userB),
-  ]);
-  const systemMessage = "매칭이 성사되었어요! 먼저 인사해보세요";
+  const existingMatches = await db
+    .collection("matches")
+    .where("userIds", "array-contains", userA)
+    .get();
 
-  const { matchId, roomId, created } = await ensureMutualMatch(db, {
+  for (const doc of existingMatches.docs) {
+    const raw = (doc.data() as Record<string, unknown>).userIds;
+    const ids = Array.isArray(raw)
+      ? raw.map((v) => asString(v)).filter((v) => v.length > 0)
+      : [];
+    if (ids.includes(userB)) {
+      logger.info("Match already exists", { matchId: doc.id });
+      return doc.id;
+    }
+  }
+
+  const matchRef = await db.collection("matches").add({
+    userIds: [userA, userB],
+    matchType,
+    matchedAt: FieldValue.serverTimestamp(),
+    status: "active",
+    chatRoomId: null,
+  });
+
+  logger.info("Rec match created", {
+    matchId: matchRef.id,
     userA,
     userB,
     matchType,
-    chatRoom: {
-      participantInfo: {
-        [userA]: {
-          nickname: userAInfo.nickname,
-          avatarUrl: userAInfo.avatarUrl,
-        },
-        [userB]: {
-          nickname: userBInfo.nickname,
-          avatarUrl: userBInfo.avatarUrl,
-        },
-      },
-      systemMessage,
-    },
   });
 
-  if (!created) {
-    logger.info("Match already exists", { matchId, roomId });
-    return matchId;
-  }
-
-  logger.info("Rec match created", {
-    matchId,
-    roomIdHash: roomId ? logHashPrefix(roomId) : null,
-    userAHash: logHashPrefix(userA),
-    userBHash: logHashPrefix(userB),
-    matchType,
-  });
-
-  return matchId;
+  return matchRef.id;
 }
