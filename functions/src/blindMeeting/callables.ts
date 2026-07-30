@@ -30,6 +30,7 @@ import {
   voteFivePersonException,
   voteSchedule,
 } from "./orchestrator";
+import { BLIND_MEETING_CALLABLE_OPTIONS } from "./runtime";
 import { db, requireVerifiedUser, setApplication } from "./store";
 import {
   ALCOHOL_PREFERENCES,
@@ -49,6 +50,12 @@ import {
   oneOfOrNull,
 } from "./types";
 
+/** dispatcher가 내부 handler에 넘기는 최소 요청 형태 */
+export type BlindMeetingRequest = {
+  auth?: { uid?: string; token?: Record<string, unknown> } | null;
+  data?: unknown;
+};
+
 function getData(request: { data?: unknown }): Record<string, unknown> {
   return isRecord(request.data) ? request.data : {};
 }
@@ -62,7 +69,7 @@ function requireMeetingId(data: Record<string, unknown>): string {
 }
 
 /** 참가 신청 제출: DNA 검증 → 비공개 저장 → 후보군 등록 → 즉시 매칭 시도 */
-export const submitBlindMeetingApplication = onCall(async (request) => {
+async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const data = getData(request);
   const dnaRaw = data.dna;
@@ -219,9 +226,9 @@ export const submitBlindMeetingApplication = onCall(async (request) => {
   });
 
   return { accepted: true, stage, meetingId };
-});
+}
 
-export const cancelBlindMeetingApplication = onCall(async (request) => {
+async function cancelBlindMeetingApplicationHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   await setApplication(user.userId, {
     status: "cancelled",
@@ -230,9 +237,9 @@ export const cancelBlindMeetingApplication = onCall(async (request) => {
     meetingId: null,
   });
   return { ok: true };
-});
+}
 
-export const relaxBlindMeetingConditions = onCall(async (request) => {
+async function relaxBlindMeetingConditionsHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const data = getData(request);
   await applyRelaxationChoice({
@@ -241,31 +248,31 @@ export const relaxBlindMeetingConditions = onCall(async (request) => {
     additionalSlotIds: asStrArray(data.additionalSlotIds),
   });
   return { ok: true };
-});
+}
 
-export const acceptBlindMeetingInvitation = onCall(async (request) => {
+async function acceptBlindMeetingInvitationHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const meetingId = requireMeetingId(getData(request));
   await acceptInvitation(meetingId, user.userId);
   return { ok: true };
-});
+}
 
-export const declineBlindMeetingInvitation = onCall(async (request) => {
+async function declineBlindMeetingInvitationHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const data = getData(request);
   const meetingId = requireMeetingId(data);
   await declineInvitation(meetingId, user.userId, asTrimmedOrNull(data.reason));
   return { ok: true };
-});
+}
 
-export const startBlindMeetingDeposit = onCall(async (request) => {
+async function startBlindMeetingDepositHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const meetingId = requireMeetingId(getData(request));
   const intent = await beginDeposit(meetingId, user.userId);
   return intent;
-});
+}
 
-export const voteBlindMeetingSchedule = onCall(async (request) => {
+async function voteBlindMeetingScheduleHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const data = getData(request);
   const meetingId = requireMeetingId(data);
@@ -276,9 +283,9 @@ export const voteBlindMeetingSchedule = onCall(async (request) => {
     preferredPlaceId: asTrimmedOrNull(data.preferredPlaceId),
   });
   return { ok: true };
-});
+}
 
-export const confirmBlindMeetingAttendance = onCall(async (request) => {
+async function confirmBlindMeetingAttendanceHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const data = getData(request);
   const meetingId = requireMeetingId(data);
@@ -293,9 +300,9 @@ export const confirmBlindMeetingAttendance = onCall(async (request) => {
     attending: data.attending === true,
   });
   return { ok: true };
-});
+}
 
-export const respondBlindMeetingReplacementOffer = onCall(async (request) => {
+async function respondBlindMeetingReplacementOfferHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const data = getData(request);
   const offerId = asTrimmedOrNull(data.offerId);
@@ -307,9 +314,9 @@ export const respondBlindMeetingReplacementOffer = onCall(async (request) => {
     userId: user.userId,
     accept: data.accept === true,
   });
-});
+}
 
-export const voteBlindMeetingFivePersonException = onCall(async (request) => {
+async function voteBlindMeetingFivePersonExceptionHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const data = getData(request);
   const meetingId = requireMeetingId(data);
@@ -319,9 +326,9 @@ export const voteBlindMeetingFivePersonException = onCall(async (request) => {
     agree: data.agree === true,
   });
   return { ok: true };
-});
+}
 
-export const requestBlindMeetingCancellation = onCall(async (request) => {
+async function requestBlindMeetingCancellationHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const data = getData(request);
   const meetingId = requireMeetingId(data);
@@ -332,9 +339,9 @@ export const requestBlindMeetingCancellation = onCall(async (request) => {
     emergency: data.emergency === true,
   });
   return { ok: true };
-});
+}
 
-export const markBlindMeetingSafetyStamp = onCall(async (request) => {
+async function markBlindMeetingSafetyStampHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const data = getData(request);
   const meetingId = requireMeetingId(data);
@@ -352,9 +359,9 @@ export const markBlindMeetingSafetyStamp = onCall(async (request) => {
     verification: isRecord(data.verification) ? data.verification : null,
   });
   return { ok: true };
-});
+}
 
-export const submitBlindMeetingFeedback = onCall(async (request) => {
+async function submitBlindMeetingFeedbackHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const data = getData(request);
   const meetingId = requireMeetingId(data);
@@ -387,9 +394,9 @@ export const submitBlindMeetingFeedback = onCall(async (request) => {
     algorithmVersion: asStr(data.algorithmVersion, "unknown"),
   });
   return { ok: true };
-});
+}
 
-export const submitBlindMeetingFollowUpChoice = onCall(async (request) => {
+async function submitBlindMeetingFollowUpChoiceHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const data = getData(request);
   const meetingId = requireMeetingId(data);
@@ -398,19 +405,70 @@ export const submitBlindMeetingFollowUpChoice = onCall(async (request) => {
     userId: user.userId,
     selectedUids: asStrArray(data.selectedUids),
   });
-});
+}
 
-export const getBlindMeetingFollowUpTargets = onCall(async (request) => {
+async function getBlindMeetingFollowUpTargetsHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const meetingId = requireMeetingId(getData(request));
   const targets = await loadSelectableTargets(meetingId, user.userId);
   return { targets };
-});
+}
 
 /** 상호 선택 결과만 반환. 일방 선택 정보는 내려주지 않는다. */
-export const getBlindMeetingMutualMatches = onCall(async (request) => {
+async function getBlindMeetingMutualMatchesHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const meetingId = requireMeetingId(getData(request));
   const matches = await loadMyMutualMatches(meetingId, user.userId);
   return { matches };
-});
+}
+
+// -----------------------------------------------------------------------------
+// dispatcher
+//
+// 프로젝트의 region당 CPU 할당량이 빡빡해서 callable 16개를 개별 함수로 배포하면
+// 기존 함수 업데이트까지 실패한다. action 하나로 라우팅하는 단일 함수로 모으고,
+// 인증·입력 검증은 각 handler가 그대로 수행한다.
+// region은 함수 옵션에 명시한다 (setGlobalOptions보다 import가 먼저 평가됨).
+// -----------------------------------------------------------------------------
+
+type BlindMeetingHandler = (
+  request: BlindMeetingRequest
+) => Promise<Record<string, unknown>>;
+
+const HANDLERS: Record<string, BlindMeetingHandler> = {
+  submitBlindMeetingApplication: submitBlindMeetingApplicationHandler,
+  cancelBlindMeetingApplication: cancelBlindMeetingApplicationHandler,
+  relaxBlindMeetingConditions: relaxBlindMeetingConditionsHandler,
+  acceptBlindMeetingInvitation: acceptBlindMeetingInvitationHandler,
+  declineBlindMeetingInvitation: declineBlindMeetingInvitationHandler,
+  startBlindMeetingDeposit: startBlindMeetingDepositHandler,
+  voteBlindMeetingSchedule: voteBlindMeetingScheduleHandler,
+  confirmBlindMeetingAttendance: confirmBlindMeetingAttendanceHandler,
+  respondBlindMeetingReplacementOffer:
+    respondBlindMeetingReplacementOfferHandler,
+  voteBlindMeetingFivePersonException:
+    voteBlindMeetingFivePersonExceptionHandler,
+  requestBlindMeetingCancellation: requestBlindMeetingCancellationHandler,
+  markBlindMeetingSafetyStamp: markBlindMeetingSafetyStampHandler,
+  submitBlindMeetingFeedback: submitBlindMeetingFeedbackHandler,
+  submitBlindMeetingFollowUpChoice: submitBlindMeetingFollowUpChoiceHandler,
+  getBlindMeetingFollowUpTargets: getBlindMeetingFollowUpTargetsHandler,
+  getBlindMeetingMutualMatches: getBlindMeetingMutualMatchesHandler,
+};
+
+/** dispatcher가 받아들이는 action 목록 (앱과 공유되는 계약) */
+export const BLIND_MEETING_ACTIONS = Object.keys(HANDLERS);
+
+export const blindMeetingAction = onCall(
+  BLIND_MEETING_CALLABLE_OPTIONS,
+  async (request) => {
+    const data = getData(request);
+    const action = asStr(data.action, "");
+    const handler = HANDLERS[action];
+    if (!handler) {
+      throw new HttpsError("invalid-argument", "지원하지 않는 요청이에요.");
+    }
+    logger.info("blindMeetingAction", { action });
+    return handler(request);
+  }
+);

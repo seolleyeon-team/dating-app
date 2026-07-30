@@ -69,11 +69,17 @@ class BlindMeetingOpsRepository {
     return claims['admin'] == true || claims['blindMeetingOps'] == true;
   }
 
+  /// 운영 callable도 단일 dispatcher를 사용한다.
+  static const String _dispatcher = 'blindMeetingOps';
+
   Future<Map<String, dynamic>> _call(
-    String name, [
+    String action, [
     Map<String, dynamic> data = const <String, dynamic>{},
   ]) async {
-    final result = await _functions.httpsCallable(name).call<dynamic>(data);
+    final result = await _functions.httpsCallable(_dispatcher).call<dynamic>({
+      ...data,
+      'action': action,
+    });
     final raw = result.data;
     if (raw is Map) {
       return Map<String, dynamic>.from(raw.cast<String, dynamic>());

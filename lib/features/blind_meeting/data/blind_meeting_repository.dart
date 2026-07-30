@@ -175,12 +175,18 @@ class BlindMeetingRepository {
     return <String, dynamic>{...extra, 'userId': userId};
   }
 
+  /// 서버는 action 하나로 라우팅하는 단일 callable(`blindMeetingAction`)을 쓴다.
+  /// (region당 Cloud Run CPU 할당량 때문에 함수를 개별로 배포하지 않는다.)
+  static const String _dispatcher = 'blindMeetingAction';
+
   Future<Map<String, dynamic>> _call(
-    String name,
+    String action,
     Map<String, dynamic> data,
   ) async {
-    final payload = await _callablePayload(data);
-    final result = await _functions.httpsCallable(name).call<dynamic>(payload);
+    final payload = await _callablePayload({...data, 'action': action});
+    final result = await _functions
+        .httpsCallable(_dispatcher)
+        .call<dynamic>(payload);
     final raw = result.data;
     if (raw is Map) {
       return Map<String, dynamic>.from(raw.cast<String, dynamic>());
