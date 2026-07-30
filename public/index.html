@@ -2,229 +2,593 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>연세 이메일 인증</title>
-
-  <!-- ✅ Firebase SDK: gstatic에서 직접 로드 -->
-  <script src="https://www.gstatic.com/firebasejs/12.8.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/12.8.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore-compat.js"></script>
-
-  <!-- ✅ Hosting이 자동 주입하는 init (firebase.initializeApp 포함) -->
-  <script src="/__/firebase/init.js"></script>
-
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>설레연 - 대학생 인증 기반 매칭 커뮤니티</title>
+  <meta name="description" content="설레연은 연 나이 20세 이상 대학생 대상 대학생 인증 기반 매칭 커뮤니티입니다." />
   <style>
-    body { font-family:-apple-system,BlinkMacSystemFont,sans-serif; background:#f5f6f8; margin:0; }
-    .container { max-width:420px; margin:120px auto; background:#fff; padding:32px; border-radius:12px;
-      box-shadow:0 4px 20px rgba(0,0,0,.08); text-align:center; }
-    h1 { font-size:20px; margin:0 0 16px; }
-    p { font-size:14px; color:#555; line-height:1.6; margin:0; }
-    .success { color:#2e7d32; font-weight:600; }
-    .error { color:#c62828; font-weight:600; }
-    .muted { color:#888; font-size:12px; margin-top:10px; }
-    code { background:#f1f3f5; padding:2px 6px; border-radius:6px; }
+    :root {
+      --bg: #fff9fc;
+      --surface: #ffffff;
+      --surface-soft: #fff3f7;
+      --text: #1f2937;
+      --muted: #5f6877;
+      --line: #ecdfe7;
+      --heading: #1f5b78;
+      --accent: #ef3976;
+      --accent-dark: #c9255a;
+      --teal: #1f5b78;
+      --shadow: 0 10px 28px rgba(24, 39, 75, 0.08);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 16% 0%, rgba(239, 57, 118, 0.10), transparent 28%),
+        radial-gradient(circle at 94% 18%, rgba(31, 91, 120, 0.08), transparent 24%),
+        linear-gradient(180deg, #fffafc 0%, #fffdfd 64%, #f8fbfc 100%);
+      font-family:
+        "Pretendard",
+        "Apple SD Gothic Neo",
+        "Malgun Gothic",
+        "Segoe UI",
+        system-ui,
+        -apple-system,
+        sans-serif;
+      line-height: 1.72;
+      word-break: keep-all;
+    }
+
+    a { color: inherit; }
+
+    .page {
+      width: min(100%, 1120px);
+      margin: 0 auto;
+      padding: 22px 20px 72px;
+    }
+
+    .site-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 12px 0 28px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      font-weight: 900;
+      color: var(--text);
+    }
+
+    .brand img {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      object-fit: cover;
+      border: 1px solid rgba(236, 223, 231, 0.9);
+      background: #fff;
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .nav a,
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 42px;
+      padding: 10px 14px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.86);
+      color: var(--text);
+      text-decoration: none;
+      font-size: 0.94rem;
+      font-weight: 800;
+    }
+
+    .button.primary {
+      border-color: rgba(239, 57, 118, 0.24);
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 10px 22px rgba(239, 57, 118, 0.18);
+    }
+
+    .button.secondary {
+      color: var(--accent-dark);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+      gap: 24px;
+      align-items: stretch;
+      padding: 26px 0 12px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      padding: 7px 11px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(236, 223, 231, 0.95);
+      color: var(--accent);
+      font-size: 0.9rem;
+      font-weight: 900;
+    }
+
+    h1 {
+      margin: 18px 0 12px;
+      font-size: clamp(2.15rem, 5vw, 4.2rem);
+      line-height: 1.08;
+      letter-spacing: 0;
+      color: var(--text);
+    }
+
+    .lead {
+      margin: 0;
+      max-width: 680px;
+      color: var(--muted);
+      font-size: clamp(1rem, 2vw, 1.18rem);
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .review-panel,
+    .section,
+    .notice,
+    .mini-card {
+      background: var(--surface);
+      border: 1px solid rgba(236, 223, 231, 0.95);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .review-panel {
+      padding: 22px;
+    }
+
+    .panel-title {
+      margin: 0 0 12px;
+      color: var(--heading);
+      font-size: 1.08rem;
+      font-weight: 900;
+    }
+
+    .check-list,
+    .plain-list,
+    .flow-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .check-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .check-list li {
+      display: grid;
+      grid-template-columns: 24px 1fr;
+      gap: 9px;
+      align-items: start;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .check-list li::before {
+      content: "✓";
+      display: inline-grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: var(--surface-soft);
+      color: var(--accent);
+      font-size: 0.84rem;
+      font-weight: 900;
+    }
+
+    .quick-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 22px;
+    }
+
+    .mini-card {
+      padding: 16px;
+    }
+
+    .mini-card strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--heading);
+      font-size: 0.94rem;
+    }
+
+    .mini-card span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.93rem;
+    }
+
+    .content {
+      display: grid;
+      gap: 18px;
+      margin-top: 26px;
+    }
+
+    .section {
+      padding: 26px;
+    }
+
+    .section-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      gap: 22px;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      color: var(--heading);
+      font-size: clamp(1.38rem, 2vw, 1.78rem);
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      color: var(--text);
+      font-size: 1rem;
+    }
+
+    p {
+      margin: 0;
+      color: var(--text);
+    }
+
+    p + p { margin-top: 10px; }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .flow-list {
+      counter-reset: flow;
+      display: grid;
+      gap: 10px;
+    }
+
+    .flow-list li {
+      counter-increment: flow;
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 12px;
+      align-items: center;
+      min-height: 46px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      font-weight: 800;
+    }
+
+    .flow-list li::before {
+      content: counter(flow);
+      display: inline-grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      background: var(--teal);
+      color: #fff;
+      font-size: 0.88rem;
+      font-weight: 900;
+    }
+
+    .restriction {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+      padding: 16px;
+      border: 1px solid rgba(239, 57, 118, 0.18);
+      border-radius: var(--radius);
+      background: var(--surface-soft);
+    }
+
+    .plain-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .plain-list li {
+      padding: 8px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--text);
+      font-weight: 800;
+      font-size: 0.92rem;
+    }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 14px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+
+    .data-table th,
+    .data-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: 0.95rem;
+    }
+
+    .data-table th {
+      width: 180px;
+      color: var(--heading);
+      background: #fff3f7;
+      font-weight: 900;
+    }
+
+    .data-table tr:last-child th,
+    .data-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .notice {
+      display: grid;
+      gap: 12px;
+      padding: 22px;
+      background: linear-gradient(135deg, rgba(31, 91, 120, 0.06), rgba(239, 57, 118, 0.07));
+    }
+
+    .notice-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .footer {
+      margin-top: 28px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    @media (max-width: 860px) {
+      .site-header,
+      .hero,
+      .section-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .site-header {
+        align-items: flex-start;
+      }
+
+      .quick-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .page {
+        padding: 16px 14px 56px;
+      }
+
+      .site-header {
+        padding-bottom: 14px;
+      }
+
+      .nav {
+        justify-content: flex-start;
+      }
+
+      .nav a,
+      .button {
+        min-height: 40px;
+        padding: 9px 12px;
+        font-size: 0.9rem;
+      }
+
+      .hero {
+        padding-top: 12px;
+      }
+
+      .review-panel,
+      .section,
+      .notice {
+        padding: 20px 16px;
+      }
+
+      .flow-list li,
+      .check-list li {
+        align-items: start;
+      }
+
+      .data-table,
+      .data-table tbody,
+      .data-table tr,
+      .data-table th,
+      .data-table td {
+        display: block;
+        width: 100%;
+      }
+
+      .data-table th {
+        border-bottom: 0;
+      }
+    }
   </style>
 </head>
-
 <body>
-  <div class="container">
-    <h1>학생 인증 처리 중입니다…</h1>
-    <p id="status">잠시만 기다려 주세요.</p>
-    <p class="muted" id="debug"></p>
-  </div>
+  <main class="page">
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="설레연 홈">
+        <img src="/mainlogo.png" alt="설레연 로고" />
+        <span>설레연</span>
+      </a>
+      <nav class="nav" aria-label="주요 링크">
+        <a href="#signup">회원가입 흐름</a>
+        <a href="#identity">본인인증</a>
+        <a href="/terms">이용약관</a>
+        <a href="/privacy">개인정보처리방침</a>
+        <a href="/kakao-review">가입 안내</a>
+      </nav>
+    </header>
 
-  <script>
-    (async () => {
-      // 중복 실행 방지
-      if (window.__EMAIL_LINK_RUNNING__) return;
-      window.__EMAIL_LINK_RUNNING__ = true;
+    <section class="hero" aria-labelledby="hero-title">
+      <div>
+        <div class="eyebrow">대학생 인증 기반 매칭 커뮤니티</div>
+        <h1 id="hero-title">설레연</h1>
+        <p class="lead">연 나이 20세 이상 대학생 대상 대학생 인증 기반 매칭 커뮤니티입니다. 청소년보호법상 청소년에 해당하지 않는 대학생만 본인인증, 성인인증, 학교 이메일 인증을 거쳐 서비스를 이용할 수 있습니다.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="#identity">본인인증 수집 항목 확인</a>
+          <a class="button secondary" href="/privacy">개인정보처리방침 보기</a>
+        </div>
 
-      const statusEl = document.getElementById('status');
-      const debugEl = document.getElementById('debug');
+        <div class="quick-grid" aria-label="서비스 요약">
+          <div class="mini-card">
+            <strong>서비스 대상</strong>
+            <span>청소년보호법상 청소년에 해당하지 않는 대학생</span>
+          </div>
+          <div class="mini-card">
+            <strong>가입 전제</strong>
+            <span>본인인증 및 성인인증 완료</span>
+          </div>
+          <div class="mini-card">
+            <strong>운영 목적</strong>
+            <span>안전한 매칭, 채팅, 커뮤니티 이용 환경 제공</span>
+          </div>
+        </div>
+      </div>
 
-      const setStatus = (html) => { statusEl.innerHTML = html; };
-      const setDebug = (html) => { if (debugEl) debugEl.innerHTML = html; };
+      <aside class="review-panel" aria-label="가입 전 확인 항목">
+        <p class="panel-title">가입 전 확인 사항</p>
+        <ul class="check-list">
+          <li>서비스명 및 서비스 대상</li>
+          <li>회원가입과 본인인증 진행 순서</li>
+          <li>본인인증 미완료 시 이용 제한 범위</li>
+          <li>개인정보처리방침과 이용약관 링크</li>
+          <li>신고, 차단, 운영자 검토 등 안전 기능</li>
+        </ul>
+      </aside>
+    </section>
 
-      // firebase 객체 준비 대기
-      const waitFirebase = async (timeoutMs = 12000) => {
-        const start = Date.now();
-        while (Date.now() - start < timeoutMs) {
-          if (window.firebase && firebase.apps && firebase.apps.length >= 0 && firebase.auth && firebase.firestore) {
-            // init.js가 실행되어 initializeApp까지 끝났는지 체크
-            try {
-              firebase.app();
-              return true;
-            } catch (_) {
-              // 아직 initializeApp 안 됐을 수 있음
-            }
-          }
-          await new Promise(r => setTimeout(r, 80));
-        }
-        return false;
-      };
+    <div class="content">
+      <section class="section" id="service">
+        <div class="section-grid">
+          <div>
+            <h2>서비스 소개</h2>
+            <p>설레연은 대학생 이용자를 대상으로 한 매칭 커뮤니티입니다. 본인 확인, 성인 여부 확인, 대학생 인증 절차를 통과한 이용자에게 매칭, 채팅, 커뮤니티 기능을 제공합니다.</p>
+          </div>
+          <div>
+            <h3>서비스 대상</h3>
+            <p class="muted">청소년보호법상 청소년에 해당하지 않는 대학생입니다. 본인인증 결과 성인 여부가 확인되지 않거나 학교 이메일 인증이 완료되지 않은 경우 서비스 이용이 제한됩니다.</p>
+          </div>
+        </div>
+      </section>
 
-      // ✅ t 추출: 1) 현재 URL 쿼리스트링 2) continueUrl 파라미터 내부
-      function extractTokenFromUrl(href) {
-        try {
-          const u = new URL(href);
-          // 1) 직접 t=...
-          let t = u.searchParams.get('t');
-          if (t) return t;
+      <section class="section" id="signup">
+        <div class="section-grid">
+          <div>
+            <h2>회원가입 흐름</h2>
+            <p class="muted">설레연은 안전한 커뮤니티 운영을 위해 본인인증, 성인인증, 학교 이메일 인증을 순서대로 진행합니다.</p>
+          </div>
+          <ol class="flow-list">
+            <li>필수 약관 동의</li>
+            <li>본인인증 및 성인인증</li>
+            <li>카카오 로그인</li>
+            <li>학교 이메일 인증</li>
+            <li>프로필 설정</li>
+            <li>서비스 이용</li>
+          </ol>
+        </div>
+        <div class="restriction">
+          <h3>본인인증 미완료 시 제한</h3>
+          <p>본인인증을 완료하지 않은 이용자는 카카오 로그인, 학교 인증, 프로필 설정, 매칭, 채팅, 커뮤니티 이용을 진행할 수 없습니다.</p>
+        </div>
+      </section>
 
-          // 2) continueUrl 내부에 t가 들어있는 케이스
-          // 예: ...&continueUrl=https%3A%2F%2Fseolleyeon.web.app%2Fauth%2Femail-link%3Ft%3Dxxxx
-          const cont = u.searchParams.get('continueUrl');
-          if (cont) {
-            const decoded = decodeURIComponent(cont);
-            const cu = new URL(decoded);
-            t = cu.searchParams.get('t');
-            if (t) return t;
-          }
+      <section class="section" id="identity">
+        <h2>본인인증 정보 처리 안내</h2>
+        <table class="data-table">
+          <tbody>
+            <tr>
+              <th scope="row">수집 항목</th>
+              <td>이름, 휴대전화번호, 생년월일, 성별, 통신사, 내·외국인 여부, 성인인증 결과, 암호화된 이용자 확인값(CI), DI 또는 이에 준하는 식별값</td>
+            </tr>
+            <tr>
+              <th scope="row">이용 목적</th>
+              <td>본인 확인, 성인 여부 확인, 중복 가입 방지, 신고 및 분쟁 대응, 부정 이용 방지</td>
+            </tr>
+            <tr>
+              <th scope="row">인증 선행 원칙</th>
+              <td>본인인증 및 성인인증을 완료해야 카카오 로그인과 학교 이메일 인증 단계로 이동할 수 있습니다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
 
-          // 3) 혹시 query 전체가 encode된 특이케이스 대비
-          // (마지막 보험)
-          const m = href.match(/[?&]t=([^&]+)/);
-          if (m && m[1]) return decodeURIComponent(m[1]);
-        } catch (e) {}
-        return null;
-      }
+      <section class="section" id="safety">
+        <h2>안전 기능</h2>
+        <p>설레연은 대학생 커뮤니티의 안전한 운영을 위해 부정 이용과 이용자 피해를 줄이는 기능을 제공합니다.</p>
+        <ul class="plain-list">
+          <li>신고</li>
+          <li>차단</li>
+          <li>운영자 검토</li>
+          <li>부정 이용 제재</li>
+          <li>악성 사용자 재가입 방지</li>
+        </ul>
+      </section>
 
-      // ✅ firebase email-link URL은 현재 location.href가 아니라 "원본 링크"를 써야 함
-      // 보통은 location.href 그대로 OK. 다만 일부 인앱 브라우저에서 fragment/param 변형이 있음.
-      const rawUrl = window.location.href;
-      let stage = 'init';
+      <section class="notice" aria-labelledby="legal-title">
+        <div>
+          <h2 id="legal-title">주요 문서</h2>
+          <p class="muted">개인정보 처리 기준과 서비스 이용 기준은 아래 문서에서 확인할 수 있습니다.</p>
+        </div>
+        <div class="notice-links">
+          <a class="button primary" href="/privacy">개인정보처리방침</a>
+          <a class="button secondary" href="/terms">이용약관</a>
+          <a class="button secondary" href="/kakao-review">가입 및 인증 안내</a>
+        </div>
+      </section>
+    </div>
 
-      try {
-        stage = 'firebase_wait';
-        setStatus('⏳ Firebase 준비 중…');
-        const ok = await waitFirebase();
-        if (!ok) {
-          throw new Error('Firebase SDK/init 로드 실패. (Hosting init.js 또는 네트워크 문제)');
-        }
-
-        const auth = firebase.auth();
-        const db = firebase.firestore();
-
-        // token 추출
-        stage = 'extract_token';
-        const token = extractTokenFromUrl(rawUrl);
-        setDebug(`link: <code>${token ? 'token-present' : 'missing-token'}</code>`);
-
-        stage = 'check_link';
-        setStatus('⏳ 링크 확인 중…');
-
-        // Firebase email link인지 확인
-        if (!auth.isSignInWithEmailLink(rawUrl)) {
-          throw new Error('유효하지 않은 인증 링크입니다. (Firebase 이메일 링크 아님)');
-        }
-
-        if (!token) {
-          throw new Error('토큰(t)을 찾을 수 없습니다. 앱에서 다시 인증 링크를 보내주세요.');
-        }
-
-        stage = 'read_token_doc';
-        setStatus('⏳ 토큰 조회 중…');
-
-        const tokenRef = db.collection('emailLinkTokens').doc(token);
-        const tokenSnap = await tokenRef.get();
-
-        if (!tokenSnap.exists) {
-          throw new Error('토큰 문서가 없습니다. (만료/삭제/권한 문제 가능)');
-        }
-
-        const data = tokenSnap.data() || {};
-        const email = data.email;
-        const kakaoUserId = data.kakaoUserId;
-        const expiresAt = data.expiresAt;
-
-        if (!email || !kakaoUserId) {
-          throw new Error('토큰 데이터(email/kakaoUserId)가 올바르지 않습니다.');
-        }
-
-        // 만료 체크 (있으면)
-        if (expiresAt && typeof expiresAt.toDate === 'function') {
-          const exp = expiresAt.toDate();
-          if (Date.now() > exp.getTime()) {
-            // 만료면 토큰 삭제 시도 후 종료
-            try { await tokenRef.delete(); } catch (_) {}
-            throw new Error('토큰이 만료되었습니다. 앱에서 다시 인증 링크를 보내주세요.');
-          }
-        }
-
-        stage = 'sign_in_with_email_link';
-        setStatus('⏳ 이메일 인증 처리 중…');
-
-        // 재진입/중복 클릭 대비:
-        // 이미 로그인된 세션이 있으면 signIn 단계를 스킵한다.
-        let user = auth.currentUser;
-        if (!user) {
-          try {
-            // 이메일 링크 로그인
-            // - signIn은 토큰 문서에 저장된 email로 수행
-            const result = await auth.signInWithEmailLink(String(email).trim(), rawUrl);
-            user = result && result.user ? result.user : null;
-          } catch (err) {
-            // 링크가 이미 사용/만료된 경우에도, 세션이 이미 로그인돼 있으면 진행 가능
-            user = auth.currentUser;
-            const code = err && err.code ? String(err.code) : '';
-            if (!user || code !== 'auth/invalid-action-code') throw err;
-          }
-        }
-
-        if (!user) {
-          throw new Error('인증 실패(user 없음).');
-        }
-
-        stage = 'write_user_verified';
-        setStatus('⏳ 학생 인증 저장 중…');
-
-        const authedEmail = String(user.email || '').trim().toLowerCase();
-        if (!authedEmail) {
-          throw new Error('인증된 이메일 정보를 가져오지 못했습니다.');
-        }
-
-        // 학생 인증 완료 표시
-        await db.collection('users').doc(String(kakaoUserId)).set({
-          kakaoUserId: String(kakaoUserId),
-          isStudentVerified: true,
-          studentEmail: authedEmail,
-          verifiedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        }, { merge: true });
-
-        // 앱이 이 토큰으로 세션을 복구하려면 "메일함 소유가 실제로 증명됐다"는
-        // 근거가 토큰 문서에 남아 있어야 한다. 이 필드는 firestore.rules에서
-        // 해당 메일함 소유자만 쓸 수 있고, 서버는 이 필드가 없으면 커스텀 토큰을
-        // 발급하지 않는다. 재사용 방지는 서버가 exchangedAt으로 처리한다.
-        stage = 'mark_token_verified';
-        try {
-          await tokenRef.update({
-            emailVerifiedUid: user.uid,
-            emailVerifiedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          });
-        } catch (markError) {
-          console.error(markError);
-          throw new Error(
-            '인증 결과를 저장하지 못했습니다. 앱에서 다시 시도해 주세요.'
-          );
-        }
-
-        setStatus(
-          '<span class="success">🎉 인증이 완료되었습니다!<br/>앱으로 돌아가서 다음을 진행해 주세요.</span>'
-        );
-
-      } catch (e) {
-        console.error(e);
-        const msg = (e && e.message) ? e.message : String(e);
-        const code = (e && e.code) ? String(e.code) : '';
-
-        setStatus(
-          '<span class="error">인증 중 오류: ' + msg +
-          (code ? ' <br/><span class="muted">code: ' + code + '</span>' : '') +
-          '<br/><span class="muted">stage: ' + stage + '</span>' +
-          '<br/>앱에서 다시 시도해 주세요.</span>'
-        );
-      }
-    })();
-  </script>
+    <footer class="footer">
+      <p>설레연은 안전한 대학생 매칭 커뮤니티 운영을 위해 본인인증, 성인인증, 학교 이메일 인증 절차를 제공합니다.</p>
+    </footer>
+  </main>
 </body>
 </html>

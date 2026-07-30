@@ -5,10 +5,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/user_model.dart';
+import '../constants/yonsei_departments.dart';
 import '../router/route_names.dart';
-import 'firebase_diagnostics.dart';
 import '../utils/phone_hash_utils.dart';
-import '../shared/utils/privacy_log_utils.dart';
+import 'adult_verification_service.dart';
 import 'storage_service.dart';
 import 'user_service.dart';
 
@@ -35,18 +35,16 @@ class AuthService {
           currentUser.uid == kakaoUserId || claimedKakaoUserId == kakaoUserId;
       if (!matches) {
         debugPrint(
-          '[Auth] Firebase session mismatch '
-          '${PrivacyLogUtils.idFingerprint(currentUser.uid)} '
-          'claim=${PrivacyLogUtils.idFingerprint(claimedKakaoUserId)} '
-          'expected=${PrivacyLogUtils.idFingerprint(kakaoUserId)}',
+          '[Auth] Firebase session mismatch: '
+          'uid=${currentUser.uid} '
+          'claimKakaoUserId=$claimedKakaoUserId '
+          'expected=$kakaoUserId',
         );
       }
       return matches;
-    } catch (e) {
-      debugPrint(
-        '[Auth] Firebase session inspection ${PrivacyLogUtils.errorSummary(e)}',
-      );
-
+    } catch (e, st) {
+      debugPrint('[Auth] Firebase session inspection failed: $e');
+      debugPrint(st.toString());
       return false;
     }
   }
@@ -72,7 +70,6 @@ class AuthService {
   /// 반환: userInfo(Map) = {id, nickname, profileImageUrl, email}
   Future<Map<String, dynamic>> loginWithKakao() async {
     _ensureKakaoInit();
-    FirebaseDiagnostics.logAuthBridgePhase('kakao_login_start');
 
     try {
       if (kIsWeb) {
@@ -87,7 +84,7 @@ class AuthService {
           tryKakaoTalk = installed;
         } catch (e) {
           debugPrint(
-            '[Kakao] isKakaoTalkInstalled ${PrivacyLogUtils.errorSummary(e)}',
+            '[Kakao] isKakaoTalkInstalled error (fallback to web): $e',
           );
         }
 
@@ -96,20 +93,18 @@ class AuthService {
             await UserApi.instance.loginWithKakaoTalk();
           } on KakaoException catch (e) {
             final detail = e.message ?? e.toString();
-            debugPrint(
-              '[Kakao] loginWithKakaoTalk ${PrivacyLogUtils.errorSummary(e)}',
-            );
+            debugPrint('[Kakao] loginWithKakaoTalk failed: $detail');
             if (detail.contains('bundleId') ||
                 detail.contains('IOS bundleId')) {
               rethrow;
             }
             debugPrint('[Kakao] fallback to loginWithKakaoAccount');
             await UserApi.instance.loginWithKakaoAccount();
-          } catch (e) {
+          } catch (e, st) {
             debugPrint(
-              '[Kakao] loginWithKakaoTalk ${PrivacyLogUtils.errorSummary(e)}',
+              '[Kakao] loginWithKakaoTalk error (fallback to web): $e',
             );
-
+            debugPrint(st.toString());
             final detail = e.toString();
             if (detail.contains('bundleId') ||
                 detail.contains('IOS bundleId')) {
@@ -137,11 +132,6 @@ class AuthService {
         _savePhoneHashInBackground(kakaoUserId, phoneNumber);
       }
 
-      FirebaseDiagnostics.logAuthBridgePhase(
-        'kakao_login_success',
-        kakaoUserId: kakaoUserId,
-      );
-
       return {
         'id': kakaoUserId,
         'nickname': user.kakaoAccount?.profile?.nickname,
@@ -151,14 +141,8 @@ class AuthService {
       };
     } on KakaoException catch (e) {
       final detail = e.message ?? e.toString();
-      FirebaseDiagnostics.logAuthBridgePhase('kakao_login_failed', error: e);
       throw Exception('카카오 로그인 실패: $detail');
-    } catch (e, st) {
-      FirebaseDiagnostics.logAuthBridgePhase(
-        'kakao_login_failed',
-        error: e,
-        stackTrace: st,
-      );
+    } catch (e) {
       throw Exception('로그인 실패: $e');
     }
   }
@@ -208,9 +192,7 @@ class AuthService {
       try {
         final phoneHash = PhoneHashUtils.normalizeAndHash(rawPhone);
         if (phoneHash == null) {
-          debugPrint(
-            '[Auth] phone normalization failed hasPhone=${rawPhone.isNotEmpty}',
-          );
+          debugPrint('[Auth] 전화번호 정규화 실패: $rawPhone');
           return;
         }
         final callable = _functions.httpsCallable('saveUserPhoneHash');
@@ -220,7 +202,7 @@ class AuthService {
         });
         debugPrint('[Auth] phoneHash 저장 완료');
       } catch (e) {
-        debugPrint('[Auth] phoneHash save ${PrivacyLogUtils.errorSummary(e)}');
+        debugPrint('[Auth] phoneHash 저장 실패 (무시): $e');
       }
     });
   }
@@ -233,8 +215,35 @@ class AuthService {
     return await _userService.existsKakaoUser(kakaoUserId);
   }
 
+  Future<bool> isAccountWithdrawn(String kakaoUserId) async {
+    return await _userService.isAccountWithdrawn(kakaoUserId);
+  }
+
+  Future<bool> isRejoinRestricted(String kakaoUserId) async {
+    return await _userService.isRejoinRestricted(kakaoUserId);
+  }
+
+  Future<void> syncPendingLegalConsents(String kakaoUserId) async {
+    final pendingConsents = await _storageService.getPendingLegalConsents();
+    if (pendingConsents == null) return;
+
+    await _userService.saveLegalConsents(
+      kakaoUserId: kakaoUserId,
+      consentData: pendingConsents,
+    );
+    await _storageService.clearPendingLegalConsents();
+  }
+
   Future<bool> isInitialSetupComplete(String kakaoUserId) async {
     return await _userService.isInitialSetupComplete(kakaoUserId);
+  }
+
+  Future<bool> isAdultVerified(String kakaoUserId) async {
+    if (AdultVerificationService.isTemporarilyDisabled) return true;
+
+    final profile = await _userService.getUserProfile(kakaoUserId);
+    return profile?['adultVerified'] == true &&
+        profile?['realNameVerified'] == true;
   }
 
   Future<Map<String, dynamic>?> getUserProfile(String kakaoUserId) async {
@@ -252,7 +261,7 @@ class AuthService {
       return RouteNames.onboardingBasicInfo;
     }
     final interests = onboarding['interests'];
-    if (interests == null || (interests is List && interests.isEmpty)) {
+    if (!onboarding.containsKey('interests') || interests == null) {
       return RouteNames.onboardingInterestsSelection;
     }
     final lifestyle = onboarding['lifestyle'];
@@ -262,15 +271,22 @@ class AuthService {
     if (_isEmpty(onboarding['major'])) {
       return RouteNames.onboardingMajor;
     }
-    final uploadedPhotoCount = onboarding['sourcePhotoUploadCount'];
-    if (uploadedPhotoCount is! num || uploadedPhotoCount <= 0) {
+    final department = onboarding['department']?.toString();
+    final departmentsForMajor = YonseiDepartments.departmentsFor(
+      onboarding['major']?.toString(),
+    );
+    if (_isEmpty(department) || !departmentsForMajor.contains(department)) {
+      return RouteNames.onboardingDepartment;
+    }
+    final photoUrls = onboarding['photoUrls'];
+    if (photoUrls == null || (photoUrls is List && photoUrls.isEmpty)) {
       return RouteNames.onboardingPhoto;
     }
-    if (_isEmpty(onboarding['selfIntroduction'])) {
+    if (!onboarding.containsKey('selfIntroduction')) {
       return RouteNames.onboardingSelfIntro;
     }
     final profileQa = onboarding['profileQa'];
-    if (profileQa == null || (profileQa is List && profileQa.isEmpty)) {
+    if (!onboarding.containsKey('profileQa') || profileQa == null) {
       return RouteNames.onboardingProfileQa;
     }
     final keywords = onboarding['keywords'];
@@ -283,6 +299,9 @@ class AuthService {
     }
     if (idealType['preferredLifestyles'] == null) {
       return RouteNames.onboardingIdealLifestyle;
+    }
+    if (idealType['preferredPersonalities'] == null) {
+      return RouteNames.onboardingIdealPersonality;
     }
     return null;
   }
@@ -323,6 +342,8 @@ class AuthService {
     required String email,
     required String continueUrl,
   }) async {
+    await _firebaseAuth.setLanguageCode('ko');
+
     final acs = ActionCodeSettings(
       url: continueUrl,
       handleCodeInApp: true,
@@ -350,20 +371,9 @@ class AuthService {
   }
 
   Future<bool> ensureFirebaseSessionForKakao(String kakaoUserId) async {
-    FirebaseDiagnostics.logAuthBridgePhase(
-      'firebase_session_prepare_start',
-      kakaoUserId: kakaoUserId,
-    );
-
     try {
       if (await _hasMatchingFirebaseSession(kakaoUserId)) {
-        FirebaseDiagnostics.logAuthBridgePhase(
-          'firebase_session_already_attached',
-          kakaoUserId: kakaoUserId,
-        );
-        debugPrint(
-          '[Auth] Firebase session attached ${PrivacyLogUtils.idFingerprint(kakaoUserId)}',
-        );
+        debugPrint('[Auth] Firebase session already attached to $kakaoUserId');
         return true;
       }
 
@@ -373,105 +383,41 @@ class AuthService {
       final accessToken = kakaoToken?.accessToken.trim() ?? '';
 
       if (accessToken.isEmpty) {
-        FirebaseDiagnostics.logAuthBridgePhase(
-          'kakao_access_token_missing',
-          kakaoUserId: kakaoUserId,
-        );
         debugPrint(
           '[Auth] No Kakao access token available for Firebase auth bridge',
         );
         return false;
       }
 
-      FirebaseDiagnostics.logAuthBridgePhase(
-        'kakao_access_token_info_start',
-        kakaoUserId: kakaoUserId,
-      );
       await UserApi.instance.accessTokenInfo();
-      FirebaseDiagnostics.logAuthBridgePhase(
-        'kakao_access_token_info_success',
-        kakaoUserId: kakaoUserId,
-      );
 
       final callable = _functions.httpsCallable('createFirebaseCustomToken');
-      FirebaseDiagnostics.logAuthBridgePhase(
-        'firebase_custom_token_request_start',
-        kakaoUserId: kakaoUserId,
-      );
       final result = await callable.call(<String, dynamic>{
         'accessToken': accessToken,
       });
-      FirebaseDiagnostics.logAuthBridgePhase(
-        'firebase_custom_token_request_success',
-        kakaoUserId: kakaoUserId,
-      );
       final data = Map<String, dynamic>.from(
         (result.data as Map?)?.cast<String, dynamic>() ?? const {},
       );
       final customToken = data['customToken']?.toString() ?? '';
       if (customToken.isEmpty) {
-        FirebaseDiagnostics.logAuthBridgePhase(
-          'firebase_custom_token_response_empty',
-          kakaoUserId: kakaoUserId,
-        );
         debugPrint('[Auth] Firebase custom token response was empty');
         return false;
       }
 
-      FirebaseDiagnostics.logAuthBridgePhase(
-        'firebase_custom_token_signin_start',
-        kakaoUserId: kakaoUserId,
-      );
       final credential = await _firebaseAuth.signInWithCustomToken(customToken);
       await credential.user?.getIdToken(true);
-      FirebaseDiagnostics.logAuthBridgePhase(
-        'firebase_custom_token_signin_success',
-        kakaoUserId: kakaoUserId,
-      );
-      debugPrint(
-        '[Auth] Firebase custom auth ${PrivacyLogUtils.idFingerprint(kakaoUserId)}',
-      );
+      debugPrint('[Auth] Firebase custom auth attached to $kakaoUserId');
       return true;
     } on FirebaseFunctionsException catch (e, st) {
-      FirebaseDiagnostics.logAuthBridgePhase(
-        'firebase_custom_token_request_failed',
-        kakaoUserId: kakaoUserId,
-        error: e,
-        stackTrace: st,
-      );
       debugPrint(
         '[Auth] ensureFirebaseSessionForKakao functions error: '
-        'code=${e.code} '
-        'message=${FirebaseDiagnostics.safeErrorForLog(e.message)}',
+        'code=${e.code} message=${e.message} details=${e.details}',
       );
-
-      return false;
-    } on FirebaseAuthException catch (e, st) {
-      FirebaseDiagnostics.logAuthBridgePhase(
-        'firebase_custom_token_signin_failed',
-        kakaoUserId: kakaoUserId,
-        error: e,
-        stackTrace: st,
-      );
-      debugPrint(
-        '[Auth] ensureFirebaseSessionForKakao FirebaseAuth error: '
-        'code=${e.code} '
-        'message=${FirebaseDiagnostics.safeErrorForLog(e.message)}',
-      );
-
+      debugPrint(st.toString());
       return false;
     } catch (e, st) {
-      FirebaseDiagnostics.logAuthBridgePhase(
-        'firebase_session_prepare_failed',
-        kakaoUserId: kakaoUserId,
-        error: e,
-        stackTrace: st,
-      );
-      debugPrint(
-        '[Auth] ensureFirebaseSessionForKakao error: '
-        '${FirebaseDiagnostics.safeErrorForLog(e)}',
-      );
-
+      debugPrint('[Auth] ensureFirebaseSessionForKakao error: $e');
+      debugPrint(st.toString());
       return false;
     }
   }
@@ -480,15 +426,13 @@ class AuthService {
     try {
       if (await _hasMatchingFirebaseSession(kakaoUserId)) {
         debugPrint(
-          '[Auth] Existing Firebase session '
-          '${PrivacyLogUtils.idFingerprint(kakaoUserId)}',
+          '[Auth] Existing Firebase session is available for verified user '
+          '(kakaoUserId=$kakaoUserId)',
         );
         return true;
       }
     } catch (e) {
-      debugPrint(
-        '[Auth] Existing Firebase session refresh ${PrivacyLogUtils.errorSummary(e)}',
-      );
+      debugPrint('[Auth] Existing Firebase session refresh failed: $e');
     }
 
     await _signOutFirebaseIfMismatched(kakaoUserId);
@@ -522,25 +466,23 @@ class AuthService {
           );
           await credential.user?.getIdToken(true);
           debugPrint(
-            '[Auth] Firebase session restored '
-            '${PrivacyLogUtils.idFingerprint(kakaoUserId)}',
+            '[Auth] Firebase session restored from student verification token '
+            'for $kakaoUserId',
           );
           return true;
         }
         debugPrint(
           '[Auth] Email-link token bridge returned empty custom token',
         );
-      } on FirebaseFunctionsException catch (e) {
+      } on FirebaseFunctionsException catch (e, st) {
         debugPrint(
           '[Auth] ensureFirebaseSessionForVerifiedUser functions error: '
-          'code=${e.code} '
-          'message=${FirebaseDiagnostics.safeErrorForLog(e.message)}',
+          'code=${e.code} message=${e.message} details=${e.details}',
         );
-      } catch (e) {
-        debugPrint(
-          '[Auth] ensureFirebaseSessionForVerifiedUser error: '
-          '${FirebaseDiagnostics.safeErrorForLog(e)}',
-        );
+        debugPrint(st.toString());
+      } catch (e, st) {
+        debugPrint('[Auth] ensureFirebaseSessionForVerifiedUser error: $e');
+        debugPrint(st.toString());
       }
     } else {
       debugPrint(
@@ -554,14 +496,16 @@ class AuthService {
   Future<void> signOutAll() async {
     try {
       await _firebaseAuth.signOut();
-    } catch (e) {
-      debugPrint('[Auth] Firebase signOut ${PrivacyLogUtils.errorSummary(e)}');
+    } catch (e, st) {
+      debugPrint('[Auth] Firebase signOut failed: $e');
+      debugPrint(st.toString());
     }
 
     try {
       await UserApi.instance.logout();
-    } catch (e) {
-      debugPrint('[Auth] Kakao logout ${PrivacyLogUtils.errorSummary(e)}');
+    } catch (e, st) {
+      debugPrint('[Auth] Kakao logout failed: $e');
+      debugPrint(st.toString());
     }
   }
 
@@ -578,9 +522,7 @@ class AuthService {
         await UserApi.instance.accessTokenInfo();
         return accessToken;
       } catch (e) {
-        debugPrint(
-          '[Auth] Kakao access token ${PrivacyLogUtils.errorSummary(e)}',
-        );
+        debugPrint('[Auth] Kakao access token is not usable anymore: $e');
         // 만료·폐기 토큰이 로컬에 남아 있으면 이후 호출이 계속 실패하므로 세션 정리
         final msg = e.toString();
         if (msg.contains('-401') || msg.contains('does not exist')) {
@@ -589,19 +531,15 @@ class AuthService {
             debugPrint('[Auth] Kakao logout after invalid access token');
           } catch (logoutErr) {
             debugPrint(
-              '[Auth] Kakao logout after invalid token '
-              '${PrivacyLogUtils.errorSummary(logoutErr)}',
+              '[Auth] Kakao logout after invalid token failed: $logoutErr',
             );
           }
         }
         return null;
       }
-    } catch (e) {
-      debugPrint(
-        '[Auth] getKakaoAccessTokenForFunctions '
-        '${PrivacyLogUtils.errorSummary(e)}',
-      );
-
+    } catch (e, st) {
+      debugPrint('[Auth] getKakaoAccessTokenForFunctions: $e');
+      debugPrint('$st');
       return null;
     }
   }

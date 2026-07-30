@@ -1,4 +1,3 @@
-import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 // =============================================================================
 // 팀 구성(3명) 화면 — Firestore eventTeamSetups 실시간 동기화
 // =============================================================================
@@ -17,6 +16,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/event_team_service.dart';
 import '../../../services/team_meeting_request_service.dart';
 import '../../../services/kakao_friend_invite_helper.dart';
+import '../../../services/kakao_talk_friend_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 
@@ -44,6 +44,8 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
   final AuthService _auth = AuthService();
   final UserService _userService = UserService();
   final EventTeamService _eventTeam = EventTeamService();
+  final KakaoTalkFriendService _kakaoTalkFriendService =
+      KakaoTalkFriendService();
 
   String? _kakaoUserId;
   bool _sessionOk = false;
@@ -56,6 +58,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
   /// Cloud Function 등에서 온 실제 사유 (Wi-Fi와 무관한 경우가 많음)
   String? _bootstrapErrorDetail;
   String _kakaoShareName = '친구';
+  bool _isSendingKakaoInvite = false;
 
   @override
   void initState() {
@@ -113,8 +116,8 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
         _bootstrapErrorDetail = null;
         _bootstrapComplete = true;
       });
-    } catch (e) {
-      debugPrint('TeamSetup bootstrap: ${PrivacyLogUtils.errorSummary(e)}');
+    } catch (e, st) {
+      debugPrint('TeamSetup bootstrap: $e\n$st');
       final saved = await _storage.getEventTeamSetupDraftId(uid);
       final recovered = await _eventTeam.recoverTeamSetupIfLeader(
         kakaoUserId: uid,
@@ -233,15 +236,184 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
       }
     }
     HapticFeedback.mediumImpact();
+    setState(() => _isSendingKakaoInvite = true);
     try {
-      await KakaoFriendInviteHelper.createAndShareKakaoInvite(
-        inviterDisplayName: _kakaoShareName,
+      await _kakaoTalkFriendService.ensureRequiredConsents(
+        requireTalkMessage: true,
       );
+      final result = await _kakaoTalkFriendService.fetchFriends(
+        requestConsentIfNeeded: false,
+      );
+      if (!mounted) return;
+
+      if (result.friends.isEmpty) {
+        _briefAlert(
+          '카카오톡 친구가 조회되지 않았습니다. 상대방도 앱 팀멤버로 등록되어 있고, 설레연에 카카오 로그인 및 친구목록/메시지 동의가 필요합니다.',
+        );
+        return;
+      }
+
+      final friend = await _showKakaoFriendPicker(result.friends);
+      if (!mounted || friend == null) return;
+      if (!friend.canReceiveMessage) {
+        _briefAlert('이 친구는 카카오톡 메시지 수신을 허용하지 않았어요. 다른 친구를 선택해주세요.');
+        return;
+      }
+
+      final invite = await KakaoFriendInviteHelper.createKakaoInvitePayload();
+      final sendResult = await _kakaoTalkFriendService.sendMeetingInviteMessage(
+        receiverUuid: friend.uuid,
+        inviterName: _kakaoShareName,
+        inviteUrl: Uri.parse(invite.inviteUrl),
+      );
+      if (!mounted) return;
+
+      if (sendResult.sent) {
+        _briefAlert('카카오톡 초대 메시지를 보냈습니다.');
+      } else {
+        _briefAlert('메시지 발송에 실패했습니다. 친구가 앱에 연결되어 있고 메시지 권한에 동의했는지 확인해 주세요.');
+      }
     } catch (e) {
       if (mounted) {
-        _briefAlert(e.toString().replaceFirst('Exception: ', ''));
+        _briefAlert(_formatKakaoInviteError(e));
       }
+    } finally {
+      if (mounted) setState(() => _isSendingKakaoInvite = false);
     }
+  }
+
+  Future<KakaoTalkFriendItem?> _showKakaoFriendPicker(
+    List<KakaoTalkFriendItem> friends,
+  ) {
+    return showCupertinoModalPopup<KakaoTalkFriendItem>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Container(
+          height: MediaQuery.of(sheetContext).size.height * 0.62,
+          decoration: const BoxDecoration(
+            color: CupertinoColors.systemBackground,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 18, 12, 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '카카오톡 친구 선택',
+                        style: TextStyle(
+                          fontFamily: 'NanumSquareRound',
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: _AppColors.textMain,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  '선택한 친구에게만 3:3 미팅 초대 메시지를 보냅니다.',
+                  style: TextStyle(
+                    fontFamily: 'NanumSquareRound',
+                    fontSize: 13,
+                    color: _AppColors.textSub,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
+                  itemCount: friends.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 4),
+                  itemBuilder: (_, index) {
+                    final friend = friends[index];
+                    return CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: friend.canReceiveMessage
+                          ? () => Navigator.of(sheetContext).pop(friend)
+                          : null,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                        decoration: BoxDecoration(
+                          color: friend.canReceiveMessage
+                              ? const Color(0xFFF7F7F8)
+                              : const Color(0xFFF1F1F1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              CupertinoIcons.person_circle,
+                              color: _AppColors.kakaoYellow,
+                              size: 30,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    friend.maskedNickname,
+                                    style: const TextStyle(
+                                      fontFamily: 'NanumSquareRound',
+                                      fontWeight: FontWeight.w700,
+                                      color: _AppColors.textMain,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    friend.canReceiveMessage
+                                        ? 'UUID 있음: ${friend.maskedUuid}'
+                                        : '메시지 수신 불가',
+                                    style: const TextStyle(
+                                      fontFamily: 'NanumSquareRound',
+                                      fontSize: 12,
+                                      color: _AppColors.textSub,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(
+                              CupertinoIcons.chevron_right,
+                              color: _AppColors.textSub,
+                              size: 16,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatKakaoInviteError(Object error) {
+    final message = error.toString().replaceFirst('Exception: ', '');
+    if (message.contains('insufficient scopes') ||
+        message.contains('required_scopes') ||
+        message.contains('-402')) {
+      return '카카오 친구목록 또는 메시지 전송 동의가 필요해요. 카카오 로그인 동의 후 다시 시도해주세요.';
+    }
+    if (message.toLowerCase().contains('cancel')) {
+      return '카카오 추가 동의가 취소되었어요. 친구 목록과 메시지 전송 동의 후 다시 시도해주세요.';
+    }
+    return message;
   }
 
   void _briefAlert(String message) {
@@ -329,7 +501,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
                               '팀을 구성하려면 로그인이 필요해요.',
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 14,
                                 height: 1.45,
                                 color: _AppColors.textSub,
@@ -351,7 +523,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
                                       : '팀을 준비하는 중이에요…',
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
-                                    fontFamily: 'Pretendard',
+                                    fontFamily: 'NanumSquareRound',
                                     fontSize: 14,
                                     height: 1.45,
                                     color: _AppColors.textSub,
@@ -363,7 +535,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
                                     '와이파이가 아니라 로그인·연세 인증·서버 응답 문제일 수 있어요.',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
-                                      fontFamily: 'Pretendard',
+                                      fontFamily: 'NanumSquareRound',
                                       fontSize: 12,
                                       height: 1.4,
                                       color: _AppColors.textSub,
@@ -379,7 +551,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
                                     child: const Text(
                                       '다시 시도',
                                       style: TextStyle(
-                                        fontFamily: 'Pretendard',
+                                        fontFamily: 'NanumSquareRound',
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
@@ -400,7 +572,10 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
                         const SizedBox(height: 32),
                         const _HelperText(),
                         const SizedBox(height: 32),
-                        _InviteButtons(onKakao: _kakaoInvite),
+                        _InviteButtons(
+                          onKakao: _isSendingKakaoInvite ? null : _kakaoInvite,
+                          isKakaoBusy: _isSendingKakaoInvite,
+                        ),
                         const SizedBox(height: 100),
                       ],
                     ),
@@ -870,7 +1045,7 @@ class _Header extends StatelessWidget {
           const Text(
             '3명 팀으로 참여해요',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 18,
               fontWeight: FontWeight.w700,
               color: _AppColors.textMain,
@@ -955,7 +1130,7 @@ class _PendingBadge extends StatelessWidget {
             child: Text(
               count > 9 ? '9+' : '$count',
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 9,
                 fontWeight: FontWeight.w800,
                 color: CupertinoColors.white,
@@ -1028,9 +1203,10 @@ class _HelperText extends StatelessWidget {
 }
 
 class _InviteButtons extends StatelessWidget {
-  final VoidCallback onKakao;
+  final VoidCallback? onKakao;
+  final bool isKakaoBusy;
 
-  const _InviteButtons({required this.onKakao});
+  const _InviteButtons({required this.onKakao, required this.isKakaoBusy});
 
   @override
   Widget build(BuildContext context) {
@@ -1053,18 +1229,21 @@ class _InviteButtons extends StatelessWidget {
                   ),
                 ],
               ),
-              child: const Row(
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    CupertinoIcons.chat_bubble_fill,
-                    color: _AppColors.kakaoYellow,
-                    size: 20,
-                  ),
-                  SizedBox(width: 8),
+                  if (isKakaoBusy)
+                    const CupertinoActivityIndicator()
+                  else
+                    const Icon(
+                      CupertinoIcons.chat_bubble_fill,
+                      color: _AppColors.kakaoYellow,
+                      size: 20,
+                    ),
+                  const SizedBox(width: 8),
                   Text(
-                    '카카오로 초대',
-                    style: TextStyle(
+                    isKakaoBusy ? '친구 불러오는 중' : '카카오로 초대',
+                    style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.textMain,

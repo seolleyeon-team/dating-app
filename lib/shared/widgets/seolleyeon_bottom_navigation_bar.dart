@@ -39,7 +39,6 @@ class SeolleyeonBottomNavigationBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
     // ── Bar background ──
     // Light: translucent ivory-white + soft lavender tint (frosted)
     // Dark: translucent charcoal-plum glass
@@ -164,7 +163,7 @@ class _SeolNavItem extends StatelessWidget {
       selected: isActive,
       child: CupertinoButton(
         padding: EdgeInsets.zero,
-        minimumSize: Size.zero,
+        minSize: 0,
         onPressed: onTap,
         child: SizedBox(
           width: 48,
@@ -198,7 +197,7 @@ class _SeolNavItem extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 10,
                   fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
                   color: isActive ? primary : inactiveColor,

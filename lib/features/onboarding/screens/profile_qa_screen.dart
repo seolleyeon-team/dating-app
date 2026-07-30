@@ -21,14 +21,14 @@ import '../../../services/user_service.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFEF3976);
-  static const Color backgroundLight = Color(0xFFF8F6F6);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color backgroundLight = Color(0xFFFAFAFA);
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color textMain = Color(0xFF181113);
   static const Color textSub = Color(0xFF89616F);
   static const Color textGray = Color(0xFF9CA3AF);
   static const Color border = Color(0xFFE5E7EB);
-  static const Color progressBg = Color(0xFFE6DBDF);
+  static const Color progressBg = Color(0xFFEDE8EB);
 }
 
 // =============================================================================
@@ -54,8 +54,8 @@ class ProfileQaScreen extends StatefulWidget {
 
   const ProfileQaScreen({
     super.key,
-    this.currentStep = 7,
-    this.totalSteps = 8,
+    this.currentStep = 8,
+    this.totalSteps = 9,
     this.onBack,
     this.onComplete,
     this.onSkip,
@@ -79,6 +79,9 @@ class _ProfileQaScreenState extends State<ProfileQaScreen> {
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
   bool _isSavingOnExit = false;
+
+  bool get _hasAnyAnswer =>
+      _questions.any((q) => (q.answer ?? '').trim().isNotEmpty);
 
   @override
   void initState() {
@@ -112,8 +115,8 @@ class _ProfileQaScreenState extends State<ProfileQaScreen> {
     try {
       await OnboardingSaveHelper.saveProfileQa(
         _questions
-            .where((q) => q.answer != null && q.answer!.isNotEmpty)
-            .map((q) => {'question': q.question, 'answer': q.answer!})
+            .where((q) => (q.answer ?? '').trim().isNotEmpty)
+            .map((q) => {'question': q.question, 'answer': q.answer!.trim()})
             .toList(),
       );
     } finally {
@@ -148,6 +151,17 @@ class _ProfileQaScreenState extends State<ProfileQaScreen> {
     });
   }
 
+  Future<void> _goNext() async {
+    HapticFeedback.mediumImpact();
+    await _saveCurrentProfileQa();
+    if (!mounted) return;
+    if (widget.onComplete != null) {
+      widget.onComplete!.call();
+    } else {
+      Navigator.of(context).pushNamed(RouteNames.onboardingKeywords);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -164,6 +178,7 @@ class _ProfileQaScreenState extends State<ProfileQaScreen> {
           body: SafeArea(
             child: Stack(
               children: [
+                const Positioned.fill(child: _SubtleBackgroundGradient()),
                 Column(
                   children: [
                     // 헤더
@@ -206,14 +221,18 @@ class _ProfileQaScreenState extends State<ProfileQaScreen> {
                             // 건너뛰기 버튼
                             Center(
                               child: CupertinoButton(
-                                onPressed: () {
+                                onPressed: () async {
                                   HapticFeedback.lightImpact();
-                                  widget.onSkip?.call();
+                                  if (widget.onSkip != null) {
+                                    widget.onSkip!.call();
+                                  } else {
+                                    await _goNext();
+                                  }
                                 },
                                 child: const Text(
                                   '다음에 입력하기 (건너뛰기)',
                                   style: TextStyle(
-                                    fontFamily: 'Pretendard',
+                                    fontFamily: 'NanumSquareRound',
                                     fontSize: 14,
                                     fontWeight: FontWeight.w500,
                                     color: _AppColors.textGray,
@@ -247,25 +266,14 @@ class _ProfileQaScreenState extends State<ProfileQaScreen> {
                       ),
                     ),
                     padding: EdgeInsets.fromLTRB(
-                      20,
-                      20,
-                      20,
-                      MediaQuery.of(context).padding.bottom + 20,
+                      24,
+                      16,
+                      24,
+                      MediaQuery.of(context).padding.bottom + 24,
                     ),
                     child: CupertinoButton(
                       padding: EdgeInsets.zero,
-                      onPressed: () async {
-                        HapticFeedback.mediumImpact();
-                        await _saveCurrentProfileQa();
-                        if (!context.mounted) return;
-                        if (widget.onComplete != null) {
-                          widget.onComplete!.call();
-                        } else {
-                          Navigator.of(
-                            context,
-                          ).pushNamed(RouteNames.onboardingKeywords);
-                        }
-                      },
+                      onPressed: _goNext,
                       child: Container(
                         height: 56,
                         decoration: BoxDecoration(
@@ -273,21 +281,32 @@ class _ProfileQaScreenState extends State<ProfileQaScreen> {
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: [
                             BoxShadow(
-                              color: _AppColors.primary.withValues(alpha: 0.3),
-                              blurRadius: 12,
+                              color: _AppColors.primary.withValues(alpha: 0.24),
+                              blurRadius: 16,
                               offset: const Offset(0, 6),
                             ),
                           ],
                         ),
-                        child: const Center(
-                          child: Text(
-                            '다음',
-                            style: TextStyle(
-                              fontFamily: 'Pretendard',
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
+                        child: Center(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _hasAnyAnswer ? '다음' : '그냥 넘어갈게요',
+                                style: const TextStyle(
+                                  fontFamily: 'NanumSquareRound',
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              const Icon(
+                                Icons.arrow_forward_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -297,6 +316,27 @@ class _ProfileQaScreenState extends State<ProfileQaScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SubtleBackgroundGradient extends StatelessWidget {
+  const _SubtleBackgroundGradient();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFEDE8EB).withValues(alpha: 0.16),
+            _AppColors.backgroundLight,
+            Colors.white.withValues(alpha: 0.96),
+          ],
         ),
       ),
     );
@@ -382,7 +422,7 @@ class _Headline extends StatelessWidget {
         const Text(
           '프로필 문답',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 28,
             fontWeight: FontWeight.bold,
             color: _AppColors.textMain,
@@ -395,7 +435,7 @@ class _Headline extends StatelessWidget {
         RichText(
           text: const TextSpan(
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 15,
               color: _AppColors.textSub,
               height: 1.5,
@@ -417,7 +457,7 @@ class _Headline extends StatelessWidget {
         const Text(
           '솔직한 답변은 매력적인 프로필을 만들어요.',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 14,
             color: _AppColors.textSub,
           ),
@@ -493,7 +533,7 @@ class _QuestionCard extends StatelessWidget {
                         Text(
                           'QUESTION ${(index + 1).toString().padLeft(2, '0')}',
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
                             color: isExpanded
@@ -506,7 +546,7 @@ class _QuestionCard extends StatelessWidget {
                         Text(
                           question.question,
                           style: const TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                             color: _AppColors.textMain,
@@ -556,7 +596,7 @@ class _QuestionCard extends StatelessWidget {
                           maxLength: 100,
                           maxLines: 4,
                           style: const TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 15,
                             height: 1.6,
                             color: _AppColors.textMain,
@@ -564,7 +604,7 @@ class _QuestionCard extends StatelessWidget {
                           decoration: InputDecoration(
                             hintText: '짧게라도 좋아요! 취미나 휴식 방법을 알려주세요.',
                             hintStyle: const TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               color: _AppColors.textGray,
                               fontSize: 14,
                             ),
@@ -598,7 +638,7 @@ class _QuestionCard extends StatelessWidget {
                           child: Text(
                             '${question.answer?.length ?? 0}/100',
                             style: const TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
                               color: _AppColors.textGray,

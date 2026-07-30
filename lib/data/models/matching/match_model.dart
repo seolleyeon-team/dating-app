@@ -2,8 +2,6 @@
 class MatchModel {
   final String id;
   final MatchedUser user;
-  // Legacy compatibility only. Do not use for public display.
-  // Use ProfileDisplayImageResolver or approved avatar fields instead.
   final List<String> photoUrls;
   final double matchScore;
   final List<String> commonInterests;
@@ -41,6 +39,7 @@ class MatchModel {
     return {
       'id': id,
       'user': user.toJson(),
+      'photoUrls': photoUrls,
       'matchScore': matchScore,
       'commonInterests': commonInterests,
       'createdAt': createdAt.toIso8601String(),

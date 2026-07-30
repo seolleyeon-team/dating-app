@@ -179,7 +179,7 @@ class _TeamFriendPickerScreenState extends State<TeamFriendPickerScreen> {
         middle: const Text(
           '친구 초대',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontWeight: FontWeight.w700,
             color: _Colors.textMain,
           ),
@@ -201,7 +201,7 @@ class _TeamFriendPickerScreenState extends State<TeamFriendPickerScreen> {
                     child: Text(
                       '로그인이 필요해요',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         color: _Colors.textSub,
                       ),
                     ),
@@ -214,7 +214,7 @@ class _TeamFriendPickerScreenState extends State<TeamFriendPickerScreen> {
                             '학교 이메일 인증이 완료된 계정에서 친구 목록을 열 수 있어요.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 14,
                               height: 1.45,
                               color: _Colors.textSub,
@@ -240,7 +240,7 @@ class _TeamFriendPickerScreenState extends State<TeamFriendPickerScreen> {
                               child: Text(
                                 '팀 정보를 찾을 수 없어요',
                                 style: TextStyle(
-                                  fontFamily: 'Pretendard',
+                                  fontFamily: 'NanumSquareRound',
                                   color: _Colors.textSub,
                                 ),
                               ),
@@ -254,7 +254,7 @@ class _TeamFriendPickerScreenState extends State<TeamFriendPickerScreen> {
                                   '이 팀의 리더만 친구를 초대할 수 있어요.',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
-                                    fontFamily: 'Pretendard',
+                                    fontFamily: 'NanumSquareRound',
                                     color: _Colors.textSub,
                                   ),
                                 ),
@@ -283,7 +283,7 @@ class _TeamFriendPickerScreenState extends State<TeamFriendPickerScreen> {
                                       ? '지금은 더 초대할 수 있는 자리가 없어요.'
                                       : '최대 $remaining명까지 선택할 수 있어요.',
                                   style: const TextStyle(
-                                    fontFamily: 'Pretendard',
+                                    fontFamily: 'NanumSquareRound',
                                     fontSize: 13,
                                     color: _Colors.textSub,
                                   ),
@@ -337,7 +337,7 @@ class _TeamFriendPickerScreenState extends State<TeamFriendPickerScreen> {
                                             '초대 보내기'
                                                 '${_selected.isEmpty ? '' : ' (${_selected.length})'}',
                                             style: TextStyle(
-                                              fontFamily: 'Pretendard',
+                                              fontFamily: 'NanumSquareRound',
                                               fontSize: 16,
                                               fontWeight: FontWeight.w700,
                                               color: _selected.isEmpty ||

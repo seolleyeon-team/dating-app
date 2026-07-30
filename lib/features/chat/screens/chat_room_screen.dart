@@ -12,12 +12,10 @@ import '../services/promise_place_service.dart';
 import '../utils/safety_stamp_availability.dart';
 import '../widgets/promise_place_picker_sheet.dart';
 import 'safety_stamp_screen.dart';
-import '../../../services/chat_profile_photo_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../services/push_notification_service.dart';
 import '../../../router/route_names.dart';
-import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
 import '../../matching/models/profile_card_args.dart';
 import '../../../core/constants/app_colors.dart';
@@ -32,8 +30,6 @@ class _AppColors {
   /// 연한 보라 채우기용 알파 (버튼·칩 배경 — 약 30% 더 연하게 조정 시 배수)
   static const double promiseFillAlpha = 0.29;
   static const double promiseFillAlphaLight = 0.25;
-  static const double promiseBorderAlpha = 0.39;
-  static const double promiseBorderAlphaStrong = 0.43;
   static const Color backgroundLight = Color(0xFFFAFAFC);
   static const Color bubbleUser = Color(0xFFF5F2EE);
   static const Color bubblePartner = Color(0xFFF0F3F5);
@@ -48,6 +44,8 @@ class _AppColors {
 enum MessageType {
   received,
   sent,
+  system,
+  hidden,
   promiseRequest,
   promiseConfirmed,
   promiseInProgress,
@@ -73,6 +71,28 @@ String _promiseDetailSubtitle({
   if (cat.isNotEmpty) parts.add(cat);
   if (pl.isNotEmpty) parts.add(pl);
   return parts.join(' · ');
+}
+
+List<BoxShadow> _promiseSoftShadow(
+  BuildContext context,
+  Color accentColor, {
+  double opacity = 0.16,
+}) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  return [
+    BoxShadow(
+      color: isDark
+          ? CupertinoColors.black.withValues(alpha: 0.24)
+          : accentColor.withValues(alpha: opacity),
+      blurRadius: 20,
+      offset: const Offset(0, 8),
+    ),
+    BoxShadow(
+      color: CupertinoColors.black.withValues(alpha: isDark ? 0.18 : 0.04),
+      blurRadius: 8,
+      offset: const Offset(0, 2),
+    ),
+  ];
 }
 
 class _ChatMessage {
@@ -209,50 +229,79 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
   final ChatService _chatService = ChatService();
-  final ChatProfilePhotoService _chatProfilePhotoService =
-      ChatProfilePhotoService();
 
   String? _currentUserId;
   String _currentUserName = '나';
   String? _currentUserAvatarUrl;
   String _roomId = '';
-  String? _partnerDisplayAvatarUrl;
   String? _initError;
   bool _isReady = false;
   bool _isSending = false;
-  bool _isNearBottom = true;
-  bool _pendingForceScrollToBottom = true;
+  bool _didInitialScrollToBottom = false;
+  bool _isSettlingInitialScrollToBottom = false;
+  bool _isProgrammaticInitialScroll = false;
+  bool _userScrolledDuringInitialScroll = false;
   bool _isCancellingExpiredPromise = false;
   DateTime _currentNow = DateTime.now();
   Timer? _safetyStampTimer;
-  String? _lastMessageSnapshotSignature;
 
-  void _openPartnerProfileCard() {
+  Future<void> _openPartnerProfileCard() async {
     if (widget.partnerId.isEmpty) return;
+    if (_roomId.isNotEmpty) {
+      final roomDoc = await _chatService.roomStream(_roomId).first;
+      if (_isPartnerWithdrawn(roomDoc.data())) return;
+    }
+    if (!mounted) return;
 
     Navigator.of(context, rootNavigator: true).pushNamed(
       RouteNames.profileSpecificDetail,
-      arguments: ProfileCardArgs.fromChat(
-        userId: widget.partnerId,
-        chatRoomId: _roomId.isNotEmpty ? _roomId : widget.chatRoomId,
-      ),
+      arguments: ProfileCardArgs.fromChat(userId: widget.partnerId),
     );
   }
 
-  Future<void> _refreshPartnerChatPhoto() async {
-    if (_roomId.isEmpty || widget.partnerId.isEmpty) return;
-    final fallbackAvatarUrl = widget.partnerAvatarUrl ?? _defaultAvatarUrl;
-    final result = await _chatProfilePhotoService.getChatProfilePhoto(
-      chatRoomId: _roomId,
-      targetUid: widget.partnerId,
-      fallbackAvatarUrl: fallbackAvatarUrl,
+  bool _isPartnerWithdrawn(Map<String, dynamic>? roomData) {
+    return ChatService.isParticipantWithdrawnInRoomData(
+      roomData,
+      widget.partnerId,
     );
-    if (!mounted) return;
-    setState(() {
-      _partnerDisplayAvatarUrl = result.imageUrl.isNotEmpty
-          ? result.imageUrl
-          : fallbackAvatarUrl;
-    });
+  }
+
+  Map<String, dynamic> _partnerInfoFromRoom(Map<String, dynamic>? roomData) {
+    final participantInfo = roomData?['participantInfo'];
+    if (participantInfo is! Map) return <String, dynamic>{};
+    final raw = participantInfo[widget.partnerId];
+    if (raw is! Map) return <String, dynamic>{};
+    return Map<String, dynamic>.from(raw);
+  }
+
+  String _partnerDisplayName(Map<String, dynamic>? roomData) {
+    if (_isPartnerWithdrawn(roomData)) return UserService.withdrawnDisplayName;
+    final roomName = _partnerInfoFromRoom(roomData)['nickname']?.toString();
+    if (roomName != null && roomName.trim().isNotEmpty) return roomName;
+    return widget.partnerName;
+  }
+
+  Future<bool> _ensurePartnerCanReceiveMessages() async {
+    if (_roomId.isEmpty || widget.partnerId.isEmpty) return false;
+
+    final roomDoc = await _chatService.roomStream(_roomId).first;
+    if (!_isPartnerWithdrawn(roomDoc.data())) return true;
+
+    if (!mounted) return false;
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('대화할 수 없어요'),
+        content: const Text('상대방이 계정을 탈퇴해 더 이상 메시지나 약속 요청을 보낼 수 없습니다.'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
+    return false;
   }
 
   void _startSafetyStampTimer() {
@@ -322,6 +371,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         roomId: _roomId,
         promiseId: promiseId,
       );
+    } catch (e) {
+      debugPrint(
+        '[ChatRoom] cancelExpiredIncompleteSafetyStamp failed '
+        'room=$_roomId promise=$promiseId: $e',
+      );
     } finally {
       _isCancellingExpiredPromise = false;
     }
@@ -330,7 +384,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_handleScrollChanged);
+    _scrollController.addListener(_handleInitialScrollChanged);
     _startSafetyStampTimer();
     _initChat();
   }
@@ -342,7 +396,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
     _safetyStampTimer?.cancel();
     _messageController.dispose();
-    _scrollController.removeListener(_handleScrollChanged);
+    _scrollController.removeListener(_handleInitialScrollChanged);
     _scrollController.dispose();
     super.dispose();
   }
@@ -355,61 +409,88 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     super.deactivate();
   }
 
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-      );
-    });
-  }
-
-  void _handleScrollChanged() {
-    if (!_scrollController.hasClients) return;
-
-    final position = _scrollController.position;
-    final distanceFromBottom = position.maxScrollExtent - position.pixels;
-    _isNearBottom = distanceFromBottom <= 96;
-  }
-
-  void _maybeAutoScrollToBottom(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> messageDocs,
-  ) {
-    final lastMessageId = messageDocs.isEmpty ? 'empty' : messageDocs.last.id;
-    final nextSignature = '${messageDocs.length}:$lastMessageId';
-    final hasSnapshotChanged = nextSignature != _lastMessageSnapshotSignature;
-
-    if (_lastMessageSnapshotSignature == null) {
-      _lastMessageSnapshotSignature = nextSignature;
-      _pendingForceScrollToBottom = false;
-      _scrollToBottom();
+  void _handleInitialScrollChanged() {
+    if (!_isSettlingInitialScrollToBottom || _isProgrammaticInitialScroll) {
       return;
     }
+    _userScrolledDuringInitialScroll = true;
+  }
 
-    _lastMessageSnapshotSignature = nextSignature;
+  void _scrollToBottomOnceOnOpen() {
+    if (_didInitialScrollToBottom) return;
+    _didInitialScrollToBottom = true;
+    _isSettlingInitialScrollToBottom = true;
+    _userScrolledDuringInitialScroll = false;
 
-    if (!hasSnapshotChanged) return;
-    if (!_pendingForceScrollToBottom && !_isNearBottom) return;
+    const maxAttempts = 12;
+    const tolerance = 1.0;
+    double? previousMaxScrollExtent;
 
-    _pendingForceScrollToBottom = false;
-    _scrollToBottom();
+    void jumpAfterLayout({int attempt = 0}) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) {
+          _isSettlingInitialScrollToBottom = false;
+          return;
+        }
+        if (_userScrolledDuringInitialScroll) {
+          _isSettlingInitialScrollToBottom = false;
+          return;
+        }
+
+        final position = _scrollController.position;
+        if (!position.hasContentDimensions && attempt < 3) {
+          jumpAfterLayout(attempt: attempt + 1);
+          return;
+        }
+
+        final maxScrollExtent = position.maxScrollExtent;
+        _isProgrammaticInitialScroll = true;
+        try {
+          _scrollController.jumpTo(maxScrollExtent);
+        } finally {
+          _isProgrammaticInitialScroll = false;
+        }
+
+        final isStable =
+            previousMaxScrollExtent != null &&
+            (maxScrollExtent - previousMaxScrollExtent!).abs() <= tolerance;
+        final isAtBottom =
+            (position.maxScrollExtent - position.pixels).abs() <= tolerance;
+        previousMaxScrollExtent = maxScrollExtent;
+
+        if (attempt < maxAttempts && (!isStable || !isAtBottom)) {
+          jumpAfterLayout(attempt: attempt + 1);
+          return;
+        }
+
+        _isSettlingInitialScrollToBottom = false;
+      });
+    }
+
+    jumpAfterLayout();
   }
 
   void _markCurrentRoomAsRead() {
     if (_currentUserId == null || _roomId.isEmpty) return;
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await _chatService.markMessagesAsRead(
-        roomId: _roomId,
-        userId: _currentUserId!,
-      );
+      try {
+        await _chatService.markMessagesAsRead(
+          roomId: _roomId,
+          userId: _currentUserId!,
+        );
+      } catch (e) {
+        debugPrint('[ChatRoom] markMessagesAsRead failed room=$_roomId: $e');
+      }
     });
   }
 
   Future<void> _initChat() async {
     try {
+      debugPrint(
+        '[ChatRoom] _initChat begin partner=${widget.partnerId} '
+        'roomArg=${widget.chatRoomId}',
+      );
       final kakaoUserId = await _storageService.getKakaoUserId();
 
       if (kakaoUserId == null || kakaoUserId.isEmpty) {
@@ -419,41 +500,68 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         throw Exception('partnerId 없음');
       }
 
-      final user = await _userService.getUserProfile(kakaoUserId);
-      final onboarding = user?['onboarding'];
-
       _currentUserId = kakaoUserId;
-      _currentUserName = (onboarding is Map && onboarding['nickname'] != null)
-          ? onboarding['nickname'].toString()
-          : (user?['nickname']?.toString() ?? '나');
+      _currentUserName = '나';
+      _currentUserAvatarUrl = null;
 
-      final resolvedAvatarUrl = ProfileDisplayImageResolver.resolve(user);
-      _currentUserAvatarUrl = resolvedAvatarUrl.isEmpty
-          ? null
-          : resolvedAvatarUrl;
+      try {
+        final user = await _userService.getUserProfile(kakaoUserId);
+        final onboarding = user?['onboarding'];
+        _currentUserName =
+            (onboarding is Map && onboarding['nickname'] != null)
+            ? onboarding['nickname'].toString()
+            : (user?['nickname']?.toString() ?? '나');
+
+        String? resolvedAvatarUrl;
+        if (onboarding is Map) {
+          final photoUrlsRaw = onboarding['photoUrls'];
+          if (photoUrlsRaw is List && photoUrlsRaw.isNotEmpty) {
+            final firstPhoto = photoUrlsRaw.first?.toString() ?? '';
+            if (firstPhoto.isNotEmpty) {
+              resolvedAvatarUrl = firstPhoto;
+            }
+          }
+        }
+        resolvedAvatarUrl ??= user?['profileImageUrl']?.toString();
+        _currentUserAvatarUrl = resolvedAvatarUrl;
+      } catch (e) {
+        debugPrint('[ChatRoom] getUserProfile soft-fail: $e');
+      }
 
       _roomId = widget.chatRoomId.isNotEmpty
           ? widget.chatRoomId
           : _chatService.buildDirectRoomId(kakaoUserId, widget.partnerId);
 
-      await _chatService.ensureDirectRoom(
-        roomId: _roomId,
-        currentUserId: kakaoUserId,
-        partnerId: widget.partnerId,
-        currentUserName: _currentUserName,
-        partnerName: widget.partnerName,
-        currentUserAvatarUrl: _currentUserAvatarUrl,
-        partnerAvatarUrl: widget.partnerAvatarUrl,
+      debugPrint(
+        '[ChatRoom] ensureDirectRoom start room=$_roomId '
+        'partner=${widget.partnerId} uid=$kakaoUserId '
+        'authUid=${_chatService.debugAuthUid}',
       );
+      try {
+        await _chatService.ensureDirectRoom(
+          roomId: _roomId,
+          currentUserId: kakaoUserId,
+          partnerId: widget.partnerId,
+          currentUserName: _currentUserName,
+          partnerName: widget.partnerName,
+          currentUserAvatarUrl: _currentUserAvatarUrl,
+          partnerAvatarUrl: widget.partnerAvatarUrl,
+        );
+        debugPrint('[ChatRoom] ensureDirectRoom ok room=$_roomId');
+      } catch (e) {
+        // Opening an existing room must not depend on ensure writes.
+        debugPrint('[ChatRoom] ensureDirectRoom soft-fail room=$_roomId: $e');
+      }
 
       PushNotificationService.instance.setOpenedChatRoom(_roomId);
 
       if (!mounted) return;
       setState(() {
+        _initError = null;
         _isReady = true;
       });
-      await _refreshPartnerChatPhoto();
     } catch (e) {
+      debugPrint('[ChatRoom] _initChat hard-fail: $e');
       if (!mounted) return;
       setState(() {
         _initError = e.toString();
@@ -470,6 +578,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         _isSending) {
       return;
     }
+    if (!await _ensurePartnerCanReceiveMessages()) return;
 
     setState(() {
       _isSending = true;
@@ -477,16 +586,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     try {
       _messageController.clear();
-      _pendingForceScrollToBottom = true;
 
       await _chatService.sendTextMessage(
         roomId: _roomId,
         senderId: _currentUserId!,
         text: text,
+        recipientId: widget.partnerId,
       );
 
       widget.onSend?.call(text);
-      _scrollToBottom();
     } finally {
       if (mounted) {
         setState(() {
@@ -506,6 +614,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     String? initialPlaceId,
   }) async {
     if (_currentUserId == null || _roomId.isEmpty) return;
+    if (!await _ensurePartnerCanReceiveMessages()) return;
+    if (!mounted) return;
 
     final result = await showCupertinoModalPopup<_PromiseFormResult>(
       context: context,
@@ -753,6 +863,26 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       );
     }
 
+    if (type == 'account_withdrawn' && data['hiddenAfterRejoin'] == true) {
+      return _ChatMessage(
+        type: MessageType.hidden,
+        text: '',
+        time: '',
+        sortDateTime: createdAt,
+      );
+    }
+
+    if (senderId == 'system' ||
+        type == 'system' ||
+        type == 'account_withdrawn') {
+      return _ChatMessage(
+        type: MessageType.system,
+        text: text,
+        time: timeText,
+        sortDateTime: createdAt,
+      );
+    }
+
     return _ChatMessage(
       type: senderId == _currentUserId
           ? MessageType.sent
@@ -875,7 +1005,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                     '채팅방을 불러오지 못했어요\n$_initError',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
-                                      fontFamily: 'Pretendard',
+                                      fontFamily: 'NanumSquareRound',
                                       fontSize: 14,
                                       color:
                                           Theme.of(context).brightness ==
@@ -890,6 +1020,32 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                         stream: _chatService.messagesStream(_roomId),
                         builder: (context, messageSnapshot) {
+                          if (messageSnapshot.hasError) {
+                            debugPrint(
+                              '[ChatRoom] messagesStream snapshot error '
+                              'room=$_roomId: ${messageSnapshot.error}',
+                            );
+                            return SliverToBoxAdapter(
+                              child: Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(top: 40),
+                                  child: Text(
+                                    '메시지를 불러오지 못했어요',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontFamily: 'NanumSquareRound',
+                                      fontSize: 14,
+                                      color:
+                                          Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? AppColorsDark.textSecondary
+                                          : _AppColors.textSubtle,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
                           if (messageSnapshot.connectionState ==
                                   ConnectionState.waiting &&
                               !messageSnapshot.hasData) {
@@ -910,6 +1066,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
                           final mappedMessages = messageDocs
                               .map((doc) => _mapMessage(doc.data()))
+                              .where(
+                                (message) => message.type != MessageType.hidden,
+                              )
                               .toList();
                           final allMessages = _mergeMessages(mappedMessages);
 
@@ -921,7 +1080,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                   child: Text(
                                     '채팅을 시작해 보세요!',
                                     style: TextStyle(
-                                      fontFamily: 'Pretendard',
+                                      fontFamily: 'NanumSquareRound',
                                       fontSize: 15,
                                       color: _AppColors.textSubtle,
                                     ),
@@ -931,7 +1090,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             );
                           }
 
-                          _maybeAutoScrollToBottom(messageDocs);
+                          _scrollToBottomOnceOnOpen();
 
                           return SliverList(
                             delegate: SliverChildBuilderDelegate((
@@ -943,7 +1102,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                               return _MessageItem(
                                 message: message,
                                 avatarUrl:
-                                    _partnerDisplayAvatarUrl ??
                                     widget.partnerAvatarUrl ??
                                     _defaultAvatarUrl,
                                 onApprovePromise: () =>
@@ -974,6 +1132,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               stream: _roomId.isEmpty ? null : _chatService.roomStream(_roomId),
               builder: (context, snapshot) {
                 final roomData = snapshot.data?.data();
+                final isPartnerWithdrawn = _isPartnerWithdrawn(roomData);
                 final activePromiseRaw = roomData?['activePromise'];
                 final activePromise = activePromiseRaw is Map
                     ? Map<String, dynamic>.from(activePromiseRaw)
@@ -1007,12 +1166,18 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _Header(
-                      name: widget.partnerName,
-                      university: widget.partnerUniversity,
+                      name: _partnerDisplayName(roomData),
+                      university: isPartnerWithdrawn
+                          ? '계정을 탈퇴한 사용자입니다'
+                          : widget.partnerUniversity,
                       onBack: widget.onBack,
                       onMore: widget.onMore,
-                      onPromiseTap: () => _openPromiseSheet(),
-                      onProfileTap: _openPartnerProfileCard,
+                      onPromiseTap: isPartnerWithdrawn
+                          ? null
+                          : () => _openPromiseSheet(),
+                      onProfileTap: isPartnerWithdrawn
+                          ? null
+                          : _openPartnerProfileCard,
                     ),
                     _SafetyStampEntryButton(
                       isVisible: shouldShowSafetyStampButton,
@@ -1031,10 +1196,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             left: 0,
             right: 0,
             bottom: 0,
-            child: _InputBar(
-              controller: _messageController,
-              bottomPadding: bottomPadding,
-              onSend: _handleSend,
+            child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: _roomId.isEmpty ? null : _chatService.roomStream(_roomId),
+              builder: (context, snapshot) {
+                final isPartnerWithdrawn = _isPartnerWithdrawn(
+                  snapshot.data?.data(),
+                );
+                return _InputBar(
+                  controller: _messageController,
+                  bottomPadding: bottomPadding,
+                  onSend: isPartnerWithdrawn ? null : _handleSend,
+                  isDisabled: isPartnerWithdrawn,
+                );
+              },
             ),
           ),
         ],
@@ -1064,9 +1238,6 @@ class _SafetyStampEntryButton extends StatelessWidget {
     final backgroundColor = isEnabled
         ? (isDark ? const Color(0xFF2E1F28) : const Color(0xFFFFF3F6))
         : (isDark ? AppColorsDark.surfaceVariant : const Color(0xFFF7F5F3));
-    final borderColor = isEnabled
-        ? (isDark ? const Color(0xFF5C2A3E) : const Color(0xFFF4C6D2))
-        : (isDark ? AppColorsDark.border : const Color(0xFFE6E1DC));
     final iconColor = isEnabled
         ? (isDark ? const Color(0xFFFF8FA8) : const Color(0xFFEF6C93))
         : (isDark ? AppColorsDark.textHint : const Color(0xFFB7AEA6));
@@ -1085,7 +1256,11 @@ class _SafetyStampEntryButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: backgroundColor,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: borderColor),
+            boxShadow: _promiseSoftShadow(
+              context,
+              isEnabled ? iconColor : _AppColors.stone400,
+              opacity: isEnabled ? 0.12 : 0.08,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1102,7 +1277,7 @@ class _SafetyStampEntryButton extends StatelessWidget {
                     child: Text(
                       '안전도장으로 이동하기',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
                         color: titleColor,
@@ -1120,7 +1295,7 @@ class _SafetyStampEntryButton extends StatelessWidget {
               Text(
                 helperText,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                   color: isDark
@@ -1170,6 +1345,7 @@ class _Header extends StatelessWidget {
     final textSubColor = isDark
         ? AppColorsDark.textSecondary
         : _AppColors.textSubtle;
+    final isPromiseEnabled = onPromiseTap != null;
 
     return SafeArea(
       bottom: false,
@@ -1233,7 +1409,7 @@ class _Header extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 18,
                                 fontWeight: FontWeight.w700,
                                 height: 1.1,
@@ -1248,7 +1424,7 @@ class _Header extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                                 height: 1.1,
@@ -1273,19 +1449,23 @@ class _Header extends StatelessWidget {
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: _AppColors.primarySoft.withValues(
-                      alpha: _AppColors.promiseFillAlpha,
-                    ),
+                    color: isPromiseEnabled
+                        ? _AppColors.primarySoft.withValues(
+                            alpha: _AppColors.promiseFillAlpha,
+                          )
+                        : buttonBg,
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: const Center(
+                  child: Center(
                     child: Text(
                       '약속잡기',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: _AppColors.primary,
+                        color: isPromiseEnabled
+                            ? _AppColors.primary
+                            : textSubColor,
                       ),
                     ),
                   ),
@@ -1337,19 +1517,20 @@ class _ActivePromiseBanner extends StatelessWidget {
     final place = activePromise['place']?.toString() ?? '';
     final categoryRaw = activePromise['placeCategory']?.toString() ?? '';
     final categoryLabel = PromisePlaceCategory.labelOrEmpty(categoryRaw);
+    final bgColor = _AppColors.primarySoft.withValues(
+      alpha: _AppColors.promiseFillAlphaLight,
+    );
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: _AppColors.primarySoft.withValues(
-          alpha: _AppColors.promiseFillAlphaLight,
-        ),
+        color: bgColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: _AppColors.primarySoft.withValues(
-            alpha: _AppColors.promiseBorderAlpha,
-          ),
+        boxShadow: _promiseSoftShadow(
+          context,
+          _AppColors.primarySoft,
+          opacity: 0.12,
         ),
       ),
       child: Text(
@@ -1357,7 +1538,7 @@ class _ActivePromiseBanner extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NanumSquareRound',
           fontSize: 12,
           fontWeight: FontWeight.w700,
           color: _AppColors.primary,
@@ -1402,6 +1583,10 @@ class _MessageItem extends StatelessWidget {
           time: message.time,
           isRead: message.isRead,
         );
+      case MessageType.system:
+        return _SystemMessage(text: message.text);
+      case MessageType.hidden:
+        return const SizedBox.shrink();
       case MessageType.promiseRequest:
         return _PromiseRequestMessage(
           message: message,
@@ -1499,7 +1684,7 @@ class _ReceivedMessage extends StatelessWidget {
                   child: Text(
                     text,
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 15,
                       height: 1.5,
                       color: textColor,
@@ -1514,13 +1699,55 @@ class _ReceivedMessage extends StatelessWidget {
             child: Text(
               time,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 10,
                 color: timeColor,
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SystemMessage extends StatelessWidget {
+  final String text;
+
+  const _SystemMessage({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? AppColorsDark.surfaceVariant : _AppColors.stone100;
+    final textColor = isDark
+        ? AppColorsDark.textSecondary
+        : _AppColors.textSubtle;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Center(
+        child: Container(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.78,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            text,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'NanumSquareRound',
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+              color: textColor,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1572,7 +1799,7 @@ class _SentMessage extends StatelessWidget {
             child: Text(
               text,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 15,
                 height: 1.5,
                 color: textColor,
@@ -1594,7 +1821,7 @@ class _SentMessage extends StatelessWidget {
                 Text(
                   time,
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 10,
                     color: timeColor,
                   ),
@@ -1638,7 +1865,6 @@ class _PromiseRequestMessage extends StatelessWidget {
     if (message.shouldHideAsExpired) return const SizedBox.shrink();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? AppColorsDark.surface : CupertinoColors.white;
-    final cardBorder = isDark ? AppColorsDark.border : _AppColors.stone200;
     final textMainColor = isDark
         ? AppColorsDark.textPrimary
         : _AppColors.textMain;
@@ -1658,14 +1884,18 @@ class _PromiseRequestMessage extends StatelessWidget {
           decoration: BoxDecoration(
             color: cardBg,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: cardBorder),
+            boxShadow: _promiseSoftShadow(
+              context,
+              _AppColors.primarySoft,
+              opacity: 0.10,
+            ),
           ),
           child: Column(
             children: [
               Text(
                 '약속 요청',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
                   color: textMainColor,
@@ -1681,7 +1911,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                 ),
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 14,
                   color: textSubColor,
                 ),
@@ -1692,7 +1922,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                   '약속이 수정되었어요 (${_formatTime(message.editedAt)})',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color: _AppColors.primary,
@@ -1704,7 +1934,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                 message.text,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 13,
                   color: textMainColor,
                 ),
@@ -1714,7 +1944,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                 Text(
                   '삭제된 약속이에요.',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 13,
                     color: textSubColor,
                   ),
@@ -1736,7 +1966,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                           child: Text(
                             '거절',
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontWeight: FontWeight.w700,
                               color: textMainColor,
                             ),
@@ -1759,7 +1989,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                           child: const Text(
                             '승인',
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontWeight: FontWeight.w700,
                               color: CupertinoColors.white,
                             ),
@@ -1776,7 +2006,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                     const Text(
                       '상대방의 응답을 기다리는 중...',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 13,
                         color: _AppColors.textSubtle,
                       ),
@@ -1788,7 +2018,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                       child: const Text(
                         '수정',
                         style: TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
                           color: _AppColors.primary,
@@ -1802,7 +2032,7 @@ class _PromiseRequestMessage extends StatelessWidget {
                       child: const Text(
                         '삭제',
                         style: TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
                           color: CupertinoColors.systemRed,
@@ -1859,10 +2089,10 @@ class _PromiseConfirmedBanner extends StatelessWidget {
               alpha: _AppColors.promiseFillAlpha,
             ),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: _AppColors.primarySoft.withValues(
-                alpha: _AppColors.promiseBorderAlphaStrong,
-              ),
+            boxShadow: _promiseSoftShadow(
+              context,
+              _AppColors.primarySoft,
+              opacity: 0.15,
             ),
           ),
           child: Column(
@@ -1870,7 +2100,7 @@ class _PromiseConfirmedBanner extends StatelessWidget {
               const Text(
                 '약속 확정',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
                   color: _AppColors.primary,
@@ -1886,7 +2116,7 @@ class _PromiseConfirmedBanner extends StatelessWidget {
                 ),
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 14,
                   color: textMainColor,
                 ),
@@ -1897,7 +2127,7 @@ class _PromiseConfirmedBanner extends StatelessWidget {
                   '약속이 수정되었어요 (${_formatTime(message.editedAt)})',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color: _AppColors.primary,
@@ -1914,7 +2144,7 @@ class _PromiseConfirmedBanner extends StatelessWidget {
                     child: const Text(
                       '약속 수정',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: _AppColors.primary,
@@ -1927,7 +2157,7 @@ class _PromiseConfirmedBanner extends StatelessWidget {
                     child: const Text(
                       '삭제',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: CupertinoColors.systemRed,
@@ -1963,9 +2193,6 @@ class _PromiseCompletedBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF1A2922) : const Color(0xFFEAF5EE);
-    final borderColor = isDark
-        ? const Color(0xFF2A4A34)
-        : const Color(0xFFC7E5D0);
     final greenTitle = isDark
         ? const Color(0xFF66BB6A)
         : const Color(0xFF2E7D4F);
@@ -1982,14 +2209,14 @@ class _PromiseCompletedBanner extends StatelessWidget {
           decoration: BoxDecoration(
             color: bgColor,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: borderColor),
+            boxShadow: _promiseSoftShadow(context, greenTitle, opacity: 0.13),
           ),
           child: Column(
             children: [
               Text(
                 '약속 완료',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
                   color: greenTitle,
@@ -2005,7 +2232,7 @@ class _PromiseCompletedBanner extends StatelessWidget {
                 ),
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 14,
                   color: textMainColor,
                 ),
@@ -2015,7 +2242,7 @@ class _PromiseCompletedBanner extends StatelessWidget {
                 '약속이 완료되었어요',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                   color: greenTitle,
@@ -2048,9 +2275,6 @@ class _PromiseInProgressBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF2A2314) : const Color(0xFFFFF7E8);
-    final borderColor = isDark
-        ? const Color(0xFF4A3A1E)
-        : const Color(0xFFF0D7A6);
     final amberTitle = isDark
         ? const Color(0xFFFFB74D)
         : const Color(0xFF9A6500);
@@ -2067,14 +2291,14 @@ class _PromiseInProgressBanner extends StatelessWidget {
           decoration: BoxDecoration(
             color: bgColor,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: borderColor),
+            boxShadow: _promiseSoftShadow(context, amberTitle, opacity: 0.13),
           ),
           child: Column(
             children: [
               Text(
                 '약속 진행중',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
                   color: amberTitle,
@@ -2090,7 +2314,7 @@ class _PromiseInProgressBanner extends StatelessWidget {
                 ),
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 14,
                   color: textMainColor,
                 ),
@@ -2100,7 +2324,7 @@ class _PromiseInProgressBanner extends StatelessWidget {
                 '약속을 진행중입니다',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                   color: amberTitle,
@@ -2334,7 +2558,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                 const Text(
                   '약속 잡기',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
                     color: _AppColors.textMain,
@@ -2352,7 +2576,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                         const Text(
                           '날짜 선택',
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
                             color: _AppColors.textMain,
@@ -2425,7 +2649,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                         const Text(
                           '약속 시각',
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
                             color: _AppColors.textMain,
@@ -2478,7 +2702,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                                       maxLength: 2,
                                       placeholder: '12',
                                       style: const TextStyle(
-                                        fontFamily: 'Pretendard',
+                                        fontFamily: 'NanumSquareRound',
                                         fontSize: 36,
                                         fontWeight: FontWeight.w800,
                                         color: _AppColors.textMain,
@@ -2525,7 +2749,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                                       maxLength: 2,
                                       placeholder: '00',
                                       style: const TextStyle(
-                                        fontFamily: 'Pretendard',
+                                        fontFamily: 'NanumSquareRound',
                                         fontSize: 36,
                                         fontWeight: FontWeight.w800,
                                         color: _AppColors.textMain,
@@ -2580,7 +2804,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                                       child: const Text(
                                         '입력 완료',
                                         style: TextStyle(
-                                          fontFamily: 'Pretendard',
+                                          fontFamily: 'NanumSquareRound',
                                           fontSize: 12,
                                           fontWeight: FontWeight.w700,
                                           color: _AppColors.primary,
@@ -2594,7 +2818,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                               const Text(
                                 '시: 1~12 / 분: 0~59 로 입력',
                                 style: TextStyle(
-                                  fontFamily: 'Pretendard',
+                                  fontFamily: 'NanumSquareRound',
                                   fontSize: 12,
                                   color: _AppColors.textSubtle,
                                 ),
@@ -2606,7 +2830,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                         const Text(
                           '만날 장소 (송도)',
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
                             color: _AppColors.textMain,
@@ -2655,7 +2879,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                                     child: Text(
                                       _selectedPlace?.name ?? '장소를 선택하세요',
                                       style: TextStyle(
-                                        fontFamily: 'Pretendard',
+                                        fontFamily: 'NanumSquareRound',
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
                                         color: _selectedPlace != null
@@ -2670,7 +2894,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                                         _selectedPlace!.category,
                                       ),
                                       style: const TextStyle(
-                                        fontFamily: 'Pretendard',
+                                        fontFamily: 'NanumSquareRound',
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,
                                         color: _AppColors.textSubtle,
@@ -2691,7 +2915,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                         const Text(
                           '칸을 누르면 상세가 펼쳐지고, 지도·이 장소 선택을 할 수 있어요',
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 12,
                             color: _AppColors.textSubtle,
                           ),
@@ -2710,7 +2934,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                             '$selectedPeriod ${previewHour.toString().padLeft(2, '0')} : ${previewMinute.toString().padLeft(2, '0')}\n'
                             '${_selectedPlace != null ? '${PromisePlaceCategory.label(_selectedPlace!.category)} · ${_selectedPlace!.name}' : '장소를 선택하세요'}',
                             style: const TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 13,
                               height: 1.5,
                               color: _AppColors.textMain,
@@ -2742,7 +2966,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                             child: const Text(
                               '취소',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 15,
                                 fontWeight: FontWeight.w700,
                                 color: _AppColors.textMain,
@@ -2817,7 +3041,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                             child: const Text(
                               '약속 요청 보내기',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 15,
                                 fontWeight: FontWeight.w700,
                                 color: CupertinoColors.white,
@@ -2870,7 +3094,7 @@ class _PeriodButton extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 13,
             fontWeight: FontWeight.w700,
             color: isSelected ? _AppColors.primary : _AppColors.textMain,
@@ -2885,11 +3109,13 @@ class _InputBar extends StatelessWidget {
   final TextEditingController controller;
   final double bottomPadding;
   final VoidCallback? onSend;
+  final bool isDisabled;
 
   const _InputBar({
     required this.controller,
     required this.bottomPadding,
     this.onSend,
+    this.isDisabled = false,
   });
 
   @override
@@ -2906,6 +3132,9 @@ class _InputBar extends StatelessWidget {
         : _AppColors.stone400;
     final textColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
     final sendBg = isDark ? AppColorsDark.primary : _AppColors.sendButton;
+    final disabledTextColor = isDark
+        ? AppColorsDark.textHint
+        : _AppColors.stone400;
 
     return Container(
       padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPadding + 32),
@@ -2931,27 +3160,30 @@ class _InputBar extends StatelessWidget {
           children: [
             CupertinoButton(
               padding: EdgeInsets.zero,
-              onPressed: () {},
+              onPressed: isDisabled ? null : () {},
               child: Transform.rotate(
                 angle: 0.785,
                 child: Icon(
                   CupertinoIcons.paperclip,
                   size: 24,
-                  color: iconColor,
+                  color: isDisabled ? disabledTextColor : iconColor,
                 ),
               ),
             ),
             Expanded(
               child: CupertinoTextField(
                 controller: controller,
-                placeholder: 'Write a message...',
+                enabled: !isDisabled,
+                placeholder: isDisabled
+                    ? '탈퇴한 사용자와는 대화할 수 없어요'
+                    : 'Write a message...',
                 placeholderStyle: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 15,
-                  color: placeholderColor,
+                  color: isDisabled ? disabledTextColor : placeholderColor,
                 ),
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 15,
                   color: textColor,
                 ),
@@ -2965,15 +3197,19 @@ class _InputBar extends StatelessWidget {
             ),
             CupertinoButton(
               padding: EdgeInsets.zero,
-              onPressed: () {
-                HapticFeedback.mediumImpact();
-                onSend?.call();
-              },
+              onPressed: isDisabled || onSend == null
+                  ? null
+                  : () {
+                      HapticFeedback.mediumImpact();
+                      onSend?.call();
+                    },
               child: Container(
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: sendBg,
+                  color: isDisabled
+                      ? disabledTextColor.withValues(alpha: 0.35)
+                      : sendBg,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(

@@ -58,7 +58,7 @@ class _SlotMachineScreenState extends State<SlotMachineScreen> {
         middle: const Text(
           'Seolleyeon',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontWeight: FontWeight.w700,
             color: _AppColors.textMain,
           ),

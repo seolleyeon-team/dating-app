@@ -1,5 +1,5 @@
 // =============================================================================
-// 자기소개 작성 화면 (온보딩 Step 5)
+// 자기소개 작성 화면 (온보딩 Step 7)
 // 경로: lib/features/onboarding/screens/self_introduction_screen.dart
 // =============================================================================
 
@@ -16,13 +16,13 @@ import '../../../services/user_service.dart';
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color primary = Color(0xFFEF3976);
-  static const Color backgroundLight = Color(0xFFF8F6F6);
+  static const Color primary = Color(0xFFF5468C);
+  static const Color backgroundLight = Color(0xFFFAFAFA);
   static const Color surfaceLight = Color(0xFFFFFFFF);
   static const Color textMain = Color(0xFF181113);
   static const Color textMuted = Color(0xFF89616F);
-  static const Color borderLight = Color(0xFFE6DBDF);
-  static const Color progressBg = Color(0xFFE6DBDF);
+  static const Color borderLight = Color(0xFFEDE8EB);
+  static const Color progressBg = Color(0xFFEDE8EB);
 }
 
 // =============================================================================
@@ -36,8 +36,8 @@ class SelfIntroductionScreen extends StatefulWidget {
 
   const SelfIntroductionScreen({
     super.key,
-    this.currentStep = 6,
-    this.totalSteps = 8,
+    this.currentStep = 7,
+    this.totalSteps = 9,
     this.onBack,
     this.onNext,
   });
@@ -56,6 +56,7 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
   bool _isSavingOnExit = false;
 
   static const int _maxLength = 300;
+  bool get _hasIntroduction => _controller.text.trim().isNotEmpty;
 
   @override
   void initState() {
@@ -141,6 +142,7 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
           body: SafeArea(
             child: Stack(
               children: [
+                const Positioned.fill(child: _SubtleBackgroundGradient()),
                 Column(
                   children: [
                     _Header(
@@ -159,7 +161,7 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
                             const Text(
                               '자기 소개',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 28,
                                 fontWeight: FontWeight.bold,
                                 height: 1.2,
@@ -170,7 +172,7 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
                             const Text(
                               '어떤 사람인지 알려주세요',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 15,
                                 height: 1.5,
                                 color: _AppColors.textMuted,
@@ -178,9 +180,9 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
                             ),
                             const SizedBox(height: 4),
                             const Text(
-                              '상대방에게 매력을 어필할 수 있는 기회예요.\n솔직하고 담백하게 작성해보세요.',
+                              '솔직하고 담백하게 작성해보세요.',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 15,
                                 height: 1.5,
                                 color: _AppColors.textMuted,
@@ -211,17 +213,17 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
                   right: 0,
                   bottom: 0,
                   child: _BottomButton(
+                    label: _hasIntroduction ? '다음' : '그냥 넘어갈게요',
                     onNext: () async {
                       HapticFeedback.mediumImpact();
+                      final navigator = Navigator.of(context);
                       await _saveCurrentSelfIntroduction();
-                      if (!context.mounted) return;
+                      if (!mounted) return;
 
                       if (widget.onNext != null) {
                         widget.onNext!.call(_controller.text);
                       } else {
-                        Navigator.of(
-                          context,
-                        ).pushNamed(RouteNames.onboardingProfileQa);
+                        navigator.pushNamed(RouteNames.onboardingProfileQa);
                       }
                     },
                   ),
@@ -229,6 +231,27 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SubtleBackgroundGradient extends StatelessWidget {
+  const _SubtleBackgroundGradient();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFEDE8EB).withValues(alpha: 0.16),
+            _AppColors.backgroundLight,
+            Colors.white.withValues(alpha: 0.96),
+          ],
         ),
       ),
     );
@@ -342,7 +365,7 @@ class _InputArea extends StatelessWidget {
             maxLength: maxLength,
             maxLines: 8,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 16,
               height: 1.6,
               color: _AppColors.textMain,
@@ -374,7 +397,7 @@ class _InputArea extends StatelessWidget {
                   Text(
                     '$charCount',
                     style: const TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                       color: _AppColors.primary,
@@ -383,7 +406,7 @@ class _InputArea extends StatelessWidget {
                   Text(
                     ' / $maxLength',
                     style: const TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                       color: _AppColors.textMuted,
@@ -410,7 +433,7 @@ class _SuggestionChipsArea extends StatelessWidget {
   static const List<Map<String, String>> _suggestions = [
     {'icon': '💊', 'text': '요즘 빠진 것'},
     {'icon': '🧗', 'text': '주말 루틴'},
-    {'icon': '🍷', 'text': '좋아하는 데이트'},
+    {'icon': '🍷', 'text': '좋아하는 장소'},
     {'icon': '✈️', 'text': '가고싶은 여행지'},
   ];
 
@@ -426,7 +449,7 @@ class _SuggestionChipsArea extends StatelessWidget {
             Text(
               '무엇을 쓸지 고민되시나요?',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
                 color: _AppColors.textMain,
@@ -491,7 +514,7 @@ class _SuggestionChip extends StatelessWidget {
             Text(
               label,
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
                 color: _AppColors.textMuted,
@@ -508,9 +531,10 @@ class _SuggestionChip extends StatelessWidget {
 // 하단 버튼
 // =============================================================================
 class _BottomButton extends StatelessWidget {
+  final String label;
   final VoidCallback? onNext;
 
-  const _BottomButton({this.onNext});
+  const _BottomButton({required this.label, this.onNext});
 
   @override
   Widget build(BuildContext context) {
@@ -527,10 +551,10 @@ class _BottomButton extends StatelessWidget {
         ),
       ),
       padding: EdgeInsets.fromLTRB(
-        20,
-        20,
-        20,
-        MediaQuery.of(context).padding.bottom + 20,
+        24,
+        16,
+        24,
+        MediaQuery.of(context).padding.bottom + 24,
       ),
       child: CupertinoButton(
         padding: EdgeInsets.zero,
@@ -542,26 +566,30 @@ class _BottomButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: _AppColors.primary.withValues(alpha: 0.3),
-                blurRadius: 12,
+                color: _AppColors.primary.withValues(alpha: 0.24),
+                blurRadius: 16,
                 offset: const Offset(0, 6),
               ),
             ],
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
+            children: [
               Text(
-                '다음',
-                style: TextStyle(
-                  fontFamily: 'Pretendard',
-                  fontSize: 18,
+                label,
+                style: const TextStyle(
+                  fontFamily: 'NanumSquareRound',
+                  fontSize: 17,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
               ),
-              SizedBox(width: 8),
-              Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 20),
+              const SizedBox(width: 6),
+              const Icon(
+                Icons.arrow_forward_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
             ],
           ),
         ),

@@ -35,7 +35,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--meeting_group_index_collection", default=DEFAULT_MEETING_GROUP_INDEX_COLLECTION, type=str)
     parser.add_argument("--profile_index_collection", default=DEFAULT_PROFILE_INDEX_COLLECTION, type=str)
     parser.add_argument("--users_collection", default=DEFAULT_USERS_COLLECTION, type=str)
-    parser.add_argument("--private_media_collection", default="userPrivate" "Media", type=str)
     parser.add_argument("--manner_min_threshold", default=33.0, type=float)
     parser.add_argument("--group_ids", default="", type=str, help="Comma-separated groupIds to process")
     parser.add_argument("--limit", default=0, type=int, help="Optional limit for local smoke runs")
@@ -70,7 +69,6 @@ def main() -> int:
 
     profile_docs = load_documents_by_ids(db, args.profile_index_collection, member_uids)
     user_docs = load_documents_by_ids(db, args.users_collection, member_uids)
-    private_media_docs = load_documents_by_ids(db, args.private_media_collection, member_uids)
     member_views: Dict[str, Optional[object]] = {}
     for uid in member_uids:
         if uid not in profile_docs and uid not in user_docs:
@@ -80,7 +78,6 @@ def main() -> int:
             uid,
             profile_docs.get(uid),
             user_docs.get(uid),
-            private_media_docs.get(uid),
         )
 
     counters: Counter[str] = Counter()

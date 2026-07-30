@@ -51,7 +51,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model_recs_collection", default=DEFAULT_MODEL_RECS_COLLECTION, type=str)
     parser.add_argument("--profile_index_collection", default=DEFAULT_PROFILE_INDEX_COLLECTION, type=str)
     parser.add_argument("--users_collection", default=DEFAULT_USERS_COLLECTION, type=str)
-    parser.add_argument("--private_media_collection", default="userPrivate" "Media", type=str)
     parser.add_argument("--rec_events_collection", default=DEFAULT_REC_EVENTS_COLLECTION, type=str)
     parser.add_argument("--group_ids", default="", type=str, help="Optional comma-separated actor groupIds")
     parser.add_argument("--candidate_pool_size", default=150, type=int)
@@ -85,10 +84,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--balance_std_target", default=0.20, type=float)
     parser.add_argument("--dry_run", action="store_true")
     parser.add_argument("--algorithm_version", default=None, type=str)
-    parser.add_argument("--require_approved_avatar_for_candidates", dest="require_approved_avatar_for_candidates", action="store_true")
-    parser.add_argument("--no_require_approved_avatar_for_candidates", dest="require_approved_avatar_for_candidates", action="store_false")
-    parser.set_defaults(require_approved_avatar_for_candidates=True)
-    parser.add_argument("--allow_missing_avatar_candidates", action="store_true", default=False)
     return parser
 
 
@@ -148,38 +143,11 @@ def main() -> int:
 
     profile_docs = load_documents_by_ids(db, args.profile_index_collection, all_member_uids)
     user_docs = load_documents_by_ids(db, args.users_collection, all_member_uids)
-    private_media_docs = load_documents_by_ids(db, args.private_media_collection, all_member_uids)
     member_profiles = {
-        uid: build_member_profile_view(
-            uid,
-            profile_docs.get(uid),
-            user_docs.get(uid),
-            private_media_docs.get(uid),
-        )
+        uid: build_member_profile_view(uid, profile_docs.get(uid), user_docs.get(uid))
         for uid in all_member_uids
         if uid in profile_docs or uid in user_docs
     }
-
-    require_avatar = bool(args.require_approved_avatar_for_candidates) and not bool(args.allow_missing_avatar_candidates)
-    if require_avatar:
-        before_count = len(ready_groups)
-        ready_groups = {
-            group_id: record
-            for group_id, record in ready_groups.items()
-            if all(member_profiles.get(uid) and member_profiles[uid].display_avatar_url for uid in record.member_uids)
-        }
-        actor_group_ids = [group_id for group_id in actor_group_ids if group_id in ready_groups]
-        log_struct(
-            "info",
-            "meeting_ranker_avatar_gate",
-            before=before_count,
-            after=len(ready_groups),
-            excluded=before_count - len(ready_groups),
-            reason="missing_approved_avatar",
-        )
-        if not actor_group_ids:
-            log_struct("warning", "meeting_ranker_no_actor_groups_after_avatar_gate")
-            return 0
     group_bundles = _prepare_group_bundles(args, ready_groups, member_profiles)
     centroid_group_ids = [group_id for group_id, bundle in group_bundles.items() if bundle.centroid is not None]
     centroid_matrix = np.stack([group_bundles[group_id].centroid for group_id in centroid_group_ids], axis=0) if centroid_group_ids else np.zeros((0, 0), dtype=np.float32)

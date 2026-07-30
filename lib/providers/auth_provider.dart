@@ -278,10 +278,51 @@ class AuthProvider with ChangeNotifier {
     await _showFriendInviteResult(result);
   }
 
+  Future<void> _waitForResumedLifecycle({
+    Duration timeout = const Duration(seconds: 3),
+  }) async {
+    final binding = WidgetsBinding.instance;
+    if (binding.lifecycleState == AppLifecycleState.resumed) {
+      await Future<void>.delayed(Duration.zero);
+      return;
+    }
+
+    final completer = Completer<void>();
+    late final WidgetsBindingObserver observer;
+    observer = _LifecycleResumeObserver(() {
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
+    });
+    binding.addObserver(observer);
+
+    try {
+      await completer.future.timeout(
+        timeout,
+        onTimeout: () {
+          debugPrint(
+            '[FriendInvite] resume wait timed out; continuing with result UI',
+          );
+        },
+      );
+      // One frame after resume so native/Flutter privacy covers can clear.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    } finally {
+      binding.removeObserver(observer);
+    }
+  }
+
   Future<void> _showFriendInviteResult(FriendInviteAcceptResult result) async {
+    // Wait until the app is fully resumed after KakaoTalk deep-link handoff.
+    // Showing a dialog while still inactive races the privacy splash overlay.
+    await _waitForResumedLifecycle();
+
     final context = NavigationService.navigatorKey.currentContext;
     final navigator = NavigationService.navigatorKey.currentState;
-    if (context == null || navigator == null) return;
+    if (context == null || navigator == null || !context.mounted) {
+      debugPrint('[FriendInvite] skip result UI: navigator not ready');
+      return;
+    }
 
     // 딥링크로 앱이 열렸지만 로그인/학생인증이 아직이면 "아무 반응 없음"처럼 보여서,
     // 사용자에게 다음 액션을 안내하고 해당 화면으로 보낸다.
@@ -576,6 +617,19 @@ class AuthProvider with ChangeNotifier {
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+}
+
+class _LifecycleResumeObserver with WidgetsBindingObserver {
+  _LifecycleResumeObserver(this._onResumed);
+
+  final VoidCallback _onResumed;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _onResumed();
     }
   }
 }
