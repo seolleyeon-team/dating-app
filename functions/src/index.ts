@@ -25,7 +25,6 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { withAppCheck } from "./appCheckPolicy";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onTaskDispatched } from "firebase-functions/v2/tasks";
-import { defineSecret } from "firebase-functions/params";
 import * as logger from "firebase-functions/logger";
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
@@ -78,7 +77,8 @@ const db = getFirestore();
 const FRIEND_INVITE_HOST = "seolleyeon.web.app";
 const FRIEND_INVITE_PATH = "/invite/friend";
 const FRIEND_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
-const PORTONE_API_SECRET = defineSecret("PORTONE_API_SECRET");
+// PortOne secret is read from env / .env only until Secret Manager is configured.
+// Binding defineSecret here blocks all-function deploys when the secret is unset.
 const PORTONE_STORE_ID = "store-ec95a751-307e-4b85-97bd-7c6fa0bbe0e2";
 const ADULT_VERIFICATION_PROVIDER = "kg_inicis_via_portone_test";
 
@@ -181,13 +181,7 @@ function readPortOneVerificationPayload(
 }
 
 function getPortOneSecret(): string {
-  const fromEnv = asNonEmptyString(process.env.PORTONE_API_SECRET);
-  if (fromEnv) return fromEnv;
-  try {
-    return PORTONE_API_SECRET.value();
-  } catch {
-    return "";
-  }
+  return asNonEmptyString(process.env.PORTONE_API_SECRET) ?? "";
 }
 
 function buildDirectRoomId(userA: string, userB: string): string {
@@ -1647,7 +1641,7 @@ async function assertUniqueIdentityNotReused(
 }
 
 export const verifyAdultIdentityAfterLogin = onCall(
-  withAppCheck({ secrets: [PORTONE_API_SECRET] }),
+  withAppCheck(),
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) {
