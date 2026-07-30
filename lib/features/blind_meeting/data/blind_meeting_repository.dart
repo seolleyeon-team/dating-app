@@ -149,12 +149,19 @@ class BlindMeetingRepository {
   Future<String?> currentUserId() => _storageService.getKakaoUserId();
 
   /// 비공개 DNA는 Firebase Auth 세션(uid == kakaoUserId)이 있어야 읽을 수 있다.
+  ///
+  /// 카카오 액세스 토큰이 만료되어 세션을 새로 붙일 수 없으면
+  /// Firestore가 원인을 알 수 없는 permission-denied를 던지므로,
+  /// 여기서 먼저 재로그인이 필요하다는 것을 알린다.
   Future<String> _requireSession() async {
     final userId = await currentUserId();
     if (userId == null || userId.isEmpty) {
       throw StateError('로그인이 필요해요.');
     }
-    await _authService.ensureFirebaseSessionForKakao(userId);
+    final attached = await _authService.ensureFirebaseSessionForKakao(userId);
+    if (!attached) {
+      throw StateError('로그인이 만료됐어요. 다시 로그인해주세요.');
+    }
     return userId;
   }
 
