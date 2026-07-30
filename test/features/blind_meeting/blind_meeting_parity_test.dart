@@ -74,24 +74,18 @@ void main() {
           category.id: category.items.length,
       };
       expect(interestCategories.length, 9);
-      expect(
-        perCategory,
-        {
-          'indoor': 19,
-          'outdoor': 31,
-          'food': 21,
-          'sports': 29,
-          'screen': 13,
-          'music': 11,
-          'game': 6,
-          'creative': 13,
-          'social': 7,
-        },
-      );
-      expect(
-        perCategory.values.reduce((a, b) => a + b),
-        150,
-      );
+      expect(perCategory, {
+        'indoor': 19,
+        'outdoor': 31,
+        'food': 21,
+        'sports': 29,
+        'screen': 13,
+        'music': 11,
+        'game': 6,
+        'creative': 13,
+        'social': 7,
+      });
+      expect(perCategory.values.reduce((a, b) => a + b), 150);
     });
 
     test('알 수 없는 관심사는 other 카테고리', () {

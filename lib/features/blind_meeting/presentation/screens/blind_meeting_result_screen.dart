@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../router/route_names.dart';
 import '../../../chat/models/chat_room_data.dart';
+import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_repository.dart';
 import '../../domain/blind_meeting_enums.dart';
 import '../../domain/blind_meeting_policy.dart';
@@ -25,11 +26,13 @@ import '../widgets/blind_meeting_recommendation_banner.dart';
 class BlindMeetingResultScreen extends StatefulWidget {
   final BlindMeetingMeetingArgs args;
   final BlindMeetingRepository? repository;
+  final BlindMeetingAnalytics? analytics;
 
   const BlindMeetingResultScreen({
     super.key,
     required this.args,
     this.repository,
+    this.analytics,
   });
 
   @override
@@ -40,6 +43,8 @@ class BlindMeetingResultScreen extends StatefulWidget {
 class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
   late final BlindMeetingRepository _repository =
       widget.repository ?? BlindMeetingRepository();
+  late final BlindMeetingAnalytics _analytics =
+      widget.analytics ?? BlindMeetingAnalytics();
 
   BlindMeetingRecommendationView? _view;
   bool _loading = true;
@@ -159,7 +164,16 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (widget.args.showRecommendationBanner)
-          BlindMeetingRecommendationBanner(alcoholFree: session.isAlcoholFree),
+          _RecommendationBannerSlot(
+            alcoholFree: session.isAlcoholFree,
+            onShown: () => _analytics.log(
+              BlindMeetingAnalyticsEvent.recommendationBannerShown,
+              params: {
+                'meetingId': session.meetingId,
+                'isAlcoholFree': session.isAlcoholFree,
+              },
+            ),
+          ),
         _summaryCard(palette, session),
         const SizedBox(height: 16),
         _actionCard(palette, view, session),
@@ -278,10 +292,13 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
                   loading: _busy,
                   onPressed: _busy
                       ? null
-                      : () => _run(
-                          () => _repository.acceptInvitation(meetingId),
-                          successNotice: '참가를 수락했어요.',
-                        ),
+                      : () => _run(() async {
+                          await _repository.acceptInvitation(meetingId);
+                          await _analytics.log(
+                            BlindMeetingAnalyticsEvent.invitationAccepted,
+                            params: {'meetingId': meetingId},
+                          );
+                        }, successNotice: '참가를 수락했어요.'),
                 ),
                 const SizedBox(height: 10),
                 BlindMeetingSecondaryButton(
@@ -330,6 +347,13 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
                       : () => _run(() async {
                           final intent = await _repository.startDeposit(
                             meetingId,
+                          );
+                          await _analytics.log(
+                            BlindMeetingAnalyticsEvent.depositCompleted,
+                            params: {
+                              'meetingId': meetingId,
+                              'depositStatus': intent.status.name,
+                            },
                           );
                           if (!mounted) return;
                           setState(
@@ -522,4 +546,32 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
     BlindMeetingStatus.archived => '보관됨',
     BlindMeetingStatus.cancelled => '취소됨',
   };
+}
+
+/// 추천 안내 배너를 한 번 노출하고 analytics 이벤트를 기록한다.
+class _RecommendationBannerSlot extends StatefulWidget {
+  final bool alcoholFree;
+  final VoidCallback onShown;
+
+  const _RecommendationBannerSlot({
+    required this.alcoholFree,
+    required this.onShown,
+  });
+
+  @override
+  State<_RecommendationBannerSlot> createState() =>
+      _RecommendationBannerSlotState();
+}
+
+class _RecommendationBannerSlotState extends State<_RecommendationBannerSlot> {
+  @override
+  void initState() {
+    super.initState();
+    widget.onShown();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BlindMeetingRecommendationBanner(alcoholFree: widget.alcoholFree);
+  }
 }

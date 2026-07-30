@@ -5,6 +5,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_repository.dart';
 import '../../domain/blind_meeting_feedback.dart';
 import '../blind_meeting_route_args.dart';
@@ -14,11 +15,13 @@ import '../widgets/blind_meeting_common.dart';
 class BlindMeetingFeedbackScreen extends StatefulWidget {
   final BlindMeetingMeetingArgs args;
   final BlindMeetingRepository? repository;
+  final BlindMeetingAnalytics? analytics;
 
   const BlindMeetingFeedbackScreen({
     super.key,
     required this.args,
     this.repository,
+    this.analytics,
   });
 
   @override
@@ -57,6 +60,15 @@ class _BlindMeetingFeedbackScreenState
           reasons: _reasons,
           safetyConcernReported: _safetyConcern,
         ),
+      );
+      final total = _ratings.values.fold<int>(0, (sum, v) => sum + v);
+      await (widget.analytics ?? BlindMeetingAnalytics()).log(
+        BlindMeetingAnalyticsEvent.feedbackSubmitted,
+        userId: userId,
+        params: {
+          'meetingId': widget.args.meetingId,
+          'ratingAverage': _ratings.isEmpty ? 0 : total / _ratings.length,
+        },
       );
       if (!mounted) return;
       setState(() => _done = true);

@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../router/route_names.dart';
 import '../../../chat/models/chat_room_data.dart';
+import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_repository.dart';
 import '../../domain/blind_meeting_followup.dart';
 import '../../domain/blind_meeting_public_profile.dart';
@@ -23,12 +24,14 @@ import '../widgets/blind_meeting_profile_card.dart';
 class BlindMeetingFollowUpScreen extends StatefulWidget {
   final BlindMeetingMeetingArgs args;
   final BlindMeetingRepository? repository;
+  final BlindMeetingAnalytics? analytics;
   final DateTime? now;
 
   const BlindMeetingFollowUpScreen({
     super.key,
     required this.args,
     this.repository,
+    this.analytics,
     this.now,
   });
 
@@ -41,6 +44,8 @@ class _BlindMeetingFollowUpScreenState
     extends State<BlindMeetingFollowUpScreen> {
   late final BlindMeetingRepository _repository =
       widget.repository ?? BlindMeetingRepository();
+  late final BlindMeetingAnalytics _analytics =
+      widget.analytics ?? BlindMeetingAnalytics();
 
   bool _loading = true;
   String? _error;
@@ -58,6 +63,10 @@ class _BlindMeetingFollowUpScreenState
   @override
   void initState() {
     super.initState();
+    _analytics.log(
+      BlindMeetingAnalyticsEvent.followupPromptOpened,
+      params: {'meetingId': widget.args.meetingId},
+    );
     _load();
   }
 
@@ -130,8 +139,21 @@ class _BlindMeetingFollowUpScreenState
         meetingId: widget.args.meetingId,
         selectedUids: _selected.toList(),
       );
+      await _analytics.log(
+        BlindMeetingAnalyticsEvent.followupSubmitted,
+        params: {
+          'meetingId': widget.args.meetingId,
+          'selectionCount': _selected.length,
+        },
+      );
       if (!mounted) return;
       await _load();
+      if (_mutualMatches.isNotEmpty) {
+        await _analytics.log(
+          BlindMeetingAnalyticsEvent.mutualMatch,
+          params: {'meetingId': widget.args.meetingId},
+        );
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() => _submitError = '$error');

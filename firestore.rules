@@ -493,6 +493,20 @@ service cloud.firestore {
       allow list: if false;
       allow write: if false;
     }
+
+    // Analytics: 개인정보 없는 이벤트만 append. 조회는 서버/운영 전용.
+    match /blindMeetingAnalytics/{eventId} {
+      allow create: if
+          request.resource.data.event is string &&
+          request.resource.data.event.size() > 0 &&
+          request.resource.data.event.matches('^blind_meeting_[a-z0-9_]+$') &&
+          request.resource.data.params is map &&
+          !('nickname' in request.resource.data.params) &&
+          !('interests' in request.resource.data.params) &&
+          !('userId' in request.resource.data.params) &&
+          !('studentEmail' in request.resource.data.params);
+      allow read, update, delete: if false;
+    }
     
         // -----------------------------------------------------------------------
     // Promise place catalog
