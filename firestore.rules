@@ -410,56 +410,83 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/chat_rooms/$(roomId)).data;
     }
 
+    function isRoomParticipant(roomId) {
+      return request.auth != null &&
+          request.auth.uid in blindRoomData(roomId).participantIds;
+    }
+
+    // 이전: chat_rooms 와 messages 모두 `allow read: if true` 였다. 인증 없이
+    // 전체 사용자의 채팅 원문을 읽을 수 있었다. 또 블라인드 미팅이 아닌 방은
+    // create/update 에 조건이 사실상 없어서 누구나 방을 만들고 남의 이름으로
+    // 메시지를 넣을 수 있었다.
+    //
+    // 참가자 모델: chat_rooms 문서의 participantIds 배열.
+    // 목록 조회는 where('participantIds' arrayContains uid) 로 하므로
+    // 문서 단위 규칙과 맞는다 (chat_service.dart:61 / :69).
+    //
+    // 블라인드 미팅 방의 기존 조건은 그대로 유지한다. 아래 변경은 모든
+    // roomType 에 참가자 게이트를 추가하는 것이고, 블라인드 전용 추가 조건은
+    // 손대지 않았다. 회귀는 blind_meeting_rules.test.js 로 확인해야 한다.
     match /chat_rooms/{roomId} {
-      allow read: if true;
+      allow read: if request.auth != null &&
+          request.auth.uid in resource.data.participantIds;
 
       // 블라인드 미팅 채팅방은 서버만 생성한다.
-      allow create: if !isBlindMeetingRoomData(request.resource.data);
+      // 그 밖의 방은 자신이 참가자인 방만 만들 수 있다.
+      allow create: if !isBlindMeetingRoomData(request.resource.data) &&
+          request.auth != null &&
+          request.auth.uid in request.resource.data.participantIds;
 
-      allow update: if !isBlindMeetingRoomData(resource.data) || (
-        request.auth != null &&
+      // participantIds 는 어떤 roomType 이든 클라이언트가 못 바꾼다.
+      // (멤버십을 추가해 남의 방에 들어가는 것을 막는다)
+      allow update: if request.auth != null &&
         request.auth.uid in resource.data.participantIds &&
-        resource.data.writable == true &&
-        request.resource.data.roomType == resource.data.roomType &&
         request.resource.data.participantIds == resource.data.participantIds &&
-        request.resource.data.writable == resource.data.writable &&
-        request.resource.data.status == resource.data.status &&
-        request.resource.data.meetingId == resource.data.meetingId
-      );
+        (!isBlindMeetingRoomData(resource.data) || (
+          resource.data.writable == true &&
+          request.resource.data.roomType == resource.data.roomType &&
+          request.resource.data.writable == resource.data.writable &&
+          request.resource.data.status == resource.data.status &&
+          request.resource.data.meetingId == resource.data.meetingId
+        ));
 
       allow delete: if false;
 
       match /messages/{messageId} {
-        allow read: if true;
+        allow read: if isRoomParticipant(roomId);
 
-        allow create: if !isBlindMeetingRoomData(blindRoomData(roomId)) || (
-          request.auth != null &&
-          request.auth.uid in blindRoomData(roomId).participantIds &&
-          blindRoomData(roomId).writable == true &&
-          request.resource.data.senderId == request.auth.uid &&
-          request.resource.data.text is string &&
-          request.resource.data.text.size() > 0 &&
-          request.resource.data.text.size() <= 1000
-        );
+        // senderId 위조 차단. 다만 클라이언트가 'system' 발신자로 안내
+        // 메시지를 쓰는 기존 경로가 4곳 있어서(chat_service.dart:133,
+        // lib/services/chat_service.dart:129 / :140, user_service.dart:323)
+        // 'system' 은 허용한다. 이건 시스템 메시지 위조 여지를 남기므로
+        // 서버 발행으로 옮겨야 한다. → R-CHAT-SYSTEM
+        allow create: if isRoomParticipant(roomId) &&
+          (request.resource.data.senderId == request.auth.uid ||
+            request.resource.data.senderId == 'system') &&
+          (!isBlindMeetingRoomData(blindRoomData(roomId)) || (
+            blindRoomData(roomId).writable == true &&
+            request.resource.data.senderId == request.auth.uid &&
+            request.resource.data.text is string &&
+            request.resource.data.text.size() > 0 &&
+            request.resource.data.text.size() <= 1000
+          ));
 
-        allow update: if !isBlindMeetingRoomData(blindRoomData(roomId)) || (
-          request.auth != null &&
-          request.auth.uid in blindRoomData(roomId).participantIds &&
-          request.resource.data.senderId == resource.data.senderId &&
-          request.resource.data.text == resource.data.text
+        allow update: if isRoomParticipant(roomId) && (
+          !isBlindMeetingRoomData(blindRoomData(roomId)) || (
+            request.resource.data.senderId == resource.data.senderId &&
+            request.resource.data.text == resource.data.text
+          )
         );
 
         allow delete: if false;
       }
 
       match /promises/{promiseId} {
-        allow read: if true;
+        allow read: if isRoomParticipant(roomId);
 
-        allow create, update: if !isBlindMeetingRoomData(blindRoomData(roomId)) || (
-          request.auth != null &&
-          request.auth.uid in blindRoomData(roomId).participantIds &&
-          blindRoomData(roomId).writable == true
-        );
+        allow create, update: if isRoomParticipant(roomId) &&
+          (!isBlindMeetingRoomData(blindRoomData(roomId)) ||
+            blindRoomData(roomId).writable == true);
 
         allow delete: if false;
       }
@@ -684,10 +711,14 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // Bamboo Forest (Community)
     // -----------------------------------------------------------------------
+    // 이전: create 에 request.auth 조건이 없어서 authorId 를 위조해 남의
+    // 이름으로 글을 쓸 수 있었고, update 2번째 분기가 카운터를 보호하지 않아
+    // likeCount / commentCount / score7d 를 임의 값으로 바꿀 수 있었다
+    // (인기 순위 조작).
     match /bamboo_posts/{postId} {
-      allow get, list: if true;
+      allow get, list: if isSignedIn();
 
-      allow create: if
+      allow create: if isSelf(request.resource.data.authorId) &&
         request.resource.data.postId is string &&
         request.resource.data.authorId is string &&
         request.resource.data.authorId.size() > 0 &&
@@ -702,17 +733,28 @@ service cloud.firestore {
         request.resource.data.score7d == 0 &&
         request.resource.data.isDeleted == false;
 
-      allow update: if
-        (
-          resource.data.authorId == request.resource.data.authorId &&
-          request.resource.data.isDeleted == true
-        )
-        ||
-        (
-          request.resource.data.authorId == resource.data.authorId &&
-          request.resource.data.content == resource.data.content &&
-          request.resource.data.category == resource.data.category &&
-          request.resource.data.tags == resource.data.tags
+      allow update: if isSignedIn() && (
+          (
+            // 작성자 본인의 soft delete
+            isSelf(resource.data.authorId) &&
+            request.resource.data.authorId == resource.data.authorId &&
+            request.resource.data.isDeleted == true
+          )
+          ||
+          (
+            // 좋아요·댓글 카운터 갱신. 한 번에 ±1 만 허용하고
+            // score7d 는 서버(Admin SDK)만 바꾼다.
+            request.resource.data.authorId == resource.data.authorId &&
+            request.resource.data.content == resource.data.content &&
+            request.resource.data.category == resource.data.category &&
+            request.resource.data.tags == resource.data.tags &&
+            request.resource.data.isDeleted == resource.data.isDeleted &&
+            request.resource.data.score7d == resource.data.score7d &&
+            request.resource.data.likeCount >= resource.data.likeCount - 1 &&
+            request.resource.data.likeCount <= resource.data.likeCount + 1 &&
+            request.resource.data.commentCount >= resource.data.commentCount - 1 &&
+            request.resource.data.commentCount <= resource.data.commentCount + 1
+          )
         );
 
       allow delete: if false;
@@ -720,14 +762,16 @@ service cloud.firestore {
       // ---------------------------------------------------------------------
       // Post likes
       // ---------------------------------------------------------------------
+      // 이전: 익명 read, create 에 auth 조건 없음, delete 가 `if true` 여서
+      // 남의 좋아요를 취소할 수 있었다.
       match /likes/{userId} {
-        allow get, list: if true;
+        allow get, list: if isSignedIn();
 
-        allow create: if
+        allow create: if isSelf(userId) &&
           request.resource.data.userId is string &&
           request.resource.data.userId == userId;
 
-        allow delete: if true;
+        allow delete: if isSelf(userId);
         allow update: if false;
       }
 
@@ -735,9 +779,9 @@ service cloud.firestore {
       // Comments / Replies
       // ---------------------------------------------------------------------
       match /comments/{commentId} {
-        allow get, list: if true;
+        allow get, list: if isSignedIn();
 
-        allow create: if
+        allow create: if isSelf(request.resource.data.authorId) &&
           request.resource.data.commentId is string &&
           request.resource.data.authorId is string &&
           request.resource.data.authorId.size() > 0 &&
@@ -747,16 +791,21 @@ service cloud.firestore {
           request.resource.data.likeCount == 0 &&
           request.resource.data.isDeleted == false;
 
-        allow update: if
-          (
-            resource.data.authorId == request.resource.data.authorId &&
-            request.resource.data.isDeleted == true
-          )
-          ||
-          (
-            request.resource.data.authorId == resource.data.authorId &&
-            request.resource.data.content == resource.data.content &&
-            request.resource.data.parentCommentId == resource.data.parentCommentId
+        allow update: if isSignedIn() && (
+            (
+              isSelf(resource.data.authorId) &&
+              resource.data.authorId == request.resource.data.authorId &&
+              request.resource.data.isDeleted == true
+            )
+            ||
+            (
+              request.resource.data.authorId == resource.data.authorId &&
+              request.resource.data.content == resource.data.content &&
+              request.resource.data.parentCommentId == resource.data.parentCommentId &&
+              request.resource.data.isDeleted == resource.data.isDeleted &&
+              request.resource.data.likeCount >= resource.data.likeCount - 1 &&
+              request.resource.data.likeCount <= resource.data.likeCount + 1
+            )
           );
 
         allow delete: if false;
@@ -765,13 +814,13 @@ service cloud.firestore {
         // Comment likes
         // -------------------------------------------------------------------
         match /likes/{userId} {
-          allow get, list: if true;
+          allow get, list: if isSignedIn();
 
-          allow create: if
+          allow create: if isSelf(userId) &&
             request.resource.data.userId is string &&
             request.resource.data.userId == userId;
 
-          allow delete: if true;
+          allow delete: if isSelf(userId);
           allow update: if false;
         }
       }
@@ -799,21 +848,29 @@ service cloud.firestore {
       }
     }
 
+    // 이전: read/update/delete 가 모두 `if true`. 누구나 전체 신고 내역을 읽고
+    // 상태를 바꾸고 삭제할 수 있었다. 피신고자가 자기 신고를 지우는 것이
+    // 가능했다는 뜻이다.
+    //
+    // 신고자 본인도 read 를 주지 않는다. 신고 문서에는 moderation 상태와
+    // 피신고자 정보가 함께 들어가기 때문이다. 운영 조회는 Admin SDK 로 한다.
     match /reports/{reportId} {
-      allow create: if
-        request.resource.data.reporterId is string &&
+      allow create: if isSelf(request.resource.data.reporterId) &&
         request.resource.data.reportedId is string &&
+        request.resource.data.reportedId.size() > 0 &&
         request.resource.data.reason is string &&
         request.resource.data.reason.size() > 0 &&
         request.resource.data.status is string;
-      allow read: if true;
-      allow update: if true;
-      allow delete: if true;
+      allow read: if false;
+      allow update: if false;
+      allow delete: if false;
     }
 
+    // 이전: read/update/delete 가 모두 `if true`.
+    // 본인이 낸 문의는 본인이 볼 수 있어야 하므로 소유자 스코프 read 만 남긴다.
+    // 상태 변경과 삭제는 서버 전용이다.
     match /app_issue_reports/{reportId} {
-      allow create: if
-        request.resource.data.reporterId is string &&
+      allow create: if isSelf(request.resource.data.reporterId) &&
         request.resource.data.category is string &&
         request.resource.data.category.size() > 0 &&
         request.resource.data.content is string &&
@@ -823,14 +880,14 @@ service cloud.firestore {
         request.resource.data.platform is string &&
         request.resource.data.status is string;
 
-      allow read: if true;
-      allow update: if true;
-      allow delete: if true;
+      allow read: if isSelf(resource.data.reporterId);
+      allow update: if false;
+      allow delete: if false;
     }
 
+    // 이전: read/update/delete 가 모두 `if true`.
     match /app_inquiries/{inquiryId} {
-      allow create: if
-        request.resource.data.inquirerId is string &&
+      allow create: if isSelf(request.resource.data.inquirerId) &&
         request.resource.data.category is string &&
         request.resource.data.category.size() > 0 &&
         request.resource.data.content is string &&
@@ -840,9 +897,9 @@ service cloud.firestore {
         request.resource.data.platform is string &&
         request.resource.data.status is string;
 
-      allow read: if true;
-      allow update: if true;
-      allow delete: if true;
+      allow read: if isSelf(resource.data.inquirerId);
+      allow update: if false;
+      allow delete: if false;
     }
 
     // -----------------------------------------------------------------------
@@ -893,19 +950,27 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // Asks (무물: 1:1 질문)
     // -----------------------------------------------------------------------
+    // 이전: `allow read: if true` 로 전체 무물 내용이 공개였고, create 에
+    // request.auth 조건이 없어서 fromUserId 를 위조해 남의 이름으로 질문을
+    // 보낼 수 있었다. update 도 아무나 상태를 바꿀 수 있었다.
     match /asks/{askId} {
-      allow read: if true;
+      allow read: if request.auth != null && (
+          request.auth.uid == resource.data.fromUserId ||
+          request.auth.uid == resource.data.toUserId
+        );
 
-      allow create: if
-        request.resource.data.fromUserId is string &&
-        request.resource.data.fromUserId.size() > 0 &&
+      allow create: if isSelf(request.resource.data.fromUserId) &&
         request.resource.data.toUserId is string &&
         request.resource.data.toUserId.size() > 0 &&
+        request.resource.data.toUserId != request.auth.uid &&
         request.resource.data.text is string &&
         request.resource.data.text.size() > 0 &&
+        request.resource.data.text.size() <= 1000 &&
         request.resource.data.status is string;
 
-      allow update: if
+      allow update: if request.auth != null &&
+        (request.auth.uid == resource.data.fromUserId ||
+          request.auth.uid == resource.data.toUserId) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status', 'readAt', 'updatedAt'
         ]);
@@ -916,9 +981,15 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // Interactions (like / nope / view / message)
     // -----------------------------------------------------------------------
+    // 이전: `allow read: if true` 로 전체 like/nope 기록이 공개였고, create 에
+    // request.auth 조건이 없어서 fromUserId 를 위조할 수 있었다. 위조된 like 는
+    // onInteractionCreated(index.ts:2304)를 통해 실제 매치와 채팅방을 만들었다.
     match /interactions/{interactionId} {
-      allow read: if true;
-      allow create: if
+      allow read: if request.auth != null && (
+          request.auth.uid == resource.data.fromUserId ||
+          request.auth.uid == resource.data.toUserId
+        );
+      allow create: if isSelf(request.resource.data.fromUserId) &&
         request.resource.data.fromUserId is string &&
         request.resource.data.fromUserId.size() > 0 &&
         request.resource.data.toUserId is string &&
@@ -935,9 +1006,12 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // Matches (매치 성사 기록)
     // -----------------------------------------------------------------------
+    // 이전: `allow read: if true` — 누구나 전체 매치 기록을 볼 수 있었다.
     match /matches/{matchId} {
-      allow read: if true;
-      allow create: if
+      allow read: if request.auth != null &&
+          request.auth.uid in resource.data.userIds;
+      allow create: if request.auth != null &&
+        request.auth.uid in request.resource.data.userIds &&
         request.resource.data.userIds is list &&
         request.resource.data.userIds.size() == 2 &&
         request.resource.data.matchType is string &&
@@ -945,7 +1019,9 @@ service cloud.firestore {
         request.resource.data.keys().hasOnly([
           'userIds', 'matchType', 'matchedAt', 'status', 'chatRoomId'
         ]);
-      allow update: if
+      allow update: if request.auth != null &&
+        request.auth.uid in resource.data.userIds &&
+        request.resource.data.userIds == resource.data.userIds &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status',
           'unmatchedAt',
