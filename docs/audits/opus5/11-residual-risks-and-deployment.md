@@ -2,13 +2,20 @@
 
 ## 1. 남은 위험
 
+### 해소된 항목
+
+| ID | 상태 |
+|---|---|
+| R-JDK21 | **해소.** `Android Studio1\jbr` 의 JDK 21.0.10 으로 emulator 실행. Firestore 151/151, Storage 23/23 통과 |
+| R-CHAT | **해소.** chat_rooms / messages 참가자 제한 + senderId 바인딩. 공격 테스트 15건 통과 |
+| R-REPORTS | **해소.** reports 는 client read 전면 차단, 문의는 소유자 스코프. 공격 테스트 11건 통과 |
+
 ### 즉시 대응 필요
 
 | ID | 위험 | 근거 | 필요한 조치 |
 |---|---|---|---|
-| R-JDK21 | 변경한 Firestore·Storage 규칙이 **문법 검증조차 안 됐다** | JDK 21+ 없음 (`03-baseline-and-verification.md` B-JDK21) | JDK 21 설치 후 `cd test/firestore_rules && npm test` 통과 확인. **통과 전 배포 금지** |
-| R-CHAT | 전체 채팅 메시지가 여전히 인증 없이 읽힌다 | `firestore.rules` chat_rooms/messages `allow read: if true` | 참가자 제한 + `senderId == request.auth.uid` 강제. emulator 필요 |
-| R-REPORTS | 신고 데이터가 여전히 전역 읽기·수정·삭제 | `firestore.rules` reports | 신고자 create 만 허용, read/update/delete 서버 전용 |
+| R-UPDATEGATE | **강제 업데이트 장치가 없다.** 규칙을 먼저 배포하면 구버전 앱이 즉시 깨진다 | 저장소에 minimumSupportedBuild 류의 게이트가 없음. 구버전은 사진 업로드에 `signInAnonymously()` 를 쓰고 비인증 `users` 쓰기에 의존 | 최소 지원 버전 게이트를 구현하거나, 앱 강제 업데이트 확산을 확인한 뒤 규칙을 배포한다. **이번 세션에서 구현하지 않았다** |
+| R-CHAT-SYSTEM | 클라이언트가 `senderId: 'system'` 으로 시스템 안내 메시지를 쓸 수 있다 | `chat_service.dart:133`, `lib/services/chat_service.dart:129`/`:140`, `user_service.dart:323`. 규칙에서 예외 허용 중 | 시스템 메시지를 서버 발행으로 옮기고 규칙 예외를 제거한다 |
 
 ### 배포 전 대응
 
@@ -52,16 +59,16 @@
 |---|---|---|
 | Firebase Authentication | READY_WITH_CONDITIONS | P0-1 제거됨. App Check·rate limit 없음 |
 | 학교 인증 | READY_WITH_CONDITIONS | 위조 경로 차단. `emailLinkTokens` get 공개는 R-FS-1 |
-| Firestore Rules | **NOT_READY** | 변경분 미검증(R-JDK21). 채팅·신고·asks·interactions·bamboo 여전히 노출 |
-| Storage Rules | **NOT_READY** | 재작성했으나 문법 미검증. 이전 파일은 배포 자체가 불가능했음 |
-| Cloud Functions | READY_WITH_CONDITIONS | 빌드 PASS. App Check·rate limit 없음, P1-6/P1-7 미수정 |
-| 채팅 | **NOT_READY** | 전체 메시지 익명 열람 가능 (R-CHAT) |
-| 신고·차단 | **NOT_READY** | 차단은 수정, 신고는 미수정 (R-REPORTS) |
+| Firestore Rules | READY_WITH_CONDITIONS | 151/151 공격 테스트 PASS. 조건: 앱 선배포 + R-UPDATEGATE. R-FS-2 잔존 |
+| Storage Rules | READY_WITH_CONDITIONS | 23/23 PASS. 문법 유효성 emulator 로 확인. 조건: 앱 선배포. R-STORAGE-2 잔존 |
+| Cloud Functions | READY_WITH_CONDITIONS | lint/build/test(128) PASS. App Check·rate limit 없음, P1-6/P1-7 미수정 |
+| 채팅 | READY_WITH_CONDITIONS | 참가자 제한·senderId 바인딩 검증 완료. R-CHAT-SYSTEM 잔존 |
+| 신고·차단 | READY_WITH_CONDITIONS | 양쪽 모두 소유자 스코프로 검증. 운영 조회 경로는 Admin SDK 전용 |
 | 개인정보 보호 | **NOT_READY** | R-FS-2, R-STORAGE-2 |
 | 1:1 추천 | READY_WITH_CONDITIONS | 소유권 제한 적용. fallback 정책은 P2-8 |
-| Flutter Android | NOT_ASSESSED | APK 빌드 미실행 |
+| Flutter Android | READY_WITH_CONDITIONS | `flutter build apk --debug` PASS. release appbundle 미검증 (서명 키 필요) |
 | Flutter iOS | NOT_ASSESSED | macOS 없음 |
-| Flutter Web | NOT_ASSESSED | web 빌드 미실행 |
+| Flutter Web | READY_WITH_CONDITIONS | `flutter build web` PASS |
 | Cloud Run 추천 시스템 | NOT_ASSESSED | `recsys/` 미조사 |
 | AI 아바타 파이프라인 | NOT_APPLICABLE | 저장소에 존재하지 않음. `ai_profiles/` 는 배치 업로드된 더미 프로필 |
 | 무물 | NOT_ASSESSED | 규칙 노출만 확인 (P1-9) |
@@ -76,12 +83,16 @@
 
 ## 3. 배포 전 필수 작업 (실행 순서)
 
-1. JDK 21+ 설치.
-2. `cd test/firestore_rules && npm install && npm test` → exit 0 확인.
-   기존 3개 테스트 + 신규 `authz_hardening_rules.test.js` 전부 통과해야 한다.
+1. 규칙 테스트 재확인 (JAVA_HOME 을 `Android Studio1\jbr` 로 설정).
+   Gradle 데몬이 떠 있으면 먼저 정리한다.
+   ```
+   npm --prefix test/firestore_rules run test:firestore   # 151 PASS
+   npm --prefix test/firestore_rules run test:storage     # 23 PASS
+   ```
+2. **R-UPDATEGATE 를 먼저 해결한다.** 최소 지원 버전 게이트 없이 규칙을
+   배포하면 구버전 앱의 로그인과 사진 업로드가 즉시 깨진다.
 3. 실패하는 항목이 있으면 규칙을 고친다. **테스트를 낮추지 않는다.**
-4. R-CHAT, R-REPORTS 를 같은 방식(공격 테스트 먼저)으로 처리한다.
-5. `firebase emulators:start --only firestore,storage,auth` 위에서 앱을 띄워
+4. `firebase emulators:start --only firestore,storage,auth` 위에서 앱을 띄워
    수동 회귀: 카카오 로그인 → 학생 인증 → 온보딩 사진 업로드 → 프로필 편집 →
    프로필 탐색 → 추천 카드 → 채팅 → 차단 → 알림 → 탈퇴.
    특히 **사진 업로드**(익명 fallback 제거됨)와 **users list fallback 추천** 확인.

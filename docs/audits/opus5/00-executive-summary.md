@@ -27,8 +27,10 @@ P0 판정: **P0_FIXED_WITH_EXTERNAL_VALIDATION_REMAINING**
 
 인증되지 않은 공격자가 임의의 학교 인증 사용자 계정 세션을 획득할 수 있는
 경로가 있었다. 그 경로는 제거했고, 이를 가능하게 한 Firestore 규칙의 익명
-허용도 좁혔다. 다만 **Firestore/Storage 규칙 변경은 emulator 로 검증하지
-못했다** (이 머신에 JDK 21+ 이 없음). 배포 전 검증이 반드시 필요하다.
+허용도 좁혔다. **규칙 변경은 emulator 공격 테스트로 검증했다**
+(Firestore 151/151, Storage 23/23). 남은 배포 차단 요인은 코드가 아니라
+**최소 지원 버전 게이트 부재**다. 규칙을 앱보다 먼저 배포하면 구버전 앱이
+깨진다.
 
 ## 확인된 계정 탈취 체인 (P0)
 
@@ -64,7 +66,16 @@ P0 판정: **P0_FIXED_WITH_EXTERNAL_VALIDATION_REMAINING**
 |---|---|---|
 | 1 | 취약한 custom-token 발급 callable 제거 + 클라이언트 호출 경로 제거 | `82cc1461` |
 | 2 | `storage.rules` 문법 오류 수정 + 소유자 스코프 재작성 + 업로드 클라이언트 fail-closed | `4217f446` |
-| 3 | `firestore.rules` 익명 허용 제거 + 보호 필드 도입 + 공격 테스트 | (아래 커밋) |
+| 3 | `firestore.rules` 익명 허용 제거 + 보호 필드 도입 + 공격 테스트 38건 | `a02362ae` |
+| 4 | 채팅·신고·무물·interactions·커뮤니티 소유자 스코프 + 공격 테스트 44건 | `365fcc85` |
+| 5 | Storage 공격 테스트 + MIME 정규화 유닛 테스트 | `6cd094ec` |
+| 6 | emulator 스크립트 분리 + 침해 대응 runbook | `4b80a81b` |
+| 7 | 비인증 fallback 제거에 맞춰 기존 테스트 기대값 정정 | `1cc1ae0c`, `b592db71` |
+| 8 | Storage 테스트 service 카운트 정정 | `b23928f4` |
+
+검증 결과: Firestore Rules 151/151 PASS, Storage Rules 23/23 PASS,
+Functions lint/build/test(128) PASS, Flutter 351 PASS, APK debug 빌드 PASS,
+Web 빌드 PASS. 상세는 `03-baseline-and-verification.md`.
 
 ## 조사 범위
 
