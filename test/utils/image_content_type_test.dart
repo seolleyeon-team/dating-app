@@ -53,10 +53,7 @@ void main() {
 
   group('imageContentTypeForPath', () {
     test('경로 마지막 확장자를 사용한다', () {
-      expect(
-        imageContentTypeForPath('/tmp/1700000000_slot0.png'),
-        'image/png',
-      );
+      expect(imageContentTypeForPath('/tmp/1700000000_slot0.png'), 'image/png');
       expect(
         imageContentTypeForPath(r'C:\Users\a\photo.archive.webp'),
         'image/webp',
