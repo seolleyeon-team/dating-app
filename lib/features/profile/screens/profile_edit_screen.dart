@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../router/route_names.dart';
+import '../../../utils/image_content_type.dart';
 import '../../matching/models/profile_card_args.dart';
 
 class _AppColors {
@@ -981,24 +982,6 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     return raw;
   }
 
-  String _contentTypeForImageExtension(String ext) {
-    switch (ext.toLowerCase()) {
-      case 'jpg':
-      case 'jpeg':
-        return 'image/jpeg';
-      case 'png':
-        return 'image/png';
-      case 'gif':
-        return 'image/gif';
-      case 'webp':
-        return 'image/webp';
-      case 'heic':
-      case 'heif':
-        return 'image/heic';
-      default:
-        return 'image/jpeg';
-    }
-  }
 
   Future<void> _addPhoto(int index) async {
     HapticFeedback.lightImpact();
@@ -1018,12 +1001,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       }
 
       // Storage 규칙이 아직 "인증 필요"만 허용하는 경우 대비 (배포 전·타 경로)
-      if (FirebaseAuth.instance.currentUser == null) {
-        try {
-          await FirebaseAuth.instance.signInAnonymously();
-        } catch (_) {
-          // 익명 로그인 비활성화 등 — 아래 공개 업로드 규칙에만 의존
-        }
+      // Storage 규칙이 users/{uid}/... 경로의 소유자만 쓰기를 허용하므로
+      // 익명 세션으로는 업로드할 수 없다. 예전 fallback(signInAnonymously)은
+      // 비인증 업로드를 허용하는 규칙에 의존했고, 그 규칙은 임의 사용자
+      // 경로에 대한 무인증 업로드·삭제를 가능하게 했다.
+      final uploaderUid = FirebaseAuth.instance.currentUser?.uid;
+      if (uploaderUid != kakaoUserId) {
+        throw Exception('로그인 세션이 만료되었습니다. 다시 로그인한 뒤 사진을 올려주세요.');
       }
 
       final extension = _imageExtensionFromPicked(pickedFile);
@@ -1034,7 +1018,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       );
 
       final metadata = SettableMetadata(
-        contentType: _contentTypeForImageExtension(extension),
+        contentType: imageContentTypeForExtension(extension),
       );
       final bytes = await pickedFile.readAsBytes();
       await ref.putData(bytes, metadata);
