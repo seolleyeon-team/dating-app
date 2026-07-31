@@ -7,23 +7,99 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
+    // 공통 헬퍼 (2026-07 권한 하드닝)
+    //
+    // 이전 규칙은 "카카오 로그인은 커스텀 토큰 교환이 실패하면 비인증 상태로
+    // 계속 진행된다"는 전제 위에 세워져 있었다. 그래서 users / chat_rooms /
+    // messages / recEvents / deviceTokens / blocks / reports / asks /
+    // interactions 가 모두 `if true` 였다.
+    //
+    // 그 fallback 은 제거했다. 앱은 카카오 로그인 후
+    // createFirebaseCustomToken 으로 uid == kakaoUserId 인 Firebase 세션을
+    // 반드시 확보하고, 실패하면 인증 영역에 진입하지 않는다. 따라서 아래
+    // 규칙들은 request.auth 를 신뢰할 수 있다.
+    // -----------------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // 클라이언트가 절대 직접 쓸 수 없는 필드.
+    // 학교 인증 상태·계정 상태·권한·매너 점수는 서버(Admin SDK)만 바꾼다.
+    // Admin SDK 는 규칙을 우회하므로 서버 기능에는 영향이 없다.
+    function touchesProtectedUserFields() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny([
+            'isStudentVerified',
+            'studentEmail',
+            'studentVerifiedAt',
+            'verifiedAt',
+            'loginDisabled',
+            'role',
+            'roles',
+            'permissions',
+            'isAdmin',
+            'isModerator',
+            'isStaff',
+            'premium',
+            'paid',
+            'trustScore',
+            'mannerScore',
+            'riskLevel',
+            'moderationStatus',
+            'rejoinRestricted',
+            'rejoinRestrictedUntil',
+            'rejoinRestrictionReason'
+          ]);
+    }
+
+    // 탈퇴 관련 필드(status / isWithdrawn / withdrawnAt /
+    // scheduledHardDeleteAt / withdrawalReason / profileVisible / canRejoin)는
+    // 위 목록에서 의도적으로 제외했다. 현재 탈퇴는 클라이언트가 자기 문서를
+    // 직접 수정하는 self-service 흐름이고, 이걸 막으면 회원 탈퇴와 개인정보
+    // 삭제 요청이 동작하지 않는다. isSelf 로 남의 문서는 못 건드리게 됐으므로
+    // 남는 위험은 "자기 계정의 status 를 스스로 바꿀 수 있다"뿐이다.
+    // 정지(suspended) 상태를 스스로 해제할 여지가 있어서 탈퇴·정지 전이는
+    // callable 로 옮겨야 한다. → R-FS-3
+
+    // -----------------------------------------------------------------------
     // Email-link token exchange (앱 -> Firestore token 저장, Web -> token 조회)
     // -----------------------------------------------------------------------
+    // 이 문서는 "credential" 이 아니라 lookup table 이다. 이메일 링크를 클릭한
+    // 브라우저가 어떤 kakaoUserId 를 인증하려는지 알아내기 위해서만 쓴다.
+    // 실제 이메일 소유 증명은 web 이 수행하는 signInWithEmailLink 이다.
+    //
+    // 이전 규칙은 create 에 request.auth 조건이 아예 없었고 hasAll 이라 필드
+    // 주입도 가능했다. 그 상태에서 서버의
+    // createFirebaseCustomTokenFromEmailLinkToken 이 이 문서를 bearer
+    // credential 로 신뢰했기 때문에 임의 계정 탈취가 가능했다. 그 callable 은
+    // 제거했고, 여기서는 문서를 생성자 본인에게 묶어 같은 위조를 원천 차단한다.
     match /emailLinkTokens/{token} {
-      allow create: if request.resource.data.email is string &&
-          request.resource.data.kakaoUserId is string &&
+      allow create: if isSelf(request.resource.data.kakaoUserId) &&
+          request.resource.data.email is string &&
           isYonseiEmail(request.resource.data.email) &&
-          request.resource.data.keys().hasAll([
+          request.resource.data.createdAt is timestamp &&
+          request.resource.data.expiresAt is timestamp &&
+          request.resource.data.keys().hasOnly([
             'email',
             'kakaoUserId',
             'createdAt',
             'expiresAt'
           ]);
 
+      // get 은 인증 없이 허용해야 한다. 웹은 signInWithEmailLink 를 하기 전에
+      // 이 문서를 읽어서 email 을 알아내야 하고, 그 시점에는 세션이 없다.
+      // 문서 ID 는 클라이언트가 만든 UUIDv4(122비트)이고 만료는 30분이다.
+      // 남는 위험(문서 ID 를 아는 사람에게 email + kakaoUserId 노출)은
+      // docs/audits/opus5/11-residual-risks.md 의 R-FS-1 로 기록했다.
       allow get: if true;
       allow list: if false;
       allow update: if false;
-      allow delete: if request.auth != null;
+      // 이전에는 아무 인증 사용자나 남의 토큰을 지울 수 있었다 (인증 방해).
+      allow delete: if isSelf(resource.data.kakaoUserId);
     }
 
         // -----------------------------------------------------------------------
@@ -40,8 +116,19 @@ service cloud.firestore {
     }
 
     match /users/{kakaoUserId} {
-      allow get: if true;
-      allow list: if true;
+      // 이전: get/list 모두 `if true`. 비로그인 상태에서 전체 사용자 문서를
+      // 나열할 수 있었고 studentEmail·onboarding(나이·학과·관심사) 같은 PII 가
+      // 그대로 노출됐다. 이것이 계정 탈취 체인의 1단계였다.
+      //
+      // 프로필 탐색·추천 카드가 다른 사용자 문서를 읽어야 하므로 get 은
+      // 소유자 전용으로 만들 수 없다. 인증 필수로만 좁힌다. 필드 단위 분리
+      // (publicProfiles 프로젝션)는 스키마 변경이 필요해서 후속 과제로 남겼다.
+      // → docs/audits/opus5/11-residual-risks.md R-FS-2
+      allow get: if isSignedIn();
+
+      // list 는 ai_recommendation_service 의 fallback 후보 조회(limit 30)만
+      // 필요하다. 익명 나열을 막고 페이지 크기를 제한한다.
+      allow list: if isSignedIn() && request.query.limit <= 30;
 
       // 연세 메일 학생 인증으로 최초 생성
       allow create: if request.auth != null &&
@@ -59,9 +146,11 @@ service cloud.firestore {
           isYonseiEmail(request.resource.data.studentEmail) &&
           request.resource.data.isStudentVerified == true;
 
-      // 카카오 로그인 후 users/{kakaoUserId} 최초 생성 (Firebase Auth 없음)
-      // saveOnboarding* 등은 문서 ID가 곧 kakaoUserId 이므로 필드 생략 가능
-      allow create: if usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
+      // 카카오 로그인 후 users/{kakaoUserId} 최초 생성.
+      // 이전에는 request.auth 조건이 없어서 누구나 임의 UID 의 사용자 문서를
+      // 만들 수 있었다. 이제 커스텀 토큰 세션(uid == kakaoUserId)을 요구한다.
+      allow create: if isSelf(kakaoUserId) &&
+          usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
           request.resource.data.keys().hasOnly([
             'kakaoUserId',
             'nickname',
@@ -106,6 +195,11 @@ service cloud.firestore {
               'verifiedAt'
             ])
           ) || (
+            // 본인 문서의 탈퇴·재가입·로그인 메타 갱신.
+            // 이전에는 request.auth 조건이 없어서 누구나 임의 사용자의
+            // isStudentVerified / loginDisabled / status 를 바꿀 수 있었다.
+            isSelf(kakaoUserId) &&
+            !touchesProtectedUserFields() &&
             resource.data.isStudentVerified == true &&
             request.resource.data.isStudentVerified == true &&
             usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
@@ -150,7 +244,10 @@ service cloud.firestore {
               'updatedAt'
             ])
           ) || (
-            // 프로필 수정(온보딩 데이터 갱신) - 기존 규칙 유지 + 온보딩 편집 허용
+            // 프로필 수정(온보딩 데이터 갱신).
+            // 이전에는 이 분기에도 request.auth 조건이 없었다.
+            isSelf(kakaoUserId) &&
+            !touchesProtectedUserFields() &&
             (request.resource.data.kakaoUserId == null ||
               request.resource.data.kakaoUserId == kakaoUserId) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -200,38 +297,48 @@ service cloud.firestore {
       // ---------------------------------------------------------------------
       // Device tokens
       // ---------------------------------------------------------------------
+      // 이전: get/list/delete 가 `if true`, create/update 에 request.auth 조건
+      // 없음. FCM 토큰이 전역 공개였고 남의 uid 아래에 자기 토큰을 등록할 수
+      // 있었다. shared/notify.ts 의 fetchUserTokens 는 이 문서 ID 를 그대로
+      // 수신자로 쓰기 때문에, 공격자가 피해자의 푸시(채팅 원문 포함)를
+      // 받아볼 수 있었고 남의 토큰을 지워 푸시를 막을 수도 있었다.
       match /deviceTokens/{token} {
-        allow get, list: if true;
+        allow get, list: if isSelf(kakaoUserId);
 
-        allow create, update: if
+        allow create, update: if isSelf(kakaoUserId) &&
           request.resource.data.userId is string &&
           request.resource.data.userId == kakaoUserId &&
           request.resource.data.token is string &&
           request.resource.data.token == token;
 
-        allow delete: if true;
+        allow delete: if isSelf(kakaoUserId);
       }
 
       // ---------------------------------------------------------------------
       // In-app notifications
       // users/{kakaoUserId}/notifications/{notificationId}
       // ---------------------------------------------------------------------
+      // 이전: get/list/delete 가 `if true`, create 에 request.auth 조건 없음.
+      // 누구나 남의 알림함을 읽고 지울 수 있었고 임의 사용자에게 알림을
+      // 꽂아넣을 수 있었다(스팸·피싱 문구 삽입).
+      // 서버는 Admin SDK 로 쓰기 때문에 규칙을 우회하므로 영향이 없다.
       match /notifications/{notificationId} {
-        allow get, list: if true;
+        allow get, list: if isSelf(kakaoUserId);
 
-        allow create: if
+        // 자기 알림함에만 쓸 수 있다 (타 사용자 스팸 차단).
+        allow create: if isSelf(kakaoUserId) &&
           request.resource.data.type is string &&
           request.resource.data.title is string &&
           request.resource.data.body is string &&
           request.resource.data.isRead is bool;
 
-        allow update: if
+        allow update: if isSelf(kakaoUserId) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'isRead',
             'readAt'
           ]);
 
-        allow delete: if true;
+        allow delete: if isSelf(kakaoUserId);
       }
 
       // ---------------------------------------------------------------------
@@ -268,11 +375,20 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // RecEvents (추천 학습용 이벤트 로그: open, like, nope 등)
     // -----------------------------------------------------------------------
+    // 이전: `allow read, write: if true` — 모든 사용자의 행동 로그를 누구나
+    // 읽고 쓸 수 있었다. onRecEventCreated 트리거가 이 문서의 userId 를 행위자로
+    // 신뢰해서 위조된 like 로 실제 matches 문서를 만들 수 있었다.
+    // 이제 본인 경로만 허용하고 문서의 userId 도 경로와 일치해야 한다.
     match /recEvents/{userId} {
-      allow read, write: if true;
+      allow read: if isSelf(userId);
+      allow write: if isSelf(userId);
 
       match /events/{eventId} {
-        allow read, write: if true;
+        allow read: if isSelf(userId);
+        allow create: if isSelf(userId) &&
+            (request.resource.data.userId == null ||
+              request.resource.data.userId == userId);
+        allow update, delete: if false;
       }
     }
 
@@ -565,20 +681,6 @@ service cloud.firestore {
       allow write: if false;
     }
 
-
-    // -----------------------------------------------------------------------
-    // Promise place catalog
-    // -----------------------------------------------------------------------
-    match /place_catalog_meta/{docId} {
-      allow read: if true;
-      allow write: if false;
-    }
-
-    match /place_catalog_items/{placeId} {
-      allow read: if true;
-      allow write: if false;
-    }
-
     // -----------------------------------------------------------------------
     // Bamboo Forest (Community)
     // -----------------------------------------------------------------------
@@ -678,19 +780,22 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // Blocks and Reports
     // -----------------------------------------------------------------------
+    // 이전: 모든 verb 가 `if true` — 누구나 남의 차단 목록을 읽고, 무엇보다
+    // 남이 나를 차단한 기록을 지울 수 있었다. 차단 해제는 피해자 보호를
+    // 직접 무너뜨리므로 소유자 전용으로 닫는다.
     match /blocks/{viewerUid} {
-      allow read: if true;
-      allow create, update: if true;
-      allow delete: if true;
+      allow read: if isSelf(viewerUid);
+      allow create, update: if isSelf(viewerUid);
+      allow delete: if isSelf(viewerUid);
 
       match /targets/{targetUid} {
-        allow read: if true;
-        allow create, update: if
+        allow read: if isSelf(viewerUid);
+        allow create, update: if isSelf(viewerUid) &&
           request.resource.data.fromUserId is string &&
           request.resource.data.toUserId is string &&
           request.resource.data.fromUserId == viewerUid &&
           request.resource.data.toUserId == targetUid;
-        allow delete: if true;
+        allow delete: if isSelf(viewerUid);
       }
     }
 
@@ -778,8 +883,10 @@ service cloud.firestore {
     // Model Recs (AI 추천 결과: rrf, clip, svd, knn - 서버에서 저장, 앱에서 읽기)
     // Kakao 로그인 시 request.auth가 null일 수 있어 read는 허용
     // -----------------------------------------------------------------------
+    // 이전: `allow read: if true` — 누구나 임의 사용자의 추천 결과를 읽을 수
+    // 있었다. 추천 결과에는 candidateUid 목록과 source score 가 들어간다.
     match /modelRecs/{userId}/daily/{dateKey}/sources/{algo} {
-      allow read: if true;
+      allow read: if isSelf(userId);
       allow write: if false;
     }
 
