@@ -1195,116 +1195,27 @@ export const createFirebaseCustomToken = onCall(async (request) => {
   };
 });
 
-export const createFirebaseCustomTokenFromEmailLinkToken = onCall(
-  async (request) => {
-    const data = getCallableData(request);
-    const verificationToken = asNonEmptyString(data.verificationToken);
-    const requestedKakaoUserId = asNonEmptyString(data.kakaoUserId);
-    const requestedStudentEmail =
-      asNonEmptyString(data.studentEmail)?.toLowerCase() ?? null;
-
-    logger.info("createFirebaseCustomTokenFromEmailLinkToken invoked", {
-      hasVerificationToken: !!verificationToken,
-      hasKakaoUserId: !!requestedKakaoUserId,
-      hasStudentEmail: !!requestedStudentEmail,
-    });
-
-    if (!verificationToken) {
-      throw new HttpsError(
-        "invalid-argument",
-        "이메일 인증 세션 토큰이 필요해요."
-      );
-    }
-
-    const tokenRef = db.collection("emailLinkTokens").doc(verificationToken);
-    const tokenSnap = await tokenRef.get();
-    if (!tokenSnap.exists) {
-      throw new HttpsError(
-        "failed-precondition",
-        "인증 세션이 없어요. 이메일 인증 링크를 다시 보내주세요."
-      );
-    }
-
-    const tokenData = (tokenSnap.data() ?? {}) as Record<string, unknown>;
-    const tokenKakaoUserId = asNonEmptyString(tokenData.kakaoUserId);
-    const tokenEmail = asNonEmptyString(tokenData.email)?.toLowerCase() ?? null;
-    const expiresAtRaw = tokenData.expiresAt;
-    const expiresAt =
-      expiresAtRaw instanceof Timestamp
-        ? expiresAtRaw.toDate()
-        : expiresAtRaw instanceof Date
-          ? expiresAtRaw
-          : null;
-
-    if (!tokenKakaoUserId || !tokenEmail) {
-      throw new HttpsError(
-        "failed-precondition",
-        "인증 세션 정보가 올바르지 않아요. 이메일 인증을 다시 진행해주세요."
-      );
-    }
-
-    if (requestedKakaoUserId && requestedKakaoUserId !== tokenKakaoUserId) {
-      throw new HttpsError(
-        "permission-denied",
-        "인증 세션이 현재 계정과 일치하지 않아요."
-      );
-    }
-
-    if (requestedStudentEmail && requestedStudentEmail !== tokenEmail) {
-      throw new HttpsError(
-        "permission-denied",
-        "인증 세션 이메일이 현재 계정과 일치하지 않아요."
-      );
-    }
-
-    if (expiresAt && expiresAt.getTime() < Date.now()) {
-      throw new HttpsError(
-        "failed-precondition",
-        "인증 세션이 만료되었어요. 이메일 인증 링크를 다시 보내주세요."
-      );
-    }
-
-    const userSnap = await db.collection("users").doc(tokenKakaoUserId).get();
-    if (!userSnap.exists) {
-      throw new HttpsError(
-        "failed-precondition",
-        "가입 정보를 찾을 수 없어요. 다시 로그인해주세요."
-      );
-    }
-
-    const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
-    const studentEmail =
-      asNonEmptyString(userData.studentEmail)?.toLowerCase() ?? "";
-    const isStudentVerified = userData.isStudentVerified === true;
-
-    if (!isStudentVerified || studentEmail != tokenEmail) {
-      throw new HttpsError(
-        "failed-precondition",
-        "학생 인증이 아직 현재 브라우저와 연결되지 않았어요. 인증 메일 링크를 다시 열어주세요."
-      );
-    }
-
-    await tokenRef.set(
-      {
-        lastRecoveredAt: FieldValue.serverTimestamp(),
-        lastRecoveredKakaoUserId: tokenKakaoUserId,
-      },
-      { merge: true }
-    );
-
-    const customToken = await getAuth().createCustomToken(tokenKakaoUserId, {
-      kakaoUserId: tokenKakaoUserId,
-      studentEmail,
-    });
-
-    return {
-      customToken,
-      userId: tokenKakaoUserId,
-      isStudentVerified: true,
-      studentEmail,
-    };
-  }
-);
+// -----------------------------------------------------------------------------
+// REMOVED (security): createFirebaseCustomTokenFromEmailLinkToken
+//
+// 이 callable 은 emailLinkTokens/{token} 문서를 bearer credential 로 취급해
+// Firebase custom token 을 발급했다. 그런데 그 문서는 클라이언트가 비인증
+// 상태로 직접 만들 수 있었고(firestore.rules 의 emailLinkTokens create 규칙),
+// users 컬렉션은 list 가 공개였다. 따라서 공격자는
+//   1. users 를 나열해 피해자의 문서 ID(kakaoUserId)와 studentEmail 을 얻고
+//   2. 그 값으로 emailLinkTokens 문서를 스스로 만들고
+//   3. 이 callable 을 호출해 피해자 UID 의 custom token 을 받을 수 있었다.
+// payload 의 kakaoUserId/studentEmail 검증은 값이 있을 때만 수행됐고,
+// expiresAt 은 Timestamp 가 아니면 무시됐으며, 토큰은 single-use 도 아니었다.
+//
+// 세션 복구는 createFirebaseCustomToken(카카오 액세스 토큰을 Kakao API 로
+// 서버에서 검증) 경로만 사용한다. 클라이언트
+// AuthService.ensureFirebaseSessionForVerifiedUser 는 이미 그 경로로
+// fall through 하므로 UX 회귀가 없다.
+//
+// 되살리려면 emailLinkTokens 를 서버 전용 쓰기로 바꾸고, 실제 email-link
+// 로그인 성공을 서버가 표시하고, single-use 소비를 트랜잭션으로 보장해야 한다.
+// -----------------------------------------------------------------------------
 
 export const createFriendInvite = onCall(async (request) => {
   const requestData = getCallableData(request);

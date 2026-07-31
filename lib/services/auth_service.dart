@@ -428,59 +428,11 @@ class AuthService {
 
     await _signOutFirebaseIfMismatched(kakaoUserId);
 
-    final verificationToken = await _storageService.getStudentVerificationToken(
-      kakaoUserId,
-    );
-    final savedEmail = await _storageService.getStudentEmail(kakaoUserId);
-    final normalizedEmail = savedEmail?.trim().toLowerCase() ?? '';
-
-    if (verificationToken != null &&
-        verificationToken.trim().isNotEmpty &&
-        normalizedEmail.isNotEmpty &&
-        normalizedEmail.endsWith('@yonsei.ac.kr')) {
-      try {
-        final callable = _functions.httpsCallable(
-          'createFirebaseCustomTokenFromEmailLinkToken',
-        );
-        final result = await callable.call(<String, dynamic>{
-          'verificationToken': verificationToken.trim(),
-          'studentEmail': normalizedEmail,
-          'kakaoUserId': kakaoUserId,
-        });
-        final data = Map<String, dynamic>.from(
-          (result.data as Map?)?.cast<String, dynamic>() ?? const {},
-        );
-        final customToken = data['customToken']?.toString() ?? '';
-        if (customToken.isNotEmpty) {
-          final credential = await _firebaseAuth.signInWithCustomToken(
-            customToken,
-          );
-          await credential.user?.getIdToken(true);
-          debugPrint(
-            '[Auth] Firebase session restored from student verification token '
-            'for $kakaoUserId',
-          );
-          return true;
-        }
-        debugPrint(
-          '[Auth] Email-link token bridge returned empty custom token',
-        );
-      } on FirebaseFunctionsException catch (e, st) {
-        debugPrint(
-          '[Auth] ensureFirebaseSessionForVerifiedUser functions error: '
-          'code=${e.code} message=${e.message} details=${e.details}',
-        );
-        debugPrint(st.toString());
-      } catch (e, st) {
-        debugPrint('[Auth] ensureFirebaseSessionForVerifiedUser error: $e');
-        debugPrint(st.toString());
-      }
-    } else {
-      debugPrint(
-        '[Auth] No stored verified email-link token bridge is available',
-      );
-    }
-
+    // 학생 인증 토큰(emailLinkTokens)으로 세션을 복구하던 경로는 제거했다.
+    // 그 토큰 문서는 클라이언트가 비인증으로 생성할 수 있어서, 서버가 그것을
+    // bearer credential 로 신뢰하면 임의 계정의 custom token 을 발급받을 수
+    // 있었다. 세션 복구는 카카오 액세스 토큰을 서버에서 Kakao API 로 검증하는
+    // 경로만 사용한다.
     return await ensureFirebaseSessionForKakao(kakaoUserId);
   }
 
