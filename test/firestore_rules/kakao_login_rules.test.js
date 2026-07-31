@@ -137,8 +137,63 @@ function loginFlowCases(makeDb) {
   });
 }
 
-describe("카카오 로그인 — Firebase 세션 없음 (request.auth == null)", () => {
-  loginFlowCases(() => testEnv.unauthenticatedContext().firestore());
+/**
+ * 2026-07 권한 하드닝으로 기대값이 바뀐 부분.
+ *
+ * 예전에는 커스텀 토큰 교환이 실패하면 앱이 비인증 상태로 로그인 흐름을 계속
+ * 진행했고, 규칙도 그걸 허용했다(users get/create/update 가 `if true`).
+ * 그 허용이 계정 탈취 체인의 1단계였다(익명 users 나열 → studentEmail 획득).
+ *
+ * 이제 Firebase 세션은 필수다. 비인증 상태에서는 로그인 흐름의 어느 단계도
+ * 진행되지 않아야 한다. 따라서 아래 기대값은 "성공"에서 "거부"로 바뀌었다.
+ * 기대값을 낮춘 것이 아니라 정책이 바뀐 것이다.
+ * 근거: docs/audits/opus5/04-security-findings.md P0-1 / P0-3
+ */
+function loginFlowDeniedCases(makeDb) {
+  it("1. users/{id} 존재 확인 read 가 거부된다", async () => {
+    await seedShell();
+    await assertFails(getDoc(doc(makeDb(), "users", KAKAO_USER_ID)));
+  });
+
+  it("2. 신규 가입 셸 문서 create 가 거부된다", async () => {
+    await assertFails(
+      setDoc(doc(makeDb(), "users", KAKAO_USER_ID), shellDoc())
+    );
+  });
+
+  it("3. setLastActivePlatform merge update 가 거부된다", async () => {
+    await seedShell();
+    await assertFails(
+      setDoc(doc(makeDb(), "users", KAKAO_USER_ID), lastActivePlatformDoc(), {
+        merge: true,
+      })
+    );
+  });
+
+  it("4. saveLegalConsents merge update 가 거부된다", async () => {
+    await seedShell();
+    await assertFails(
+      setDoc(doc(makeDb(), "users", KAKAO_USER_ID), legalConsentsDoc(), {
+        merge: true,
+      })
+    );
+  });
+
+  it("5. 신규 가입 전체 순서가 첫 단계에서 막힌다", async () => {
+    await assertFails(
+      setDoc(doc(makeDb(), "users", KAKAO_USER_ID), shellDoc())
+    );
+  });
+}
+
+describe("카카오 로그인 — Firebase 세션 없음 (request.auth == null) 은 차단된다", () => {
+  loginFlowDeniedCases(() => testEnv.unauthenticatedContext().firestore());
+});
+
+describe("카카오 로그인 — 다른 사용자 세션으로는 남의 문서를 못 만진다", () => {
+  loginFlowDeniedCases(() =>
+    testEnv.authenticatedContext("9999999999").firestore()
+  );
 });
 
 describe("카카오 로그인 — 커스텀 토큰 세션 있음 (uid == kakaoUserId)", () => {
@@ -150,8 +205,11 @@ describe("카카오 로그인 — 커스텀 토큰 세션 있음 (uid == kakaoUs
 });
 
 describe("규칙이 여전히 막아야 하는 것", () => {
+  // 아래 테스트들은 "필드 검증"을 확인하는 것이 목적이다. 비인증 컨텍스트를
+  // 쓰면 이제 인증 조건에서 먼저 막혀서 필드 검증이 실제로 동작하는지 알 수
+  // 없다. 그래서 본인 세션으로 바꿨다.
   it("허용 목록에 없는 필드가 섞인 create 는 거부된다", async () => {
-    const db = testEnv.unauthenticatedContext().firestore();
+    const db = testEnv.authenticatedContext(KAKAO_USER_ID).firestore();
     await assertFails(
       setDoc(doc(db, "users", KAKAO_USER_ID), {
         ...shellDoc(),
@@ -161,7 +219,7 @@ describe("규칙이 여전히 막아야 하는 것", () => {
   });
 
   it("문서 ID 와 다른 kakaoUserId 로는 create 할 수 없다", async () => {
-    const db = testEnv.unauthenticatedContext().firestore();
+    const db = testEnv.authenticatedContext(KAKAO_USER_ID).firestore();
     await assertFails(
       setDoc(doc(db, "users", KAKAO_USER_ID), {
         ...shellDoc(),
@@ -205,7 +263,7 @@ describe("허용 목록 우회 방지 — 새 필드 주입 (affectedKeys 회귀
         internalFlag: "keep",
       });
     });
-    const db = testEnv.unauthenticatedContext().firestore();
+    const db = testEnv.authenticatedContext(KAKAO_USER_ID).firestore();
     await assertFails(
       setDoc(
         doc(db, "users", KAKAO_USER_ID),
@@ -225,7 +283,8 @@ describe("허용 목록 우회 방지 — 새 필드 주입 (affectedKeys 회귀
         isRead: false,
       });
     });
-    const db = testEnv.unauthenticatedContext().firestore();
+    // 알림함 소유자 세션으로 읽음 처리한다 (이전에는 비인증이었다).
+    const db = testEnv.authenticatedContext(KAKAO_USER_ID).firestore();
     await assertSucceeds(
       setDoc(doc(db, ...ref), { isRead: true }, { merge: true })
     );
@@ -243,7 +302,8 @@ describe("허용 목록 우회 방지 — 새 필드 주입 (affectedKeys 회귀
         status: "sent",
       });
     });
-    const db = testEnv.unauthenticatedContext().firestore();
+    // 무물 당사자(fromUserId) 세션으로 상태를 바꾼다.
+    const db = testEnv.authenticatedContext("u1").firestore();
     await assertSucceeds(
       setDoc(doc(db, "asks", "a1"), { status: "read" }, { merge: true })
     );
@@ -260,7 +320,8 @@ describe("허용 목록 우회 방지 — 새 필드 주입 (affectedKeys 회귀
         status: "active",
       });
     });
-    const db = testEnv.unauthenticatedContext().firestore();
+    // 매치 당사자 세션으로 상태를 바꾼다.
+    const db = testEnv.authenticatedContext("u1").firestore();
     await assertSucceeds(
       setDoc(doc(db, "matches", "m1"), { status: "unmatched" }, { merge: true })
     );
