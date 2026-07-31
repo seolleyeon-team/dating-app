@@ -190,10 +190,40 @@ describe("카카오 로그인 — Firebase 세션 없음 (request.auth == null) 
   loginFlowDeniedCases(() => testEnv.unauthenticatedContext().firestore());
 });
 
-describe("카카오 로그인 — 다른 사용자 세션으로는 남의 문서를 못 만진다", () => {
-  loginFlowDeniedCases(() =>
-    testEnv.authenticatedContext("9999999999").firestore()
-  );
+describe("카카오 로그인 — 다른 사용자 세션으로는 남의 문서에 쓸 수 없다", () => {
+  const otherDb = () => testEnv.authenticatedContext("9999999999").firestore();
+
+  // read 는 의도적으로 허용한다. 프로필 탐색·추천 카드가 다른 사용자 문서를
+  // 읽어야 하기 때문이다. 필드 단위 분리(publicProfiles 프로젝션)는 후속
+  // 과제이고 docs/audits/opus5/11-residual-risks-and-deployment.md R-FS-2 다.
+  it("1. 남의 users 문서 read 는 허용된다 (추천·탐색 유지, R-FS-2)", async () => {
+    await seedShell();
+    await assertSucceeds(getDoc(doc(otherDb(), "users", KAKAO_USER_ID)));
+  });
+
+  it("2. 남의 users 문서 create 는 거부된다", async () => {
+    await assertFails(
+      setDoc(doc(otherDb(), "users", KAKAO_USER_ID), shellDoc())
+    );
+  });
+
+  it("3. 남의 users 문서 merge update 는 거부된다", async () => {
+    await seedShell();
+    await assertFails(
+      setDoc(doc(otherDb(), "users", KAKAO_USER_ID), lastActivePlatformDoc(), {
+        merge: true,
+      })
+    );
+  });
+
+  it("4. 남의 users 문서 동의 갱신은 거부된다", async () => {
+    await seedShell();
+    await assertFails(
+      setDoc(doc(otherDb(), "users", KAKAO_USER_ID), legalConsentsDoc(), {
+        merge: true,
+      })
+    );
+  });
 });
 
 describe("카카오 로그인 — 커스텀 토큰 세션 있음 (uid == kakaoUserId)", () => {
