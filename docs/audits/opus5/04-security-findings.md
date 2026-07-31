@@ -46,7 +46,7 @@
 | | (b) 저장소 버전 기준으로는 누구나 임의 사용자의 원본 얼굴 사진을 읽고, 12MB 객체를 업로드하고, 삭제 가능 |
 | 수정 | 단일 유효 `service` 블록으로 재작성. 기본 deny, read 는 인증 필수, write 는 `request.auth.uid == userId`, 이미지 12MB 이하, `image/svg+xml` 거부 |
 | 부수 수정 | 두 업로드 화면의 `signInAnonymously()` fallback 제거 (익명 uid 는 소유권 검사를 통과 못 함) + `image/jpg` → `image/jpeg` 정규화 |
-| 상태 | **FIXED_UNVERIFIED** (`4217f446`) — 문법 검증 못 함 (B-JDK21) |
+| 상태 | **FIXED_AND_VERIFIED** (`4217f446`) — Storage 공격 테스트 23/23 PASS. emulator 가 규칙을 load 했다는 것이 문법 유효성 증명 |
 
 ### P0-3 익명 사용자가 임의 계정의 학교 인증 상태·로그인 가능 여부 변경
 
@@ -56,7 +56,7 @@
 | | 해당 분기에 `request.auth` 조건이 전혀 없고 `affectedKeys().hasOnly([...])` 목록에 `isStudentVerified`, `studentEmail`, `loginDisabled`, `status` 포함 |
 | 영향 | 임의 계정 학교 인증 위조, 임의 계정 로그인 잠금(DoS), 프로필 훼손 |
 | 수정 | 2·3번째 분기에 `isSelf(kakaoUserId)` + `!touchesProtectedUserFields()` 추가. 2번째 create 분기에 `isSelf` 추가 |
-| 상태 | **FIXED_UNVERIFIED** (B-JDK21) |
+| 상태 | **FIXED_AND_VERIFIED** — 공격 테스트 9건 (loginDisabled / role / isAdmin / studentEmail / mannerScore 추가 거부, 타인 문서 수정 거부, 본인 onboarding 수정 허용) PASS |
 
 ### P0-4 모든 채팅 메시지 전역 공개
 
@@ -66,7 +66,8 @@
 | | `match /messages/{messageId}` → `allow read: if true;` |
 | 영향 | 인증 없이 전체 사용자의 채팅 원문 열람 |
 | 추가 | 블라인드 미팅 이외 방은 `allow create` 에 `senderId == request.auth.uid` 검증이 없어 발신자 위조 가능 |
-| 상태 | **ANALYSED_NOT_FIXED** — 참가자 판정 로직이 `participantIds` 채워지는 방식에 의존하고, 검증 없이 바꾸면 채팅 전체가 죽는다. emulator 확보 후 우선 처리 |
+| 수정 | 모든 roomType 에 참가자 게이트 적용. `participantIds` 는 클라이언트 변경 불가. `senderId` 를 `request.auth.uid` 에 바인딩 (`'system'` 예외는 R-CHAT-SYSTEM) |
+| 상태 | **FIXED_AND_VERIFIED** — 공격 테스트 15건 PASS. 블라인드 미팅 전용 조건은 원문 그대로 유지했고 기존 blind_meeting 규칙 테스트 회귀 없음 |
 
 ---
 
@@ -74,16 +75,16 @@
 
 | ID | 문제 | 증거 | 상태 |
 |---|---|---|---|
-| P1-1 | FCM 토큰 전역 공개·쓰기 가능 → 피해자 푸시(채팅 원문 포함) 수신, 토큰 삭제로 푸시 차단 | `firestore.rules` deviceTokens `allow get, list: if true` / `allow delete: if true` / create·update 에 auth 조건 없음. 수신자 결정은 `shared/notify.ts:98` `fetchUserTokens` | **FIXED_UNVERIFIED** |
-| P1-2 | 차단 목록 전역 읽기·삭제 → 가해자가 자신에 대한 차단을 해제 | `firestore.rules` blocks 전 verb `if true` | **FIXED_UNVERIFIED** |
-| P1-3 | 추천 결과 전역 읽기 | `firestore.rules` modelRecs `allow read: if true` | **FIXED_UNVERIFIED** |
-| P1-4 | 행동 로그 전역 읽기·쓰기. 위조 like 가 `onRecEventCreated`(`index.ts:2280`)를 통해 실제 `matches` 생성 | `firestore.rules` recEvents `allow read, write: if true` | **FIXED_UNVERIFIED** |
-| P1-5 | 알림함 전역 읽기·삭제 + 임의 사용자에게 알림 삽입(피싱 문구) | `firestore.rules` notifications `allow get, list: if true` / create 에 auth 조건 없음 | **FIXED_UNVERIFIED** |
+| P1-1 | FCM 토큰 전역 공개·쓰기 가능 → 피해자 푸시(채팅 원문 포함) 수신, 토큰 삭제로 푸시 차단 | `firestore.rules` deviceTokens `allow get, list: if true` / `allow delete: if true` / create·update 에 auth 조건 없음. 수신자 결정은 `shared/notify.ts:98` `fetchUserTokens` | **FIXED_AND_VERIFIED** (4건) |
+| P1-2 | 차단 목록 전역 읽기·삭제 → 가해자가 자신에 대한 차단을 해제 | `firestore.rules` blocks 전 verb `if true` | **FIXED_AND_VERIFIED** (3건) |
+| P1-3 | 추천 결과 전역 읽기 | `firestore.rules` modelRecs `allow read: if true` | **FIXED_AND_VERIFIED** (2건) |
+| P1-4 | 행동 로그 전역 읽기·쓰기. 위조 like 가 `onRecEventCreated`(`index.ts:2280`)를 통해 실제 `matches` 생성 | `firestore.rules` recEvents `allow read, write: if true` | **FIXED_AND_VERIFIED** (5건) |
+| P1-5 | 알림함 전역 읽기·삭제 + 임의 사용자에게 알림 삽입(피싱 문구) | `firestore.rules` notifications `allow get, list: if true` / create 에 auth 조건 없음 | **FIXED_AND_VERIFIED** (3건) |
 | P1-6 | 전화번호 → 계정 식별 oracle. salt 없는 SHA-256, 요청당 5000개, rate limit 없음, 응답에 `matchedUserId` 포함 | `index.ts:3366` `createHash("sha256").update(normalized)`, `index.ts:3372` `MAX_CONTACT_HASHES = 5000`, `index.ts:3585` | **ANALYSED_NOT_FIXED** |
 | P1-7 | 전화번호 소유 증명 없이 `phoneHashIndex` 선점 (last writer wins) | `index.ts:3632` `saveUserPhoneHash`, `index.ts:3585` | **ANALYSED_NOT_FIXED** |
-| P1-8 | 신고 데이터 전역 읽기·수정·삭제 | `firestore.rules` reports / app_issue_reports / app_inquiries `allow read: if true; allow update: if true; allow delete: if true` | **ANALYSED_NOT_FIXED** |
-| P1-9 | 무물(asks)·interactions 전역 읽기, `fromUserId` 위조 가능 | `firestore.rules` asks `allow read: if true`, interactions `allow read: if true` | **ANALYSED_NOT_FIXED** |
-| P1-10 | 커뮤니티 게시물 `authorId` 위조 + likeCount/score7d 임의 조작 | `firestore.rules` bamboo_posts create 에 auth 조건 없음, update 2번째 분기가 카운터를 보호하지 않음 | **ANALYSED_NOT_FIXED** |
+| P1-8 | 신고 데이터 전역 읽기·수정·삭제 | `firestore.rules` reports / app_issue_reports / app_inquiries `allow read: if true; allow update: if true; allow delete: if true` | **FIXED_AND_VERIFIED** (11건) |
+| P1-9 | 무물(asks)·interactions 전역 읽기, `fromUserId` 위조 가능 | `firestore.rules` asks `allow read: if true`, interactions `allow read: if true` | **FIXED_AND_VERIFIED** (5건) |
+| P1-10 | 커뮤니티 게시물 `authorId` 위조 + likeCount/score7d 임의 조작 | `firestore.rules` bamboo_posts create 에 auth 조건 없음, update 2번째 분기가 카운터를 보호하지 않음 | **FIXED_AND_VERIFIED** (7건) |
 | P1-11 | blindMeeting 안전 게이트 fail-open — 차단·제재 조회 실패 시 통과 | `blindMeeting/store.ts:192-193` `return [];`, `store.ts:229-230` `return false;` | **ANALYSED_NOT_FIXED** |
 | P1-12 | 시즌 미팅 방 위조로 6명에게 반복 푸시 유발 | `meetingIcebreaker/functions.ts:77`, `eligibility.ts:104` | **DEFERRED** (아래) |
 | P1-13 | Kakao 액세스 토큰 audience 미검증 (`app_id` 대조 없음, `access_token_info` 미호출) | `index.ts:986` | **ANALYSED_NOT_FIXED** — 실제 악용 가능성 미확인 |
