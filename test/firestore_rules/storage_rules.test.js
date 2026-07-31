@@ -90,17 +90,24 @@ async function seedOwnerPhoto() {
   });
 }
 
+// 주석을 제거한 실제 규칙 본문. 이 파일의 주석에는 옛 파일의 문제를 설명하려고
+// `service firebase.storage` 라는 문구가 들어 있어서, 주석을 지우지 않고 세면
+// 중첩 service 가 있는 것처럼 잘못 판정된다.
+const rulesBody = rulesSource
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .replace(/\/\/[^\n]*/g, "");
+
 describe("규칙 파일 자체", () => {
   it("단일 service 블록이고 중첩 service 가 없다", () => {
     const serviceCount = (
-      rulesSource.match(/service\s+firebase\.storage/g) ?? []
+      rulesBody.match(/service\s+firebase\.storage/g) ?? []
     ).length;
     assert.strictEqual(serviceCount, 1);
   });
 
   it("brace 가 균형을 이룬다", () => {
-    const open = (rulesSource.match(/\{/g) ?? []).length;
-    const close = (rulesSource.match(/\}/g) ?? []).length;
+    const open = (rulesBody.match(/\{/g) ?? []).length;
+    const close = (rulesBody.match(/\}/g) ?? []).length;
     assert.strictEqual(open, close);
   });
 
