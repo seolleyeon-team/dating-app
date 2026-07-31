@@ -8,6 +8,7 @@ import '../../../router/route_names.dart';
 import '../../../services/onboarding_save_helper.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../utils/image_content_type.dart';
 
 class _AppColors {
   static const Color primary = Color(0xFFF5468C);
@@ -114,17 +115,18 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         'users/$kakaoUserId/onboarding/photos/$fileName',
       );
 
-      if (FirebaseAuth.instance.currentUser == null) {
-        try {
-          await FirebaseAuth.instance.signInAnonymously();
-        } catch (_) {
-          // Storage 규칙/백엔드 상태에 따라 비인증 업로드가 허용될 수 있으므로
-          // 익명 로그인 실패만으로 업로드를 중단하지는 않는다.
-        }
+      // Storage 규칙은 users/{uid}/... 경로의 소유자만 쓰기를 허용한다.
+      // 익명 로그인은 uid 가 kakaoUserId 와 달라서 소유권 검사를 통과하지
+      // 못하므로, 예전처럼 signInAnonymously() 로 넘어가지 않고 여기서 막는다.
+      // 비인증 업로드를 허용하던 이전 규칙은 임의 사용자 경로에 대한
+      // 무인증 업로드·삭제를 가능하게 했다.
+      final uploaderUid = FirebaseAuth.instance.currentUser?.uid;
+      if (uploaderUid != kakaoUserId) {
+        throw Exception('로그인 세션이 만료되었습니다. 다시 로그인한 뒤 사진을 올려주세요.');
       }
 
       final SettableMetadata metadata = SettableMetadata(
-        contentType: 'image/$extension',
+        contentType: imageContentTypeForExtension(extension),
       );
 
       final bytes = await pickedFile.readAsBytes();
