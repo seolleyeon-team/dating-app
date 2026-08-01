@@ -21,8 +21,7 @@ class MatchResultScreen extends StatefulWidget {
 
 class _MatchResultScreenState extends State<MatchResultScreen> {
   final EventMatchService _eventMatchService = EventMatchService();
-  final TeamMeetingRequestService _requestService =
-      TeamMeetingRequestService();
+  final TeamMeetingRequestService _requestService = TeamMeetingRequestService();
 
   EventTeamMatchResult? _result;
   String? _viewerGroupId;
@@ -72,13 +71,13 @@ class _MatchResultScreenState extends State<MatchResultScreen> {
     }
 
     try {
-      final resolvedViewerGroupId = _viewerGroupId ??
+      final resolvedViewerGroupId =
+          _viewerGroupId ??
           await _eventMatchService.resolveCurrentGroupId(
             preferredTeamSetupId:
                 widget.args?.initialResult?.requestingEventTeamSetupId,
           );
-      final freshResult =
-          await _eventMatchService.getMatchResultOnce(resultId);
+      final freshResult = await _eventMatchService.getMatchResultOnce(resultId);
 
       if (!mounted) return;
       setState(() {
@@ -114,9 +113,12 @@ class _MatchResultScreenState extends State<MatchResultScreen> {
         viewerGroupId: _viewerGroupId!,
       );
       if (!mounted) return;
-      _showAlert('미팅 요청을 보냈어요!', onDismiss: () {
-        Navigator.of(context).pop();
-      });
+      _showAlert(
+        '미팅 요청을 보냈어요!',
+        onDismiss: () {
+          Navigator.of(context).pop();
+        },
+      );
     } catch (e) {
       if (!mounted) return;
       _showAlert(e.toString().replaceFirst('StateError: ', ''));
@@ -241,37 +243,34 @@ class _MatchResultScreenState extends State<MatchResultScreen> {
                 Expanded(
                   child: _loading
                       ? const Center(
-                          child: CupertinoActivityIndicator(radius: 16))
+                          child: CupertinoActivityIndicator(radius: 16),
+                        )
                       : counterpart == null
-                          ? _EmptyState(
-                              message:
-                                  _errorMessage ?? '매칭 결과가 아직 없어요.',
-                            )
-                          : SingleChildScrollView(
-                              physics: const BouncingScrollPhysics(),
-                              padding:
-                                  const EdgeInsets.fromLTRB(20, 8, 20, 140),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  _ResultHero(
-                                    team: counterpart,
-                                    matchedPairs: _result?.matchedPairs ??
-                                        const <Map<String, dynamic>>[],
-                                    requestingTeam: _result?.requestingTeam,
-                                    matchedTeam: _result?.matchedTeam,
-                                  ),
-                                  const SizedBox(height: 20),
-                                  ...counterpart.members.map(
-                                    (member) => Padding(
-                                      padding:
-                                          const EdgeInsets.only(bottom: 14),
-                                      child: _MemberCard(member: member),
-                                    ),
-                                  ),
-                                ],
+                      ? _EmptyState(message: _errorMessage ?? '매칭 결과가 아직 없어요.')
+                      : SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 140),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _ResultHero(
+                                team: counterpart,
+                                matchedPairs:
+                                    _result?.matchedPairs ??
+                                    const <Map<String, dynamic>>[],
+                                requestingTeam: _result?.requestingTeam,
+                                matchedTeam: _result?.matchedTeam,
                               ),
-                            ),
+                              const SizedBox(height: 20),
+                              ...counterpart.members.map(
+                                (member) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 14),
+                                  child: _MemberCard(member: member),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                 ),
               ],
             ),
@@ -365,21 +364,19 @@ class _GradientButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return CupertinoButton(
       padding: EdgeInsets.zero,
-      onPressed: isLoading ? null : () {
-        HapticFeedback.lightImpact();
-        onPressed?.call();
-      },
+      onPressed: isLoading
+          ? null
+          : () {
+              HapticFeedback.lightImpact();
+              onPressed?.call();
+            },
       child: Container(
         height: 56,
         decoration: BoxDecoration(
           gradient: const LinearGradient(
             begin: Alignment.centerLeft,
             end: Alignment.centerRight,
-            colors: [
-              Color(0xFFB44AC0),
-              Color(0xFFD084D8),
-              Color(0xFFE89AD0),
-            ],
+            colors: [Color(0xFFB44AC0), Color(0xFFD084D8), Color(0xFFE89AD0)],
           ),
           borderRadius: BorderRadius.circular(18),
           boxShadow: [
@@ -396,7 +393,7 @@ class _GradientButton extends StatelessWidget {
             : Text(
                 label,
                 style: const TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
                   color: CupertinoColors.white,
@@ -426,10 +423,12 @@ class _AcceptDeclineFooter extends StatelessWidget {
         // Primary: 수락
         CupertinoButton(
           padding: EdgeInsets.zero,
-          onPressed: isLoading ? null : () {
-            HapticFeedback.mediumImpact();
-            onAccept();
-          },
+          onPressed: isLoading
+              ? null
+              : () {
+                  HapticFeedback.mediumImpact();
+                  onAccept();
+                },
           child: Container(
             height: 56,
             decoration: BoxDecoration(
@@ -453,12 +452,11 @@ class _AcceptDeclineFooter extends StatelessWidget {
             ),
             alignment: Alignment.center,
             child: isLoading
-                ? const CupertinoActivityIndicator(
-                    color: CupertinoColors.white)
+                ? const CupertinoActivityIndicator(color: CupertinoColors.white)
                 : const Text(
                     '요청 수락하기',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                       color: CupertinoColors.white,
@@ -470,24 +468,24 @@ class _AcceptDeclineFooter extends StatelessWidget {
         // Secondary: 거절
         CupertinoButton(
           padding: EdgeInsets.zero,
-          onPressed: isLoading ? null : () {
-            HapticFeedback.lightImpact();
-            onDecline();
-          },
+          onPressed: isLoading
+              ? null
+              : () {
+                  HapticFeedback.lightImpact();
+                  onDecline();
+                },
           child: Container(
             height: 48,
             decoration: BoxDecoration(
               color: CupertinoColors.white,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: const Color(0xFFE4D8EF),
-              ),
+              border: Border.all(color: const Color(0xFFE4D8EF)),
             ),
             alignment: Alignment.center,
             child: const Text(
               '요청 거절하기',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
                 color: Color(0xFF776886),
@@ -517,7 +515,7 @@ class _ReadOnlyFooter extends StatelessWidget {
       child: Text(
         label,
         style: const TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NanumSquareRound',
           fontSize: 16,
           fontWeight: FontWeight.w600,
           color: Color(0xFF8A7AA0),
@@ -565,7 +563,7 @@ class _Header extends StatelessWidget {
               '매칭 결과',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF2E243F),
@@ -607,15 +605,10 @@ class _ResultHero extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFFFFFFFF),
-            Color(0xFFF3ECF8),
-          ],
+          colors: [Color(0xFFFFFFFF), Color(0xFFF3ECF8)],
         ),
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(
-          color: const Color(0xFFE4D8EF),
-        ),
+        border: Border.all(color: const Color(0xFFE4D8EF)),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF8E74B3).withValues(alpha: 0.10),
@@ -636,7 +629,7 @@ class _ResultHero extends StatelessWidget {
             child: const Text(
               '오늘 연결된 팀',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF8D5AAA),
@@ -647,7 +640,7 @@ class _ResultHero extends StatelessWidget {
           const Text(
             '룰렛이 멈춘 팀이에요.',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 26,
               fontWeight: FontWeight.w800,
               color: Color(0xFF2E243F),
@@ -658,7 +651,7 @@ class _ResultHero extends StatelessWidget {
           Text(
             '${team.memberCount}명의 프로필을 천천히 확인해 보세요.',
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               fontWeight: FontWeight.w500,
               color: Color(0xFF776886),
@@ -687,7 +680,7 @@ class _ResultHero extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
                         style: const TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
                           color: Color(0xFF45375C),
@@ -704,7 +697,7 @@ class _ResultHero extends StatelessWidget {
             const Text(
               '추천 페어',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF5E4E74),
@@ -724,14 +717,12 @@ class _ResultHero extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: const Color(0xFFFFFFFF),
                         borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: const Color(0xFFE5DCEF),
-                        ),
+                        border: Border.all(color: const Color(0xFFE5DCEF)),
                       ),
                       child: Text(
                         label,
                         style: const TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                           color: Color(0xFF67557D),
@@ -750,10 +741,12 @@ class _ResultHero extends StatelessWidget {
   List<String> _buildPairLabels() {
     if (matchedPairs.isEmpty) return const <String>[];
     final nameByUid = <String, String>{};
-    for (final member in requestingTeam?.members ?? const <EventTeamMatchMemberSnapshot>[]) {
+    for (final member
+        in requestingTeam?.members ?? const <EventTeamMatchMemberSnapshot>[]) {
       nameByUid[member.uid] = member.displayName;
     }
-    for (final member in matchedTeam?.members ?? const <EventTeamMatchMemberSnapshot>[]) {
+    for (final member
+        in matchedTeam?.members ?? const <EventTeamMatchMemberSnapshot>[]) {
       nameByUid[member.uid] = member.displayName;
     }
 
@@ -782,7 +775,8 @@ class _MemberCard extends StatelessWidget {
         ? null
         : '매너 ${member.mannerScore!.toStringAsFixed(1)}';
     final subtitleParts = <String>[
-      if (member.universityName?.trim().isNotEmpty == true) member.universityName!,
+      if (member.universityName?.trim().isNotEmpty == true)
+        member.universityName!,
       if (member.major?.trim().isNotEmpty == true) member.major!,
       if (member.birthYear != null) '${member.birthYear}년생',
     ];
@@ -824,7 +818,7 @@ class _MemberCard extends StatelessWidget {
                         child: Text(
                           member.displayName,
                           style: const TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
                             color: Color(0xFF2E243F),
@@ -844,7 +838,7 @@ class _MemberCard extends StatelessWidget {
                     Text(
                       subtitleParts.join(' · '),
                       style: const TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF746683),
@@ -864,7 +858,7 @@ class _MemberCard extends StatelessWidget {
                       child: Text(
                         mannerText,
                         style: const TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                           color: Color(0xFF8A5FB2),
@@ -877,7 +871,7 @@ class _MemberCard extends StatelessWidget {
                     Text(
                       member.shortIntro!,
                       style: const TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
                         height: 1.45,
@@ -927,10 +921,7 @@ class _ProfileImageFallback extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFFF2EAF8),
-            Color(0xFFE3D5F0),
-          ],
+          colors: [Color(0xFFF2EAF8), Color(0xFFE3D5F0)],
         ),
       ),
       child: const Center(
@@ -975,7 +966,7 @@ class _EmptyState extends StatelessWidget {
               message,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
                 height: 1.45,

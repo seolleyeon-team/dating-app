@@ -1,0 +1,1 @@
+uid-1=C:\Users\samsung\StudioProjects\semisemifinal\.tmp\pytest-auth-appcheck-final-20260725\test_canary_mapping_validator_0\normalized\photo_plain.jpg

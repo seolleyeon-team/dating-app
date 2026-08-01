@@ -1,333 +1,231 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 import '../data/models/event/event_team_match_model.dart';
 import '../data/models/event/team_meeting_match_model.dart';
 import '../data/models/event/team_meeting_request_model.dart';
+import 'auth_service.dart';
 import 'event_match_service.dart';
 import 'storage_service.dart';
-
-// =============================================================================
-// 팀 대 팀 미팅 요청 서비스
-// Firestore collections: eventTeamMeetingRequests, eventThreeVsThreeMatches
-// =============================================================================
 
 class TeamMeetingRequestService {
   TeamMeetingRequestService({
     FirebaseFirestore? firestore,
+    FirebaseFunctions? functions,
+    AuthService? authService,
     EventMatchService? eventMatchService,
     StorageService? storageService,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
-        _eventMatchService = eventMatchService ?? EventMatchService(),
-        _storageService = storageService ?? StorageService();
+  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+       _functions = functions ?? FirebaseFunctions.instanceFor(region: _region),
+       _authService = authService ?? AuthService(),
+       _eventMatchService = eventMatchService ?? EventMatchService(),
+       _storageService = storageService ?? StorageService();
 
-  final FirebaseFirestore _firestore;
-  final EventMatchService _eventMatchService;
-  final StorageService _storageService;
-
+  static const String _region = 'asia-northeast3';
   static const String _requestsCollection = 'eventTeamMeetingRequests';
   static const String _matchesCollection = 'eventThreeVsThreeMatches';
 
-  // ===========================================================================
-  // 헬퍼: 현재 사용자 ID
-  // ===========================================================================
+  final FirebaseFirestore _firestore;
+  final FirebaseFunctions _functions;
+  final AuthService _authService;
+  final EventMatchService _eventMatchService;
+  final StorageService _storageService;
 
-  Future<String> _requireCurrentUserId() async {
-    final uid = await _storageService.getKakaoUserId();
-    if (uid == null || uid.isEmpty) {
-      throw StateError('로그인이 필요해요.');
+  Future<String> _requireFirebaseReadSession() async {
+    final userId = await _storageService.getKakaoUserId();
+    if (userId == null || userId.isEmpty) {
+      throw StateError('?????? ??????.');
     }
-    return uid;
+    final attached = await _authService.ensureFirebaseSessionForKakao(userId);
+    if (!attached) {
+      throw StateError('???????????????? ??????. ??? ???????????');
+    }
+    return userId;
   }
 
-  // ===========================================================================
-  // 현재 사용자의 팀 ID resolve
-  // ===========================================================================
+  Future<Map<String, dynamic>> _callablePayload(
+    Map<String, dynamic> extra,
+  ) async {
+    await _requireFirebaseReadSession();
+    final token = await _authService.getKakaoAccessTokenForFunctions();
+    return <String, dynamic>{
+      ...extra,
+      if (token != null && token.isNotEmpty) 'kakaoAccessToken': token,
+    };
+  }
 
-  Future<String?> resolveCurrentTeamId() async {
+  Future<String?> resolveCurrentTeamId() {
     return _eventMatchService.resolveCurrentGroupId(requireFullTeam: true);
   }
 
-  // ===========================================================================
-  // 미팅 요청 생성 (슬롯 결과 → request doc)
-  // ===========================================================================
-
-  /// 슬롯 머신 결과에서 상대 팀에 미팅 요청을 전송한다.
-  /// 동일 팀 쌍에 대해 pending request가 이미 있으면 중복 생성을 방지한다.
   Future<String> createMeetingRequest({
     required EventTeamMatchResult matchResult,
     required String viewerGroupId,
   }) async {
-    final currentUserId = await _requireCurrentUserId();
-
-    final myTeamId = viewerGroupId;
-    final counterpart = matchResult.counterpartForGroup(myTeamId);
-    if (counterpart == null) {
-      throw StateError('상대 팀 정보를 찾을 수 없어요.');
+    try {
+      final payload = await _callablePayload({
+        'sourceResultId': matchResult.resultId,
+        'viewerGroupId': viewerGroupId,
+      });
+      final callable = _functions.httpsCallable('createTeamMeetingRequest');
+      final response = await callable.call<dynamic>(payload);
+      final data = _responseMap(response.data);
+      final requestId = data['requestId']?.toString() ?? '';
+      if (requestId.isEmpty) {
+        throw StateError('??? ?????????? ??????.');
+      }
+      return requestId;
+    } on FirebaseFunctionsException catch (error) {
+      throw StateError(_functionsErrorMessage(error));
     }
-    final otherTeamId = counterpart.groupId;
-
-    if (myTeamId.isEmpty || otherTeamId.isEmpty) {
-      throw StateError('팀 정보가 올바르지 않아요.');
-    }
-
-    // 팀 snapshot 결정
-    final myTeamSnapshot =
-        matchResult.requestingGroupId == myTeamId
-            ? matchResult.requestingTeam
-            : matchResult.matchedTeam;
-
-    final otherTeamSnapshot = counterpart;
-
-    // 중복 pending 체크
-    final existing = await _firestore
-        .collection(_requestsCollection)
-        .where('fromTeamId', isEqualTo: myTeamId)
-        .where('toTeamId', isEqualTo: otherTeamId)
-        .where('status', isEqualTo: 'pending')
-        .limit(1)
-        .get();
-
-    if (existing.docs.isNotEmpty) {
-      throw StateError('이미 이 팀에 보낸 대기 중인 요청이 있어요.');
-    }
-
-    // 역방향 pending 체크
-    final reverse = await _firestore
-        .collection(_requestsCollection)
-        .where('fromTeamId', isEqualTo: otherTeamId)
-        .where('toTeamId', isEqualTo: myTeamId)
-        .where('status', isEqualTo: 'pending')
-        .limit(1)
-        .get();
-
-    if (reverse.docs.isNotEmpty) {
-      throw StateError('상대 팀에서 이미 요청을 보냈어요. 받은 요청을 확인해 주세요.');
-    }
-
-    final myMemberUids = myTeamSnapshot?.members.map((m) => m.uid).toList() ?? <String>[];
-    final otherMemberUids = otherTeamSnapshot.members.map((m) => m.uid).toList();
-
-    final docRef = _firestore.collection(_requestsCollection).doc();
-    final now = FieldValue.serverTimestamp();
-
-    await docRef.set({
-      'source': 'slot_result',
-      'sourceResultId': matchResult.resultId,
-      'fromTeamId': myTeamId,
-      'toTeamId': otherTeamId,
-      'fromTeamMemberUids': myMemberUids,
-      'toTeamMemberUids': otherMemberUids,
-      'fromTeamSnapshot': myTeamSnapshot?.toMap(),
-      'toTeamSnapshot': otherTeamSnapshot.toMap(),
-      'createdByUserId': currentUserId,
-      'status': 'pending',
-      'respondedByUserId': null,
-      'respondedAt': null,
-      'matchId': null,
-      'createdAt': now,
-      'updatedAt': now,
-    });
-
-    return docRef.id;
   }
 
-  // ===========================================================================
-  // 요청 수락 (Firestore Transaction)
-  // ===========================================================================
-
-  /// 팀 미팅 요청을 수락한다.
-  /// transaction으로 race condition을 방지하고, match doc을 원자적으로 생성한다.
   Future<String> acceptRequest(String requestId) async {
-    final currentUserId = await _requireCurrentUserId();
-
-    final matchId = await _firestore.runTransaction<String>((tx) async {
-      final reqRef = _firestore.collection(_requestsCollection).doc(requestId);
-      final reqSnap = await tx.get(reqRef);
-
-      if (!reqSnap.exists || reqSnap.data() == null) {
-        throw StateError('요청 문서를 찾을 수 없어요.');
-      }
-
-      final data = reqSnap.data()!;
-      final status = data['status']?.toString() ?? '';
-
-      if (status != 'pending') {
-        throw StateError('이미 처리된 요청이에요. (현재: $status)');
-      }
-
-      final toMemberUids = List<String>.from(data['toTeamMemberUids'] ?? []);
-      if (!toMemberUids.contains(currentUserId)) {
-        throw StateError('이 요청에 응답할 권한이 없어요.');
-      }
-
-      // 매치 doc 생성
-      final matchRef = _firestore.collection(_matchesCollection).doc();
-      final now = FieldValue.serverTimestamp();
-
-      tx.update(reqRef, {
-        'status': 'accepted',
-        'respondedByUserId': currentUserId,
-        'respondedAt': now,
-        'matchId': matchRef.id,
-        'updatedAt': now,
-      });
-
-      tx.set(matchRef, {
+    try {
+      final payload = await _callablePayload({
         'requestId': requestId,
-        'leftTeamId': data['fromTeamId'],
-        'rightTeamId': data['toTeamId'],
-        'leftTeamSnapshot': data['fromTeamSnapshot'],
-        'rightTeamSnapshot': data['toTeamSnapshot'],
-        'leftMemberUids': data['fromTeamMemberUids'],
-        'rightMemberUids': data['toTeamMemberUids'],
-        'status': 'active',
-        'acceptedByUserId': currentUserId,
-        'source': 'team_request_accept',
-        'createdAt': now,
-        'updatedAt': now,
+        'accept': true,
       });
-
-      return matchRef.id;
-    });
-
-    return matchId;
+      final callable = _functions.httpsCallable('respondTeamMeetingRequest');
+      final response = await callable.call<dynamic>(payload);
+      final matchId = _responseMap(response.data)['matchId']?.toString() ?? '';
+      if (matchId.isEmpty) {
+        throw StateError('??? ??? ??????????? ??????.');
+      }
+      return matchId;
+    } on FirebaseFunctionsException catch (error) {
+      throw StateError(_functionsErrorMessage(error));
+    }
   }
 
-  // ===========================================================================
-  // 요청 거절 (Firestore Transaction)
-  // ===========================================================================
-
-  /// 팀 미팅 요청을 거절한다.
   Future<void> declineRequest(String requestId) async {
-    final currentUserId = await _requireCurrentUserId();
-
-    await _firestore.runTransaction((tx) async {
-      final reqRef = _firestore.collection(_requestsCollection).doc(requestId);
-      final reqSnap = await tx.get(reqRef);
-
-      if (!reqSnap.exists || reqSnap.data() == null) {
-        throw StateError('요청 문서를 찾을 수 없어요.');
-      }
-
-      final data = reqSnap.data()!;
-      final status = data['status']?.toString() ?? '';
-
-      if (status != 'pending') {
-        throw StateError('이미 처리된 요청이에요. (현재: $status)');
-      }
-
-      final toMemberUids = List<String>.from(data['toTeamMemberUids'] ?? []);
-      if (!toMemberUids.contains(currentUserId)) {
-        throw StateError('이 요청에 응답할 권한이 없어요.');
-      }
-
-      final now = FieldValue.serverTimestamp();
-      tx.update(reqRef, {
-        'status': 'declined',
-        'respondedByUserId': currentUserId,
-        'respondedAt': now,
-        'updatedAt': now,
+    try {
+      final payload = await _callablePayload({
+        'requestId': requestId,
+        'accept': false,
       });
-    });
+      final callable = _functions.httpsCallable('respondTeamMeetingRequest');
+      await callable.call<dynamic>(payload);
+    } on FirebaseFunctionsException catch (error) {
+      throw StateError(_functionsErrorMessage(error));
+    }
   }
 
-  // ===========================================================================
-  // 스트림: 받은 요청 목록
-  // ===========================================================================
+  Map<String, dynamic> _responseMap(dynamic value) {
+    return Map<String, dynamic>.from(
+      (value as Map?)?.cast<String, dynamic>() ?? const {},
+    );
+  }
+
+  String _functionsErrorMessage(FirebaseFunctionsException error) {
+    switch (error.code) {
+      case 'invalid-argument':
+        return '??? ????? ?????? ?????';
+      case 'already-exists':
+        return '??? ??? ??? ??? ??????????';
+      case 'not-found':
+        return '??? ???????? ???????';
+      case 'permission-denied':
+      case 'unauthenticated':
+        return '??????????????????????';
+      case 'failed-precondition':
+      case 'aborted':
+        return '??? ????? ????????. ??? ?????????.';
+      case 'resource-exhausted':
+      case 'unavailable':
+        return '??? ????? ?????????.';
+      default:
+        return '??? ??????????? ??????.';
+    }
+  }
 
   Stream<List<TeamMeetingRequestDoc>> watchReceivedRequests(String teamId) {
-    return _firestore
-        .collection(_requestsCollection)
-        .where('toTeamId', isEqualTo: teamId)
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((qs) {
-      return qs.docs
-          .map((d) => TeamMeetingRequestDoc.fromDoc(d.id, d.data()))
-          .toList();
-    });
+    return _watchTeamRequests(teamId: teamId, teamField: 'toTeamId');
   }
-
-  // ===========================================================================
-  // 스트림: 보낸 요청 목록
-  // ===========================================================================
 
   Stream<List<TeamMeetingRequestDoc>> watchSentRequests(String teamId) {
-    return _firestore
-        .collection(_requestsCollection)
-        .where('fromTeamId', isEqualTo: teamId)
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((qs) {
-      return qs.docs
-          .map((d) => TeamMeetingRequestDoc.fromDoc(d.id, d.data()))
-          .toList();
-    });
+    return _watchTeamRequests(teamId: teamId, teamField: 'fromTeamId');
   }
-
-  // ===========================================================================
-  // 스트림: pending 받은 요청 개수 (badge용)
-  // ===========================================================================
 
   Stream<int> watchPendingReceivedCount(String teamId) {
-    return _firestore
-        .collection(_requestsCollection)
-        .where('toTeamId', isEqualTo: teamId)
-        .where('status', isEqualTo: 'pending')
-        .snapshots()
-        .map((qs) => qs.docs.length);
+    return _watchTeamRequests(
+      teamId: teamId,
+      teamField: 'toTeamId',
+      status: 'pending',
+    ).map((requests) => requests.length);
   }
 
-  // ===========================================================================
-  // 단건 요청 실시간 감시
-  // ===========================================================================
+  Stream<List<TeamMeetingRequestDoc>> _watchTeamRequests({
+    required String teamId,
+    required String teamField,
+    String? status,
+  }) async* {
+    final userId = await _requireFirebaseReadSession();
+    Query<Map<String, dynamic>> query = _firestore
+        .collection(_requestsCollection)
+        .where('participantUids', arrayContains: userId)
+        .where(teamField, isEqualTo: teamId);
+    if (status != null) {
+      query = query.where('status', isEqualTo: status);
+    } else {
+      query = query.orderBy('createdAt', descending: true);
+    }
+    yield* query.snapshots().map(
+      (snapshot) => snapshot.docs
+          .map((doc) => TeamMeetingRequestDoc.fromDoc(doc.id, doc.data()))
+          .toList(),
+    );
+  }
 
-  Stream<TeamMeetingRequestDoc?> watchRequest(String requestId) {
-    return _firestore
+  Stream<TeamMeetingRequestDoc?> watchRequest(String requestId) async* {
+    await _requireFirebaseReadSession();
+    yield* _firestore
         .collection(_requestsCollection)
         .doc(requestId)
         .snapshots()
-        .map((s) {
-      if (!s.exists || s.data() == null) return null;
-      return TeamMeetingRequestDoc.fromDoc(s.id, s.data()!);
-    });
+        .map((snapshot) {
+          final data = snapshot.data();
+          return snapshot.exists && data != null
+              ? TeamMeetingRequestDoc.fromDoc(snapshot.id, data)
+              : null;
+        });
   }
-
-  // ===========================================================================
-  // 매치 doc 조회
-  // ===========================================================================
 
   Future<TeamMeetingMatchDoc?> getMatchOnce(String matchId) async {
-    final snap = await _firestore.collection(_matchesCollection).doc(matchId).get();
-    if (!snap.exists || snap.data() == null) return null;
-    return TeamMeetingMatchDoc.fromDoc(snap.id, snap.data()!);
+    await _requireFirebaseReadSession();
+    final snapshot = await _firestore
+        .collection(_matchesCollection)
+        .doc(matchId)
+        .get();
+    final data = snapshot.data();
+    return snapshot.exists && data != null
+        ? TeamMeetingMatchDoc.fromDoc(snapshot.id, data)
+        : null;
   }
 
-  Stream<TeamMeetingMatchDoc?> watchMatch(String matchId) {
-    return _firestore
+  Stream<TeamMeetingMatchDoc?> watchMatch(String matchId) async* {
+    await _requireFirebaseReadSession();
+    yield* _firestore
         .collection(_matchesCollection)
         .doc(matchId)
         .snapshots()
-        .map((s) {
-      if (!s.exists || s.data() == null) return null;
-      return TeamMeetingMatchDoc.fromDoc(s.id, s.data()!);
-    });
+        .map((snapshot) {
+          final data = snapshot.data();
+          return snapshot.exists && data != null
+              ? TeamMeetingMatchDoc.fromDoc(snapshot.id, data)
+              : null;
+        });
   }
 
-  // ===========================================================================
-  // 단건 요청 조회
-  // ===========================================================================
-
   Future<TeamMeetingRequestDoc?> getRequestOnce(String requestId) async {
-    try {
-      final snap =
-          await _firestore.collection(_requestsCollection).doc(requestId).get();
-      if (!snap.exists || snap.data() == null) return null;
-      return TeamMeetingRequestDoc.fromDoc(snap.id, snap.data()!);
-    } catch (e) {
-      debugPrint('getRequestOnce error: $e');
-      return null;
-    }
+    await _requireFirebaseReadSession();
+    final snapshot = await _firestore
+        .collection(_requestsCollection)
+        .doc(requestId)
+        .get();
+    final data = snapshot.data();
+    return snapshot.exists && data != null
+        ? TeamMeetingRequestDoc.fromDoc(snapshot.id, data)
+        : null;
   }
 }

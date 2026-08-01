@@ -183,7 +183,7 @@ class _SafetyStampFollowUpScreenState extends State<SafetyStampFollowUpScreen> {
                   Text(
                     title,
                     style: const TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.textMain,
@@ -193,7 +193,7 @@ class _SafetyStampFollowUpScreenState extends State<SafetyStampFollowUpScreen> {
                   Text(
                     subtitle,
                     style: const TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 13,
                       height: 1.4,
                       color: _AppColors.textSub,
@@ -220,7 +220,7 @@ class _SafetyStampFollowUpScreenState extends State<SafetyStampFollowUpScreen> {
       navigationBar: CupertinoNavigationBar(
         middle: const Text(
           '헤어짐 도장 확인',
-          style: TextStyle(fontFamily: 'Pretendard'),
+          style: TextStyle(fontFamily: 'NanumSquareRound'),
         ),
         leading: CupertinoButton(
           padding: EdgeInsets.zero,
@@ -242,7 +242,7 @@ class _SafetyStampFollowUpScreenState extends State<SafetyStampFollowUpScreen> {
                 child: const Text(
                   '로그인 정보를 확인할 수 없어 사유를 저장할 수 없어요.',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 14,
                     color: _AppColors.textSub,
                   ),
@@ -261,7 +261,7 @@ class _SafetyStampFollowUpScreenState extends State<SafetyStampFollowUpScreen> {
                     Text(
                       '헤어짐 도장을 찍지 않으셨네요. 무슨 일이 있으셨나요?',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
                         color: _AppColors.textMain,
@@ -271,7 +271,7 @@ class _SafetyStampFollowUpScreenState extends State<SafetyStampFollowUpScreen> {
                     Text(
                       '약속은 자동으로 완료 처리되었어요. 이유를 남겨주시면 이후 기록과 안내 품질을 개선하는 데 도움이 돼요.',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 14,
                         height: 1.5,
                         color: _AppColors.textSub,
@@ -306,7 +306,10 @@ class _SafetyStampFollowUpScreenState extends State<SafetyStampFollowUpScreen> {
                 minLines: 4,
                 padding: const EdgeInsets.all(14),
                 placeholder: '사유를 입력해주세요',
-                style: const TextStyle(fontFamily: 'Pretendard', fontSize: 14),
+                style: const TextStyle(
+                  fontFamily: 'NanumSquareRound',
+                  fontSize: 14,
+                ),
                 decoration: BoxDecoration(
                   color: _AppColors.surface,
                   borderRadius: BorderRadius.circular(16),
@@ -328,7 +331,7 @@ class _SafetyStampFollowUpScreenState extends State<SafetyStampFollowUpScreen> {
                   : Text(
                       _hasSubmitted ? '다시 저장하기' : '사유 저장하기',
                       style: const TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
                         color: CupertinoColors.white,

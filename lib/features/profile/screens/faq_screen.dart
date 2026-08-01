@@ -20,7 +20,7 @@ class FaqScreen extends StatelessWidget {
     _FaqItem(
       question: '이름과 전화번호는 어디에 사용되나요?',
       answer:
-          '카카오 로그인 과정에서 제공받을 수 있는 이름과 전화번호는 실사용자 확인, 중복 가입 방지, 신고·차단·제재 대응 등 안전 관리 목적으로 사용됩니다.',
+          '본인확인기관 기반 본인인증 과정에서 확인·수집될 수 있는 이름, 휴대전화번호, 생년월일 및 본인인증 결과는 실사용자 확인, 성인 여부 확인, 중복 가입 방지, 신고·차단·제재 대응 등 안전 관리 목적으로 사용됩니다.',
     ),
     _FaqItem(
       question: '학과나 RA 여부가 다른 사람에게 보이나요?',
@@ -66,7 +66,7 @@ class FaqScreen extends StatelessWidget {
         middle: Text(
           '자주 묻는 질문',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 18,
             fontWeight: FontWeight.w700,
             color: textMain,
@@ -123,7 +123,7 @@ class _FaqTile extends StatelessWidget {
           Text(
             item.question,
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 16,
               fontWeight: FontWeight.w800,
               height: 1.35,
@@ -134,7 +134,7 @@ class _FaqTile extends StatelessWidget {
           Text(
             item.answer,
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               fontWeight: FontWeight.w500,
               height: 1.5,

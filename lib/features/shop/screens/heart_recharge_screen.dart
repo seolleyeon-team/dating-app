@@ -10,6 +10,7 @@
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import 'package:seolleyeon/shared/utils/in_app_purchase_policy.dart';
 
 // =============================================================================
 // 색상 상수
@@ -94,12 +95,43 @@ class _HeartRechargeScreenState extends State<HeartRechargeScreen> {
 
   void _onPackageTap(_HeartPackage package) {
     HapticFeedback.selectionClick();
-    // TODO: 결제 처리
+    if (!InAppPurchasePolicy.allowPurchaseUi) {
+      showCupertinoDialog<void>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: const Text('하트 충전'),
+          content: Text(InAppPurchasePolicy.unavailableMessage),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    // Real billing is behind ENABLE_IN_APP_PURCHASE=true only.
   }
 
   void _onCouponTap() {
     HapticFeedback.lightImpact();
-    // TODO: 쿠폰 등록 화면
+    if (!InAppPurchasePolicy.allowPurchaseUi) {
+      showCupertinoDialog<void>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: const Text('쿠폰 등록'),
+          content: Text(InAppPurchasePolicy.unavailableMessage),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
   }
 
   @override
@@ -183,7 +215,7 @@ class _Header extends StatelessWidget {
           const Text(
             '하트 충전',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 24,
               fontWeight: FontWeight.w700,
               color: _AppColors.textPrimary,
@@ -224,7 +256,7 @@ class _CurrentHearts extends StatelessWidget {
           const Text(
             '현재 보유 하트',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               color: _AppColors.textSecondary,
             ),
@@ -232,7 +264,7 @@ class _CurrentHearts extends StatelessWidget {
           Text(
             '$hearts하트',
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               fontWeight: FontWeight.w500,
               color: _AppColors.primary,
@@ -310,7 +342,7 @@ class _InfoBanner extends StatelessWidget {
                         const Text(
                           '다양한 활동엔 하트가 필요해요!',
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
                             color: _AppColors.textPrimary,
@@ -320,7 +352,7 @@ class _InfoBanner extends StatelessWidget {
                         Text(
                           '친구 초대, 좋아요 보내기 등\n더 많은 연결을 위해 하트를 충전해보세요.',
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 12,
                             height: 1.5,
                             color: _AppColors.textPrimary.withValues(
@@ -346,7 +378,7 @@ class _InfoBanner extends StatelessWidget {
                       Text(
                         '쿠폰 등록',
                         style: TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                           color: _AppColors.primary,
@@ -425,7 +457,7 @@ class _PackageCard extends StatelessWidget {
                   child: const Text(
                     'POPULAR',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.primary,
@@ -465,7 +497,7 @@ class _PackageCard extends StatelessWidget {
                       Text(
                         '${package.hearts}하트',
                         style: const TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
                           color: _AppColors.textPrimary,
@@ -475,7 +507,7 @@ class _PackageCard extends StatelessWidget {
                       Text(
                         '1하트당 ${package.pricePerHeart}원',
                         style: const TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 12,
                           color: _AppColors.textSecondary,
                         ),
@@ -493,7 +525,7 @@ class _PackageCard extends StatelessWidget {
                           Text(
                             _formatPrice(package.originalPrice),
                             style: const TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 12,
                               color: _AppColors.gray400,
                               decoration: TextDecoration.lineThrough,
@@ -512,7 +544,7 @@ class _PackageCard extends StatelessWidget {
                             child: Text(
                               '${package.discountPercent}% 할인',
                               style: const TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 10,
                                 fontWeight: FontWeight.w700,
                                 color: _AppColors.primary,
@@ -526,7 +558,7 @@ class _PackageCard extends StatelessWidget {
                     Text(
                       '₩${_formatPrice(package.salePrice)}',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: package.isPopular ? 22 : 20,
                         fontWeight: FontWeight.w700,
                         color: _AppColors.textPrimary,
@@ -562,7 +594,7 @@ class _FooterNote extends StatelessWidget {
       child: Text(
         '구매 내역은 설정 > 결제 내역에서 확인 가능합니다.',
         style: TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NanumSquareRound',
           fontSize: 12,
           color: _AppColors.textSecondary,
         ),

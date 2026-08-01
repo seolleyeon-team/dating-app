@@ -14,10 +14,7 @@ class FriendsListSharedColors {
   static const Color empty = Color(0xFFB7B7C2);
 }
 
-enum FriendsListStreamMode {
-  browse,
-  picker,
-}
+enum FriendsListStreamMode { browse, picker }
 
 class FriendsListStreamBody extends StatelessWidget {
   final String currentUserId;
@@ -106,9 +103,7 @@ class FriendsListStreamBody extends StatelessWidget {
             }
             var friends = friendsSnapshot.data ?? const <FriendListItem>[];
             friends = friends
-                .where(
-                  (f) => !excludedFriendUserIds.contains(f.friendUserId),
-                )
+                .where((f) => !excludedFriendUserIds.contains(f.friendUserId))
                 .toList();
             if (friends.isEmpty) {
               return const FriendsListEmptyMessage(
@@ -126,14 +121,16 @@ class FriendsListStreamBody extends StatelessWidget {
                 final item = friends[index];
                 final addedAtText = formatAddedAt(item.createdAt);
                 final isPicker = mode == FriendsListStreamMode.picker;
-                final selected =
-                    selectedFriendUserIds.contains(item.friendUserId);
-                final atPickLimit = isPicker &&
+                final selected = selectedFriendUserIds.contains(
+                  item.friendUserId,
+                );
+                final atPickLimit =
+                    isPicker &&
                     pickerMaxAdditionalSelections >= 0 &&
                     !selected &&
                     pickerSelectedCount >= pickerMaxAdditionalSelections;
-                final disabled = disabledFriendUserIds
-                        .contains(item.friendUserId) ||
+                final disabled =
+                    disabledFriendUserIds.contains(item.friendUserId) ||
                     atPickLimit;
 
                 return FriendListTileWidget(
@@ -220,7 +217,7 @@ class FriendListTileWidget extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
                         color: FriendsListSharedColors.textMain,
@@ -233,7 +230,7 @@ class FriendListTileWidget extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 13,
                           color: FriendsListSharedColors.textSub,
                         ),
@@ -243,7 +240,7 @@ class FriendListTileWidget extends StatelessWidget {
                     Text(
                       addedAtText,
                       style: const TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 12,
                         color: FriendsListSharedColors.textSub,
                       ),
@@ -305,7 +302,7 @@ class FriendAvatarWidget extends StatelessWidget {
         child: Text(
           initial,
           style: const TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 20,
             fontWeight: FontWeight.w700,
             color: FriendsListSharedColors.primary,
@@ -332,7 +329,7 @@ class FriendAvatarWidget extends StatelessWidget {
           child: Text(
             initial,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 20,
               fontWeight: FontWeight.w700,
               color: FriendsListSharedColors.primary,
@@ -370,7 +367,7 @@ class FriendsListEmptyMessage extends StatelessWidget {
               title,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
                 color: FriendsListSharedColors.textMain,
@@ -381,7 +378,7 @@ class FriendsListEmptyMessage extends StatelessWidget {
               subtitle,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 13,
                 height: 1.5,
                 color: FriendsListSharedColors.textSub,

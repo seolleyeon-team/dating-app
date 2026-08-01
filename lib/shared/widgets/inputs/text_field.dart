@@ -32,7 +32,9 @@ class SeolTextField extends StatelessWidget {
     final borderColor = errorText != null
         ? CupertinoColors.destructiveRed
         : (isDark ? const Color(0xFF3E3548) : const Color(0xFFE6DBDF));
-    final textColor = isDark ? const Color(0xFFF0E8ED) : const Color(0xFF181113);
+    final textColor = isDark
+        ? const Color(0xFFF0E8ED)
+        : const Color(0xFF181113);
     final placeholderColor = isDark
         ? const Color(0xFF7A6B76)
         : const Color(0xFF89616F).withValues(alpha: 0.6);
@@ -56,12 +58,12 @@ class SeolTextField extends StatelessWidget {
             border: Border.all(color: borderColor),
           ),
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 16,
             color: textColor,
           ),
           placeholderStyle: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 16,
             color: placeholderColor,
           ),
@@ -71,7 +73,7 @@ class SeolTextField extends StatelessWidget {
           Text(
             errorText!,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 12,
               color: CupertinoColors.destructiveRed,
             ),

@@ -23,7 +23,9 @@ class SeolIconButton extends StatelessWidget {
     final defaultBg = isDark
         ? CupertinoColors.white.withValues(alpha: 0.1)
         : CupertinoColors.white.withValues(alpha: 0.8);
-    final defaultColor = isDark ? const Color(0xFFF0E8ED) : const Color(0xFF181113);
+    final defaultColor = isDark
+        ? const Color(0xFFF0E8ED)
+        : const Color(0xFF181113);
 
     return CupertinoButton(
       padding: EdgeInsets.zero,

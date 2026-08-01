@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="description" content="축제 기간 동안 오늘의 인연을 추천받는 설레연 웹앱">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="설레연">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>설레연 페스티벌</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    @font-face {
+      font-family: 'GriunGyuwonSplash';
+      src: url('assets/assets/fonts/Griun_Gyuwon-Rg.ttf') format('truetype');
+      font-display: swap;
+    }
+
+    html, body, flt-glass-pane, flutter-view, img {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    html, body {
+      min-height: 100%;
+      margin: 0;
+      background: #fff8fb;
+    }
+
+    img {
+      -webkit-user-drag: none;
+      user-drag: none;
+      pointer-events: none;
+    }
+
+    #festival-splash {
+      position: fixed;
+      inset: 0;
+      z-index: 999999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 50% 34%, rgba(255, 226, 238, 0.88), transparent 34%),
+        linear-gradient(180deg, #fffafb 0%, #fff4f9 48%, #f7edf8 100%);
+      color: #5a3544;
+      opacity: 1;
+      transition: opacity 260ms ease;
+    }
+
+    #festival-splash.festival-splash-hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .festival-splash-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+      transform: translateY(-8px);
+    }
+
+    .festival-splash-title {
+      font-family: 'GriunGyuwonSplash', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+      font-size: clamp(30px, 8.5vw, 52px);
+      font-weight: 700;
+      letter-spacing: 0;
+      line-height: 1.1;
+      white-space: nowrap;
+      text-shadow: 0 8px 24px rgba(175, 116, 146, 0.16);
+    }
+
+    .festival-splash-dots {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      height: 16px;
+    }
+
+    .festival-splash-dots span {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: #e58eb8;
+      opacity: 0.28;
+      animation: festival-dot-pulse 960ms infinite ease-in-out;
+      box-shadow: 0 4px 12px rgba(229, 142, 184, 0.24);
+    }
+
+    .festival-splash-dots span:nth-child(2) {
+      animation-delay: 160ms;
+    }
+
+    .festival-splash-dots span:nth-child(3) {
+      animation-delay: 320ms;
+    }
+
+    @keyframes festival-dot-pulse {
+      0%, 100% {
+        opacity: 0.28;
+        transform: scale(0.86);
+      }
+      45% {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="festival-splash" aria-label="설레연 로딩 중">
+    <div class="festival-splash-inner">
+      <div class="festival-splash-title">설레연 X byte</div>
+      <div class="festival-splash-dots" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    </div>
+  </div>
+  <script>
+    window.festivalFirebaseConfig = {
+      apiKey: 'AIzaSyC8s000lBAIPJG1TyWtPFErGqV2FgSO0mQ',
+      authDomain: 'seolleyeon-festival.firebaseapp.com',
+      projectId: 'seolleyeon-festival',
+      storageBucket: 'seolleyeon-festival.firebasestorage.app',
+      messagingSenderId: '597362454449',
+      appId: '1:597362454449:web:29c6a2d1a1643d5aef5790',
+      measurementId: 'G-LEMCHFC9QE',
+    };
+  </script>
+  <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-messaging-compat.js"></script>
+  <script>
+    window.festivalGetNotificationPermission = function () {
+      if (!('Notification' in window)) {
+        return 'unsupported';
+      }
+      return Notification.permission;
+    };
+
+    window.festivalRequestPushToken = async function (vapidKey, shouldRequestPermission) {
+      if (!('Notification' in window)) {
+        throw new Error('unsupported-browser: Notification API is not available');
+      }
+      if (!('serviceWorker' in navigator)) {
+        throw new Error('unsupported-browser: Service Worker API is not available');
+      }
+      if (!window.firebase || !firebase.messaging) {
+        throw new Error('firebase-sdk-missing: firebase messaging compat SDK was not loaded');
+      }
+
+      var supported = await firebase.messaging.isSupported();
+      if (!supported) {
+        throw new Error('unsupported-browser: Firebase Messaging is not supported here');
+      }
+
+      if (Notification.permission !== 'granted') {
+        if (!shouldRequestPermission) {
+          throw new Error('permission-' + Notification.permission);
+        }
+        var permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          throw new Error('permission-' + permission);
+        }
+      }
+
+      if (!firebase.apps.length) {
+        firebase.initializeApp(window.festivalFirebaseConfig);
+      }
+
+      var registration = await (window.festivalMessagingWorkerReady ||
+        navigator.serviceWorker.register('/firebase-messaging-sw.js'));
+      var messaging = firebase.messaging();
+      var token = await messaging.getToken({
+        vapidKey: vapidKey,
+        serviceWorkerRegistration: registration,
+      });
+      if (!token) {
+        throw new Error('empty-token');
+      }
+      return token;
+    };
+  </script>
+  <script>
+    (function () {
+      var splash = document.getElementById('festival-splash');
+      var removed = false;
+
+      function hideSplash() {
+        if (!splash || removed) return;
+        removed = true;
+        splash.classList.add('festival-splash-hidden');
+        window.setTimeout(function () {
+          if (splash && splash.parentNode) {
+            splash.parentNode.removeChild(splash);
+          }
+        }, 320);
+      }
+
+      window.addEventListener('flutter-first-frame', hideSplash, { once: true });
+
+      var observer = new MutationObserver(function () {
+        if (document.querySelector('flutter-view, flt-glass-pane')) {
+          window.setTimeout(hideSplash, 240);
+          observer.disconnect();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+
+      window.setTimeout(hideSplash, 12000);
+    })();
+  </script>
+  <script>
+    (function () {
+      function loadFlutter() {
+        var script = document.createElement('script');
+        script.src = 'flutter_bootstrap.js';
+        script.async = true;
+        document.body.appendChild(script);
+      }
+
+      if (!('serviceWorker' in navigator)) {
+        loadFlutter();
+        return;
+      }
+
+      window.festivalMessagingWorkerReady = navigator.serviceWorker
+        .register('/firebase-messaging-sw.js')
+        .catch(function (error) {
+          console.warn('[FESTIVAL_PUSH] messaging worker registration failed', error);
+        })
+        .finally(loadFlutter);
+    })();
+  </script>
+</body>
+</html>

@@ -7,11 +7,7 @@ class SlotMachineTutorialScreen extends StatefulWidget {
   final VoidCallback? onStart;
   final VoidCallback? onSkip;
 
-  const SlotMachineTutorialScreen({
-    super.key,
-    this.onStart,
-    this.onSkip,
-  });
+  const SlotMachineTutorialScreen({super.key, this.onStart, this.onSkip});
 
   @override
   State<SlotMachineTutorialScreen> createState() =>
@@ -101,7 +97,7 @@ class _SlotMachineTutorialScreenState extends State<SlotMachineTutorialScreen>
                           '3:3 시즌 미팅\n원하는 상대가 나올 때까지\n룰렛을 돌리세요',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 28,
                             fontWeight: FontWeight.w800,
                             color: Color(0xFF1F2937),
@@ -113,7 +109,7 @@ class _SlotMachineTutorialScreenState extends State<SlotMachineTutorialScreen>
                           '이벤트 탭에서 팀을 만들고,\n룰렛처럼 새로운 상대를 만나볼 수 있어요.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 15,
                             fontWeight: FontWeight.w500,
                             color: Color(0xFF6B7280),
@@ -142,9 +138,9 @@ class _SlotMachineTutorialScreenState extends State<SlotMachineTutorialScreen>
                           borderRadius: BorderRadius.circular(18),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFFF24D82).withValues(
-                                alpha: 0.22,
-                              ),
+                              color: const Color(
+                                0xFFF24D82,
+                              ).withValues(alpha: 0.22),
                               blurRadius: 18,
                               offset: const Offset(0, 10),
                             ),
@@ -156,7 +152,7 @@ class _SlotMachineTutorialScreenState extends State<SlotMachineTutorialScreen>
                             Text(
                               '다음',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 17,
                                 fontWeight: FontWeight.w700,
                                 color: CupertinoColors.white,
@@ -266,7 +262,7 @@ class _SlotMachine extends StatelessWidget {
                     Text(
                       'Matching...',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFFF24D82),
@@ -409,7 +405,7 @@ class _TutorialNavBar extends StatelessWidget {
         Text(
           selectedLabel,
           style: const TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 13,
             fontWeight: FontWeight.w700,
             color: Color(0xFFF24D82),
@@ -459,9 +455,11 @@ class _TutorialNavBar extends StatelessWidget {
                     Text(
                       labels[index],
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 11,
-                        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
                         color: selected
                             ? const Color(0xFFF24D82)
                             : const Color(0xFF8F8A92),

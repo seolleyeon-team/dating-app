@@ -60,7 +60,8 @@ function shellDoc() {
   return {
     kakaoUserId: KAKAO_USER_ID,
     nickname: "테스터",
-    profileImageUrl: "https://example.com/a.jpg",
+    // 공개 프로필 사진은 승인된 아바타만 허용한다. 로그인 셸은 빈 값으로 시작한다.
+    profileImageUrl: "",
     email: "tester@example.com",
     createdAt: serverTimestamp(),
     lastLoginAt: serverTimestamp(),
@@ -332,8 +333,8 @@ describe("허용 목록 우회 방지 — 새 필드 주입 (affectedKeys 회귀
         status: "sent",
       });
     });
-    // 무물 당사자(fromUserId) 세션으로 상태를 바꾼다.
-    const db = testEnv.authenticatedContext("u1").firestore();
+    // 읽음 상태는 수신자(toUserId)만 바꿀 수 있다.
+    const db = testEnv.authenticatedContext("u2").firestore();
     await assertSucceeds(
       setDoc(doc(db, "asks", "a1"), { status: "read" }, { merge: true })
     );

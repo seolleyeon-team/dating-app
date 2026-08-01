@@ -7,11 +7,7 @@ class WelcomeTutorialScreen extends StatelessWidget {
   final VoidCallback? onNext;
   final VoidCallback? onSkip;
 
-  const WelcomeTutorialScreen({
-    super.key,
-    this.onNext,
-    this.onSkip,
-  });
+  const WelcomeTutorialScreen({super.key, this.onNext, this.onSkip});
 
   void _handleNext(BuildContext context) {
     HapticFeedback.mediumImpact();
@@ -78,7 +74,7 @@ class WelcomeTutorialScreen extends StatelessWidget {
                       child: const Text(
                         '건너뛰기',
                         style: TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                           color: Color(0xFF8D8790),
@@ -115,7 +111,7 @@ class WelcomeTutorialScreen extends StatelessWidget {
                           '설레연 가입을 환영해요!',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 30,
                             fontWeight: FontWeight.w800,
                             color: Color(0xFF221C22),
@@ -127,7 +123,7 @@ class WelcomeTutorialScreen extends StatelessWidget {
                           '캠퍼스 안에서 새로운 사람들과\n가까워질 수 있어요',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 18,
                             fontWeight: FontWeight.w500,
                             color: Color(0xFF6C6670),
@@ -148,9 +144,9 @@ class WelcomeTutorialScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(18),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFFF24D82).withValues(
-                              alpha: 0.28,
-                            ),
+                            color: const Color(
+                              0xFFF24D82,
+                            ).withValues(alpha: 0.28),
                             blurRadius: 18,
                             offset: const Offset(0, 10),
                           ),
@@ -162,7 +158,7 @@ class WelcomeTutorialScreen extends StatelessWidget {
                           Text(
                             '다음',
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 17,
                               fontWeight: FontWeight.w700,
                               color: CupertinoColors.white,

@@ -7,9 +7,8 @@ import '../models/promise_place.dart';
 
 /// Firestore 장소 카탈로그 + 버전 기반 로컬 캐시.
 class PromisePlaceService {
-  PromisePlaceService({
-    FirebaseFirestore? firestore,
-  }) : _firestore = firestore ?? FirebaseFirestore.instance;
+  PromisePlaceService({FirebaseFirestore? firestore})
+    : _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _firestore;
 
@@ -92,7 +91,8 @@ class PromisePlaceService {
 
     // 버전이 같아도 "빈 캐시"면 items 를 한 번 더 읽는다.
     // (Firestore 에만 장소를 나중에 넣고 meta version 을 안 올린 경우 대응)
-    final useCacheOnly = remoteMeta.version == cachedVersion &&
+    final useCacheOnly =
+        remoteMeta.version == cachedVersion &&
         cached != null &&
         cached.isNotEmpty;
 

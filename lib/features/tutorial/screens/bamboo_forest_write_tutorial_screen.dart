@@ -75,7 +75,7 @@ class _BambooForestWriteTutorialScreenState
                           '짝사랑, 썸 관련 고민을 털어놓거나\n다른 사람들의 썰이 궁금하다면?',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 27,
                             fontWeight: FontWeight.w800,
                             color: CupertinoColors.white,
@@ -87,7 +87,7 @@ class _BambooForestWriteTutorialScreenState
                           '대나무숲에서 익명으로 글을 읽고,\n직접 고민이나 이야기를 남길 수 있어요.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 15,
                             fontWeight: FontWeight.w500,
                             color: CupertinoColors.white.withValues(
@@ -123,7 +123,7 @@ class _BambooForestWriteTutorialScreenState
                             Text(
                               '다음',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 17,
                                 fontWeight: FontWeight.w700,
                                 color: Color(0xFF211A21),
@@ -175,7 +175,7 @@ class _TutorialNavBar extends StatelessWidget {
         Text(
           selectedLabel,
           style: const TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 13,
             fontWeight: FontWeight.w700,
             color: Color(0xFFF43F85),
@@ -225,9 +225,11 @@ class _TutorialNavBar extends StatelessWidget {
                     Text(
                       labels[index],
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 11,
-                        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
                         color: selected
                             ? const Color(0xFFF43F85)
                             : const Color(0xFF8F8A92),

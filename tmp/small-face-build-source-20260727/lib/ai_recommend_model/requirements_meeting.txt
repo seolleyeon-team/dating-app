@@ -1,0 +1,9 @@
+numpy>=1.26.0
+pandas>=2.0.0
+scipy>=1.11.0
+tqdm>=4.66.0
+google-cloud-firestore>=2.16.0
+torch>=2.2.0
+transformers>=4.45.0
+Pillow>=10.0.0
+requests>=2.31.0

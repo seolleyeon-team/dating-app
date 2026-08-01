@@ -577,7 +577,7 @@ class _SkipLaterButtonState extends State<_SkipLaterButton>
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 11.5,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.primary,
@@ -604,7 +604,7 @@ class _TitleSection extends StatelessWidget {
         Text(
           '라이프 스타일',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 32,
             fontWeight: FontWeight.bold,
             color: _AppColors.textMain,
@@ -616,7 +616,7 @@ class _TitleSection extends StatelessWidget {
         Text(
           '당신이 선호하는 이상형의 라이프 스타일을 알려주세요.',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 16,
             color: _AppColors.textSub,
           ),
@@ -650,7 +650,7 @@ class _Section extends StatelessWidget {
           Text(
             title,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 18,
               fontWeight: FontWeight.bold,
               color: _AppColors.textMain,
@@ -701,7 +701,7 @@ class _SelectionChip extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 14,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                 color: isSelected ? _AppColors.primary : _AppColors.textMain,
@@ -766,7 +766,7 @@ class _BottomButton extends StatelessWidget {
               Text(
                 label,
                 style: const TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 17,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,

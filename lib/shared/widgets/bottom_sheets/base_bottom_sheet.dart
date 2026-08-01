@@ -41,8 +41,12 @@ class BaseBottomSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
-    final bgColor = isDark ? const Color(0xFF261E2C) : CupertinoColors.systemBackground;
-    final handleColor = isDark ? const Color(0xFF4A4054) : CupertinoColors.systemGrey4;
+    final bgColor = isDark
+        ? const Color(0xFF261E2C)
+        : CupertinoColors.systemBackground;
+    final handleColor = isDark
+        ? const Color(0xFF4A4054)
+        : CupertinoColors.systemGrey4;
     final textColor = isDark ? const Color(0xFFF0E8ED) : CupertinoColors.label;
 
     return Container(
@@ -69,7 +73,7 @@ class BaseBottomSheet extends StatelessWidget {
               child: Text(
                 title!,
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
                   color: textColor,

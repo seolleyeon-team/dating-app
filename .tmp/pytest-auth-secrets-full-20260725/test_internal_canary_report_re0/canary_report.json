@@ -1,0 +1,177 @@
+{
+  "jobCount": 1,
+  "jobs": [
+    {
+      "approvalStatus": "approved",
+      "approvedAvatarUrlPresent": true,
+      "candidateStats": {
+        "beautificationRiskCount": 0,
+        "candidateCount": 1,
+        "childlikeRiskCount": 0,
+        "hardPassCount": 0,
+        "hardRejectCount": 0,
+        "needsReviewCount": 0,
+        "previewCount": 1,
+        "softPassCount": 1,
+        "tooIdentifiableCount": 0
+      },
+      "errors": [],
+      "estimatedUsd": 0.08,
+      "jobId": "job:ba724b9dde76",
+      "lockRetestStatus": "not_run",
+      "previewPayload": {
+        "perCandidateBase64Bytes": [
+          9437184
+        ],
+        "previewPayloadBytes": 9437184,
+        "warningLevel": "warning"
+      },
+      "privacyFindings": [],
+      "project": "seolleyeon-final",
+      "selectedCandidateId": "candidate:c24e6a4636f6",
+      "sourceAnalysis": {
+        "broadTraitHintsPresent": true,
+        "faceCount": null,
+        "faceVisible": true,
+        "lighting": "",
+        "modelAvailability": {
+          "faceDetector": "",
+          "mediapipe": "available"
+        },
+        "occlusionLevel": "",
+        "rejectReasons": [],
+        "singlePerson": true,
+        "usableForAvatar": null,
+        "visibleCrop": ""
+      },
+      "sourceHashPrefix": "abcdef123456",
+      "sourcePhotoId": "photo:f5b3ba83db43",
+      "sourceRefHash": [
+        "37d23265cbf9",
+        "f6776f3476de"
+      ],
+      "status": "preview_ready",
+      "timing": {
+        "faceDetectSeconds": null,
+        "generationSeconds": 80.0,
+        "modelLoadSeconds": null,
+        "preprocessSeconds": null,
+        "qaSeconds": 10.0,
+        "rerankSeconds": null,
+        "totalWorkerSeconds": 120.0,
+        "traitExtractSeconds": null,
+        "uploadSeconds": null
+      },
+      "traitCardCompleteness": {
+        "completeCount": 8,
+        "presentFields": [
+          "hair.bangs",
+          "facialHair.present",
+          "facialHair.broadStyle",
+          "faceImpression.facialFeatureBalance",
+          "faceImpression.eyeShapeMood",
+          "faceImpression.browShape",
+          "faceImpression.noseBridgeImpression",
+          "faceImpression.mouthFullnessCategory"
+        ],
+        "privacySafe": null,
+        "totalFields": 8,
+        "traitCardPresent": true,
+        "unclearFields": []
+      },
+      "uidHash": "c1b41cff1441"
+    }
+  ],
+  "participantCount": 1,
+  "project": "seolleyeon-final",
+  "redacted": true,
+  "since": "2026-05-14T00:00:00+00:00",
+  "summary": {
+    "approvalRate": 1.0,
+    "candidateStats": {
+      "beautificationRiskCount": 0,
+      "candidateCount": 1,
+      "childlikeRiskCount": 0,
+      "hardPassCount": 0,
+      "hardRejectCount": 0,
+      "needsReviewCount": 0,
+      "previewCount": 1,
+      "softPassCount": 1,
+      "tooIdentifiableCount": 0
+    },
+    "estimatedUsd": {
+      "avg": 0.08,
+      "count": 1,
+      "max": 0.08,
+      "min": 0.08
+    },
+    "previewPayloadBytes": {
+      "avg": 9437184.0,
+      "count": 1,
+      "max": 9437184.0,
+      "min": 9437184.0
+    },
+    "previewPayloadWarnings": {
+      "critical": 0,
+      "warning": 1
+    },
+    "previewReadyRate": 1.0,
+    "privacyFindingCount": 0,
+    "timing": {
+      "faceDetectSeconds": {
+        "avg": null,
+        "count": 0,
+        "max": null,
+        "min": null
+      },
+      "generationSeconds": {
+        "avg": 80.0,
+        "count": 1,
+        "max": 80.0,
+        "min": 80.0
+      },
+      "modelLoadSeconds": {
+        "avg": null,
+        "count": 0,
+        "max": null,
+        "min": null
+      },
+      "preprocessSeconds": {
+        "avg": null,
+        "count": 0,
+        "max": null,
+        "min": null
+      },
+      "qaSeconds": {
+        "avg": 10.0,
+        "count": 1,
+        "max": 10.0,
+        "min": 10.0
+      },
+      "rerankSeconds": {
+        "avg": null,
+        "count": 0,
+        "max": null,
+        "min": null
+      },
+      "totalWorkerSeconds": {
+        "avg": 120.0,
+        "count": 1,
+        "max": 120.0,
+        "min": 120.0
+      },
+      "traitExtractSeconds": {
+        "avg": null,
+        "count": 0,
+        "max": null,
+        "min": null
+      },
+      "uploadSeconds": {
+        "avg": null,
+        "count": 0,
+        "max": null,
+        "min": null
+      }
+    }
+  }
+}

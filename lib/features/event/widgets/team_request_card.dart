@@ -59,9 +59,7 @@ class TeamRequestCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: _AppColors.surfaceLight,
           borderRadius: BorderRadius.circular(22),
-          border: Border.all(
-            color: _AppColors.primary.withValues(alpha: 0.08),
-          ),
+          border: Border.all(color: _AppColors.primary.withValues(alpha: 0.08)),
           boxShadow: [
             BoxShadow(
               color: const Color(0xFF8E74B3).withValues(alpha: 0.06),
@@ -89,7 +87,7 @@ class TeamRequestCard extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
                             color: _AppColors.textMain,
@@ -97,10 +95,7 @@ class TeamRequestCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      _StatusChip(
-                        status: request.status,
-                        isReceived: !_isSent,
-                      ),
+                      _StatusChip(status: request.status, isReceived: !_isSent),
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -109,7 +104,7 @@ class TeamRequestCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                       color: _AppColors.textSub,
@@ -133,7 +128,7 @@ class TeamRequestCard extends StatelessWidget {
                           child: const Text(
                             '답변 필요',
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 10,
                               fontWeight: FontWeight.w700,
                               color: _AppColors.primary,
@@ -144,7 +139,7 @@ class TeamRequestCard extends StatelessWidget {
                         child: Text(
                           _formatRelativeTime(request.createdAt),
                           style: const TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
                             color: _AppColors.gray400,
@@ -316,7 +311,7 @@ class _StatusChip extends StatelessWidget {
       child: Text(
         label,
         style: TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NanumSquareRound',
           fontSize: 11,
           fontWeight: FontWeight.w700,
           color: textColor,

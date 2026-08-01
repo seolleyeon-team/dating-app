@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 // =============================================================================
 // 오늘의 인연 (미스터리 카드) 화면
 // 경로: lib/features/matching/screens/mystery_card_screen.dart
@@ -103,8 +104,6 @@ class _MysteryCardScreenState extends State<MysteryCardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
-
     return CupertinoPageScaffold(
       backgroundColor: Theme.of(context).brightness == Brightness.dark
           ? AppColorsDark.background
@@ -244,8 +243,7 @@ class _Header extends StatelessWidget {
     final displayCount = notificationCount > 9 ? '9+' : '$notificationCount';
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primary = Theme.of(context).colorScheme.primary;
-    final titleColor =
-        isDark ? AppColorsDark.textPrimary : _AppColors.gray900;
+    final titleColor = isDark ? AppColorsDark.textPrimary : _AppColors.gray900;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
@@ -254,11 +252,7 @@ class _Header extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(
-                CupertinoIcons.heart_fill,
-                size: 24,
-                color: primary,
-              ),
+              Icon(CupertinoIcons.heart_fill, size: 24, color: primary),
               const SizedBox(width: 8),
               Text(
                 '설레연',
@@ -470,7 +464,9 @@ class _MainContentState extends State<_MainContent> {
           context: contextMetadata,
         )
         .catchError(
-          (e) => debugPrint('[RecEvent] mystery_card impression failed: $e'),
+          (e) => debugPrint(
+            '[RecEvent] mystery_card impression failed: ${PrivacyLogUtils.errorSummary(e)}',
+          ),
         );
   }
 
@@ -555,10 +551,10 @@ class _MainContentState extends State<_MainContent> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final headlineColor =
-        isDark ? AppColorsDark.textPrimary : _AppColors.gray900;
-    final mutedColor =
-        isDark ? const Color(0xFF7A6B76) : _AppColors.gray400;
+    final headlineColor = isDark
+        ? AppColorsDark.textPrimary
+        : _AppColors.gray900;
+    final mutedColor = isDark ? const Color(0xFF7A6B76) : _AppColors.gray400;
     final primary = Theme.of(context).colorScheme.primary;
 
     return Padding(
@@ -791,11 +787,9 @@ class _MainContentState extends State<_MainContent> {
                   decoration: BoxDecoration(
                     color: i == _currentIndex
                         ? (isDark
-                            ? AppColorsDark.textPrimary
-                            : _AppColors.gray900)
-                        : (isDark
-                            ? AppColorsDark.divider
-                            : _AppColors.gray300),
+                              ? AppColorsDark.textPrimary
+                              : _AppColors.gray900)
+                        : (isDark ? AppColorsDark.divider : _AppColors.gray300),
                     shape: BoxShape.circle,
                   ),
                 );
@@ -902,16 +896,21 @@ class _MysteryCardState extends State<_MysteryCard>
               context: contextMetadata,
             )
             .catchError(
-              (e) => debugPrint('[RecEvent] mystery_card open failed: $e'),
+              (e) => debugPrint(
+                '[RecEvent] mystery_card open failed: ${PrivacyLogUtils.errorSummary(e)}',
+              ),
             );
       }
-      _controller.forward().then((_) {
-        if (mounted) {
-          setState(() => _isRevealed = true);
-        }
-      }).whenComplete(() {
-        widget.onFlipLockChanged?.call(false);
-      });
+      _controller
+          .forward()
+          .then((_) {
+            if (mounted) {
+              setState(() => _isRevealed = true);
+            }
+          })
+          .whenComplete(() {
+            widget.onFlipLockChanged?.call(false);
+          });
     }
   }
 
@@ -950,10 +949,8 @@ class _MysteryCardState extends State<_MysteryCard>
 
   Widget _buildFrontFace(double cardWidth, double cardHeight) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardBg =
-        isDark ? AppColorsDark.surface : CupertinoColors.white;
-    final cardBorder =
-        isDark ? AppColorsDark.border : _AppColors.gray100;
+    final cardBg = isDark ? AppColorsDark.surface : CupertinoColors.white;
+    final cardBorder = isDark ? AppColorsDark.border : _AppColors.gray100;
 
     return Container(
       width: cardWidth,
@@ -1061,169 +1058,165 @@ class _MysteryCardState extends State<_MysteryCard>
   }) {
     final profile = widget.profile;
     final shouldUseSecureCapture =
-        widget.allowSecureCapture &&
-        _isRevealed &&
-        !_controller.isAnimating;
+        widget.allowSecureCapture && _isRevealed && !_controller.isAnimating;
 
     final body = Container(
-        width: cardWidth,
-        height: cardHeight,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: _AppColors.primary.withValues(alpha: 0.25),
-              blurRadius: 40,
-              offset: const Offset(0, 0),
-            ),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            widget.profile.imageUrls.isNotEmpty
-                ? CaptureProtectedImage(
-                    imageUrl: widget.profile.imageUrls.first,
-                    fit: BoxFit.cover,
-                    borderRadius: 24,
-                    blurEnabled: true,
-                    blurSigma: kLockedProfilePhotoBlurSigma,
-                    blurBadgeText: '사진은 상세에서 채팅 후 선명하게 보여요',
-                    iosSecureCaptureEnabled: shouldUseSecureCapture,
-                    backgroundColor: _AppColors.gray300,
-                    placeholderIconColor: CupertinoColors.white,
-                    placeholderIconSize: 42,
-                  )
-                : Container(color: _AppColors.gray300),
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    CupertinoColors.black.withValues(alpha: 0),
-                    CupertinoColors.black.withValues(alpha: 0.15),
-                    CupertinoColors.black.withValues(alpha: 0.75),
-                  ],
-                  stops: const [0.0, 0.5, 1.0],
-                ),
-              ),
-            ),
-            Positioned(
-              left: 24,
-              right: 24,
-              bottom: 24,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          profile.name,
-                          style: const TextStyle(
-                            fontFamily: 'Pretendard',
-                            fontSize: 28,
-                            fontWeight: FontWeight.w600,
-                            color: CupertinoColors.white,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: CupertinoColors.white.withValues(
-                                alpha: 0.2,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: CupertinoColors.white.withValues(
-                                  alpha: 0.1,
-                                ),
-                              ),
-                            ),
-                            child: Text(
-                              '${profile.sourceScores != null ? (profile.sourceScores! * 100).toInt() : 85}% Match',
-                              style: const TextStyle(
-                                fontFamily: 'Pretendard',
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                color: CupertinoColors.white,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    "${profile.major} • ${profile.age}",
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      fontSize: 14,
-                      fontWeight: FontWeight.w300,
-                      color: CupertinoColors.white.withValues(alpha: 0.8),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: profile.tags.take(3).map((tag) {
-                      return ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 5,
-                            ),
-                            decoration: BoxDecoration(
-                              color: CupertinoColors.black.withValues(
-                                alpha: 0.35,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: CupertinoColors.white.withValues(
-                                  alpha: 0.1,
-                                ),
-                              ),
-                            ),
-                            child: Text(
-                              tag,
-                              style: const TextStyle(
-                                fontFamily: 'Pretendard',
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                                color: CupertinoColors.white,
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
+      width: cardWidth,
+      height: cardHeight,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: _AppColors.primary.withValues(alpha: 0.25),
+            blurRadius: 40,
+            offset: const Offset(0, 0),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          widget.profile.imageUrls.isNotEmpty
+              ? CaptureProtectedImage(
+                  imageUrl: widget.profile.imageUrls.first,
+                  fit: BoxFit.cover,
+                  borderRadius: 24,
+                  blurEnabled: true,
+                  blurSigma: kLockedProfilePhotoBlurSigma,
+                  blurBadgeText: '사진은 상세에서 채팅 후 선명하게 보여요',
+                  iosSecureCaptureEnabled: shouldUseSecureCapture,
+                  backgroundColor: _AppColors.gray300,
+                  placeholderIconColor: CupertinoColors.white,
+                  placeholderIconSize: 42,
+                )
+              : Container(color: _AppColors.gray300),
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  CupertinoColors.black.withValues(alpha: 0),
+                  CupertinoColors.black.withValues(alpha: 0.15),
+                  CupertinoColors.black.withValues(alpha: 0.75),
                 ],
+                stops: const [0.0, 0.5, 1.0],
               ),
             ),
-          ],
-        ),
-      );
+          ),
+          Positioned(
+            left: 24,
+            right: 24,
+            bottom: 24,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        profile.name,
+                        style: const TextStyle(
+                          fontFamily: 'Pretendard',
+                          fontSize: 28,
+                          fontWeight: FontWeight.w600,
+                          color: CupertinoColors.white,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: CupertinoColors.white.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: CupertinoColors.white.withValues(
+                                alpha: 0.1,
+                              ),
+                            ),
+                          ),
+                          child: Text(
+                            '${profile.sourceScores != null ? (profile.sourceScores! * 100).toInt() : 85}% Match',
+                            style: const TextStyle(
+                              fontFamily: 'Pretendard',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: CupertinoColors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  "${profile.major} • ${profile.age}",
+                  style: TextStyle(
+                    fontFamily: 'Pretendard',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w300,
+                    color: CupertinoColors.white.withValues(alpha: 0.8),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: profile.tags.take(3).map((tag) {
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: CupertinoColors.black.withValues(
+                              alpha: 0.35,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: CupertinoColors.white.withValues(
+                                alpha: 0.1,
+                              ),
+                            ),
+                          ),
+                          child: Text(
+                            tag,
+                            style: const TextStyle(
+                              fontFamily: 'Pretendard',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              color: CupertinoColors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
 
     if (!applyMirrorTransform) {
       return body;
@@ -1236,4 +1229,3 @@ class _MysteryCardState extends State<_MysteryCard>
     );
   }
 }
-

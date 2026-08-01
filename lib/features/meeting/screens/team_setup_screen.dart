@@ -77,11 +77,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
 
   void _onShare() {
     HapticFeedback.lightImpact();
-    SharePlus.instance.share(
-      ShareParams(
-        text: '설레연에서 함께 3:3 미팅해요! 🎉',
-      ),
-    );
+    SharePlus.instance.share(ShareParams(text: '설레연에서 함께 3:3 미팅해요! 🎉'));
   }
 
   void _onStartMatching() {
@@ -181,7 +177,7 @@ class _Header extends StatelessWidget {
               '3명 팀으로 참여해요',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.3,
@@ -209,7 +205,7 @@ class _TitleSection extends StatelessWidget {
         Text(
           '팀 구성하기',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 24,
             fontWeight: FontWeight.w700,
             color: _AppColors.textMain,
@@ -219,7 +215,7 @@ class _TitleSection extends StatelessWidget {
         Text(
           '친구 2명을 초대해서 팀을 완성해보세요.',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 14,
             color: _AppColors.textSecondary,
           ),
@@ -331,7 +327,7 @@ class _FilledSlot extends StatelessWidget {
                 Text(
                   member.name,
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                     color: _AppColors.textMain,
@@ -342,7 +338,7 @@ class _FilledSlot extends StatelessWidget {
                 Text(
                   member.mbti,
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 10,
                     color: _AppColors.gray400,
                   ),
@@ -366,7 +362,7 @@ class _FilledSlot extends StatelessWidget {
                   child: const Text(
                     'ME',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
                       color: CupertinoColors.white,
@@ -431,7 +427,7 @@ class _EmptySlot extends StatelessWidget {
               const Text(
                 '친구 초대',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                   color: _AppColors.primary,
@@ -467,7 +463,7 @@ class _InfoChip extends StatelessWidget {
           Text(
             '3명이 모여야 매칭을 시작할 수 있어요',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 12,
               fontWeight: FontWeight.w500,
               color: _AppColors.textSecondary,
@@ -523,7 +519,7 @@ class _InviteButtons extends StatelessWidget {
                   Text(
                     '카카오로 초대',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.textMain,
@@ -566,7 +562,7 @@ class _InviteButtons extends StatelessWidget {
                   Text(
                     '공유하기',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.textMain,
@@ -640,7 +636,7 @@ class _BottomCTA extends StatelessWidget {
               Text(
                 '슬롯머신 돌리기 (1회 무료)',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
                   color: isEnabled ? CupertinoColors.white : _AppColors.gray400,

@@ -15,6 +15,7 @@ import '../../../router/route_names.dart';
 import 'terms_detail_sheet.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/dev_entry_policy.dart';
 
 // =============================================================================
 // 색상 상수
@@ -75,11 +76,16 @@ class _TermsScreenState extends State<TermsScreen> {
     ),
     TermsItem(
       id: LegalTexts.kakaoNamePhoneConsent.id,
-      label: '이름 및 전화번호 수집·이용 동의',
+      label: '본인인증 정보 수집·이용 동의',
       isRequired: true,
       hasDetail: true,
     ),
-    TermsItem(id: 'ageOver18', label: '만 18세 이상입니다', isRequired: true),
+    TermsItem(
+      id: LegalTexts.ageOver20Consent.id,
+      label: '연 나이 20세 이상입니다',
+      isRequired: true,
+      hasDetail: true,
+    ),
   ];
 
   bool _isSubmitting = false;
@@ -93,6 +99,10 @@ class _TermsScreenState extends State<TermsScreen> {
   bool get _allChecked => _allRequiredChecked && _marketingChecked;
 
   Future<void> _enterWithTestAccount() async {
+    // Belt-and-suspenders: the button is already hidden in release, but the
+    // handler must refuse even if something else invokes it.
+    if (!DevEntryPolicy.allowTestAccountEntry) return;
+
     final storage = StorageService();
     final userService = UserService();
     await storage.saveKakaoUserId("fake_user_1");
@@ -261,7 +271,8 @@ class _TermsScreenState extends State<TermsScreen> {
                   onPressed: _onSubmit,
                   isLoading: _isSubmitting,
                 ),
-                _TestAccountButton(onPressed: _enterWithTestAccount),
+                if (DevEntryPolicy.allowTestAccountEntry)
+                  _TestAccountButton(onPressed: _enterWithTestAccount),
               ],
             ),
           ),
@@ -300,7 +311,7 @@ class _Header extends StatelessWidget {
               '필수 동의',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.textMain,
@@ -328,7 +339,7 @@ class _Headline extends StatelessWidget {
         const Text(
           '서비스 이용을 위한\n필수 동의',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 28,
             fontWeight: FontWeight.w700,
             height: 1.3,
@@ -340,7 +351,7 @@ class _Headline extends StatelessWidget {
         const Text(
           '설레연은 안전한 대학생 인증 기반 매칭 커뮤니티 운영을 위해 필요한 최소한의 개인정보를 수집·이용합니다.',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 15,
             fontWeight: FontWeight.w500,
             height: 1.55,
@@ -358,9 +369,9 @@ class _Headline extends StatelessWidget {
             ),
           ),
           child: const Text(
-            '이름과 전화번호는 카카오 로그인 과정에서 제공받을 수 있으며, 실사용자 확인, 중복 가입 방지, 신고 및 제재 대응 등 안전한 서비스 운영을 위해 사용됩니다.',
+            '이름, 휴대전화번호, 생년월일 및 본인인증 결과는 본인확인기관 기반 본인인증 과정에서 확인·수집될 수 있으며, 실사용자 확인, 성인 여부 확인, 중복 가입 방지, 신고 및 분쟁 대응 등 안전한 서비스 운영을 위해 사용됩니다.',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               fontWeight: FontWeight.w600,
               height: 1.55,
@@ -459,7 +470,7 @@ class _TermsCard extends StatelessWidget {
                       child: RichText(
                         text: const TextSpan(
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 15,
                             fontWeight: FontWeight.w500,
                             color: _AppColors.textSecondary,
@@ -539,7 +550,7 @@ class _AllAgreeRow extends StatelessWidget {
                   const Text(
                     '전체 동의',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.textMain,
@@ -549,7 +560,7 @@ class _AllAgreeRow extends StatelessWidget {
                   Text(
                     '필수 항목과 선택 항목을 한 번에 동의합니다',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                       color: _AppColors.textMuted,
@@ -594,7 +605,7 @@ class _TermsItemRow extends StatelessWidget {
               child: RichText(
                 text: TextSpan(
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 15,
                     fontWeight: FontWeight.w500,
                     color: _AppColors.textSecondary,
@@ -625,7 +636,7 @@ class _TermsItemRow extends StatelessWidget {
                     Text(
                       '보기',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: _AppColors.primary,
@@ -706,7 +717,7 @@ class _ToggleOption extends StatelessWidget {
         Text(
           label,
           style: const TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 14,
             fontWeight: FontWeight.w500,
             color: _AppColors.textMuted,
@@ -778,9 +789,9 @@ class _BottomCTA extends StatelessWidget {
           ),
           child: Center(
             child: Text(
-              isLoading ? '저장 중...' : '동의하고 시작하기',
+              isLoading ? '저장 중...' : '동의하고 카카오 로그인',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
                 color: isEnabled
@@ -821,7 +832,7 @@ class _TestAccountButton extends StatelessWidget {
             child: Text(
               '테스트 계정으로 둘러보기',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.primary,

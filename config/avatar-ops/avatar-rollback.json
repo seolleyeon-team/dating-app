@@ -1,0 +1,68 @@
+{
+    "schemaVersion":  "avatar_rollback_drill_v1",
+    "description":  "Bounded avatar rollback drill plan for selected staging projects. Default planning is non-mutating.",
+    "allowedProjects":  [
+                            "seolleyeon-final",
+                            "seolleyeon-festival"
+                        ],
+    "forbiddenProjects":  [
+                              "",
+                              "default",
+                              "seolleyeon"
+                          ],
+    "confirmationTokenTemplate":  "APPLY_AVATAR_ROLLBACK:{project}:avatar_rollback_drill_v1",
+    "projects":  {
+                     "seolleyeon-final":  {
+                                              "queueName":  "avatar-generation",
+                                              "queueLocation":  "asia-northeast3",
+                                              "workerService":  "seolleyeon-avatar-worker",
+                                              "workerRegion":  "asia-southeast1",
+                                              "privateSourceBucketSuffix":  "private-source-photos",
+                                              "optionalPriorTargets":  {
+                                                                           "workerRevision":  "explicit prior Cloud Run revision name only"
+                                                                       }
+                                          },
+                     "seolleyeon-festival":  {
+                                                 "queueName":  "avatar-generation",
+                                                 "queueLocation":  "asia-northeast3",
+                                                 "workerService":  "seolleyeon-avatar-worker",
+                                                 "workerRegion":  "asia-southeast1",
+                                                 "privateSourceBucketSuffix":  "private-source-photos",
+                                                 "optionalPriorTargets":  {
+                                                                              "workerRevision":  "explicit prior Cloud Run revision name only"
+                                                                          }
+                                             }
+                 },
+    "orderedSteps":  [
+                         "disable_generation_cost_kill_switch",
+                         "pause_queue",
+                         "verify_claim_rate_backlog",
+                         "dry_run_stale_lease_recovery",
+                         "dry_run_temp_rejected_cleanup",
+                         "verify_private_source_aggregate_unchanged",
+                         "optional_route_prior_worker_revision",
+                         "resume_requires_separate_confirmation"
+                     ],
+    "forbiddenOperations":  [
+                                "consent-withdrawal cleanup",
+                                "account-deletion cleanup",
+                                "source-retention cleanup",
+                                "source object delete"
+                            ],
+    "redactionPolicy":  {
+                            "denyOutput":  [
+                                               "private object paths",
+                                               "UIDs",
+                                               "tokens",
+                                               "signed URLs",
+                                               "raw command lines"
+                                           ],
+                            "allowOutput":  [
+                                                "ordered operation names",
+                                                "aggregate counts",
+                                                "project id",
+                                                "apply mode",
+                                                "dry-run state"
+                                            ]
+                        }
+}
