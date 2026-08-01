@@ -1,0 +1,33 @@
+# Seolleyeon avatar worker runtime.
+#
+# Torch strategy:
+# - Production image uses pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime so CUDA
+#   torch is already present and this pin should be satisfied in-place.
+# - For local CPU smoke tests, install the torch wheel appropriate for the host.
+torch==2.8.0
+
+# FLUX.2-klein support is currently ahead of the latest PyPI diffusers release.
+# Pin a known main commit that provides diffusers.Flux2KleinPipeline.
+diffusers @ https://github.com/huggingface/diffusers/archive/37467de2b6c1a3e3e07efa223fb8eb410d41744e.zip
+transformers>=4.45.0,<5.0.0
+accelerate>=0.31.0,<1.0.0
+huggingface-hub>=0.34.0,<1.0.0
+safetensors>=0.8.0rc0,<1.0.0
+Pillow>=10.0.0,<12.0.0
+numpy>=1.26.0,<2.0.0
+protobuf>=4.25.8,<5.0.0
+opencv-python-headless>=4.9.0,<5.0.0
+timm>=0.9.16,<1.1.0
+einops>=0.7.0,<1.0.0
+sentencepiece>=0.2.0,<1.0.0
+
+# Source analysis / face detector. The worker must fail safely if this is
+# unavailable in a production image; local tests inject deterministic detectors.
+mediapipe>=0.10.14,<0.11.0
+
+google-cloud-storage>=2.16.0,<3.0.0
+google-cloud-firestore>=2.16.0,<3.0.0
+firebase-admin>=6.5.0,<7.0.0
+
+Flask>=3.0.0,<4.0.0
+gunicorn>=22.0.0,<24.0.0

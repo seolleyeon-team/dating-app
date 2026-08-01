@@ -12,11 +12,10 @@ class EventMatchService {
     FirebaseFunctions? functions,
     AuthService? authService,
     StorageService? storageService,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
-        _functions =
-            functions ?? FirebaseFunctions.instanceFor(region: _region),
-        _authService = authService ?? AuthService(),
-        _storageService = storageService ?? StorageService();
+  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+       _functions = functions ?? FirebaseFunctions.instanceFor(region: _region),
+       _authService = authService ?? AuthService(),
+       _storageService = storageService ?? StorageService();
 
   static const String _region = 'asia-northeast3';
 
@@ -45,9 +44,7 @@ class EventMatchService {
   Future<EventTeamMatchSpinResponse> spinSeasonMeetingRoulette({
     required String teamSetupId,
   }) async {
-    final payload = await _callablePayload({
-      'teamSetupId': teamSetupId,
-    });
+    final payload = await _callablePayload({'teamSetupId': teamSetupId});
 
     final callable = _functions.httpsCallable('spinSeasonMeetingRoulette');
     final response = await callable.call<dynamic>(payload);
@@ -58,18 +55,23 @@ class EventMatchService {
   }
 
   Stream<EventTeamMatchResult?> watchMatchResult(String resultId) {
-    return _firestore.collection('eventTeamMatches').doc(resultId).snapshots().map(
-      (snapshot) {
-        if (!snapshot.exists || snapshot.data() == null) {
-          return null;
-        }
-        return EventTeamMatchResult.fromDoc(snapshot.id, snapshot.data()!);
-      },
-    );
+    return _firestore
+        .collection('eventTeamMatches')
+        .doc(resultId)
+        .snapshots()
+        .map((snapshot) {
+          if (!snapshot.exists || snapshot.data() == null) {
+            return null;
+          }
+          return EventTeamMatchResult.fromDoc(snapshot.id, snapshot.data()!);
+        });
   }
 
   Future<EventTeamMatchResult?> getMatchResultOnce(String resultId) async {
-    final snapshot = await _firestore.collection('eventTeamMatches').doc(resultId).get();
+    final snapshot = await _firestore
+        .collection('eventTeamMatches')
+        .doc(resultId)
+        .get();
     if (!snapshot.exists || snapshot.data() == null) {
       return null;
     }
@@ -146,8 +148,10 @@ class EventMatchService {
     required String teamSetupId,
     required String userId,
   }) async {
-    final snapshot =
-        await _firestore.collection('eventTeamSetups').doc(teamSetupId).get();
+    final snapshot = await _firestore
+        .collection('eventTeamSetups')
+        .doc(teamSetupId)
+        .get();
     if (!snapshot.exists || snapshot.data() == null) {
       return null;
     }

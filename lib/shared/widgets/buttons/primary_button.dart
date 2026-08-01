@@ -45,7 +45,7 @@ class PrimaryButton extends StatelessWidget {
             : Text(
                 text,
                 style: const TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                 ),

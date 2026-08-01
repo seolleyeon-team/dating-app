@@ -66,7 +66,7 @@ class _EventTeamInviteResponseScreenState
         middle: const Text(
           '팀 초대',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontWeight: FontWeight.w700,
             color: _C.textMain,
           ),
@@ -135,18 +135,14 @@ class _EventTeamInviteResponseScreenState
                 color: _C.plumLight,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                CupertinoIcons.mail,
-                size: 28,
-                color: _C.plumAccent,
-              ),
+              child: Icon(CupertinoIcons.mail, size: 28, color: _C.plumAccent),
             ),
             const SizedBox(height: 20),
             Text(
               msg,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 15,
                 fontWeight: FontWeight.w500,
                 color: _C.textSub,
@@ -161,7 +157,7 @@ class _EventTeamInviteResponseScreenState
               child: const Text(
                 '돌아가기',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontWeight: FontWeight.w600,
                   color: _C.textMain,
                 ),
@@ -183,7 +179,7 @@ class _EventTeamInviteResponseScreenState
           const Text(
             '초대 내용을 확인하고 있어요…',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               color: _C.textSub,
             ),

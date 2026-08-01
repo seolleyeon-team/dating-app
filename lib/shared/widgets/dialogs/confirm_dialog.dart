@@ -32,16 +32,13 @@ class ConfirmDialog extends StatelessWidget {
       title: Text(
         title,
         style: TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NanumSquareRound',
           color: theme.colorScheme.onSurface,
         ),
       ),
       content: Text(
         message,
-        style: TextStyle(
-          fontFamily: 'Pretendard',
-          color: textSecondary,
-        ),
+        style: TextStyle(fontFamily: 'NanumSquareRound', color: textSecondary),
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       actions: [
@@ -53,7 +50,7 @@ class ConfirmDialog extends StatelessWidget {
           child: Text(
             cancelText,
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               color: textSecondary,
             ),
           ),
@@ -65,10 +62,7 @@ class ConfirmDialog extends StatelessWidget {
           },
           child: Text(
             confirmText,
-            style: TextStyle(
-              fontFamily: 'Pretendard',
-              color: primary,
-            ),
+            style: TextStyle(fontFamily: 'NanumSquareRound', color: primary),
           ),
         ),
       ],

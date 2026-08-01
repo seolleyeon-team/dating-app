@@ -19,6 +19,8 @@ import '../../../services/kakao_friend_invite_helper.dart';
 import '../../../services/friend_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/privacy_log_utils.dart';
+import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 
 class MyPageScreen extends StatefulWidget {
@@ -78,7 +80,9 @@ class _MyPageScreenState extends State<MyPageScreen> {
               setState(() => friendsCount = snapshot.size);
             },
             onError: (error) {
-              debugPrint('[MyPage] friends stream error: $error');
+              debugPrint(
+                '[MyPage] friends stream ${PrivacyLogUtils.errorSummary(error)}',
+              );
             },
           );
     }
@@ -105,14 +109,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
         ? Map<String, dynamic>.from(onboardingRaw)
         : <String, dynamic>{};
 
-    final photoUrlsRaw = onboarding['photoUrls'];
-    final onboardingPhotoUrls = photoUrlsRaw is List
-        ? photoUrlsRaw.whereType<String>().toList()
-        : <String>[];
-
-    final mainPhotoUrl = onboardingPhotoUrls.isNotEmpty
-        ? onboardingPhotoUrls.first
-        : null;
+    final mainPhotoUrl = ProfileDisplayImageResolver.resolve(user);
 
     setState(() {
       nickname = (onboarding['nickname']?.toString().isNotEmpty ?? false)
@@ -120,13 +117,8 @@ class _MyPageScreenState extends State<MyPageScreen> {
           : '닉네임';
       userName = nickname;
 
-      // 우선순위:
-      // 1) onboarding.photoUrls의 첫 번째 사진
-      // 2) 기존 profileImageUrl
-      // 3) null이면 defaultAvatarUrl 사용
-      avatarUrl = (mainPhotoUrl != null && mainPhotoUrl.isNotEmpty)
-          ? mainPhotoUrl
-          : user['profileImageUrl']?.toString();
+      // Public display image policy is resolved centrally.
+      avatarUrl = mainPhotoUrl.isNotEmpty ? mainPhotoUrl : null;
 
       receivedHearts = (user['receivedHearts'] as num?)?.toInt() ?? 0;
       friendsCount = actualFriendsCount;
@@ -327,10 +319,6 @@ class _MyPageScreenState extends State<MyPageScreen> {
                   ).pushNamed(RouteNames.heartCharge),
                   onInviteFriends: _inviteFriends,
                   isInviteLoading: _isInvitingFriends,
-                  onAccountManagement: () => Navigator.of(
-                    context,
-                    rootNavigator: true,
-                  ).pushNamed(RouteNames.accountManagement),
                 ),
               ),
               SliverToBoxAdapter(
@@ -755,14 +743,12 @@ class _MenuList extends StatelessWidget {
   final VoidCallback? onEditProfile;
   final VoidCallback? onRecharge;
   final VoidCallback? onInviteFriends;
-  final VoidCallback? onAccountManagement;
   final bool isInviteLoading;
 
   const _MenuList({
     this.onEditProfile,
     this.onRecharge,
     this.onInviteFriends,
-    this.onAccountManagement,
     this.isInviteLoading = false,
   });
 
@@ -810,14 +796,6 @@ class _MenuList extends StatelessWidget {
               label: '친구 초대',
               onTap: onInviteFriends,
               isLoading: isInviteLoading,
-            ),
-            Container(height: 1, color: seol.gray100.withValues(alpha: 0.5)),
-            _MenuItem(
-              icon: CupertinoIcons.person_crop_circle_badge_xmark,
-              iconBgColor: seol.gray100,
-              iconColor: seol.gray400,
-              label: '계정 관리',
-              onTap: onAccountManagement,
             ),
           ],
         ),

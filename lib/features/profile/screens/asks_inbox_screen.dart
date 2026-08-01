@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../../services/ask_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/chat_unlocked_profile_avatar.dart';
 
 const String _kFontFamily = 'Noto Sans KR';
@@ -57,7 +59,10 @@ class _AsksInboxScreenState extends State<AsksInboxScreen> {
       navigationBar: CupertinoNavigationBar(
         middle: const Text(
           '무물함',
-          style: TextStyle(fontFamily: _kFontFamily, fontWeight: FontWeight.w700),
+          style: TextStyle(
+            fontFamily: _kFontFamily,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         backgroundColor: _C.white.withValues(alpha: 0.9),
         border: Border(
@@ -82,28 +87,26 @@ class _AsksInboxScreenState extends State<AsksInboxScreen> {
                       ),
                     )
                   : _tabIndex == 0
-                      ? _AskList(
-                          stream: _askService
-                              .receivedAsksStream(_currentUserId!),
-                          emptyIcon: CupertinoIcons.tray,
-                          emptyTitle: '아직 받은 무물이 없어요',
-                          emptySub: '누군가 궁금해할 때까지 조금만 기다려주세요',
-                          isReceived: true,
-                          currentUserId: _currentUserId!,
-                          askService: _askService,
-                          userService: _userService,
-                        )
-                      : _AskList(
-                          stream:
-                              _askService.sentAsksStream(_currentUserId!),
-                          emptyIcon: CupertinoIcons.paperplane,
-                          emptyTitle: '아직 보낸 무물이 없어요',
-                          emptySub: '프로필에서 궁금한 상대에게 질문을 보내보세요',
-                          isReceived: false,
-                          currentUserId: _currentUserId!,
-                          askService: _askService,
-                          userService: _userService,
-                        ),
+                  ? _AskList(
+                      stream: _askService.receivedAsksStream(_currentUserId!),
+                      emptyIcon: CupertinoIcons.tray,
+                      emptyTitle: '아직 받은 무물이 없어요',
+                      emptySub: '누군가 궁금해할 때까지 조금만 기다려주세요',
+                      isReceived: true,
+                      currentUserId: _currentUserId!,
+                      askService: _askService,
+                      userService: _userService,
+                    )
+                  : _AskList(
+                      stream: _askService.sentAsksStream(_currentUserId!),
+                      emptyIcon: CupertinoIcons.paperplane,
+                      emptyTitle: '아직 보낸 무물이 없어요',
+                      emptySub: '프로필에서 궁금한 상대에게 질문을 보내보세요',
+                      isReceived: false,
+                      currentUserId: _currentUserId!,
+                      askService: _askService,
+                      userService: _userService,
+                    ),
             ),
           ],
         ),
@@ -259,14 +262,15 @@ class _AskCard extends StatelessWidget {
     final status = data['status']?.toString() ?? 'sent';
     final isUnread = isReceived && status == 'sent';
 
-    final snapshotKey =
-        isReceived ? 'fromUserProfileSnapshot' : 'toUserProfileSnapshot';
+    final snapshotKey = isReceived
+        ? 'fromUserProfileSnapshot'
+        : 'toUserProfileSnapshot';
     final snapshot = data[snapshotKey] is Map
         ? Map<String, dynamic>.from(data[snapshotKey] as Map)
         : <String, dynamic>{};
 
     final nickname = snapshot['nickname']?.toString() ?? '';
-    final avatarUrl = snapshot['profileImageUrl']?.toString() ?? '';
+    final avatarUrl = ProfileDisplayImageResolver.resolve(snapshot);
     final university = snapshot['universityName']?.toString() ?? '';
     final otherUserId =
         (isReceived ? data['fromUserId'] : data['toUserId'])?.toString() ?? '';
@@ -316,8 +320,9 @@ class _AskCard extends StatelessWidget {
                           style: TextStyle(
                             fontFamily: _kFontFamily,
                             fontSize: 15,
-                            fontWeight:
-                                isUnread ? FontWeight.w700 : FontWeight.w600,
+                            fontWeight: isUnread
+                                ? FontWeight.w700
+                                : FontWeight.w600,
                             color: _C.textMain,
                           ),
                           maxLines: 1,
@@ -356,8 +361,7 @@ class _AskCard extends StatelessWidget {
                       fontFamily: _kFontFamily,
                       fontSize: 14,
                       color: isUnread ? _C.textMain : _C.textSub,
-                      fontWeight:
-                          isUnread ? FontWeight.w500 : FontWeight.w400,
+                      fontWeight: isUnread ? FontWeight.w500 : FontWeight.w400,
                       height: 1.4,
                     ),
                     maxLines: 2,
@@ -383,9 +387,13 @@ class _AskCard extends StatelessWidget {
 
   void _showDetail(BuildContext context, String text, bool isUnread) {
     if (isUnread) {
-      askService.markAsRead(askId).catchError(
-        (e) => debugPrint('[AskInbox] markAsRead failed: $e'),
-      );
+      askService
+          .markAsRead(askId)
+          .catchError(
+            (e) => debugPrint(
+              '[AskInbox] markAsRead failed: ${PrivacyLogUtils.errorSummary(e)}',
+            ),
+          );
     }
 
     showCupertinoModalPopup(
@@ -464,14 +472,15 @@ class _AskDetailSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = data['text']?.toString() ?? '';
-    final snapshotKey =
-        isReceived ? 'fromUserProfileSnapshot' : 'toUserProfileSnapshot';
+    final snapshotKey = isReceived
+        ? 'fromUserProfileSnapshot'
+        : 'toUserProfileSnapshot';
     final snapshot = data[snapshotKey] is Map
         ? Map<String, dynamic>.from(data[snapshotKey] as Map)
         : <String, dynamic>{};
 
     final nickname = snapshot['nickname']?.toString() ?? '사용자';
-    final avatarUrl = snapshot['profileImageUrl']?.toString() ?? '';
+    final avatarUrl = ProfileDisplayImageResolver.resolve(snapshot);
     final university = snapshot['universityName']?.toString() ?? '';
     final otherUserId =
         (isReceived ? data['fromUserId'] : data['toUserId'])?.toString() ?? '';
@@ -611,7 +620,11 @@ class _EmptyState extends StatelessWidget {
                 color: _C.pink50,
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, size: 32, color: _C.primary.withValues(alpha: 0.5)),
+              child: Icon(
+                icon,
+                size: 32,
+                color: _C.primary.withValues(alpha: 0.5),
+              ),
             ),
             const SizedBox(height: 20),
             Text(

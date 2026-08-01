@@ -25,12 +25,12 @@ class AiSwipeService {
         .doc(userId)
         .collection('ai_swipes')
         .add({
-      'targetPhotoUrl': targetPhotoUrl,
-      'action': action,
-      'sessionId': sessionId,
-      'responseTimeMs': responseTimeMs,
-      'swipedAt': FieldValue.serverTimestamp(),
-    });
+          'targetPhotoUrl': targetPhotoUrl,
+          'action': action,
+          'sessionId': sessionId,
+          'responseTimeMs': responseTimeMs,
+          'swipedAt': FieldValue.serverTimestamp(),
+        });
   }
 
   /// 세션의 전체 스와이프 기록 조회
@@ -46,9 +46,7 @@ class AiSwipeService {
         .orderBy('swipedAt')
         .get();
 
-    return snap.docs
-        .map((doc) => {'id': doc.id, ...doc.data()})
-        .toList();
+    return snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
   }
 
   /// 세션의 like/nope URL 분리 추출
@@ -56,10 +54,7 @@ class AiSwipeService {
     required String userId,
     required String sessionId,
   }) async {
-    final swipes = await getSessionSwipes(
-      userId: userId,
-      sessionId: sessionId,
-    );
+    final swipes = await getSessionSwipes(userId: userId, sessionId: sessionId);
 
     final likeUrls = <String>[];
     final nopeUrls = <String>[];
@@ -151,7 +146,8 @@ class AiSwipeService {
   /// 새 학습 세션 ID 생성
   String createSessionId() {
     final now = DateTime.now();
-    final timestamp = '${now.year}-${_pad(now.month)}-${_pad(now.day)}'
+    final timestamp =
+        '${now.year}-${_pad(now.month)}-${_pad(now.day)}'
         '_${_pad(now.hour)}${_pad(now.minute)}${_pad(now.second)}';
     return 'session_$timestamp';
   }
@@ -170,12 +166,12 @@ class AiSwipeService {
         .collection('ai_sessions')
         .doc(sessionId)
         .set({
-      'sessionId': sessionId,
-      'totalPhotos': totalPhotos,
-      'likeCount': likeCount,
-      'nopeCount': nopeCount,
-      'completedAt': FieldValue.serverTimestamp(),
-    });
+          'sessionId': sessionId,
+          'totalPhotos': totalPhotos,
+          'likeCount': likeCount,
+          'nopeCount': nopeCount,
+          'completedAt': FieldValue.serverTimestamp(),
+        });
   }
 
   /// 학습 세션 목록 조회
@@ -187,9 +183,7 @@ class AiSwipeService {
         .orderBy('completedAt', descending: true)
         .get();
 
-    return snap.docs
-        .map((doc) => {'id': doc.id, ...doc.data()})
-        .toList();
+    return snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
   }
 
   String _pad(int n) => n.toString().padLeft(2, '0');

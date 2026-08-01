@@ -1,23 +1,24 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 /// 프로필 카드 인터랙션 (view / like / nope / super_like / message) 기록 서비스
 ///
 /// Firestore 컬렉션:
 ///   interactions/{auto-id}   — 개별 인터랙션
 ///   matches/{auto-id}        — 매치 성사 기록
-///   reports/{auto-id}        — 신고 기록
-///   blocks/{fromUserId}/targets/{toUserId} — 차단 기록
+///   reports/{auto-id}        — 신고 기록 (서버에서 기록)
+///   blocks/{uid}/targets/{targetUid} — 차단 기록 (서버에서 양방향 기록)
 class InteractionService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
+    region: 'asia-northeast3',
+  );
 
   CollectionReference<Map<String, dynamic>> get _interactionsRef =>
       _firestore.collection('interactions');
 
   CollectionReference<Map<String, dynamic>> get _matchesRef =>
       _firestore.collection('matches');
-
-  CollectionReference<Map<String, dynamic>> get _reportsRef =>
-      _firestore.collection('reports');
 
   // ---------------------------------------------------------------------------
   // 인터랙션 기록
@@ -51,11 +52,7 @@ class InteractionService {
       source: source,
     );
 
-    return await _checkAndCreateMatch(
-      userA: fromUserId,
-      userB: toUserId,
-      matchType: 'mutual_like',
-    );
+    return await _findExistingMatch(userA: fromUserId, userB: toUserId);
   }
 
   /// Super Like 기록 + 매치 체크
@@ -71,11 +68,7 @@ class InteractionService {
       source: source,
     );
 
-    return await _checkAndCreateMatch(
-      userA: fromUserId,
-      userB: toUserId,
-      matchType: 'mutual_like',
-    );
+    return await _findExistingMatch(userA: fromUserId, userB: toUserId);
   }
 
   /// Nope 기록
@@ -131,20 +124,15 @@ class InteractionService {
   // 프로덕션에서는 Cloud Function으로 이동 권장
   // ---------------------------------------------------------------------------
 
-  Future<String?> _checkAndCreateMatch({
+  // ---------------------------------------------------------------------------
+  // Match lookup
+  // Cloud Functions owns match creation from interaction triggers.
+  // ---------------------------------------------------------------------------
+
+  Future<String?> _findExistingMatch({
     required String userA,
     required String userB,
-    required String matchType,
   }) async {
-    final reverseQuery = await _interactionsRef
-        .where('fromUserId', isEqualTo: userB)
-        .where('toUserId', isEqualTo: userA)
-        .where('action', whereIn: ['like', 'super_like'])
-        .limit(1)
-        .get();
-
-    if (reverseQuery.docs.isEmpty) return null;
-
     final existingMatch = await _matchesRef
         .where('userIds', arrayContains: userA)
         .get();
@@ -156,17 +144,8 @@ class InteractionService {
       }
     }
 
-    final matchRef = await _matchesRef.add({
-      'userIds': [userA, userB],
-      'matchType': matchType,
-      'matchedAt': FieldValue.serverTimestamp(),
-      'status': 'active',
-      'chatRoomId': null,
-    });
-
-    return matchRef.id;
+    return null;
   }
-
   // ---------------------------------------------------------------------------
   // 조회 쿼리
   // ---------------------------------------------------------------------------
@@ -200,8 +179,10 @@ class InteractionService {
         .where('action', whereIn: ['like', 'super_like'])
         .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+        .map(
+          (snap) =>
+              snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
+        );
   }
 
   /// 나에게 like한 유저 목록 (실시간 스트림)
@@ -211,8 +192,10 @@ class InteractionService {
         .where('action', whereIn: ['like', 'super_like'])
         .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+        .map(
+          (snap) =>
+              snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
+        );
   }
 
   /// 특정 유저에게 이미 like/nope 했는지 확인 (중복 카드 방지)
@@ -257,14 +240,12 @@ class InteractionService {
 
   /// 유저 신고 및 차단
   ///
-  /// 순서:
-  /// 1. reports/ 컬렉션에 신고 상세 내용 저장
-  /// 2. blocks/{fromUserId}/targets/{toUserId} 에 차단 기록 생성
-  /// 3. 기존 매치가 있다면 해제 처리
+  /// 신고 기록과 양방향 차단은 `reportAndBlockUser` callable이 원자적으로
+  /// 처리한다. 차단을 서버에서 쓰는 이유는 규칙상 클라이언트가
+  /// `blocks/{상대}/targets/{나}`를 쓸 수 없기 때문이다. 역방향이 없으면
+  /// 피신고자에게 신고자가 계속 추천·노출된다.
   ///
-  /// 핵심:
-  /// - 신고 기록은 최우선으로 저장
-  /// - 차단/매치해제가 실패해도 신고 자체는 남도록 분리
+  /// 매치 해제는 실패해도 신고가 남도록 분리해 둔다.
   Future<void> blockAndReportUser({
     required String fromUserId,
     required String toUserId,
@@ -281,33 +262,14 @@ class InteractionService {
       throw Exception('reason is empty');
     }
 
-    // 1. 신고 기록 먼저 저장
-    await _reportsRef.add({
-      'reporterId': fromUserId,
-      'reportedId': toUserId,
+    await _functions.httpsCallable('reportAndBlockUser').call<dynamic>({
+      'reportedUserId': toUserId.trim(),
       'reason': reason.trim(),
-      'details': details?.trim().isEmpty == true ? null : details?.trim(),
-      'status': 'pending',
-      'createdAt': FieldValue.serverTimestamp(),
+      if (details != null && details.trim().isNotEmpty)
+        'details': details.trim(),
     });
 
-    // 2. 차단 기록 저장 (실패해도 신고는 이미 저장된 상태)
-    try {
-      await _firestore
-          .collection('blocks')
-          .doc(fromUserId)
-          .collection('targets')
-          .doc(toUserId)
-          .set({
-            'fromUserId': fromUserId,
-            'toUserId': toUserId,
-            'createdAt': FieldValue.serverTimestamp(),
-          });
-    } catch (_) {
-      // 신고 기록은 이미 저장되었으므로 여기서는 삼킴
-    }
-
-    // 3. 기존 매치가 있다면 해제 처리 (실패해도 신고는 유지)
+    // 기존 매치가 있다면 해제 처리 (실패해도 신고는 유지)
     try {
       final existingMatch = await _matchesRef
           .where('userIds', arrayContains: fromUserId)

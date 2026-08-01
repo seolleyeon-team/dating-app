@@ -2,95 +2,70 @@ rules_version = '2';
 
 // 설레연 Firebase Storage 보안 규칙
 //
-// 배포: firebase deploy --only storage
-//
-// 이 파일은 2026-07 감사에서 전면 재작성했다. 이전 버전은
-//   - 중첩된 `service firebase.storage` 블록을 포함했고
-//   - 닫히지 않은 brace 가 3개 있어서 문법적으로 배포가 불가능했으며
-//   - users/{userId}/onboarding/photos/** 에 대해 익명 read/create/update/delete
-//     를 모두 허용했다 (원본 얼굴 사진의 무인증 열람·업로드·삭제).
-//
-// 설계 원칙
-//   1. 기본 deny. 마지막 catch-all 은 read/write 모두 거부한다.
-//   2. 모든 접근에 Firebase Auth 세션을 요구한다. 앱은 카카오 로그인 후
-//      createFirebaseCustomToken 으로 uid == kakaoUserId 인 세션을 받는다.
-//   3. 쓰기는 경로 소유자만 가능하다 (request.auth.uid == userId).
-//   4. 크기 제한과 contentType 검사를 강제한다.
-//
-// contentType 정책에 대한 메모
-//   클라이언트가 실제로 보내는 값이 일정하지 않다. onboarding 업로드는
-//   'image/$extension' 을 그대로 넣어서 .jpg 파일이면 'image/jpg' (표준 MIME
-//   아님) 가 되고, 웹 업로드에서는 값이 비어 있을 수 있다. 그래서 엄격한
-//   allowlist 대신 image/* 를 허용하되 image/svg+xml 은 명시적으로 거부한다.
-//   SVG 는 스크립트를 품을 수 있어서 stored XSS 벡터가 된다.
-//   클라이언트가 MIME 을 정규화한 뒤에는 이 규칙을 allowlist 로 좁힐 수 있다.
-//   관련 후속 작업: docs/audits/opus5/11-residual-risks.md 의 R-STORAGE-1.
-
+// 원본·생성 중 아바타는 Cloud Functions/Admin SDK 전용으로 유지하고,
+// 승인된 아바타만 전용 공개 버킷에서 읽을 수 있다.
 service firebase.storage {
   match /b/{bucket}/o {
-
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isOwner(userId) {
-      return request.auth != null && request.auth.uid == userId;
+    function isApprovedAvatarBucket() {
+      return bucket == "seolleyeon-approved-avatars" ||
+          bucket == "seolleyeon-final-approved-avatars" ||
+          bucket == "seolleyeon-festival-approved-avatars";
     }
 
-    // 업로드되는 객체가 이미지이고 크기 제한을 지키는지 검사한다.
-    // SVG 는 스크립트 실행이 가능하므로 거부한다.
-    function isAllowedImage() {
-      return request.resource != null &&
-          request.resource.size > 0 &&
-          request.resource.size <= 12 * 1024 * 1024 &&
-          request.resource.contentType is string &&
-          request.resource.contentType.matches('image/.*') &&
-          request.resource.contentType != 'image/svg+xml';
-    }
-
-    // -------------------------------------------------------------------
-    // AI 취향 학습용 더미 프로필 이미지 (운영자가 배치로 업로드)
-    //
-    // 이전에는 `allow read: if true` 라서 비로그인 상태에서도 열람 가능했다.
-    // 실제 사용처(ai_preference_screen)는 로그인 이후 화면이므로 인증을
-    // 요구해도 기능에 영향이 없다.
-    // 쓰기는 Admin SDK / 콘솔 전용이다.
-    // -------------------------------------------------------------------
-    match /ai_profiles/{allPaths=**} {
+    // AI 취향 학습용 프로필은 로그인 사용자만 읽을 수 있다.
+    match /ai_profiles/{rest=**} {
       allow read: if isSignedIn();
       allow write: if false;
     }
 
-    // -------------------------------------------------------------------
-    // 사용자 프로필 사진 (온보딩 + 프로필 편집에서 사용하는 유일한 경로)
-    //
-    //   users/{userId}/onboarding/photos/{fileName}
-    //
-    // read: 프로필 탐색·추천 카드가 다른 사용자의 사진을 보여줘야 하므로
-    //       인증된 사용자에게 열어둔다. 단계적 얼굴 공개(블러)는 현재
-    //       클라이언트에서만 적용되므로, download URL 을 가진 인증 사용자는
-    //       원본을 받을 수 있다. 이것은 서버측 썸네일·블러 파이프라인이
-    //       없기 때문에 남는 위험이며 R-STORAGE-2 로 기록했다.
-    // write: 경로 소유자만. 익명 세션(uid != kakaoUserId)은 거부된다.
-    // -------------------------------------------------------------------
+    // 원본 사진과 생성 파이프라인 데이터는 모두 서버 전용이다.
     match /users/{userId}/onboarding/photos/{fileName} {
-      allow read: if isSignedIn();
-      allow create, update: if isOwner(userId) && isAllowedImage();
-      allow delete: if isOwner(userId);
+      allow read, write: if false;
     }
 
-    // users/ 아래 그 밖의 경로는 소유자에게만 허용한다.
-    // (현재 앱이 쓰는 경로는 없지만, 향후 경로가 추가될 때
-    //  기본값이 "공개"가 되지 않도록 소유자 스코프로 닫아둔다)
     match /users/{userId}/{allPaths=**} {
-      allow read: if isOwner(userId);
-      allow create, update: if isOwner(userId) && isAllowedImage();
-      allow delete: if isOwner(userId);
+      allow read, write: if false;
     }
 
-    // -------------------------------------------------------------------
-    // 기본 deny
-    // -------------------------------------------------------------------
+    match /users/{userId}/source/{fileName} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId}/chat-profile/{fileName} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId}/jobs/{jobId}/candidates/{candidateId} {
+      allow read, write: if false;
+    }
+
+    // 승인된 아바타만 공개 버킷에서 읽을 수 있으며 쓰기는 서버 전용이다.
+    match /users/{userId}/avatar/{avatarId} {
+      allow read: if isApprovedAvatarBucket();
+      allow write: if false;
+    }
+
+    match /approved_avatars/{userId}/{allPaths=**} {
+      allow read: if isApprovedAvatarBucket();
+      allow write: if false;
+    }
+
+    match /avatar_temp/{userId}/{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    match /private_source_photos/{userId}/{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    match /chat_profile_photos/{userId}/{allPaths=**} {
+      allow read, write: if false;
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

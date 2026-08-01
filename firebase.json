@@ -4,7 +4,7 @@
       "android": {
         "default": {
           "projectId": "seolleyeon",
-          "appId": "1:623093454373:android:33bcee0a14a1044b0251cc",
+          "appId": "1:623093454373:android:5fa5e4cf627b54d60251cc",
           "fileOutput": "android/app/google-services.json"
         }
       },
@@ -12,8 +12,8 @@
         "lib/firebase_options.dart": {
           "projectId": "seolleyeon",
           "configurations": {
-            "android": "1:623093454373:android:33bcee0a14a1044b0251cc",
-            "web": "1:623093454373:web:57be6c4135b9027b0251cc"
+            "android": "1:623093454373:android:5fa5e4cf627b54d60251cc",
+            "ios": "1:623093454373:ios:fa6d8e4c2cc2b0890251cc"
           }
         }
       }
@@ -21,14 +21,18 @@
   },
   "functions": [
     {
-      "source": "functions",
       "codebase": "default",
+      "runtime": "nodejs22",
       "ignore": [
         "node_modules",
         ".git",
         "firebase-debug.log",
         "firebase-debug.*.log",
         "*.local"
+      ],
+      "source": "functions",
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run build"
       ]
     }
   ],
@@ -37,10 +41,45 @@
     "public": "public",
     "ignore": [
       "firebase.json",
-      "**/.*",
       "**/node_modules/**"
     ],
     "headers": [
+      {
+        "source": "**/*.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store"
+          }
+        ]
+      },
+      {
+        "source": "/flutter_service_worker.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store"
+          }
+        ]
+      },
+      {
+        "source": "/firebase-messaging-sw.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store"
+          }
+        ]
+      },
+      {
+        "source": "/.well-known/apple-app-site-association",
+        "headers": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ]
+      },
       {
         "source": "/apple-app-site-association",
         "headers": [
@@ -58,35 +97,9 @@
             "value": "application/json"
           }
         ]
-      },
-      {
-        "source": "/.well-known/apple-app-site-association",
-        "headers": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ]
-      },
-      {
-        "source": "/.well-known/assetlinks.json",
-        "headers": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ]
       }
     ],
     "rewrites": [
-      {
-        "source": "/.well-known/apple-app-site-association",
-        "destination": "/apple-app-site-association"
-      },
-      {
-        "source": "/.well-known/assetlinks.json",
-        "destination": "/assetlinks.json"
-      },
       {
         "source": "/invite/friend",
         "destination": "/invite-friend.html"
@@ -104,6 +117,30 @@
         "destination": "/privacy.html"
       },
       {
+        "source": "/terms",
+        "destination": "/legal/terms.html"
+      },
+      {
+        "source": "/terms/**",
+        "destination": "/legal/terms.html"
+      },
+      {
+        "source": "/kakao-review",
+        "destination": "/kakao-review.html"
+      },
+      {
+        "source": "/kakao-review/**",
+        "destination": "/kakao-review.html"
+      },
+      {
+        "source": "/review",
+        "destination": "/kakao-review.html"
+      },
+      {
+        "source": "/review/**",
+        "destination": "/kakao-review.html"
+      },
+      {
         "source": "/signup-guide",
         "destination": "/signup-guide.html"
       },
@@ -113,19 +150,40 @@
       },
       {
         "source": "/auth/email-link",
-        "destination": "/index.html"
+        "destination": "/auth-email-link.html"
       },
       {
         "source": "/auth/email-link/**",
+        "destination": "/auth-email-link.html"
+      },
+      {
+        "source": "**",
         "destination": "/index.html"
       }
     ]
   },
   "firestore": {
+    "database": "(default)",
+    "location": "asia-northeast3",
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
   "storage": {
     "rules": "storage.rules"
+  },
+  "auth": {
+    "providers": {}
+  },
+  "emulators": {
+    "firestore": {
+      "port": 8080
+    },
+    "storage": {
+      "port": 9199
+    },
+    "ui": {
+      "enabled": false
+    },
+    "singleProjectMode": true
   }
 }

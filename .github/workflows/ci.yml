@@ -1,0 +1,89 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "audit/**", semisemifinal]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  functions:
+    name: Functions build/lint/test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: functions
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+
+  rules:
+    name: Firestore rules tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: rules_tests/package-lock.json
+      - run: npm ci
+        working-directory: rules_tests
+      - run: npx --yes firebase-tools@13 emulators:exec --only firestore --project seolleyeon-rules-test "npm --prefix rules_tests test"
+        env:
+          FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
+
+  flutter:
+    name: Flutter analyze/test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - run: flutter test
+
+  python-recsys:
+    name: Recsys / script unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+          if [ -f recsys/requirements.txt ]; then pip install -r recsys/requirements.txt || true; fi
+      - run: pytest -q tests/test_avatar_exact_replay_auth.py --maxfail=10
+      - run: |
+          if [ -d recsys/tests ]; then pytest -q recsys/tests --maxfail=20; else echo "no recsys/tests"; fi
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml

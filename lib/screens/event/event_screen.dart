@@ -6,9 +6,7 @@ class EventScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('이벤트'),
-      ),
+      appBar: AppBar(title: const Text('이벤트')),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
@@ -20,9 +18,9 @@ class EventScreen extends StatelessWidget {
               // TODO: Navigate to 3:3 meeting
             },
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           // Partnership Section
           _buildEventCard(
             title: '제휴 (미팅 장소 추천)',
@@ -31,9 +29,9 @@ class EventScreen extends StatelessWidget {
               // TODO: Navigate to partnership
             },
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           // 1:1 Gathering Section
           _buildEventCard(
             title: '1:1 소모임',
@@ -68,12 +66,7 @@ class EventScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-              Text(
-                description,
-                style: const TextStyle(
-                  color: Colors.grey,
-                ),
-              ),
+              Text(description, style: const TextStyle(color: Colors.grey)),
             ],
           ),
         ),

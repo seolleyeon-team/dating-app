@@ -279,7 +279,7 @@ class _Header extends StatelessWidget {
               const Text(
                 '설레연',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 20,
                   fontWeight: FontWeight.w700,
                   color: _AppColors.primary,
@@ -308,7 +308,7 @@ class _TitleSection extends StatelessWidget {
           '내 이상형의 나이대를\n알려주세요',
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 28,
             fontWeight: FontWeight.w700,
             height: 1.3,
@@ -320,7 +320,7 @@ class _TitleSection extends StatelessWidget {
         const Text(
           '선호하는 연령대의 이성을 매칭해드릴게요',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 14,
             color: _AppColors.gray500,
           ),
@@ -350,7 +350,7 @@ class _AgeRangeDisplay extends StatelessWidget {
             Text(
               '${rangeValues.start.round()}살',
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 24,
                 fontWeight: FontWeight.w500,
                 color: _AppColors.gray800,
@@ -384,7 +384,7 @@ class _AgeRangeDisplay extends StatelessWidget {
             Text(
               '${rangeValues.end.round()}살',
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 24,
                 fontWeight: FontWeight.w500,
                 color: _AppColors.gray800,
@@ -449,7 +449,7 @@ class _BottomButtons extends StatelessWidget {
                   child: Text(
                     '상관없어요',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                       color: _AppColors.gray800,
@@ -484,7 +484,7 @@ class _BottomButtons extends StatelessWidget {
                     Text(
                       '선택',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 17,
                         fontWeight: FontWeight.w700,
                         color: CupertinoColors.white,

@@ -250,17 +250,23 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
   }
 
   bool _validateRequiredFields() {
-    if (_nicknameController.text.trim().isNotEmpty) {
+    final nickname = _nicknameController.text.trim();
+    final height = int.tryParse(_heightController.text.trim());
+    final hasNickname = nickname.isNotEmpty;
+    final hasHeight = height != null && height > 0;
+
+    if (hasNickname && hasHeight) {
       return true;
     }
 
     HapticFeedback.lightImpact();
+
+    final message = !hasNickname ? '닉네임을 입력해주세요.' : '키를 입력해주세요.';
+
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('닉네임을 입력해주세요.'),
-        backgroundColor: Colors.red,
-      ),
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
+
     return false;
   }
 
@@ -319,7 +325,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                   Text(
                                     '기본 정보',
                                     style: TextStyle(
-                                      fontFamily: 'Pretendard',
+                                      fontFamily: 'NanumSquareRound',
                                       fontSize: 24,
                                       fontWeight: FontWeight.bold,
                                       color: _AppColors.textMain,
@@ -329,7 +335,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                   Text(
                                     '매칭을 위해 기본 정보를 입력해주세요.',
                                     style: TextStyle(
-                                      fontFamily: 'Pretendard',
+                                      fontFamily: 'NanumSquareRound',
                                       fontSize: 14,
                                       color: _AppColors.textSub,
                                     ),
@@ -356,7 +362,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                           const BoxConstraints(minWidth: 44),
                                     ),
                                 style: const TextStyle(
-                                  fontFamily: 'Pretendard',
+                                  fontFamily: 'NanumSquareRound',
                                   fontSize: 16,
                                 ),
                               ),
@@ -537,7 +543,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                       ),
                                     ),
                                     style: const TextStyle(
-                                      fontFamily: 'Pretendard',
+                                      fontFamily: 'NanumSquareRound',
                                       fontSize: 16,
                                     ),
                                   ),
@@ -589,7 +595,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                       Text(
                                         '${_age.round()}',
                                         style: const TextStyle(
-                                          fontFamily: 'Pretendard',
+                                          fontFamily: 'NanumSquareRound',
                                           fontSize: 24,
                                           fontWeight: FontWeight.bold,
                                           color: _AppColors.textMain,
@@ -842,7 +848,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
     return InputDecoration(
       hintText: hint,
       hintStyle: const TextStyle(
-        fontFamily: 'Pretendard',
+        fontFamily: 'NanumSquareRound',
         color: Color(0xFF9CA3AF),
       ),
       filled: true,
@@ -1058,7 +1064,7 @@ class _GradeDropdown extends StatelessWidget {
                       child: Text(
                         selectedGrade,
                         style: const TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: _AppColors.textMain,
@@ -1100,7 +1106,7 @@ class _GradeDropdown extends StatelessWidget {
                           child: Text(
                             grade,
                             style: const TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 15,
                               fontWeight: FontWeight.w500,
                               color: _AppColors.textSub,
@@ -1163,7 +1169,7 @@ class _RaCheckbox extends StatelessWidget {
             const Text(
               'RA 여부',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
                 color: _AppColors.textMain,
@@ -1174,7 +1180,7 @@ class _RaCheckbox extends StatelessWidget {
               child: Text(
                 '추천 생활권 분리에만 활용돼요',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 12,
                   color: _AppColors.textSub,
                 ),
@@ -1424,7 +1430,7 @@ class _BottomButton extends StatelessWidget {
               Text(
                 '다음',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 17,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,

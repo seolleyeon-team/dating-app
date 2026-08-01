@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'route_names.dart';
@@ -78,13 +79,10 @@ import '../features/profile/screens/received_hearts_screen.dart';
 import '../features/matching/screens/sent_hearts_screen.dart';
 import '../features/profile/screens/asks_inbox_screen.dart';
 import '../features/profile/screens/settings_screen.dart';
-import '../features/profile/screens/account_management_screen.dart';
-import '../features/profile/screens/notification_settings_screen.dart';
 import '../features/profile/screens/safety_stamp_log_screen.dart';
 import '../features/profile/screens/contact_block_screen.dart';
 import '../features/matching/models/profile_card_args.dart';
 import '../features/profile/screens/terms_webview_screen.dart';
-import '../features/profile/screens/faq_screen.dart';
 import '../features/reports/issue_report_screen.dart';
 import '../services/issue_report_service.dart';
 import '../features/reports/inquiry_screen.dart';
@@ -153,15 +151,7 @@ class AppRouter {
       case RouteNames.onboardingMajor:
         return _cupertino(const MajorSelectionScreen());
       case RouteNames.onboardingDepartment:
-        {
-          final args = settings.arguments;
-          final initialMajor = args is Map<String, dynamic>
-              ? args['major']?.toString()
-              : args is String
-              ? args
-              : null;
-          return _cupertino(DepartmentScreen(initialMajor: initialMajor));
-        }
+        return _cupertino(const DepartmentScreen());
       case RouteNames.onboardingPhoto:
         return _cupertino(const PhotoUploadScreen());
       case RouteNames.onboardingSelfIntro:
@@ -305,10 +295,6 @@ class AppRouter {
         return _cupertino(const SentHeartsScreen());
       case RouteNames.settings:
         return _cupertino(const SettingsScreen());
-      case RouteNames.accountManagement:
-        return _cupertino(const AccountManagementScreen());
-      case RouteNames.notificationSettings:
-        return _cupertino(const NotificationSettingsScreen());
       case RouteNames.safetyStampLogs:
         return _cupertino(const SafetyStampLogScreen());
       case RouteNames.contactBlock:
@@ -317,8 +303,6 @@ class AppRouter {
         return _cupertino(const AsksInboxScreen());
       case RouteNames.termsWebview:
         return _cupertino(const TermsWebViewScreen());
-      case RouteNames.faq:
-        return _cupertino(const FaqScreen());
 
       // Notifications
       case RouteNames.notifications:
@@ -342,7 +326,9 @@ class AppRouter {
                     );
                     return true;
                   } catch (e) {
-                    debugPrint('Issue report submit error: $e');
+                    debugPrint(
+                      'Issue report submit error: ${PrivacyLogUtils.errorSummary(e)}',
+                    );
                     return false;
                   }
                 },
@@ -365,7 +351,9 @@ class AppRouter {
                     );
                     return true;
                   } catch (e) {
-                    debugPrint('Inquiry submit error: $e');
+                    debugPrint(
+                      'Inquiry submit error: ${PrivacyLogUtils.errorSummary(e)}',
+                    );
                     return false;
                   }
                 },

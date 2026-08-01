@@ -57,17 +57,12 @@ class _TutorialScreenState extends State<TutorialScreen>
       child: Stack(
         children: [
           const IgnorePointer(
-            child: MysteryCardScreen(
-              notificationCount: 1,
-              remainingMatches: 2,
-            ),
+            child: MysteryCardScreen(notificationCount: 1, remainingMatches: 2),
           ),
           Positioned.fill(
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
-              child: Container(
-                color: const Color(0xAA0F0B10),
-              ),
+              child: Container(color: const Color(0xAA0F0B10)),
             ),
           ),
           SafeArea(
@@ -101,7 +96,7 @@ class _TutorialScreenState extends State<TutorialScreen>
                             child: const Text(
                               '홈 화면 둘러보기',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                                 color: CupertinoColors.white,
@@ -113,7 +108,7 @@ class _TutorialScreenState extends State<TutorialScreen>
                             '하단 탭으로 원하는 기능으로\n빠르게 이동할 수 있어요',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 26,
                               fontWeight: FontWeight.w800,
                               color: CupertinoColors.white,
@@ -125,7 +120,7 @@ class _TutorialScreenState extends State<TutorialScreen>
                             '지금 보이는 홈 화면에서 채팅, 이벤트, 대나무숲까지\n바로 이동할 수 있어요.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 15,
                               fontWeight: FontWeight.w500,
                               color: CupertinoColors.white.withValues(
@@ -145,9 +140,9 @@ class _TutorialScreenState extends State<TutorialScreen>
                               borderRadius: BorderRadius.circular(20),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFFF24D82).withValues(
-                                    alpha: 0.25,
-                                  ),
+                                  color: const Color(
+                                    0xFFF24D82,
+                                  ).withValues(alpha: 0.25),
                                   blurRadius: 20,
                                   offset: const Offset(0, 10),
                                 ),
@@ -165,7 +160,7 @@ class _TutorialScreenState extends State<TutorialScreen>
                                 Text(
                                   '탭을 눌러 기능을 이동해요',
                                   style: TextStyle(
-                                    fontFamily: 'Pretendard',
+                                    fontFamily: 'NanumSquareRound',
                                     fontSize: 14,
                                     fontWeight: FontWeight.w700,
                                     color: CupertinoColors.white,
@@ -197,7 +192,7 @@ class _TutorialScreenState extends State<TutorialScreen>
                             Text(
                               '다음',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 17,
                                 fontWeight: FontWeight.w700,
                                 color: Color(0xFF211A21),

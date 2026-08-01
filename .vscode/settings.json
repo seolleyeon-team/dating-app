@@ -1,3 +1,33 @@
 {
-    "cmake.ignoreCMakeListsMissing": true
+    "cmake.ignoreCMakeListsMissing": true,
+    "dart.analysisExcludedFolders": [
+        "tmp",
+        ".tmp",
+        ".cache",
+        ".omx",
+        ".agents",
+        "out",
+        "dating-app",
+        "docs",
+        "functions",
+        "scripts",
+        "tests",
+        "recsys",
+        "rules_tests",
+        "infra",
+        "canary_inputs",
+        "config",
+        "g005_pytest_owned_escalated",
+        "g005_pytest_owned_escalated_2",
+        "pytest_tmp_avatar_qa_escalated",
+        "seolleyeon-iniitial",
+        "seolleyeon-initial"
+    ],
+    "files.watcherExclude": {
+        "**/tmp/**": true,
+        "**/.tmp/**": true,
+        "**/out/**": true,
+        "**/.cache/**": true,
+        "**/dating-app/**": true
+    }
 }

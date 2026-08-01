@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 class AppTypography {
   AppTypography._();
 
-  /// 앱 기본 폰트 (assets/fonts/PretendardVariable.ttf)
-  static const String fontFamily = 'Pretendard';
+  /// 앱 기본 폰트 (assets/fonts/NanumSquareRound*.ttf)
+  static const String fontFamily = 'NanumSquareRound';
 
   // Headings
   static const TextStyle h1 = TextStyle(

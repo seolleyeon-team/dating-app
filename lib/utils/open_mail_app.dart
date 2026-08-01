@@ -41,12 +41,8 @@ Future<void> openGmailApp(BuildContext context) async {
       context: context,
       builder: (_) => const CupertinoAlertDialog(
         title: Text('메일 앱을 열 수 없음'),
-        content: Text(
-          'Gmail 앱이 설치되어 있는지 확인해주세요.\n설치 후 앱을 직접 열어주세요.',
-        ),
-        actions: [
-          CupertinoDialogAction(child: Text('확인')),
-        ],
+        content: Text('Gmail 앱이 설치되어 있는지 확인해주세요.\n설치 후 앱을 직접 열어주세요.'),
+        actions: [CupertinoDialogAction(child: Text('확인'))],
       ),
     );
   }

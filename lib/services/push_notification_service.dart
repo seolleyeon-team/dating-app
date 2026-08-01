@@ -13,6 +13,7 @@ import '../features/event/meeting_icebreaker/domain/meeting_icebreaker_prompt.da
 import '../features/event/meeting_icebreaker/services/meeting_icebreaker_deep_link_handler.dart';
 import '../features/chat/models/safety_stamp_follow_up_args.dart';
 import '../shared/layouts/main_scaffold_args.dart';
+import '../shared/utils/privacy_log_utils.dart';
 import 'navigation_service.dart';
 import 'storage_service.dart';
 
@@ -35,11 +36,16 @@ class PushNotificationService {
     'safety': true,
   };
 
-  final FirebaseMessaging _messaging = FirebaseMessaging.instance;
+  FirebaseMessaging? _messagingInstance;
+  FirebaseFirestore? _firestoreInstance;
   final FlutterLocalNotificationsPlugin _local =
       FlutterLocalNotificationsPlugin();
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final StorageService _storage = StorageService();
+
+  FirebaseMessaging get _messaging =>
+      _messagingInstance ??= FirebaseMessaging.instance;
+  FirebaseFirestore get _firestore =>
+      _firestoreInstance ??= FirebaseFirestore.instance;
 
   String? _openedChatRoomId;
   bool _isChatRoomVisible = false;
@@ -72,6 +78,13 @@ class PushNotificationService {
   final Set<String> _shownForegroundNotificationIds = <String>{};
 
   Future<void> initialize() async {
+    try {
+      Firebase.app();
+    } catch (_) {
+      debugPrint('[PUSH] Firebase is not initialized; skipping setup.');
+      return;
+    }
+
     if (kIsWeb) {
       debugPrint(
         '[PUSH] Web push service worker is not configured, skipping FCM init.',
@@ -102,12 +115,12 @@ class PushNotificationService {
   void setOpenedChatRoom(String roomId) {
     _openedChatRoomId = roomId;
     _isChatRoomVisible = true;
-    debugPrint('[PUSH] opened chat room = $roomId');
+    debugPrint('[PUSH] opened ${PrivacyLogUtils.idFingerprint(roomId)}');
   }
 
   void clearOpenedChatRoom(String roomId) {
     if (_openedChatRoomId == roomId) {
-      debugPrint('[PUSH] cleared opened chat room = $roomId');
+      debugPrint('[PUSH] cleared ${PrivacyLogUtils.idFingerprint(roomId)}');
       _openedChatRoomId = null;
       _isChatRoomVisible = false;
     }
@@ -218,7 +231,7 @@ class PushNotificationService {
       }
 
       final userId = await _storage.getKakaoUserId();
-      debugPrint('[PUSH] stored kakaoUserId = $userId');
+      debugPrint('[PUSH] ${PrivacyLogUtils.idFingerprint(userId)}');
 
       final settings = await _messaging.getNotificationSettings();
       debugPrint('[PUSH] permission = ${settings.authorizationStatus}');
@@ -227,10 +240,12 @@ class PushNotificationService {
           await loadUserNotificationSettings(userId: userId);
 
       final apnsToken = await _messaging.getAPNSToken();
-      debugPrint('[PUSH] apnsToken = $apnsToken');
+      debugPrint(
+        '[PUSH] hasApnsToken=${apnsToken != null && apnsToken.isNotEmpty}',
+      );
 
       final token = await _messaging.getToken();
-      debugPrint('[PUSH] fcmToken = $token');
+      debugPrint('[PUSH] hasFcmToken=${token != null && token.isNotEmpty}');
 
       if (userId == null || userId.isEmpty) {
         debugPrint('[PUSH] no userId, skip');
@@ -257,8 +272,8 @@ class PushNotificationService {
 
       debugPrint('[PUSH] token saved to firestore');
     } catch (e, st) {
-      debugPrint('[PUSH] syncFcmToken error: $e');
-      debugPrint('$st');
+      debugPrint('[PUSH] syncFcmToken ${PrivacyLogUtils.errorSummary(e)}');
+      debugPrint('[PUSH] stackType=${st.runtimeType}');
     }
   }
 
@@ -283,7 +298,8 @@ class PushNotificationService {
 
     if (isSameOpenedChat) {
       debugPrint(
-        '[PUSH] suppress foreground chat notification for room=$roomId',
+        '[PUSH] suppress foreground chat notification '
+        '${PrivacyLogUtils.idFingerprint(roomId)}',
       );
       return;
     }

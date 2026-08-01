@@ -89,10 +89,7 @@ class PromiseMapLaunch {
       final appSearch = Uri(
         scheme: 'nmap',
         host: 'search',
-        queryParameters: {
-          'query': name,
-          'appname': _naverCallerAppName,
-        },
+        queryParameters: {'query': name, 'appname': _naverCallerAppName},
       );
       if (await _launchCustomScheme(appSearch)) return true;
 

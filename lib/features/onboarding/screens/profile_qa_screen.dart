@@ -232,7 +232,7 @@ class _ProfileQaScreenState extends State<ProfileQaScreen> {
                                 child: const Text(
                                   '다음에 입력하기 (건너뛰기)',
                                   style: TextStyle(
-                                    fontFamily: 'Pretendard',
+                                    fontFamily: 'NanumSquareRound',
                                     fontSize: 14,
                                     fontWeight: FontWeight.w500,
                                     color: _AppColors.textGray,
@@ -294,7 +294,7 @@ class _ProfileQaScreenState extends State<ProfileQaScreen> {
                               Text(
                                 _hasAnyAnswer ? '다음' : '그냥 넘어갈게요',
                                 style: const TextStyle(
-                                  fontFamily: 'Pretendard',
+                                  fontFamily: 'NanumSquareRound',
                                   fontSize: 17,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.white,
@@ -422,7 +422,7 @@ class _Headline extends StatelessWidget {
         const Text(
           '프로필 문답',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 28,
             fontWeight: FontWeight.bold,
             color: _AppColors.textMain,
@@ -435,7 +435,7 @@ class _Headline extends StatelessWidget {
         RichText(
           text: const TextSpan(
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 15,
               color: _AppColors.textSub,
               height: 1.5,
@@ -457,7 +457,7 @@ class _Headline extends StatelessWidget {
         const Text(
           '솔직한 답변은 매력적인 프로필을 만들어요.',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 14,
             color: _AppColors.textSub,
           ),
@@ -533,7 +533,7 @@ class _QuestionCard extends StatelessWidget {
                         Text(
                           'QUESTION ${(index + 1).toString().padLeft(2, '0')}',
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
                             color: isExpanded
@@ -546,7 +546,7 @@ class _QuestionCard extends StatelessWidget {
                         Text(
                           question.question,
                           style: const TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                             color: _AppColors.textMain,
@@ -596,7 +596,7 @@ class _QuestionCard extends StatelessWidget {
                           maxLength: 100,
                           maxLines: 4,
                           style: const TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 15,
                             height: 1.6,
                             color: _AppColors.textMain,
@@ -604,7 +604,7 @@ class _QuestionCard extends StatelessWidget {
                           decoration: InputDecoration(
                             hintText: '짧게라도 좋아요! 취미나 휴식 방법을 알려주세요.',
                             hintStyle: const TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               color: _AppColors.textGray,
                               fontSize: 14,
                             ),
@@ -638,7 +638,7 @@ class _QuestionCard extends StatelessWidget {
                           child: Text(
                             '${question.answer?.length ?? 0}/100',
                             style: const TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
                               color: _AppColors.textGray,

@@ -150,27 +150,25 @@ describe("원본 프로필 사진", () => {
     );
   });
 
-  it("본인 경로 업로드는 허용한다", async () => {
-    await assertSucceeds(
+  it("본인 원본 사진 업로드도 서버 파이프라인 전용이다", async () => {
+    await assertFails(
       uploadBytes(ref(as(OWNER), photoPath(OWNER, "own.png")), PNG_1X1, {
         contentType: "image/png",
       })
     );
   });
 
-  it("본인 사진 삭제는 허용한다", async () => {
+  it("본인 원본 사진 삭제도 서버 파이프라인 전용이다", async () => {
     await seedOwnerPhoto();
-    await assertSucceeds(
+    await assertFails(
       deleteObject(ref(as(OWNER), photoPath(OWNER, "seed.png")))
     );
   });
 
-  // 프로필 탐색·추천 카드가 다른 사용자 사진을 보여줘야 하므로 인증된
-  // 사용자의 read 는 의도적으로 허용한다. 단계적 얼굴 공개가 클라이언트
-  // 전용이라는 점은 R-STORAGE-2 로 남겼다.
-  it("인증 사용자는 다른 사용자 사진을 읽을 수 있다 (의도된 동작)", async () => {
+  // 원본 사진은 누구에게도 직접 공개하지 않고 승인된 아바타만 표시한다.
+  it("인증 사용자도 다른 사용자의 원본 사진을 읽을 수 없다", async () => {
     await seedOwnerPhoto();
-    await assertSucceeds(
+    await assertFails(
       getBytes(ref(as(OTHER), photoPath(OWNER, "seed.png")))
     );
   });
@@ -282,7 +280,7 @@ describe("기본 deny", () => {
     );
   });
 
-  it("users 하위의 다른 경로는 소유자만 읽는다", async () => {
+  it("users 하위의 정의되지 않은 경로는 소유자에게도 닫혀 있다", async () => {
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await uploadBytes(
         ref(ctx.storage(), `users/${OWNER}/private/note.png`),
@@ -293,7 +291,7 @@ describe("기본 deny", () => {
     await assertFails(
       getBytes(ref(as(OTHER), `users/${OWNER}/private/note.png`))
     );
-    await assertSucceeds(
+    await assertFails(
       getBytes(ref(as(OWNER), `users/${OWNER}/private/note.png`))
     );
   });
