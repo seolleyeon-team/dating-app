@@ -74,7 +74,7 @@ class ProfilePhotoBlur extends StatelessWidget {
                     badgeText!,
                     textAlign: TextAlign.right,
                     style: const TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                       color: Color(0xFF1E1A1C),

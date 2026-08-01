@@ -1,0 +1,21 @@
+{
+  "generatedAt": "2026-07-25T15:00:43.004198+00:00",
+  "dryRun": false,
+  "status": "COMPLETE_WITH_ERRORS",
+  "eligibleCount": 1,
+  "requiredMinUsers": 1,
+  "jobErrorCount": 1,
+  "responseSafetyViolationCount": 1,
+  "blocked": [],
+  "jobs": [
+    {
+      "uidHash": "uid:test",
+      "photoFile": "uid_2_photo_plain.jpg",
+      "upload": {
+        "httpStatus": 200,
+        "safeResponse": false
+      },
+      "error": "unsafe_callable_response"
+    }
+  ]
+}

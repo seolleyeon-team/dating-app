@@ -58,10 +58,10 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
 
   Future<void> _loadData() async {
     try {
-      final inviterFuture =
-          _eventTeam.getInviterProfile(widget.invite.inviterUserId);
-      final teamFuture =
-          _eventTeam.getTeamSetupOnce(widget.invite.teamSetupId);
+      final inviterFuture = _eventTeam.getInviterProfile(
+        widget.invite.inviterUserId,
+      );
+      final teamFuture = _eventTeam.getTeamSetupOnce(widget.invite.teamSetupId);
 
       final results = await Future.wait([inviterFuture, teamFuture]);
       final inviter = results[0] as InviterProfile;
@@ -202,7 +202,7 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
                     const Text(
                       '팀 초대가 도착했어요',
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 22,
                         fontWeight: FontWeight.w800,
                         color: _C.textMain,
@@ -235,7 +235,7 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
                           Text(
                             '수락하면 이 팀에 합류하게 돼요.',
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
                               color: _C.textMain,
@@ -246,7 +246,7 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
                           Text(
                             '팀이 모두 모이면 다음 단계로 진행할 수 있어요.',
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 13,
                               fontWeight: FontWeight.w400,
                               color: _C.textSub,
@@ -289,16 +289,15 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
         children: [
           // 프로필 이미지
           ClipOval(
-            child:
-                p.imageUrl != null && p.imageUrl!.isNotEmpty
-                    ? Image.network(
-                        p.imageUrl!,
-                        width: 56,
-                        height: 56,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _fallbackAvatar(),
-                      )
-                    : _fallbackAvatar(),
+            child: p.imageUrl != null && p.imageUrl!.isNotEmpty
+                ? Image.network(
+                    p.imageUrl!,
+                    width: 56,
+                    height: 56,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _fallbackAvatar(),
+                  )
+                : _fallbackAvatar(),
           ),
           const SizedBox(width: 14),
           // 정보
@@ -314,7 +313,7 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
                           color: _C.textMain,
@@ -344,7 +343,7 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
                             Text(
                               '인증됨',
                               style: TextStyle(
-                                fontFamily: 'Pretendard',
+                                fontFamily: 'NanumSquareRound',
                                 fontSize: 10,
                                 fontWeight: FontWeight.w600,
                                 color: _C.verifiedBadge,
@@ -366,7 +365,7 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 13,
                     fontWeight: FontWeight.w400,
                     color: _C.textSub,
@@ -386,8 +385,10 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
 
     final currentCount = team.acceptedCount + team.pendingInviteeIds.length;
     final members = _memberProfiles ?? [];
-    final memberNames =
-        members.where((m) => !m.isPending).map((m) => m.name).toList();
+    final memberNames = members
+        .where((m) => !m.isPending)
+        .map((m) => m.name)
+        .toList();
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -416,7 +417,7 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
               const Text(
                 '현재 팀 구성',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
                   color: _C.textMain,
@@ -424,8 +425,10 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
               ),
               const Spacer(),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: _C.plumLight,
                   borderRadius: BorderRadius.circular(10),
@@ -433,7 +436,7 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
                 child: Text(
                   '$currentCount/3명',
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color: _C.plumAccent,
@@ -449,7 +452,7 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 13,
                 fontWeight: FontWeight.w400,
                 color: _C.textSub,
@@ -488,13 +491,11 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
             ),
             alignment: Alignment.center,
             child: _busy
-                ? const CupertinoActivityIndicator(
-                    color: CupertinoColors.white,
-                  )
+                ? const CupertinoActivityIndicator(color: CupertinoColors.white)
                 : const Text(
                     '팀 참여하기',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                       color: CupertinoColors.white,
@@ -514,7 +515,7 @@ class _TeamInviteResponseSheetState extends State<_TeamInviteResponseSheet> {
             child: const Text(
               '거절하기',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
                 color: _C.textSub,

@@ -257,8 +257,8 @@ describe("users 보호 필드", () => {
     await assertSucceeds(getDoc(doc(as(ATTACKER), "users", VICTIM)));
   });
 
-  it("인증 사용자의 limit 30 후보 조회는 허용한다 (fallback 추천 유지)", async () => {
-    await assertSucceeds(
+  it("인증 사용자도 users 후보 목록을 조회할 수 없다", async () => {
+    await assertFails(
       getDocs(query(collection(as(ATTACKER), "users"), limit(30)))
     );
   });
@@ -323,8 +323,8 @@ describe("blocks", () => {
     );
   });
 
-  it("본인 차단 등록·조회는 허용한다", async () => {
-    await assertSucceeds(
+  it("본인 차단 등록은 callable 전용이고 목록 조회만 허용한다", async () => {
+    await assertFails(
       setDoc(doc(as(ATTACKER), "blocks", ATTACKER, "targets", VICTIM), {
         fromUserId: ATTACKER,
         toUserId: VICTIM,
@@ -403,6 +403,7 @@ describe("추천 데이터", () => {
       setDoc(doc(as(ATTACKER), "recEvents", ATTACKER, "events", "own"), {
         userId: ATTACKER,
         targetUserId: VICTIM,
+        type: "impression",
         eventType: "impression",
       })
     );
@@ -628,8 +629,8 @@ describe("reports / app_inquiries", () => {
     await assertFails(getDocs(collection(as(ATTACKER), "reports")));
   });
 
-  it("인증 사용자는 본인 이름으로 신고할 수 있다", async () => {
-    await assertSucceeds(
+  it("신고 생성은 reportAndBlockUser callable 전용이다", async () => {
+    await assertFails(
       setDoc(doc(as(VICTIM), "reports", "r-new"), {
         reporterId: VICTIM,
         reportedId: ATTACKER,
@@ -654,8 +655,8 @@ describe("reports / app_inquiries", () => {
     await assertFails(getDoc(doc(as(ATTACKER), "app_inquiries", "q1")));
   });
 
-  it("본인 문의는 읽을 수 있다", async () => {
-    await assertSucceeds(getDoc(doc(as(VICTIM), "app_inquiries", "q1")));
+  it("본인 문의도 운영 정보 보호를 위해 직접 읽을 수 없다", async () => {
+    await assertFails(getDoc(doc(as(VICTIM), "app_inquiries", "q1")));
   });
 
   it("문의 상태는 클라이언트가 바꿀 수 없다", async () => {

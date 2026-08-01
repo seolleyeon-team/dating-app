@@ -1,0 +1,177 @@
+diff --git "a/.g002narrow\\old/lib/features/onboarding/screens/photo_upload_screen.dart" "b/.g002narrow\\new/lib/features/onboarding/screens/photo_upload_screen.dart"
+index 291f7f8..1cf7276 100644
+--- "a/.g002narrow\\old/lib/features/onboarding/screens/photo_upload_screen.dart"
++++ "b/.g002narrow\\new/lib/features/onboarding/screens/photo_upload_screen.dart"
+@@ -10,6 +10,7 @@ import '../../../services/avatar_generation_client.dart';
+ import '../../../services/avatar_source_photo_service.dart';
+ import '../../../services/onboarding_save_helper.dart';
+ import '../../../services/storage_service.dart';
++import '../../../services/user_profile_reader.dart';
+ import '../../../services/user_service.dart';
+ import '../../../shared/utils/avatar_lock_policy.dart';
+ import '../widgets/avatar_candidate_selection_dialog.dart';
+@@ -40,7 +41,7 @@ class PhotoUploadScreen extends StatefulWidget {
+   /// [MockAvatarGenerationClient]를 주입해 사용합니다.
+   final AvatarGenerationClient? avatarGenerationClient;
+   final StorageService? storageServiceForTesting;
+-  final UserService? userServiceForTesting;
++  final UserProfileReader? userProfileReaderForTesting;
+ 
+   /// Test-only initial slot values for exercising the avatar polling and
+   /// approval flow without invoking the image picker or Firebase upload.
+@@ -57,7 +58,7 @@ class PhotoUploadScreen extends StatefulWidget {
+     this.initialPhotosForTesting,
+     this.initialLocalPhotosForTesting,
+     this.storageServiceForTesting,
+-    this.userServiceForTesting,
++    this.userProfileReaderForTesting,
+   });
+ 
+   @override
+@@ -80,7 +81,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
+   final List<bool> _isUploading = List<bool>.filled(6, false);
+ 
+   StorageService? _storageService;
+-  UserService? _userService;
++  UserProfileReader? _userProfileReader;
+   bool _isSavingOnExit = false;
+ 
+   late final AvatarGenerationClient _avatarClient;
+@@ -138,8 +139,9 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
+   StorageService get _storage =>
+       _storageService ??= widget.storageServiceForTesting ?? StorageService();
+ 
+-  UserService get _users =>
+-      _userService ??= widget.userServiceForTesting ?? UserService();
++  UserProfileReader get _users =>
++      _userProfileReader ??=
++          widget.userProfileReaderForTesting ?? UserService();
+ 
+   @override
+   void initState() {
+diff --git "a/.g002narrow\\old/lib/features/onboarding/widgets/avatar_generation_messages.dart" "b/.g002narrow\\new/lib/features/onboarding/widgets/avatar_generation_messages.dart"
+index 78657f6..b1a1ae8 100644
+--- "a/.g002narrow\\old/lib/features/onboarding/widgets/avatar_generation_messages.dart"
++++ "b/.g002narrow\\new/lib/features/onboarding/widgets/avatar_generation_messages.dart"
+@@ -10,6 +10,8 @@ const avatarGenericNoPreviewMessage =
+ const avatarGenericEmptyCandidateMessage = '아바타 후보를 받지 못했어요. 다시 시도해주세요.';
+ const avatarGenerationDelayedMessage = '아바타 생성이 지연되고 있어요. 잠시 후 다시 시도해주세요.';
+ const avatarGenerationFailedMessage = '아바타 생성에 실패했어요. 같은 사진으로 다시 시도해주세요.';
++const avatarGenerationTerminalFailureMessage =
++    '아바타 생성에 실패했어요. 고객센터에 문의해주세요.';
+ 
+ String avatarGenerationFailureMessage({
+   required AvatarJobStatus status,
+@@ -27,12 +29,14 @@ String avatarGenerationFailureMessage({
+   switch (status) {
+     case AvatarJobStatus.noPreviewableCandidates:
+     case AvatarJobStatus.needsReview:
++      return avatarGenericNoPreviewMessage;
+     case AvatarJobStatus.failed:
+     case AvatarJobStatus.retryableFailed:
++      return avatarGenerationFailedMessage;
+     case AvatarJobStatus.terminalFailed:
+     case AvatarJobStatus.superseded:
+     case AvatarJobStatus.cancelled:
+-      return avatarGenericNoPreviewMessage;
++      return avatarGenerationTerminalFailureMessage;
+     default:
+       return avatarGenerationFailedMessage;
+   }
+diff --git "a/.g002narrow\\new/lib/services/user_profile_reader.dart" "b/.g002narrow\\new/lib/services/user_profile_reader.dart"
+new file mode 100644
+index 0000000..04793bb
+--- /dev/null
++++ "b/.g002narrow\\new/lib/services/user_profile_reader.dart"
+@@ -0,0 +1,3 @@
++abstract interface class UserProfileReader {
++  Future<Map<String, dynamic>?> getUserProfile(String kakaoUserId);
++}
+diff --git "a/.g002narrow\\old/lib/services/user_service.dart" "b/.g002narrow\\new/lib/services/user_service.dart"
+index c8ccd33..f46219b 100644
+--- "a/.g002narrow\\old/lib/services/user_service.dart"
++++ "b/.g002narrow\\new/lib/services/user_service.dart"
+@@ -1,6 +1,8 @@
+ import 'package:cloud_firestore/cloud_firestore.dart';
+ 
+-class UserService {
++import 'user_profile_reader.dart';
++
++class UserService implements UserProfileReader {
+   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+ 
+   Future<void> setLastActivePlatform({
+diff --git "a/.g002narrow\\old/test/photo_upload_screen_avatar_flow_test.dart" "b/.g002narrow\\new/test/photo_upload_screen_avatar_flow_test.dart"
+index 9c7a7ee..cdce4fb 100644
+--- "a/.g002narrow\\old/test/photo_upload_screen_avatar_flow_test.dart"
++++ "b/.g002narrow\\new/test/photo_upload_screen_avatar_flow_test.dart"
+@@ -13,7 +13,7 @@ import 'package:seolleyeon/features/onboarding/widgets/avatar_generation_models.
+ import 'package:seolleyeon/services/avatar_generation_client.dart';
+ import 'package:seolleyeon/services/avatar_source_photo_service.dart';
+ import 'package:seolleyeon/services/storage_service.dart';
+-import 'package:seolleyeon/services/user_service.dart';
++import 'package:seolleyeon/services/user_profile_reader.dart';
+ import 'package:seolleyeon/shared/utils/avatar_lock_policy.dart';
+ import 'package:shared_preferences/shared_preferences.dart';
+ 
+@@ -224,6 +224,7 @@ class _FailThenReadyAvatarClient extends _ReadyAvatarClient {
+     Duration timeout = const Duration(seconds: 150),
+     bool Function()? shouldContinue,
+   }) async {
++    polledJobIds.add(jobId);
+     pollCount += 1;
+     if (pollCount == 1) {
+       return AvatarCandidatesResult(
+@@ -362,7 +363,7 @@ class _TestStorageService extends StorageService {
+   Future<String?> getKakaoUserId() async => 'kakao_test';
+ }
+ 
+-class _RefetchApprovedUserService extends UserService {
++class _RefetchApprovedUserService implements UserProfileReader {
+   int getUserProfileCount = 0;
+ 
+   @override
+@@ -445,7 +446,7 @@ Widget _harness({
+   List<String?>? initialPhotos,
+   List<XFile?>? initialLocalPhotos,
+   StorageService? storageService,
+-  UserService? userService,
++  UserProfileReader? userProfileReader,
+ }) {
+   return MaterialApp(
+     home: PhotoUploadScreen(
+@@ -459,7 +460,7 @@ Widget _harness({
+       initialLocalPhotosForTesting: initialLocalPhotos,
+       onNext: onNext,
+       storageServiceForTesting: storageService,
+-      userServiceForTesting: userService,
++      userProfileReaderForTesting: userProfileReader,
+     ),
+   );
+ }
+@@ -573,6 +574,7 @@ void main() {
+       await tester.tap(_dialogConfirmButton());
+       await tester.pump();
+       await tester.pump(const Duration(milliseconds: 300));
++      _drainExpectedImageLoadException(tester);
+ 
+       expect(client.approvedCandidateId, 'cand_0');
+       expect(advancedPhotos, ['https://cdn.example/avatar.png']);
+@@ -721,7 +723,7 @@ void main() {
+             client: client,
+             initialPhotos: const [null],
+             storageService: _TestStorageService(),
+-            userService: users,
++            userProfileReader: users,
+             onNext: (_) {},
+           ),
+         );
+@@ -1011,6 +1013,8 @@ void main() {
+         expect(client.retryCount, 0);
+         expect(find.byType(AvatarGenerationErrorBanner), findsOneWidget);
+ 
++        await tester.ensureVisible(find.text('다시 시도'));
++        await tester.pump();
+         await tester.tap(find.text('다시 시도'));
+         await tester.pump();
+         await tester.pump(const Duration(milliseconds: 300));

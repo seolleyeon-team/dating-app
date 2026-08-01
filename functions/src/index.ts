@@ -22,6 +22,7 @@ import {
   onDocumentUpdated,
 } from "firebase-functions/v2/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { withAppCheck } from "./appCheckPolicy";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onTaskDispatched } from "firebase-functions/v2/tasks";
 import * as logger from "firebase-functions/logger";
@@ -49,6 +50,32 @@ export * from "./blindMeeting";
 
 // 3:3 미팅 아이스브레이킹 룰렛 (조용한 15분 알림 + 진입 검증)
 export * from "./meetingIcebreaker";
+import {
+  createGetCurrentAvatarGenerationStatusFunction,
+  createRetryCurrentAvatarGenerationFunction,
+  createUploadAvatarSourcePhotoFunction,
+} from "./avatarMedia";
+import {
+  createApproveAvatarCandidateFunction,
+  createGetAvatarJobCandidatesFunction,
+} from "./avatarApproval";
+import { createGetChatRealProfilePhotoFunction } from "./chatRealPhoto";
+import { createCleanupAvatarMediaFunction } from "./avatarCleanup";
+import {
+  createAvatarJobSourceRetentionTrigger,
+  createAvatarSourceRetentionRecoveryTrigger,
+  createClipEmbeddingSourceRetentionTrigger,
+} from "./avatarSourceRetention";
+import { createAvatarGenerationStateSyncTrigger } from "./avatarGenerationStateSync";
+import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
+export { isSafePublicAvatarUrl as isSafePublicMediaUrl } from "./publicMediaUrlPolicy";
+import {
+  createRespondTeamMeetingRequestFunction,
+  createTeamMeetingRequestFunction,
+} from "./teamMeetingRequest";
+import { createReportAndBlockUserFunction } from "./reportAndBlock";
+import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
+import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
 
 // Firebase Admin 초기화
 initializeApp();
@@ -56,6 +83,10 @@ const db = getFirestore();
 const FRIEND_INVITE_HOST = "seolleyeon.web.app";
 const FRIEND_INVITE_PATH = "/invite/friend";
 const FRIEND_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+// PortOne secret is read from env / .env only until Secret Manager is configured.
+// Binding defineSecret here blocks all-function deploys when the secret is unset.
+const PORTONE_STORE_ID = "store-ec95a751-307e-4b85-97bd-7c6fa0bbe0e2";
+const ADULT_VERIFICATION_PROVIDER = "kg_inicis_via_portone_test";
 
 // 전역 옵션
 setGlobalOptions({
@@ -101,6 +132,62 @@ function asDate(v: unknown): Date | null {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
   return null;
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function normalizeDigits(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.replace(/\D/g, "");
+  return normalized.length > 0 ? normalized : null;
+}
+
+function getKstFullYear(now = new Date()): number {
+  return new Date(now.getTime() + 9 * 60 * 60 * 1000).getUTCFullYear();
+}
+
+function readBirthYear(customer: Record<string, unknown>): number | null {
+  const directYear = firstInteger(customer.birthYear);
+  if (directYear != null && directYear >= 1900) return directYear;
+
+  const birthDate = firstNonEmptyString(
+    customer.birthDate,
+    customer.birthdate,
+    customer.dateOfBirth
+  );
+  const digits = normalizeDigits(birthDate);
+  if (!digits || digits.length < 4) return null;
+  const year = Number(digits.slice(0, 4));
+  return Number.isFinite(year) && year >= 1900 ? year : null;
+}
+
+function isAdultByKoreanYear(birthYear: number, now = new Date()): boolean {
+  return getKstFullYear(now) - birthYear >= 19;
+}
+
+function readPortOneCustomer(
+  verification: Record<string, unknown>
+): Record<string, unknown> {
+  const verifiedCustomer = readMap(verification.verifiedCustomer);
+  if (Object.keys(verifiedCustomer).length > 0) return verifiedCustomer;
+
+  const customer = readMap(verification.customer);
+  if (Object.keys(customer).length > 0) return customer;
+
+  return readMap(verification.requestedCustomer);
+}
+
+function readPortOneVerificationPayload(
+  body: Record<string, unknown>
+): Record<string, unknown> {
+  const nested = readMap(body.identityVerification);
+  return Object.keys(nested).length > 0 ? nested : body;
+}
+
+function getPortOneSecret(): string {
+  return asNonEmptyString(process.env.PORTONE_API_SECRET) ?? "";
 }
 
 function buildDirectRoomId(userA: string, userB: string): string {
@@ -759,7 +846,17 @@ function eventTeamCandidateSnapshotToMap(
   };
 }
 
-function buildEventTeamMatchResultPreview(params: {
+function buildEventTeamParticipantUids(
+  requestingTeam: EventTeamCandidateSnapshot,
+  matchedTeam: EventTeamCandidateSnapshot
+): string[] {
+  return dedupeStrings([
+    ...requestingTeam.membersSnapshot.map((member) => member.uid),
+    ...matchedTeam.membersSnapshot.map((member) => member.uid),
+  ]).sort();
+}
+
+export function buildEventTeamMatchResultPreview(params: {
   resultId: string;
   dateKey: string;
   requestingTeamSetupId: string;
@@ -784,6 +881,10 @@ function buildEventTeamMatchResultPreview(params: {
       params.requestingTeam.groupId,
       params.matchedTeam.groupId,
     ],
+    participantUids: buildEventTeamParticipantUids(
+      params.requestingTeam,
+      params.matchedTeam
+    ),
     candidateGroupIds: params.candidateTeams.map((team) => team.groupId),
     candidateScores: params.candidateTeams.map((team) => team.score),
     selectedGroupIndex: params.selectedGroupIndex,
@@ -1156,6 +1257,60 @@ async function resolveUserForFriendCallable(request: {
   return await resolveVerifiedUserByKakaoId(kakaoUser.userId);
 }
 
+export const uploadAvatarSourcePhoto =
+  createUploadAvatarSourcePhotoFunction(db, resolveAuthedAppUser);
+
+export const getCurrentAvatarGenerationStatus =
+  createGetCurrentAvatarGenerationStatusFunction(db, resolveAuthedAppUser);
+
+export const retryCurrentAvatarGeneration =
+  createRetryCurrentAvatarGenerationFunction(db, resolveAuthedAppUser);
+
+export const getAvatarJobCandidates =
+  createGetAvatarJobCandidatesFunction(db, resolveAuthedAppUser);
+
+export const approveAvatarCandidate =
+  createApproveAvatarCandidateFunction(db, resolveAuthedAppUser);
+
+export const getChatRealProfilePhoto =
+  createGetChatRealProfilePhotoFunction(db, resolveAuthedAppUser);
+
+export const cleanupAvatarMedia =
+  createCleanupAvatarMediaFunction(db, resolveAuthedAppUser);
+
+export const purgeExpiredEmailLinkTokens =
+  createPurgeExpiredEmailLinkTokensSchedule(db);
+
+export const purgeAccountDeletionRetention =
+  createAccountDeletionRetentionPurgeSchedule(db);
+
+export const onAvatarJobSourceRetention =
+  createAvatarJobSourceRetentionTrigger(db);
+
+export const onClipEmbeddingSourceRetention =
+  createClipEmbeddingSourceRetentionTrigger(db);
+
+export const recoverAvatarSourceRetention =
+  createAvatarSourceRetentionRecoveryTrigger(db);
+
+export const onAvatarGenerationStateSync =
+  createAvatarGenerationStateSyncTrigger(db);
+
+export const createTeamMeetingRequest = createTeamMeetingRequestFunction(
+  db,
+  resolveUserForFriendCallable
+);
+
+export const respondTeamMeetingRequest = createRespondTeamMeetingRequestFunction(
+  db,
+  resolveUserForFriendCallable
+);
+
+export const reportAndBlockUser = createReportAndBlockUserFunction(
+  db,
+  resolveUserForFriendCallable
+);
+
 function readFriendName(
   snapshot: Record<string, unknown>,
   fallback: string
@@ -1163,7 +1318,7 @@ function readFriendName(
   return asString(snapshot.nickname ?? fallback, fallback);
 }
 
-export const createFirebaseCustomToken = onCall(async (request) => {
+export const createFirebaseCustomToken = onCall(withAppCheck(), async (request) => {
   logger.info("createFirebaseCustomToken invoked", {
     hasAccessToken: !!asNonEmptyString(request.data?.accessToken),
   });
@@ -1176,14 +1331,20 @@ export const createFirebaseCustomToken = onCall(async (request) => {
   const userRef = db.collection("users").doc(kakaoUser.userId);
   const userSnap = await userRef.get();
 
-  if (!userSnap.exists) {
-    throw new HttpsError(
-      "failed-precondition",
-      "가입 정보를 찾을 수 없어요. 다시 로그인해주세요."
-    );
+  let userData: Record<string, unknown>;
+  let created = false;
+  if (userSnap.exists) {
+    userData = (userSnap.data() ?? {}) as Record<string, unknown>;
+  } else {
+    // First Kakao login: minting a custom token alone is not enough — the
+    // client cannot create users/{kakaoUserId} under locked-down rules, so the
+    // Admin SDK creates a minimal shell here after Kakao token verification.
+    await userRef.set(buildKakaoUserShell(kakaoUser.userId), { merge: true });
+    userData = {};
+    created = true;
+    logger.info("createFirebaseCustomToken created missing user shell");
   }
 
-  const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
   const customToken = await getAuth().createCustomToken(kakaoUser.userId, {
     kakaoUserId: kakaoUser.userId,
   });
@@ -1191,9 +1352,288 @@ export const createFirebaseCustomToken = onCall(async (request) => {
   return {
     customToken,
     userId: kakaoUser.userId,
+    created,
     isStudentVerified: userData.isStudentVerified === true,
   };
 });
+
+async function fetchPortOneIdentityVerification(
+  identityVerificationId: string,
+  apiSecret: string
+): Promise<Record<string, unknown>> {
+  const response = await fetch(
+    `https://api.portone.io/identity-verifications/${encodeURIComponent(
+      identityVerificationId
+    )}`,
+    {
+      method: "GET",
+      headers: {
+        "Authorization": `PortOne ${apiSecret}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  const rawBody = await response.text();
+  let parsed: unknown = {};
+  if (rawBody.trim().length > 0) {
+    try {
+      parsed = JSON.parse(rawBody);
+    } catch {
+      parsed = { message: rawBody };
+    }
+  }
+
+  if (!response.ok) {
+    logger.warn("PortOne identity verification lookup failed", {
+      status: response.status,
+      identityVerificationId,
+      body: parsed,
+    });
+    throw new HttpsError(
+      "failed-precondition",
+      "포트원 본인인증 결과를 확인하지 못했어요."
+    );
+  }
+
+  if (!isRecord(parsed)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "포트원 본인인증 응답 형식이 올바르지 않아요."
+    );
+  }
+
+  return readPortOneVerificationPayload(parsed);
+}
+
+async function assertIdentityVerificationNotReused(
+  uid: string,
+  identityVerificationId: string
+): Promise<void> {
+  const reused = await db
+    .collection("userPrivateVerifications")
+    .where("identityVerificationId", "==", identityVerificationId)
+    .limit(1)
+    .get();
+
+  if (!reused.empty && reused.docs[0].id !== uid) {
+    throw new HttpsError(
+      "already-exists",
+      "이미 다른 계정에 연결된 본인인증 세션입니다."
+    );
+  }
+}
+
+async function assertUniqueIdentityNotReused(
+  uid: string,
+  ciHash: string | null,
+  diHash: string | null,
+  uniqueKeyHash: string | null
+): Promise<void> {
+  const checks = [
+    ["ciHash", ciHash],
+    ["diHash", diHash],
+    ["uniqueKeyHash", uniqueKeyHash],
+  ] as const;
+
+  for (const [field, value] of checks) {
+    if (!value) continue;
+    const snap = await db
+      .collection("userPrivateVerifications")
+      .where(field, "==", value)
+      .limit(1)
+      .get();
+    if (!snap.empty && snap.docs[0].id !== uid) {
+      throw new HttpsError(
+        "already-exists",
+        "이미 다른 계정에 연결된 본인인증 정보입니다."
+      );
+    }
+  }
+}
+
+export const verifyAdultIdentityAfterLogin = onCall(
+  withAppCheck(),
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Firebase 로그인이 필요해요.");
+    }
+
+    const data = getCallableData(request);
+    const identityVerificationId = asNonEmptyString(
+      data.identityVerificationId
+    );
+    const identityVerificationTxId =
+      asNonEmptyString(data.identityVerificationTxId) ?? null;
+
+    if (!identityVerificationId) {
+      throw new HttpsError(
+        "invalid-argument",
+        "identityVerificationId가 필요합니다."
+      );
+    }
+
+    const isEmulator = process.env.FUNCTIONS_EMULATOR === "true";
+    const isMock = identityVerificationId.startsWith("mock-");
+    const apiSecret = getPortOneSecret();
+
+    if (!apiSecret && !(isEmulator && isMock)) {
+      throw new HttpsError(
+        "failed-precondition",
+        "PORTONE_API_SECRET 서버 Secret이 설정되지 않았습니다."
+      );
+    }
+
+    await assertIdentityVerificationNotReused(uid, identityVerificationId);
+
+    const verification = isEmulator && isMock
+      ? {
+        status: "VERIFIED",
+        id: identityVerificationId,
+        verifiedCustomer: {
+          name: "개발용 테스트",
+          phoneNumber: "01012345678",
+          birthDate: "20000101",
+          ci: `mock-ci-${uid}`,
+          di: `mock-di-${uid}`,
+        },
+      }
+      : await fetchPortOneIdentityVerification(identityVerificationId, apiSecret);
+
+    const status = asString(verification.status, "");
+    if (status !== "VERIFIED") {
+      await db.collection("users").doc(uid).set(
+        {
+          adultVerified: false,
+          realNameVerified: false,
+          registrationStatus: "adult_verification_required",
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      throw new HttpsError(
+        "failed-precondition",
+        "완료된 본인인증 결과가 아니에요."
+      );
+    }
+
+    const returnedStoreId = firstNonEmptyString(
+      verification.storeId,
+      readMap(verification.store).id
+    );
+    if (returnedStoreId && returnedStoreId !== PORTONE_STORE_ID) {
+      throw new HttpsError(
+        "failed-precondition",
+        "본인인증 상점 정보가 설레연 테스트 채널과 일치하지 않아요."
+      );
+    }
+
+    const customer = readPortOneCustomer(verification);
+    const name = firstNonEmptyString(customer.name, customer.fullName);
+    const phoneNumber = normalizeDigits(
+      firstNonEmptyString(customer.phoneNumber, customer.phone)
+    );
+    const birthYear = readBirthYear(customer);
+    const birthDate = firstNonEmptyString(
+      customer.birthDate,
+      customer.birthdate,
+      customer.dateOfBirth,
+      birthYear == null ? null : String(birthYear)
+    );
+    const ci = firstNonEmptyString(customer.ci, customer.CI);
+    const di = firstNonEmptyString(customer.di, customer.DI);
+    const uniqueKey = firstNonEmptyString(
+      customer.id,
+      customer.uniqueKey,
+      customer.uniqueIdentifier,
+      ci,
+      di
+    );
+
+    if (!name || !phoneNumber || birthYear == null || !uniqueKey) {
+      throw new HttpsError(
+        "failed-precondition",
+        "본인인증 결과의 필수 항목을 확인하지 못했어요."
+      );
+    }
+
+    const phoneLast4 = phoneNumber.slice(-4);
+    const ciHash = ci ? sha256Hex(ci) : null;
+    const diHash = di ? sha256Hex(di) : null;
+    const uniqueKeyHash = sha256Hex(uniqueKey);
+    const adult = isAdultByKoreanYear(birthYear);
+
+    await assertUniqueIdentityNotReused(uid, ciHash, diHash, uniqueKeyHash);
+
+    const userRef = db.collection("users").doc(uid);
+    const privateRef = db.collection("userPrivateVerifications").doc(uid);
+    const now = FieldValue.serverTimestamp();
+
+    await db.runTransaction(async (tx) => {
+      const userSnap = await tx.get(userRef);
+      if (!userSnap.exists) {
+        throw new HttpsError(
+          "failed-precondition",
+          "사용자 계정을 찾을 수 없어요."
+        );
+      }
+
+      tx.set(
+        privateRef,
+        {
+          name,
+          phoneNumber,
+          birthDate,
+          ciHash,
+          diHash,
+          uniqueKeyHash,
+          provider: ADULT_VERIFICATION_PROVIDER,
+          identityVerificationId,
+          identityVerificationTxId,
+          verificationStatus: adult ? "adult_verified" : "under_age",
+          verifiedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      tx.set(
+        userRef,
+        {
+          adultVerified: adult,
+          realNameVerified: adult,
+          adultVerifiedAt: adult ? now : FieldValue.delete(),
+          verificationProvider: ADULT_VERIFICATION_PROVIDER,
+          registrationStatus: adult
+            ? "adult_verified"
+            : "adult_verification_under_age",
+          birthYear,
+          phoneLast4,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+    });
+
+    if (!adult) {
+      throw new HttpsError(
+        "permission-denied",
+        "설레연은 연 나이 20세 이상만 이용할 수 있어요."
+      );
+    }
+
+    return {
+      success: true,
+      adultVerified: true,
+      realNameVerified: true,
+      status: "adult_verified",
+      birthYear,
+      phoneLast4,
+    };
+  }
+);
 
 // -----------------------------------------------------------------------------
 // REMOVED (security): createFirebaseCustomTokenFromEmailLinkToken
@@ -1217,7 +1657,7 @@ export const createFirebaseCustomToken = onCall(async (request) => {
 // 로그인 성공을 서버가 표시하고, single-use 소비를 트랜잭션으로 보장해야 한다.
 // -----------------------------------------------------------------------------
 
-export const createFriendInvite = onCall(async (request) => {
+export const createFriendInvite = onCall(withAppCheck(), async (request) => {
   const requestData = getCallableData(request);
   logger.info("createFriendInvite request", {
     hasAuthUid: !!request.auth?.uid,
@@ -1256,7 +1696,7 @@ export const createFriendInvite = onCall(async (request) => {
   };
 });
 
-export const acceptFriendInvite = onCall(async (request) => {
+export const acceptFriendInvite = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const rawToken = asNonEmptyString(data.token);
   logger.info("acceptFriendInvite invoked", {
@@ -1537,11 +1977,11 @@ async function writeEventTeamInviteNotification(params: {
 }
 
 export const ensureEventTeamSetup = onCall(
-  {
+  withAppCheck({
     cpu: "gcf_gen1",
     concurrency: 1,
     maxInstances: 2,
-  },
+  }),
   async (request) => {
   const data = getCallableData(request);
   const leader = await resolveUserForFriendCallable(request);
@@ -1581,7 +2021,7 @@ export const ensureEventTeamSetup = onCall(
   }
 );
 
-export const createEventTeamInvite = onCall(async (request) => {
+export const createEventTeamInvite = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const inviter = await resolveUserForFriendCallable(request);
   const teamSetupId = asNonEmptyString(data.teamSetupId);
@@ -1715,7 +2155,7 @@ export const createEventTeamInvite = onCall(async (request) => {
   return { inviteId, teamSetupId };
 });
 
-export const respondEventTeamInvite = onCall(async (request) => {
+export const respondEventTeamInvite = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const user = await resolveUserForFriendCallable(request);
   const inviteId = asNonEmptyString(data.inviteId);
@@ -1876,7 +2316,7 @@ export const onEventTeamSetupWritten = onDocumentWritten(
   }
 );
 
-export const spinSeasonMeetingRoulette = onCall(async (request) => {
+export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const user = await resolveUserForFriendCallable(request);
   const requestedTeamSetupId = asNonEmptyString(data.teamSetupId);
@@ -2420,6 +2860,48 @@ export const onChatMessageCreated = onDocumentCreated(
     logger.info("Chat push sent", {
       roomId,
       senderId,
+      targets: targetUserIds,
+    });
+  }
+);
+
+export const onFestivalChatMessageCreated = onDocumentCreated(
+  "festivalChatRooms/{roomId}/messages/{messageId}",
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+
+    const roomId = event.params.roomId;
+    const message = snap.data();
+    const senderUid = asString(message.senderUid ?? "");
+    if (!senderUid) return;
+
+    const roomSnap = await db.collection("festivalChatRooms").doc(roomId).get();
+    if (!roomSnap.exists) return;
+
+    const room = (roomSnap.data() ?? {}) as Record<string, unknown>;
+    const participantUids = asStringArray(room.participantUids);
+    const targetUserIds = participantUids.filter((uid) => uid !== senderUid);
+    if (targetUserIds.length === 0) return;
+
+    const participantProfiles = readMap(room.participantProfiles);
+    const senderTicketId = asString(message.senderTicketId ?? "");
+    const senderProfile = readMap(participantProfiles[senderTicketId]);
+    const senderName = asString(senderProfile.name, "새 메시지");
+    const body = asString(message.text ?? "메시지가 도착했어요.").trim();
+
+    await sendPushToUsers(targetUserIds, {
+      title: senderName,
+      body: body || "메시지가 도착했어요.",
+      data: {
+        type: "festival_chat",
+        roomId,
+      },
+    });
+
+    logger.info("Festival chat push sent", {
+      roomId,
+      senderUid,
       targets: targetUserIds,
     });
   }
@@ -3244,6 +3726,112 @@ export const sendDailyUnreadChatDigests = onSchedule(
 // =============================================================================
 // 전화번호 정규화 + 해시 (클라이언트와 동일 알고리즘)
 // =============================================================================
+export function readSafePhotoUrl(userData: Record<string, unknown>): string | null {
+  const avatar = readMap(userData.avatar);
+  const approvedAvatarUrl = asStringOrNull(avatar.approvedAvatarUrl);
+  if (avatar.status === "approved" && isSafePublicAvatarUrl(approvedAvatarUrl)) {
+    return approvedAvatarUrl;
+  }
+  return null;
+}
+
+export function isUnregisteredPushTokenError(code: string | null): boolean {
+  return (
+    code === "messaging/registration-token-not-registered" ||
+    code === "messaging/invalid-registration-token"
+  );
+}
+
+export function verifiedYonseiEmailFromAuthToken(
+  token: Record<string, unknown> | undefined
+): string | null {
+  if (!token) return null;
+  if (token.email_verified !== true) return null;
+  const raw = asNonEmptyString(token.email);
+  const email = raw ? raw.toLowerCase() : null;
+  return email && email.endsWith("@yonsei.ac.kr") ? email : null;
+}
+
+export type EmailLinkTokenRejection =
+  | "missing"
+  | "malformed"
+  | "kakao-mismatch"
+  | "email-mismatch"
+  | "expired"
+  | "mailbox-unproven"
+  | "already-exchanged";
+
+export type EmailLinkTokenDecision =
+  | { ok: true; kakaoUserId: string; email: string }
+  | { ok: false; reason: EmailLinkTokenRejection };
+
+/**
+ * Decides whether an emailLinkTokens document may be exchanged for a Firebase
+ * custom token.
+ *
+ * The document itself is written by an unauthenticated-at-the-time client, so
+ * its (kakaoUserId, email) pair is a *request*, not a credential. The only
+ * trustworthy field is `emailVerifiedUid`/`emailVerifiedAt`, which
+ * firestore.rules lets only the owner of the named mailbox write, after
+ * Firebase itself verified the email link.
+ */
+export function evaluateEmailLinkTokenExchange(params: {
+  tokenData: Record<string, unknown> | null | undefined;
+  requestedKakaoUserId?: string | null;
+  requestedStudentEmail?: string | null;
+  now: Date;
+  isTimestamp: (value: unknown) => boolean;
+  toDate: (value: unknown) => Date | null;
+}): EmailLinkTokenDecision {
+  const { tokenData, now, isTimestamp, toDate } = params;
+  if (!tokenData) return { ok: false, reason: "missing" };
+
+  const kakaoUserId = asNonEmptyString(tokenData.kakaoUserId);
+  const email = asNonEmptyString(tokenData.email)?.toLowerCase() ?? null;
+  if (!kakaoUserId || !email) return { ok: false, reason: "malformed" };
+
+  const requestedKakaoUserId = asNonEmptyString(params.requestedKakaoUserId);
+  if (requestedKakaoUserId && requestedKakaoUserId !== kakaoUserId) {
+    return { ok: false, reason: "kakao-mismatch" };
+  }
+
+  const requestedStudentEmail =
+    asNonEmptyString(params.requestedStudentEmail)?.toLowerCase() ?? null;
+  if (requestedStudentEmail && requestedStudentEmail !== email) {
+    return { ok: false, reason: "email-mismatch" };
+  }
+
+  // A missing or malformed expiry previously skipped the expiry check, which
+  // turned a forged document into a permanent credential.
+  const expiresAt = toDate(tokenData.expiresAt);
+  if (!expiresAt || expiresAt.getTime() < now.getTime()) {
+    return { ok: false, reason: "expired" };
+  }
+
+  if (
+    !asNonEmptyString(tokenData.emailVerifiedUid) ||
+    !isTimestamp(tokenData.emailVerifiedAt)
+  ) {
+    return { ok: false, reason: "mailbox-unproven" };
+  }
+
+  if (tokenData.exchangedAt != null) {
+    return { ok: false, reason: "already-exchanged" };
+  }
+
+  return { ok: true, kakaoUserId, email };
+}
+
+export function buildKakaoUserShell(kakaoUserId: string): Record<string, unknown> {
+  return {
+    kakaoUserId,
+    profileImageUrl: "",
+    profileImageMode: "avatar",
+    createdAt: FieldValue.serverTimestamp(),
+    lastLoginAt: FieldValue.serverTimestamp(),
+  };
+}
+
 export function normalizeKoreanPhone(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -3282,7 +3870,7 @@ export function hashPhoneNumber(normalized: string): string {
 // =============================================================================
 const MAX_CONTACT_HASHES = 5000;
 
-export const syncContactBlocks = onCall(async (request) => {
+export const syncContactBlocks = onCall(withAppCheck(), async (request) => {
   const callerUid = request.auth?.uid;
   if (!callerUid) {
     throw new HttpsError("unauthenticated", "로그인이 필요해요.");
@@ -3423,6 +4011,113 @@ export const syncContactBlocks = onCall(async (request) => {
   };
 });
 
+// =============================================================================
+// syncKakaoTalkFriendBlocks — 카카오톡 친구 추천 제외 Callable
+// =============================================================================
+const MAX_KAKAO_TALK_FRIEND_IDS = 1000;
+
+export const syncKakaoTalkFriendBlocks = onCall(withAppCheck(), async (request) => {
+  const data = getCallableData(request);
+  let callerUid = asNonEmptyString(request.auth?.uid);
+
+  if (!callerUid) {
+    const accessToken = asNonEmptyString(data.kakaoAccessToken);
+    if (!accessToken) {
+      throw new HttpsError("unauthenticated", "로그인이 필요해요.");
+    }
+    callerUid = (await verifyKakaoAccessToken(accessToken)).userId;
+  }
+
+  const rawFriendUserIds = data.friendUserIds;
+  if (!Array.isArray(rawFriendUserIds)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "friendUserIds 배열이 필요합니다."
+    );
+  }
+
+  const seen = new Set<string>();
+  const friendUserIds: string[] = [];
+  for (const rawId of rawFriendUserIds) {
+    const friendUserId = asString(rawId, "").trim();
+    if (!/^\d+$/.test(friendUserId) || seen.has(friendUserId)) continue;
+    seen.add(friendUserId);
+    friendUserIds.push(friendUserId);
+    if (friendUserIds.length >= MAX_KAKAO_TALK_FRIEND_IDS) break;
+  }
+
+  let matchedUserCount = 0;
+  let newlyExcludedCount = 0;
+  let alreadyExcludedCount = 0;
+  let skippedSelfCount = 0;
+  const CHUNK_SIZE = 400;
+
+  for (let i = 0; i < friendUserIds.length; i += CHUNK_SIZE) {
+    const chunk = friendUserIds.slice(i, i + CHUNK_SIZE);
+    const candidateIds = chunk.filter((id) => {
+      if (id === callerUid) {
+        skippedSelfCount++;
+        return false;
+      }
+      return true;
+    });
+
+    if (candidateIds.length === 0) continue;
+
+    const userRefs = candidateIds.map((id) => db.collection("users").doc(id));
+    const blockRefs = candidateIds.map((id) =>
+      db.collection("blocks").doc(callerUid).collection("targets").doc(id)
+    );
+    const [userDocs, existingBlockDocs] = await Promise.all([
+      db.getAll(...userRefs),
+      db.getAll(...blockRefs),
+    ]);
+    const batch = db.batch();
+    let chunkNewlyExcludedCount = 0;
+
+    for (let index = 0; index < candidateIds.length; index++) {
+      if (!userDocs[index].exists) continue;
+
+      matchedUserCount++;
+      if (existingBlockDocs[index].exists) {
+        alreadyExcludedCount++;
+        continue;
+      }
+
+      batch.set(blockRefs[index], {
+        fromUserId: callerUid,
+        toUserId: candidateIds[index],
+        reason: "kakao_talk_friend",
+        source: "kakao_talk_friends",
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      newlyExcludedCount++;
+      chunkNewlyExcludedCount++;
+    }
+
+    if (chunkNewlyExcludedCount > 0) {
+      await batch.commit();
+    }
+  }
+
+  logger.info("syncKakaoTalkFriendBlocks completed", {
+    callerUid,
+    submittedFriendCount: friendUserIds.length,
+    matchedUserCount,
+    newlyExcludedCount,
+    alreadyExcludedCount,
+    skippedSelfCount,
+  });
+
+  return {
+    submittedFriendCount: friendUserIds.length,
+    matchedUserCount,
+    newlyExcludedCount,
+    alreadyExcludedCount,
+    skippedSelfCount,
+  };
+});
+
 /**
  * A↔B 상호 block을 blocks/{uid}/targets/{targetUid}에 생성.
  * 이미 양쪽 다 있으면 false 반환(이미 차단).
@@ -3540,7 +4235,7 @@ export const onUserPhoneHashUpsert = onDocumentWritten(
 // =============================================================================
 // saveUserPhoneHash — 카카오 로그인 후 전화번호 해시 저장 Callable
 // =============================================================================
-export const saveUserPhoneHash = onCall(async (request) => {
+export const saveUserPhoneHash = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
   const phoneHash = asNonEmptyString(data.phoneHash);
   const phoneSource = asNonEmptyString(data.phoneSource) ?? "kakao";

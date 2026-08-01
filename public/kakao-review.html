@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>설레연 가입 및 인증 안내</title>
+  <meta name="description" content="설레연 카카오 로그인, 본인인증, 학교 이메일 인증 흐름 안내" />
+  <style>
+    :root {
+      --bg: #fff9fc;
+      --surface: #ffffff;
+      --surface-soft: #fff3f7;
+      --text: #1f2937;
+      --muted: #5f6877;
+      --line: #ecdfe7;
+      --heading: #1f5b78;
+      --accent: #ef3976;
+      --teal: #1f5b78;
+      --shadow: 0 10px 28px rgba(24, 39, 75, 0.08);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 16% 0%, rgba(239, 57, 118, 0.10), transparent 28%),
+        linear-gradient(180deg, #fffafc 0%, #fffdfd 100%);
+      font-family:
+        "Pretendard",
+        "Apple SD Gothic Neo",
+        "Malgun Gothic",
+        "Segoe UI",
+        system-ui,
+        -apple-system,
+        sans-serif;
+      line-height: 1.72;
+      word-break: keep-all;
+    }
+
+    a { color: inherit; }
+
+    .page {
+      width: min(100%, 960px);
+      margin: 0 auto;
+      padding: 24px 20px 72px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      font-weight: 900;
+    }
+
+    .brand img {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      object-fit: cover;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .links a,
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+      padding: 9px 13px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.86);
+      text-decoration: none;
+      font-size: 0.92rem;
+      font-weight: 800;
+    }
+
+    .button.primary {
+      border-color: rgba(239, 57, 118, 0.24);
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .hero,
+    .section {
+      background: var(--surface);
+      border: 1px solid rgba(236, 223, 231, 0.95);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 28px 24px;
+      background: linear-gradient(135deg, rgba(239, 57, 118, 0.07), rgba(31, 91, 120, 0.05));
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      padding: 7px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--accent);
+      font-size: 0.9rem;
+      font-weight: 900;
+    }
+
+    h1 {
+      margin: 16px 0 8px;
+      font-size: clamp(2rem, 5vw, 3.4rem);
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      color: var(--heading);
+      font-size: clamp(1.32rem, 2vw, 1.72rem);
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+    }
+
+    p {
+      margin: 0;
+      color: var(--text);
+    }
+
+    .muted { color: var(--muted); }
+
+    .content {
+      display: grid;
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .section {
+      padding: 24px;
+    }
+
+    .flow {
+      counter-reset: flow;
+      display: grid;
+      gap: 10px;
+      margin: 14px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .flow li {
+      counter-increment: flow;
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 12px;
+      align-items: center;
+      min-height: 46px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      font-weight: 800;
+    }
+
+    .flow li::before {
+      content: counter(flow);
+      display: inline-grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      background: var(--teal);
+      color: #fff;
+      font-size: 0.88rem;
+      font-weight: 900;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .info {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+
+    .info strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--heading);
+    }
+
+    .pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 12px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .pill-list li {
+      padding: 8px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface-soft);
+      font-weight: 800;
+      font-size: 0.92rem;
+    }
+
+    .notice {
+      padding: 16px;
+      border: 1px solid rgba(239, 57, 118, 0.18);
+      border-radius: var(--radius);
+      background: var(--surface-soft);
+    }
+
+    @media (max-width: 720px) {
+      .page {
+        padding: 16px 14px 56px;
+      }
+
+      .topbar {
+        display: grid;
+        justify-content: stretch;
+      }
+
+      .links {
+        justify-content: flex-start;
+      }
+
+      .hero,
+      .section {
+        padding: 20px 16px;
+      }
+
+      .info-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="설레연 홈">
+        <img src="/mainlogo.png" alt="설레연 로고" />
+        <span>설레연</span>
+      </a>
+      <nav class="links" aria-label="문서 링크">
+        <a href="/">대표 홈페이지</a>
+        <a href="/terms">이용약관</a>
+        <a href="/privacy">개인정보처리방침</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <span class="eyebrow">가입 안내</span>
+      <h1>가입 및 인증 진행 안내</h1>
+      <p class="muted">설레연은 안전한 대학생 커뮤니티 운영을 위해 본인인증 및 성인인증 완료 후 카카오 로그인과 학교 이메일 인증을 진행합니다.</p>
+    </section>
+
+    <div class="content">
+      <section class="section">
+        <h2>서비스 개요</h2>
+        <div class="info-grid">
+          <div class="info">
+            <strong>서비스명</strong>
+            <span>설레연</span>
+          </div>
+          <div class="info">
+            <strong>서비스 대상</strong>
+            <span>청소년보호법상 청소년에 해당하지 않는 대학생</span>
+          </div>
+          <div class="info">
+            <strong>서비스 설명</strong>
+            <span>연 나이 20세 이상 대학생 대상 대학생 인증 기반 매칭 커뮤니티</span>
+          </div>
+          <div class="info">
+            <strong>이용 제한</strong>
+            <span>본인인증 미완료 시 가입 이후 단계를 진행할 수 없습니다.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>회원가입 및 인증 흐름</h2>
+        <ol class="flow">
+          <li>필수 약관 동의</li>
+          <li>본인인증 및 성인인증</li>
+          <li>카카오 로그인</li>
+          <li>학교 이메일 인증</li>
+          <li>프로필 설정</li>
+          <li>서비스 이용</li>
+        </ol>
+      </section>
+
+      <section class="section">
+        <h2>본인인증 미완료 시 제한</h2>
+        <div class="notice">
+          <p>본인인증을 완료하지 않은 이용자는 카카오 로그인, 학교 인증, 프로필 설정, 매칭, 채팅, 커뮤니티 이용을 진행할 수 없습니다.</p>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>본인인증 수집 항목 및 목적</h2>
+        <p><strong>수집 항목:</strong> 이름, 휴대전화번호, 생년월일, 성별, 통신사, 내·외국인 여부, 성인인증 결과, 암호화된 이용자 확인값(CI), DI 또는 이에 준하는 식별값</p>
+        <p><strong>이용 목적:</strong> 본인 확인, 성인 여부 확인, 중복 가입 방지, 신고 및 분쟁 대응, 부정 이용 방지</p>
+      </section>
+
+      <section class="section">
+        <h2>안전 기능</h2>
+        <ul class="pill-list">
+          <li>신고</li>
+          <li>차단</li>
+          <li>운영자 검토</li>
+          <li>부정 이용 제재</li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <h2>관련 문서</h2>
+        <p class="muted">개인정보 수집 및 처리 기준은 개인정보처리방침에서, 서비스 이용 기준은 이용약관에서 확인할 수 있습니다.</p>
+        <p style="margin-top: 14px;">
+          <a class="button primary" href="/privacy">개인정보처리방침</a>
+          <a class="button" href="/terms">이용약관</a>
+        </p>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

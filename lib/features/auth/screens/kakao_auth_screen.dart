@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kDebugMode, kIsWeb, TargetPlatform;
@@ -79,9 +80,6 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showPendingRejoinRestrictionNotice();
-    });
   }
 
   @override
@@ -116,26 +114,6 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         ),
       );
     } catch (_) {}
-  }
-
-  Future<void> _showPendingRejoinRestrictionNotice() async {
-    final hasNotice = await _storageService
-        .consumePendingRejoinRestrictionNotice();
-    if (!hasNotice || !mounted) return;
-
-    await showCupertinoDialog<void>(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('재가입이 제한된 계정입니다'),
-        content: const Text('운영 정책에 따라 현재 계정은 재가입 또는 로그인이 제한되어 있습니다.'),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('확인'),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<bool> _handlePendingInviteAfterLogin() async {
@@ -232,7 +210,8 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
     await _userService.upsertKakaoUser(
       kakaoUserId: kakaoUserId,
       nickname: userInfo['nickname']?.toString(),
-      profileImageUrl: userInfo['profileImageUrl']?.toString(),
+      // main의 승인 아바타 정책상 카카오 원본 사진은 공개 프로필에 저장하지 않는다.
+      profileImageUrl: null,
       email: userInfo['email']?.toString(),
     );
 
@@ -391,8 +370,8 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       Navigator.of(
         context,
       ).pushReplacementNamed(RouteNames.studentVerification);
-    } catch (e, st) {
-      debugPrint('[KAKAO] login failed: $e\n$st');
+    } catch (e) {
+      debugPrint('[KAKAO] login failed: ${PrivacyLogUtils.errorSummary(e)}');
       final msg = _formatLoginErrorMessage(e.toString());
       if (!mounted) return;
       final isKeyHashError =
@@ -582,8 +561,10 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       Navigator.of(
         context,
       ).pushReplacementNamed(RouteNames.studentVerification);
-    } catch (e, st) {
-      debugPrint('[KAKAO] web login failed: $e\n$st');
+    } catch (e) {
+      debugPrint(
+        '[KAKAO] web login failed: ${PrivacyLogUtils.errorSummary(e)}',
+      );
       if (!mounted) return;
       final msg = _formatLoginErrorMessage(e.toString());
       final isKeyHashError =

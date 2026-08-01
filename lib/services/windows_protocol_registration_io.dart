@@ -1,3 +1,4 @@
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -22,9 +23,10 @@ Future<void> ensureWindowsProtocolRegistration() async {
       '[DesktopProtocol] Registered Windows protocol '
       '$scheme:// -> $executable',
     );
-  } catch (e, st) {
-    debugPrint('[DesktopProtocol] Windows protocol registration failed: $e');
-    debugPrint(st.toString());
+  } catch (e) {
+    debugPrint(
+      '[DesktopProtocol] Windows protocol registration failed: ${PrivacyLogUtils.errorSummary(e)}',
+    );
   }
 }
 

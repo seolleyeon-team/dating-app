@@ -1,0 +1,1 @@
+uid-1=C:\Users\samsung\StudioProjects\semisemifinal\.tmp\pytest-full-final-20260727203349\test_canary_runner_apply_witho0\photo.jpeg

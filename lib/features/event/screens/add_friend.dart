@@ -115,7 +115,8 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
       }
     } catch (e) {
       if (mounted) {
-        final msg = e.toString()
+        final msg = e
+            .toString()
             .replaceFirst('Exception: ', '')
             .replaceFirst('StateError: ', '');
         _briefAlert(msg);
@@ -166,7 +167,7 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
         middle: const Text(
           '친구 목록',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontWeight: FontWeight.w700,
             color: FriendsListSharedColors.textMain,
           ),
@@ -191,38 +192,36 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
         child: _currentUserId == null
             ? const Center(child: CupertinoActivityIndicator())
             : !_isAuthReady
-                ? const Center(child: CupertinoActivityIndicator())
-                : !_canReadFriends
-                    ? (_looksLikeNoFriendsYet
-                        ? const FriendsListEmptyMessage(
-                            icon: CupertinoIcons.person_2,
-                            title: '아직 추가된 친구가 없어요',
-                            subtitle:
-                                '친구 초대 링크를 보내 설레연 친구를 만들어보세요',
-                          )
-                        : const FriendsListEmptyMessage(
-                            icon: CupertinoIcons.lock_circle,
-                            title: '친구 목록을 열 수 없어요',
-                            subtitle:
-                                '학교 이메일 인증이 완료된 계정으로 다시 로그인해주세요',
-                          ))
-                    : Column(
-                        children: [
-                          Expanded(
-                            child: FriendsListStreamBody(
-                              currentUserId: _currentUserId!,
-                              friendService: _friendService,
-                              mode: FriendsListStreamMode.picker,
-                              formatAddedAt: _formatAddedAt,
-                              selectedFriendUserIds: _selectedFriendIds,
-                              onPickerToggle: _onPickerToggle,
-                              emptyOnPermissionDeniedWhenNoFriendsHint: true,
-                              friendCountHint: _friendCountHint,
-                            ),
-                          ),
-                          _buildBottomSendButton(),
-                        ],
-                      ),
+            ? const Center(child: CupertinoActivityIndicator())
+            : !_canReadFriends
+            ? (_looksLikeNoFriendsYet
+                  ? const FriendsListEmptyMessage(
+                      icon: CupertinoIcons.person_2,
+                      title: '아직 추가된 친구가 없어요',
+                      subtitle: '친구 초대 링크를 보내 설레연 친구를 만들어보세요',
+                    )
+                  : const FriendsListEmptyMessage(
+                      icon: CupertinoIcons.lock_circle,
+                      title: '친구 목록을 열 수 없어요',
+                      subtitle: '학교 이메일 인증이 완료된 계정으로 다시 로그인해주세요',
+                    ))
+            : Column(
+                children: [
+                  Expanded(
+                    child: FriendsListStreamBody(
+                      currentUserId: _currentUserId!,
+                      friendService: _friendService,
+                      mode: FriendsListStreamMode.picker,
+                      formatAddedAt: _formatAddedAt,
+                      selectedFriendUserIds: _selectedFriendIds,
+                      onPickerToggle: _onPickerToggle,
+                      emptyOnPermissionDeniedWhenNoFriendsHint: true,
+                      friendCountHint: _friendCountHint,
+                    ),
+                  ),
+                  _buildBottomSendButton(),
+                ],
+              ),
       ),
     );
   }
@@ -234,10 +233,7 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
       decoration: const BoxDecoration(
         color: CupertinoColors.white,
         border: Border(
-          top: BorderSide(
-            color: FriendsListSharedColors.line,
-            width: 0.5,
-          ),
+          top: BorderSide(color: FriendsListSharedColors.line, width: 0.5),
         ),
       ),
       child: GestureDetector(
@@ -260,7 +256,7 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
                       ? '요청 보내기'
                       : '요청 보내기 (${_selectedFriendIds.length})',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontWeight: FontWeight.w700,
                     fontSize: 16,
                     color: CupertinoColors.white.withValues(

@@ -63,10 +63,7 @@ class PostService {
     final batch = _firestore.batch();
     batch.delete(_postsRef.doc(postId));
 
-    final comments = await _postsRef
-        .doc(postId)
-        .collection('comments')
-        .get();
+    final comments = await _postsRef.doc(postId).collection('comments').get();
     for (final doc in comments.docs) {
       batch.delete(doc.reference);
     }
@@ -79,9 +76,7 @@ class PostService {
     final doc = await _postsRef.doc(postId).get();
     if (!doc.exists) return null;
 
-    await _postsRef.doc(postId).update({
-      'viewCount': FieldValue.increment(1),
-    });
+    await _postsRef.doc(postId).update({'viewCount': FieldValue.increment(1)});
 
     return {'id': doc.id, ...doc.data()!};
   }
@@ -112,9 +107,7 @@ class PostService {
     }
 
     final snapshot = await query.get();
-    return snapshot.docs
-        .map((doc) => {'id': doc.id, ...doc.data()})
-        .toList();
+    return snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
   }
 
   /// 실시간 게시물 스트림 (최신 20개)
@@ -133,8 +126,9 @@ class PostService {
           .limit(limit);
     }
 
-    return query.snapshots().map((snap) =>
-        snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+    return query.snapshots().map(
+      (snap) => snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -187,10 +181,7 @@ class PostService {
     String? authorProfileUrl,
     required String content,
   }) async {
-    final commentRef = await _postsRef
-        .doc(postId)
-        .collection('comments')
-        .add({
+    final commentRef = await _postsRef.doc(postId).collection('comments').add({
       'authorId': authorId,
       'authorNickname': authorNickname,
       'authorProfileUrl': authorProfileUrl,
@@ -212,11 +203,7 @@ class PostService {
     required String postId,
     required String commentId,
   }) async {
-    await _postsRef
-        .doc(postId)
-        .collection('comments')
-        .doc(commentId)
-        .delete();
+    await _postsRef.doc(postId).collection('comments').doc(commentId).delete();
 
     await _postsRef.doc(postId).update({
       'commentCount': FieldValue.increment(-1),
@@ -230,8 +217,10 @@ class PostService {
         .collection('comments')
         .orderBy('createdAt', descending: false)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+        .map(
+          (snap) =>
+              snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
+        );
   }
 
   /// 댓글 좋아요 토글

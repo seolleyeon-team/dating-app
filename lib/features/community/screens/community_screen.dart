@@ -5,7 +5,6 @@
 // 기존 디자인 최대한 유지 + Firestore/Provider 연동
 // =============================================================================
 
-import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/cupertino.dart';
@@ -18,16 +17,14 @@ import '../../../data/models/community/post_model.dart';
 import '../../chat/services/chat_service.dart';
 import '../../../router/route_names.dart';
 import '../../../services/storage_service.dart';
-import '../providers/community_provider.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
+import '../providers/community_provider.dart';
+import '../widgets/falling_leaves_overlay.dart';
 
 // =============================================================================
 // 색상 상수
 // =============================================================================
 class _AppColors {
-  static const Color softPink = Color(0xFFFFE4E6);
-  static const Color softLavender = Color(0xFFE9D5FF);
-
   static const Color textMain = Color(0xFF181114);
   static const Color textSub = Color(0xFF9CA3AF);
   static const Color cardBg = Color(0xE6FFFFFF);
@@ -147,7 +144,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Consumer<CommunityProvider>(
       builder: (context, provider, _) {
@@ -161,7 +158,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
               : Colors.white,
           body: Stack(
             children: [
-              _BackgroundDecoration(),
+              FallingLeavesOverlay(isDark: isDark),
 
               SafeArea(
                 bottom: false,
@@ -230,9 +227,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                     builder: (context) {
                                       final isDark =
                                           Theme.of(context).brightness ==
-                                              Brightness.dark;
-                                      final seol = Theme.of(context)
-                                          .extension<SeolThemeColors>()!;
+                                          Brightness.dark;
+                                      final seol = Theme.of(
+                                        context,
+                                      ).extension<SeolThemeColors>()!;
                                       final moreBg = isDark
                                           ? seol.cardSurface.withValues(
                                               alpha: 0.9,
@@ -258,18 +256,14 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                             decoration: BoxDecoration(
                                               color: moreBg,
                                               borderRadius:
-                                                  BorderRadius.circular(
-                                                20,
-                                              ),
+                                                  BorderRadius.circular(20),
                                               border: Border.all(
                                                 color: moreBorder,
                                               ),
                                               boxShadow: [
                                                 BoxShadow(
                                                   color: Colors.black
-                                                      .withValues(
-                                                    alpha: 0.05,
-                                                  ),
+                                                      .withValues(alpha: 0.05),
                                                   blurRadius: 8,
                                                   offset: const Offset(0, 2),
                                                 ),
@@ -278,7 +272,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                             child: Text(
                                               '더보기',
                                               style: TextStyle(
-                                                fontFamily: 'Pretendard',
+                                                fontFamily: 'NanumSquareRound',
                                                 fontSize: 14,
                                                 fontWeight: FontWeight.w700,
                                                 color: moreText,
@@ -323,100 +317,6 @@ class _CommunityScreenState extends State<CommunityScreen> {
 }
 
 // =============================================================================
-// 배경 장식
-// =============================================================================
-class _BackgroundDecoration extends StatelessWidget {
-  const _BackgroundDecoration();
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final seol = Theme.of(context).extension<SeolThemeColors>()!;
-    final primary = Theme.of(context).colorScheme.primary;
-
-    return Stack(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: isDark
-                  ? [
-                      seol.pink50,
-                      AppColorsDark.background,
-                      seol.purple50,
-                    ]
-                  : [
-                      _AppColors.softPink,
-                      Colors.white,
-                      _AppColors.softLavender,
-                    ],
-            ),
-          ),
-        ),
-        Positioned(
-          top: 80,
-          left: 40,
-          child: _PetalIcon(
-            size: 32,
-            color: primary.withValues(alpha: 0.2),
-            rotation: 45,
-          ),
-        ),
-        Positioned(
-          top: 160,
-          right: 48,
-          child: _PetalIcon(
-            size: 48,
-            color: primary.withValues(alpha: 0.1),
-            rotation: -12,
-          ),
-        ),
-        Positioned(
-          bottom: 120,
-          left: 32,
-          child: _PetalIcon(
-            size: 24,
-            color: primary.withValues(alpha: 0.15),
-            rotation: 90,
-          ),
-        ),
-        Positioned(
-          bottom: 240,
-          right: 24,
-          child: _PetalIcon(
-            size: 40,
-            color: primary.withValues(alpha: 0.1),
-            rotation: 180,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _PetalIcon extends StatelessWidget {
-  final double size;
-  final Color color;
-  final double rotation;
-
-  const _PetalIcon({
-    required this.size,
-    required this.color,
-    required this.rotation,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Transform.rotate(
-      angle: rotation * math.pi / 180,
-      child: Icon(CupertinoIcons.drop_fill, size: size, color: color),
-    );
-  }
-}
-
-// =============================================================================
 // 헤더 영역
 // =============================================================================
 class _HeaderArea extends StatelessWidget {
@@ -435,8 +335,7 @@ class _HeaderArea extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final seol = Theme.of(context).extension<SeolThemeColors>()!;
     final primary = Theme.of(context).colorScheme.primary;
-    final titleColor =
-        isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final titleColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
     final headerGlass = isDark
         ? seol.cardSurface.withValues(alpha: 0.75)
         : Colors.white.withValues(alpha: 0.7);
@@ -467,7 +366,7 @@ class _HeaderArea extends StatelessWidget {
                         '대나무숲',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 20,
                           fontWeight: FontWeight.w800,
                           color: titleColor,
@@ -515,15 +414,13 @@ class _HeaderArea extends StatelessWidget {
                             color: isSelected
                                 ? (isDark ? seol.gray800 : _AppColors.textMain)
                                 : (isDark
-                                    ? seol.gray100.withValues(alpha: 0.85)
-                                    : Colors.white.withValues(alpha: 0.8)),
+                                      ? seol.gray100.withValues(alpha: 0.85)
+                                      : Colors.white.withValues(alpha: 0.8)),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                               color: isSelected
                                   ? Colors.transparent
-                                  : (isDark
-                                      ? seol.gray200
-                                      : Colors.white),
+                                  : (isDark ? seol.gray200 : Colors.white),
                             ),
                             boxShadow: [
                               BoxShadow(
@@ -538,15 +435,15 @@ class _HeaderArea extends StatelessWidget {
                           child: Text(
                             category,
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 14,
                               fontWeight: isSelected
                                   ? FontWeight.w600
                                   : FontWeight.w500,
                               color: isSelected
                                   ? (isDark
-                                      ? AppColorsDark.background
-                                      : Colors.white)
+                                        ? AppColorsDark.background
+                                        : Colors.white)
                                   : titleColor,
                             ),
                           ),
@@ -656,12 +553,9 @@ class _PostCard extends StatelessWidget {
     final cardBg = isDark
         ? seol.cardSurface.withValues(alpha: 0.92)
         : _AppColors.cardBg;
-    final cardBorder =
-        isDark ? seol.gray200 : Colors.white;
-    final textMain =
-        isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
-    final textSub =
-        isDark ? AppColorsDark.textSecondary : _AppColors.textSub;
+    final cardBorder = isDark ? seol.gray200 : Colors.white;
+    final textMain = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final textSub = isDark ? AppColorsDark.textSecondary : _AppColors.textSub;
 
     return GestureDetector(
       onTap: () {
@@ -706,7 +600,7 @@ class _PostCard extends StatelessWidget {
                       child: Text(
                         post.category,
                         style: TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                           color: categoryTextColor,
@@ -759,7 +653,7 @@ class _PostCard extends StatelessWidget {
                     child: Text(
                       tag,
                       style: TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                         color: primary,
@@ -815,8 +709,7 @@ class _ActionIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final seol = Theme.of(context).extension<SeolThemeColors>()!;
-    final countColor =
-        isDark ? seol.sectionTitle : Colors.grey[500]!;
+    final countColor = isDark ? seol.sectionTitle : Colors.grey[500]!;
 
     return Row(
       children: [
@@ -845,24 +738,18 @@ class _EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primary = Theme.of(context).colorScheme.primary;
-    final titleColor =
-        isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
-    final subColor =
-        isDark ? AppColorsDark.textSecondary : _AppColors.textSub;
+    final titleColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final subColor = isDark ? AppColorsDark.textSecondary : _AppColors.textSub;
 
     return Center(
       child: Column(
         children: [
-          Icon(
-            CupertinoIcons.leaf_arrow_circlepath,
-            size: 44,
-            color: primary,
-          ),
+          Icon(CupertinoIcons.leaf_arrow_circlepath, size: 44, color: primary),
           const SizedBox(height: 12),
           Text(
             '아직 글이 없어요',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 18,
               fontWeight: FontWeight.w800,
               color: titleColor,
@@ -872,7 +759,7 @@ class _EmptyState extends StatelessWidget {
           Text(
             '첫 번째 익명 글을 남겨보세요.',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 14,
               color: subColor,
             ),
@@ -882,4 +769,3 @@ class _EmptyState extends StatelessWidget {
     );
   }
 }
-

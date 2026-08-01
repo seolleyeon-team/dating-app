@@ -29,7 +29,8 @@ class TeamRequestDeclinedScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final otherTeam = args?.otherTeamSnapshot;
-    final members = otherTeam?.members ?? const <EventTeamMatchMemberSnapshot>[];
+    final members =
+        otherTeam?.members ?? const <EventTeamMatchMemberSnapshot>[];
 
     return CupertinoPageScaffold(
       backgroundColor: _AppColors.backgroundLight,
@@ -67,7 +68,7 @@ class TeamRequestDeclinedScreen extends StatelessWidget {
                             '이번 요청은\n이어지지 않았어요',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 24,
                               fontWeight: FontWeight.w800,
                               height: 1.35,
@@ -80,7 +81,7 @@ class TeamRequestDeclinedScreen extends StatelessWidget {
                             '아쉽지만 다음 기회를 기다려 볼까요?\n더 좋은 만남이 기다리고 있을 거예요.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 14,
                               fontWeight: FontWeight.w500,
                               height: 1.55,
@@ -97,13 +98,19 @@ class TeamRequestDeclinedScreen extends StatelessWidget {
                                 color: CupertinoColors.white,
                                 borderRadius: BorderRadius.circular(20),
                                 border: Border.all(
-                                  color: _AppColors.primary.withValues(alpha: 0.06),
+                                  color: _AppColors.primary.withValues(
+                                    alpha: 0.06,
+                                  ),
                                 ),
                               ),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  for (var i = 0; i < members.length && i < 3; i++) ...[
+                                  for (
+                                    var i = 0;
+                                    i < members.length && i < 3;
+                                    i++
+                                  ) ...[
                                     if (i > 0) const SizedBox(width: 10),
                                     _MiniAvatar(
                                       photoUrl: members[i].photoUrl,
@@ -150,7 +157,7 @@ class TeamRequestDeclinedScreen extends StatelessWidget {
                   child: const Text(
                     '확인',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                       color: CupertinoColors.white,
@@ -219,10 +226,7 @@ class _MiniAvatar extends StatelessWidget {
           height: 48,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(
-              color: _AppColors.gray100,
-              width: 2,
-            ),
+            border: Border.all(color: _AppColors.gray100, width: 2),
           ),
           clipBehavior: Clip.antiAlias,
           child: photoUrl != null && photoUrl!.isNotEmpty
@@ -242,7 +246,7 @@ class _MiniAvatar extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NanumSquareRound',
               fontSize: 11,
               fontWeight: FontWeight.w600,
               color: _AppColors.textSub,

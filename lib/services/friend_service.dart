@@ -24,7 +24,7 @@ class FriendListItem {
 
 class FriendService {
   FriendService({UserService? userService})
-      : _userService = userService ?? UserService();
+    : _userService = userService ?? UserService();
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final UserService _userService;
@@ -113,8 +113,11 @@ class FriendService {
     merged['uid'] = snapshot['uid']?.toString().isNotEmpty == true
         ? snapshot['uid']
         : userId;
-    merged['nickname'] =
-        _firstNonEmpty(snapshot['nickname'], onboarding['nickname'], user['nickname']);
+    merged['nickname'] = _firstNonEmpty(
+      snapshot['nickname'],
+      onboarding['nickname'],
+      user['nickname'],
+    );
     merged['profileImageUrl'] = _firstNonEmpty(
       snapshot['profileImageUrl'],
       photoUrls.isNotEmpty ? photoUrls.first : null,
@@ -156,7 +159,12 @@ class FriendService {
     return snapshot['major']?.toString().trim() ?? '';
   }
 
-  String _firstNonEmpty(dynamic first, [dynamic second, dynamic third, dynamic fourth]) {
+  String _firstNonEmpty(
+    dynamic first, [
+    dynamic second,
+    dynamic third,
+    dynamic fourth,
+  ]) {
     final values = [first, second, third, fourth];
     for (final value in values) {
       final text = value?.toString().trim() ?? '';

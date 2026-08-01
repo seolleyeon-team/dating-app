@@ -436,7 +436,7 @@ class _SelectedMajorHeroCard extends StatelessWidget {
                       overflow: TextOverflow.fade,
                       softWrap: false,
                       style: const TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
                         color: _AppColors.gray800,
@@ -449,7 +449,7 @@ class _SelectedMajorHeroCard extends StatelessWidget {
                       overflow: TextOverflow.fade,
                       softWrap: false,
                       style: const TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NanumSquareRound',
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: _AppColors.gray400,
@@ -522,7 +522,7 @@ class _SelectedMajorFlightCard extends StatelessWidget {
                             overflow: TextOverflow.fade,
                             softWrap: false,
                             style: const TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 18,
                               fontWeight: FontWeight.w700,
                               color: _AppColors.gray800,
@@ -535,7 +535,7 @@ class _SelectedMajorFlightCard extends StatelessWidget {
                             overflow: TextOverflow.fade,
                             softWrap: false,
                             style: const TextStyle(
-                              fontFamily: 'Pretendard',
+                              fontFamily: 'NanumSquareRound',
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
                               color: _AppColors.gray400,
@@ -582,7 +582,7 @@ class _PrivacyNotice extends StatelessWidget {
               '선택한 과는 다른 사람에게 드러나지 않습니다. '
               '캠퍼스 생활권 추천과 과 피하기 기능을 더 정확하게 만드는 데만 활용돼요.',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 13,
                 height: 1.45,
                 fontWeight: FontWeight.w600,
@@ -669,7 +669,7 @@ class _DepartmentTile extends StatelessWidget {
                 child: Text(
                   department,
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 16,
                     fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
                     color: _AppColors.gray800,
@@ -720,7 +720,7 @@ class _MissingMajorState extends StatelessWidget {
             const Text(
               '먼저 계열을 선택해주세요',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 22,
                 fontWeight: FontWeight.w700,
                 color: _AppColors.gray800,
@@ -731,7 +731,7 @@ class _MissingMajorState extends StatelessWidget {
               '계열을 기준으로 세부 학과 목록을 보여드릴게요.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 14,
                 height: 1.5,
                 color: _AppColors.gray500,
@@ -746,7 +746,7 @@ class _MissingMajorState extends StatelessWidget {
               child: const Text(
                 '계열 선택하기',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NanumSquareRound',
                   fontWeight: FontWeight.w700,
                   color: CupertinoColors.white,
                 ),
@@ -818,7 +818,7 @@ class _BottomButton extends StatelessWidget {
                 Text(
                   label,
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NanumSquareRound',
                     fontSize: 17,
                     fontWeight: FontWeight.w700,
                     color: CupertinoColors.white,

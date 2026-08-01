@@ -6,14 +6,14 @@ import '../../../services/user_service.dart';
 /// 이벤트 탭 상단 pending invite 카드 / 배너
 /// warm off-white · plum 포인트 · 라운드 카드 · 부드러운 shadow
 class _Colors {
-  static const Color cardBg = Color(0xFFFFFBF7);       // warm ivory
-  static const Color cardBorder = Color(0xFFF2E6E9);    // subtle plum border
-  static const Color plumAccent = Color(0xFF9B5A6A);    // plum 라벨
-  static const Color plumLight = Color(0xFFF5EBF0);     // plum tint bg
+  static const Color cardBg = Color(0xFFFFFBF7); // warm ivory
+  static const Color cardBorder = Color(0xFFF2E6E9); // subtle plum border
+  static const Color plumAccent = Color(0xFF9B5A6A); // plum 라벨
+  static const Color plumLight = Color(0xFFF5EBF0); // plum tint bg
   static const Color textMain = Color(0xFF3D2C33);
   static const Color textSub = Color(0xFF89616B);
-  static const Color btnConfirm = Color(0xFFE8466E);    // 확인하기
-  static const Color btnLater = Color(0xFFD4C4C8);      // 나중에 보기
+  static const Color btnConfirm = Color(0xFFE8466E); // 확인하기
+  static const Color btnLater = Color(0xFFD4C4C8); // 나중에 보기
 }
 
 class PendingTeamInviteCard extends StatefulWidget {
@@ -67,8 +67,9 @@ class _PendingTeamInviteCardState extends State<PendingTeamInviteCard> {
       return;
     }
     final raw = user['onboarding'];
-    final ob =
-        raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+    final ob = raw is Map
+        ? Map<String, dynamic>.from(raw)
+        : <String, dynamic>{};
     if (ob['nickname']?.toString().trim().isNotEmpty == true) {
       setState(() => _inviterName = ob['nickname'].toString());
     } else if (user['nickname']?.toString().trim().isNotEmpty == true) {
@@ -121,7 +122,7 @@ class _PendingTeamInviteCardState extends State<PendingTeamInviteCard> {
                   Text(
                     '답변이 필요한 초대${count > 1 ? ' · $count건' : ''}',
                     style: const TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                       color: _Colors.plumAccent,
@@ -137,7 +138,7 @@ class _PendingTeamInviteCardState extends State<PendingTeamInviteCard> {
                   ? '$_inviterName님이 팀 초대했어요'
                   : '팀 초대가 도착했어요',
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
                 color: _Colors.textMain,
@@ -148,7 +149,7 @@ class _PendingTeamInviteCardState extends State<PendingTeamInviteCard> {
             const Text(
               '이벤트 팀에 함께할지 확인해보세요',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 13,
                 fontWeight: FontWeight.w400,
                 color: _Colors.textSub,
@@ -174,7 +175,7 @@ class _PendingTeamInviteCardState extends State<PendingTeamInviteCard> {
                       child: const Text(
                         '나중에 보기',
                         style: TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
                           color: _Colors.textSub,
@@ -199,7 +200,7 @@ class _PendingTeamInviteCardState extends State<PendingTeamInviteCard> {
                       child: const Text(
                         '확인하기',
                         style: TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NanumSquareRound',
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
                           color: CupertinoColors.white,

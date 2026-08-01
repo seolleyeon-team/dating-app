@@ -129,7 +129,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
         middle: Text(
           '계정 관리',
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NanumSquareRound',
             fontSize: 18,
             fontWeight: FontWeight.w700,
             color: textMain,
@@ -162,7 +162,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
                   Text(
                     '탈퇴 전 꼭 확인해주세요',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 17,
                       fontWeight: FontWeight.w800,
                       color: textMain,
@@ -172,7 +172,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
                   Text(
                     '탈퇴하면 프로필은 즉시 비공개 처리되고 추천 목록에서 제외됩니다. 기존 채팅방은 상대방의 대화 기록과 신고 대응을 위해 유지되며, 내 정보는 “탈퇴한 사용자”로 마스킹됩니다.',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 14,
                       height: 1.45,
                       color: textSub,
@@ -182,7 +182,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
                   Text(
                     '신고, 제재, 분쟁 대응에 필요한 최소 정보는 30일 동안 보관될 수 있습니다.',
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NanumSquareRound',
                       fontSize: 13,
                       height: 1.45,
                       color: textSub,
@@ -213,7 +213,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
                       : Text(
                           '계정 탈퇴',
                           style: TextStyle(
-                            fontFamily: 'Pretendard',
+                            fontFamily: 'NanumSquareRound',
                             fontSize: 16,
                             fontWeight: FontWeight.w800,
                             color: dangerColor,

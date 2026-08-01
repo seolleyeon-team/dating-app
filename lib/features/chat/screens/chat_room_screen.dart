@@ -12,10 +12,12 @@ import '../services/promise_place_service.dart';
 import '../utils/safety_stamp_availability.dart';
 import '../widgets/promise_place_picker_sheet.dart';
 import 'safety_stamp_screen.dart';
+import '../../../services/chat_profile_photo_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../services/push_notification_service.dart';
 import '../../../router/route_names.dart';
+import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
 import '../../matching/models/profile_card_args.dart';
 import '../../../core/constants/app_colors.dart';
@@ -30,6 +32,8 @@ class _AppColors {
   /// 연한 보라 채우기용 알파 (버튼·칩 배경 — 약 30% 더 연하게 조정 시 배수)
   static const double promiseFillAlpha = 0.29;
   static const double promiseFillAlphaLight = 0.25;
+  static const double promiseBorderAlpha = 0.39;
+  static const double promiseBorderAlphaStrong = 0.43;
   static const Color backgroundLight = Color(0xFFFAFAFC);
   static const Color bubbleUser = Color(0xFFF5F2EE);
   static const Color bubblePartner = Color(0xFFF0F3F5);
@@ -44,8 +48,6 @@ class _AppColors {
 enum MessageType {
   received,
   sent,
-  system,
-  hidden,
   promiseRequest,
   promiseConfirmed,
   promiseInProgress,
@@ -71,28 +73,6 @@ String _promiseDetailSubtitle({
   if (cat.isNotEmpty) parts.add(cat);
   if (pl.isNotEmpty) parts.add(pl);
   return parts.join(' · ');
-}
-
-List<BoxShadow> _promiseSoftShadow(
-  BuildContext context,
-  Color accentColor, {
-  double opacity = 0.16,
-}) {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
-  return [
-    BoxShadow(
-      color: isDark
-          ? CupertinoColors.black.withValues(alpha: 0.24)
-          : accentColor.withValues(alpha: opacity),
-      blurRadius: 20,
-      offset: const Offset(0, 8),
-    ),
-    BoxShadow(
-      color: CupertinoColors.black.withValues(alpha: isDark ? 0.18 : 0.04),
-      blurRadius: 8,
-      offset: const Offset(0, 2),
-    ),
-  ];
 }
 
 class _ChatMessage {
@@ -229,79 +209,50 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
   final ChatService _chatService = ChatService();
+  final ChatProfilePhotoService _chatProfilePhotoService =
+      ChatProfilePhotoService();
 
   String? _currentUserId;
   String _currentUserName = '나';
   String? _currentUserAvatarUrl;
   String _roomId = '';
+  String? _partnerDisplayAvatarUrl;
   String? _initError;
   bool _isReady = false;
   bool _isSending = false;
-  bool _didInitialScrollToBottom = false;
-  bool _isSettlingInitialScrollToBottom = false;
-  bool _isProgrammaticInitialScroll = false;
-  bool _userScrolledDuringInitialScroll = false;
+  bool _isNearBottom = true;
+  bool _pendingForceScrollToBottom = true;
   bool _isCancellingExpiredPromise = false;
   DateTime _currentNow = DateTime.now();
   Timer? _safetyStampTimer;
+  String? _lastMessageSnapshotSignature;
 
-  Future<void> _openPartnerProfileCard() async {
+  void _openPartnerProfileCard() {
     if (widget.partnerId.isEmpty) return;
-    if (_roomId.isNotEmpty) {
-      final roomDoc = await _chatService.roomStream(_roomId).first;
-      if (_isPartnerWithdrawn(roomDoc.data())) return;
-    }
-    if (!mounted) return;
 
     Navigator.of(context, rootNavigator: true).pushNamed(
       RouteNames.profileSpecificDetail,
-      arguments: ProfileCardArgs.fromChat(userId: widget.partnerId),
-    );
-  }
-
-  bool _isPartnerWithdrawn(Map<String, dynamic>? roomData) {
-    return ChatService.isParticipantWithdrawnInRoomData(
-      roomData,
-      widget.partnerId,
-    );
-  }
-
-  Map<String, dynamic> _partnerInfoFromRoom(Map<String, dynamic>? roomData) {
-    final participantInfo = roomData?['participantInfo'];
-    if (participantInfo is! Map) return <String, dynamic>{};
-    final raw = participantInfo[widget.partnerId];
-    if (raw is! Map) return <String, dynamic>{};
-    return Map<String, dynamic>.from(raw);
-  }
-
-  String _partnerDisplayName(Map<String, dynamic>? roomData) {
-    if (_isPartnerWithdrawn(roomData)) return UserService.withdrawnDisplayName;
-    final roomName = _partnerInfoFromRoom(roomData)['nickname']?.toString();
-    if (roomName != null && roomName.trim().isNotEmpty) return roomName;
-    return widget.partnerName;
-  }
-
-  Future<bool> _ensurePartnerCanReceiveMessages() async {
-    if (_roomId.isEmpty || widget.partnerId.isEmpty) return false;
-
-    final roomDoc = await _chatService.roomStream(_roomId).first;
-    if (!_isPartnerWithdrawn(roomDoc.data())) return true;
-
-    if (!mounted) return false;
-    await showCupertinoDialog<void>(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('대화할 수 없어요'),
-        content: const Text('상대방이 계정을 탈퇴해 더 이상 메시지나 약속 요청을 보낼 수 없습니다.'),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('확인'),
-          ),
-        ],
+      arguments: ProfileCardArgs.fromChat(
+        userId: widget.partnerId,
+        chatRoomId: _roomId.isNotEmpty ? _roomId : widget.chatRoomId,
       ),
     );
-    return false;
+  }
+
+  Future<void> _refreshPartnerChatPhoto() async {
+    if (_roomId.isEmpty || widget.partnerId.isEmpty) return;
+    final fallbackAvatarUrl = widget.partnerAvatarUrl ?? _defaultAvatarUrl;
+    final result = await _chatProfilePhotoService.getChatProfilePhoto(
+      chatRoomId: _roomId,
+      targetUid: widget.partnerId,
+      fallbackAvatarUrl: fallbackAvatarUrl,
+    );
+    if (!mounted) return;
+    setState(() {
+      _partnerDisplayAvatarUrl = result.imageUrl.isNotEmpty
+          ? result.imageUrl
+          : fallbackAvatarUrl;
+    });
   }
 
   void _startSafetyStampTimer() {
@@ -379,7 +330,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_handleInitialScrollChanged);
+    _scrollController.addListener(_handleScrollChanged);
     _startSafetyStampTimer();
     _initChat();
   }
@@ -391,7 +342,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
     _safetyStampTimer?.cancel();
     _messageController.dispose();
-    _scrollController.removeListener(_handleInitialScrollChanged);
+    _scrollController.removeListener(_handleScrollChanged);
     _scrollController.dispose();
     super.dispose();
   }
@@ -404,65 +355,46 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     super.deactivate();
   }
 
-  void _handleInitialScrollChanged() {
-    if (!_isSettlingInitialScrollToBottom || _isProgrammaticInitialScroll) {
-      return;
-    }
-    _userScrolledDuringInitialScroll = true;
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    });
   }
 
-  void _scrollToBottomOnceOnOpen() {
-    if (_didInitialScrollToBottom) return;
-    _didInitialScrollToBottom = true;
-    _isSettlingInitialScrollToBottom = true;
-    _userScrolledDuringInitialScroll = false;
+  void _handleScrollChanged() {
+    if (!_scrollController.hasClients) return;
 
-    const maxAttempts = 12;
-    const tolerance = 1.0;
-    double? previousMaxScrollExtent;
+    final position = _scrollController.position;
+    final distanceFromBottom = position.maxScrollExtent - position.pixels;
+    _isNearBottom = distanceFromBottom <= 96;
+  }
 
-    void jumpAfterLayout({int attempt = 0}) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_scrollController.hasClients) {
-          _isSettlingInitialScrollToBottom = false;
-          return;
-        }
-        if (_userScrolledDuringInitialScroll) {
-          _isSettlingInitialScrollToBottom = false;
-          return;
-        }
+  void _maybeAutoScrollToBottom(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> messageDocs,
+  ) {
+    final lastMessageId = messageDocs.isEmpty ? 'empty' : messageDocs.last.id;
+    final nextSignature = '${messageDocs.length}:$lastMessageId';
+    final hasSnapshotChanged = nextSignature != _lastMessageSnapshotSignature;
 
-        final position = _scrollController.position;
-        if (!position.hasContentDimensions && attempt < 3) {
-          jumpAfterLayout(attempt: attempt + 1);
-          return;
-        }
-
-        final maxScrollExtent = position.maxScrollExtent;
-        _isProgrammaticInitialScroll = true;
-        try {
-          _scrollController.jumpTo(maxScrollExtent);
-        } finally {
-          _isProgrammaticInitialScroll = false;
-        }
-
-        final isStable =
-            previousMaxScrollExtent != null &&
-            (maxScrollExtent - previousMaxScrollExtent!).abs() <= tolerance;
-        final isAtBottom =
-            (position.maxScrollExtent - position.pixels).abs() <= tolerance;
-        previousMaxScrollExtent = maxScrollExtent;
-
-        if (attempt < maxAttempts && (!isStable || !isAtBottom)) {
-          jumpAfterLayout(attempt: attempt + 1);
-          return;
-        }
-
-        _isSettlingInitialScrollToBottom = false;
-      });
+    if (_lastMessageSnapshotSignature == null) {
+      _lastMessageSnapshotSignature = nextSignature;
+      _pendingForceScrollToBottom = false;
+      _scrollToBottom();
+      return;
     }
 
-    jumpAfterLayout();
+    _lastMessageSnapshotSignature = nextSignature;
+
+    if (!hasSnapshotChanged) return;
+    if (!_pendingForceScrollToBottom && !_isNearBottom) return;
+
+    _pendingForceScrollToBottom = false;
+    _scrollToBottom();
   }
 
   void _markCurrentRoomAsRead() {
@@ -495,18 +427,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           ? onboarding['nickname'].toString()
           : (user?['nickname']?.toString() ?? '나');
 
-      String? resolvedAvatarUrl;
-      if (onboarding is Map) {
-        final photoUrlsRaw = onboarding['photoUrls'];
-        if (photoUrlsRaw is List && photoUrlsRaw.isNotEmpty) {
-          final firstPhoto = photoUrlsRaw.first?.toString() ?? '';
-          if (firstPhoto.isNotEmpty) {
-            resolvedAvatarUrl = firstPhoto;
-          }
-        }
-      }
-      resolvedAvatarUrl ??= user?['profileImageUrl']?.toString();
-      _currentUserAvatarUrl = resolvedAvatarUrl;
+      final resolvedAvatarUrl = ProfileDisplayImageResolver.resolve(user);
+      _currentUserAvatarUrl = resolvedAvatarUrl.isEmpty
+          ? null
+          : resolvedAvatarUrl;
 
       _roomId = widget.chatRoomId.isNotEmpty
           ? widget.chatRoomId
@@ -528,6 +452,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       setState(() {
         _isReady = true;
       });
+      await _refreshPartnerChatPhoto();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -545,7 +470,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         _isSending) {
       return;
     }
-    if (!await _ensurePartnerCanReceiveMessages()) return;
 
     setState(() {
       _isSending = true;
@@ -553,15 +477,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     try {
       _messageController.clear();
+      _pendingForceScrollToBottom = true;
 
       await _chatService.sendTextMessage(
         roomId: _roomId,
         senderId: _currentUserId!,
         text: text,
-        recipientId: widget.partnerId,
       );
 
       widget.onSend?.call(text);
+      _scrollToBottom();
     } finally {
       if (mounted) {
         setState(() {
@@ -581,8 +506,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     String? initialPlaceId,
   }) async {
     if (_currentUserId == null || _roomId.isEmpty) return;
-    if (!await _ensurePartnerCanReceiveMessages()) return;
-    if (!mounted) return;
 
     final result = await showCupertinoModalPopup<_PromiseFormResult>(
       context: context,
@@ -830,26 +753,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       );
     }
 
-    if (type == 'account_withdrawn' && data['hiddenAfterRejoin'] == true) {
-      return _ChatMessage(
-        type: MessageType.hidden,
-        text: '',
-        time: '',
-        sortDateTime: createdAt,
-      );
-    }
-
-    if (senderId == 'system' ||
-        type == 'system' ||
-        type == 'account_withdrawn') {
-      return _ChatMessage(
-        type: MessageType.system,
-        text: text,
-        time: timeText,
-        sortDateTime: createdAt,
-      );
-    }
-
     return _ChatMessage(
       type: senderId == _currentUserId
           ? MessageType.sent
@@ -1007,9 +910,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
                           final mappedMessages = messageDocs
                               .map((doc) => _mapMessage(doc.data()))
-                              .where(
-                                (message) => message.type != MessageType.hidden,
-                              )
                               .toList();
                           final allMessages = _mergeMessages(mappedMessages);
 
@@ -1031,7 +931,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             );
                           }
 
-                          _scrollToBottomOnceOnOpen();
+                          _maybeAutoScrollToBottom(messageDocs);
 
                           return SliverList(
                             delegate: SliverChildBuilderDelegate((
@@ -1043,6 +943,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                               return _MessageItem(
                                 message: message,
                                 avatarUrl:
+                                    _partnerDisplayAvatarUrl ??
                                     widget.partnerAvatarUrl ??
                                     _defaultAvatarUrl,
                                 onApprovePromise: () =>
@@ -1073,7 +974,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               stream: _roomId.isEmpty ? null : _chatService.roomStream(_roomId),
               builder: (context, snapshot) {
                 final roomData = snapshot.data?.data();
-                final isPartnerWithdrawn = _isPartnerWithdrawn(roomData);
                 final activePromiseRaw = roomData?['activePromise'];
                 final activePromise = activePromiseRaw is Map
                     ? Map<String, dynamic>.from(activePromiseRaw)
@@ -1107,18 +1007,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _Header(
-                      name: _partnerDisplayName(roomData),
-                      university: isPartnerWithdrawn
-                          ? '계정을 탈퇴한 사용자입니다'
-                          : widget.partnerUniversity,
+                      name: widget.partnerName,
+                      university: widget.partnerUniversity,
                       onBack: widget.onBack,
                       onMore: widget.onMore,
-                      onPromiseTap: isPartnerWithdrawn
-                          ? null
-                          : () => _openPromiseSheet(),
-                      onProfileTap: isPartnerWithdrawn
-                          ? null
-                          : _openPartnerProfileCard,
+                      onPromiseTap: () => _openPromiseSheet(),
+                      onProfileTap: _openPartnerProfileCard,
                     ),
                     _SafetyStampEntryButton(
                       isVisible: shouldShowSafetyStampButton,
@@ -1137,19 +1031,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             left: 0,
             right: 0,
             bottom: 0,
-            child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: _roomId.isEmpty ? null : _chatService.roomStream(_roomId),
-              builder: (context, snapshot) {
-                final isPartnerWithdrawn = _isPartnerWithdrawn(
-                  snapshot.data?.data(),
-                );
-                return _InputBar(
-                  controller: _messageController,
-                  bottomPadding: bottomPadding,
-                  onSend: isPartnerWithdrawn ? null : _handleSend,
-                  isDisabled: isPartnerWithdrawn,
-                );
-              },
+            child: _InputBar(
+              controller: _messageController,
+              bottomPadding: bottomPadding,
+              onSend: _handleSend,
             ),
           ),
         ],
@@ -1179,6 +1064,9 @@ class _SafetyStampEntryButton extends StatelessWidget {
     final backgroundColor = isEnabled
         ? (isDark ? const Color(0xFF2E1F28) : const Color(0xFFFFF3F6))
         : (isDark ? AppColorsDark.surfaceVariant : const Color(0xFFF7F5F3));
+    final borderColor = isEnabled
+        ? (isDark ? const Color(0xFF5C2A3E) : const Color(0xFFF4C6D2))
+        : (isDark ? AppColorsDark.border : const Color(0xFFE6E1DC));
     final iconColor = isEnabled
         ? (isDark ? const Color(0xFFFF8FA8) : const Color(0xFFEF6C93))
         : (isDark ? AppColorsDark.textHint : const Color(0xFFB7AEA6));
@@ -1197,11 +1085,7 @@ class _SafetyStampEntryButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: backgroundColor,
             borderRadius: BorderRadius.circular(14),
-            boxShadow: _promiseSoftShadow(
-              context,
-              isEnabled ? iconColor : _AppColors.stone400,
-              opacity: isEnabled ? 0.12 : 0.08,
-            ),
+            border: Border.all(color: borderColor),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1286,7 +1170,6 @@ class _Header extends StatelessWidget {
     final textSubColor = isDark
         ? AppColorsDark.textSecondary
         : _AppColors.textSubtle;
-    final isPromiseEnabled = onPromiseTap != null;
 
     return SafeArea(
       bottom: false,
@@ -1390,23 +1273,19 @@ class _Header extends StatelessWidget {
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: isPromiseEnabled
-                        ? _AppColors.primarySoft.withValues(
-                            alpha: _AppColors.promiseFillAlpha,
-                          )
-                        : buttonBg,
+                    color: _AppColors.primarySoft.withValues(
+                      alpha: _AppColors.promiseFillAlpha,
+                    ),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Center(
+                  child: const Center(
                     child: Text(
                       '약속잡기',
                       style: TextStyle(
                         fontFamily: 'Pretendard',
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: isPromiseEnabled
-                            ? _AppColors.primary
-                            : textSubColor,
+                        color: _AppColors.primary,
                       ),
                     ),
                   ),
@@ -1458,20 +1337,19 @@ class _ActivePromiseBanner extends StatelessWidget {
     final place = activePromise['place']?.toString() ?? '';
     final categoryRaw = activePromise['placeCategory']?.toString() ?? '';
     final categoryLabel = PromisePlaceCategory.labelOrEmpty(categoryRaw);
-    final bgColor = _AppColors.primarySoft.withValues(
-      alpha: _AppColors.promiseFillAlphaLight,
-    );
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: bgColor,
+        color: _AppColors.primarySoft.withValues(
+          alpha: _AppColors.promiseFillAlphaLight,
+        ),
         borderRadius: BorderRadius.circular(14),
-        boxShadow: _promiseSoftShadow(
-          context,
-          _AppColors.primarySoft,
-          opacity: 0.12,
+        border: Border.all(
+          color: _AppColors.primarySoft.withValues(
+            alpha: _AppColors.promiseBorderAlpha,
+          ),
         ),
       ),
       child: Text(
@@ -1524,10 +1402,6 @@ class _MessageItem extends StatelessWidget {
           time: message.time,
           isRead: message.isRead,
         );
-      case MessageType.system:
-        return _SystemMessage(text: message.text);
-      case MessageType.hidden:
-        return const SizedBox.shrink();
       case MessageType.promiseRequest:
         return _PromiseRequestMessage(
           message: message,
@@ -1652,48 +1526,6 @@ class _ReceivedMessage extends StatelessWidget {
   }
 }
 
-class _SystemMessage extends StatelessWidget {
-  final String text;
-
-  const _SystemMessage({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDark ? AppColorsDark.surfaceVariant : _AppColors.stone100;
-    final textColor = isDark
-        ? AppColorsDark.textSecondary
-        : _AppColors.textSubtle;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Center(
-        child: Container(
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.78,
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            text,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: 'Pretendard',
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              height: 1.35,
-              color: textColor,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _SentMessage extends StatelessWidget {
   final String text;
   final String time;
@@ -1806,6 +1638,7 @@ class _PromiseRequestMessage extends StatelessWidget {
     if (message.shouldHideAsExpired) return const SizedBox.shrink();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? AppColorsDark.surface : CupertinoColors.white;
+    final cardBorder = isDark ? AppColorsDark.border : _AppColors.stone200;
     final textMainColor = isDark
         ? AppColorsDark.textPrimary
         : _AppColors.textMain;
@@ -1825,11 +1658,7 @@ class _PromiseRequestMessage extends StatelessWidget {
           decoration: BoxDecoration(
             color: cardBg,
             borderRadius: BorderRadius.circular(20),
-            boxShadow: _promiseSoftShadow(
-              context,
-              _AppColors.primarySoft,
-              opacity: 0.10,
-            ),
+            border: Border.all(color: cardBorder),
           ),
           child: Column(
             children: [
@@ -2030,10 +1859,10 @@ class _PromiseConfirmedBanner extends StatelessWidget {
               alpha: _AppColors.promiseFillAlpha,
             ),
             borderRadius: BorderRadius.circular(20),
-            boxShadow: _promiseSoftShadow(
-              context,
-              _AppColors.primarySoft,
-              opacity: 0.15,
+            border: Border.all(
+              color: _AppColors.primarySoft.withValues(
+                alpha: _AppColors.promiseBorderAlphaStrong,
+              ),
             ),
           ),
           child: Column(
@@ -2134,6 +1963,9 @@ class _PromiseCompletedBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF1A2922) : const Color(0xFFEAF5EE);
+    final borderColor = isDark
+        ? const Color(0xFF2A4A34)
+        : const Color(0xFFC7E5D0);
     final greenTitle = isDark
         ? const Color(0xFF66BB6A)
         : const Color(0xFF2E7D4F);
@@ -2150,7 +1982,7 @@ class _PromiseCompletedBanner extends StatelessWidget {
           decoration: BoxDecoration(
             color: bgColor,
             borderRadius: BorderRadius.circular(20),
-            boxShadow: _promiseSoftShadow(context, greenTitle, opacity: 0.13),
+            border: Border.all(color: borderColor),
           ),
           child: Column(
             children: [
@@ -2216,6 +2048,9 @@ class _PromiseInProgressBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF2A2314) : const Color(0xFFFFF7E8);
+    final borderColor = isDark
+        ? const Color(0xFF4A3A1E)
+        : const Color(0xFFF0D7A6);
     final amberTitle = isDark
         ? const Color(0xFFFFB74D)
         : const Color(0xFF9A6500);
@@ -2232,7 +2067,7 @@ class _PromiseInProgressBanner extends StatelessWidget {
           decoration: BoxDecoration(
             color: bgColor,
             borderRadius: BorderRadius.circular(20),
-            boxShadow: _promiseSoftShadow(context, amberTitle, opacity: 0.13),
+            border: Border.all(color: borderColor),
           ),
           child: Column(
             children: [
@@ -3050,13 +2885,11 @@ class _InputBar extends StatelessWidget {
   final TextEditingController controller;
   final double bottomPadding;
   final VoidCallback? onSend;
-  final bool isDisabled;
 
   const _InputBar({
     required this.controller,
     required this.bottomPadding,
     this.onSend,
-    this.isDisabled = false,
   });
 
   @override
@@ -3073,9 +2906,6 @@ class _InputBar extends StatelessWidget {
         : _AppColors.stone400;
     final textColor = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
     final sendBg = isDark ? AppColorsDark.primary : _AppColors.sendButton;
-    final disabledTextColor = isDark
-        ? AppColorsDark.textHint
-        : _AppColors.stone400;
 
     return Container(
       padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPadding + 32),
@@ -3101,27 +2931,24 @@ class _InputBar extends StatelessWidget {
           children: [
             CupertinoButton(
               padding: EdgeInsets.zero,
-              onPressed: isDisabled ? null : () {},
+              onPressed: () {},
               child: Transform.rotate(
                 angle: 0.785,
                 child: Icon(
                   CupertinoIcons.paperclip,
                   size: 24,
-                  color: isDisabled ? disabledTextColor : iconColor,
+                  color: iconColor,
                 ),
               ),
             ),
             Expanded(
               child: CupertinoTextField(
                 controller: controller,
-                enabled: !isDisabled,
-                placeholder: isDisabled
-                    ? '탈퇴한 사용자와는 대화할 수 없어요'
-                    : 'Write a message...',
+                placeholder: 'Write a message...',
                 placeholderStyle: TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 15,
-                  color: isDisabled ? disabledTextColor : placeholderColor,
+                  color: placeholderColor,
                 ),
                 style: TextStyle(
                   fontFamily: 'Pretendard',
@@ -3138,19 +2965,15 @@ class _InputBar extends StatelessWidget {
             ),
             CupertinoButton(
               padding: EdgeInsets.zero,
-              onPressed: isDisabled || onSend == null
-                  ? null
-                  : () {
-                      HapticFeedback.mediumImpact();
-                      onSend?.call();
-                    },
+              onPressed: () {
+                HapticFeedback.mediumImpact();
+                onSend?.call();
+              },
               child: Container(
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: isDisabled
-                      ? disabledTextColor.withValues(alpha: 0.35)
-                      : sendBg,
+                  color: sendBg,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(

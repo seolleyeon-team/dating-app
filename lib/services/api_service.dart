@@ -1,38 +1,44 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
+/// Legacy placeholder HTTP client. Not wired into production flows.
+/// Release construction is blocked so a forgotten import cannot hit
+/// `api.example.com` or silently send unauthenticated traffic.
 class ApiService {
   late final Dio _dio;
-  static const String baseUrl = 'https://api.example.com'; // TODO: Replace with actual API URL
+  static const String baseUrl = 'https://api.example.com';
 
   ApiService() {
+    if (kReleaseMode) {
+      throw UnsupportedError(
+        'ApiService is a legacy placeholder and must not be used in release.',
+      );
+    }
     _dio = Dio(
       BaseOptions(
         baseUrl: baseUrl,
         connectTimeout: const Duration(seconds: 30),
         receiveTimeout: const Duration(seconds: 30),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: {'Content-Type': 'application/json'},
       ),
     );
 
-    // Add interceptors for logging, error handling, etc.
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          // Add auth token if available
-          // options.headers['Authorization'] = 'Bearer $token';
           return handler.next(options);
         },
         onError: (error, handler) {
-          // Handle errors globally
           return handler.next(error);
         },
       ),
     );
   }
 
-  Future<Response> get(String path, {Map<String, dynamic>? queryParameters}) async {
+  Future<Response> get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+  }) async {
     try {
       return await _dio.get(path, queryParameters: queryParameters);
     } catch (e) {

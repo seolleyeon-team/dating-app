@@ -109,38 +109,39 @@ class _ThreeVsThreeMatchScreenState extends State<ThreeVsThreeMatchScreen> {
                 Expanded(
                   child: _loading
                       ? const Center(
-                          child: CupertinoActivityIndicator(radius: 16))
+                          child: CupertinoActivityIndicator(radius: 16),
+                        )
                       : _errorMessage != null
-                          ? _ErrorState(message: _errorMessage!)
-                          : SingleChildScrollView(
-                              physics: const BouncingScrollPhysics(),
-                              padding: const EdgeInsets.only(
-                                left: 20,
-                                right: 20,
-                                top: 24,
-                                bottom: 100,
+                      ? _ErrorState(message: _errorMessage!)
+                      : SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          padding: const EdgeInsets.only(
+                            left: 20,
+                            right: 20,
+                            top: 24,
+                            bottom: 100,
+                          ),
+                          child: Column(
+                            children: [
+                              _TeamSection(
+                                title: '상대 팀',
+                                badge: '매칭 완료',
+                                team: opponentTeam,
+                                currentUserId: uid,
+                                gradientSets: _opponentGradients,
                               ),
-                              child: Column(
-                                children: [
-                                  _TeamSection(
-                                    title: '상대 팀',
-                                    badge: '매칭 완료',
-                                    team: opponentTeam,
-                                    currentUserId: uid,
-                                    gradientSets: _opponentGradients,
-                                  ),
-                                  const _HeartPulseAnimation(),
-                                  _TeamSection(
-                                    title: '우리 팀',
-                                    team: myTeam,
-                                    currentUserId: uid,
-                                    gradientSets: _myTeamGradients,
-                                    isMyTeam: true,
-                                  ),
-                                  const SizedBox(height: 80),
-                                ],
+                              const _HeartPulseAnimation(),
+                              _TeamSection(
+                                title: '우리 팀',
+                                team: myTeam,
+                                currentUserId: uid,
+                                gradientSets: _myTeamGradients,
+                                isMyTeam: true,
                               ),
-                            ),
+                              const SizedBox(height: 80),
+                            ],
+                          ),
+                        ),
                 ),
               ],
             ),
@@ -214,8 +215,10 @@ class _TeamSection extends StatelessWidget {
               ),
               if (badge != null)
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: _AppColors.primary.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
@@ -301,8 +304,8 @@ class _ProfileCard extends StatelessWidget {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(isMe ? 22 : 24),
                   child: SizedBox.expand(
-                    child: member.photoUrl != null &&
-                            member.photoUrl!.isNotEmpty
+                    child:
+                        member.photoUrl != null && member.photoUrl!.isNotEmpty
                         ? Image.network(
                             member.photoUrl!,
                             fit: BoxFit.cover,
@@ -372,7 +375,9 @@ class _ProfileCard extends StatelessWidget {
                     left: 8,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: _AppColors.primary,
                         borderRadius: BorderRadius.circular(10),
@@ -462,10 +467,7 @@ class _EmptyProfileCard extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        const Text(
-          '',
-          style: TextStyle(fontSize: 11),
-        ),
+        const Text('', style: TextStyle(fontSize: 11)),
       ],
     );
   }
@@ -485,9 +487,7 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       decoration: BoxDecoration(
         color: _AppColors.surfaceLight.withValues(alpha: 0.8),
-        border: const Border(
-          bottom: BorderSide(color: Color(0xFFF3F4F6)),
-        ),
+        border: const Border(bottom: BorderSide(color: Color(0xFFF3F4F6))),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -646,7 +646,7 @@ class _ErrorState extends StatelessWidget {
               message,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NanumSquareRound',
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
                 height: 1.45,
