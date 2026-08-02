@@ -1,0 +1,1 @@
+{"tool_name":"execute_pwsh","tool_input":{"command":"node functions/export_rec_events.js"}}

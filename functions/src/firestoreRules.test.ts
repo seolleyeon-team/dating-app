@@ -49,7 +49,7 @@ test("owner private collections and app feedback rules fail closed", () => {
   );
   assertContains(
     "notifications must be owner-readable and client read-status only",
-    "match /notifications/{notificationId} { allow get, list: if isSelf(kakaoUserId); allow create: if false; allow update: if isSelf(kakaoUserId) && request.resource.data.diff(resource.data).changedKeys().hasOnly([ 'isRead', 'readAt' ]); allow delete: if false; }"
+    "match /notifications/{notificationId} { allow get, list: if isSelf(kakaoUserId); allow create: if false; allow update: if isSelf(kakaoUserId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([ 'isRead', 'readAt' ]); allow delete: if false; }"
   );
   assertContains(
     "issue reports must be authenticated owner-bound create only",
@@ -186,14 +186,24 @@ test("event team match results are participant-scoped and locks are fully privat
 });
 
 test("chat rooms keep participantIds immutable and message updates scoped", () => {
-  assertContains(
-    "chat room updates must keep participantIds unchanged",
-    "allow update: if isChatRoomParticipant() && isChatRoomParticipantAfter() && chatRoomParticipantIdsUnchanged() && chatRoomDoesNotPersistPrivateMedia(request.resource.data);"
-  );
-  assertContains(
-    "chat message updates must go through canUpdateChatMessage",
-    "match /messages/{messageId} { allow read: if isExistingChatRoomParticipant(roomId); allow create: if isParticipantMessageAuthor(roomId); allow update: if canUpdateChatMessage(roomId); allow delete: if false; }"
-  );
+  for (const condition of [
+    "allow update: if isChatRoomParticipant()",
+    "isChatRoomParticipantAfter()",
+    "chatRoomParticipantIdsUnchanged()",
+    "chatRoomDoesNotPersistPrivateMedia(request.resource.data)",
+    "!isBlindMeetingRoomData(resource.data)",
+  ]) {
+    assertContains("chat room update gate includes " + condition, condition);
+  }
+  for (const condition of [
+    "match /messages/{messageId} {",
+    "allow read: if isExistingChatRoomParticipant(roomId);",
+    "allow create: if isParticipantMessageAuthor(roomId)",
+    "allow update: if canUpdateChatMessage(roomId)",
+    "allow delete: if false;",
+  ]) {
+    assertContains("chat message rule includes " + condition, condition);
+  }
   assertContains(
     "plain text messages cannot be rewritten except for read receipts",
     "function onlyMessageReadReceiptUpdate() { return request.resource.data.diff(resource.data).affectedKeys() .hasOnly(['readBy', 'updatedAt']); }"

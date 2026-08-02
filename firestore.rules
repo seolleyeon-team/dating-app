@@ -11,16 +11,16 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // A token document is NOT proof of identity. It only carries the
     // (kakaoUserId, email) pair from the app to the verification web page.
-    // Anyone who can write one for an arbitrary uid can have a Firebase custom
-    // token minted for that uid, so creation is bound to the caller's session.
-    // KakaoLoginFirestoreBootstrap guarantees uid == kakaoUserId before this
-    // screen is reachable.
+    // The former email-link custom-token callable was removed. Creation still
+    // stays bound to the caller's Kakao-backed Firebase session so this lookup
+    // document cannot be forged for another uid.
     match /emailLinkTokens/{token} {
       allow create: if request.auth != null &&
           request.resource.data.kakaoUserId is string &&
           request.auth.uid == request.resource.data.kakaoUserId &&
           request.resource.data.email is string &&
           isYonseiEmail(request.resource.data.email) &&
+          request.resource.data.createdAt is timestamp &&
           request.resource.data.expiresAt is timestamp &&
           request.resource.data.keys().hasOnly([
             'email',
@@ -41,31 +41,8 @@ service cloud.firestore {
       allow get: if true;
       allow list: if false;
 
-      // Records that the email-link sign-in actually happened. Only the holder
-      // of the verified mailbox named in the token may write it, and only these
-      // two fields may change. createFirebaseCustomTokenFromEmailLinkToken
-      // requires this marker before it mints a session.
-      allow update: if request.auth != null &&
-          request.auth.token.email is string &&
-          request.auth.token.email_verified == true &&
-          resource.data.email is string &&
-          request.auth.token.email.lower() == resource.data.email.lower() &&
-          request.resource.data.diff(resource.data).changedKeys().hasOnly([
-            'emailVerifiedUid',
-            'emailVerifiedAt'
-          ]) &&
-          request.resource.data.emailVerifiedUid == request.auth.uid;
-
-      allow delete: if request.auth != null &&
-          (
-            request.auth.uid == resource.data.kakaoUserId ||
-            (
-              request.auth.token.email is string &&
-              request.auth.token.email_verified == true &&
-              resource.data.email is string &&
-              request.auth.token.email.lower() == resource.data.email.lower()
-            )
-          );
+      allow update: if false;
+      allow delete: if isSelf(resource.data.kakaoUserId);
     }
 
         // -----------------------------------------------------------------------
@@ -310,11 +287,28 @@ service cloud.firestore {
     }
 
     function onboardingAvatarPhotoFieldsAbsent(data) {
-      return !data.keys().hasAny(['onboarding']) ||
-          !(data.onboarding is map) ||
-          !data.onboarding.keys().hasAny([
+      let onboarding = data.get('onboarding', {});
+      return onboarding is map &&
+          !onboarding.keys().hasAny([
             'avatarUrls',
-            'photoUrls'
+            'photoUrls',
+            'sourcePhotos',
+            'sourcePhotoUrls',
+            'sourcePhotoRefs',
+            'sourcePhotoIds',
+            'sourcePhotoGcsUri',
+            'gcsUri',
+            'signedUrl',
+            'signedUrls',
+            'previewUrl',
+            'previewUrls',
+            'candidatePreviewUrl',
+            'candidatePreviewUrls',
+            'clipEmbedding',
+            'clipEmbeddings',
+            'vector',
+            'faceEmbedding',
+            'faceEmbeddings'
           ]);
     }
 
@@ -349,33 +343,30 @@ service cloud.firestore {
     }
 
     function onboardingAvatarPhotoFieldsUnchanged() {
-      return (
-          request.resource.data.keys().hasAny(['onboarding']) &&
-          resource.data.keys().hasAny(['onboarding']) &&
-          request.resource.data.onboarding is map &&
-          resource.data.onboarding is map &&
-          !request.resource.data.onboarding.diff(resource.data.onboarding).affectedKeys().hasAny([
+      let after = request.resource.data.get('onboarding', {});
+      let before = resource.data.get('onboarding', {});
+      return after is map && before is map &&
+          !after.diff(before).affectedKeys().hasAny([
             'avatarUrls',
-            'photoUrls'
-          ])
-        ) || (
-          !(
-            request.resource.data.keys().hasAny(['onboarding']) &&
-            request.resource.data.onboarding is map &&
-            request.resource.data.onboarding.keys().hasAny([
-              'avatarUrls',
-              'photoUrls'
-            ])
-          ) &&
-          !(
-            resource.data.keys().hasAny(['onboarding']) &&
-            resource.data.onboarding is map &&
-            resource.data.onboarding.keys().hasAny([
-              'avatarUrls',
-              'photoUrls'
-            ])
-          )
-        );
+            'photoUrls',
+            'sourcePhotos',
+            'sourcePhotoUrls',
+            'sourcePhotoRefs',
+            'sourcePhotoIds',
+            'sourcePhotoGcsUri',
+            'gcsUri',
+            'signedUrl',
+            'signedUrls',
+            'previewUrl',
+            'previewUrls',
+            'candidatePreviewUrl',
+            'candidatePreviewUrls',
+            'clipEmbedding',
+            'clipEmbeddings',
+            'vector',
+            'faceEmbedding',
+            'faceEmbeddings'
+          ]);
     }
 
     function clientDoesNotCreateAvatarDisplayFields(data) {
@@ -596,8 +587,7 @@ service cloud.firestore {
       allow list: if false;
 
       // Initial creation through Yonsei email student verification
-      allow create: if publicUserMediaOk(request.resource.data) &&
-          clientDoesNotCreateAvatarDisplayFields(request.resource.data) &&
+      allow create: if onboardingAvatarPhotoFieldsAbsent(request.resource.data) &&
           (
             (
               hasVerifiedYonseiEmail() &&
@@ -621,6 +611,9 @@ service cloud.firestore {
               isSelf(kakaoUserId) &&
               doesNotSelfAssertStudentVerification(request.resource.data) &&
               usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
+              (!request.resource.data.keys().hasAny(['profileImageUrl']) ||
+                request.resource.data.profileImageUrl == null ||
+                request.resource.data.profileImageUrl == "") &&
               request.resource.data.keys().hasOnly([
                 'kakaoUserId',
                 'nickname',
@@ -655,8 +648,7 @@ service cloud.firestore {
           );
 
 
-      allow update: if publicUserMediaOk(request.resource.data) &&
-          clientDoesNotModifyAvatarDisplayFields() && (
+      allow update: if onboardingAvatarPhotoFieldsUnchanged() && (
           (
             // Student verification write, performed by the email-link session
             // (public/index.html, or the in-app link handler). The mailbox must
@@ -666,7 +658,7 @@ service cloud.firestore {
             writesOwnStudentEmail(request.resource.data) &&
             studentEmailIsUnboundOrMine(resource.data) &&
             request.resource.data.isStudentVerified == true &&
-            request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'kakaoUserId',
               'isStudentVerified',
               'studentEmail',
@@ -678,12 +670,9 @@ service cloud.firestore {
             resource.data.isStudentVerified == true &&
             request.resource.data.isStudentVerified == true &&
             usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
-            // Client-writable allowlist only. Moderation / withdrawal /
-            // verification timestamps / loginDisabled are server-only.
-            request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'kakaoUserId',
               'nickname',
-              'profileImageUrl',
               'email',
               'lastActivePlatform',
               'lastActivePlatformUpdatedAt',
@@ -711,10 +700,9 @@ service cloud.firestore {
             isUserDocOwner(kakaoUserId) &&
             (request.resource.data.kakaoUserId == null ||
               request.resource.data.kakaoUserId == kakaoUserId) &&
-            request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'kakaoUserId',
               'nickname',
-              'profileImageUrl',
               'email',
               'lastActivePlatform',
               'lastActivePlatformUpdatedAt',
@@ -735,6 +723,7 @@ service cloud.firestore {
               'initialSetupComplete',
               'initialSetupCompletedAt',
               'onboardingCompletedAt',
+
               'updatedAt'
             ])
           )
@@ -743,6 +732,11 @@ service cloud.firestore {
       // ---------------------------------------------------------------------
       // Device tokens
       // ---------------------------------------------------------------------
+      // 이전: get/list/delete 가 `if true`, create/update 에 request.auth 조건
+      // 없음. FCM 토큰이 전역 공개였고 남의 uid 아래에 자기 토큰을 등록할 수
+      // 있었다. shared/notify.ts 의 fetchUserTokens 는 이 문서 ID 를 그대로
+      // 수신자로 쓰기 때문에, 공격자가 피해자의 푸시(채팅 원문 포함)를
+      // 받아볼 수 있었고 남의 토큰을 지워 푸시를 막을 수도 있었다.
       match /deviceTokens/{token} {
         allow get, list: if isSelf(kakaoUserId);
 
@@ -759,13 +753,17 @@ service cloud.firestore {
       // In-app notifications
       // users/{kakaoUserId}/notifications/{notificationId}
       // ---------------------------------------------------------------------
+      // 이전: get/list/delete 가 `if true`, create 에 request.auth 조건 없음.
+      // 누구나 남의 알림함을 읽고 지울 수 있었고 임의 사용자에게 알림을
+      // 꽂아넣을 수 있었다(스팸·피싱 문구 삽입).
+      // 서버는 Admin SDK 로 쓰기 때문에 규칙을 우회하므로 영향이 없다.
       match /notifications/{notificationId} {
         allow get, list: if isSelf(kakaoUserId);
 
         allow create: if false;
 
         allow update: if isSelf(kakaoUserId) &&
-          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'isRead',
             'readAt'
           ]);
@@ -895,33 +893,290 @@ service cloud.firestore {
 
     // -----------------------------------------------------------------------
     // Chat
+    //
+    // 블라인드 취향 미팅 채팅방(roomType이 blind_meeting_*)은 서버가 멤버십과
+    // 읽기 전용 여부를 관리하므로 클라이언트 쓰기를 별도로 제한한다.
     // -----------------------------------------------------------------------
+    function blindMeetingRoomTypes() {
+      return ['blind_meeting_group', 'blind_meeting_direct'];
+    }
+
+    function isBlindMeetingRoomData(data) {
+      return data != null &&
+          data.get('roomType', null) in blindMeetingRoomTypes();
+    }
+
+    function blindRoomData(roomId) {
+      return get(/databases/$(database)/documents/chat_rooms/$(roomId)).data;
+    }
+
+    function isRoomParticipant(roomId) {
+      return request.auth != null &&
+          request.auth.uid in blindRoomData(roomId).participantIds;
+    }
+
+    // 이전: chat_rooms 와 messages 모두 `allow read: if true` 였다. 인증 없이
+    // 전체 사용자의 채팅 원문을 읽을 수 있었다. 또 블라인드 미팅이 아닌 방은
+    // create/update 에 조건이 사실상 없어서 누구나 방을 만들고 남의 이름으로
+    // 메시지를 넣을 수 있었다.
+    //
+    // 참가자 모델: chat_rooms 문서의 participantIds 배열.
+    // 목록 조회는 where('participantIds' arrayContains uid) 로 하므로
+    // 문서 단위 규칙과 맞는다 (chat_service.dart:61 / :69).
+    //
+    // 블라인드 미팅 방의 기존 조건은 그대로 유지한다. 아래 변경은 모든
+    // roomType 에 참가자 게이트를 추가하는 것이고, 블라인드 전용 추가 조건은
+    // 손대지 않았다. 회귀는 blind_meeting_rules.test.js 로 확인해야 한다.
     match /chat_rooms/{roomId} {
       allow read: if isChatRoomParticipant();
       allow create: if isChatRoomParticipantAfter() &&
+        !isBlindMeetingRoomData(request.resource.data) &&
         chatRoomDoesNotPersistPrivateMedia(request.resource.data);
       // participantIds is immutable after create — changing it would let a
       // participant add a third party who can then read the full history.
       allow update: if isChatRoomParticipant() &&
         isChatRoomParticipantAfter() &&
         chatRoomParticipantIdsUnchanged() &&
-        chatRoomDoesNotPersistPrivateMedia(request.resource.data);
+        chatRoomDoesNotPersistPrivateMedia(request.resource.data) &&
+        (!isBlindMeetingRoomData(resource.data) || (
+          resource.data.writable == true &&
+          request.resource.data.roomType == resource.data.roomType &&
+          request.resource.data.writable == resource.data.writable &&
+          request.resource.data.status == resource.data.status &&
+          request.resource.data.meetingId == resource.data.meetingId
+        ));
       allow delete: if false;
 
       match /messages/{messageId} {
         allow read: if isExistingChatRoomParticipant(roomId);
-        allow create: if isParticipantMessageAuthor(roomId);
-        allow update: if canUpdateChatMessage(roomId);
+        allow create: if isParticipantMessageAuthor(roomId) &&
+          (!isBlindMeetingRoomData(blindRoomData(roomId)) || (
+            blindRoomData(roomId).writable == true &&
+            request.resource.data.text is string &&
+            request.resource.data.text.size() > 0 &&
+            request.resource.data.text.size() <= 1000
+          ));
+        allow update: if canUpdateChatMessage(roomId) &&
+          (!isBlindMeetingRoomData(blindRoomData(roomId)) || (
+            request.resource.data.senderId == resource.data.senderId &&
+            request.resource.data.text == resource.data.text
+          ));
         allow delete: if false;
       }
 
       match /promises/{promiseId} {
-        allow read, create, update: if isExistingChatRoomParticipant(roomId);
+        allow read: if isExistingChatRoomParticipant(roomId);
+        allow create, update: if isExistingChatRoomParticipant(roomId) &&
+          (!isBlindMeetingRoomData(blindRoomData(roomId)) ||
+            blindRoomData(roomId).writable == true);
         allow delete: if false;
       }
     }
-    
-        // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // 3:3 블라인드 취향 미팅
+    //
+    //  - 비공개 미팅 DNA는 본인만 읽을 수 있고 클라이언트 쓰기는 전면 금지
+    //  - 미팅 상태·팀 배열·결제·참석 상태는 서버(Cloud Functions)만 변경
+    //  - 내부 매칭 점수는 클라이언트에서 읽을 수 없음
+    //  - 후속 선택은 본인 문서만 읽기 가능, 상호 선택 판정은 서버 전용
+    // -----------------------------------------------------------------------
+    function isBlindOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function blindMeetingData(meetingId) {
+      return get(/databases/$(database)/documents/blindMeetings/$(meetingId)).data;
+    }
+
+    function isBlindMeetingParticipant(meetingId) {
+      return request.auth != null &&
+          request.auth.uid in blindMeetingData(meetingId).participantIds;
+    }
+
+    // 비공개 미팅 DNA: 본인 읽기만, 쓰기는 callable(submitBlindMeetingApplication)만
+    match /blindMeetingDna/{userId} {
+      allow get: if isBlindOwner(userId);
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    // 신청 상태: 본인 읽기만
+    match /blindMeetingApplications/{userId} {
+      allow get: if isBlindOwner(userId);
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /blindMeetings/{meetingId} {
+      // 자신이 참가한 미팅만 조회 가능
+      allow get, list: if request.auth != null &&
+          request.auth.uid in resource.data.participantIds;
+      allow create, update, delete: if false;
+
+      // 참가자 상태: 본인 문서만 읽기, 쓰기는 서버만
+      match /participants/{userId} {
+        allow get: if isBlindOwner(userId) ||
+            isBlindMeetingParticipant(meetingId);
+        allow list: if isBlindMeetingParticipant(meetingId);
+        allow create, update, delete: if false;
+      }
+
+      // 공개 프로필 스냅샷 (얼굴 사진·비공개 DNA 없음)
+      match /publicProfiles/{userId} {
+        allow get, list: if isBlindMeetingParticipant(meetingId);
+        allow create, update, delete: if false;
+      }
+
+      // 내부 매칭 점수: 서버 전용
+      match /matchingResult/{docId} {
+        allow read, write: if false;
+      }
+
+      // 후속 선택: 자신의 선택만 읽기, 쓰기는 callable만
+      match /followUpChoices/{chooserUid} {
+        allow get: if isBlindOwner(chooserUid);
+        allow list: if false;
+        allow create, update, delete: if false;
+      }
+
+      // 상호 선택 결과: callable(getBlindMeetingMutualMatches)로만 조회
+      match /mutualMatches/{pairId} {
+        allow read, write: if false;
+      }
+
+      match /feedback/{userId} {
+        allow get: if isBlindOwner(userId);
+        allow list: if false;
+        allow create, update, delete: if false;
+      }
+
+      match /scheduleVotes/{userId} {
+        allow get, list: if isBlindMeetingParticipant(meetingId);
+        allow create, update, delete: if false;
+      }
+
+      match /fivePersonVotes/{userId} {
+        allow get, list: if isBlindMeetingParticipant(meetingId);
+        allow create, update, delete: if false;
+      }
+    }
+
+    // 대체 참가 제안: 제안받은 본인만 조회
+    match /blindMeetingReplacementOffers/{offerId} {
+      allow get: if request.auth != null &&
+          request.auth.uid == resource.data.candidateUid;
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    // 참여 제한 / 통계: 본인 읽기만
+    match /blindMeetingRestrictions/{userId} {
+      allow get: if isBlindOwner(userId);
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /blindMeetingStats/{userId} {
+      allow get: if isBlindOwner(userId);
+      allow list: if false;
+      allow create, update, delete: if false;
+
+      match /noShows/{meetingId} {
+        allow read, write: if false;
+      }
+    }
+
+    match /blindMeetingHistory/{userId} {
+      allow read, write: if false;
+      match /metUsers/{otherUid} {
+        allow read, write: if false;
+      }
+    }
+
+    // 결제/환불, 안전 flag, 운영 검토, 알림 발송 로그: 서버 전용
+    match /blindMeetingDeposits/{depositId} {
+      allow read, write: if false;
+    }
+
+    match /blindMeetingSafetyFlags/{meetingId} {
+      allow read, write: if false;
+    }
+
+    match /blindMeetingOpsReviews/{reviewId} {
+      allow read, write: if false;
+    }
+
+    match /notificationDispatchLog/{dispatchKey} {
+      allow read, write: if false;
+    }
+
+    // 운영 설정(보증금 금액 등)은 읽기 전용으로 공개
+    match /blindMeetingConfig/{docId} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if false;
+    }
+
+    // Analytics: 개인정보 없는 이벤트만 append. 조회는 서버/운영 전용.
+    match /blindMeetingAnalytics/{eventId} {
+      allow create: if
+          request.resource.data.event is string &&
+          request.resource.data.event.size() > 0 &&
+          request.resource.data.event.matches('^blind_meeting_[a-z0-9_]+$') &&
+          request.resource.data.params is map &&
+          !('nickname' in request.resource.data.params) &&
+          !('interests' in request.resource.data.params) &&
+          !('userId' in request.resource.data.params) &&
+          !('studentEmail' in request.resource.data.params);
+      allow read, update, delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // 3:3 미팅 아이스브레이킹 룰렛 (시즌 미팅 / 블라인드 취향 미팅 전용)
+    //
+    //  - 15분 반복 알림 상태는 서버(Cloud Functions)만 만들고 바꾼다
+    //  - 참가자는 자신의 문서만 읽는다 (다른 참가자의 알림 설정은 비공개)
+    //  - "이번 미팅 알림 끄기"는 callable(meetingIcebreakerAction)만 처리한다
+    // -----------------------------------------------------------------------
+    match /meetingIcebreakerSessions/{sessionId} {
+      // 세션 메타(원본 미팅 참조)는 클라이언트가 직접 읽지 않는다.
+      allow read: if false;
+      allow create, update, delete: if false;
+
+      match /promptParticipants/{userId} {
+        allow get: if request.auth != null && request.auth.uid == userId;
+        allow list: if false;
+        // isActive / nextPromptAt / promptSequence / stopReason 는 서버 전용
+        allow create, update, delete: if false;
+      }
+    }
+
+    // 운영 설정(알림 주기, 최대 지속 시간, feature flag)은 읽기 전용으로 공개
+    match /meetingIcebreakerConfig/{docId} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if false;
+    }
+
+    // Analytics: 개인정보와 폭탄 숨겨진 시간이 없는 이벤트만 append.
+    match /meetingIcebreakerAnalytics/{eventId} {
+      allow create: if
+          request.resource.data.event is string &&
+          request.resource.data.event.size() > 0 &&
+          request.resource.data.event.matches('^(meeting_icebreaker|meeting_roulette|meeting_game|bomb_timer)_[a-z0-9_]+$') &&
+          request.resource.data.params is map &&
+          !('nickname' in request.resource.data.params) &&
+          !('userId' in request.resource.data.params) &&
+          !('participantIds' in request.resource.data.params) &&
+          !('place' in request.resource.data.params) &&
+          !('hiddenSeconds' in request.resource.data.params) &&
+          !('bombSeconds' in request.resource.data.params) &&
+          !('fcmToken' in request.resource.data.params);
+      allow read, update, delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
     // Promise place catalog
     // -----------------------------------------------------------------------
     match /place_catalog_meta/{docId} {
@@ -937,6 +1192,10 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // Bamboo Forest (Community)
     // -----------------------------------------------------------------------
+    // 이전: create 에 request.auth 조건이 없어서 authorId 를 위조해 남의
+    // 이름으로 글을 쓸 수 있었고, update 2번째 분기가 카운터를 보호하지 않아
+    // likeCount / commentCount / score7d 를 임의 값으로 바꿀 수 있었다
+    // (인기 순위 조작).
     match /bamboo_posts/{postId} {
       allow get, list: if isSignedIn();
 
@@ -981,6 +1240,8 @@ service cloud.firestore {
       // ---------------------------------------------------------------------
       // Post likes
       // ---------------------------------------------------------------------
+      // 이전: 익명 read, create 에 auth 조건 없음, delete 가 `if true` 여서
+      // 남의 좋아요를 취소할 수 있었다.
       match /likes/{userId} {
         allow get, list: if isSignedIn();
 
@@ -1076,6 +1337,9 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // 이전: read/update/delete 가 모두 `if true`.
+    // 본인이 낸 문의는 본인이 볼 수 있어야 하므로 소유자 스코프 read 만 남긴다.
+    // 상태 변경과 삭제는 서버 전용이다.
     match /app_issue_reports/{reportId} {
       allow create: if
         isSignedIn() &&
@@ -1095,6 +1359,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // 이전: read/update/delete 가 모두 `if true`.
     match /app_inquiries/{inquiryId} {
       allow create: if
         isSignedIn() &&
@@ -1160,6 +1425,8 @@ service cloud.firestore {
     // Model Recs (AI recommendation results: rrf, clip, svd, knn - stored by server, read by app)
     // Reads may be allowed when Kakao login leaves request.auth null.
     // -----------------------------------------------------------------------
+    // 이전: `allow read: if true` — 누구나 임의 사용자의 추천 결과를 읽을 수
+    // 있었다. 추천 결과에는 candidateUid 목록과 source score 가 들어간다.
     match /modelRecs/{userId}/daily/{dateKey}/sources/{algo} {
       allow read: if isSelf(userId);
       allow write: if false;
@@ -1168,6 +1435,9 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // Asks (anonymous questions: 1:1 question)
     // -----------------------------------------------------------------------
+    // 이전: `allow read: if true` 로 전체 무물 내용이 공개였고, create 에
+    // request.auth 조건이 없어서 fromUserId 를 위조해 남의 이름으로 질문을
+    // 보낼 수 있었다. update 도 아무나 상태를 바꿀 수 있었다.
     match /asks/{askId} {
       allow read: if isAskParticipant(resource.data);
 
@@ -1177,6 +1447,7 @@ service cloud.firestore {
         request.resource.data.fromUserId == request.auth.uid &&
         request.resource.data.toUserId is string &&
         request.resource.data.toUserId.size() > 0 &&
+        request.resource.data.toUserId != request.auth.uid &&
         request.resource.data.text is string &&
         request.resource.data.text.size() > 0 &&
         request.resource.data.status == 'sent';
@@ -1186,7 +1457,7 @@ service cloud.firestore {
         resource.data.toUserId == request.auth.uid &&
         resource.data.status == 'sent' &&
         request.resource.data.status == 'read' &&
-        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status', 'readAt', 'updatedAt'
         ]);
 
@@ -1196,6 +1467,9 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // Interactions (like / nope / view / message)
     // -----------------------------------------------------------------------
+    // 이전: `allow read: if true` 로 전체 like/nope 기록이 공개였고, create 에
+    // request.auth 조건이 없어서 fromUserId 를 위조할 수 있었다. 위조된 like 는
+    // onInteractionCreated(index.ts:2304)를 통해 실제 매치와 채팅방을 만들었다.
     match /interactions/{interactionId} {
       allow read: if isInteractionParticipant(resource.data);
       allow create: if
@@ -1216,6 +1490,7 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // Matches (match records)
     // -----------------------------------------------------------------------
+    // 이전: `allow read: if true` — 누구나 전체 매치 기록을 볼 수 있었다.
     match /matches/{matchId} {
       allow read: if isMatchParticipant(resource.data);
       allow create: if false;
