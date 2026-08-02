@@ -1,0 +1,1 @@
+{"tool_name":"execute_pwsh","tool_input":{"command":"Get-Content C:\\Users\\Mickey\\.kiro-guards\\logs\\shell-gate.log -Tail 5"}}

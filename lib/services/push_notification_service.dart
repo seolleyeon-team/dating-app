@@ -9,6 +9,8 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../firebase_options.dart';
 import '../router/route_names.dart';
 import '../features/event/models/event_team_route_args.dart';
+import '../features/event/meeting_icebreaker/domain/meeting_icebreaker_prompt.dart';
+import '../features/event/meeting_icebreaker/services/meeting_icebreaker_deep_link_handler.dart';
 import '../features/chat/models/safety_stamp_follow_up_args.dart';
 import '../shared/layouts/main_scaffold_args.dart';
 import '../shared/utils/privacy_log_utils.dart';
@@ -95,6 +97,25 @@ class PushNotificationService {
         description: '채팅 및 커뮤니티 알림',
         importance: Importance.max,
       );
+
+  /// 3:3 미팅 아이스브레이킹 룰렛 전용 조용한 채널.
+  ///
+  /// 알림 센터에는 문구가 남지만 소리·진동·강한 heads-up이 없다.
+  /// 중요 채팅·안전 알림 채널(`seolleyeon_high_importance`)과 분리되어 있어
+  /// 사용자가 이 안내만 따로 끌 수 있다.
+  static const AndroidNotificationChannel _meetingIcebreakerQuietChannel =
+      AndroidNotificationChannel(
+        kMeetingIcebreakerQuietChannelId,
+        kMeetingIcebreakerQuietChannelName,
+        description: kMeetingIcebreakerQuietChannelDescription,
+        importance: Importance.low,
+        playSound: false,
+        enableVibration: false,
+        enableLights: false,
+      );
+
+  /// foreground에서 이미 표시한 알림 id (같은 알림 중복 표시 방지).
+  final Set<String> _shownForegroundNotificationIds = <String>{};
 
   Future<void> initialize() async {
     if (_initialized || _initializing) {
@@ -241,11 +262,14 @@ class PushNotificationService {
       },
     );
 
-    await _local
+    final androidPlugin = _local
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
-        >()
-        ?.createNotificationChannel(_chatChannel);
+        >();
+    await androidPlugin?.createNotificationChannel(_chatChannel);
+    await androidPlugin?.createNotificationChannel(
+      _meetingIcebreakerQuietChannel,
+    );
   }
 
   Future<void> syncFcmToken({Map<String, bool>? notificationSettings}) async {
@@ -331,19 +355,56 @@ class PushNotificationService {
       return;
     }
 
+    // 같은 알림이 두 listener를 통해 두 번 표시되지 않게 한다.
+    final dedupeId = message.data['notificationId']?.toString().trim() ?? '';
+    if (dedupeId.isNotEmpty) {
+      if (_shownForegroundNotificationIds.contains(dedupeId)) {
+        debugPrint('[PUSH] suppress duplicate foreground notification');
+        return;
+      }
+      _shownForegroundNotificationIds.add(dedupeId);
+      if (_shownForegroundNotificationIds.length > 100) {
+        _shownForegroundNotificationIds.remove(
+          _shownForegroundNotificationIds.first,
+        );
+      }
+    }
+
+    final isQuiet = type == kMeetingIcebreakerNotificationType;
+
     await _local.show(
       notification.hashCode,
       notification.title,
       notification.body,
       NotificationDetails(
-        android: AndroidNotificationDetails(
-          _chatChannel.id,
-          _chatChannel.name,
-          channelDescription: _chatChannel.description,
-          importance: Importance.max,
-          priority: Priority.high,
-        ),
-        iOS: const DarwinNotificationDetails(),
+        android: isQuiet
+            ? AndroidNotificationDetails(
+                _meetingIcebreakerQuietChannel.id,
+                _meetingIcebreakerQuietChannel.name,
+                channelDescription: _meetingIcebreakerQuietChannel.description,
+                importance: Importance.low,
+                priority: Priority.low,
+                playSound: false,
+                enableVibration: false,
+                enableLights: false,
+                onlyAlertOnce: true,
+                // 같은 미팅의 안내가 알림 센터에 쌓이지 않게 교체한다.
+                tag: message.data['sessionId']?.toString(),
+              )
+            : AndroidNotificationDetails(
+                _chatChannel.id,
+                _chatChannel.name,
+                channelDescription: _chatChannel.description,
+                importance: Importance.max,
+                priority: Priority.high,
+              ),
+        iOS: isQuiet
+            ? const DarwinNotificationDetails(
+                presentSound: false,
+                presentBadge: false,
+                interruptionLevel: InterruptionLevel.passive,
+              )
+            : const DarwinNotificationDetails(),
       ),
       payload: jsonEncode(message.data),
     );
@@ -371,9 +432,14 @@ class PushNotificationService {
         return 'asks';
       case 'event_team_invite':
         return 'events';
+      case kMeetingIcebreakerNotificationType:
+        return 'events';
       case 'safety_stamp_follow_up':
         return 'safety';
       default:
+        // 서버(functions/src/shared/notify.ts)와 같은 규칙:
+        // 블라인드 취향 미팅 알림은 이벤트 카테고리를 따른다.
+        if (type.startsWith('blind_meeting_')) return 'events';
         return null;
     }
   }
@@ -393,6 +459,16 @@ class PushNotificationService {
     if (nav == null) return;
 
     final type = data['type'] ?? '';
+
+    // 3:3 미팅 아이스브레이킹 룰렛.
+    //
+    // 화면 이동 대신 단일 coordinator가 처리한다.
+    // onMessage / onMessageOpenedApp / getInitialMessage 가 같은 알림을
+    // 각각 넘겨도 룰렛이 두 번 열리지 않는다.
+    if (type == kMeetingIcebreakerNotificationType) {
+      MeetingIcebreakerDeepLinkHandler.instance.handleNotificationData(data);
+      return;
+    }
 
     if (type == 'chat' || type == 'chat_digest') {
       nav.pushNamedAndRemoveUntil(
