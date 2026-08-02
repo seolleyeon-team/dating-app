@@ -1,0 +1,1 @@
+{"tool_name":"execute_pwsh","tool_input":{"command":"Get-CimInstance -ClassName Win32_LogicalDisk -Filter \"DeviceID='C:'\" | ForEach-Object { $_.FreeSpace / 1MB }"}}

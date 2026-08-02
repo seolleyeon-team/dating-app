@@ -1,0 +1,350 @@
+{
+  "_comment": "블라인드 취향 미팅 매칭 골든 벡터. Dart 기준 구현과 TS 서버 구현이 같은 값을 내는지 양쪽 테스트에서 검증한다. expected 값은 tools/generate_matching_vectors.js 로 생성한다.",
+  "algorithmVersion": "blind_taste_v1",
+  "slotId": "2026-08-01#evening",
+  "cases": [
+    {
+      "name": "balanced_general",
+      "alcoholFree": false,
+      "teamA": [
+        {
+          "userId": "a1",
+          "atmosphere": "calm",
+          "initiative": "initiator",
+          "purpose": "both",
+          "alcoholPreference": "noPreference",
+          "smokingPreference": "noPreference",
+          "drinkingLevel": "sometimes",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "커피",
+            "영화"
+          ],
+          "mbti": "ENFP"
+        },
+        {
+          "userId": "a2",
+          "atmosphere": "calm",
+          "initiative": "adaptive",
+          "purpose": "both",
+          "alcoholPreference": "noPreference",
+          "smokingPreference": "noPreference",
+          "drinkingLevel": "sometimes",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "커피",
+            "영화"
+          ],
+          "mbti": "ENFP"
+        },
+        {
+          "userId": "a3",
+          "atmosphere": "calm",
+          "initiative": "listener",
+          "purpose": "both",
+          "alcoholPreference": "noPreference",
+          "smokingPreference": "noPreference",
+          "drinkingLevel": "sometimes",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "커피",
+            "영화"
+          ],
+          "mbti": "ENFP"
+        }
+      ],
+      "teamB": [
+        {
+          "userId": "b1",
+          "atmosphere": "calm",
+          "initiative": "initiator",
+          "purpose": "both",
+          "alcoholPreference": "noPreference",
+          "smokingPreference": "noPreference",
+          "drinkingLevel": "sometimes",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "커피",
+            "영화"
+          ],
+          "mbti": "ENFP"
+        },
+        {
+          "userId": "b2",
+          "atmosphere": "calm",
+          "initiative": "adaptive",
+          "purpose": "both",
+          "alcoholPreference": "noPreference",
+          "smokingPreference": "noPreference",
+          "drinkingLevel": "sometimes",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "커피",
+            "영화"
+          ],
+          "mbti": "ENFP"
+        },
+        {
+          "userId": "b3",
+          "atmosphere": "calm",
+          "initiative": "listener",
+          "purpose": "both",
+          "alcoholPreference": "noPreference",
+          "smokingPreference": "noPreference",
+          "drinkingLevel": "sometimes",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "커피",
+            "영화"
+          ],
+          "mbti": "ENFP"
+        }
+      ]
+    },
+    {
+      "name": "mixed_general",
+      "alcoholFree": false,
+      "teamA": [
+        {
+          "userId": "a1",
+          "atmosphere": "lively",
+          "initiative": "initiator",
+          "purpose": "romance",
+          "alcoholPreference": "noPreference",
+          "smokingPreference": "noIndoorSmoking",
+          "drinkingLevel": "often",
+          "smokingStatus": "smoker",
+          "interestIds": [
+            "맥주",
+            "축구",
+            "힙합"
+          ],
+          "mbti": "ESTP"
+        },
+        {
+          "userId": "a2",
+          "atmosphere": "either",
+          "initiative": "adaptive",
+          "purpose": "both",
+          "alcoholPreference": "lightOkay",
+          "smokingPreference": "noPreference",
+          "drinkingLevel": "none",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "커피",
+            "독서"
+          ],
+          "mbti": "INFJ"
+        },
+        {
+          "userId": "a3",
+          "atmosphere": "calm",
+          "initiative": "listener",
+          "purpose": "both",
+          "alcoholPreference": "noPreference",
+          "smokingPreference": "noPreference",
+          "drinkingLevel": "sometimes",
+          "smokingStatus": "quitting",
+          "interestIds": [
+            "전시회",
+            "커피"
+          ],
+          "mbti": "ISFP"
+        }
+      ],
+      "teamB": [
+        {
+          "userId": "b1",
+          "atmosphere": "calm",
+          "initiative": "initiator",
+          "purpose": "both",
+          "alcoholPreference": "lightOkay",
+          "smokingPreference": "noIndoorSmoking",
+          "drinkingLevel": "none",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "커피",
+            "전시회",
+            "러닝"
+          ],
+          "mbti": "ENFJ"
+        },
+        {
+          "userId": "b2",
+          "atmosphere": "lively",
+          "initiative": "adaptive",
+          "purpose": "romance",
+          "alcoholPreference": "noPreference",
+          "smokingPreference": "noPreference",
+          "drinkingLevel": "weekly1_2",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "힙합",
+            "노래방"
+          ],
+          "mbti": "ENTP"
+        },
+        {
+          "userId": "b3",
+          "atmosphere": "calm",
+          "initiative": "listener",
+          "purpose": "both",
+          "alcoholPreference": "noPreference",
+          "smokingPreference": "noPreference",
+          "drinkingLevel": "sometimes",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "독서",
+            "커피"
+          ],
+          "mbti": "ISTJ"
+        }
+      ]
+    },
+    {
+      "name": "alcohol_free",
+      "alcoholFree": true,
+      "teamA": [
+        {
+          "userId": "a1",
+          "atmosphere": "calm",
+          "initiative": "initiator",
+          "purpose": "friendship",
+          "alcoholPreference": "allSober",
+          "smokingPreference": "nonSmokersOnly",
+          "drinkingLevel": "none",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "보드게임",
+            "커피"
+          ],
+          "mbti": "INFP"
+        },
+        {
+          "userId": "a2",
+          "atmosphere": "either",
+          "initiative": "adaptive",
+          "purpose": "friendship",
+          "alcoholPreference": "allSober",
+          "smokingPreference": "nonSmokersOnly",
+          "drinkingLevel": "none",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "보드게임",
+            "독서"
+          ],
+          "mbti": "ISFJ"
+        },
+        {
+          "userId": "a3",
+          "atmosphere": "calm",
+          "initiative": "listener",
+          "purpose": "friendship",
+          "alcoholPreference": "allSober",
+          "smokingPreference": "nonSmokersOnly",
+          "drinkingLevel": "none",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "커피",
+            "전시회"
+          ],
+          "mbti": "INTP"
+        }
+      ],
+      "teamB": [
+        {
+          "userId": "b1",
+          "atmosphere": "calm",
+          "initiative": "initiator",
+          "purpose": "friendship",
+          "alcoholPreference": "allSober",
+          "smokingPreference": "nonSmokersOnly",
+          "drinkingLevel": "none",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "커피",
+            "보드게임"
+          ],
+          "mbti": "ENFP"
+        },
+        {
+          "userId": "b2",
+          "atmosphere": "either",
+          "initiative": "adaptive",
+          "purpose": "both",
+          "alcoholPreference": "allSober",
+          "smokingPreference": "nonSmokersOnly",
+          "drinkingLevel": "none",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "독서",
+            "카공"
+          ],
+          "mbti": "ISFP"
+        },
+        {
+          "userId": "b3",
+          "atmosphere": "calm",
+          "initiative": "listener",
+          "purpose": "friendship",
+          "alcoholPreference": "allSober",
+          "smokingPreference": "nonSmokersOnly",
+          "drinkingLevel": "none",
+          "smokingStatus": "nonSmoker",
+          "interestIds": [
+            "전시회",
+            "커피"
+          ],
+          "mbti": "INFJ"
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "balanced_general": {
+      "internalTeamA": 0.9975,
+      "internalTeamB": 0.9975,
+      "crossTeamScore": 0.9703611111,
+      "minimumParticipantScore": 0.96375,
+      "finalGroupScore": 0.9812166667,
+      "participantOpponentScores": {
+        "a1": 0.9770833333,
+        "a2": 0.97875,
+        "a3": 0.96375,
+        "b1": 0.9770833333,
+        "b2": 0.97875,
+        "b3": 0.96375
+      }
+    },
+    "mixed_general": {
+      "internalTeamA": 0.7767777778,
+      "internalTeamB": 0.7495,
+      "crossTeamScore": 0.7098310185,
+      "minimumParticipantScore": 0.6508333333,
+      "finalGroupScore": 0.7311541667,
+      "participantOpponentScores": {
+        "a1": 0.6508333333,
+        "a2": 0.775625,
+        "a3": 0.7788888889,
+        "b1": 0.7450694444,
+        "b2": 0.6782638889,
+        "b3": 0.7820138889
+      }
+    },
+    "alcohol_free": {
+      "internalTeamA": 0.9040444444,
+      "internalTeamB": 0.8294111111,
+      "crossTeamScore": 0.7349222222,
+      "minimumParticipantScore": 0.65975,
+      "finalGroupScore": 0.7876444444,
+      "participantOpponentScores": {
+        "a1": 0.7986666667,
+        "a2": 0.7406666667,
+        "a3": 0.7620833333,
+        "b1": 0.8574166667,
+        "b2": 0.65975,
+        "b3": 0.78425
+      }
+    }
+  }
+}

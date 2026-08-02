@@ -1,0 +1,1 @@
+{"tool_name":"execute_pwsh","tool_input":{"command":"Write-Output ('abcdef'.Substring(0,3)); Write-Output ([Math]::Min(4,9))"}}
