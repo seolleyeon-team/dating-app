@@ -114,7 +114,7 @@ test("legit: the unauthenticated verification web page can still read the token 
   await assertSucceeds(getDoc(doc(db, "emailLinkTokens", "web-token-id")));
 });
 
-test("SEC-P0-01: only the verified email owner can mark a token as email-verified", async () => {
+test("SEC-P0-01: clients cannot mark an emailLinkTokens doc as email-verified", async () => {
   await withClearedDb(async (db) => {
     await setDoc(doc(db, "emailLinkTokens", "mark-token-id"), {
       email: VICTIM_EMAIL,
@@ -133,7 +133,7 @@ test("SEC-P0-01: only the verified email owner can mark a token as email-verifie
   );
 
   const ownerDb = await emailLinkSession("emaillink_victim", VICTIM_EMAIL);
-  await assertSucceeds(
+  await assertFails(
     updateDoc(doc(ownerDb, "emailLinkTokens", "mark-token-id"), {
       emailVerifiedUid: "emaillink_victim",
       emailVerifiedAt: Timestamp.now(),

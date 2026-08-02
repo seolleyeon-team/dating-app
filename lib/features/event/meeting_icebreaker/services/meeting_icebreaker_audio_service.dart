@@ -14,6 +14,7 @@
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
 /// 효과음 asset 경로 (pubspec assets에 등록되어 있어야 한다).
 const String kBombTickLoopAsset = 'assets/audio/bomb_tick_loop.wav';
@@ -103,7 +104,10 @@ class AudioPlayersMeetingIcebreakerAudioService
   void _reportFailure(MeetingIcebreakerAudioStage stage, Object error) {
     _lastFailed = true;
     // 실패 내용에 사용자 정보가 없다. 단계만 기록한다.
-    debugPrint('[ICEBREAKER][audio] ${stage.name} failed: $error');
+    debugPrint(
+      '[ICEBREAKER][audio] ${stage.name} failed: '
+      '${PrivacyLogUtils.errorSummary(error)}',
+    );
     onFailure?.call(stage);
   }
 

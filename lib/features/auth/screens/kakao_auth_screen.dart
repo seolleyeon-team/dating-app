@@ -169,14 +169,11 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   ) async {
     try {
       return await action();
-    } on FirebaseException catch (e, st) {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
+    } on FirebaseException catch (e) {
       debugPrint(
         '[KAKAO] Firestore step failed: step=$step '
-        'plugin=${e.plugin} code=${e.code} message=${e.message} '
-        'firebaseUid=${uid ?? '(none)'}',
+        '${PrivacyLogUtils.errorSummary(e)}',
       );
-      debugPrint(st.toString());
       throw _LoginStepException(step: step, cause: e);
     }
   }
@@ -193,7 +190,8 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
     );
     if (attached) return;
     debugPrint(
-      '[KAKAO] Firebase session NOT attached for $kakaoUserId — '
+      '[KAKAO] Firebase session NOT attached for '
+      '${PrivacyLogUtils.idFingerprint(kakaoUserId)} — '
       '이후 Firestore 요청이 request.auth == null 로 실행됩니다.',
     );
   }
@@ -215,7 +213,10 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       email: userInfo['email']?.toString(),
     );
 
-    debugPrint('[KAKAO] recreated missing users/$kakaoUserId shell document');
+    debugPrint(
+      '[KAKAO] recreated missing users/'
+      '${PrivacyLogUtils.idFingerprint(kakaoUserId)} shell document',
+    );
     return false;
   }
 

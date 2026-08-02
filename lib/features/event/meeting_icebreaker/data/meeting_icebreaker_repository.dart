@@ -9,6 +9,7 @@
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
 import '../../../../services/auth_service.dart';
 import '../../../../services/storage_service.dart';
@@ -55,7 +56,10 @@ class FirebaseMeetingIcebreakerRepository
       if (userId == null || userId.isEmpty) return false;
       return await _authService.ensureFirebaseSessionForKakao(userId);
     } catch (error) {
-      debugPrint('[ICEBREAKER] session attach failed: $error');
+      debugPrint(
+        '[ICEBREAKER] session attach failed: '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
       return false;
     }
   }
@@ -105,7 +109,10 @@ class FirebaseMeetingIcebreakerRepository
         MeetingIcebreakerEntryDecision.unavailable,
       );
     } catch (error) {
-      debugPrint('[ICEBREAKER] entry check error: $error');
+      debugPrint(
+        '[ICEBREAKER] entry check error: '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
       return const MeetingIcebreakerEntry.denied(
         MeetingIcebreakerEntryDecision.unavailable,
       );
@@ -125,7 +132,10 @@ class FirebaseMeetingIcebreakerRepository
       });
       return payload['optedOut'] == true;
     } catch (error) {
-      debugPrint('[ICEBREAKER] opt-out failed: $error');
+      debugPrint(
+        '[ICEBREAKER] opt-out failed: '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
       // 실패했으면 이전 상태를 유지한다 (낙관적 반영 금지).
       return !optedOut;
     }
