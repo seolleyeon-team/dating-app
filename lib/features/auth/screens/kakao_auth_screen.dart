@@ -1,7 +1,8 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, kIsWeb, TargetPlatform;
+    show defaultTargetPlatform, kDebugMode, kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
@@ -14,7 +15,6 @@ import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/layouts/main_scaffold_args.dart';
 import '../../../utils/kakao_key_hash_util.dart';
-import '../services/kakao_login_firestore_bootstrap.dart';
 
 /// 카카오 인증 화면
 class KakaoAuthScreen extends StatefulWidget {
@@ -30,7 +30,6 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   final _storageService = StorageService();
   final _friendInviteService = FriendInviteService();
   final _userService = UserService();
-  late final KakaoLoginFirestoreBootstrap _firestoreBootstrap;
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -59,16 +58,27 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       ].join('\n');
     }
 
+    if (msg.contains('permission-denied')) {
+      if (!kDebugMode) {
+        return '서버 권한 설정 때문에 로그인을 끝내지 못했어요.\n잠시 후 다시 시도하거나 고객센터에 문의해 주세요.';
+      }
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      return [
+        msg,
+        '',
+        'Firestore 보안 규칙이 이 작업을 거부했어요. 확인 순서:',
+        '1) 최신 규칙 배포 여부 — firebase deploy --only firestore:rules',
+        '2) App Check 적용(enforce) 중이면 이 기기 디버그 토큰 등록 여부',
+        'Firebase uid: ${uid ?? '(세션 없음 · request.auth == null)'}',
+      ].join('\n');
+    }
+
     return msg;
   }
 
   @override
   void initState() {
     super.initState();
-    _firestoreBootstrap = KakaoLoginFirestoreBootstrap(
-      authService: _authService,
-      userService: _userService,
-    );
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -151,6 +161,109 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
     return true;
   }
 
+  /// 로그인 플로우 전체가 하나의 try/catch 로 묶여 있어서 어떤 Firestore 작업이
+  /// 거부됐는지 알 수 없었다. 단계 이름과 그 시점의 인증 상태를 함께 남긴다.
+  Future<T> _runFirestoreStep<T>(
+    String step,
+    Future<T> Function() action,
+  ) async {
+    try {
+      return await action();
+    } on FirebaseException catch (e) {
+      debugPrint(
+        '[KAKAO] Firestore step failed: step=$step '
+        '${PrivacyLogUtils.errorSummary(e)}',
+      );
+      throw _LoginStepException(step: step, cause: e);
+    }
+  }
+
+  /// Firebase 커스텀 토큰 세션 부착.
+  ///
+  /// `createFirebaseCustomToken` 은 users/{kakaoUserId} 문서가 없으면
+  /// failed-precondition 을 던지므로, 반드시 셸 문서 생성 이후에 호출해야 한다.
+  /// 실패를 조용히 넘기면 이후 모든 Firestore 요청이 request.auth == null 로
+  /// 나가면서 원인을 알 수 없는 permission-denied 가 되므로 반드시 기록한다.
+  Future<void> _attachFirebaseSession(String kakaoUserId) async {
+    final attached = await _authService.ensureFirebaseSessionForKakao(
+      kakaoUserId,
+    );
+    if (attached) return;
+    debugPrint(
+      '[KAKAO] Firebase session NOT attached for '
+      '${PrivacyLogUtils.idFingerprint(kakaoUserId)} — '
+      '이후 Firestore 요청이 request.auth == null 로 실행됩니다.',
+    );
+  }
+
+  Future<bool> _ensureUserShellIfMissing({
+    required String kakaoUserId,
+    required Map<String, dynamic> userInfo,
+  }) async {
+    final existedBeforeLogin = await _authService.kakaoUserExists(kakaoUserId);
+    if (existedBeforeLogin) {
+      return true;
+    }
+
+    await _userService.upsertKakaoUser(
+      kakaoUserId: kakaoUserId,
+      nickname: userInfo['nickname']?.toString(),
+      // main의 승인 아바타 정책상 카카오 원본 사진은 공개 프로필에 저장하지 않는다.
+      profileImageUrl: null,
+      email: userInfo['email']?.toString(),
+    );
+
+    debugPrint(
+      '[KAKAO] recreated missing users/'
+      '${PrivacyLogUtils.idFingerprint(kakaoUserId)} shell document',
+    );
+    return false;
+  }
+
+  Future<bool> _stopIfRejoinRestrictedAccount(String kakaoUserId) async {
+    final isRestricted = await _userService.isRejoinRestricted(kakaoUserId);
+    if (!isRestricted) return false;
+
+    await _authService.signOutAll();
+    await _storageService.clearKakaoUserId();
+    await _storageService.clearUserId();
+    await _storageService.clearStudentVerification(kakaoUserId);
+
+    if (!mounted) return true;
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('재가입이 제한된 계정입니다'),
+        content: const Text('운영 정책에 따라 현재 계정은 재가입 또는 로그인이 제한되어 있습니다.'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
+    return true;
+  }
+
+  Future<bool> _reactivateIfWithdrawnForRejoin({
+    required String kakaoUserId,
+    required Map<String, dynamic> userInfo,
+  }) async {
+    final isWithdrawn = await _userService.isAccountWithdrawn(kakaoUserId);
+    if (!isWithdrawn) return false;
+
+    await _userService.reactivateForRejoin(
+      kakaoUserId: kakaoUserId,
+      nickname: userInfo['nickname']?.toString(),
+      profileImageUrl: userInfo['profileImageUrl']?.toString(),
+      email: userInfo['email']?.toString(),
+    );
+    await _storageService.clearStudentVerification(kakaoUserId);
+    await _storageService.clearOnboardingDraft(kakaoUserId);
+    return true;
+  }
+
   Future<void> _login() async {
     if (_isLoading) return;
 
@@ -168,12 +281,48 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       }
 
       await _storageService.saveKakaoUserId(kakaoUserId);
-      final existedBeforeLogin = await _firestoreBootstrap.bootstrap(
-        kakaoUserId: kakaoUserId,
-        platform: _currentPlatformLabel,
+      // 셸 문서를 먼저 만든 뒤 세션을 붙인다. 순서가 뒤바뀌면 신규 가입자는
+      // createFirebaseCustomToken 이 failed-precondition 으로 항상 실패한다.
+      final existedBeforeLogin = await _runFirestoreStep(
+        'users/$kakaoUserId 조회·생성',
+        () => _ensureUserShellIfMissing(
+          kakaoUserId: kakaoUserId,
+          userInfo: userInfo,
+        ),
+      );
+      await _attachFirebaseSession(kakaoUserId);
+      if (await _runFirestoreStep(
+        '재가입 제한 확인',
+        () => _stopIfRejoinRestrictedAccount(kakaoUserId),
+      )) {
+        return;
+      }
+      final reactivatedForRejoin = await _runFirestoreStep(
+        '탈퇴 계정 재활성화',
+        () => _reactivateIfWithdrawnForRejoin(
+          kakaoUserId: kakaoUserId,
+          userInfo: userInfo,
+        ),
+      );
+      await _runFirestoreStep(
+        '접속 플랫폼 기록(users.lastActivePlatform)',
+        () => _userService.setLastActivePlatform(
+          kakaoUserId: kakaoUserId,
+          platform: _currentPlatformLabel,
+        ),
+      );
+      await _runFirestoreStep(
+        '약관 동의 저장(users.legalConsents)',
+        () => _authService.syncPendingLegalConsents(kakaoUserId),
       );
 
       if (!mounted) return;
+      if (reactivatedForRejoin) {
+        Navigator.of(
+          context,
+        ).pushReplacementNamed(RouteNames.studentVerification);
+        return;
+      }
       // ✅ 이미 서버에 등록된 유저(재설치 후 약관→카카오 로그인 포함): 연세+초기설정 완료 시 홈으로
       if (existedBeforeLogin) {
         final isVerified = await _authService.isStudentVerified(kakaoUserId);
@@ -238,7 +387,8 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       if (!mounted) return;
       setState(() {
         _errorMessage = msg;
-        _showWebLoginFallback = true;
+        // 서버 권한/규칙 문제는 웹 로그인으로도 해결되지 않으므로 대안을 권하지 않는다.
+        _showWebLoginFallback = e is! _LoginStepException;
       });
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -328,11 +478,47 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         throw Exception('카카오 사용자 ID를 가져오지 못했습니다.');
       }
       await _storageService.saveKakaoUserId(kakaoUserId);
-      final existedBeforeLogin = await _firestoreBootstrap.bootstrap(
-        kakaoUserId: kakaoUserId,
-        platform: _currentPlatformLabel,
+      // 셸 문서를 먼저 만든 뒤 세션을 붙인다. 순서가 뒤바뀌면 신규 가입자는
+      // createFirebaseCustomToken 이 failed-precondition 으로 항상 실패한다.
+      final existedBeforeLogin = await _runFirestoreStep(
+        'users/$kakaoUserId 조회·생성',
+        () => _ensureUserShellIfMissing(
+          kakaoUserId: kakaoUserId,
+          userInfo: userInfo,
+        ),
+      );
+      await _attachFirebaseSession(kakaoUserId);
+      if (await _runFirestoreStep(
+        '재가입 제한 확인',
+        () => _stopIfRejoinRestrictedAccount(kakaoUserId),
+      )) {
+        return;
+      }
+      final reactivatedForRejoin = await _runFirestoreStep(
+        '탈퇴 계정 재활성화',
+        () => _reactivateIfWithdrawnForRejoin(
+          kakaoUserId: kakaoUserId,
+          userInfo: userInfo,
+        ),
+      );
+      await _runFirestoreStep(
+        '접속 플랫폼 기록(users.lastActivePlatform)',
+        () => _userService.setLastActivePlatform(
+          kakaoUserId: kakaoUserId,
+          platform: _currentPlatformLabel,
+        ),
+      );
+      await _runFirestoreStep(
+        '약관 동의 저장(users.legalConsents)',
+        () => _authService.syncPendingLegalConsents(kakaoUserId),
       );
       if (!mounted) return;
+      if (reactivatedForRejoin) {
+        Navigator.of(
+          context,
+        ).pushReplacementNamed(RouteNames.studentVerification);
+        return;
+      }
       if (existedBeforeLogin) {
         final isVerified = await _authService.isStudentVerified(kakaoUserId);
         final isInitialSetupComplete = await _authService
@@ -530,5 +716,24 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         ),
       ),
     );
+  }
+}
+
+/// 로그인 플로우에서 실패한 Firestore 단계를 식별할 수 있게 감싼 예외.
+///
+/// 화면은 전체 플로우를 하나의 catch 로 처리하므로, 이 예외가 없으면
+/// `[cloud_firestore/permission-denied]` 만 남고 어떤 작업이 거부됐는지
+/// 알 수 없다.
+class _LoginStepException implements Exception {
+  const _LoginStepException({required this.step, required this.cause});
+
+  final String step;
+  final FirebaseException cause;
+
+  @override
+  String toString() {
+    final detail = (cause.message ?? '').trim();
+    final code = '[${cause.plugin}/${cause.code}]';
+    return '$step 단계에서 실패했어요.\n$code${detail.isEmpty ? '' : ' $detail'}';
   }
 }

@@ -25,7 +25,6 @@ test("index callables never use bare onCall without options", () => {
 test("auth and bootstrap callables pass through withAppCheck", () => {
   const required = [
     "createFirebaseCustomToken",
-    "createFirebaseCustomTokenFromEmailLinkToken",
     "verifyAdultIdentityAfterLogin",
     "createFriendInvite",
     "acceptFriendInvite",
@@ -48,4 +47,11 @@ test("auth and bootstrap callables pass through withAppCheck", () => {
       `${name} must be declared as onCall(withAppCheck(...))`
     );
   }
+});
+
+test("removed email-link custom-token bridge stays absent", () => {
+  assert.doesNotMatch(
+    indexSrc,
+    /export const createFirebaseCustomTokenFromEmailLinkToken\s*=/
+  );
 });

@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Shell command gate (block egress and privilege grants)",
+      "trigger": "PreToolUse",
+      "description": "Blocks shell commands that transmit data outside the repo (network egress, git push, deploys, package publish, npx), grant external access (IAM, firewall, remoting, local accounts, ACLs), tamper with the guards themselves, touch secret files, or execute arbitrary code. Script execution additionally requires the target script to be committed and clean in git and to pass a content scan. Local repo modification and inbound package installs stay allowed. Script lives outside the workspace at C:\\Users\\Mickey\\.kiro-guards so the agent cannot edit it. Exits 2 to block, 0 to pass, fails open on internal error. Log: C:\\Users\\Mickey\\.kiro-guards\\logs\\shell-gate.log. NOTE: matcher must not use inline (?i) flags, the JS regex engine rejects them.",
+      "matcher": "[Ee]xecute|[Ss]hell|[Bb]ash|[Pp]wsh|[Pp]ower[Ss]hell|[Cc]md|[Tt]erminal",
+      "action": {
+        "type": "command",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\Mickey\\.kiro-guards\\kiro-shell-gate.ps1\"",
+        "timeout": 20
+      }
+    }
+  ]
+}
