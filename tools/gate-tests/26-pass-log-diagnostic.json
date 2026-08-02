@@ -1,0 +1,1 @@
+{"tool_name":"execute_pwsh","tool_input":{"command":"Select-String -Path C:\\Users\\Mickey\\.kiro\\logs\\latest\\kiro.log -Pattern 'tree-sitter'"}}

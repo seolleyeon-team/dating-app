@@ -35,7 +35,6 @@ import {
   Timestamp,
   DocumentReference,
 } from "firebase-admin/firestore";
-import { getMessaging } from "firebase-admin/messaging";
 import { createHash, randomBytes } from "crypto";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import {
@@ -44,6 +43,13 @@ import {
   PROMISE_REMINDER_QUEUE_PATH,
   type PromiseReminderTaskPayload,
 } from "./promiseReminder";
+import { createInAppNotification, sendPushToUsers } from "./shared/notify";
+
+// 3:3 블라인드 취향 미팅 (callables + 예약 작업)
+export * from "./blindMeeting";
+
+// 3:3 미팅 아이스브레이킹 룰렛 (조용한 15분 알림 + 진입 검증)
+export * from "./meetingIcebreaker";
 import {
   createGetCurrentAvatarGenerationStatusFunction,
   createRetryCurrentAvatarGenerationFunction,
@@ -928,149 +934,6 @@ async function getUserDisplayInfo(userId: string): Promise<{
   };
 }
 
-function notificationCategoryForType(type: string): string | null {
-  switch (type) {
-    case "chat":
-    case "chat_digest":
-      return "chat";
-    case "profile_like":
-      return "matching";
-    case "community_post_like":
-    case "community_comment":
-    case "community_reply":
-      return "community";
-    case "ask_received":
-      return "asks";
-    case "event_team_invite":
-      return "events";
-    case "safety_stamp_follow_up":
-      return "safety";
-    default:
-      return null;
-  }
-}
-
-function isPushEnabledForType(
-  settingsRaw: unknown,
-  notificationType: string
-): boolean {
-  if (!isRecord(settingsRaw)) return true;
-  if (settingsRaw.all === false) return false;
-
-  const category = notificationCategoryForType(notificationType);
-  if (category == null) return true;
-  return settingsRaw[category] !== false;
-}
-
-async function fetchUserTokens(
-  userId: string,
-  notificationType: string
-): Promise<string[]> {
-  const userRef = db.collection("users").doc(userId);
-  const userSnap = await userRef.get();
-  const userSettings = userSnap.data()?.notificationSettings;
-
-  if (!isPushEnabledForType(userSettings, notificationType)) {
-    return [];
-  }
-
-  const snap = await userRef.collection("deviceTokens").get();
-
-  return snap.docs
-    .filter((doc) => {
-      const data = doc.data();
-      if (data.notificationsEnabled === false) return false;
-      const tokenSettings = data.notificationSettings ?? userSettings;
-      return isPushEnabledForType(tokenSettings, notificationType);
-    })
-    .map((d) => d.id)
-    .filter((t) => t.length > 0);
-}
-
-type InAppNotificationPayload = {
-  type:
-    | "chat_digest"
-    | "community_post_like"
-    | "community_comment"
-    | "community_reply"
-    | "profile_like"
-    | "ask_received"
-    | "safety_stamp_follow_up";
-  title: string;
-  body: string;
-  deeplinkType:
-    | "chat"
-    | "community_post"
-    | "received_like"
-    | "asks_inbox"
-    | "safety_stamp_follow_up";
-  deeplinkId?: string;
-  actorId?: string;
-  actorName?: string;
-  postId?: string;
-  commentId?: string;
-  roomId?: string;
-  digestDate?: string;
-};
-
-async function createInAppNotification(
-  userId: string,
-  payload: InAppNotificationPayload,
-  notificationId?: string
-): Promise<boolean> {
-  if (!userId) return false;
-
-  const notifRef = notificationId
-    ? db
-        .collection("users")
-        .doc(userId)
-        .collection("notifications")
-        .doc(notificationId)
-    : db
-        .collection("users")
-        .doc(userId)
-        .collection("notifications")
-        .doc();
-
-  if (notificationId) {
-    const existing = await notifRef.get();
-    if (existing.exists) {
-      logger.info("Notification already exists, skipping (idempotent)", {
-        userId,
-        notificationId,
-      });
-      return false;
-    }
-  }
-
-  await notifRef.set({
-    type: payload.type,
-    title: payload.title,
-    body: payload.body,
-    isRead: false,
-    createdAt: FieldValue.serverTimestamp(),
-
-    actorId: payload.actorId ?? null,
-    actorName: payload.actorName ?? null,
-    postId: payload.postId ?? null,
-    commentId: payload.commentId ?? null,
-    roomId: payload.roomId ?? null,
-    deeplinkType: payload.deeplinkType,
-    deeplinkId: payload.deeplinkId ?? null,
-    digestDate: payload.digestDate ?? null,
-  });
-
-  logger.info("In-app notification created", {
-    userId,
-    notificationId: notifRef.id,
-    type: payload.type,
-    deeplinkType: payload.deeplinkType,
-    deeplinkId: payload.deeplinkId ?? null,
-  });
-
-  return true;
-}
-
 async function countPostLikeNotificationsForPost(
   userId: string,
   postId: string
@@ -1100,78 +963,6 @@ async function hasChatDigestForDate(
     .get();
 
   return !snap.empty;
-}
-
-async function sendPushToUsers(
-  userIds: string[],
-  payload: {
-    title: string;
-    body: string;
-    data: Record<string, string>;
-  }
-): Promise<void> {
-  const uniqueUserIds = [...new Set(userIds.filter((u) => u.length > 0))];
-  if (uniqueUserIds.length === 0) return;
-
-  const notificationType = asString(payload.data.type, "");
-  const tokenLists = await Promise.all(
-    uniqueUserIds.map((uid) => fetchUserTokens(uid, notificationType))
-  );
-  const tokens = tokenLists.flat().filter(Boolean);
-
-  if (tokens.length === 0) {
-    logger.info("No device tokens found for users", { userIds: uniqueUserIds });
-    return;
-  }
-
-  const response = await getMessaging().sendEachForMulticast({
-    tokens,
-    notification: {
-      title: payload.title,
-      body: payload.body,
-    },
-    data: payload.data,
-    android: {
-      priority: "high",
-      notification: {
-        channelId: "seolleyeon_high_importance",
-      },
-    },
-    apns: {
-      headers: {
-        "apns-priority": "10",
-      },
-      payload: {
-        aps: {
-          sound: "default",
-        },
-      },
-    },
-  });
-
-  const invalidTokens: string[] = [];
-  response.responses.forEach((r, i) => {
-    if (!r.success) {
-      const token = tokens[i];
-      if (token) invalidTokens.push(token);
-      logger.warn("Push send failed", {
-        token,
-        error: r.error?.message,
-      });
-    }
-  });
-
-  if (invalidTokens.length > 0) {
-    for (const uid of uniqueUserIds) {
-      const batch = db.batch();
-      for (const token of invalidTokens) {
-        batch.delete(
-          db.collection("users").doc(uid).collection("deviceTokens").doc(token)
-        );
-      }
-      await batch.commit();
-    }
-  }
 }
 
 function buildSafetyStampFollowUpNotificationId(
@@ -1844,117 +1635,27 @@ export const verifyAdultIdentityAfterLogin = onCall(
   }
 );
 
-export const createFirebaseCustomTokenFromEmailLinkToken = onCall(
-  withAppCheck(),
-  async (request) => {
-    const data = getCallableData(request);
-    const verificationToken = asNonEmptyString(data.verificationToken);
-    const requestedKakaoUserId = asNonEmptyString(data.kakaoUserId);
-    const requestedStudentEmail =
-      asNonEmptyString(data.studentEmail)?.toLowerCase() ?? null;
-
-    logger.info("createFirebaseCustomTokenFromEmailLinkToken invoked", {
-      hasVerificationToken: !!verificationToken,
-      hasKakaoUserId: !!requestedKakaoUserId,
-      hasStudentEmail: !!requestedStudentEmail,
-    });
-
-    if (!verificationToken) {
-      throw new HttpsError(
-        "invalid-argument",
-        "이메일 인증 세션 토큰이 필요해요."
-      );
-    }
-
-    const tokenRef = db.collection("emailLinkTokens").doc(verificationToken);
-    const tokenSnap = await tokenRef.get();
-    if (!tokenSnap.exists) {
-      throw new HttpsError(
-        "failed-precondition",
-        "인증 세션이 없어요. 이메일 인증 링크를 다시 보내주세요."
-      );
-    }
-
-    const tokenData = (tokenSnap.data() ?? {}) as Record<string, unknown>;
-    const tokenKakaoUserId = asNonEmptyString(tokenData.kakaoUserId);
-    const tokenEmail = asNonEmptyString(tokenData.email)?.toLowerCase() ?? null;
-    const expiresAtRaw = tokenData.expiresAt;
-    const expiresAt =
-      expiresAtRaw instanceof Timestamp
-        ? expiresAtRaw.toDate()
-        : expiresAtRaw instanceof Date
-          ? expiresAtRaw
-          : null;
-
-    if (!tokenKakaoUserId || !tokenEmail) {
-      throw new HttpsError(
-        "failed-precondition",
-        "인증 세션 정보가 올바르지 않아요. 이메일 인증을 다시 진행해주세요."
-      );
-    }
-
-    if (requestedKakaoUserId && requestedKakaoUserId !== tokenKakaoUserId) {
-      throw new HttpsError(
-        "permission-denied",
-        "인증 세션이 현재 계정과 일치하지 않아요."
-      );
-    }
-
-    if (requestedStudentEmail && requestedStudentEmail !== tokenEmail) {
-      throw new HttpsError(
-        "permission-denied",
-        "인증 세션 이메일이 현재 계정과 일치하지 않아요."
-      );
-    }
-
-    if (expiresAt && expiresAt.getTime() < Date.now()) {
-      throw new HttpsError(
-        "failed-precondition",
-        "인증 세션이 만료되었어요. 이메일 인증 링크를 다시 보내주세요."
-      );
-    }
-
-    const userSnap = await db.collection("users").doc(tokenKakaoUserId).get();
-    if (!userSnap.exists) {
-      throw new HttpsError(
-        "failed-precondition",
-        "가입 정보를 찾을 수 없어요. 다시 로그인해주세요."
-      );
-    }
-
-    const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
-    const studentEmail =
-      asNonEmptyString(userData.studentEmail)?.toLowerCase() ?? "";
-    const isStudentVerified = userData.isStudentVerified === true;
-
-    if (!isStudentVerified || studentEmail != tokenEmail) {
-      throw new HttpsError(
-        "failed-precondition",
-        "학생 인증이 아직 현재 브라우저와 연결되지 않았어요. 인증 메일 링크를 다시 열어주세요."
-      );
-    }
-
-    await tokenRef.set(
-      {
-        lastRecoveredAt: FieldValue.serverTimestamp(),
-        lastRecoveredKakaoUserId: tokenKakaoUserId,
-      },
-      { merge: true }
-    );
-
-    const customToken = await getAuth().createCustomToken(tokenKakaoUserId, {
-      kakaoUserId: tokenKakaoUserId,
-      studentEmail,
-    });
-
-    return {
-      customToken,
-      userId: tokenKakaoUserId,
-      isStudentVerified: true,
-      studentEmail,
-    };
-  }
-);
+// -----------------------------------------------------------------------------
+// REMOVED (security): createFirebaseCustomTokenFromEmailLinkToken
+//
+// 이 callable 은 emailLinkTokens/{token} 문서를 bearer credential 로 취급해
+// Firebase custom token 을 발급했다. 그런데 그 문서는 클라이언트가 비인증
+// 상태로 직접 만들 수 있었고(firestore.rules 의 emailLinkTokens create 규칙),
+// users 컬렉션은 list 가 공개였다. 따라서 공격자는
+//   1. users 를 나열해 피해자의 문서 ID(kakaoUserId)와 studentEmail 을 얻고
+//   2. 그 값으로 emailLinkTokens 문서를 스스로 만들고
+//   3. 이 callable 을 호출해 피해자 UID 의 custom token 을 받을 수 있었다.
+// payload 의 kakaoUserId/studentEmail 검증은 값이 있을 때만 수행됐고,
+// expiresAt 은 Timestamp 가 아니면 무시됐으며, 토큰은 single-use 도 아니었다.
+//
+// 세션 복구는 createFirebaseCustomToken(카카오 액세스 토큰을 Kakao API 로
+// 서버에서 검증) 경로만 사용한다. 클라이언트
+// AuthService.ensureFirebaseSessionForVerifiedUser 는 이미 그 경로로
+// fall through 하므로 UX 회귀가 없다.
+//
+// 되살리려면 emailLinkTokens 를 서버 전용 쓰기로 바꾸고, 실제 email-link
+// 로그인 성공을 서버가 표시하고, single-use 소비를 트랜잭션으로 보장해야 한다.
+// -----------------------------------------------------------------------------
 
 export const createFriendInvite = onCall(withAppCheck(), async (request) => {
   const requestData = getCallableData(request);

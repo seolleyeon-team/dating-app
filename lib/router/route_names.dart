@@ -112,10 +112,8 @@ class RouteNames {
   static const String eventTeamInviteResponse = '/event/team-invite-response';
   static const String seasonMeetingRoulette = '/event/season-meeting-roulette';
   static const String matchResult = '/event/match-result';
-  static const String randomMatching = '/event/random-matching';
   static const String randomMathcingWait =
       '/event/random-matching-wait'; // 신청 내역 (typo 유지)
-  static const String randomMeeting = '/event/random-meeting';
   static const String threeVsThreeMatch = '/event/three-vs-three-match';
   static const String teamRequests = '/event/team-requests';
   static const String teamRequestDeclined = '/event/team-request-declined';
@@ -125,6 +123,37 @@ class RouteNames {
   static const String groupProfile = '/event/group-profile';
   static const String partnership = '/event/partnership';
 
-  // Meeting
-  static const String meetingApplication = '/meeting/application';
+  // 3:3 미팅 아이스브레이킹 룰렛 (시즌 미팅 / 블라인드 취향 미팅 진행 중)
+  static const String meetingIcebreakerBombTimer =
+      '/event/meeting-icebreaker/bomb-timer';
+
+  // Blind taste meeting (3:3 블라인드 취향 미팅)
+  static const String blindTasteMeeting = '/event/blind-taste-meeting';
+  static const String blindTasteMeetingDna = '/event/blind-taste-meeting/dna';
+  static const String blindTasteMeetingSchedule =
+      '/event/blind-taste-meeting/schedule';
+  static const String blindTasteMeetingWaiting =
+      '/event/blind-taste-meeting/waiting';
+  static const String blindTasteMeetingResult =
+      '/event/blind-taste-meeting/result';
+  static const String blindTasteMeetingFollowUp =
+      '/event/blind-taste-meeting/follow-up';
+  static const String blindTasteMeetingFeedback =
+      '/event/blind-taste-meeting/feedback';
+
+  // ---------------------------------------------------------------------------
+  // Legacy 3:3 랜덤 미팅 deep link 호환
+  //
+  // 기존 링크·푸시가 그대로 살아 있으므로 경로 문자열을 삭제하지 않고
+  // 블라인드 취향 미팅 화면으로 redirect 한다. (AppRouter 참고)
+  // ---------------------------------------------------------------------------
+  static const String legacyRandomMatching = '/event/random-matching';
+  static const String legacyRandomMeeting = '/event/random-meeting';
+  static const String legacyMeetingApplication = '/meeting/application';
+
+  static const List<String> legacyBlindMeetingAliases = <String>[
+    legacyRandomMatching,
+    legacyRandomMeeting,
+    legacyMeetingApplication,
+  ];
 }
