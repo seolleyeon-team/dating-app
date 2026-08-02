@@ -920,7 +920,8 @@ service cloud.firestore {
     }
 
     function isBlindMeetingRoomData(data) {
-      return data != null && data.roomType in blindMeetingRoomTypes();
+      return data != null &&
+          data.get('roomType', null) in blindMeetingRoomTypes();
     }
 
     function blindRoomData(roomId) {

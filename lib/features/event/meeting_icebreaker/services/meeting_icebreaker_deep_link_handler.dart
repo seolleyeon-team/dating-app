@@ -14,6 +14,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
 import '../../../../services/navigation_service.dart';
 import '../data/meeting_icebreaker_analytics.dart';
@@ -115,7 +116,10 @@ class MeetingIcebreakerDeepLinkHandler {
       final opener = dialogOpener ?? _defaultDialogOpener;
       await opener(context, entry, repository, analytics);
     } catch (error) {
-      debugPrint('[ICEBREAKER] in-app open failed: $error');
+      debugPrint(
+        '[ICEBREAKER] in-app open failed: '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
     } finally {
       _busy = false;
     }
@@ -177,9 +181,11 @@ class MeetingIcebreakerDeepLinkHandler {
       _handledKeys.add(key);
       final opener = dialogOpener ?? _defaultDialogOpener;
       await opener(context, entry, repository, analytics);
-    } catch (error, stack) {
-      debugPrint('[ICEBREAKER] deep link failed: $error');
-      debugPrint('$stack');
+    } catch (error) {
+      debugPrint(
+        '[ICEBREAKER] deep link failed: '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
     } finally {
       _busy = false;
     }
@@ -214,7 +220,10 @@ class MeetingIcebreakerDeepLinkHandler {
       }
       messenger.showSnackBar(SnackBar(content: Text(message)));
     } catch (error) {
-      debugPrint('[ICEBREAKER] message present failed: $error');
+      debugPrint(
+        '[ICEBREAKER] message present failed: '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
     }
   }
 

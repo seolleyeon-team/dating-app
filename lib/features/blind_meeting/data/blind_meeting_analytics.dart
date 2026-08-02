@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
 /// 블라인드 미팅 analytics 이벤트 이름.
 enum BlindMeetingAnalyticsEvent {
@@ -154,7 +155,10 @@ class BlindMeetingAnalytics {
       await _sink.send(event.name, payload);
     } catch (error) {
       // analytics 실패가 사용자 흐름을 막지 않도록 한다.
-      debugPrint('[BlindMeetingAnalytics] send failed: $error');
+      debugPrint(
+        '[BlindMeetingAnalytics] send failed: '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
     }
   }
 }

@@ -16,6 +16,7 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
 /// 기록 가능한 이벤트 이름.
 enum MeetingIcebreakerAnalyticsEvent {
@@ -123,7 +124,10 @@ class MeetingIcebreakerAnalytics {
     try {
       await _sink.send(event.name, sanitizeParams(params));
     } catch (error) {
-      debugPrint('[ICEBREAKER][analytics] send failed: $error');
+      debugPrint(
+        '[ICEBREAKER][analytics] send failed: '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
     }
   }
 }
