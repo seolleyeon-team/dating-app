@@ -54,9 +54,12 @@ void main() {
         isFalse,
       );
 
-      await tester.tap(
-        find.byKey(AvatarSourceConsentControls.clipRecommendationKey),
+      final clipRecommendationCheckbox = find.descendant(
+        of: find.byKey(AvatarSourceConsentControls.clipRecommendationKey),
+        matching: find.byType(Checkbox),
       );
+      expect(clipRecommendationCheckbox, findsOneWidget);
+      await tester.tap(clipRecommendationCheckbox);
       await tester.pump();
       expect(consent.clipRecommendation, isTrue);
       expect(consent.sourcePhotoRetention, isFalse);
