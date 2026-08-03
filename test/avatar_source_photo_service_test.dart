@@ -2,6 +2,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/services/avatar_source_photo_service.dart';
 
 void main() {
+  test('upload metadata matches the backend request contract', () {
+    final requestId = AvatarSourcePhotoService.createClientRequestId();
+
+    expect(requestId, matches(RegExp(r'^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$')));
+    expect(AvatarSourcePhotoService.sourceConsentVersion, 'photo_consent_v4');
+    expect(AvatarSourcePhotoService.defaultConsentPurposes, {
+      'avatarGeneration': true,
+      'clipRecommendation': false,
+      'sourcePhotoRetention': false,
+    });
+  });
+
   test('queued slot token stores job id without a URL', () {
     final token = AvatarSourcePhotoService.queuedSlotToken('avatar_job_abc123');
 
