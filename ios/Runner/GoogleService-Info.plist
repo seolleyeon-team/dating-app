@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
 	<key>API_KEY</key>
-	<string>AIzaSyBQCNUk0odNktf79K62gvaUM47AwHGBuX4</string>
+	<string>AIzaSyDSBDbN6inF09enjKz946oZOX3rJ0tdAW0</string>
 	<key>GCM_SENDER_ID</key>
-	<string>623093454373</string>
+	<string>810450765203</string>
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
 	<string>com.yonsei.dating</string>
 	<key>PROJECT_ID</key>
-	<string>seolleyeon</string>
+	<string>seolleyeon-final</string>
 	<key>STORAGE_BUCKET</key>
-	<string>seolleyeon.firebasestorage.app</string>
+	<string>seolleyeon-final.firebasestorage.app</string>
 	<key>IS_ADS_ENABLED</key>
 	<false></false>
 	<key>IS_ANALYTICS_ENABLED</key>
@@ -25,6 +25,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:623093454373:ios:fa6d8e4c2cc2b0890251cc</string>
+	<string>1:810450765203:ios:7e51bb82970a77145c9466</string>
 </dict>
 </plist>
