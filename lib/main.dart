@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart'
         TargetPlatform,
         debugPrint,
         defaultTargetPlatform,
+        kDebugMode,
         kIsWeb,
         kReleaseMode;
 import 'package:firebase_app_check/firebase_app_check.dart';
@@ -17,6 +18,9 @@ import 'package:flutter/services.dart';
 import 'services/firebase_diagnostics.dart';
 import 'services/push_notification_service.dart';
 import 'shared/utils/app_check_provider_policy.dart';
+import 'services/web_app_check_bootstrap_stub.dart'
+    if (dart.library.html) 'services/web_app_check_bootstrap_web.dart'
+    as web_app_check_bootstrap;
 import 'services/windows_protocol_registration_stub.dart'
     if (dart.library.io) 'services/windows_protocol_registration_io.dart';
 import 'firebase_options.dart';
@@ -34,6 +38,10 @@ const bool _forceAppCheckDebugProvider = bool.fromEnvironment(
 );
 const String _webAppCheckRecaptchaSiteKey = String.fromEnvironment(
   'APP_CHECK_WEB_RECAPTCHA_SITE_KEY',
+  defaultValue: '',
+);
+const String _webAppCheckDebugToken = String.fromEnvironment(
+  'APP_CHECK_WEB_DEBUG_TOKEN',
   defaultValue: '',
 );
 const MethodChannel _kakaoUtilChannel = MethodChannel(
@@ -81,30 +89,60 @@ void main() {
         javaScriptAppKey: kIsWeb ? kakaoJavaScriptKey : null,
       );
 
+      final useLocalWebDebugProvider =
+          kIsWeb &&
+          shouldUseWebDebugAppCheckProvider(
+            isDebugMode: kDebugMode,
+            host: Uri.base.host,
+          );
+      final webDebugToken = _webAppCheckDebugToken.trim();
+      if (useLocalWebDebugProvider && webDebugToken.isNotEmpty) {
+        final primed = web_app_check_bootstrap.primeWebAppCheckDebugProvider(
+          webDebugToken,
+        );
+        debugPrint(
+          '[AppCheck] web debug provider primed before Firebase init: '
+          'success=$primed.',
+        );
+      }
+
       // ✅ Firebase init
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
       FirebaseDiagnostics.logCurrentFirebaseApp('firebase_initialize_success');
 
-      // App Check: Android/iOS always; web when a reCAPTCHA v3 site key is
-      // supplied. Callable functions enforce App Check, so web login requires
-      // `--dart-define=APP_CHECK_WEB_RECAPTCHA_SITE_KEY=...`.
+      // App Check: local web debug builds use a console-registered debug token;
+      // deployed web builds require the configured reCAPTCHA v3 provider.
       try {
         if (kIsWeb) {
-          final siteKey = webAppCheckRecaptchaSiteKey(
-            fromEnvironment: _webAppCheckRecaptchaSiteKey,
-          );
-          if (siteKey != null) {
+          if (useLocalWebDebugProvider) {
             await FirebaseAppCheck.instance.activate(
-              providerWeb: ReCaptchaV3Provider(siteKey),
+              providerWeb: webDebugToken.isEmpty
+                  ? WebDebugProvider()
+                  : WebDebugProvider(debugToken: webDebugToken),
             );
             await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
-            debugPrint('[AppCheck] web reCAPTCHA v3 provider activated');
-          } else {
             debugPrint(
-              '[AppCheck] web skipped: APP_CHECK_WEB_RECAPTCHA_SITE_KEY unset',
+              '[AppCheck] web debug provider activated for localhost; '
+              'stableTokenConfigured=${webDebugToken.isNotEmpty}.',
             );
+          } else {
+            final siteKey = webAppCheckRecaptchaSiteKey(
+              fromEnvironment: _webAppCheckRecaptchaSiteKey,
+            );
+            if (siteKey != null) {
+              await FirebaseAppCheck.instance.activate(
+                providerWeb: ReCaptchaV3Provider(siteKey),
+              );
+              await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
+              debugPrint('[AppCheck] web reCAPTCHA v3 provider activated');
+            } else {
+              debugPrint(
+                '[AppCheck] web skipped: '
+                'APP_CHECK_WEB_RECAPTCHA_SITE_KEY unset',
+              );
+            }
           }
         } else {
           final useDebugAppCheck = await _shouldUseDebugAppCheckProvider();

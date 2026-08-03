@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:uuid/uuid.dart';
 
 class AvatarSourcePhotoUploadResult {
   final String jobId;
@@ -61,6 +62,14 @@ class AvatarSourcePhotoService {
       _auth = auth ?? FirebaseAuth.instance;
 
   static const String _queuedTokenPrefix = 'avatar_generation_queued:';
+  static const String sourceConsentVersion = 'photo_consent_v4';
+  static const Map<String, bool> defaultConsentPurposes = <String, bool>{
+    'avatarGeneration': true,
+    'clipRecommendation': false,
+    'sourcePhotoRetention': false,
+  };
+
+  static String createClientRequestId() => const Uuid().v4();
 
   final FirebaseFunctions _functions;
   final FirebaseAuth _auth;
@@ -115,6 +124,9 @@ class AvatarSourcePhotoService {
     final HttpsCallableResult<dynamic> result;
     try {
       result = await callable.call(<String, dynamic>{
+        'clientRequestId': createClientRequestId(),
+        'consentVersion': sourceConsentVersion,
+        'consentPurposes': defaultConsentPurposes,
         'imageBase64': base64Encode(bytes),
         'contentType': _contentTypeForFileName(fileName ?? ''),
         if (fileName != null && fileName.trim().isNotEmpty)

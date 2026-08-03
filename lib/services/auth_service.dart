@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:uuid/uuid.dart';
@@ -420,6 +421,33 @@ class AuthService {
         'kakao_access_token_info_success',
         kakaoUserId: kakaoUserId,
       );
+
+      if (kIsWeb) {
+        try {
+          final appCheckToken = await FirebaseAppCheck.instance.getToken(true);
+          final appCheckReady = appCheckToken?.trim().isNotEmpty ?? false;
+          debugPrint('[AppCheck] callable token ready=$appCheckReady');
+          if (!appCheckReady) {
+            FirebaseDiagnostics.logAuthBridgePhase(
+              'firebase_app_check_token_empty',
+              kakaoUserId: kakaoUserId,
+            );
+            return false;
+          }
+        } catch (e, st) {
+          FirebaseDiagnostics.logAuthBridgePhase(
+            'firebase_app_check_token_failed',
+            kakaoUserId: kakaoUserId,
+            error: e,
+            stackTrace: st,
+          );
+          debugPrint(
+            '[AppCheck] callable token failed: '
+            '${FirebaseDiagnostics.safeErrorForLog(e)}',
+          );
+          return false;
+        }
+      }
 
       final callable = _functions.httpsCallable('createFirebaseCustomToken');
       FirebaseDiagnostics.logAuthBridgePhase(
