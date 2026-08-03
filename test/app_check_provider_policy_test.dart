@@ -49,6 +49,34 @@ void main() {
       );
     });
 
+    test('localhost web debug builds use the web debug provider', () {
+      expect(
+        shouldUseWebDebugAppCheckProvider(isDebugMode: true, host: 'localhost'),
+        isTrue,
+      );
+      expect(
+        shouldUseWebDebugAppCheckProvider(isDebugMode: true, host: '127.0.0.1'),
+        isTrue,
+      );
+    });
+
+    test('non-local or non-debug web builds keep the deployed provider', () {
+      expect(
+        shouldUseWebDebugAppCheckProvider(
+          isDebugMode: true,
+          host: 'seolleyeon-final.web.app',
+        ),
+        isFalse,
+      );
+      expect(
+        shouldUseWebDebugAppCheckProvider(
+          isDebugMode: false,
+          host: 'localhost',
+        ),
+        isFalse,
+      );
+    });
+
     test('web reCAPTCHA site key is required and trimmed', () {
       expect(webAppCheckRecaptchaSiteKey(), isNull);
       expect(webAppCheckRecaptchaSiteKey(fromEnvironment: ''), isNull);

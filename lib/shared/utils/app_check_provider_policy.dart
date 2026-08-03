@@ -43,6 +43,21 @@ bool shouldUseDebugAppCheckProvider({
   return isDebugSignedAndroid;
 }
 
+/// Web debug builds running on a loopback host use Firebase's Debug Provider.
+/// This keeps callable App Check enforcement on while avoiding reCAPTCHA in
+/// local development. Deployed web builds always use the configured provider.
+bool shouldUseWebDebugAppCheckProvider({
+  required bool isDebugMode,
+  required String host,
+}) {
+  if (!isDebugMode) return false;
+
+  final normalizedHost = host.trim().toLowerCase();
+  return normalizedHost == 'localhost' ||
+      normalizedHost == '127.0.0.1' ||
+      normalizedHost == '::1';
+}
+
 /// reCAPTCHA v3 site key for Flutter web App Check.
 ///
 /// Callable functions now set `enforceAppCheck: true`. Web builds must activate

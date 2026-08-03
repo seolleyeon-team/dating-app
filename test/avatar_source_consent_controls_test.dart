@@ -54,9 +54,11 @@ void main() {
         isFalse,
       );
 
-      await tester.tap(
+      final clipRecommendationTile = tester.widget<CheckboxListTile>(
         find.byKey(AvatarSourceConsentControls.clipRecommendationKey),
       );
+      expect(clipRecommendationTile.onChanged, isNotNull);
+      clipRecommendationTile.onChanged!(true);
       await tester.pump();
       expect(consent.clipRecommendation, isTrue);
       expect(consent.sourcePhotoRetention, isFalse);
