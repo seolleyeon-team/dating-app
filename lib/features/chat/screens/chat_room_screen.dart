@@ -446,16 +446,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         final rawParticipantIds = roomData['participantIds'];
         final participantIds = rawParticipantIds is List
             ? rawParticipantIds
-                .map((value) => value.toString())
-                .where((value) => value.isNotEmpty)
-                .toSet()
+                  .map((value) => value.toString())
+                  .where((value) => value.isNotEmpty)
+                  .toSet()
             : <String>{};
         if (!participantIds.contains(kakaoUserId)) {
           throw Exception('you are not a participant in this chat room');
         }
         final roomType = roomData['roomType']?.toString() ?? '';
         final roomKind = roomData['type']?.toString() ?? '';
-        _isGroupRoom = participantIds.length > 2 ||
+        _isGroupRoom =
+            participantIds.length > 2 ||
             roomKind == 'group' ||
             roomType.endsWith('_group');
       } else {

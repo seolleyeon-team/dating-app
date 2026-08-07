@@ -241,6 +241,7 @@ class BlindMeetingRepository {
       return BlindMeetingApplication.fromMap(entry.key, entry.value);
     });
   }
+
   /// Reads the current application once for entry screens.
   ///
   /// Entry screens do not need a live listener. Using a one-shot read here
@@ -573,11 +574,10 @@ class BlindMeetingRepository {
     return BlindMeetingFollowUpChoice.fromMap(
       meetingId,
       userId,
-      snapshot.data() == null
-          ? null
-          : normalizeFirestoreMap(snapshot.data()!),
+      snapshot.data() == null ? null : normalizeFirestoreMap(snapshot.data()!),
     );
   }
+
   Future<void> submitFollowUpChoice({
     required String meetingId,
     required List<String> selectedUids,

@@ -27,6 +27,9 @@ void main() {
     expect(logoutIdx, greaterThan(0));
     final slice = src.substring(logoutIdx, logoutIdx + 900);
     expect(slice, contains('clearUserScopedSession'));
-    expect(slice.indexOf('clearUserScopedSession'), lessThan(slice.indexOf('_isAuthenticated = false')));
+    expect(
+      slice.indexOf('clearUserScopedSession'),
+      lessThan(slice.indexOf('_isAuthenticated = false')),
+    );
   });
 }
