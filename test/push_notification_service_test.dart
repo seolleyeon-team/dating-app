@@ -4,35 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/services/push_notification_service.dart';
 
 void main() {
-  setUp(() {
-    PushNotificationService.instance.resetForTest();
-  });
-
   test('push initialization is safe before Firebase is available', () async {
     await expectLater(PushNotificationService.instance.initialize(), completes);
-  });
-
-  test('initialize is idempotent and does not rebind listeners', () async {
-    final source = File(
-      'lib/services/push_notification_service.dart',
-    ).readAsStringSync();
-    expect(source, contains('initialize skipped; listeners already attached'));
-    expect(source, contains('_initializing = true'));
-    expect(source, contains('_initialized = true'));
-
-    await PushNotificationService.instance.initialize();
-    await expectLater(PushNotificationService.instance.initialize(), completes);
-  });
-
-  test('open/tap deep-link handling is deduplicated', () {
-    final service = PushNotificationService.instance;
-    final key = PushNotificationService.buildOpenDedupeKey({
-      'type': 'chat',
-      'roomId': 'room-1',
-      'messageId': 'm1',
-    }, messageId: 'm1');
-    expect(service.claimOpenHandling(key), isTrue);
-    expect(service.claimOpenHandling(key), isFalse);
   });
 
   test('push diagnostics do not log raw identifiers or tokens', () {

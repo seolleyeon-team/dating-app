@@ -5,6 +5,8 @@
       {
         "appID": "29ZU3S9H2G.com.yonsei.dating",
         "paths": [
+          "/__/auth/links",
+          "/__/auth/links/*",
           "NOT /__/auth/action/",
           "NOT /__/auth/handler/",
           "NOT /_/*",

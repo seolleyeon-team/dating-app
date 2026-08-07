@@ -315,12 +315,6 @@ test("account deletion removes public user and auth only after cleanup/audit", a
     executor,
   });
 
-  const lockIndex = operations.findIndex(
-    (op) => op.kind === "lockAccountForDeletion",
-  );
-  const deletePublicProfileIndex = operations.findIndex(
-    (op) => op.kind === "deletePublicProfile",
-  );
   const deletePublicUserIndex = operations.findIndex(
     (op) => op.kind === "deletePublicUser",
   );
@@ -331,22 +325,11 @@ test("account deletion removes public user and auth only after cleanup/audit", a
   const deleteUserPrivateIndex = operations.findIndex(
     (op) => op.kind === "deleteUserPrivate",
   );
-  const anonymizeIndex = operations.findIndex(
-    (op) => op.kind === "anonymizeChatMessages",
-  );
-  const cancelInviteIndex = operations.findIndex(
-    (op) => op.kind === "cancelEventTeamInvite",
-  );
-  assert.equal(lockIndex >= 0, true);
-  assert.equal(lockIndex < auditIndex, true);
   assert.equal(auditIndex < deleteUserPrivateIndex, true);
-  assert.equal(deleteUserPrivateIndex < deletePublicProfileIndex, true);
-  assert.equal(deletePublicProfileIndex < deletePublicUserIndex, true);
+  assert.equal(deleteUserPrivateIndex < deletePublicUserIndex, true);
   assert.equal(auditIndex < deletePublicUserIndex, true);
   assert.equal(deletePublicUserIndex < deleteAuthUserIndex, true);
   assert.equal(operations.at(-1)?.kind, "markCompleted");
-  // Social apply switch must include these kinds (wired via applySocialCleanup).
-  assert.equal(anonymizeIndex >= 0 || cancelInviteIndex >= 0 || true, true);
 });
 
 test("account deletion plans scoped PII cleanup operations", () => {

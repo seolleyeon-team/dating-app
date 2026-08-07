@@ -132,9 +132,7 @@ export type CleanupOperation =
   | { kind: "writeAudit"; reason: AvatarCleanupReason; counts: AvatarCleanupCounts }
   | { kind: "markCompleted"; requestId: string; response: AvatarCleanupResponse }
   | { kind: "deletePublicUser" }
-  | { kind: "deletePublicProfile" }
   | { kind: "deleteAuthUser" }
-  | { kind: "lockAccountForDeletion" }
   | { kind: "deleteUserPrivate" }
   | { kind: "deletePhoneHashIndex"; phoneHash: string }
   | { kind: "deleteDeviceToken"; tokenId: string }
@@ -494,9 +492,6 @@ export function planAvatarCleanup(params: {
     response,
     operations: [
       { kind: "markPending", requestId: params.requestId, reason: params.reason },
-      ...(params.reason === "account_deletion"
-        ? ([{ kind: "lockAccountForDeletion" }] as CleanupOperation[])
-        : []),
       ...params.docs.jobDocs
         .filter((job) => ACTIVE_JOB_STATUSES.has(asString(job.data.status).toLowerCase()))
         .map((job): CleanupOperation => ({
@@ -516,11 +511,7 @@ export function planAvatarCleanup(params: {
       { kind: "writeAudit", reason: params.reason, counts },
       ...accountDeletionPiiOperations,
       ...(params.reason === "account_deletion"
-        ? ([
-            { kind: "deletePublicProfile" },
-            { kind: "deletePublicUser" },
-            { kind: "deleteAuthUser" },
-          ] as CleanupOperation[])
+        ? ([{ kind: "deletePublicUser" }, { kind: "deleteAuthUser" }] as CleanupOperation[])
         : []),
       { kind: "markCompleted", requestId: params.requestId, response },
     ],
@@ -601,11 +592,7 @@ export async function loadAccountDeletionDocs(
   });
 }
 
-function firestoreExecutor(
-  firestore: Firestore,
-  uid: string,
-  authUid?: string | null,
-): CleanupExecutor {
+function firestoreExecutor(firestore: Firestore, uid: string): CleanupExecutor {
   return {
     async load(loadUid: string, requestId: string): Promise<CleanupDocs> {
       const [userSnap, privateSnap, candidateQuery, jobQuery, requestSnap, accountDeletionDocs] =
@@ -769,57 +756,12 @@ function firestoreExecutor(
               counts: operation.counts,
             });
           return;
-        case "lockAccountForDeletion":
-          await firestore
-            .collection("users")
-            .doc(uid)
-            .set(
-              {
-                status: "deleting",
-                isWithdrawn: true,
-                withdrawnAt: now,
-                loginDisabled: true,
-                profileVisible: false,
-                canRejoin: false,
-                updatedAt: now,
-              },
-              { merge: true },
-            );
-          await firestore
-            .collection("publicProfiles")
-            .doc(uid)
-            .delete()
-            .catch(() => undefined);
-          return;
-        case "deletePublicProfile":
-          await firestore
-            .collection("publicProfiles")
-            .doc(uid)
-            .delete()
-            .catch(() => undefined);
-          return;
         case "deletePublicUser":
           await firestore.collection("users").doc(uid).delete();
           return;
-        case "deleteAuthUser": {
-          const authIds = new Set(
-            [uid, authUid].filter((value): value is string => !!value),
-          );
-          for (const authId of authIds) {
-            try {
-              await getAuth().deleteUser(authId);
-            } catch (error) {
-              const code =
-                error && typeof error === "object" && "code" in error
-                  ? String((error as { code?: unknown }).code ?? "")
-                  : "";
-              if (code !== "auth/user-not-found") {
-                throw error;
-              }
-            }
-          }
+        case "deleteAuthUser":
+          await getAuth().deleteUser(uid);
           return;
-        }
         case "deleteUserPrivate":
           await firestore.collection("userPrivate").doc(uid).delete();
           return;
@@ -908,8 +850,6 @@ function firestoreExecutor(
         case "softDeleteBambooComment":
         case "scrubFriendInvite":
         case "removeEventTeamMember":
-        case "cancelEventTeamInvite":
-        case "anonymizeChatMessages":
           await applySocialCleanupOperation(firestore, uid, operation);
           return;
         case "markCompleted":
@@ -940,8 +880,6 @@ export function createCleanupAvatarMediaFunction(
     async (request) => {
       const user = await resolveUser(request.auth);
       const uid = requirePathSegment(user.userId, "uid");
-      const authUid =
-        typeof request.auth?.uid === "string" ? request.auth.uid : null;
       const { clientRequestId, reason } = requireAvatarCleanupRequest(
         request.data,
       );
@@ -950,7 +888,7 @@ export function createCleanupAvatarMediaFunction(
           uid,
           clientRequestId,
           reason,
-          executor: firestoreExecutor(firestore, uid, authUid),
+          executor: firestoreExecutor(firestore, uid),
         });
       } catch (error) {
         logger.error("Avatar media cleanup failed", {

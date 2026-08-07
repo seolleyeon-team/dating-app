@@ -3,16 +3,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
-import 'rec_event_contract.dart';
-
 /// 추천 학습용 이벤트 기록 (recEvents)
 ///
 /// KNN/SVD 학습 스크립트가 읽는 구조:
 ///   recEvents/{userId}/events/{eventId}
 class RecEventService {
-  RecEventService({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
-  final FirebaseFirestore _firestore;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final _uuid = const Uuid();
 
   CollectionReference<Map<String, dynamic>> _eventsRef(String userId) =>
@@ -54,14 +50,7 @@ class RecEventService {
       if (sessionId != null) 'sessionId': sessionId,
       'dateKey': dKey,
       if (context != null && context.isNotEmpty) 'context': context,
-      'schemaVersion': RecEventContract.schemaVersion,
     };
-
-    final validationError = RecEventContract.validatePayload(payload);
-    if (validationError != null) {
-      debugPrint('[RecEvent] rejected: $validationError');
-      throw ArgumentError.value(payload, 'payload', validationError);
-    }
 
     debugPrint(
       '[RecEvent] 시도: $eventType surface=$surface ${PrivacyLogUtils.idFingerprint(targetUid)} ${PrivacyLogUtils.idFingerprint(userId)}',
@@ -69,7 +58,7 @@ class RecEventService {
 
     try {
       await _firestore.collection('recEvents').doc(userId).set({
-        'lastEventAt': FieldValue.serverTimestamp(),
+        'lastEventAt': nowString,
       }, SetOptions(merge: true));
     } catch (e) {
       debugPrint(

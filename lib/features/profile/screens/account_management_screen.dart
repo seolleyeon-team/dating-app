@@ -31,7 +31,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       builder: (context) => CupertinoAlertDialog(
         title: const Text('계정을 탈퇴하시겠어요?'),
         content: const Text(
-          '탈퇴가 완료되면 계정·프로필·인증 정보는 즉시 삭제됩니다. 추천·채팅·미팅 이용이 중단되며, 기존 채팅에는 “탈퇴한 사용자”로 표시됩니다.',
+          '탈퇴 즉시 프로필이 비공개 처리되고, 추천과 채팅 전송이 중단됩니다. 기존 채팅방에는 상대방 보호를 위해 “탈퇴한 사용자”로 표시됩니다.',
         ),
         actions: [
           CupertinoDialogAction(
@@ -53,7 +53,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       builder: (context) => CupertinoAlertDialog(
         title: const Text('마지막 확인'),
         content: const Text(
-          '탈퇴 후에는 현재 계정으로 로그인할 수 없습니다. 신고·제재·분쟁 대응을 위해 익명화된 채팅·감사 기록 일부만 정책 기간 동안 보관될 수 있습니다.',
+          '탈퇴 후에는 현재 계정으로 서비스를 이용할 수 없습니다. 신고, 제재, 분쟁 대응을 위해 최소 정보는 30일 동안 보관될 수 있습니다.',
         ),
         actions: [
           CupertinoDialogAction(

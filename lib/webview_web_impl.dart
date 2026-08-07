@@ -1,4 +1,4 @@
-// Web platform WebViewPlatform registration.
+// Register the web WebViewPlatform implementation on web.
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 import 'package:webview_flutter_web/webview_flutter_web.dart';
 
