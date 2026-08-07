@@ -60,3 +60,6 @@ canary_uid_photo_consent.txt
 canary_consent.txt
 pr84_uid_photo_consent_map.txt
 out/
+
+# Local-only generated artifacts
+.tmp/
