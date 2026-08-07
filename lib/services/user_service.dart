@@ -3,6 +3,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../constants/campus_life_zones.dart';
 import '../constants/legal_texts.dart';
+import 'onboarding_write_payload.dart';
 
 class UserService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -207,11 +208,9 @@ class UserService {
     required String kakaoUserId,
     required Map<String, dynamic> privacySettings,
   }) async {
-    await _firestore.collection('users').doc(kakaoUserId).set({
-      'privacySettings': privacySettings,
-      'privacySettingsUpdatedAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    final updateData = buildPrivacyFieldUpdates(privacySettings);
+    updateData['updatedAt'] = FieldValue.serverTimestamp();
+    await _firestore.collection('users').doc(kakaoUserId).update(updateData);
   }
 
   /// Requests server-orchestrated hard deletion. Success only after callable
@@ -248,7 +247,7 @@ class UserService {
     if (!doc.exists) return false;
     final data = doc.data();
     final v = data?['isStudentVerified'];
-    return v == true || v == 'true' || (v is num && v != 0);
+    return v == true;
   }
 
   Future<String?> getStudentEmail(String kakaoUserId) async {
@@ -274,125 +273,93 @@ class UserService {
   // ---------------------------------------------------------------------------
 
   /// 온보딩 기본 정보 (성별, 나이, 키, MBTI 등) — 기존 onboarding에 병합 후 저장, 완료 플래그 설정
+  /// Saves only fields owned by the current onboarding step.
   Future<void> saveOnboardingBasicInfo({
     required String kakaoUserId,
     required Map<String, dynamic> basicInfo,
   }) async {
     final docRef = _firestore.collection('users').doc(kakaoUserId);
     final doc = await docRef.get();
-    final Map<String, dynamic> mergedOnboarding = {};
+    final mergedOnboarding = <String, dynamic>{};
+
     if (doc.exists) {
       final existing = doc.data()?['onboarding'];
       if (existing is Map) {
-        for (final e in existing.entries) {
-          mergedOnboarding[e.key.toString()] = e.value;
+        for (final entry in existing.entries) {
+          mergedOnboarding[entry.key.toString()] = entry.value;
         }
       }
     }
-    for (final e in basicInfo.entries) {
-      mergedOnboarding[e.key.toString()] = e.value;
-    }
+    mergedOnboarding.addAll(basicInfo);
 
     final campusLifeZone = CampusLifeZoneResolver.resolve(
       grade: mergedOnboarding['grade']?.toString(),
       department: mergedOnboarding['department']?.toString(),
       isRa: mergedOnboarding['isRa'] == true,
     );
+
+    final fieldsToWrite = <String, dynamic>{...basicInfo};
     if (campusLifeZone != null) {
-      mergedOnboarding['campusLifeZones'] = campusLifeZone.zones;
-      mergedOnboarding['campusLifeZoneLabels'] = campusLifeZone.labels;
+      fieldsToWrite['campusLifeZones'] = campusLifeZone.zones;
+      fieldsToWrite['campusLifeZoneLabels'] = campusLifeZone.labels;
     }
 
-    await docRef.set({
-      'onboarding': mergedOnboarding,
-      'onboardingUpdatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await docRef.update(buildOnboardingFieldUpdates(fieldsToWrite));
   }
 
-  /// 온보딩 사진 URL 저장
+  /// Saves onboarding profile photos without replacing other onboarding fields.
   Future<void> saveOnboardingPhotos({
     required String kakaoUserId,
     required List<String> photoUrls,
   }) async {
-    final docRef = _firestore.collection('users').doc(kakaoUserId);
-    final doc = await docRef.get();
-
-    final Map<String, dynamic> mergedOnboarding = {};
-
-    if (doc.exists) {
-      final existing = doc.data()?['onboarding'];
-      if (existing is Map) {
-        for (final e in existing.entries) {
-          mergedOnboarding[e.key.toString()] = e.value;
-        }
-      }
-    }
-
-    mergedOnboarding['photoUrls'] = photoUrls;
-
-    await docRef.set({
-      'onboarding': mergedOnboarding,
-      'onboardingUpdatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await _firestore
+        .collection('users')
+        .doc(kakaoUserId)
+        .update(
+          buildOnboardingFieldUpdate(fieldName: 'photoUrls', value: photoUrls),
+        );
   }
 
-  /// 온보딩 키워드/관심사 저장
+  /// Saves interests only. Keyword writes must use saveOnboardingKeywords.
+  Future<void> saveOnboardingInterests({
+    required String kakaoUserId,
+    required List<String> interests,
+  }) async {
+    await _firestore
+        .collection('users')
+        .doc(kakaoUserId)
+        .update(
+          buildOnboardingFieldUpdate(fieldName: 'interests', value: interests),
+        );
+  }
+
+  /// Saves keywords only. Interest writes must use saveOnboardingInterests.
   Future<void> saveOnboardingKeywords({
     required String kakaoUserId,
     required List<String> keywords,
-    required List<String> interests,
   }) async {
-    final docRef = _firestore.collection('users').doc(kakaoUserId);
-    final doc = await docRef.get();
-
-    final Map<String, dynamic> mergedOnboarding = {};
-
-    if (doc.exists) {
-      final existing = doc.data()?['onboarding'];
-      if (existing is Map) {
-        for (final e in existing.entries) {
-          mergedOnboarding[e.key.toString()] = e.value;
-        }
-      }
-    }
-
-    mergedOnboarding['keywords'] = keywords;
-    mergedOnboarding['interests'] = interests;
-
-    await docRef.set({
-      'onboarding': mergedOnboarding,
-      'onboardingUpdatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await _firestore
+        .collection('users')
+        .doc(kakaoUserId)
+        .update(
+          buildOnboardingFieldUpdate(fieldName: 'keywords', value: keywords),
+        );
   }
 
-  /// 온보딩 프로필 문답 저장
+  /// Saves profile Q&A without replacing other onboarding fields.
   Future<void> saveOnboardingProfileQa({
     required String kakaoUserId,
     required List<Map<String, String>> profileQa,
   }) async {
-    final docRef = _firestore.collection('users').doc(kakaoUserId);
-    final doc = await docRef.get();
-
-    final Map<String, dynamic> mergedOnboarding = {};
-
-    if (doc.exists) {
-      final existing = doc.data()?['onboarding'];
-      if (existing is Map) {
-        for (final e in existing.entries) {
-          mergedOnboarding[e.key.toString()] = e.value;
-        }
-      }
-    }
-
-    mergedOnboarding['profileQa'] = profileQa;
-
-    await docRef.set({
-      'onboarding': mergedOnboarding,
-      'onboardingUpdatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await _firestore
+        .collection('users')
+        .doc(kakaoUserId)
+        .update(
+          buildOnboardingFieldUpdate(fieldName: 'profileQa', value: profileQa),
+        );
   }
 
-  /// 온보딩 완료 플래그
+  /// Completes onboarding after the final ideal-type step.
   Future<void> completeOnboarding(String kakaoUserId) async {
     await _firestore.collection('users').doc(kakaoUserId).set({
       'initialSetupComplete': true,
@@ -409,10 +376,10 @@ class UserService {
     required String kakaoUserId,
     required Map<String, dynamic> idealType,
   }) async {
-    await _firestore.collection('users').doc(kakaoUserId).set({
-      'idealType': idealType,
-      'idealTypeUpdatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await _firestore
+        .collection('users')
+        .doc(kakaoUserId)
+        .update(buildIdealTypeFieldUpdates(idealType));
   }
 
   /// 이상형 부분 업데이트 (키, 나이, MBTI, 학과, 성격, 라이프스타일 각각)
@@ -421,18 +388,18 @@ class UserService {
     required String fieldName,
     required dynamic value,
   }) async {
-    await _firestore.collection('users').doc(kakaoUserId).set({
-      'idealType': {fieldName: value},
-      'idealTypeUpdatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await _firestore
+        .collection('users')
+        .doc(kakaoUserId)
+        .update(buildIdealTypeFieldUpdate(fieldName: fieldName, value: value));
   }
 
   /// 이상형 설정 건너뛰기
   Future<void> skipIdealType(String kakaoUserId) async {
-    await _firestore.collection('users').doc(kakaoUserId).set({
-      'idealType': {'skipped': true},
-      'idealTypeUpdatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await _firestore
+        .collection('users')
+        .doc(kakaoUserId)
+        .update(buildIdealTypeFieldUpdate(fieldName: 'skipped', value: true));
   }
 
   /// 이상형 정보 조회

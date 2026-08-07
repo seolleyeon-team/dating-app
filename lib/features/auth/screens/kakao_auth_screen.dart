@@ -11,6 +11,7 @@ import '../../../router/route_names.dart';
 import '../../../screens/auth/kakao_callback_screen.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/friend_invite_service.dart';
+import '../services/kakao_login_firestore_bootstrap.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/layouts/main_scaffold_args.dart';
@@ -30,6 +31,10 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
   final _storageService = StorageService();
   final _friendInviteService = FriendInviteService();
   final _userService = UserService();
+  late final _loginBootstrap = KakaoLoginFirestoreBootstrap(
+    authService: _authService,
+    userService: _userService,
+  );
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -178,48 +183,6 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
     }
   }
 
-  /// Firebase 커스텀 토큰 세션 부착.
-  ///
-  /// `createFirebaseCustomToken` 은 users/{kakaoUserId} 문서가 없으면
-  /// failed-precondition 을 던지므로, 반드시 셸 문서 생성 이후에 호출해야 한다.
-  /// 실패를 조용히 넘기면 이후 모든 Firestore 요청이 request.auth == null 로
-  /// 나가면서 원인을 알 수 없는 permission-denied 가 되므로 반드시 기록한다.
-  Future<void> _attachFirebaseSession(String kakaoUserId) async {
-    final attached = await _authService.ensureFirebaseSessionForKakao(
-      kakaoUserId,
-    );
-    if (attached) return;
-    debugPrint(
-      '[KAKAO] Firebase session NOT attached for '
-      '${PrivacyLogUtils.idFingerprint(kakaoUserId)} — '
-      '이후 Firestore 요청이 request.auth == null 로 실행됩니다.',
-    );
-  }
-
-  Future<bool> _ensureUserShellIfMissing({
-    required String kakaoUserId,
-    required Map<String, dynamic> userInfo,
-  }) async {
-    final existedBeforeLogin = await _authService.kakaoUserExists(kakaoUserId);
-    if (existedBeforeLogin) {
-      return true;
-    }
-
-    await _userService.upsertKakaoUser(
-      kakaoUserId: kakaoUserId,
-      nickname: userInfo['nickname']?.toString(),
-      // main의 승인 아바타 정책상 카카오 원본 사진은 공개 프로필에 저장하지 않는다.
-      profileImageUrl: null,
-      email: userInfo['email']?.toString(),
-    );
-
-    debugPrint(
-      '[KAKAO] recreated missing users/'
-      '${PrivacyLogUtils.idFingerprint(kakaoUserId)} shell document',
-    );
-    return false;
-  }
-
   Future<bool> _stopIfRejoinRestrictedAccount(String kakaoUserId) async {
     final isRestricted = await _userService.isRejoinRestricted(kakaoUserId);
     if (!isRestricted) return false;
@@ -280,17 +243,17 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
         throw Exception('카카오 사용자 ID를 가져오지 못했습니다.');
       }
 
-      await _storageService.saveKakaoUserId(kakaoUserId);
-      // 셸 문서를 먼저 만든 뒤 세션을 붙인다. 순서가 뒤바뀌면 신규 가입자는
-      // createFirebaseCustomToken 이 failed-precondition 으로 항상 실패한다.
+      // Firebase 세션을 먼저 붙인다. 이 단계가 실패하면 이후 Firestore
+      // 조회/라우팅을 수행하지 않는다. 신규 users 셸은 서버 callable이
+      // 검증된 Kakao 토큰으로 생성한다.
       final existedBeforeLogin = await _runFirestoreStep(
-        'users/$kakaoUserId 조회·생성',
-        () => _ensureUserShellIfMissing(
+        '카카오 Firebase 세션 준비',
+        () => _loginBootstrap.bootstrap(
           kakaoUserId: kakaoUserId,
-          userInfo: userInfo,
+          platform: _currentPlatformLabel,
         ),
       );
-      await _attachFirebaseSession(kakaoUserId);
+      await _storageService.saveKakaoUserId(kakaoUserId);
       if (await _runFirestoreStep(
         '재가입 제한 확인',
         () => _stopIfRejoinRestrictedAccount(kakaoUserId),
@@ -477,17 +440,17 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
       if (kakaoUserId == null || kakaoUserId.isEmpty) {
         throw Exception('카카오 사용자 ID를 가져오지 못했습니다.');
       }
-      await _storageService.saveKakaoUserId(kakaoUserId);
-      // 셸 문서를 먼저 만든 뒤 세션을 붙인다. 순서가 뒤바뀌면 신규 가입자는
-      // createFirebaseCustomToken 이 failed-precondition 으로 항상 실패한다.
+      // Firebase 세션을 먼저 붙인다. 이 단계가 실패하면 이후 Firestore
+      // 조회/라우팅을 수행하지 않는다. 신규 users 셸은 서버 callable이
+      // 검증된 Kakao 토큰으로 생성한다.
       final existedBeforeLogin = await _runFirestoreStep(
-        'users/$kakaoUserId 조회·생성',
-        () => _ensureUserShellIfMissing(
+        '카카오 Firebase 세션 준비',
+        () => _loginBootstrap.bootstrap(
           kakaoUserId: kakaoUserId,
-          userInfo: userInfo,
+          platform: _currentPlatformLabel,
         ),
       );
-      await _attachFirebaseSession(kakaoUserId);
+      await _storageService.saveKakaoUserId(kakaoUserId);
       if (await _runFirestoreStep(
         '재가입 제한 확인',
         () => _stopIfRejoinRestrictedAccount(kakaoUserId),

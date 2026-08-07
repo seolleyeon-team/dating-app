@@ -386,9 +386,7 @@ class EventTeamService {
     final mbti = ob['mbti']?.toString().trim().isNotEmpty == true
         ? ob['mbti'].toString()
         : null;
-    final verified =
-        user['isStudentVerified'] == true ||
-        user['isStudentVerified'] == 'true';
+    final verified = user['isStudentVerified'] == true;
     return InviterProfile(
       userId: inviterUserId,
       name: name,

@@ -49,9 +49,9 @@ class OnboardingSaveHelper {
   static Future<void> saveInterests(List<String> interests) async {
     final uid = await _getUserId();
     if (uid == null) return;
-    await _userService.saveOnboardingBasicInfo(
+    await _userService.saveOnboardingInterests(
       kakaoUserId: uid,
-      basicInfo: {'interests': interests},
+      interests: interests,
     );
   }
 
@@ -144,7 +144,6 @@ class OnboardingSaveHelper {
     await _userService.saveOnboardingKeywords(
       kakaoUserId: uid,
       keywords: keywords,
-      interests: [],
     );
   }
 

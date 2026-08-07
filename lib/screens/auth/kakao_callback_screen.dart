@@ -8,7 +8,6 @@ import '../../router/route_names.dart';
 import '../../services/adult_verification_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/storage_service.dart';
-import '../../services/user_service.dart';
 
 class KakaoCallbackScreen extends StatefulWidget {
   const KakaoCallbackScreen({super.key, this.callbackPathAndQuery});
@@ -108,15 +107,10 @@ class _KakaoCallbackScreenState extends State<KakaoCallbackScreen> {
         'email': user.kakaoAccount?.email,
       };
 
-      // 4) 사용자 문서 셸 생성 후 로그인 상태 저장 (AuthProvider 갱신)
+      // 4) AuthProvider가 검증된 Kakao 토큰으로 Firebase 세션을 먼저 붙이고
+      // 로그인 상태를 저장한다. 세션 부착 실패는 콜백 성공으로 취급하지 않는다.
       if (!mounted) return;
       final authProvider = context.read<AuthProvider>();
-      await UserService().upsertKakaoUser(
-        kakaoUserId: kakaoUserId,
-        nickname: userInfo['nickname']?.toString(),
-        profileImageUrl: userInfo['profileImageUrl']?.toString(),
-        email: userInfo['email']?.toString(),
-      );
       await authProvider.setKakaoLogin(kakaoUserId, userInfo: userInfo);
 
       final authService = AuthService();

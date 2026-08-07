@@ -8,6 +8,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../blind_meeting_error_message.dart';
 import '../theme/blind_meeting_palette.dart';
 
 /// 차분한 상단 바.
@@ -420,7 +421,10 @@ class BlindMeetingErrorState extends StatelessWidget {
         children: [
           Text('잠시 문제가 생겼어요', style: BlindMeetingText.title(palette.ink)),
           const SizedBox(height: 8),
-          Text(message, style: BlindMeetingText.body(palette.inkSoft)),
+          Text(
+            blindMeetingUserErrorMessage(message),
+            style: BlindMeetingText.body(palette.inkSoft),
+          ),
           if (onRetry != null) ...[
             const SizedBox(height: 16),
             BlindMeetingSecondaryButton(label: '다시 시도', onPressed: onRetry),

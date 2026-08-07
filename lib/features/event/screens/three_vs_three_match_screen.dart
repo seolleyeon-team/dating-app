@@ -11,6 +11,8 @@ import 'package:flutter/material.dart' show Colors, Icons;
 
 import '../../../data/models/event/event_team_match_model.dart';
 import '../../../data/models/event/team_meeting_match_model.dart';
+import '../../chat/models/chat_room_data.dart';
+import '../../../router/route_names.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/team_meeting_request_service.dart';
 import '../models/event_team_route_args.dart';
@@ -148,7 +150,7 @@ class _ThreeVsThreeMatchScreenState extends State<ThreeVsThreeMatchScreen> {
               left: 0,
               right: 0,
               bottom: 0,
-              child: const _BottomActionBar(),
+              child: _BottomActionBar(chatRoomId: _match?.chatRoomId),
             ),
           ],
         ),
@@ -663,7 +665,9 @@ class _ErrorState extends StatelessWidget {
 // 하단 액션 버튼
 // =============================================================================
 class _BottomActionBar extends StatelessWidget {
-  const _BottomActionBar();
+  final String? chatRoomId;
+
+  const _BottomActionBar({this.chatRoomId});
 
   @override
   Widget build(BuildContext context) {
@@ -684,7 +688,19 @@ class _BottomActionBar extends StatelessWidget {
       ),
       child: CupertinoButton(
         padding: EdgeInsets.zero,
-        onPressed: () {},
+        onPressed: chatRoomId?.isNotEmpty == true
+            ? () {
+                Navigator.of(context).pushNamed(
+                  RouteNames.chatRoom,
+                  arguments: ChatRoomData(
+                    chatRoomId: chatRoomId!,
+                    partnerId: '',
+                    partnerName: '3:3 \uC2DC\uC98C \uBBF8\uD305',
+                    partnerUniversity: '6\uC778 \uADF8\uB8F9 \uCC44\uD305',
+                  ),
+                );
+              }
+            : null,
         child: Container(
           width: double.infinity,
           height: 56,

@@ -189,6 +189,8 @@ test("respond request plan is idempotent after accepted request and creates part
     "b2",
     "b3",
   ]);
+  assert.equal(accepted.matchData?.eventType, "season_meeting");
+  assert.equal(accepted.matchData?.seasonPhase, "matched");
 
   const replay = buildRespondTeamMeetingRequestPlan({
     requestId: "request-1",
@@ -292,4 +294,14 @@ test("team meeting request plans reject unsafe Firestore path segments", () => {
       }
     );
   }
+});
+
+test("accepted request reads match and room state before transaction writes", () => {
+  const source = readFileSync(__filename.replace(/\.test\.js$/, ".js"), "utf8");
+  const matchRead = source.indexOf("const matchSnap = matchRef ? await tx.get(matchRef)");
+  const firstWrite = source.indexOf("if (plan.requestUpdate)");
+  assert.ok(matchRead >= 0, "accepted path must read the deterministic match");
+  assert.ok(firstWrite > matchRead, "all accepted-path reads must precede writes");
+  assert.match(source, /chatRoomId:/);
+  assert.match(source, /collection\("messages"\)\.doc\("system"\)/);
 });

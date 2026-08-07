@@ -20,7 +20,7 @@ Cloud Scheduler (매일 04:00 KST)
       → [4] recs-verify      (health check)
 ```
 
-단일 Docker 이미지 + 6개 Cloud Run Job + 1개 Workflow + 1개 Scheduler.
+단일 Docker 이미지 + 10개 Cloud Run Job(1:1 6개 + 3:3 시즌 미팅 4개) + 1개 Workflow + 1개 Scheduler.
 
 ## File Structure
 
@@ -34,7 +34,9 @@ semisemifinal/
 │   └── jobs/
 │       ├── common.py            # 로깅, GCS 헬퍼, 날짜 유틸
 │       ├── export_job.py        # Firestore recEvents → GCS CSV
-│       └── verify_job.py        # 파이프라인 결과 검증
+│       ├── verify_job.py        # 파이프라인 결과 검증
+│       ├── meeting_job.py       # 3:3 시즌 미팅 step adapter
+│       └── meeting_verify_policy.py # 3:3 strict verification policy
 ├── lib/ai_recommend_model/      # ML 스크립트 (레거시 1:1 / v3 1:1 / 미팅 v1)
 │   │                            # — recsys.main·Docker는 아래 레거시 파일명 호출
 │   ├── seolleyeon_svd_train_export.py
@@ -260,6 +262,45 @@ v3에서 동일 진단이 필요하면 `seolleyeon_svd_train_export_v3.py`의 `-
 cd lib/ai_recommend_model
 python seolleyeon_run_all.py --firestore_project seolleyeon --date_key 20260309
 ```
+
+## 3:3 Season Meeting Production Automation
+
+The daily Workflow keeps the existing 1:1 sequence unchanged and then runs the season meeting pipeline sequentially:
+
+```text
+export -> clip/svd/knn (parallel) -> rrf -> 1:1 verify (non-fatal)
+  -> recs-meeting-group-index -> recs-meeting-recommend
+  -> recs-meeting-daily -> recs-meeting-verify (strict)
+```
+
+All meeting steps receive one Workflow-resolved `date_key` in KST (`YYYYMMDD`). The Firestore contracts remain:
+
+- `meetingGroupIndex/{groupId}`
+- `meetingModelRecs/{groupId}/daily/{dateKey}/sources/group_ranker`
+- `meetingDailyRecs/{groupId}/days/{dateKey}`
+- `meetingVerifyRuns/{dateKey}` (written by the production verify step)
+
+The unified entrypoint routes the existing v1 scripts without changing their scoring defaults:
+
+```bash
+python -m recsys.main --step meeting-group-index --project seolleyeon --date-key 20260413
+python -m recsys.main --step meeting-recommend --project seolleyeon --date-key 20260413
+python -m recsys.main --step meeting-daily --project seolleyeon --date-key 20260413
+python -m recsys.main --step meeting-verify --project seolleyeon --date-key 20260413
+```
+
+`meeting-verify` exits non-zero when a ready group has a missing or malformed model/daily document. A date with no ready groups is reported as `no_input` and exits successfully.
+
+Four additional Cloud Run Jobs are created by `infra/deploy.sh` using the existing image and service account:
+
+| Job | CPU | Memory | Timeout |
+|-----|-----|--------|---------|
+| `recs-meeting-group-index` | 1 | 2Gi | 10min |
+| `recs-meeting-recommend` | 2 | 8Gi | 60min |
+| `recs-meeting-daily` | 2 | 8Gi | 60min |
+| `recs-meeting-verify` | 1 | 1Gi | 5min |
+
+This change is locally testable and does not deploy or execute production GCP resources by itself.
 
 ## Cloud Run Deployment
 

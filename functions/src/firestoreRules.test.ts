@@ -192,6 +192,12 @@ test("chat rooms keep participantIds immutable and message updates scoped", () =
     "chatRoomParticipantIdsUnchanged()",
     "chatRoomDoesNotPersistPrivateMedia(request.resource.data)",
     "!isBlindMeetingRoomData(resource.data)",
+    "seasonMeetingRoomTypes()",
+    "seasonMeetingRoomGroupKinds()",
+    "data.get('eventType', null) == 'season_meeting'",
+    "!isSeasonMeetingRoomData(request.resource.data)",
+    "seasonMeetingRoomMutableOnly()",
+    "!isSeasonMeetingRoomData(resource.data) && !isSeasonMeetingRoomData(request.resource.data)",
   ]) {
     assertContains("chat room update gate includes " + condition, condition);
   }

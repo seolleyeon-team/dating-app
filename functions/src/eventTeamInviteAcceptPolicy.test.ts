@@ -67,4 +67,27 @@ describe("eventTeamInviteAcceptPolicy", () => {
     assert.equal(retry.ok, false);
     if (!retry.ok) assert.equal(retry.reason, "team_full");
   });
+
+  it("20 sequential accept attempts never exceed capacity 3", () => {
+    let accepted = ["leader", "a"];
+    let successes = 0;
+    let failures = 0;
+    for (let i = 0; i < 20; i += 1) {
+      const result = nextAcceptedUserIds({
+        acceptedUserIds: accepted,
+        inviteeUserId: `invitee_${i}`,
+        capacity: 3,
+      });
+      if (result.ok) {
+        successes += 1;
+        accepted = result.acceptedUserIds;
+      } else {
+        failures += 1;
+      }
+    }
+    assert.equal(successes, 1);
+    assert.equal(failures, 19);
+    assert.equal(accepted.length, 3);
+    assert.ok(accepted.length <= 3);
+  });
 });

@@ -43,7 +43,7 @@ service cloud.firestore {
 
       allow update: if false;
       allow delete: if isSelf(resource.data.kakaoUserId);
-    }
+}
 
         // -----------------------------------------------------------------------
     // Users
@@ -658,7 +658,9 @@ service cloud.firestore {
             writesOwnStudentEmail(request.resource.data) &&
             studentEmailIsUnboundOrMine(resource.data) &&
             request.resource.data.isStudentVerified == true &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            // affectedKeys (not changedKeys): newly added fields must also be
+            // constrained — changedKeys ignores keys that did not exist before.
+request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'kakaoUserId',
               'isStudentVerified',
               'studentEmail',
@@ -670,7 +672,10 @@ service cloud.firestore {
             resource.data.isStudentVerified == true &&
             request.resource.data.isStudentVerified == true &&
             usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            // Client-writable allowlist only. Moderation / withdrawal /
+            // verification timestamps / loginDisabled are server-only.
+            // Use affectedKeys so forging brand-new protected fields is denied.
+request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'kakaoUserId',
               'nickname',
               'email',
@@ -906,6 +911,44 @@ service cloud.firestore {
           data.get('roomType', null) in blindMeetingRoomTypes();
     }
 
+    function seasonMeetingRoomTypes() {
+      return ['season_meeting_group', 'event_season_meeting_group', 'three_vs_three_group'];
+    }
+
+    function seasonMeetingRoomGroupKinds() {
+      return ['group', 'three_vs_three', 'event_team_group'];
+    }
+
+    function isSeasonMeetingRoomData(data) {
+      return data != null && (
+          data.get('roomType', null) in seasonMeetingRoomTypes() ||
+          (
+            data.get('eventType', null) == 'season_meeting' &&
+            data.get('type', null) in seasonMeetingRoomGroupKinds()
+          ) ||
+          (
+            data.get('type', null) in seasonMeetingRoomGroupKinds() &&
+            (
+              data.get('threeVsThreeMatchId', null) is string ||
+              data.get('seasonMeetingMatchId', null) is string ||
+              data.get('eventThreeVsThreeMatchId', null) is string
+            )
+          )
+        );
+    }
+
+    function seasonMeetingRoomMutableOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'lastMessage',
+        'lastMessageAt',
+        'updatedAt',
+        'activePromise',
+        'photoBlurUnlocked',
+        'photoBlurUnlockedAt',
+        'photoBlurUnlockedBy'
+      ]);
+    }
+
     function blindRoomData(roomId) {
       return get(/databases/$(database)/documents/chat_rooms/$(roomId)).data;
     }
@@ -931,6 +974,7 @@ service cloud.firestore {
       allow read: if isChatRoomParticipant();
       allow create: if isChatRoomParticipantAfter() &&
         !isBlindMeetingRoomData(request.resource.data) &&
+        !isSeasonMeetingRoomData(request.resource.data) &&
         chatRoomDoesNotPersistPrivateMedia(request.resource.data);
       // participantIds is immutable after create — changing it would let a
       // participant add a third party who can then read the full history.
@@ -944,7 +988,12 @@ service cloud.firestore {
           request.resource.data.writable == resource.data.writable &&
           request.resource.data.status == resource.data.status &&
           request.resource.data.meetingId == resource.data.meetingId
-        ));
+        )) &&
+        ((!isSeasonMeetingRoomData(resource.data) &&
+          !isSeasonMeetingRoomData(request.resource.data)) ||
+          (isSeasonMeetingRoomData(resource.data) &&
+            isSeasonMeetingRoomData(request.resource.data) &&
+            seasonMeetingRoomMutableOnly()));
       allow delete: if false;
 
       match /messages/{messageId} {

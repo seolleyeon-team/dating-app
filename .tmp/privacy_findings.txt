@@ -1,0 +1,189 @@
+﻿00:00 +0: loading C:/Users/samsung/StudioProjects/semisemifinal/test/privacy_log_redaction_test.dart
+00:00 +0: global runtime print/debugPrint calls avoid raw privacy values
+00:01 +0 -1: global runtime print/debugPrint calls avoid raw privacy values [E]
+  Expected: empty
+    Actual: [
+              'lib\\core\\error\\error_handler.dart: \'[Error] $error\'',
+              'lib\\core\\error\\error_handler.dart: \'[StackTrace] $stackTrace\'',
+              'lib\\core\\network\\interceptors.dart: \'[API Request] ${request[\'method\']} ${request[\'url\']}\'',
+              'lib\\core\\network\\interceptors.dart: \'[API Error] $error\'',
+              'lib\\data\\repositories\\firestore_community_repository.dart: \'[FirestoreCommunity] createPost authorId="$authorIdStr"\'',
+              'lib\\data\\repositories\\firestore_community_repository.dart: \'[FirestoreCommunity] ?닿? ??湲 荑쇰━ currentUserId="$currentUserId"\',',
+              'lib\\data\\repositories\\firestore_community_repository.dart: \'[FirestoreCommunity] 泥リ? authorId="${first[\'authorId\']}"\'',
+              'lib\\features\\auth\\screens\\kakao_auth_screen.dart: \'$st\'',
+              'lib\\features\\auth\\screens\\student_verification_screen.dart: \'?벁 STEP 1: Firestore emailLinkTokens 臾몄꽌 ?앹꽦 ?쒖옉 (token=$token, email=$email)\',',
+              'lib\\features\\auth\\screens\\student_verification_screen.dart: \'??STEP 1 ?ㅽ뙣: Firestore 臾몄꽌 ?앹꽦 ?ㅻ쪟 ??$e\'',
+              'lib\\features\\auth\\screens\\student_verification_screen.dart: \'?벁 STEP 2: sendSignInLinkToEmail ?쒖옉 (email=$email)\'',
+              'lib\\features\\auth\\screens\\student_verification_screen.dart: \'??STEP 2 ?ㅽ뙣: sendSignInLinkToEmail ?ㅻ쪟 ??$e\'',
+              'lib\\features\\auth\\screens\\student_verification_screen.dart: e.toString()',
+              'lib\\features\\auth\\screens\\student_verification_screen.dart: stack.toString()',
+              'lib\\features\\chat\\screens\\chat_room_screen.dart: \'[ChatRoom] cancelExpiredIncompleteSafetyStamp failed \'\n'
+                '        \'room=$_roomId promise=$promiseId: $e\',',
+              'lib\\features\\chat\\screens\\chat_room_screen.dart: \'[ChatRoom] markMessagesAsRead failed room=$_roomId: $e\'',
+              'lib\\features\\chat\\screens\\chat_room_screen.dart: \'[ChatRoom] _initChat begin partner=${widget.partnerId} \'\n'
+                '        \'roomArg=${widget.chatRoomId}\',',
+              'lib\\features\\chat\\screens\\chat_room_screen.dart: \'[ChatRoom] getUserProfile soft-fail: $e\'',
+              'lib\\features\\chat\\screens\\chat_room_screen.dart: \'[ChatRoom] ensureDirectRoom start room=$_roomId \'\n'
+                '        \'partner=${widget.partnerId} uid=$kakaoUserId \'\n'
+                '        \'authUid=${_chatService.debugAuthUid}\',',
+              'lib\\features\\chat\\screens\\chat_room_screen.dart: \'[ChatRoom] ensureDirectRoom ok room=$_roomId\'',
+              'lib\\features\\chat\\screens\\chat_room_screen.dart: \'[ChatRoom] ensureDirectRoom soft-fail room=$_roomId: $e\'',
+              'lib\\features\\chat\\screens\\chat_room_screen.dart: \'[ChatRoom] _initChat hard-fail: $e\'',
+              'lib\\features\\chat\\screens\\chat_room_screen.dart: \'[ChatRoom] messagesStream snapshot error \'\n'
+                '                              \'room=$_roomId: ${messageSnapshot.error}\',',
+              'lib\\features\\chat\\services\\chat_service.dart: \'[ChatService] ensureDirectRoom get failed room=$resolvedRoomId \'\n'
+                '        \'authUid=$debugAuthUid kakao=$currentUserId: $e\',',
+              ...
+            ]
+  lib\core\error\error_handler.dart: '[Error] $error'
+  lib\core\error\error_handler.dart: '[StackTrace] $stackTrace'
+  lib\core\network\interceptors.dart: '[API Request] ${request['method']} ${request['url']}'
+  lib\core\network\interceptors.dart: '[API Error] $error'
+  lib\data\repositories\firestore_community_repository.dart: '[FirestoreCommunity] createPost authorId="$authorIdStr"'
+  lib\data\repositories\firestore_community_repository.dart: '[FirestoreCommunity] ?닿? ??湲 荑쇰━ currentUserId="$currentUserId"',
+  lib\data\repositories\firestore_community_repository.dart: '[FirestoreCommunity] 泥リ? authorId="${first['authorId']}"'
+  lib\features\auth\screens\kakao_auth_screen.dart: '$st'
+  lib\features\auth\screens\student_verification_screen.dart: '?벁 STEP 1: Firestore emailLinkTokens 臾몄꽌 ?앹꽦 ?쒖옉 (token=$token, email=$email)',
+  lib\features\auth\screens\student_verification_screen.dart: '??STEP 1 ?ㅽ뙣: Firestore 臾몄꽌 ?앹꽦 ?ㅻ쪟 ??$e'
+  lib\features\auth\screens\student_verification_screen.dart: '?벁 STEP 2: sendSignInLinkToEmail ?쒖옉 (email=$email)'
+  lib\features\auth\screens\student_verification_screen.dart: '??STEP 2 ?ㅽ뙣: sendSignInLinkToEmail ?ㅻ쪟 ??$e'
+  lib\features\auth\screens\student_verification_screen.dart: e.toString()
+  lib\features\auth\screens\student_verification_screen.dart: stack.toString()
+  lib\features\chat\screens\chat_room_screen.dart: '[ChatRoom] cancelExpiredIncompleteSafetyStamp failed '
+          'room=$_roomId promise=$promiseId: $e',
+  lib\features\chat\screens\chat_room_screen.dart: '[ChatRoom] markMessagesAsRead failed room=$_roomId: $e'
+  lib\features\chat\screens\chat_room_screen.dart: '[ChatRoom] _initChat begin partner=${widget.partnerId} '
+          'roomArg=${widget.chatRoomId}',
+  lib\features\chat\screens\chat_room_screen.dart: '[ChatRoom] getUserProfile soft-fail: $e'
+  lib\features\chat\screens\chat_room_screen.dart: '[ChatRoom] ensureDirectRoom start room=$_roomId '
+          'partner=${widget.partnerId} uid=$kakaoUserId '
+          'authUid=${_chatService.debugAuthUid}',
+  lib\features\chat\screens\chat_room_screen.dart: '[ChatRoom] ensureDirectRoom ok room=$_roomId'
+  lib\features\chat\screens\chat_room_screen.dart: '[ChatRoom] ensureDirectRoom soft-fail room=$_roomId: $e'
+  lib\features\chat\screens\chat_room_screen.dart: '[ChatRoom] _initChat hard-fail: $e'
+  lib\features\chat\screens\chat_room_screen.dart: '[ChatRoom] messagesStream snapshot error '
+                                'room=$_roomId: ${messageSnapshot.error}',
+  lib\features\chat\services\chat_service.dart: '[ChatService] ensureDirectRoom get failed room=$resolvedRoomId '
+          'authUid=$debugAuthUid kakao=$currentUserId: $e',
+  lib\features\chat\services\chat_service.dart: '[ChatService] ensureDirectRoom create failed '
+            'room=$resolvedRoomId: $e',
+  lib\features\chat\services\chat_service.dart: '[ChatService] ensureDirectRoom update failed '
+          'room=$resolvedRoomId authUid=$debugAuthUid: $e',
+  lib\features\community\providers\community_provider.dart: 'CommunityProvider initialize currentUserId: $_currentUserId'
+  lib\features\community\providers\community_provider.dart: 'CommunityProvider ensured currentUserId: $_currentUserId'
+  lib\features\community\providers\community_provider.dart: 'CommunityProvider loadPosts tab=$tab currentUserId=$_currentUserId',
+  lib\features\community\providers\community_provider.dart: 'CommunityProvider loadPosts error: $e'
+  lib\features\community\providers\community_provider.dart: 'CommunityProvider loadMore error: $e'
+  lib\features\community\providers\community_provider.dart: 'CommunityProvider createPost error: $e'
+  lib\features\community\providers\community_provider.dart: 'CommunityProvider togglePostLike error: $e'
+  lib\features\community\providers\community_provider.dart: 'CommunityProvider fetchPostDetail error: $e'
+  lib\features\community\providers\community_provider.dart: 'CommunityProvider deletePost error: $e'
+  lib\features\community\screens\post_write_screen.dart: '[PostWrite] 湲 ?깅줉 authorId="$kakaoUserId", category="$_selectedCategory"',
+  lib\features\event\screens\team_setup_screen.dart: 'TeamSetup bootstrap: $e\n$st'
+  lib\features\matching\screens\ai_preference_screen.dart: '[AI_PREF] kakaoUserId=$kakaoUserId'
+  lib\features\matching\screens\ai_preference_screen.dart: '[AI_PREF] Storage miss/error code=${e.code} path=$storagePath',
+  lib\features\matching\screens\ai_preference_screen.dart: '[AI_PREF] Storage error path=$storagePath err=$e'
+  lib\features\matching\screens\ai_preference_screen.dart: '[AI_PREF] height load failed id=$id code=${e.code} msg=${e.message}',
+  lib\features\matching\screens\ai_preference_screen.dart: '[AI_PREF] height parse failed id=$id err=$e'
+  lib\features\matching\screens\ai_preference_screen.dart: '[AI_PREF] _fillCards failed id=$id path=$path err=$e'
+  lib\features\matching\screens\ai_preference_screen.dart: '[AI_PREF] ??recEvent $label ?ㅽ뙣: $e'
+  lib\features\matching\screens\mystery_card_screen.dart: '[RecEvent] locker event failed: $error'
+  lib\features\matching\screens\profile_card_screen.dart: '[ProfileCard] kakaoUserId from storage: $kakaoUserId'
+  lib\features\matching\screens\profile_card_screen.dart: '[ProfileCard] ??_loadRecommendations ?ㅽ뙣: $e'
+  lib\features\matching\screens\profile_card_screen.dart: '[ProfileCard] stack: $st'
+  lib\features\matching\screens\profile_card_screen.dart: '[ProfileCard] _onSwiped: index=$index, dir=$direction, uid=$uid, profiles=${_profiles.length}',
+  lib\features\matching\screens\profile_card_screen.dart: '[ProfileCard] ??recEvent $label ?ㅽ뙣: $e'
+  lib\features\matching\screens\profile_card_screen.dart: 'Report error: $e'
+  lib\features\matching\screens\profile_specific_detail_screen.dart: '[RecEvent] detail_open failed: $e'
+  lib\features\matching\screens\profile_specific_detail_screen.dart: '[Like] error: $e'
+  lib\features\matching\screens\profile_specific_detail_screen.dart: '[Nope] error: $e'
+  lib\features\matching\screens\profile_specific_detail_screen.dart: '[RecEvent] ask_button_tap failed: $e'
+  lib\features\matching\screens\profile_specific_detail_screen.dart: '[RecEvent] ask_submit failed: $e'
+  lib\features\matching\screens\profile_specific_detail_screen.dart: '[Ask] send failed: $e'
+  lib\features\matching\screens\profile_specific_detail_screen.dart: '[RecEvent] message_button_tap failed: $e'
+  lib\features\matching\screens\profile_specific_detail_screen.dart: '[RecEvent] message_sent failed: $e'
+  lib\features\matching\screens\profile_specific_detail_screen.dart: 'AiMatchProfileScreen load profile error: $e'
+  lib\features\matching\screens\profile_specific_detail_screen.dart: 'Report error: $e'
+  lib\features\profile\screens\asks_inbox_screen.dart: '[AskInbox] markAsRead failed: $e'
+  lib\features\profile\screens\my_page_screen.dart: '[MyPage] friends stream error: $error'
+  lib\features\splash\splash_screen.dart: '?좑툘 Splash ?ㅻ퉬寃뚯씠???ㅻ쪟: $e'
+  lib\main.dart: '[AppCheck] debug-signing check failed: $e\n$st'
+  lib\main.dart: '[AppCheck] activate failed: $e\n$st'
+  lib\main.dart: '[GLOBAL] Uncaught error: $error\n$stack'
+  lib\router\app_router.dart: 'Issue report submit error: $e'
+  lib\router\app_router.dart: 'Inquiry submit error: $e'
+  lib\screens\auth\signup_screen.dart: 'nickname: ${userInfo['nickname']}'
+  lib\screens\auth\student_verification_screen.dart: e.toString()
+  lib\screens\auth\student_verification_screen.dart: stack.toString()
+  lib\services\ai_recommendation_service.dart: '[AI] _fetchBlockedUids error: $e'
+  lib\services\auth_service.dart: '[Auth] Firebase session mismatch: '
+            'uid=${currentUser.uid} '
+            'claimKakaoUserId=$claimedKakaoUserId '
+            'expected=$kakaoUserId',
+  lib\services\auth_service.dart: '[Auth] Firebase session inspection failed: $e'
+  lib\services\auth_service.dart: st.toString()
+  lib\services\auth_service.dart: '[Kakao] isKakaoTalkInstalled error (fallback to web): $e',
+  lib\services\auth_service.dart: '[Kakao] loginWithKakaoTalk error (fallback to web): $e',
+  lib\services\auth_service.dart: st.toString()
+  lib\services\auth_service.dart: '[Auth] phoneHash ????ㅽ뙣 (臾댁떆): $e'
+  lib\services\auth_service.dart: '[Auth] Firebase session already attached to $kakaoUserId'
+  lib\services\auth_service.dart: '[Auth] Firebase custom auth attached to $kakaoUserId'
+  lib\services\auth_service.dart: '[Auth] ensureFirebaseSessionForKakao functions error: '
+          'code=${e.code} message=${e.message} details=${e.details}',
+  lib\services\auth_service.dart: st.toString()
+  lib\services\auth_service.dart: '[Auth] ensureFirebaseSessionForKakao error: $e'
+  lib\services\auth_service.dart: st.toString()
+  lib\services\auth_service.dart: '[Auth] Existing Firebase session is available for verified user '
+            '(kakaoUserId=$kakaoUserId)',
+  lib\services\auth_service.dart: '[Auth] Existing Firebase session refresh failed: $e'
+  lib\services\auth_service.dart: '[Auth] Firebase session restored from student verification token '
+              'for $kakaoUserId',
+  lib\services\auth_service.dart: '[Auth] ensureFirebaseSessionForVerifiedUser functions error: '
+            'code=${e.code} message=${e.message} details=${e.details}',
+  lib\services\auth_service.dart: st.toString()
+  lib\services\auth_service.dart: '[Auth] ensureFirebaseSessionForVerifiedUser error: $e'
+  lib\services\auth_service.dart: st.toString()
+  lib\services\auth_service.dart: '[Auth] Firebase signOut failed: $e'
+  lib\services\auth_service.dart: st.toString()
+  lib\services\auth_service.dart: '[Auth] Kakao logout failed: $e'
+  lib\services\auth_service.dart: st.toString()
+  lib\services\auth_service.dart: '[Auth] Kakao access token is not usable anymore: $e'
+  lib\services\auth_service.dart: '[Auth] getKakaoAccessTokenForFunctions: $e'
+  lib\services\auth_service.dart: '$st'
+  lib\services\contact_block_service.dart: '[ContactBlock] checkPermission error: $e'
+  lib\services\contact_block_service.dart: '[ContactBlock] getBlockedUserIds error: $e'
+  lib\services\friend_invite_service.dart: '[FriendInvite] createFriendInvite auth firebaseAttached=$hasFirebaseSession firebaseUid=${FirebaseAuth.instance.currentUser?.uid} hasKakaoAccessToken=${kakaoAccessToken != null && kakaoAccessToken.isNotEmpty}',
+  lib\services\friend_invite_service.dart: '[FriendInvite] createFriendInvite success inviteId=${payload.inviteId} inviteUrl=${payload.inviteUrl}',
+  lib\services\friend_invite_service.dart: '[FriendInvite] createFriendInvite functions error code=${e.code} message=${e.message}',
+  lib\services\friend_invite_service.dart: '[FriendInvite] createFriendInvite error: $e'
+  lib\services\friend_invite_service.dart: '[FriendInvite] shareInviteViaKakao error: $e'
+  lib\services\friend_invite_service.dart: '[FriendInvite] processPendingInviteIfPossible kakaoUserId=$kakaoUserId',
+  lib\services\friend_invite_service.dart: '[FriendInvite] acceptFriendInvite auth firebaseUid=${FirebaseAuth.instance.currentUser?.uid} hasKakaoAccessToken=${kakaoAccessToken != null && kakaoAccessToken.isNotEmpty}',
+  lib\services\friend_invite_service.dart: '[FriendInvite] acceptFriendInvite functions error code=${e.code} message=${e.message}',
+  lib\services\friend_invite_service.dart: '[FriendInvite] acceptFriendInvite error: $e'
+  lib\services\interaction_service.dart: '[Interaction] post-block unmatch skipped: $e'
+  lib\services\push_notification_service.dart: '[PUSH] opened chat room = $roomId'
+  lib\services\push_notification_service.dart: '[PUSH] cleared opened chat room = $roomId'
+  lib\services\push_notification_service.dart: '[PUSH] stored kakaoUserId = $userId'
+  lib\services\push_notification_service.dart: '[PUSH] fcmToken = $token'
+  lib\services\push_notification_service.dart: '[PUSH] syncFcmToken error: $e'
+  lib\services\push_notification_service.dart: '$st'
+  lib\services\push_notification_service.dart: '[PUSH] suppress foreground chat notification for room=$roomId',
+  lib\services\rec_event_service.dart: '[RecEvent] ?? ?쒕룄: $eventType | surface=$surface | target=$targetUid | userId=$userId',
+  lib\services\rec_event_service.dart: '[RecEvent] ?좑툘 遺紐?臾몄꽌 set ?ㅽ뙣 (臾댁떆?섍퀬 怨꾩냽): $e'
+  lib\services\rec_event_service.dart: '[RecEvent] ??湲곕줉 ?깃났: $eventType surface=$surface userId=$userId',
+  lib\services\screen_security_service.dart: '[ScreenSecurity] enableProtection failed: $e\n$st'
+  lib\services\screen_security_service.dart: '[ScreenSecurity] enableSensitiveProtection failed: $e\n$st'
+  lib\services\screen_security_service.dart: '[ScreenSecurity] disableSensitiveProtection failed: $e\n$st'
+  lib\services\windows_protocol_registration_io.dart: '[DesktopProtocol] Windows protocol registration failed: $e'
+  lib\services\windows_protocol_registration_io.dart: st.toString()
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test\privacy_log_redaction_test.dart 19:5           main.<fn>
+  
+00:01 +0 -1: privacy scanner catches identity aliases in interpolated logs
+00:01 +1 -1: local redactor names are not automatically trusted
+00:01 +2 -1: privacy log utility fingerprints do not contain raw input
+00:01 +3 -1: privacy log utility summarizes errors without raw messages
+00:01 +4 -1: Some tests failed.
