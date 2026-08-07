@@ -1,0 +1,24 @@
+group,item_count,file_count,total_bytes,reparse_count,missing_count,classification,active_counterpart_basis,unique_user_data_status,secret_status,disposition,gate
+.dart_tool,122,122,272262003,0,0,GENERATED_REPRODUCIBLE,generated state; no preservation required,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+.flutter-plugins-dependencies,1,1,30810,0,0,GENERATED_REPRODUCIBLE,generated Flutter metadata,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+.pytest_cache,4,4,3357,0,0,CACHE_REPRODUCIBLE,test cache; no preservation required,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+android\\.gradle,14,14,11663623,0,0,GENERATED_BUILD_CACHE,14/14 present; 3/14 SHA-equal; remaining generated differences,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+android\\app,1,1,7086,0,0,GENERATED_REPRODUCIBLE,1/1 present; 1/1 SHA-equal,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+android\\gradle,1,1,53636,0,0,GENERATED_REPRODUCIBLE,1/1 present; 1/1 SHA-equal,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+android\\gradlew,1,1,4971,0,0,GENERATED_REPRODUCIBLE,1/1 present; 1/1 SHA-equal,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+android\\gradlew.bat,1,1,2404,0,0,GENERATED_REPRODUCIBLE,1/1 present; 1/1 SHA-equal,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+android\\local.properties,1,1,152,0,0,DUPLICATE_OF_ACTIVE_LOCAL_CONFIG,1/1 present; 1/1 SHA-equal,no unique data; active copy retained,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+build,6467,6467,2832022272,0,0,GENERATED_BUILD_OUTPUT,generated build/test output,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+firestore-debug.log,1,1,558091,0,0,GENERATED_RUNTIME_LOG,runtime log; no preservation required,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+flutter_01.log,1,1,5740,0,0,GENERATED_RUNTIME_LOG,runtime log; no preservation required,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+functions\\lib,176,176,1866285,0,0,GENERATED_REPRODUCIBLE,176/176 present; 160/176 SHA-equal; remaining generated differences,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+functions\\node_modules,7981,7981,144286353,0,0,DEPENDENCY_REPRODUCIBLE,dependency install output,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+ios\\Flutter,4,4,2640,0,0,GENERATED_REPRODUCIBLE,4/4 present; 2/4 SHA-equal; remaining generated differences,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+ios\\Runner,2,2,6521,0,0,GENERATED_REPRODUCIBLE,2/2 present; 2/2 SHA-equal,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+lib\\ai_recommend_model,40,40,466732,0,0,CACHE_REPRODUCIBLE,Python bytecode cache; no active copy required,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+linux\\flutter,11,0,0,11,0,GENERATED_REPARSE_LINKS,generated Flutter plugin links,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+macos\\Flutter,2,2,1111,0,0,GENERATED_REPRODUCIBLE,2/2 present; generated differences,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+scripts\\__pycache__,1,1,2825,0,0,CACHE_REPRODUCIBLE,Python bytecode cache,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+test\\firestore_rules\\firestore-debug.log,1,1,558091,0,0,GENERATED_RUNTIME_LOG,1/1 present; generated log differs,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+test\\firestore_rules\\node_modules,7523,7523,104065377,0,0,DEPENDENCY_REPRODUCIBLE,dependency install output,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS
+tests\\__pycache__,1,1,93175,0,0,CACHE_REPRODUCIBLE,Python bytecode cache,not identified in generated/cache class,no high-risk path match,REMOVE_WITH_QUARANTINE_RETIREMENT,PASS

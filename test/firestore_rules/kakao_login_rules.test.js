@@ -97,6 +97,15 @@ async function seedShell() {
   });
 }
 
+async function seedPublicProfile() {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "publicProfiles", KAKAO_USER_ID), {
+      nickname: "public-profile",
+      profileImageUrl: "",
+    });
+  });
+}
+
 /** 로그인 플로우 전체를 순서대로 재현한다. */
 function loginFlowCases(makeDb) {
   it("1. users/{id} 존재 확인 read", async () => {
@@ -194,12 +203,12 @@ describe("카카오 로그인 — Firebase 세션 없음 (request.auth == null) 
 describe("카카오 로그인 — 다른 사용자 세션으로는 남의 문서에 쓸 수 없다", () => {
   const otherDb = () => testEnv.authenticatedContext("9999999999").firestore();
 
-  // read 는 의도적으로 허용한다. 프로필 탐색·추천 카드가 다른 사용자 문서를
-  // 읽어야 하기 때문이다. 필드 단위 분리(publicProfiles 프로젝션)는 후속
-  // 과제이고 docs/audits/opus5/11-residual-risks-and-deployment.md R-FS-2 다.
-  it("1. 남의 users 문서 read 는 허용된다 (추천·탐색 유지, R-FS-2)", async () => {
+  // Cross-user profile reads use the server-synced publicProfiles projection.
+  // The private users/{kakaoUserId} document remains owner-only.
+  it("other authenticated sessions read publicProfiles, not private users", async () => {
     await seedShell();
-    await assertSucceeds(getDoc(doc(otherDb(), "users", KAKAO_USER_ID)));
+    await seedPublicProfile();
+    await assertSucceeds(getDoc(doc(otherDb(), "publicProfiles", KAKAO_USER_ID)));
   });
 
   it("2. 남의 users 문서 create 는 거부된다", async () => {

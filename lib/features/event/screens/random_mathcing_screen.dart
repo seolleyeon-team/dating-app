@@ -12,6 +12,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors; // 아이콘 매핑을 위해 일부 허용
 import 'dart:ui';
 
+import '../../../core/feature_flags.dart';
+
 // =============================================================================
 // 색상 정의 (HTML 기반 + Flutter 디자인 시스템 최적화)
 // =============================================================================
@@ -97,17 +99,18 @@ class _SlotMachineScreenState extends State<SlotMachineScreen> {
           slivers: [
             SliverToBoxAdapter(
               child: Column(
-                children: const [
-                  _HeroSection(),
-                  _QuickSetupSection(),
-                  _DividingLine(),
-                  _PromiseSection(),
-                  _SlotMachineSection(),
-                  _MatchedPartnersSection(),
-                  _StatusCardSection(),
-                  _LockedChatSection(),
-                  _FaqSection(),
-                  SizedBox(height: 100), // 하단 여백
+                children: [
+                  const _HeroSection(),
+                  const _QuickSetupSection(),
+                  const _DividingLine(),
+                  const _PromiseSection(),
+                  const _SlotMachineSection(),
+                  const _MatchedPartnersSection(),
+                  const _StatusCardSection(),
+                  // Payment provider is not wired — hide deposit CTA/UI (fail closed).
+                  if (kSeasonDepositEnabled) const _LockedChatSection(),
+                  const _FaqSection(),
+                  const SizedBox(height: 100), // 하단 여백
                 ],
               ),
             ),

@@ -12,6 +12,8 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/feature_flags.dart';
+
 // =============================================================================
 // 색상 상수
 // =============================================================================
@@ -46,18 +48,19 @@ class _RuleItem {
 class PromiseAgreementModal extends StatelessWidget {
   const PromiseAgreementModal({super.key});
 
-  static const List<_RuleItem> _rules = [
-    _RuleItem(
+  static List<_RuleItem> get _rules => [
+    const _RuleItem(
       icon: CupertinoIcons.camera,
       title: '본인 확인 및 얼굴 공개',
       description: '신뢰할 수 있는 분들과만 만날 수 있도록 프로필 사진을 꼼꼼히 확인해요.',
     ),
-    _RuleItem(
-      icon: CupertinoIcons.money_dollar_circle,
-      title: '약속 머니 제도',
-      description: '소중한 시간을 지키기 위해 소액의 보증금으로 노쇼(No-Show)를 방지해요.',
-    ),
-    _RuleItem(
+    if (kSeasonDepositEnabled)
+      const _RuleItem(
+        icon: CupertinoIcons.money_dollar_circle,
+        title: '약속 머니 제도',
+        description: '소중한 시간을 지키기 위해 소액의 보증금으로 노쇼(No-Show)를 방지해요.',
+      ),
+    const _RuleItem(
       icon: CupertinoIcons.person_2,
       title: '대타 매칭 시스템',
       description: '갑작스러운 빈자리도 걱정 없어요. 검증된 대타 회원을 빠르게 연결해드려요.',

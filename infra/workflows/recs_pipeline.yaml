@@ -5,7 +5,8 @@
 #   1. export        (recEvents → GCS CSV)
 #   2. clip/svd/knn  (parallel, train + Firestore export)
 #   3. rrf           (merge all sources)
-#   4. verify        (health check)
+#   4. verify        (1:1 health check, non-fatal)
+#   5. meeting group-index -> recommend -> daily -> strict verify
 #
 # Trigger: Cloud Scheduler (daily 04:00 KST)
 # Input (optional):
@@ -23,7 +24,7 @@ main:
           - project_id: '${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}'
           - region: "asia-northeast3"
           - bucket: '${default(map.get(input, "bucket"), project_id + "-recs")}'
-          - date_key: '${default(map.get(input, "date_key"), "")}'
+          - date_key: '${default(map.get(input, "date_key"), text.replace_all(text.substring(time.format(sys.now(), "Asia/Seoul"), 0, 10), "-", ""))}'
 
     - log_start:
         call: sys.log
@@ -217,7 +218,107 @@ main:
                   severity: "WARNING"
 
     # --------------------------------------------------
-    # 5. Done
+    # 5. 3:3 season meeting recommendation pipeline
+    # --------------------------------------------------
+    - run_meeting_group_index:
+        try:
+          call: googleapis.run.v2.projects.locations.jobs.run
+          args:
+            name: '${"projects/" + project_id + "/locations/" + region + "/jobs/recs-meeting-group-index"}'
+            body:
+              overrides:
+                containerOverrides:
+                  - args:
+                      - "--step=meeting-group-index"
+                      - '${"--date-key=" + date_key}'
+                      - '${"--project=" + project_id}'
+          result: meeting_group_index_result
+        except:
+          as: e
+          steps:
+            - log_meeting_group_index_fail:
+                call: sys.log
+                args:
+                  data: '${"Meeting group index failed: " + json.encode_to_string(e)}'
+                  severity: "ERROR"
+            - raise_meeting_group_index:
+                raise: '${e}'
+
+    - run_meeting_recommend:
+        try:
+          call: googleapis.run.v2.projects.locations.jobs.run
+          args:
+            name: '${"projects/" + project_id + "/locations/" + region + "/jobs/recs-meeting-recommend"}'
+            body:
+              overrides:
+                containerOverrides:
+                  - args:
+                      - "--step=meeting-recommend"
+                      - '${"--date-key=" + date_key}'
+                      - '${"--project=" + project_id}'
+          result: meeting_recommend_result
+        except:
+          as: e
+          steps:
+            - log_meeting_recommend_fail:
+                call: sys.log
+                args:
+                  data: '${"Meeting recommend failed: " + json.encode_to_string(e)}'
+                  severity: "ERROR"
+            - raise_meeting_recommend:
+                raise: '${e}'
+
+    - run_meeting_daily:
+        try:
+          call: googleapis.run.v2.projects.locations.jobs.run
+          args:
+            name: '${"projects/" + project_id + "/locations/" + region + "/jobs/recs-meeting-daily"}'
+            body:
+              overrides:
+                containerOverrides:
+                  - args:
+                      - "--step=meeting-daily"
+                      - '${"--date-key=" + date_key}'
+                      - '${"--project=" + project_id}'
+          result: meeting_daily_result
+        except:
+          as: e
+          steps:
+            - log_meeting_daily_fail:
+                call: sys.log
+                args:
+                  data: '${"Meeting daily failed: " + json.encode_to_string(e)}'
+                  severity: "ERROR"
+            - raise_meeting_daily:
+                raise: '${e}'
+
+    - run_meeting_verify:
+        try:
+          call: googleapis.run.v2.projects.locations.jobs.run
+          args:
+            name: '${"projects/" + project_id + "/locations/" + region + "/jobs/recs-meeting-verify"}'
+            body:
+              overrides:
+                containerOverrides:
+                  - args:
+                      - "--step=meeting-verify"
+                      - '${"--date-key=" + date_key}'
+                      - '${"--project=" + project_id}'
+                      - "--write-meeting-verify-doc"
+          result: meeting_verify_result
+        except:
+          as: e
+          steps:
+            - log_meeting_verify_fail:
+                call: sys.log
+                args:
+                  data: '${"Meeting verify failed: " + json.encode_to_string(e)}'
+                  severity: "ERROR"
+            - raise_meeting_verify:
+                raise: '${e}'
+
+    # --------------------------------------------------
+    # 6. Done
     # --------------------------------------------------
     - log_complete:
         call: sys.log

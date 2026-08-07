@@ -19,6 +19,8 @@ import 'services/push_notification_service.dart';
 import 'shared/utils/app_check_provider_policy.dart';
 import 'services/windows_protocol_registration_stub.dart'
     if (dart.library.io) 'services/windows_protocol_registration_io.dart';
+import 'services/app_check_web_storage_stub.dart'
+    if (dart.library.html) 'services/app_check_web_storage_impl.dart';
 import 'firebase_options.dart';
 import 'app.dart';
 import 'webview_web_stub.dart'
@@ -34,6 +36,10 @@ const bool _forceAppCheckDebugProvider = bool.fromEnvironment(
 );
 const String _webAppCheckRecaptchaSiteKey = String.fromEnvironment(
   'APP_CHECK_WEB_RECAPTCHA_SITE_KEY',
+  defaultValue: '',
+);
+const String _webAppCheckDebugToken = String.fromEnvironment(
+  'APP_CHECK_WEB_DEBUG_TOKEN',
   defaultValue: '',
 );
 const MethodChannel _kakaoUtilChannel = MethodChannel(
@@ -81,30 +87,49 @@ void main() {
         javaScriptAppKey: kIsWeb ? kakaoJavaScriptKey : null,
       );
 
+      if (kIsWeb) {
+        clearStoredWebAppCheckProvider();
+      }
+
       // ✅ Firebase init
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
       FirebaseDiagnostics.logCurrentFirebaseApp('firebase_initialize_success');
 
-      // App Check: Android/iOS always; web when a reCAPTCHA v3 site key is
-      // supplied. Callable functions enforce App Check, so web login requires
-      // `--dart-define=APP_CHECK_WEB_RECAPTCHA_SITE_KEY=...`.
+      // App Check: Android/iOS always. Web uses reCAPTCHA v3 normally, with
+      // an explicit debug-provider escape hatch for local Chrome testing.
+      // Callable functions enforce App Check, so either provider must be
+      // registered in Firebase Console before login can succeed.
       try {
         if (kIsWeb) {
-          final siteKey = webAppCheckRecaptchaSiteKey(
-            fromEnvironment: _webAppCheckRecaptchaSiteKey,
-          );
-          if (siteKey != null) {
+          if (_forceAppCheckDebugProvider) {
+            final debugToken = _webAppCheckDebugToken.trim();
             await FirebaseAppCheck.instance.activate(
-              providerWeb: ReCaptchaV3Provider(siteKey),
+              providerWeb: WebDebugProvider(
+                debugToken: debugToken.isEmpty ? null : debugToken,
+              ),
             );
             await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
-            debugPrint('[AppCheck] web reCAPTCHA v3 provider activated');
-          } else {
             debugPrint(
-              '[AppCheck] web skipped: APP_CHECK_WEB_RECAPTCHA_SITE_KEY unset',
+              '[AppCheck] web debug provider activated; '
+              'register the browser debug token in Firebase Console',
             );
+          } else {
+            final siteKey = webAppCheckRecaptchaSiteKey(
+              fromEnvironment: _webAppCheckRecaptchaSiteKey,
+            );
+            if (siteKey != null) {
+              await FirebaseAppCheck.instance.activate(
+                providerWeb: ReCaptchaV3Provider(siteKey),
+              );
+              await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
+              debugPrint('[AppCheck] web reCAPTCHA v3 provider activated');
+            } else {
+              debugPrint(
+                '[AppCheck] web skipped: APP_CHECK_WEB_RECAPTCHA_SITE_KEY unset',
+              );
+            }
           }
         } else {
           final useDebugAppCheck = await _shouldUseDebugAppCheckProvider();

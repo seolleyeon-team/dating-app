@@ -12,6 +12,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
+import { hasRequiredInterests } from "./eligibility";
 import { requiresAlcoholFreeGroup } from "./matching";
 import {
   acceptInvitation,
@@ -168,7 +169,7 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
   const lifestyle = isRecord(lifestyleRaw) ? lifestyleRaw : {};
 
   const interestIds = asStrArray(onboarding.interests);
-  if (interestIds.length === 0) {
+  if (!hasRequiredInterests(interestIds)) {
     throw new HttpsError(
       "failed-precondition",
       "관심사를 먼저 등록해주세요."

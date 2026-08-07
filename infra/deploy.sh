@@ -167,6 +167,21 @@ create_or_update_job recs-rrf "${COMMON_ARGS[@]}" \
 create_or_update_job recs-verify "${COMMON_ARGS[@]}" \
   --cpu=1 --memory=1Gi --task-timeout=300 \
   --args="--step=verify,--project=${PROJECT_ID}"
+create_or_update_job recs-meeting-group-index "${COMMON_ARGS[@]}" \
+  --cpu=1 --memory=2Gi --task-timeout=600 \
+  --args="--step=meeting-group-index,--project=${PROJECT_ID}"
+
+create_or_update_job recs-meeting-recommend "${COMMON_ARGS[@]}" \
+  --cpu=2 --memory=8Gi --task-timeout=3600 \
+  --args="--step=meeting-recommend,--project=${PROJECT_ID}"
+
+create_or_update_job recs-meeting-daily "${COMMON_ARGS[@]}" \
+  --cpu=2 --memory=8Gi --task-timeout=3600 \
+  --args="--step=meeting-daily,--project=${PROJECT_ID}"
+
+create_or_update_job recs-meeting-verify "${COMMON_ARGS[@]}" \
+  --cpu=1 --memory=1Gi --task-timeout=300 \
+  --args="--step=meeting-verify,--project=${PROJECT_ID}"
 
 # -------------------------------------------------------
 # 8. Workflow deployment

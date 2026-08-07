@@ -7,8 +7,10 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../providers/auth_provider.dart';
 import '../../../router/route_names.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/firebase_diagnostics.dart';
@@ -243,46 +245,53 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     });
 
     try {
-      final kakaoUserId = await _storageService.getKakaoUserId();
-      if (kakaoUserId == null) {
-        throw Exception('카카오 로그인 정보가 없습니다.');
+      final localKakaoUserId = (await _storageService.getKakaoUserId())?.trim();
+      final verificationToken = extractStudentEmailLinkToken(link);
+      if (verificationToken == null || verificationToken.isEmpty) {
+        throw Exception('Firebase 인증 정보가 포함된 링크를 찾을 수 없습니다. 메일의 링크를 다시 눌러주세요.');
       }
-      // 로컬 ID 유지 (AuthProvider 부트스트랩·이메일 링크 타이밍과 무관하게 동일 키로 저장)
-      final verificationToken = Uri.tryParse(
-        link,
-      )?.queryParameters['t']?.trim();
-      if (verificationToken != null && verificationToken.isNotEmpty) {
-        await _storageService.saveStudentVerificationToken(
-          kakaoUserId,
-          verificationToken,
-        );
-      }
-      await _storageService.saveKakaoUserId(kakaoUserId);
 
-      final savedEmail =
-          (await _storageService.getStudentEmail(kakaoUserId) ?? '')
-              .trim()
-              .toLowerCase();
-      final email = savedEmail.isNotEmpty
-          ? savedEmail
+      // 새 탭/새 브라우저에서는 로컬 이메일이 없을 수 있으므로, continue URL의
+      // 불투명 토큰으로 서버가 저장한 이메일을 먼저 읽는다.
+      final tokenEmail = await _authService.getEmailForStudentEmailLinkToken(
+        verificationToken,
+      );
+      final savedEmail = localKakaoUserId == null
+          ? ''
+          : (await _storageService.getStudentEmail(localKakaoUserId) ?? '')
+                .trim()
+                .toLowerCase();
+      final email = (tokenEmail ?? savedEmail).isNotEmpty
+          ? (tokenEmail ?? savedEmail)
           : _buildYonseiEmail(_emailController.text);
 
       if (email.isEmpty) {
         throw Exception('이메일 정보를 찾을 수 없습니다. 다시 시도해주세요.');
       }
 
+      // 1) Firebase가 원본 action URL의 일회성 oobCode로 메일 소유권을 확인한다.
       await _authService.signInWithEmailLink(email: email, emailLink: link);
 
-      // Firestore에 학생 인증 기록 (기존 서비스 메서드 사용)
-      await _authService.setStudentVerified(
-        kakaoUserId: kakaoUserId,
-        studentEmail: email,
+      // 2) 서버가 인증된 메일 세션과 token 문서를 대조하고, 같은 트랜잭션에서
+      //    users 문서를 갱신·토큰 소모 후 카카오 UID custom token을 발급한다.
+      final completion = await _authService.completeStudentEmailLink(
+        token: verificationToken,
+        expectedKakaoUserId: localKakaoUserId,
       );
+      final kakaoUserId = completion.kakaoUserId;
       await _storageService.saveKakaoUserId(kakaoUserId);
-      final hasFirebaseSession = await _ensureFirebaseSessionAfterVerification(
+      await _storageService.saveStudentEmail(kakaoUserId, completion.email);
+      await _storageService.saveStudentVerificationToken(
         kakaoUserId,
+        verificationToken,
       );
-      if (!hasFirebaseSession || !mounted) return;
+      await _storageService.setStudentVerified(kakaoUserId, true);
+
+      if (!mounted) return;
+      await context.read<AuthProvider>().applyEmailLinkCompletion(
+        kakaoUserId: kakaoUserId,
+        email: completion.email,
+      );
 
       if (!mounted) return;
       setState(() => _statusMessage = '학생 인증 완료!');

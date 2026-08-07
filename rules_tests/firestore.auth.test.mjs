@@ -13,6 +13,7 @@ import {
 import {
   doc,
   collection,
+  deleteField,
   getDoc,
   getDocs,
   setDoc,
@@ -412,6 +413,65 @@ test("SEC-P0-PROTECTED-FIELDS: owner cannot delete or forge verification timesta
     updateDoc(doc(db, "users", VICTIM), {
       studentVerifiedAt: Timestamp.now(),
       verifiedAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    })
+  );
+});
+
+test("SEC-P0-PROTECTED-FIELDS: owner cannot forge role/admin/premium/permission", async () => {
+  await seedVictim();
+  const db = await kakaoSession(VICTIM);
+
+  for (const payload of [
+    { role: "admin", updatedAt: Timestamp.now() },
+    { admin: true, updatedAt: Timestamp.now() },
+    { verified: true, updatedAt: Timestamp.now() },
+    { schoolVerified: true, updatedAt: Timestamp.now() },
+    { premium: true, updatedAt: Timestamp.now() },
+    { permission: "all", updatedAt: Timestamp.now() },
+  ]) {
+    await assertFails(updateDoc(doc(db, "users", VICTIM), payload));
+  }
+});
+
+test("SEC-P0-PROTECTED-FIELDS: owner cannot clear loginDisabled when absent via add", async () => {
+  // changedKeys() would miss this — field is newly added, not "changed".
+  await seedVictim();
+  const db = await kakaoSession(VICTIM);
+
+  await assertFails(
+    updateDoc(doc(db, "users", VICTIM), {
+      loginDisabled: false,
+      updatedAt: Timestamp.now(),
+    })
+  );
+});
+
+test("SEC-P0-PROTECTED-FIELDS: owner cannot null or deleteField protected fields", async () => {
+  await withClearedDb(async (db) => {
+    await setDoc(doc(db, "users", VICTIM), {
+      ...verifiedUserDoc(VICTIM, VICTIM_EMAIL),
+      loginDisabled: true,
+      studentVerifiedAt: Timestamp.now(),
+    });
+  });
+  const db = await kakaoSession(VICTIM);
+
+  await assertFails(
+    updateDoc(doc(db, "users", VICTIM), {
+      loginDisabled: null,
+      updatedAt: Timestamp.now(),
+    })
+  );
+  await assertFails(
+    updateDoc(doc(db, "users", VICTIM), {
+      loginDisabled: deleteField(),
+      updatedAt: Timestamp.now(),
+    })
+  );
+  await assertFails(
+    updateDoc(doc(db, "users", VICTIM), {
+      studentVerifiedAt: deleteField(),
       updatedAt: Timestamp.now(),
     })
   );

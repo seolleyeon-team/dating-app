@@ -11,6 +11,7 @@ import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
+import { isStrictStudentVerification } from "./eligibility";
 import { Candidate } from "./matching";
 import {
   BlindMeetingPolicy,
@@ -81,7 +82,7 @@ export async function requireVerifiedUser(request: {
     throw new HttpsError("failed-precondition", "가입 정보를 찾을 수 없어요.");
   }
   const data = (snap.data() ?? {}) as Record<string, unknown>;
-  if (data.isStudentVerified !== true) {
+  if (!isStrictStudentVerification(data.isStudentVerified)) {
     throw new HttpsError(
       "failed-precondition",
       "학교 인증을 완료한 계정만 참가할 수 있어요."

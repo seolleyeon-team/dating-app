@@ -132,6 +132,13 @@ class FakeBlindMeetingRepository extends BlindMeetingRepository {
   }
 
   @override
+  Future<BlindMeetingApplication?> loadMyApplication() async {
+    final error = applicationReadError;
+    if (error != null) throw error;
+    return application;
+  }
+
+  @override
   Future<BlindMeetingApplicationResult> submitApplication(
     BlindMeetingDna dna,
   ) async {
@@ -295,6 +302,11 @@ class FakeBlindMeetingRepository extends BlindMeetingRepository {
       ];
     }
   }
+
+  @override
+  Future<BlindMeetingFollowUpChoice?> loadMyFollowUpChoice(
+    String meetingId,
+  ) async => followUpChoice;
 
   @override
   Future<List<BlindMeetingMutualMatch>> loadMutualMatches(

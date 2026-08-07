@@ -84,12 +84,14 @@ import {
 } from "./teamMeetingRequest";
 import { createReportAndBlockUserFunction } from "./reportAndBlock";
 import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
+import { createCompleteStudentEmailLinkFunction } from "./emailLinkCompletion";
 import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
+import { createUploadOnboardingPhotoFunction } from "./onboardingPhotoUpload";
 
 // Firebase Admin 초기화
 initializeApp();
 const db = getFirestore();
-const FRIEND_INVITE_HOST = "seolleyeon.web.app";
+const FRIEND_INVITE_HOST = "seolleyeon-final.web.app";
 const FRIEND_INVITE_PATH = "/invite/friend";
 const FRIEND_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 // PortOne secret is read from env / .env only until Secret Manager is configured.
@@ -1269,6 +1271,10 @@ async function resolveUserForFriendCallable(request: {
 export const uploadAvatarSourcePhoto =
   createUploadAvatarSourcePhotoFunction(db, resolveAuthedAppUser);
 
+export const uploadOnboardingPhoto = createUploadOnboardingPhotoFunction(
+  resolveAuthedAppUser,
+);
+
 export const getCurrentAvatarGenerationStatus =
   createGetCurrentAvatarGenerationStatusFunction(db, resolveAuthedAppUser);
 
@@ -1398,6 +1404,14 @@ export const createFirebaseCustomToken = onCall(withAppCheck(), async (request) 
     isStudentVerified: userData.isStudentVerified === true,
   };
 });
+
+// Email-link completion is intentionally separate from the Kakao token bridge.
+// It accepts only a Firebase-authenticated, verified Yonsei mailbox session and
+// atomically consumes the binding document before minting the Kakao-backed UID.
+export const completeStudentEmailLink = createCompleteStudentEmailLinkFunction(
+  db,
+  getAuth()
+);
 
 async function fetchPortOneIdentityVerification(
   identityVerificationId: string,
@@ -1691,12 +1705,8 @@ export const verifyAdultIdentityAfterLogin = onCall(
 // expiresAt 은 Timestamp 가 아니면 무시됐으며, 토큰은 single-use 도 아니었다.
 //
 // 세션 복구는 createFirebaseCustomToken(카카오 액세스 토큰을 Kakao API 로
-// 서버에서 검증) 경로만 사용한다. 클라이언트
-// AuthService.ensureFirebaseSessionForVerifiedUser 는 이미 그 경로로
-// fall through 하므로 UX 회귀가 없다.
-//
-// 되살리려면 emailLinkTokens 를 서버 전용 쓰기로 바꾸고, 실제 email-link
-// 로그인 성공을 서버가 표시하고, single-use 소비를 트랜잭션으로 보장해야 한다.
+// 서버에서 검증) 또는 completeStudentEmailLink(이미 Firebase가 검증한
+// Yonsei 이메일 세션 + 단일 사용 토큰을 트랜잭션으로 소비) 경로만 사용한다.
 // -----------------------------------------------------------------------------
 
 export const createFriendInvite = onCall(withAppCheck(), async (request) => {

@@ -46,34 +46,30 @@ class DefaultFirebaseOptions {
     }
   }
 
-  // Note: Web configuration is incomplete (appId is placeholder)
-
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyDWzBTro7NNlvq4ufdvQm6hDwxrBX_Dc_I',
-    appId: '1:623093454373:web:57be6c4135b9027b0251cc',
-    messagingSenderId: '623093454373',
-    projectId: 'seolleyeon',
-    authDomain: 'seolleyeon.firebaseapp.com',
-    storageBucket: 'seolleyeon.firebasestorage.app',
-    measurementId: 'G-ZFTMMQTHQP',
+    apiKey: 'AIzaSyAQseKwnuvNvx7gSyfdw-SgAAYDHcClJL8',
+    appId: '1:810450765203:web:70f46fa58d6133f35c9466',
+    messagingSenderId: '810450765203',
+    projectId: 'seolleyeon-final',
+    authDomain: 'seolleyeon-final.firebaseapp.com',
+    storageBucket: 'seolleyeon-final.firebasestorage.app',
+    measurementId: 'G-17X0QMS7ZH',
   );
 
-  // To use Web, configure Firebase Web app in Firebase Console and update this
-
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyAQdDnW_wt9DDi0wLpAyf5kfQ92wUXimvU',
-    appId: '1:623093454373:android:5fa5e4cf627b54d60251cc',
-    messagingSenderId: '623093454373',
-    projectId: 'seolleyeon',
-    storageBucket: 'seolleyeon.firebasestorage.app',
+    apiKey: 'AIzaSyCXdft1O8zRTn48Jkwzl9PBN7Xb0pcsScs',
+    appId: '1:810450765203:android:81ca13cb23027d875c9466',
+    messagingSenderId: '810450765203',
+    projectId: 'seolleyeon-final',
+    storageBucket: 'seolleyeon-final.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyBQCNUk0odNktf79K62gvaUM47AwHGBuX4',
-    appId: '1:623093454373:ios:fa6d8e4c2cc2b0890251cc',
-    messagingSenderId: '623093454373',
-    projectId: 'seolleyeon',
-    storageBucket: 'seolleyeon.firebasestorage.app',
+    apiKey: 'AIzaSyDSBDbN6inF09enjKz946oZOX3rJ0tdAW0',
+    appId: '1:810450765203:ios:7e51bb82970a77145c9466',
+    messagingSenderId: '810450765203',
+    projectId: 'seolleyeon-final',
+    storageBucket: 'seolleyeon-final.firebasestorage.app',
     iosBundleId: 'com.yonsei.dating',
   );
 }

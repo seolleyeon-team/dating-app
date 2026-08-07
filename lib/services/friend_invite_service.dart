@@ -139,7 +139,7 @@ class FriendInviteService {
        _authService = authService ?? AuthService();
 
   static const String _functionsRegion = 'asia-northeast3';
-  static const String inviteWebHost = 'seolleyeon.web.app';
+  static const String inviteWebHost = 'seolleyeon-final.web.app';
   static const String inviteWebPath = '/invite/friend';
   static const String inviteScheme = 'seolleyeon';
   static const String inviteTarget = 'friend_invite';

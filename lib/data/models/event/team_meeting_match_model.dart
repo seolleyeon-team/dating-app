@@ -41,6 +41,7 @@ class TeamMeetingMatchDoc {
   final String status;
   final String? acceptedByUserId;
   final String source;
+  final String? chatRoomId;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -56,6 +57,7 @@ class TeamMeetingMatchDoc {
     required this.status,
     this.acceptedByUserId,
     required this.source,
+    this.chatRoomId,
     this.createdAt,
     this.updatedAt,
   });
@@ -81,6 +83,7 @@ class TeamMeetingMatchDoc {
       status: data['status']?.toString() ?? 'active',
       acceptedByUserId: data['acceptedByUserId']?.toString(),
       source: data['source']?.toString() ?? 'team_request_accept',
+      chatRoomId: data['chatRoomId']?.toString(),
       createdAt: _readDateTime(data['createdAt']),
       updatedAt: _readDateTime(data['updatedAt']),
     );
@@ -98,6 +101,7 @@ class TeamMeetingMatchDoc {
       'status': status,
       'acceptedByUserId': acceptedByUserId,
       'source': source,
+      'chatRoomId': chatRoomId,
       'createdAt': createdAt ?? FieldValue.serverTimestamp(),
       'updatedAt': updatedAt ?? FieldValue.serverTimestamp(),
     };

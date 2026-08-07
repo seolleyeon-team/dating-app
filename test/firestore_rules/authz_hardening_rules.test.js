@@ -79,6 +79,10 @@ beforeEach(async () => {
       isStudentVerified: true,
       onboarding: { nickname: "공격자" },
     });
+    await setDoc(doc(db, "publicProfiles", VICTIM), {
+      nickname: "victim-public",
+      profileImageUrl: "",
+    });
     await setDoc(doc(db, "users", VICTIM, "deviceTokens", "victim-fcm-token"), {
       userId: VICTIM,
       token: "victim-fcm-token",
@@ -252,9 +256,13 @@ describe("users 보호 필드", () => {
     await assertSucceeds(getDoc(doc(as(ATTACKER), "users", ATTACKER)));
   });
 
-  it("인증 사용자는 다른 사용자 프로필을 읽을 수 있다 (추천·탐색 유지)", async () => {
-    // 필드 단위 분리는 후속 과제(R-FS-2). 지금은 인증만 요구한다.
-    await assertSucceeds(getDoc(doc(as(ATTACKER), "users", VICTIM)));
+  it("authenticated users read cross-user profiles through publicProfiles", async () => {
+    // Cross-user reads are served through the publicProfiles projection.
+    await assertSucceeds(getDoc(doc(as(ATTACKER), "publicProfiles", VICTIM)));
+  });
+
+  it("authenticated users cannot read another user private users document", async () => {
+    await assertFails(getDoc(doc(as(ATTACKER), "users", VICTIM)));
   });
 
   it("인증 사용자도 users 후보 목록을 조회할 수 없다", async () => {

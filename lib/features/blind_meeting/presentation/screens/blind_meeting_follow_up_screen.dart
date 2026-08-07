@@ -77,9 +77,9 @@ class _BlindMeetingFollowUpScreenState
     });
     try {
       final view = await _repository.loadRecommendation(widget.args.meetingId);
-      final choice = await _repository
-          .watchMyFollowUpChoice(widget.args.meetingId)
-          .first;
+      final choice = await _repository.loadMyFollowUpChoice(
+        widget.args.meetingId,
+      );
       final matches = await _repository.loadMutualMatches(
         widget.args.meetingId,
       );

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:kakao_flutter_sdk_common/kakao_flutter_sdk_common.dart';
 import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
@@ -11,6 +12,7 @@ import '../services/friend_invite_service.dart';
 import '../services/navigation_service.dart';
 import '../services/storage_service.dart';
 import '../services/push_notification_service.dart';
+import '../features/auth/utils/email_link_continue_url.dart';
 import '../router/route_names.dart';
 import '../shared/layouts/main_scaffold_args.dart';
 
@@ -28,6 +30,7 @@ class AuthProvider with ChangeNotifier {
   StreamSubscription<Uri>? _linkSub;
   StreamSubscription<String?>? _kakaoSchemeSub;
   bool _emailLinkHandling = false; // 중복 처리 방지
+  bool _emailLinkPendingAtBootstrap = false;
 
   UserModel? _currentUser;
   bool _isLoading = false;
@@ -87,8 +90,39 @@ class AuthProvider with ChangeNotifier {
         _isStudentVerified = false;
         _studentEmail = null;
       } else {
-        // Firestore에 users 문서가 아직 없어도(가입 직후·지연) 로컬 카카오 ID는 유지한다.
-        // 예전 로직은 exists == false 일 때 clearKakaoUserId() 해서 연세 인증 직후에도 uid가 사라졌다.
+        // Do not delete the local Kakao identity while the Firebase email
+        // action link is being handled by StudentVerificationScreen.
+        if (await _hasPendingEmailLink()) {
+          _emailLinkPendingAtBootstrap = true;
+          _kakaoUserId = kakaoUserId;
+          _isAuthenticated = false;
+          _isInitialSetupComplete = false;
+          _hasSeenTutorial = false;
+          _isStudentVerified = false;
+          _studentEmail = await _storageService.getStudentEmail(kakaoUserId);
+          return;
+        }
+
+        // 로컬 kakaoUserId만으로 인증 상태를 만들지 않는다. 먼저 서버가
+        // 검증한 Kakao 토큰으로 Firebase 세션을 복구해야 Firestore 조회와
+        // 이후 라우팅을 수행할 수 있다.
+        final restoredBeforeBootstrap = await _authService
+            .ensureFirebaseSessionForKakao(kakaoUserId);
+        debugPrint(
+          '[Auth] bootstrap Firebase session restored=$restoredBeforeBootstrap',
+        );
+        if (!restoredBeforeBootstrap) {
+          await _storageService.clearKakaoUserId();
+          await _storageService.clearUserId();
+          _kakaoUserId = null;
+          _isAuthenticated = false;
+          _isInitialSetupComplete = false;
+          _hasSeenTutorial = false;
+          _isStudentVerified = false;
+          _studentEmail = null;
+          return;
+        }
+
         _kakaoUserId = kakaoUserId;
         _isAuthenticated = true;
 
@@ -131,19 +165,6 @@ class AuthProvider with ChangeNotifier {
           _studentEmail = null;
           await _storageService.setStudentVerified(kakaoUserId, false);
         }
-
-        try {
-          final restored = _isStudentVerified
-              ? await _authService.ensureFirebaseSessionForVerifiedUser(
-                  kakaoUserId,
-                )
-              : await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
-          debugPrint('[Auth] bootstrap Firebase session restored=$restored');
-        } catch (e) {
-          debugPrint(
-            '[Auth] ensureFirebaseSession (bootstrap): ${PrivacyLogUtils.errorSummary(e)}',
-          );
-        }
       }
     } catch (e) {
       debugPrint(
@@ -159,8 +180,36 @@ class AuthProvider with ChangeNotifier {
   // ---------------------------------------------------------------------------
   // ✅ Email Link Deep Link Handling (Mobile)
   // ---------------------------------------------------------------------------
+  Future<bool> _hasPendingEmailLink() async {
+    try {
+      if (_authService.isSignInWithEmailLink(Uri.base.toString())) {
+        return true;
+      }
+      if (kIsWeb && isStudentEmailLinkContinuation(Uri.base)) {
+        return true;
+      }
+    } catch (_) {}
+
+    if (kIsWeb) return false;
+
+    try {
+      final uri = await _appLinks.getInitialLink();
+      return uri != null && _authService.isSignInWithEmailLink(uri.toString());
+    } catch (e) {
+      debugPrint(
+        '[Auth] pending email link check failed: '
+        '${PrivacyLogUtils.errorSummary(e)}',
+      );
+      return false;
+    }
+  }
 
   void _startEmailLinkListener() {
+    // Web and cold-start email links are owned by Splash/StudentVerification.
+    // Keeping a second consumer here causes signInWithEmailLink to race and
+    // one consumer receives an already-used action code.
+    if (kIsWeb || _emailLinkPendingAtBootstrap) return;
+
     // cold start: 앱이 꺼진 상태에서 링크로 실행된 경우
     _appLinks.getInitialLink().then((uri) async {
       if (uri == null) return;
@@ -242,21 +291,28 @@ class AuthProvider with ChangeNotifier {
     _emailLinkHandling = true;
 
     try {
-      var kakaoUserId = _kakaoUserId;
-      kakaoUserId ??= await _storageService.getKakaoUserId();
-      if (kakaoUserId == null || kakaoUserId.isEmpty) {
-        debugPrint('No kakaoUserId. Cannot complete email link sign-in.');
+      final localKakaoUserId =
+          (_kakaoUserId ?? await _storageService.getKakaoUserId())?.trim();
+      final verificationToken = extractStudentEmailLinkToken(link);
+      if (verificationToken == null || verificationToken.isEmpty) {
+        debugPrint('No email-link binding token. Cannot complete sign-in.');
         return;
       }
-      _kakaoUserId = kakaoUserId;
-      await _storageService.saveKakaoUserId(kakaoUserId);
 
-      // 저장된 이메일 우선 사용 (가장 안정적)
-      final savedEmail = await _storageService.getStudentEmail(kakaoUserId);
-      final email = (savedEmail ?? _studentEmail ?? '').trim();
+      final tokenEmail = await _authService.getEmailForStudentEmailLinkToken(
+        verificationToken,
+      );
+      final savedEmail = localKakaoUserId == null
+          ? ''
+          : (await _storageService.getStudentEmail(localKakaoUserId) ?? '')
+                .trim()
+                .toLowerCase();
+      final email = (tokenEmail ?? savedEmail).isNotEmpty
+          ? (tokenEmail ?? savedEmail)
+          : (_studentEmail ?? '').trim().toLowerCase();
 
       if (email.isEmpty) {
-        debugPrint('No saved email. Cannot complete email link sign-in.');
+        debugPrint('No email information. Cannot complete email link sign-in.');
         return;
       }
 
@@ -264,15 +320,25 @@ class AuthProvider with ChangeNotifier {
       notifyListeners();
 
       await _authService.signInWithEmailLink(email: email, emailLink: link);
-
-      // 학생 인증 완료 기록 + 상태 반영
-      await setStudentVerified(email);
-
-      // 이메일 링크 UID ≠ 카카오 문서 ID. 가능하면 카카오 커스텀 토큰으로 통일(실패해도 이메일 세션 유지)
-      await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
+      final completion = await _authService.completeStudentEmailLink(
+        token: verificationToken,
+        expectedKakaoUserId: localKakaoUserId,
+      );
+      final kakaoUserId = completion.kakaoUserId;
+      await _storageService.saveKakaoUserId(kakaoUserId);
+      await _storageService.saveStudentEmail(kakaoUserId, completion.email);
+      await _storageService.saveStudentVerificationToken(
+        kakaoUserId,
+        verificationToken,
+      );
+      await _storageService.setStudentVerified(kakaoUserId, true);
+      await applyEmailLinkCompletion(
+        kakaoUserId: kakaoUserId,
+        email: completion.email,
+      );
 
       debugPrint(
-        'Email link verification complete ${PrivacyLogUtils.idFingerprint(email)}',
+        'Email link verification complete ${PrivacyLogUtils.idFingerprint(completion.email)}',
       );
     } catch (e) {
       debugPrint(
@@ -441,9 +507,15 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
 
     try {
+      final firebaseAttached = await _authService.ensureFirebaseSessionForKakao(
+        kakaoUserId,
+      );
+      if (!firebaseAttached) {
+        throw StateError('Firebase 로그인 세션을 준비하지 못했습니다. 다시 시도해주세요.');
+      }
+
       await _storageService.saveKakaoUserId(kakaoUserId);
       await PushNotificationService.instance.syncFcmToken();
-      await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
       await _authService.syncPendingLegalConsents(kakaoUserId);
 
       _kakaoUserId = kakaoUserId;
@@ -460,6 +532,7 @@ class AuthProvider with ChangeNotifier {
       debugPrint(
         'Error saving kakao user id: ${PrivacyLogUtils.errorSummary(e)}',
       );
+      rethrow;
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -495,6 +568,31 @@ class AuthProvider with ChangeNotifier {
     await _storageService.saveStudentEmail(kakaoUserId, normalized);
     await _storageService.setStudentVerified(kakaoUserId, true);
 
+    notifyListeners();
+  }
+
+  /// Applies the server-confirmed email-link completion to the in-memory
+  /// provider. This is needed when the link opens in a new browser tab where
+  /// bootstrap had no local Kakao identity to restore.
+  Future<void> applyEmailLinkCompletion({
+    required String kakaoUserId,
+    required String email,
+  }) async {
+    final normalizedEmail = email.trim().toLowerCase();
+    if (kakaoUserId.trim().isEmpty ||
+        !normalizedEmail.endsWith('@yonsei.ac.kr')) {
+      throw ArgumentError('invalid_email_link_completion');
+    }
+
+    _kakaoUserId = kakaoUserId;
+    _isAuthenticated = true;
+    _isStudentVerified = true;
+    _studentEmail = normalizedEmail;
+    _emailLinkPendingAtBootstrap = false;
+    _isInitialSetupComplete = await _authService.isInitialSetupComplete(
+      kakaoUserId,
+    );
+    _hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
     notifyListeners();
   }
 

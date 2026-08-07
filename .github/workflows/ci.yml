@@ -46,6 +46,23 @@ jobs:
         env:
           FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
 
+  storage-rules:
+    name: Storage rules tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: rules_tests/package-lock.json
+      - run: npm ci
+        working-directory: rules_tests
+      - run: npx --yes firebase-tools@13 emulators:exec --only storage --project seolleyeon-storage-rules-test "npm --prefix rules_tests run test:storage"
+        env:
+          FIREBASE_STORAGE_EMULATOR_HOST: 127.0.0.1:9199
+          STORAGE_EMULATOR_HOST: 127.0.0.1:9199
+
   flutter:
     name: Flutter analyze/test
     runs-on: ubuntu-latest

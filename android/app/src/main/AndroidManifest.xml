@@ -69,7 +69,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:scheme="https"
-                    android:host="seolleyeon.web.app"
+                    android:host="seolleyeon-final.web.app"
                     android:pathPrefix="/invite/friend" />
             </intent-filter>
             <intent-filter>
