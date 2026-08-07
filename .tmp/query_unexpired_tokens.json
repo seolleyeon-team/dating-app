@@ -1,1 +1,0 @@
-{"structuredQuery":{"from":[{"collectionId":"emailLinkTokens"}],"where":{"fieldFilter":{"field":{"fieldPath":"expiresAt"},"op":"GREATER_THAN","value":{"timestampValue":"2026-07-29T00:00:00.000Z"}}},"limit":20}}

@@ -1,0 +1,4 @@
+diff a/lib/main.dart b/lib/main.dart	(rejected hunks)
+@@ -1,1 +1,2 @@
+ import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
++// patch-check

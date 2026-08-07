@@ -79,6 +79,7 @@ import '../features/profile/screens/received_hearts_screen.dart';
 import '../features/matching/screens/sent_hearts_screen.dart';
 import '../features/profile/screens/asks_inbox_screen.dart';
 import '../features/profile/screens/settings_screen.dart';
+import '../features/profile/screens/account_management_screen.dart';
 import '../features/profile/screens/safety_stamp_log_screen.dart';
 import '../features/profile/screens/contact_block_screen.dart';
 import '../features/matching/models/profile_card_args.dart';
@@ -295,6 +296,8 @@ class AppRouter {
         return _cupertino(const SentHeartsScreen());
       case RouteNames.settings:
         return _cupertino(const SettingsScreen());
+      case RouteNames.accountManagement:
+        return _cupertino(const AccountManagementScreen());
       case RouteNames.safetyStampLogs:
         return _cupertino(const SafetyStampLogScreen());
       case RouteNames.contactBlock:

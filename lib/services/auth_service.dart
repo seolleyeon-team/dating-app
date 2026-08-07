@@ -1,24 +1,29 @@
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:uuid/uuid.dart';
 
+import '../models/email_link_completion.dart';
 import '../models/user_model.dart';
-import '../router/route_names.dart';
 import 'firebase_diagnostics.dart';
 import '../utils/phone_hash_utils.dart';
 import '../shared/utils/privacy_log_utils.dart';
 import 'adult_verification_service.dart';
 import 'storage_service.dart';
 import 'user_service.dart';
+import 'onboarding_route_resolver.dart';
 
 class AuthService {
+  AuthService({UserService? userService})
+    : _userService = userService ?? UserService();
   final _uuid = const Uuid();
-  final _userService = UserService();
+  final UserService _userService;
   final _storageService = StorageService();
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
     region: 'asia-northeast3',
   );
@@ -273,53 +278,7 @@ class AuthService {
   /// 연세 인증은 됐지만 초기설정이 미완료일 때, 이어서 채울 다음 단계 라우트 (예: 3단계까지 했으면 4단계)
   Future<String?> getOnboardingNextRoute(String kakaoUserId) async {
     final profile = await _userService.getUserProfile(kakaoUserId);
-    final onboarding = profile?['onboarding'];
-    if (onboarding is! Map || onboarding.isEmpty) {
-      return RouteNames.onboardingBasicInfo;
-    }
-    if (_isEmpty(onboarding['nickname']) && _isEmpty(onboarding['gender'])) {
-      return RouteNames.onboardingBasicInfo;
-    }
-    final interests = onboarding['interests'];
-    if (interests == null || (interests is List && interests.isEmpty)) {
-      return RouteNames.onboardingInterestsSelection;
-    }
-    final lifestyle = onboarding['lifestyle'];
-    if (lifestyle == null || (lifestyle is Map && lifestyle.isEmpty)) {
-      return RouteNames.onboardingLifestyle;
-    }
-    if (_isEmpty(onboarding['major'])) {
-      return RouteNames.onboardingMajor;
-    }
-    final uploadedPhotoCount = onboarding['sourcePhotoUploadCount'];
-    if (uploadedPhotoCount is! num || uploadedPhotoCount <= 0) {
-      return RouteNames.onboardingPhoto;
-    }
-    if (_isEmpty(onboarding['selfIntroduction'])) {
-      return RouteNames.onboardingSelfIntro;
-    }
-    final profileQa = onboarding['profileQa'];
-    if (profileQa == null || (profileQa is List && profileQa.isEmpty)) {
-      return RouteNames.onboardingProfileQa;
-    }
-    final keywords = onboarding['keywords'];
-    if (keywords == null || (keywords is List && keywords.isEmpty)) {
-      return RouteNames.onboardingKeywords;
-    }
-    final idealType = profile?['idealType'];
-    if (idealType is! Map || idealType.isEmpty) {
-      return RouteNames.onboardingIdealType;
-    }
-    if (idealType['preferredLifestyles'] == null) {
-      return RouteNames.onboardingIdealLifestyle;
-    }
-    return null;
-  }
-
-  static bool _isEmpty(dynamic v) {
-    if (v == null) return true;
-    if (v is String) return v.trim().isEmpty;
-    return false;
+    return resolveOnboardingNextRoute(profile);
   }
 
   Future<bool> hasSeenTutorial(String kakaoUserId) async {
@@ -376,6 +335,87 @@ class AuthService {
     required String emailLink,
   }) async {
     await _firebaseAuth.signInWithEmailLink(email: email, emailLink: emailLink);
+  }
+
+  /// Reads the email bound to the opaque token in the continue URL. The token
+  /// is deliberately unguessable; the server still re-checks the email after
+  /// Firebase completes the one-time email-link sign-in.
+  Future<String?> getEmailForStudentEmailLinkToken(String token) async {
+    final normalizedToken = token.trim();
+    if (!RegExp(r'^[A-Za-z0-9_-]{1,128}$').hasMatch(normalizedToken)) {
+      return null;
+    }
+
+    final snapshot = await _firestore
+        .collection('emailLinkTokens')
+        .doc(normalizedToken)
+        .get();
+    final rawEmail = snapshot.data()?['email'];
+    final email = rawEmail is String ? rawEmail.trim().toLowerCase() : '';
+    return email.endsWith('@yonsei.ac.kr') ? email : null;
+  }
+
+  /// Completes an already-authenticated Firebase email-link session by
+  /// atomically binding the verified mailbox to the Kakao-backed user.
+  Future<EmailLinkCompletion> completeStudentEmailLink({
+    required String token,
+    String? expectedKakaoUserId,
+  }) async {
+    final normalizedToken = token.trim();
+    final normalizedExpectedKakaoUserId = expectedKakaoUserId?.trim() ?? '';
+    if (!RegExp(r'^[A-Za-z0-9_-]{1,128}$').hasMatch(normalizedToken)) {
+      throw StateError('invalid_email_link_token');
+    }
+
+    FirebaseDiagnostics.logAuthBridgePhase(
+      'email_link_completion_start',
+      functionName: 'completeStudentEmailLink',
+      kakaoUserId: normalizedExpectedKakaoUserId.isEmpty
+          ? null
+          : normalizedExpectedKakaoUserId,
+    );
+
+    final callable = _functions.httpsCallable('completeStudentEmailLink');
+    final payload = <String, dynamic>{
+      'token': normalizedToken,
+      if (normalizedExpectedKakaoUserId.isNotEmpty)
+        'expectedKakaoUserId': normalizedExpectedKakaoUserId,
+    };
+
+    try {
+      final result = await callable.call(payload);
+      final data = Map<String, dynamic>.from(
+        (result.data as Map?)?.cast<String, dynamic>() ?? const {},
+      );
+      final customToken = data['customToken']?.toString().trim() ?? '';
+      final kakaoUserId = data['kakaoUserId']?.toString().trim() ?? '';
+      final email = data['email']?.toString().trim().toLowerCase() ?? '';
+      if (customToken.isEmpty ||
+          kakaoUserId.isEmpty ||
+          !email.endsWith('@yonsei.ac.kr')) {
+        throw StateError('email_link_completion_response_invalid');
+      }
+
+      final credential = await _firebaseAuth.signInWithCustomToken(customToken);
+      await credential.user?.getIdToken(true);
+      FirebaseDiagnostics.logAuthBridgePhase(
+        'email_link_completion_success',
+        functionName: 'completeStudentEmailLink',
+        kakaoUserId: kakaoUserId,
+      );
+      return EmailLinkCompletion(kakaoUserId: kakaoUserId, email: email);
+    } on FirebaseFunctionsException catch (e, st) {
+      FirebaseDiagnostics.logAuthBridgePhase(
+        'email_link_completion_failed',
+        functionName: 'completeStudentEmailLink',
+        kakaoUserId: normalizedExpectedKakaoUserId.isEmpty
+            ? null
+            : normalizedExpectedKakaoUserId,
+        error: e,
+        stackTrace: st,
+      );
+      rethrow;
+    }
   }
 
   Future<bool> ensureFirebaseSessionForKakao(String kakaoUserId) async {

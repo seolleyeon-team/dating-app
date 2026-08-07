@@ -49,6 +49,46 @@ class PushNotificationService {
 
   String? _openedChatRoomId;
   bool _isChatRoomVisible = false;
+  bool _initialized = false;
+  bool _initializing = false;
+  final Set<String> _handledOpenKeys = <String>{};
+
+  /// Builds a stable deep-link dedupe key for open/tap handling.
+  @visibleForTesting
+  static String buildOpenDedupeKey(
+    Map<String, String> data, {
+    String? messageId,
+  }) {
+    final type = data['type'] ?? '';
+    final roomId = data['roomId'] ?? '';
+    final postId = data['postId'] ?? '';
+    final inviteId = data['inviteId'] ?? '';
+    final promiseId = data['promiseId'] ?? '';
+    final mid = (messageId ?? data['messageId'] ?? '').trim();
+    return [mid, type, roomId, postId, inviteId, promiseId].join('|');
+  }
+
+  /// Returns true once per key; subsequent identical opens are suppressed.
+  @visibleForTesting
+  bool claimOpenHandling(String dedupeKey) {
+    if (dedupeKey.isEmpty || dedupeKey == '||||||') {
+      return true;
+    }
+    if (_handledOpenKeys.contains(dedupeKey)) {
+      return false;
+    }
+    _handledOpenKeys.add(dedupeKey);
+    return true;
+  }
+
+  @visibleForTesting
+  void resetForTest() {
+    _initialized = false;
+    _initializing = false;
+    _handledOpenKeys.clear();
+    _openedChatRoomId = null;
+    _isChatRoomVisible = false;
+  }
 
   static const AndroidNotificationChannel _chatChannel =
       AndroidNotificationChannel(
@@ -78,6 +118,11 @@ class PushNotificationService {
   final Set<String> _shownForegroundNotificationIds = <String>{};
 
   Future<void> initialize() async {
+    if (_initialized || _initializing) {
+      debugPrint('[PUSH] initialize skipped; listeners already attached');
+      return;
+    }
+
     try {
       Firebase.app();
     } catch (_) {
@@ -92,24 +137,30 @@ class PushNotificationService {
       return;
     }
 
-    final notificationSettings = await loadUserNotificationSettings();
-    if (notificationSettings['all'] != false) {
-      await _requestPermission();
+    _initializing = true;
+    try {
+      final notificationSettings = await loadUserNotificationSettings();
+      if (notificationSettings['all'] != false) {
+        await _requestPermission();
+      }
+      await _initLocalNotifications();
+      await syncFcmToken(notificationSettings: notificationSettings);
+
+      FirebaseMessaging.onMessage.listen(_onForegroundMessage);
+      FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageTap);
+
+      final initialMessage = await _messaging.getInitialMessage();
+      if (initialMessage != null) {
+        _handleMessageTap(initialMessage);
+      }
+
+      _messaging.onTokenRefresh.listen((_) async {
+        await syncFcmToken();
+      });
+      _initialized = true;
+    } finally {
+      _initializing = false;
     }
-    await _initLocalNotifications();
-    await syncFcmToken(notificationSettings: notificationSettings);
-
-    FirebaseMessaging.onMessage.listen(_onForegroundMessage);
-    FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageTap);
-
-    final initialMessage = await _messaging.getInitialMessage();
-    if (initialMessage != null) {
-      _handleMessageTap(initialMessage);
-    }
-
-    _messaging.onTokenRefresh.listen((_) async {
-      await syncFcmToken();
-    });
   }
 
   void setOpenedChatRoom(String roomId) {
@@ -395,6 +446,11 @@ class PushNotificationService {
 
   void _handleMessageTap(RemoteMessage message) {
     final data = message.data.map((k, v) => MapEntry(k, '$v'));
+    final key = buildOpenDedupeKey(data, messageId: message.messageId);
+    if (!claimOpenHandling(key)) {
+      debugPrint('[PUSH] suppress duplicate open/tap');
+      return;
+    }
     _navigateFromData(data);
   }
 

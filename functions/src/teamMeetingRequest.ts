@@ -11,6 +11,16 @@ import {
   type CallableRequest,
 } from "firebase-functions/v2/https";
 
+import { canTransitionTeamMeetingRequest } from "./seasonMeetingStateMachine";
+import {
+  assertExistingSeasonMeetingChatRoom,
+  buildSeasonMeetingChatPlan,
+  SEASON_MEETING_EVENT_TYPE,
+  resolveSeasonMeetingChatParticipants,
+  seasonMeetingChatRoomId,
+  seasonMeetingChatWelcomeMessage,
+} from "./seasonMeetingChat";
+
 export const CREATE_TEAM_MEETING_REQUEST_CALLABLE_OPTIONS: CallableOptions = {
   timeoutSeconds: 30,
   memory: "256MiB",
@@ -278,6 +288,9 @@ export function buildRespondTeamMeetingRequestPlan(params: {
   }
 
   if (!accept) {
+    if (!canTransitionTeamMeetingRequest("pending", "declined")) {
+      throw new HttpsError("failed-precondition", "이미 처리된 요청이에요.");
+    }
     return {
       status: "declined",
       requestUpdate: {
@@ -285,6 +298,10 @@ export function buildRespondTeamMeetingRequestPlan(params: {
         respondedByUserId: params.callerUid,
       },
     };
+  }
+
+  if (!canTransitionTeamMeetingRequest("pending", "accepted")) {
+    throw new HttpsError("failed-precondition", "이미 처리된 요청이에요.");
   }
 
   const matchId = teamMeetingMatchId(requestId);
@@ -298,6 +315,7 @@ export function buildRespondTeamMeetingRequestPlan(params: {
     },
     matchData: {
       requestId,
+      sourceResultId: asString(params.requestData.sourceResultId),
       leftTeamId: params.requestData.fromTeamId,
       rightTeamId: params.requestData.toTeamId,
       leftTeamSnapshot: params.requestData.fromTeamSnapshot,
@@ -306,6 +324,8 @@ export function buildRespondTeamMeetingRequestPlan(params: {
       rightMemberUids: readStringList(params.requestData.toTeamMemberUids),
       participantUids,
       status: "active",
+      eventType: SEASON_MEETING_EVENT_TYPE,
+      seasonPhase: "matched",
       acceptedByUserId: params.callerUid,
       source: "team_request_accept",
     },
@@ -558,6 +578,98 @@ export function createRespondTeamMeetingRequestFunction(
               .doc(requireSafePathSegment(rawPairLockId, "pairLockId"))
           : null;
         const pairLockSnap = pairLockRef ? await tx.get(pairLockRef) : null;
+        // Read every document needed for the accepted-match side effect before
+        // issuing any transaction writes. This keeps retries serializable and
+        // lets us validate existing links instead of overwriting them.
+        const matchRef = plan.matchId
+          ? firestore.collection("eventThreeVsThreeMatches").doc(plan.matchId)
+          : null;
+        const roomRef = plan.matchId
+          ? firestore.collection("chat_rooms").doc(seasonMeetingChatRoomId(plan.matchId))
+          : null;
+        const matchSnap = matchRef ? await tx.get(matchRef) : null;
+        const roomSnap = roomRef ? await tx.get(roomRef) : null;
+        const systemMessageRef = roomRef
+          ? roomRef.collection("messages").doc("system")
+          : null;
+        const systemMessageSnap = systemMessageRef
+          ? await tx.get(systemMessageRef)
+          : null;
+
+        let seasonChatPlan: ReturnType<typeof buildSeasonMeetingChatPlan> | null = null;
+        let matchDataForChat: Record<string, unknown> | null = null;
+        if (plan.matchId && matchRef && roomRef) {
+          const existingMatchData = matchSnap?.exists
+            ? ((matchSnap.data() ?? {}) as Record<string, unknown>)
+            : null;
+          if (existingMatchData) {
+            const existingEventType = asString(existingMatchData.eventType);
+            const existingSeasonPhase = asString(existingMatchData.seasonPhase);
+            const existingStatus = asString(existingMatchData.status).toLowerCase();
+            if (
+              existingEventType !== SEASON_MEETING_EVENT_TYPE ||
+              existingSeasonPhase !== "matched" ||
+              ["cancelled", "canceled", "expired"].includes(existingStatus)
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "season_meeting_match_contract_conflict"
+              );
+            }
+            const existingRequestId = asString(existingMatchData.requestId);
+            if (existingRequestId && existingRequestId !== requestId) {
+              throw new HttpsError(
+                "failed-precondition",
+                "season_meeting_match_request_link_conflict"
+              );
+            }
+            const existingChatRoomId = asString(existingMatchData.chatRoomId);
+            if (
+              existingChatRoomId &&
+              existingChatRoomId !== seasonMeetingChatRoomId(plan.matchId)
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "season_meeting_match_chat_link_conflict"
+              );
+            }
+          }
+
+          matchDataForChat = plan.matchData ?? existingMatchData;
+          if (!matchDataForChat) {
+            throw new HttpsError(
+              "failed-precondition",
+              "season_meeting_match_missing"
+            );
+          }
+          seasonChatPlan = buildSeasonMeetingChatPlan({
+            matchId: plan.matchId,
+            matchData: matchDataForChat,
+          });
+
+          if (existingMatchData && plan.matchData) {
+            const existingParticipants = resolveSeasonMeetingChatParticipants(
+              existingMatchData
+            );
+            if (
+              existingParticipants.participantIds.join("|") !==
+              seasonChatPlan.participantIds.join("|")
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "season_meeting_match_participant_conflict"
+              );
+            }
+          }
+          if (roomSnap?.exists) {
+            assertExistingSeasonMeetingChatRoom({
+              roomData: (roomSnap.data() ?? {}) as Record<string, unknown>,
+              matchId: plan.matchId,
+              participantIds: seasonChatPlan.participantIds,
+            });
+          }
+        }
+
         if (plan.requestUpdate) {
           tx.update(requestRef, {
             ...plan.requestUpdate,
@@ -576,19 +688,64 @@ export function createRespondTeamMeetingRequestFunction(
             );
           }
         }
-        if (plan.matchId && plan.matchData) {
+
+        if (
+          plan.matchId &&
+          matchRef &&
+          roomRef &&
+          seasonChatPlan &&
+          matchDataForChat
+        ) {
+          if (!roomSnap?.exists) {
+            tx.set(
+              roomRef,
+              {
+                ...seasonChatPlan.roomPayload,
+                lastMessageAt: FieldValue.serverTimestamp(),
+                createdAt: FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: false }
+            );
+          }
+          if (!systemMessageSnap?.exists && systemMessageRef) {
+            const welcomeMessage = seasonMeetingChatWelcomeMessage();
+            tx.set(
+              systemMessageRef,
+              {
+                senderId: "system",
+                text: welcomeMessage,
+                content: welcomeMessage,
+                type: "system",
+                readBy: [],
+                createdAt: FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: false }
+            );
+          }
           tx.set(
-            firestore.collection("eventThreeVsThreeMatches").doc(plan.matchId),
+            matchRef,
             {
-              ...plan.matchData,
-              createdAt: FieldValue.serverTimestamp(),
+              ...matchDataForChat,
+              chatRoomId: seasonChatPlan.roomId,
+              eventType: SEASON_MEETING_EVENT_TYPE,
+              seasonPhase: "matched",
+              ...(matchSnap?.exists
+                ? {}
+                : { createdAt: FieldValue.serverTimestamp() }),
               updatedAt: FieldValue.serverTimestamp(),
             },
-            { merge: false }
+            { merge: matchSnap?.exists === true }
           );
         }
+
         return plan.matchId
-          ? { status: plan.status, matchId: plan.matchId }
+          ? {
+              status: plan.status,
+              matchId: plan.matchId,
+              chatRoomId: seasonChatPlan?.roomId ?? null,
+            }
           : { status: plan.status };
       });
     }

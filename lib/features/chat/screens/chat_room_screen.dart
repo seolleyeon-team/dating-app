@@ -219,6 +219,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   String? _partnerDisplayAvatarUrl;
   String? _initError;
   bool _isReady = false;
+  bool _isGroupRoom = false;
   bool _isSending = false;
   bool _isNearBottom = true;
   bool _pendingForceScrollToBottom = true;
@@ -415,7 +416,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       if (kakaoUserId == null || kakaoUserId.isEmpty) {
         throw Exception('로그인 정보가 없습니다.');
       }
-      if (widget.partnerId.isEmpty) {
+      if (widget.partnerId.isEmpty && widget.chatRoomId.isEmpty) {
         throw Exception('partnerId 없음');
       }
 
@@ -436,15 +437,39 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           ? widget.chatRoomId
           : _chatService.buildDirectRoomId(kakaoUserId, widget.partnerId);
 
-      await _chatService.ensureDirectRoom(
-        roomId: _roomId,
-        currentUserId: kakaoUserId,
-        partnerId: widget.partnerId,
-        currentUserName: _currentUserName,
-        partnerName: widget.partnerName,
-        currentUserAvatarUrl: _currentUserAvatarUrl,
-        partnerAvatarUrl: widget.partnerAvatarUrl,
-      );
+      if (widget.chatRoomId.isNotEmpty) {
+        final roomSnapshot = await _chatService.roomStream(_roomId).first;
+        if (!roomSnapshot.exists) {
+          throw Exception('chat room not found');
+        }
+        final roomData = roomSnapshot.data() ?? <String, dynamic>{};
+        final rawParticipantIds = roomData['participantIds'];
+        final participantIds = rawParticipantIds is List
+            ? rawParticipantIds
+                  .map((value) => value.toString())
+                  .where((value) => value.isNotEmpty)
+                  .toSet()
+            : <String>{};
+        if (!participantIds.contains(kakaoUserId)) {
+          throw Exception('you are not a participant in this chat room');
+        }
+        final roomType = roomData['roomType']?.toString() ?? '';
+        final roomKind = roomData['type']?.toString() ?? '';
+        _isGroupRoom =
+            participantIds.length > 2 ||
+            roomKind == 'group' ||
+            roomType.endsWith('_group');
+      } else {
+        await _chatService.ensureDirectRoom(
+          roomId: _roomId,
+          currentUserId: kakaoUserId,
+          partnerId: widget.partnerId,
+          currentUserName: _currentUserName,
+          partnerName: widget.partnerName,
+          currentUserAvatarUrl: _currentUserAvatarUrl,
+          partnerAvatarUrl: widget.partnerAvatarUrl,
+        );
+      }
 
       PushNotificationService.instance.setOpenedChatRoom(_roomId);
 
@@ -452,7 +477,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       setState(() {
         _isReady = true;
       });
-      await _refreshPartnerChatPhoto();
+      if (!_isGroupRoom) {
+        await _refreshPartnerChatPhoto();
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -1011,7 +1038,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       university: widget.partnerUniversity,
                       onBack: widget.onBack,
                       onMore: widget.onMore,
-                      onPromiseTap: () => _openPromiseSheet(),
+                      onPromiseTap: _isGroupRoom
+                          ? null
+                          : () => _openPromiseSheet(),
                       onProfileTap: _openPartnerProfileCard,
                     ),
                     _SafetyStampEntryButton(

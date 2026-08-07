@@ -60,7 +60,7 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
       // 실패를 화면 전체 오류로 올리지 않는다.
       BlindMeetingApplication? application;
       try {
-        application = await _repository.watchMyApplication().first;
+        application = await _repository.loadMyApplication();
       } on FirebaseException catch (error) {
         if (error.code != 'permission-denied') rethrow;
         debugPrint(

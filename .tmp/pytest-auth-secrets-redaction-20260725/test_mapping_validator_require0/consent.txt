@@ -1,2 +1,0 @@
-seolleyeon-final staging avatar canary explicit consent privacy monitoring not production
-uid-1=different.jpeg

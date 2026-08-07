@@ -11,8 +11,6 @@ import 'package:flutter/services.dart';
 
 import '../../../data/models/event/team_meeting_request_model.dart';
 import '../../../router/route_names.dart';
-import '../../../services/event_match_service.dart';
-import '../../../services/storage_service.dart';
 import '../../../services/team_meeting_request_service.dart';
 import '../models/event_team_route_args.dart';
 import '../widgets/team_request_card.dart';
@@ -20,7 +18,6 @@ import '../widgets/team_request_card.dart';
 class _AppColors {
   static const Color primary = Color(0xFFB44AC0);
   static const Color backgroundLight = Color(0xFFF7F3F8);
-  static const Color surfaceLight = CupertinoColors.white;
   static const Color textMain = Color(0xFF2E243F);
   static const Color textSub = Color(0xFF776886);
   static const Color gray400 = Color(0xFF9CA3AF);
@@ -35,11 +32,7 @@ class TeamRequestsScreen extends StatefulWidget {
 
 class _TeamRequestsScreenState extends State<TeamRequestsScreen> {
   final TeamMeetingRequestService _service = TeamMeetingRequestService();
-  final EventMatchService _matchService = EventMatchService();
-  final StorageService _storage = StorageService();
-
   String? _currentTeamId;
-  String? _currentUserId;
   bool _loading = true;
   int _selectedTab = 0; // 0 = 받은 요청, 1 = 보낸 요청
 
@@ -50,11 +43,9 @@ class _TeamRequestsScreenState extends State<TeamRequestsScreen> {
   }
 
   Future<void> _bootstrap() async {
-    final uid = await _storage.getKakaoUserId();
     final teamId = await _service.resolveCurrentTeamId();
     if (!mounted) return;
     setState(() {
-      _currentUserId = uid;
       _currentTeamId = teamId;
       _loading = false;
     });

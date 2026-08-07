@@ -242,6 +242,22 @@ class BlindMeetingRepository {
     });
   }
 
+  /// Reads the current application once for entry screens.
+  ///
+  /// Entry screens do not need a live listener. Using a one-shot read here
+  /// avoids creating a Firestore watch only to cancel it after the first
+  /// event, which is especially fragile on the Flutter Web SDK.
+  Future<BlindMeetingApplication?> loadMyApplication() async {
+    final userId = await _requireSession();
+    final snapshot = await _firestore
+        .collection(BlindMeetingCollections.applications)
+        .doc(userId)
+        .get();
+    final data = snapshot.data();
+    if (data == null) return null;
+    return BlindMeetingApplication.fromMap(userId, normalizeFirestoreMap(data));
+  }
+
   /// 참가 신청 제출. 서버가 DNA 검증과 후보군 분리를 수행한다.
   Future<BlindMeetingApplicationResult> submitApplication(
     BlindMeetingDna dna,
@@ -536,6 +552,30 @@ class BlindMeetingRepository {
                 : normalizeFirestoreMap(snapshot.data()!),
           ),
         );
+  }
+
+  /// Reads the current follow-up choice once for the follow-up entry screen.
+  ///
+  /// The follow-up screen only needs the initial value while loading. The
+  /// live stream remains available above for screens that need realtime
+  /// updates.
+  Future<BlindMeetingFollowUpChoice?> loadMyFollowUpChoice(
+    String meetingId,
+  ) async {
+    final userId = await _requireSession();
+    if (meetingId.isEmpty) return null;
+
+    final snapshot = await _firestore
+        .collection(BlindMeetingCollections.meetings)
+        .doc(meetingId)
+        .collection(BlindMeetingCollections.followUpChoices)
+        .doc(userId)
+        .get();
+    return BlindMeetingFollowUpChoice.fromMap(
+      meetingId,
+      userId,
+      snapshot.data() == null ? null : normalizeFirestoreMap(snapshot.data()!),
+    );
   }
 
   Future<void> submitFollowUpChoice({

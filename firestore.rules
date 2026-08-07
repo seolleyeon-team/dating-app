@@ -43,7 +43,7 @@ service cloud.firestore {
 
       allow update: if false;
       allow delete: if isSelf(resource.data.kakaoUserId);
-    }
+}
 
         // -----------------------------------------------------------------------
     // Users
@@ -581,10 +581,9 @@ service cloud.firestore {
     }
 
     match /users/{kakaoUserId} {
-      // Signed-in get of a known document id is required for matching/chat.
-      // Collection list is denied: it enabled roster dumps and powered the
-      // unsafe client recommendation fallback that scanned /users.
-      allow get: if isSignedIn();
+      // PRIVATE_OWNER_ONLY (+ Admin SDK). Cross-user reads must use
+      // publicProfiles/{uid}. Collection list stays denied.
+      allow get: if isSelf(kakaoUserId);
       allow list: if false;
 
       // Initial creation through Yonsei email student verification
@@ -659,7 +658,9 @@ service cloud.firestore {
             writesOwnStudentEmail(request.resource.data) &&
             studentEmailIsUnboundOrMine(resource.data) &&
             request.resource.data.isStudentVerified == true &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            // affectedKeys (not changedKeys): newly added fields must also be
+            // constrained — changedKeys ignores keys that did not exist before.
+request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'kakaoUserId',
               'isStudentVerified',
               'studentEmail',
@@ -671,7 +672,10 @@ service cloud.firestore {
             resource.data.isStudentVerified == true &&
             request.resource.data.isStudentVerified == true &&
             usersDocKakaoIdOk(request.resource.data, kakaoUserId) &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            // Client-writable allowlist only. Moderation / withdrawal /
+            // verification timestamps / loginDisabled are server-only.
+            // Use affectedKeys so forging brand-new protected fields is denied.
+request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'kakaoUserId',
               'nickname',
               'email',
@@ -691,19 +695,7 @@ service cloud.firestore {
               'notificationSettings',
               'notificationSettingsUpdatedAt',
               'preferenceVector',
-              'status',
-              'isWithdrawn',
-              'withdrawnAt',
-              'scheduledHardDeleteAt',
-              'withdrawalRetentionDays',
-              'withdrawalReason',
-              'withdrawalPolicy',
               'profileVisible',
-              'canRejoin',
-              'rejoinRestricted',
-              'rejoinRestrictedUntil',
-              'rejoinRestrictionReason',
-              'rejoinedAt',
               'lastLoginAt',
               'hasSeenTutorial',
               'updatedAt'
@@ -730,26 +722,13 @@ service cloud.firestore {
               'notificationSettings',
               'notificationSettingsUpdatedAt',
               'preferenceVector',
-              'status',
-              'isWithdrawn',
-              'withdrawnAt',
-              'scheduledHardDeleteAt',
-              'withdrawalRetentionDays',
-              'withdrawalReason',
-              'withdrawalPolicy',
               'profileVisible',
-              'canRejoin',
-              'rejoinRestricted',
-              'rejoinRestrictedUntil',
-              'rejoinRestrictionReason',
-              'rejoinedAt',
               'lastLoginAt',
               'hasSeenTutorial',
               'initialSetupComplete',
               'initialSetupCompletedAt',
               'onboardingCompletedAt',
-              'studentVerifiedAt',
-              'verifiedAt',
+
               'updatedAt'
             ])
           )
@@ -893,8 +872,16 @@ service cloud.firestore {
             'exposureId',
             'sessionId',
             'dateKey',
-            'context'
-          ]);
+            'context',
+            'schemaVersion'
+          ]) &&
+          (
+            !('schemaVersion' in request.resource.data) ||
+            (
+              request.resource.data.schemaVersion is int &&
+              request.resource.data.schemaVersion == 1
+            )
+          );
     }
 
     match /recEvents/{userId} {
@@ -924,6 +911,44 @@ service cloud.firestore {
           data.get('roomType', null) in blindMeetingRoomTypes();
     }
 
+    function seasonMeetingRoomTypes() {
+      return ['season_meeting_group', 'event_season_meeting_group', 'three_vs_three_group'];
+    }
+
+    function seasonMeetingRoomGroupKinds() {
+      return ['group', 'three_vs_three', 'event_team_group'];
+    }
+
+    function isSeasonMeetingRoomData(data) {
+      return data != null && (
+          data.get('roomType', null) in seasonMeetingRoomTypes() ||
+          (
+            data.get('eventType', null) == 'season_meeting' &&
+            data.get('type', null) in seasonMeetingRoomGroupKinds()
+          ) ||
+          (
+            data.get('type', null) in seasonMeetingRoomGroupKinds() &&
+            (
+              data.get('threeVsThreeMatchId', null) is string ||
+              data.get('seasonMeetingMatchId', null) is string ||
+              data.get('eventThreeVsThreeMatchId', null) is string
+            )
+          )
+        );
+    }
+
+    function seasonMeetingRoomMutableOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'lastMessage',
+        'lastMessageAt',
+        'updatedAt',
+        'activePromise',
+        'photoBlurUnlocked',
+        'photoBlurUnlockedAt',
+        'photoBlurUnlockedBy'
+      ]);
+    }
+
     function blindRoomData(roomId) {
       return get(/databases/$(database)/documents/chat_rooms/$(roomId)).data;
     }
@@ -949,6 +974,7 @@ service cloud.firestore {
       allow read: if isChatRoomParticipant();
       allow create: if isChatRoomParticipantAfter() &&
         !isBlindMeetingRoomData(request.resource.data) &&
+        !isSeasonMeetingRoomData(request.resource.data) &&
         chatRoomDoesNotPersistPrivateMedia(request.resource.data);
       // participantIds is immutable after create — changing it would let a
       // participant add a third party who can then read the full history.
@@ -962,7 +988,12 @@ service cloud.firestore {
           request.resource.data.writable == resource.data.writable &&
           request.resource.data.status == resource.data.status &&
           request.resource.data.meetingId == resource.data.meetingId
-        ));
+        )) &&
+        ((!isSeasonMeetingRoomData(resource.data) &&
+          !isSeasonMeetingRoomData(request.resource.data)) ||
+          (isSeasonMeetingRoomData(resource.data) &&
+            isSeasonMeetingRoomData(request.resource.data) &&
+            seasonMeetingRoomMutableOnly()));
       allow delete: if false;
 
       match /messages/{messageId} {
@@ -1551,6 +1582,23 @@ service cloud.firestore {
     match /eventThreeVsThreeMatches/{matchId} {
       allow read: if isEventTeamMatchParticipant(resource.data);
       allow write: if false;
+    }
+
+    // AUTHENTICATED_LIMITED_PROFILE — server-synced display surface only.
+    // Never store email, studentEmail, preferenceVector, tokens, or
+    // moderation internals here.
+    match /publicProfiles/{uid} {
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    // Season meeting money/ops — Admin SDK / callables only.
+    match /seasonDepositIntents/{intentId} {
+      allow read, write: if false;
+    }
+    match /seasonMeetingCancelAudit/{id} {
+      allow read, write: if false;
     }
 
     // -----------------------------------------------------------------------

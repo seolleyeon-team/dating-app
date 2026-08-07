@@ -8,6 +8,10 @@ Usage (local):
   python -m recsys.main --step clip    --project seolleyeon
   python -m recsys.main --step rrf     --project seolleyeon
   python -m recsys.main --step verify  --project seolleyeon
+  python -m recsys.main --step meeting-group-index --project seolleyeon
+  python -m recsys.main --step meeting-recommend   --project seolleyeon
+  python -m recsys.main --step meeting-daily       --project seolleyeon
+  python -m recsys.main --step meeting-verify      --project seolleyeon
 
 All steps default --date-key to today (KST YYYYMMDD) when omitted.
 Model steps (`clip`, `svd`, `knn`) dispatch to the v3 training/export scripts.
@@ -35,8 +39,7 @@ from recsys.jobs.common import (
     gcs_download_to_file,
     setup_logging,
 )
-from recsys.jobs.export_job import run_export
-from recsys.jobs.verify_job import run_verify
+from recsys.jobs.meeting_job import MeetingStepOptions, run_meeting_step
 
 # Directory containing the ML scripts.
 # Docker:  /app/ai_recommend_model   (set via ENV AI_MODEL_DIR)
@@ -105,6 +108,8 @@ def _download_events_csv(args, logger) -> str | None:
 # ---------------------------------------------------------------
 
 def step_export(args, logger) -> int:
+    from recsys.jobs.export_job import run_export
+
     if not args.bucket:
         logger.error("--bucket is required for export step")
         return 1
@@ -179,6 +184,8 @@ def step_rrf(args, logger) -> int:
 
 
 def step_verify(args, logger) -> int:
+    from recsys.jobs.verify_job import run_verify
+
     result = run_verify(
         project=args.project,
         date_key=args.date_key,
@@ -187,6 +194,42 @@ def step_verify(args, logger) -> int:
     )
     logger.info(f"Verify result:\n{json.dumps(result, ensure_ascii=False, indent=2)}")
     return 0 if result.get("healthy", False) else 1
+
+
+def _step_meeting(step: str, args, logger) -> int:
+    """Run one of the existing v1 season meeting scripts."""
+
+    options = MeetingStepOptions(
+        project=args.project,
+        date_key=args.date_key,
+        database=args.database,
+        group_ids=args.meeting_group_ids,
+        dry_run=args.dry_run,
+        write_verify_doc=args.write_meeting_verify_doc,
+        verify_collection=args.meeting_verify_collection,
+    )
+    return run_meeting_step(
+        step,
+        options,
+        logger,
+        run_script=_run_script,
+    )
+
+
+def step_meeting_group_index(args, logger) -> int:
+    return _step_meeting("meeting-group-index", args, logger)
+
+
+def step_meeting_recommend(args, logger) -> int:
+    return _step_meeting("meeting-recommend", args, logger)
+
+
+def step_meeting_daily(args, logger) -> int:
+    return _step_meeting("meeting-daily", args, logger)
+
+
+def step_meeting_verify(args, logger) -> int:
+    return _step_meeting("meeting-verify", args, logger)
 
 
 # ---------------------------------------------------------------
@@ -200,6 +243,10 @@ STEPS = {
     "clip": step_clip,
     "rrf": step_rrf,
     "verify": step_verify,
+    "meeting-group-index": step_meeting_group_index,
+    "meeting-recommend": step_meeting_recommend,
+    "meeting-daily": step_meeting_daily,
+    "meeting-verify": step_meeting_verify,
 }
 
 
@@ -224,6 +271,24 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--lookback-days", dest="lookback_days", type=int, default=120)
     p.add_argument("--limit-users", dest="limit_users", type=int, default=None)
     p.add_argument("--dry-run", dest="dry_run", action="store_true")
+    p.add_argument(
+        "--meeting-group-ids",
+        dest="meeting_group_ids",
+        default="",
+        help="Optional comma-separated actor groupIds for meeting steps.",
+    )
+    p.add_argument(
+        "--write-meeting-verify-doc",
+        dest="write_meeting_verify_doc",
+        action="store_true",
+        help="Persist meeting verification summary under meetingVerifyRuns.",
+    )
+    p.add_argument(
+        "--meeting-verify-collection",
+        dest="meeting_verify_collection",
+        default="meetingVerifyRuns",
+        help="Firestore collection for meeting verification summaries.",
+    )
     return p
 
 

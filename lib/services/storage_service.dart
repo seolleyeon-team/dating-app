@@ -297,4 +297,15 @@ class StorageService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
   }
+
+  /// Clears local preferences scoped to a Kakao user on logout.
+  /// Keeps device-level flags such as first-launch / tutorial if desired by caller.
+  Future<void> clearUserScopedSession(String kakaoUserId) async {
+    await clearStudentVerification(kakaoUserId);
+    await clearEventTeamSetupDraftId(kakaoUserId);
+    await clearOnboardingDraft(kakaoUserId);
+    await clearKakaoUserId();
+    await clearUserId();
+    await clearPendingFriendInviteToken();
+  }
 }

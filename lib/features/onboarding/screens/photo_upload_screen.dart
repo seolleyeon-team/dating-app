@@ -9,10 +9,12 @@ import '../../../services/auth_service.dart';
 import '../../../services/avatar_generation_client.dart';
 import '../../../services/avatar_source_photo_service.dart';
 import '../../../services/onboarding_save_helper.dart';
+import '../../../services/onboarding_photo_upload_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/utils/avatar_lock_policy.dart';
 import '../../../shared/utils/privacy_log_utils.dart';
+import '../config/onboarding_feature_flags.dart';
 import '../widgets/avatar_candidate_selection_dialog.dart';
 import '../widgets/avatar_generation_error_banner.dart';
 import '../widgets/avatar_generating_overlay.dart';
@@ -40,6 +42,7 @@ class PhotoUploadScreen extends StatefulWidget {
   /// 호출하는 [BackendAvatarGenerationClient]이며, 위젯 테스트/디자인 QA에서만
   /// [MockAvatarGenerationClient]를 주입해 사용합니다.
   final AvatarGenerationClient? avatarGenerationClient;
+  final OnboardingPhotoUploadService? onboardingPhotoUploadService;
 
   /// Test-only initial slot values for exercising the avatar polling and
   /// approval flow without invoking the image picker or Firebase upload.
@@ -52,6 +55,7 @@ class PhotoUploadScreen extends StatefulWidget {
     this.onBack,
     this.onNext,
     this.avatarGenerationClient,
+    this.onboardingPhotoUploadService,
     this.initialPhotosForTesting,
   });
 
@@ -71,6 +75,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
   AuthService? _authService;
   AvatarSourcePhotoService? _avatarSourcePhotoService;
+  OnboardingPhotoUploadService? _onboardingPhotoUploadService;
   StorageService? _storageService;
   UserService? _userService;
   bool _isSavingOnExit = false;
@@ -91,6 +96,10 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   int? _activeSourceSelectionVersion;
 
   int get _photoCount => _photos.where((p) => p != null).length;
+
+  bool get _isAvatarGenerationEnabled =>
+      kEnableOnboardingAvatarGeneration ||
+      widget.avatarGenerationClient != null;
 
   bool get _hasApprovedAvatarForProceed =>
       _avatarLocked ||
@@ -125,6 +134,10 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
   AvatarSourcePhotoService get _sourcePhotoService =>
       _avatarSourcePhotoService ??= AvatarSourcePhotoService();
+
+  OnboardingPhotoUploadService get _onboardingPhotoService =>
+      _onboardingPhotoUploadService ??=
+          widget.onboardingPhotoUploadService ?? OnboardingPhotoUploadService();
 
   StorageService get _storage => _storageService ??= StorageService();
 
@@ -181,7 +194,10 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       profile,
     );
     final onboarding = data['onboarding'];
-    final avatarUrlsRaw = onboarding is Map ? onboarding['avatarUrls'] : null;
+    final photoUrlsKey = _isAvatarGenerationEnabled
+        ? 'avatarUrls'
+        : 'photoUrls';
+    final avatarUrlsRaw = onboarding is Map ? onboarding[photoUrlsKey] : null;
     final avatarUrls =
         lockState.isLocked && lockState.approvedAvatarUrl.isNotEmpty
         ? <String>[lockState.approvedAvatarUrl]
@@ -191,7 +207,8 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
     setState(() {
       _avatarLocked = lockState.isLocked;
-      _avatarSourceLocked = !lockState.isLocked && sourceLocked;
+      _avatarSourceLocked =
+          _isAvatarGenerationEnabled && !lockState.isLocked && sourceLocked;
       _lockedApprovedAvatarUrl = lockState.approvedAvatarUrl;
       if (_avatarSourceLocked && sourceJobId != null) {
         _activeAvatarJobId = sourceJobId;
@@ -256,6 +273,22 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         throw Exception(
           'Firebase login session is required for private upload.',
         );
+      }
+
+      if (!_isAvatarGenerationEnabled) {
+        final result = await _onboardingPhotoService.uploadPickedImage(
+          file: pickedFile,
+          slotIndex: index,
+          uid: kakaoUserId,
+        );
+        if (!mounted) return;
+
+        setState(() {
+          _photos[index] = result.photoUrl;
+          _isUploading[index] = false;
+          _avatarFlowCancelled = false;
+        });
+        return;
       }
 
       _logAvatarFlow('avatar_upload_start', slotIndex: index);
@@ -395,6 +428,10 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     }
 
     HapticFeedback.mediumImpact();
+    if (!_isAvatarGenerationEnabled) {
+      await _goToSelfIntroduction();
+      return;
+    }
     await _startAvatarGeneration();
   }
 
@@ -404,6 +441,10 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   }
 
   Future<void> _startAvatarGeneration() async {
+    if (!_isAvatarGenerationEnabled) {
+      await _goToSelfIntroduction();
+      return;
+    }
     final jobId = _findPrimaryAvatarJobId();
     if (jobId == null) {
       if (_hasStartedAvatarSourceLock) {
@@ -867,23 +908,25 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
                             ),
                           ],
                           const SizedBox(height: 24),
-                          _ChatRealPhotoConsentNotice(
-                            value: _chatPartnerRealPhotoDisclosure,
-                            onChanged: (value) {
-                              if (_avatarLocked) {
-                                _showLockedAvatarMessage();
-                                return;
-                              }
-                              if (_isSourceMutationBlocked) {
-                                _showSourceLockedAvatarMessage();
-                                return;
-                              }
-                              setState(() {
-                                _chatPartnerRealPhotoDisclosure = value;
-                              });
-                            },
-                          ),
-                          if (_avatarGenerationError != null) ...[
+                          if (_isAvatarGenerationEnabled)
+                            _ChatRealPhotoConsentNotice(
+                              value: _chatPartnerRealPhotoDisclosure,
+                              onChanged: (value) {
+                                if (_avatarLocked) {
+                                  _showLockedAvatarMessage();
+                                  return;
+                                }
+                                if (_isSourceMutationBlocked) {
+                                  _showSourceLockedAvatarMessage();
+                                  return;
+                                }
+                                setState(() {
+                                  _chatPartnerRealPhotoDisclosure = value;
+                                });
+                              },
+                            ),
+                          if (_isAvatarGenerationEnabled &&
+                              _avatarGenerationError != null) ...[
                             const SizedBox(height: 16),
                             AvatarGenerationErrorBanner(
                               message: _avatarGenerationError!,

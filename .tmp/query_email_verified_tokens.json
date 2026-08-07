@@ -1,1 +1,0 @@
-{"structuredQuery":{"from":[{"collectionId":"emailLinkTokens"}],"where":{"fieldFilter":{"field":{"fieldPath":"emailVerifiedUid"},"op":"GREATER_THAN","value":{"stringValue":""}}},"limit":10}}

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Verify exported meeting recommender artifacts and summarize skip reasons."""
+"""Verify exported meeting recommender artifacts with a strict production policy."""
 
 from __future__ import annotations
 
 import argparse
-from collections import Counter
+import os
+import sys
 from typing import Dict, List
 
 from seolleyeon_meeting_common_v1 import (
@@ -18,6 +19,16 @@ from seolleyeon_meeting_common_v1 import (
     make_firestore_client,
     parse_date_key,
 )
+
+try:
+    from recsys.jobs.meeting_verify_policy import build_meeting_verification_summary
+except ModuleNotFoundError:
+    # Keep the existing direct local invocation working when the repository
+    # root is not already on PYTHONPATH.
+    _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if _PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, _PROJECT_ROOT)
+    from recsys.jobs.meeting_verify_policy import build_meeting_verification_summary
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -43,9 +54,14 @@ def _load_nested_docs(
     suffix: str,
     source_kind: str,
 ) -> Dict[str, dict]:
-    refs = [db.document(f"{prefix_collection}/{group_id}/{suffix.format(date_key=date_key)}") for group_id in group_ids]
+    refs = [
+        db.document(f"{prefix_collection}/{group_id}/{suffix.format(date_key=date_key)}")
+        for group_id in group_ids
+    ]
     docs: Dict[str, dict] = {}
     for snap in db.get_all(refs):
+        if not snap.exists:
+            continue
         if source_kind == "daily":
             group_id = snap.reference.parent.parent.id
         else:
@@ -66,79 +82,46 @@ def main() -> int:
         group_ids=requested_group_ids or None,
     )
     group_ids = sorted(group_records.keys())
-    model_docs = _load_nested_docs(
-        db,
-        group_ids,
-        prefix_collection=args.meeting_model_recs_collection,
-        date_key=date_key,
-        suffix="daily/{date_key}/sources/group_ranker",
-        source_kind="model",
-    ) if group_ids else {}
-    daily_docs = _load_nested_docs(
-        db,
-        group_ids,
-        prefix_collection=args.meeting_daily_recs_collection,
-        date_key=date_key,
-        suffix="days/{date_key}",
-        source_kind="daily",
-    ) if group_ids else {}
+    model_docs = (
+        _load_nested_docs(
+            db,
+            group_ids,
+            prefix_collection=args.meeting_model_recs_collection,
+            date_key=date_key,
+            suffix="daily/{date_key}/sources/group_ranker",
+            source_kind="model",
+        )
+        if group_ids
+        else {}
+    )
+    daily_docs = (
+        _load_nested_docs(
+            db,
+            group_ids,
+            prefix_collection=args.meeting_daily_recs_collection,
+            date_key=date_key,
+            suffix="days/{date_key}",
+            source_kind="daily",
+        )
+        if group_ids
+        else {}
+    )
 
-    group_status_counts: Counter[str] = Counter()
-    model_status_counts: Counter[str] = Counter()
-    daily_status_counts: Counter[str] = Counter()
-    reason_counts: Counter[str] = Counter()
-
-    for record in group_records.values():
-        group_status_counts[record.index_status] += 1
-        if record.skip_reason:
-            reason_counts[record.skip_reason] += 1
-
-    for group_id, doc in model_docs.items():
-        status = str(doc.get("status") or "missing")
-        model_status_counts[status] += 1
-        reason = doc.get("skipReason")
-        if isinstance(reason, str) and reason:
-            reason_counts[reason] += 1
-    missing_model_docs = len([group_id for group_id in group_ids if group_id not in model_docs])
-
-    for group_id, doc in daily_docs.items():
-        status = str(doc.get("status") or "missing")
-        daily_status_counts[status] += 1
-        reason = doc.get("skipReason")
-        if isinstance(reason, str) and reason:
-            reason_counts[reason] += 1
-    missing_daily_docs = len([group_id for group_id in group_ids if group_id not in daily_docs])
-
-    summary = {
-        "dateKey": date_key,
-        "meetingGroupIndex": {
-            "ready": group_status_counts.get("ready", 0),
-            "skipped": group_status_counts.get("skipped", 0),
-            "total": len(group_records),
-        },
-        "meetingModelRecs": {
-            "ready": model_status_counts.get("ready", 0),
-            "empty": model_status_counts.get("empty", 0),
-            "skipped": model_status_counts.get("skipped", 0),
-            "missing": missing_model_docs,
-        },
-        "meetingDailyRecs": {
-            "ready": daily_status_counts.get("ready", 0),
-            "empty": daily_status_counts.get("empty", 0),
-            "skipped": daily_status_counts.get("skipped", 0),
-            "missing": missing_daily_docs,
-        },
-        "skipReasonHistogram": dict(reason_counts),
-    }
+    summary = build_meeting_verification_summary(
+        date_key,
+        group_records,
+        model_docs,
+        daily_docs,
+    )
     log_struct("info", "meeting_verify_summary", **summary)
 
     if args.write_verify_doc:
-        doc_ref = db.collection(args.verify_collection).document(date_key)
         payload = dict(summary)
         payload["createdAt"] = firestore.SERVER_TIMESTAMP if firestore is not None else None
+        doc_ref = db.collection(args.verify_collection).document(date_key)
         doc_ref.set(payload, merge=True)
 
-    return 0
+    return 0 if summary.get("healthy", False) else 1
 
 
 if __name__ == "__main__":

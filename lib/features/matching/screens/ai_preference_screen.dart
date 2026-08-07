@@ -104,8 +104,9 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen> {
     if (onboarding is Map) {
       // 온보딩이 { gender: 'female', ... } 형태로 저장된 경우 (saveOnboardingBasicInfo가 basicInfo 객체를 onboarding에 그대로 저장)
       final gAtOnboarding = onboarding['gender']?.toString();
-      if (gAtOnboarding != null && gAtOnboarding.trim().isNotEmpty)
+      if (gAtOnboarding != null && gAtOnboarding.trim().isNotEmpty) {
         return gAtOnboarding.trim();
+      }
       final basicInfo = onboarding['basicInfo'];
       if (basicInfo is Map) {
         final g = basicInfo['gender']?.toString();

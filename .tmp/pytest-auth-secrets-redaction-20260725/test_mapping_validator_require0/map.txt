@@ -1,1 +1,0 @@
-uid-1=C:\Users\samsung\StudioProjects\semisemifinal\.tmp\pytest-auth-secrets-redaction-20260725\test_mapping_validator_require0\photo.jpeg

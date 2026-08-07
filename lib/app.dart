@@ -303,7 +303,11 @@ TextTheme _applyFontWeight(TextTheme base) {
   TextStyle bump(TextStyle? s, int steps) {
     if (s == null) return const TextStyle();
     final w = s.fontWeight ?? FontWeight.w400;
-    final nextIndex = (w.index + steps).clamp(0, FontWeight.w900.index);
+    final baseIndex = (w.value ~/ 100) - 1;
+    final nextIndex = (baseIndex + steps).clamp(
+      0,
+      FontWeight.values.length - 1,
+    );
     return s.copyWith(fontWeight: FontWeight.values[nextIndex]);
   }
 

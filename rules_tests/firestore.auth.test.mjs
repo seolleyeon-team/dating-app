@@ -13,6 +13,7 @@ import {
 import {
   doc,
   collection,
+  deleteField,
   getDoc,
   getDocs,
   setDoc,
@@ -323,9 +324,167 @@ test("SEC-P0-04b: signed-in clients cannot list the users collection", async () 
   await assertFails(getDocs(collection(db, "users")));
 });
 
-test("legit: a signed-in user can read another user's profile document", async () => {
+test("SEC-P0-USER-DOC-IDOR: signed-in clients cannot read another user's private users doc", async () => {
   await seedVictim();
   const db = await kakaoSession(ATTACKER);
 
+  await assertFails(getDoc(doc(db, "users", VICTIM)));
+});
+
+test("legit: a signed-in user can read their own private users doc", async () => {
+  await seedVictim();
+  const db = await kakaoSession(VICTIM);
+
   await assertSucceeds(getDoc(doc(db, "users", VICTIM)));
+});
+
+test("legit: a signed-in user can read another user's publicProfiles doc", async () => {
+  await withClearedDb(async (db) => {
+    await setDoc(doc(db, "users", VICTIM), verifiedUserDoc(VICTIM, VICTIM_EMAIL));
+    await setDoc(doc(db, "publicProfiles", VICTIM), {
+      uid: VICTIM,
+      kakaoUserId: VICTIM,
+      nickname: "테스트",
+      profileImageUrl: "https://cdn.example/a.png",
+      status: "active",
+      isWithdrawn: false,
+      profileVisible: true,
+      isStudentVerified: true,
+      onboarding: { nickname: "테스트", major: "컴퓨터과학", birthYear: "2003" },
+      schemaVersion: 1,
+    });
+  });
+  const db = await kakaoSession(ATTACKER);
+
+  await assertSucceeds(getDoc(doc(db, "publicProfiles", VICTIM)));
+});
+
+test("SEC-P0-USER-DOC-IDOR: clients cannot write publicProfiles", async () => {
+  await seedVictim();
+  const db = await kakaoSession(VICTIM);
+
+  await assertFails(
+    setDoc(doc(db, "publicProfiles", VICTIM), {
+      uid: VICTIM,
+      nickname: "forged",
+      studentEmail: "leak@yonsei.ac.kr",
+    })
+  );
+});
+
+test("SEC-P0-PROTECTED-FIELDS: owner cannot clear loginDisabled", async () => {
+  await withClearedDb(async (db) => {
+    await setDoc(doc(db, "users", VICTIM), {
+      ...verifiedUserDoc(VICTIM, VICTIM_EMAIL),
+      loginDisabled: true,
+    });
+  });
+  const db = await kakaoSession(VICTIM);
+
+  await assertFails(
+    updateDoc(doc(db, "users", VICTIM), {
+      loginDisabled: false,
+      updatedAt: Timestamp.now(),
+    })
+  );
+});
+
+test("SEC-P0-PROTECTED-FIELDS: owner cannot forge withdrawal or rejoin fields", async () => {
+  await seedVictim();
+  const db = await kakaoSession(VICTIM);
+
+  await assertFails(
+    updateDoc(doc(db, "users", VICTIM), {
+      status: "withdrawn",
+      isWithdrawn: true,
+      canRejoin: true,
+      rejoinRestricted: false,
+      scheduledHardDeleteAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    })
+  );
+});
+
+test("SEC-P0-PROTECTED-FIELDS: owner cannot delete or forge verification timestamps", async () => {
+  await seedVictim();
+  const db = await kakaoSession(VICTIM);
+
+  await assertFails(
+    updateDoc(doc(db, "users", VICTIM), {
+      studentVerifiedAt: Timestamp.now(),
+      verifiedAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    })
+  );
+});
+
+test("SEC-P0-PROTECTED-FIELDS: owner cannot forge role/admin/premium/permission", async () => {
+  await seedVictim();
+  const db = await kakaoSession(VICTIM);
+
+  for (const payload of [
+    { role: "admin", updatedAt: Timestamp.now() },
+    { admin: true, updatedAt: Timestamp.now() },
+    { verified: true, updatedAt: Timestamp.now() },
+    { schoolVerified: true, updatedAt: Timestamp.now() },
+    { premium: true, updatedAt: Timestamp.now() },
+    { permission: "all", updatedAt: Timestamp.now() },
+  ]) {
+    await assertFails(updateDoc(doc(db, "users", VICTIM), payload));
+  }
+});
+
+test("SEC-P0-PROTECTED-FIELDS: owner cannot clear loginDisabled when absent via add", async () => {
+  // changedKeys() would miss this — field is newly added, not "changed".
+  await seedVictim();
+  const db = await kakaoSession(VICTIM);
+
+  await assertFails(
+    updateDoc(doc(db, "users", VICTIM), {
+      loginDisabled: false,
+      updatedAt: Timestamp.now(),
+    })
+  );
+});
+
+test("SEC-P0-PROTECTED-FIELDS: owner cannot null or deleteField protected fields", async () => {
+  await withClearedDb(async (db) => {
+    await setDoc(doc(db, "users", VICTIM), {
+      ...verifiedUserDoc(VICTIM, VICTIM_EMAIL),
+      loginDisabled: true,
+      studentVerifiedAt: Timestamp.now(),
+    });
+  });
+  const db = await kakaoSession(VICTIM);
+
+  await assertFails(
+    updateDoc(doc(db, "users", VICTIM), {
+      loginDisabled: null,
+      updatedAt: Timestamp.now(),
+    })
+  );
+  await assertFails(
+    updateDoc(doc(db, "users", VICTIM), {
+      loginDisabled: deleteField(),
+      updatedAt: Timestamp.now(),
+    })
+  );
+  await assertFails(
+    updateDoc(doc(db, "users", VICTIM), {
+      studentVerifiedAt: deleteField(),
+      updatedAt: Timestamp.now(),
+    })
+  );
+});
+
+test("legit: owner can update ordinary profile fields", async () => {
+  await seedVictim();
+  const db = await kakaoSession(VICTIM);
+
+  await assertSucceeds(
+    updateDoc(doc(db, "users", VICTIM), {
+      nickname: "새닉네임",
+      updatedAt: Timestamp.now(),
+    })
+  );
 });
