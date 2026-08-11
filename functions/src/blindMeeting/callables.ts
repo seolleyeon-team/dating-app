@@ -37,6 +37,7 @@ import {
   loadPolicy,
   requireVerifiedUser,
   setApplication,
+  updateApplicationForDnaEdit,
 } from "./store";
 import {
   ALCOHOL_PREFERENCES,
@@ -84,6 +85,7 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
   const user = await requireVerifiedUser(request);
   const data = getData(request);
   const dnaRaw = data.dna;
+  const editExistingApplication = data.editExistingApplication === true;
   if (!isRecord(dnaRaw)) {
     throw new HttpsError("invalid-argument", "dna가 필요해요.");
   }
@@ -197,33 +199,6 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
 
   const mbti = asTrimmedOrNull(onboarding.mbti)?.toUpperCase() ?? null;
 
-  await db()
-    .collection(BLIND_MEETING_COLLECTIONS.dna)
-    .doc(user.userId)
-    .set(
-      {
-        userId: user.userId,
-        schemaVersion: Math.max(1, Math.floor(asNum(dnaRaw.schemaVersion, 1))),
-        conversationAtmosphere: atmosphere,
-        conversationInitiative: initiative,
-        meetingPurpose: purpose,
-        alcoholCompanionPreference: alcoholPreference,
-        smokingCompanionPreference: smokingPreference,
-        interestIds,
-        drinkingLevelSnapshot: drinkingLevel,
-        smokingStatusSnapshot: smokingStatus,
-        mbtiSnapshot: mbti,
-        // 날짜 전용 계약. 신규 신청에는 시간대 필드를 쓰지 않는다.
-        availableDateKeys: dateKeys,
-        availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
-        scheduleSelectionVersion: BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
-        waitlistOptIn: dnaRaw.waitlistOptIn !== false,
-        updatedAt: FieldValue.serverTimestamp(),
-        createdAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-
   const prefersAlcoholFree = requiresAlcoholFreeGroup({
     userId: user.userId,
     atmosphere,
@@ -243,21 +218,62 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
     waitedMinutes: 0,
   });
 
-  await setApplication(user.userId, {
-    status: "applied",
-    stage: "searchingCandidates",
-    open: true,
-    meetingId: null,
-    extra: {
+  const dnaPayload = {
+    userId: user.userId,
+    schemaVersion: Math.max(1, Math.floor(asNum(dnaRaw.schemaVersion, 1))),
+    conversationAtmosphere: atmosphere,
+    conversationInitiative: initiative,
+    meetingPurpose: purpose,
+    alcoholCompanionPreference: alcoholPreference,
+    smokingCompanionPreference: smokingPreference,
+    interestIds,
+    drinkingLevelSnapshot: drinkingLevel,
+    smokingStatusSnapshot: smokingStatus,
+    mbtiSnapshot: mbti,
+    // 날짜 전용 계약. 신규 신청에는 시간대 필드를 쓰지 않는다.
+    availableDateKeys: dateKeys,
+    availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
+    scheduleSelectionVersion: BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
+    waitlistOptIn: dnaRaw.waitlistOptIn !== false,
+  };
+
+  if (editExistingApplication) {
+    await updateApplicationForDnaEdit({
       userId: user.userId,
+      dnaPayload,
       requestedDateKeys: dateKeys,
-      availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
-      scheduleSelectionVersion: BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
       prefersAlcoholFree,
       waitlistOptIn: dnaRaw.waitlistOptIn !== false,
-      appliedAt: FieldValue.serverTimestamp(),
-    },
-  });
+    });
+  } else {
+    await db()
+      .collection(BLIND_MEETING_COLLECTIONS.dna)
+      .doc(user.userId)
+      .set(
+        {
+          ...dnaPayload,
+          updatedAt: FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+    await setApplication(user.userId, {
+      status: "applied",
+      stage: "searchingCandidates",
+      open: true,
+      meetingId: null,
+      extra: {
+        userId: user.userId,
+        requestedDateKeys: dateKeys,
+        availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
+        scheduleSelectionVersion: BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
+        prefersAlcoholFree,
+        waitlistOptIn: dnaRaw.waitlistOptIn !== false,
+        appliedAt: FieldValue.serverTimestamp(),
+      },
+    });
+  }
 
   // 신청 즉시 매칭을 시도하되 날짜 수만큼 선형으로 늘리지 않는다.
   // 날짜를 21개 고른 사용자 때문에 callable이 타임아웃되면

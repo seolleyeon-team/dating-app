@@ -9,7 +9,7 @@ import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as logger from "firebase-functions/logger";
 
-const DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-private-source-photos";
+const DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-final-private-source-photos";
 const SOURCE_RETENTION_STATE_COLLECTION = "avatarSourceRetentionStates";
 const SOURCE_RETENTION_EVENTS_COLLECTION = "avatarSourceRetentionEvents";
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
@@ -712,4 +712,3 @@ export function createAvatarSourceRetentionRecoveryTrigger(firestore: Firestore)
     }
   });
 }
-

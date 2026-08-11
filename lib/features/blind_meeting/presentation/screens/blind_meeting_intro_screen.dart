@@ -14,6 +14,7 @@ import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_profile_snapshot.dart';
 import '../../data/blind_meeting_repository.dart';
 import '../../domain/blind_meeting_application.dart';
+import '../../../onboarding/onboarding_route_args.dart';
 import '../blind_meeting_route_args.dart';
 import '../theme/blind_meeting_palette.dart';
 import '../widgets/blind_meeting_common.dart';
@@ -36,6 +37,7 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
       widget.analytics ?? BlindMeetingAnalytics();
 
   bool _loading = true;
+  bool _openingInterestRegistration = false;
   String? _error;
   BlindMeetingProfileSnapshot? _profile;
   BlindMeetingApplication? _application;
@@ -81,6 +83,21 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
         _error = '$error';
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _openInterestRegistration() async {
+    if (_openingInterestRegistration) return;
+    _openingInterestRegistration = true;
+    try {
+      await Navigator.of(context).pushNamed(
+        RouteNames.onboardingInterestsSelection,
+        arguments: const InterestsSelectionRouteArgs.prerequisiteRepair(),
+      );
+      if (!mounted) return;
+      await _load();
+    } finally {
+      _openingInterestRegistration = false;
     }
   }
 
@@ -145,6 +162,7 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
 
     final profile = _profile;
     final application = _application;
+    final needsInterestRepair = profile != null && profile.needsInterests;
     final blockedReasons = <String>[
       if (profile == null) '로그인 정보를 확인할 수 없어요.',
       if (profile != null && !profile.schoolVerified) '학교 인증을 먼저 완료해주세요.',
@@ -272,6 +290,13 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
                           style: BlindMeetingText.caption(palette.attention),
                         ),
                       ),
+                    if (needsInterestRepair) ...[
+                      const SizedBox(height: 12),
+                      BlindMeetingPrimaryButton(
+                        label: '관심사 등록하러가기',
+                        onPressed: _openInterestRegistration,
+                      ),
+                    ],
                   ],
                 ),
               )

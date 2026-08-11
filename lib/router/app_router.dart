@@ -7,13 +7,13 @@ import 'route_names.dart';
 import '../features/splash/splash_screen.dart';
 import '../features/auth/screens/kakao_auth_screen.dart';
 import '../features/auth/screens/student_verification_screen.dart';
-import '../screens/auth/kakao_callback_screen.dart';
 import '../features/onboarding/screens/terms_screen.dart';
 
 // Onboarding
 import '../features/onboarding/screens/basic_info_screen.dart';
 import '../features/onboarding/screens/interests_screen.dart';
 import '../features/onboarding/screens/interests_selection_screen.dart';
+import '../features/onboarding/onboarding_route_args.dart';
 import '../features/onboarding/screens/lifestyle_screen.dart';
 import '../features/onboarding/screens/major_selection_screen.dart';
 import '../features/onboarding/screens/department_screen.dart';
@@ -125,11 +125,6 @@ class AppRouter {
   static Route<dynamic> generateRoute(RouteSettings settings) {
     final name = settings.name ?? '';
 
-    // 카카오 OAuth 콜백: 앱이 /?code=... 로 열렸을 때 (iOS/Android 딥링크)
-    if (name.contains('code=') || name.startsWith('/?')) {
-      return _cupertino(KakaoCallbackScreen(callbackPathAndQuery: name));
-    }
-
     switch (name) {
       // Auth
       case RouteNames.splash:
@@ -146,7 +141,13 @@ class AppRouter {
       case RouteNames.onboardingBasicInfo:
         return _cupertino(const BasicInfoScreen());
       case RouteNames.onboardingInterestsSelection:
-        return _cupertino(const InterestsSelectionScreen());
+        {
+          final args = settings.arguments;
+          final mode = args is InterestsSelectionRouteArgs
+              ? args.mode
+              : InterestsSelectionMode.onboarding;
+          return _cupertino(InterestsSelectionScreen(mode: mode));
+        }
       case RouteNames.onboardingLifestyle:
         return _cupertino(const LifestyleScreen());
       case RouteNames.onboardingMajor:
@@ -223,6 +224,7 @@ class AppRouter {
             pendingRouteName: args?.pendingRouteName,
             pendingRouteArgs: args?.pendingRouteArgs,
           ),
+          settings: settings,
         );
 
       // Matching
@@ -365,7 +367,7 @@ class AppRouter {
 
       // Event
       case RouteNames.event:
-        return _cupertino(const EventScreen());
+        return _cupertino(const EventScreen(), settings: settings);
       case RouteNames.teamSetup:
         return _cupertino(const TeamSetupScreen());
       case RouteNames.eventAddFriend:
@@ -412,25 +414,48 @@ class AppRouter {
       case RouteNames.legacyRandomMatching:
       case RouteNames.legacyRandomMeeting:
       case RouteNames.legacyMeetingApplication:
-        return _cupertino(const BlindMeetingIntroScreen());
+        return _cupertino(const BlindMeetingIntroScreen(), settings: settings);
       case RouteNames.blindTasteMeetingDna:
         {
-          final profile = settings.arguments;
+          final rawArgs = settings.arguments;
+          final profile = rawArgs is BlindMeetingDnaRouteArgs
+              ? rawArgs.profile
+              : rawArgs is BlindMeetingProfileSnapshot
+              ? rawArgs
+              : null;
+          final mode = rawArgs is BlindMeetingDnaRouteArgs
+              ? rawArgs.mode
+              : BlindMeetingDnaMode.create;
           if (profile is! BlindMeetingProfileSnapshot) {
-            return _cupertino(const BlindMeetingIntroScreen());
+            return _cupertino(
+              const BlindMeetingIntroScreen(),
+              settings: RouteSettings(name: RouteNames.blindTasteMeeting),
+            );
           }
-          return _cupertino(BlindMeetingDnaWizardScreen(profile: profile));
+          return _cupertino(
+            BlindMeetingDnaWizardScreen(profile: profile, mode: mode),
+            settings: settings,
+          );
         }
       case RouteNames.blindTasteMeetingSchedule:
         {
           final draft = settings.arguments;
           if (draft is! BlindMeetingDnaDraft) {
-            return _cupertino(const BlindMeetingIntroScreen());
+            return _cupertino(
+              const BlindMeetingIntroScreen(),
+              settings: RouteSettings(name: RouteNames.blindTasteMeeting),
+            );
           }
-          return _cupertino(BlindMeetingScheduleScreen(draft: draft));
+          return _cupertino(
+            BlindMeetingScheduleScreen(draft: draft),
+            settings: settings,
+          );
         }
       case RouteNames.blindTasteMeetingWaiting:
-        return _cupertino(const BlindMeetingWaitingScreen());
+        return _cupertino(
+          const BlindMeetingWaitingScreen(),
+          settings: settings,
+        );
       case RouteNames.blindTasteMeetingResult:
         {
           final args = settings.arguments;
@@ -474,7 +499,10 @@ class AppRouter {
     }
   }
 
-  static CupertinoPageRoute<T> _cupertino<T>(Widget page) {
-    return CupertinoPageRoute<T>(builder: (_) => page);
+  static CupertinoPageRoute<T> _cupertino<T>(
+    Widget page, {
+    RouteSettings? settings,
+  }) {
+    return CupertinoPageRoute<T>(builder: (_) => page, settings: settings);
   }
 }

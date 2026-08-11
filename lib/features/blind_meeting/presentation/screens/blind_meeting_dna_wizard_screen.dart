@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import '../../../../router/route_names.dart';
 import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_profile_snapshot.dart';
+import '../../data/blind_meeting_repository.dart';
 import '../../domain/blind_meeting_enums.dart';
 import '../blind_meeting_route_args.dart';
 import '../theme/blind_meeting_palette.dart';
@@ -22,11 +23,15 @@ import '../widgets/blind_meeting_common.dart';
 
 class BlindMeetingDnaWizardScreen extends StatefulWidget {
   final BlindMeetingProfileSnapshot profile;
+  final BlindMeetingDnaMode mode;
+  final BlindMeetingRepository? repository;
   final BlindMeetingAnalytics? analytics;
 
   const BlindMeetingDnaWizardScreen({
     super.key,
     required this.profile,
+    this.mode = BlindMeetingDnaMode.create,
+    this.repository,
     this.analytics,
   });
 
@@ -39,23 +44,71 @@ class _BlindMeetingDnaWizardScreenState
     extends State<BlindMeetingDnaWizardScreen> {
   static const int _totalSteps = 4;
 
+  late final BlindMeetingRepository _repository =
+      widget.repository ?? BlindMeetingRepository();
+
   int _step = 1;
   ConversationAtmosphere? _atmosphere;
   ConversationInitiative? _initiative;
   MeetingPurpose? _purpose;
   AlcoholCompanionPreference? _alcohol;
   SmokingCompanionPreference? _smoking;
+  bool _loadingExistingDna = false;
+  String? _existingDnaError;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.mode == BlindMeetingDnaMode.editExistingApplication) {
+      _restoreExistingDna();
+    }
+  }
 
   bool get _canGoNext => switch (_step) {
-    1 => _atmosphere != null,
-    2 => _initiative != null,
-    3 => _purpose != null,
-    4 => _alcohol != null && _smoking != null,
+    1 =>
+      !_loadingExistingDna && _existingDnaError == null && _atmosphere != null,
+    2 =>
+      !_loadingExistingDna && _existingDnaError == null && _initiative != null,
+    3 => !_loadingExistingDna && _existingDnaError == null && _purpose != null,
+    4 =>
+      !_loadingExistingDna &&
+          _existingDnaError == null &&
+          _alcohol != null &&
+          _smoking != null,
     _ => false,
   };
 
   /// 전원 비음주는 프로필상 비음주인 경우에만 선택할 수 있다.
   bool get _canChooseAllSober => widget.profile.drinkingLevel?.isSober ?? false;
+
+  Future<void> _restoreExistingDna() async {
+    if (_loadingExistingDna) return;
+    setState(() {
+      _loadingExistingDna = true;
+      _existingDnaError = null;
+    });
+    try {
+      final dna = await _repository.loadMyDna();
+      if (!mounted) return;
+      if (dna == null) {
+        throw StateError('기존 미팅 DNA를 불러오지 못했어요.');
+      }
+      setState(() {
+        _atmosphere = dna.conversationAtmosphere;
+        _initiative = dna.conversationInitiative;
+        _purpose = dna.meetingPurpose;
+        _alcohol = dna.alcoholCompanionPreference;
+        _smoking = dna.smokingCompanionPreference;
+        _loadingExistingDna = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadingExistingDna = false;
+        _existingDnaError = '기존 미팅 DNA를 불러오지 못했어요. 다시 시도해주세요.';
+      });
+    }
+  }
 
   void _next() {
     if (!_canGoNext) return;
@@ -69,6 +122,7 @@ class _BlindMeetingDnaWizardScreenState
     );
     final draft = BlindMeetingDnaDraft(
       profile: widget.profile,
+      mode: widget.mode,
       atmosphere: _atmosphere!,
       initiative: _initiative!,
       purpose: _purpose!,
@@ -110,7 +164,15 @@ class _BlindMeetingDnaWizardScreenState
                       totalSteps: _totalSteps,
                     ),
                     const SizedBox(height: 24),
-                    ..._buildStep(palette),
+                    if (_loadingExistingDna)
+                      const Center(child: CircularProgressIndicator())
+                    else if (_existingDnaError != null)
+                      BlindMeetingErrorState(
+                        message: _existingDnaError!,
+                        onRetry: _restoreExistingDna,
+                      )
+                    else
+                      ..._buildStep(palette),
                   ],
                 ),
               ),

@@ -12,7 +12,7 @@ import {
 const uid = "u1";
 const jobId = "avatar_u1_photo1";
 const privateSourceRef =
-  "gs://seolleyeon-private-source-photos/users/u1/source/photo1.jpg";
+  "gs://seolleyeon-final-private-source-photos/users/u1/source/photo1.jpg";
 
 function privateMedia(overrides: Record<string, unknown> = {}) {
   return {
@@ -33,7 +33,7 @@ function privateMedia(overrides: Record<string, unknown> = {}) {
         status: "active",
         avatarGenerationState: "current",
         gcsUri: privateSourceRef,
-        storageBucket: "seolleyeon-private-source-photos",
+        storageBucket: "seolleyeon-final-private-source-photos",
         storagePath: "users/u1/source/photo1.jpg",
         sha256: "audit-hash",
       },
@@ -66,7 +66,7 @@ test("plans source deletion only after irreversible terminal outcome when retent
   assert.equal(decision.sourceSelectionVersion, 3);
   assert.deepEqual(decision.refs, [
     {
-      bucket: "seolleyeon-private-source-photos",
+      bucket: "seolleyeon-final-private-source-photos",
       path: "users/u1/source/photo1.jpg",
     },
   ]);
@@ -252,7 +252,7 @@ test("only UID-bound private source refs are eligible", () => {
           photoId: "photo1",
           status: "active",
           avatarGenerationState: "current",
-          gcsUri: "gs://seolleyeon-avatar-temp/users/u1/jobs/job1/source.png",
+          gcsUri: "gs://seolleyeon-final-avatar-temp/users/u1/jobs/job1/source.png",
         },
       ],
     }),

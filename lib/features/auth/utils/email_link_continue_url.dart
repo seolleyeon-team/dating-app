@@ -38,8 +38,11 @@ bool isStudentEmailLinkContinuation(Uri uri) {
 }
 
 String _mobileHostingOrigin(String firebaseProjectId) {
-  if (firebaseProjectId == 'seolleyeon-final') {
-    return 'https://seolleyeon-final.web.app';
+  if (firebaseProjectId != 'seolleyeon-final') {
+    throw StateError(
+      'Unsupported Firebase project for mobile email-link continuation: '
+      '$firebaseProjectId',
+    );
   }
-  return 'https://seolleyeon.web.app';
+  return 'https://seolleyeon-final.web.app';
 }

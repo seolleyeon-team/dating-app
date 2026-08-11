@@ -241,6 +241,7 @@ class BlindMeetingRepository {
       return BlindMeetingApplication.fromMap(entry.key, entry.value);
     });
   }
+
   /// Reads the current application once for entry screens.
   ///
   /// Entry screens do not need a live listener. Using a one-shot read here
@@ -263,6 +264,20 @@ class BlindMeetingRepository {
   ) async {
     final result = await _call('submitBlindMeetingApplication', {
       'dna': dna.toWritePayload(),
+    });
+    return BlindMeetingApplicationResult.fromMap(result);
+  }
+
+  /// Updates the currently open application without creating another one.
+  ///
+  /// The callable re-reads and validates the authoritative application
+  /// document before changing either the DNA or matching stage.
+  Future<BlindMeetingApplicationResult> updateApplication(
+    BlindMeetingDna dna,
+  ) async {
+    final result = await _call('submitBlindMeetingApplication', {
+      'dna': dna.toWritePayload(),
+      'editExistingApplication': true,
     });
     return BlindMeetingApplicationResult.fromMap(result);
   }
@@ -573,11 +588,10 @@ class BlindMeetingRepository {
     return BlindMeetingFollowUpChoice.fromMap(
       meetingId,
       userId,
-      snapshot.data() == null
-          ? null
-          : normalizeFirestoreMap(snapshot.data()!),
+      snapshot.data() == null ? null : normalizeFirestoreMap(snapshot.data()!),
     );
   }
+
   Future<void> submitFollowUpChoice({
     required String meetingId,
     required List<String> selectedUids,

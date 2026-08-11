@@ -8,7 +8,6 @@ import '../screens/auth/signup_screen.dart';
 import '../screens/auth/kakao_login_screen.dart';
 import '../screens/auth/student_verification_screen.dart';
 import '../screens/auth/initial_setup_screen.dart';
-import '../screens/auth/kakao_callback_screen.dart';
 import '../screens/main/main_screen.dart';
 import '../screens/matching/matching_screen.dart';
 import '../screens/chat/chat_list_screen.dart';
@@ -46,7 +45,7 @@ class AppRouter {
 
       // ✅ 0-2) 카카오 로그인 플로우 화면은 항상 허용
       // (기존 상태값에 의해 /initial-setup 등으로 강제 redirect 되는 것을 방지)
-      if (loc == '/auth/kakao' || loc == '/auth/kakao/callback') {
+      if (loc == '/auth/kakao') {
         return null;
       }
 
@@ -60,8 +59,7 @@ class AppRouter {
           loc == '/terms' ||
           loc == '/login' ||
           loc == '/signup' ||
-          loc == '/auth/kakao' ||
-          loc == '/auth/kakao/callback';
+          loc == '/auth/kakao';
 
       // 1) 로그인 전
       if (!isLoggedIn) {
@@ -128,11 +126,6 @@ class AppRouter {
         path: '/signup',
         name: 'signup',
         builder: (_, __) => const SignupScreen(),
-      ),
-      GoRoute(
-        path: '/auth/kakao/callback',
-        name: 'kakao-callback',
-        builder: (_, __) => const KakaoCallbackScreen(),
       ),
       GoRoute(
         path: '/auth/kakao',

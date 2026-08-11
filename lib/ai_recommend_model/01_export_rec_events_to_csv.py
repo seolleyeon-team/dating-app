@@ -2,7 +2,7 @@ import csv
 from datetime import datetime, timezone, timedelta
 from google.cloud import firestore
 
-PROJECT_ID = "seolleyeon"
+PROJECT_ID = "seolleyeon-final"
 COLLECTION = "recEvents"
 OUT = "events.csv"
 

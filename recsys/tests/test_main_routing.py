@@ -39,6 +39,12 @@ def test_meeting_parser_accepts_shared_options():
     assert args.write_meeting_verify_doc is True
 
 
+def test_parser_defaults_to_seolleyeon_final_project():
+    args = build_parser().parse_args(["--step", "verify"])
+
+    assert args.project == "seolleyeon-final"
+
+
 def test_meeting_script_contracts_keep_existing_v1_defaults():
     options = MeetingStepOptions(
         project="test-project",

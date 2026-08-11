@@ -82,20 +82,7 @@ class _SplashScreenState extends State<SplashScreen> {
       }
 
       if (kakaoUserId == null || kakaoUserId.isEmpty) {
-        // 재설치 등 로그아웃 상태: 딥링크로 카카오 콜백이 열렸을 수 있음 → 처리 후 가입+초기설정 완료면 홈으로
-        final pathAndQuery = initialUri != null
-            ? '${initialUri.path}${initialUri.query.isNotEmpty ? '?${initialUri.query}' : ''}'
-            : '';
-        if (pathAndQuery.contains('code=')) {
-          if (!mounted) return;
-          final routeName = pathAndQuery.startsWith('/')
-              ? pathAndQuery
-              : '/$pathAndQuery';
-          Navigator.of(
-            context,
-          ).pushNamedAndRemoveUntil(routeName, (route) => false);
-          return;
-        }
+        // Kakao OAuth callback은 SDK가 처리하므로, 캐시된 사용자 ID가 없으면 약관부터 시작합니다.
         if (!mounted) return;
         Navigator.of(context).pushReplacementNamed(RouteNames.terms);
         return;
@@ -107,8 +94,12 @@ class _SplashScreenState extends State<SplashScreen> {
         kakaoUserId,
       );
       if (!firebaseAttached) {
-        await _storageService.clearKakaoUserId();
-        await _storageService.clearUserId();
+        final preserveLocalIdentity =
+            _authService.lastFirebaseSessionFailure?.isTransient ?? false;
+        if (!preserveLocalIdentity) {
+          await _storageService.clearKakaoUserId();
+          await _storageService.clearUserId();
+        }
         if (!mounted) return;
         Navigator.of(context).pushReplacementNamed(RouteNames.terms);
         return;

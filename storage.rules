@@ -11,8 +11,7 @@ service firebase.storage {
     }
 
     function isApprovedAvatarBucket() {
-      return bucket == "seolleyeon-approved-avatars" ||
-          bucket == "seolleyeon-final-approved-avatars" ||
+      return bucket == "seolleyeon-final-approved-avatars" ||
           bucket == "seolleyeon-festival-approved-avatars";
     }
 

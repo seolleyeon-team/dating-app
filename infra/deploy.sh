@@ -17,7 +17,7 @@
 # ===========================================================
 set -euo pipefail
 
-PROJECT_ID="${GCP_PROJECT:-seolleyeon}"
+PROJECT_ID="${GCP_PROJECT:-seolleyeon-final}"
 REGION="${GCP_REGION:-asia-northeast3}"
 REPO="seolleyeon-repo"
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/recs-pipeline:latest"

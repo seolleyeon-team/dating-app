@@ -28,6 +28,7 @@ class RecEventService {
     required String cardVariant,
     String? exposureId,
     String? sessionId,
+    String? eventId,
     String? dateKey,
     Map<String, dynamic>? context,
   }) async {
@@ -77,7 +78,14 @@ class RecEventService {
       );
     }
 
-    await _eventsRef(userId).add(payload);
+    if (eventId == null || eventId.trim().isEmpty) {
+      await _eventsRef(userId).add(payload);
+    } else {
+      // A deterministic document ID makes a retry address the same logical
+      // event. RecEvent rules reject updates, so a successful first write can
+      // never become a second history row.
+      await _eventsRef(userId).doc(eventId.trim()).set(payload);
+    }
 
     debugPrint(
       '[RecEvent] 기록 성공: $eventType surface=$surface ${PrivacyLogUtils.idFingerprint(userId)}',

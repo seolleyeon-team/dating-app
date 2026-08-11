@@ -9,14 +9,14 @@
 3. **플랫폼 키** → **JavaScript 키** → **키 설정** 클릭
 4. **JavaScript SDK 도메인**에 아래를 추가:
    - 로컬 개발: `http://localhost:포트번호` (예: `http://localhost:8080`, `http://localhost:53573`)
-   - Firebase Hosting: `https://seolleyeon.web.app`
-   - 필요 시 추가: `https://seolleyeon.firebaseapp.com`
+   - Firebase Hosting: `https://seolleyeon-final.web.app`
+   - 필요 시 추가: `https://seolleyeon-final.firebaseapp.com`
    - 커스텀 도메인 사용 시: `https://yourdomain.com`
 5. **Redirect URI**에 아래를 추가:
    - `JS-SDK` (Flutter SDK 웹 로그인용)
    - 로컬: `http://localhost:포트번호/` (실제 사용 포트로 변경)
-   - Firebase Hosting: `https://seolleyeon.web.app/`
-   - 필요 시 추가: `https://seolleyeon.firebaseapp.com/`
+   - Firebase Hosting: `https://seolleyeon-final.web.app/`
+   - 필요 시 추가: `https://seolleyeon-final.firebaseapp.com/`
    - 커스텀 도메인 사용 시: `https://yourdomain.com/`
 6. **저장** 클릭
 

@@ -1,6 +1,6 @@
 from google.cloud import firestore
 
-PROJECT_ID = "seolleyeon"
+PROJECT_ID = "seolleyeon-final"
 
 db = firestore.Client(project=PROJECT_ID)
 

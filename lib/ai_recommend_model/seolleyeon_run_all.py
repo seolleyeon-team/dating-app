@@ -9,7 +9,7 @@ Seolleyeon AI 추천 파이프라인 전체 실행
 4. RRF 통합 + Firestore 저장 (modelRecs/.../sources/rrf)
 
 사용법:
-  python seolleyeon_run_all.py --firestore_project seolleyeon --date_key 20250309
+  python seolleyeon_run_all.py --firestore_project seolleyeon-final --date_key 20250309
 
 옵션:
   --skip_svd, --skip_knn, --skip_clip, --skip_rrf 로 단계별 스킵 가능

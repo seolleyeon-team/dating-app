@@ -13,15 +13,16 @@ void main() {
     expect(url, 'https://seolleyeon-final.web.app/auth/email-link?t=token-123');
   });
 
-  test('mobile legacy project keeps existing production hosting domain', () {
-    final url = buildStudentEmailLinkContinueUrl(
-      token: 'token-123',
-      isWeb: false,
-      webOrigin: 'https://ignored.example',
-      firebaseProjectId: 'seolleyeon',
+  test('mobile rejects a legacy Firebase project instead of using its host', () {
+    expect(
+      () => buildStudentEmailLinkContinueUrl(
+        token: 'token-123',
+        isWeb: false,
+        webOrigin: 'https://ignored.example',
+        firebaseProjectId: 'seolleyeon',
+      ),
+      throwsStateError,
     );
-
-    expect(url, 'https://seolleyeon.web.app/auth/email-link?t=token-123');
   });
 
   test('web uses the current origin', () {

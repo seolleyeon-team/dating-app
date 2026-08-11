@@ -46,13 +46,14 @@ class OnboardingSaveHelper {
   }
 
   /// Step 2: 관심사
-  static Future<void> saveInterests(List<String> interests) async {
+  static Future<bool> saveInterests(List<String> interests) async {
     final uid = await _getUserId();
-    if (uid == null) return;
+    if (uid == null || uid.isEmpty) return false;
     await _userService.saveOnboardingInterests(
       kakaoUserId: uid,
       interests: interests,
     );
+    return true;
   }
 
   /// Step 3: 라이프스타일

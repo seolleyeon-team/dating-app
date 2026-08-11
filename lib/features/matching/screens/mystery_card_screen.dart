@@ -28,6 +28,7 @@ import '../../../shared/widgets/capture_protected_image.dart';
 import '../models/profile_card_args.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
+import '../services/ai_preference_performance_trace.dart';
 
 // =============================================================================
 // 색상 상수
@@ -119,10 +120,13 @@ class _MysteryCardScreenState extends State<MysteryCardScreen> {
                     notificationCount: widget.notificationCount,
                     onAiPreference:
                         widget.onAiPreference ??
-                        () => Navigator.of(
-                          context,
-                          rootNavigator: true,
-                        ).pushNamed(RouteNames.aiPreference),
+                        () {
+                          AiPreferencePerformanceTrace.markLaunchTap();
+                          Navigator.of(
+                            context,
+                            rootNavigator: true,
+                          ).pushNamed(RouteNames.aiPreference);
+                        },
                     onNotification: _handleNotificationTap,
                   )
                 else
@@ -137,10 +141,13 @@ class _MysteryCardScreenState extends State<MysteryCardScreen> {
                         notificationCount: unreadCount,
                         onAiPreference:
                             widget.onAiPreference ??
-                            () => Navigator.of(
-                              context,
-                              rootNavigator: true,
-                            ).pushNamed(RouteNames.aiPreference),
+                            () {
+                              AiPreferencePerformanceTrace.markLaunchTap();
+                              Navigator.of(
+                                context,
+                                rootNavigator: true,
+                              ).pushNamed(RouteNames.aiPreference);
+                            },
                         onNotification: _handleNotificationTap,
                       );
                     },

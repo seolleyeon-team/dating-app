@@ -5,10 +5,8 @@ import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kDebugMode, kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 
 import '../../../router/route_names.dart';
-import '../../../screens/auth/kakao_callback_screen.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/friend_invite_service.dart';
 import '../services/kakao_login_firestore_bootstrap.dart';
@@ -25,8 +23,7 @@ class KakaoAuthScreen extends StatefulWidget {
   State<KakaoAuthScreen> createState() => _KakaoAuthScreenState();
 }
 
-class _KakaoAuthScreenState extends State<KakaoAuthScreen>
-    with WidgetsBindingObserver {
+class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
   final _authService = AuthService();
   final _storageService = StorageService();
   final _friendInviteService = FriendInviteService();
@@ -79,46 +76,6 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen>
     }
 
     return msg;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed || !mounted) return;
-    _onReturnFromExternalApp();
-  }
-
-  /// 카카오톡 앱에서 돌아왔을 때 URL에 code가 있으면 콜백 화면으로 이동
-  Future<void> _onReturnFromExternalApp() async {
-    try {
-      final url = await receiveKakaoScheme();
-      if (url == null || url.isEmpty || !url.contains('code=')) return;
-      final uri = Uri.tryParse(url);
-      if (uri == null) return;
-      final pathAndQuery = uri.hasQuery ? '${uri.path}?${uri.query}' : uri.path;
-      if (!pathAndQuery.contains('code=')) return;
-      if (!mounted) return;
-      await Navigator.of(context).push(
-        CupertinoPageRoute<void>(
-          builder: (_) => KakaoCallbackScreen(
-            callbackPathAndQuery: pathAndQuery.startsWith('?')
-                ? pathAndQuery
-                : '/$pathAndQuery',
-          ),
-        ),
-      );
-    } catch (_) {}
   }
 
   Future<bool> _handlePendingInviteAfterLogin() async {

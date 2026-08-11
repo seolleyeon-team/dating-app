@@ -19,7 +19,7 @@ except Exception:  # pragma: no cover - keeps lease helpers usable during partia
     evaluate_cost_guard = None  # type: ignore[assignment]
 
 
-DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-private-source-photos"
+DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-final-private-source-photos"
 DEFAULT_LEASE_SECONDS = 30 * 60
 DEFAULT_HEARTBEAT_SECONDS = 60
 DEFAULT_MAX_ATTEMPTS = 2

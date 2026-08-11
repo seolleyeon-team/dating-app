@@ -160,7 +160,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
     switch (code.toLowerCase().replaceAll('_', '-')) {
       case 'not-found':
         return '팀용 서버 기능(ensureEventTeamSetup)을 찾을 수 없어요. '
-            '프로젝트 `seolleyeon`에 Cloud Functions가 배포됐는지 확인하고, '
+            '프로젝트 `seolleyeon-final`에 Cloud Functions가 배포됐는지 확인하고, '
             '리전은 asia-northeast3이어야 해요. (`firebase deploy --only functions`)';
       case 'unauthenticated':
         return '서버에 로그인 정보가 전달되지 않았어요. 카카오 로그인 후 다시 시도해주세요.';

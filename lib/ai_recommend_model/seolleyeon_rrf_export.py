@@ -26,6 +26,11 @@ try:
 except Exception:  # pragma: no cover
     firestore = None
 
+from seolleyeon_rec_common_v3 import (
+    canonicalize_recommendation_target_id,
+    is_ai_profile,
+)
+
 
 DEFAULT_SOURCE_WEIGHTS: Dict[str, float] = {
     "clip": 1.0,
@@ -109,7 +114,9 @@ def dedupe_source_items(
         uid = item.get("uid")
         if not uid:
             continue
-        uid = str(uid)
+        uid = canonicalize_recommendation_target_id(str(uid))
+        if is_ai_profile(uid):
+            continue
         rank = extract_item_rank(item, idx)
         cur = best.get(uid)
         if cur is None or rank < cur[0]:
@@ -215,6 +222,8 @@ def rrf_merge(
         effective_weights[source_name] = round(eff_weight, 6)
 
         for uid, rank, _payload in items:
+            if is_ai_profile(uid):
+                continue
             if rank <= 0 or rank > max_rank_per_source:
                 continue
             contrib = eff_weight / (rrf_k + rank)

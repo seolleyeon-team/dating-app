@@ -71,36 +71,48 @@ def safe_json_update(base: Dict[str, Any], raw: Optional[str]) -> Dict[str, Any]
     return out
 
 
-def ai_profile_to_storage_url(
+_AI_PROFILE_SHOT_FILES: Tuple[str, ...] = (
+    "face_card.png",
+    "vibe_card.png",
+    "silhouette_card.png",
+)
+
+
+def ai_profile_to_storage_urls(
     ai_profile_id: str,
     *,
-    bucket: str = "seolleyeon.firebasestorage.app",
-) -> str:
-    m = re.match(r"^(female|male)_(\d+)$", str(ai_profile_id))
-    if not m:
+    bucket: str = "seolleyeon-final.firebasestorage.app",
+) -> List[str]:
+    if not isinstance(ai_profile_id, str):
         raise ValueError(f"Invalid ai_profile_id: {ai_profile_id}")
-    folder, pid = m.group(1), m.group(2)
-    path = f"ai_profiles/{folder}/{pid}.png"
-    encoded = quote(path, safe="")
-    return f"https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{encoded}?alt=media"
+    match = re.fullmatch(r"(female|male)_(\d+)", ai_profile_id.strip())
+    if match is None:
+        raise ValueError(f"Invalid ai_profile_id: {ai_profile_id}")
+    folder, pid = match.group(1), match.group(2)
+    return [
+        (
+            f"https://firebasestorage.googleapis.com/v0/b/{bucket}/o/"
+            f"{quote(f'ai_profiles/{folder}/{pid}/{shot_file}', safe='')}?alt=media"
+        )
+        for shot_file in _AI_PROFILE_SHOT_FILES
+    ]
 
 
 def add_ai_profiles_to_uid_urls(
     uid_to_urls: Dict[str, List[str]],
     target_ids: Sequence[str],
     *,
-    bucket: str = "seolleyeon.firebasestorage.app",
+    bucket: str = "seolleyeon-final.firebasestorage.app",
 ) -> None:
     seen: set[str] = set()
     for t in target_ids:
         if not is_ai_profile(t):
             continue
-        if t in uid_to_urls or t in seen:
+        if t in seen:
             continue
         seen.add(t)
         try:
-            url = ai_profile_to_storage_url(t, bucket=bucket)
-            uid_to_urls[t] = [url]
+            uid_to_urls[t] = ai_profile_to_storage_urls(t, bucket=bucket)
         except Exception:
             pass
 
@@ -298,7 +310,9 @@ def main() -> int:
         all_signal_targets.extend(pair_df_all["item_id"].astype(str).tolist())
         if neg_df_all is not None and not neg_df_all.empty:
             all_signal_targets.extend(neg_df_all["item_id"].astype(str).tolist())
-        bucket = os.environ.get("FIREBASE_STORAGE_BUCKET", "seolleyeon.firebasestorage.app")
+        bucket = os.environ.get(
+            "FIREBASE_STORAGE_BUCKET", "seolleyeon-final.firebasestorage.app"
+        )
         add_ai_profiles_to_uid_urls(uid_to_urls, all_signal_targets, bucket=bucket)
     else:
         print("[events] no usable events; CLIP will run in pure cold-start/self-profile mode")

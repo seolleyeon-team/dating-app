@@ -20,10 +20,10 @@ import {
   type SocialCleanupOperation,
 } from "./accountDeletionSocialCleanup";
 
-const DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-private-source-photos";
-const DEFAULT_AVATAR_TEMP_BUCKET = "seolleyeon-avatar-temp";
-const DEFAULT_APPROVED_AVATAR_BUCKET = "seolleyeon-approved-avatars";
-const DEFAULT_CHAT_PROFILE_PHOTO_BUCKET = "seolleyeon-chat-profile-photos";
+const DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-final-private-source-photos";
+const DEFAULT_AVATAR_TEMP_BUCKET = "seolleyeon-final-avatar-temp";
+const DEFAULT_APPROVED_AVATAR_BUCKET = "seolleyeon-final-approved-avatars";
+const DEFAULT_CHAT_PROFILE_PHOTO_BUCKET = "seolleyeon-final-chat-profile-photos";
 const CLEANUP_REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
 const ALLOWED_REASONS = new Set(["consent_withdrawal", "account_deletion"]);
 const ACTIVE_JOB_STATUSES = new Set([

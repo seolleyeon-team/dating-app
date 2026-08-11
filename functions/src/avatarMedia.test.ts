@@ -552,11 +552,11 @@ test("private media payload records chat real-photo consent explicitly", () => {
   assert.equal(payload.chatRealPhoto.enabled, true);
   assert.equal(
     payload.chatRealPhoto.storageBucket,
-    "seolleyeon-chat-profile-photos",
+    "seolleyeon-final-chat-profile-photos",
   );
   assert.equal(
     payload.chatRealPhoto.gcsUri?.startsWith(
-      "gs://seolleyeon-chat-profile-photos/",
+      "gs://seolleyeon-final-chat-profile-photos/",
     ),
     true,
   );

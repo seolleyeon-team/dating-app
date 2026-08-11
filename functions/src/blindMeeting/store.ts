@@ -12,6 +12,10 @@ import { HttpsError } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
 import { isStrictStudentVerification } from "./eligibility";
+import {
+  buildBlindMeetingApplicationEditPatch,
+  BlindMeetingApplicationEditState,
+} from "./editPolicy";
 import { Candidate } from "./matching";
 import {
   BlindMeetingPolicy,
@@ -20,8 +24,10 @@ import {
 } from "./policy";
 import {
   ALCOHOL_PREFERENCES,
+  BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
   BLIND_MEETING_COLLECTIONS,
   BLIND_MEETING_SCHEMA_VERSION,
+  BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
   BLIND_MEETING_TYPE,
   BlindMeetingStatus,
   CONVERSATION_ATMOSPHERES,
@@ -689,6 +695,121 @@ export async function setApplication(
     .collection(BLIND_MEETING_COLLECTIONS.applications)
     .doc(userId)
     .set(payload, { merge: true });
+}
+
+/**
+ * Updates an open application and its private DNA atomically.
+ *
+ * The application document is read inside the transaction so a concurrent
+ * matcher claim causes a retry and is rejected instead of being overwritten.
+ */
+export async function updateApplicationForDnaEdit(params: {
+  userId: string;
+  dnaPayload: Record<string, unknown>;
+  requestedDateKeys: string[];
+  prefersAlcoholFree: boolean;
+  waitlistOptIn: boolean;
+}): Promise<void> {
+  const applicationRef = db()
+    .collection(BLIND_MEETING_COLLECTIONS.applications)
+    .doc(params.userId);
+  const dnaRef = db()
+    .collection(BLIND_MEETING_COLLECTIONS.dna)
+    .doc(params.userId);
+
+  await db().runTransaction(async (tx) => {
+    const applicationSnap = await tx.get(applicationRef);
+    if (!applicationSnap.exists) {
+      throw new HttpsError(
+        "failed-precondition",
+        "수정할 진행 중인 신청을 찾을 수 없어요."
+      );
+    }
+
+    const raw = (applicationSnap.data() ?? {}) as Record<string, unknown>;
+    const status = oneOfOrNull(
+      [
+        "applied",
+        "waitlisted",
+        "invited",
+        "accepted",
+        "deposit_pending",
+        "confirmed",
+        "cancel_requested",
+        "cancelled",
+        "replacement_pending",
+        "replaced",
+        "no_show",
+        "attended",
+        "completed",
+        "restricted",
+      ] as ParticipantStatus[],
+      raw.serverStatus ?? raw.status
+    );
+    const stage = oneOfOrNull(
+      [
+        "searchingCandidates",
+        "formingOwnTeam",
+        "checkingCrossTeam",
+        "awaitingConfirmation",
+        "matched",
+        "insufficientCandidates",
+        "cancelled",
+      ] as MatchingStage[],
+      raw.stage
+    );
+    if (status == null || stage == null) {
+      throw new HttpsError(
+        "failed-precondition",
+        "현재 신청 상태를 확인할 수 없어 미팅 DNA를 수정할 수 없어요."
+      );
+    }
+
+    const current: BlindMeetingApplicationEditState = {
+      status,
+      stage,
+      open: raw.open === true,
+      meetingId: asTrimmedOrNull(raw.meetingId),
+    };
+    const patch = buildBlindMeetingApplicationEditPatch(current, {
+      requestedDateKeys: params.requestedDateKeys,
+      prefersAlcoholFree: params.prefersAlcoholFree,
+      waitlistOptIn: params.waitlistOptIn,
+    });
+    if (patch == null) {
+      throw new HttpsError(
+        "failed-precondition",
+        "현재 신청 상태에서는 미팅 DNA를 수정할 수 없어요."
+      );
+    }
+
+    tx.set(
+      dnaRef,
+      {
+        ...params.dnaPayload,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    tx.set(
+      applicationRef,
+      {
+        status: PARTICIPANT_STATUS_TO_APP[patch.status],
+        serverStatus: patch.status,
+        stage: patch.stage,
+        open: patch.open,
+        meetingId: patch.meetingId,
+        requestedDateKeys: patch.requestedDateKeys,
+        availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
+        scheduleSelectionVersion: BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
+        prefersAlcoholFree: patch.prefersAlcoholFree,
+        waitlistOptIn: patch.waitlistOptIn,
+        appliedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  });
 }
 
 // -----------------------------------------------------------------------------

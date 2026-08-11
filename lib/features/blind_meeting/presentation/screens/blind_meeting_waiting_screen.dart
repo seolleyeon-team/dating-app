@@ -15,6 +15,7 @@ import '../../data/blind_meeting_repository.dart';
 import '../../domain/blind_meeting_application.dart';
 import '../../domain/blind_meeting_availability.dart';
 import '../blind_meeting_route_args.dart';
+import '../blind_meeting_navigation.dart';
 import '../theme/blind_meeting_palette.dart';
 import '../widgets/blind_meeting_action_sheets.dart';
 import '../widgets/blind_meeting_common.dart';
@@ -37,6 +38,7 @@ class _BlindMeetingWaitingScreenState extends State<BlindMeetingWaitingScreen> {
       .watchMyApplication();
 
   bool _busy = false;
+  bool _leaving = false;
   String? _error;
 
   Future<void> _run(Future<void> Function() action) async {
@@ -99,54 +101,81 @@ class _BlindMeetingWaitingScreenState extends State<BlindMeetingWaitingScreen> {
     );
   }
 
+  void _handleExit() {
+    if (!mounted || _leaving) return;
+    _leaving = true;
+    returnToBlindMeetingIntro(context);
+  }
+
+  Future<void> _openDnaEditor(BlindMeetingApplication application) async {
+    if (_busy || !application.canEditDna) return;
+    await _run(() async {
+      final profile = await _repository.loadProfileSnapshot();
+      if (profile == null) {
+        throw StateError('프로필 정보를 불러오지 못했어요.');
+      }
+      if (!mounted) return;
+      await Navigator.of(context, rootNavigator: true).pushNamed(
+        RouteNames.blindTasteMeetingDna,
+        arguments: BlindMeetingDnaRouteArgs(
+          profile: profile,
+          mode: BlindMeetingDnaMode.editExistingApplication,
+        ),
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = BlindMeetingPalette.of(context);
 
-    return Scaffold(
-      backgroundColor: palette.background,
-      body: Column(
-        children: [
-          BlindMeetingAppBar(
-            title: '매칭 진행 상황',
-            onBack: () => Navigator.of(context).maybePop(),
-          ),
-          Expanded(
-            child: StreamBuilder<BlindMeetingApplication?>(
-              stream: _stream,
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return _wrap(
-                    BlindMeetingErrorState(message: '${snapshot.error}'),
-                  );
-                }
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final application = snapshot.data;
-                if (application == null) {
-                  return _wrap(
-                    const BlindMeetingEmptyState(
-                      title: '진행 중인 신청이 없어요',
-                      description: '블라인드 취향 미팅에 새로 신청해보세요.',
-                    ),
-                  );
-                }
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _handleExit();
+      },
+      child: Scaffold(
+        backgroundColor: palette.background,
+        body: Column(
+          children: [
+            BlindMeetingAppBar(title: '매칭 진행 상황', onBack: _handleExit),
+            Expanded(
+              child: StreamBuilder<BlindMeetingApplication?>(
+                stream: _stream,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return _wrap(
+                      BlindMeetingErrorState(message: '${snapshot.error}'),
+                    );
+                  }
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final application = snapshot.data;
+                  if (application == null) {
+                    return _wrap(
+                      const BlindMeetingEmptyState(
+                        title: '진행 중인 신청이 없어요',
+                        description: '블라인드 취향 미팅에 새로 신청해보세요.',
+                      ),
+                    );
+                  }
 
-                final meetingId = application.meetingId;
-                if (meetingId != null &&
-                    meetingId.isNotEmpty &&
-                    application.stage == BlindMeetingMatchingStage.matched) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) _openMeeting(meetingId);
-                  });
-                }
+                  final meetingId = application.meetingId;
+                  if (meetingId != null &&
+                      meetingId.isNotEmpty &&
+                      application.stage == BlindMeetingMatchingStage.matched) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) _openMeeting(meetingId);
+                    });
+                  }
 
-                return _wrap(_buildContent(palette, application));
-              },
+                  return _wrap(_buildContent(palette, application));
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -247,6 +276,14 @@ class _BlindMeetingWaitingScreenState extends State<BlindMeetingWaitingScreen> {
                   if (mounted) Navigator.of(context).maybePop();
                 }),
         ),
+        if (application.canEditDna) ...[
+          const SizedBox(height: 12),
+          BlindMeetingSecondaryButton(
+            key: const ValueKey('blind-meeting-dna-edit'),
+            label: 'DNA 수정하기',
+            onPressed: _busy ? null : () => _openDnaEditor(application),
+          ),
+        ],
       ],
     );
   }

@@ -13,6 +13,7 @@ import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import '../../../router/route_names.dart';
+import '../services/ai_preference_performance_trace.dart';
 
 // =============================================================================
 // 색상 상수
@@ -118,10 +119,13 @@ class ProfileDiscoveryScreen extends StatelessWidget {
                   notificationCount: notificationCount,
                   onAiPreference:
                       onAiPreference ??
-                      () => Navigator.of(
-                        context,
-                        rootNavigator: true,
-                      ).pushNamed(RouteNames.aiPreference),
+                      () {
+                        AiPreferencePerformanceTrace.markLaunchTap();
+                        Navigator.of(
+                          context,
+                          rootNavigator: true,
+                        ).pushNamed(RouteNames.aiPreference);
+                      },
                   onNotification: onNotification,
                 ),
                 // 메인 콘텐츠

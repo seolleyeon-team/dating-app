@@ -119,6 +119,15 @@ class BlindMeetingApplication {
       status != BlindMeetingParticipantStatus.cancelled &&
       stage != BlindMeetingMatchingStage.cancelled;
 
+  /// DNA can be changed only while this application is still in the open
+  /// candidate pool. The backend repeats this check authoritatively.
+  bool get canEditDna =>
+      isActive &&
+      meetingId == null &&
+      (status == BlindMeetingParticipantStatus.applied ||
+          status == BlindMeetingParticipantStatus.waitlisted) &&
+      stage != BlindMeetingMatchingStage.matched;
+
   bool get needsRelaxationChoice =>
       stage == BlindMeetingMatchingStage.insufficientCandidates;
 

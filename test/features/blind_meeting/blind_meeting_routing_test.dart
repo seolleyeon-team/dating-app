@@ -11,6 +11,8 @@ import 'package:seolleyeon/features/blind_meeting/presentation/screens/blind_mee
 import 'package:seolleyeon/features/blind_meeting/presentation/screens/blind_meeting_intro_screen.dart';
 import 'package:seolleyeon/features/blind_meeting/presentation/screens/blind_meeting_result_screen.dart';
 import 'package:seolleyeon/features/blind_meeting/presentation/screens/blind_meeting_waiting_screen.dart';
+import 'package:seolleyeon/features/onboarding/onboarding_route_args.dart';
+import 'package:seolleyeon/features/onboarding/screens/interests_selection_screen.dart';
 import 'package:seolleyeon/router/app_router.dart';
 import 'package:seolleyeon/router/route_names.dart';
 
@@ -87,6 +89,35 @@ void main() {
           reason: route,
         );
       }
+    });
+  });
+
+  group('관심사 보충 라우트', () {
+    testWidgets('typed 보충 인자는 기존 관심사 화면을 repair 모드로 연다', (tester) async {
+      await pumpRoute(
+        tester,
+        RouteNames.onboardingInterestsSelection,
+        arguments: const InterestsSelectionRouteArgs.prerequisiteRepair(),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(InterestsSelectionScreen), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('interests-selection-progress')),
+        findsNothing,
+      );
+      expect(find.text('관심사 등록 완료'), findsOneWidget);
+    });
+
+    testWidgets('인자가 없는 기존 관심사 route는 onboarding 모드로 유지된다', (tester) async {
+      await pumpRoute(tester, RouteNames.onboardingInterestsSelection);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('interests-selection-progress')),
+        findsOneWidget,
+      );
+      expect(find.text('다음'), findsOneWidget);
     });
   });
 

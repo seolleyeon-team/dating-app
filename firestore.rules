@@ -187,7 +187,6 @@ service cloud.firestore {
     function isApprovedAvatarStoragePath(value) {
       return value is string &&
           (
-            value.matches('^gs://seolleyeon-approved-avatars/users/[^/]+/avatar/[^/]+$') ||
             value.matches('^gs://seolleyeon-final-approved-avatars/users/[^/]+/avatar/[^/]+$') ||
             value.matches('^gs://seolleyeon-festival-approved-avatars/users/[^/]+/avatar/[^/]+$')
           );

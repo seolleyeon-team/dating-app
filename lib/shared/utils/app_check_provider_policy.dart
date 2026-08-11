@@ -32,6 +32,8 @@ bool shouldUseDebugAppCheckProvider({
   required bool isWeb,
   required bool isReleaseMode,
   bool forceDebugProvider = false,
+  // Kept as a source-compatible parameter for existing callers. A release
+  // signing certificate must never implicitly select the debug provider.
   bool isDebugSignedAndroid = false,
 }) {
   if (isWeb) return false;
@@ -39,8 +41,14 @@ bool shouldUseDebugAppCheckProvider({
   // local-test dart-define is set (FORCE_APP_CHECK_DEBUG). Play/store pipelines
   // must not pass that define.
   if (forceDebugProvider) return true;
-  if (!isReleaseMode) return true;
-  return isDebugSignedAndroid;
+  return !isReleaseMode;
+}
+
+/// Resolves the optional local Android debug token without ever providing a
+/// value to a release provider branch.
+String? androidAppCheckDebugToken({String? fromEnvironment}) {
+  final token = (fromEnvironment ?? '').trim();
+  return token.isEmpty ? null : token;
 }
 
 /// reCAPTCHA v3 site key for Flutter web App Check.
