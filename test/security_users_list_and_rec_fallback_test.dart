@@ -18,10 +18,26 @@ void main() {
       final source = File(
         'lib/features/matching/screens/ai_preference_screen.dart',
       ).readAsStringSync();
+      final storageSource = File(
+        'lib/features/matching/services/ai_profile_storage_service.dart',
+      ).readAsStringSync();
       expect(source.contains('placehold.co'), isFalse);
       expect(source.contains('_addPlaceholderFallbackCards'), isFalse);
       expect(source.contains('refusing random pool fallback'), isTrue);
-      expect(source.contains('Future<String?> _getDownloadUrl'), isTrue);
+      expect(source.contains('AiProfileStorageService'), isTrue);
+      expect(source.contains('AiPreferenceLoadingCoordinator'), isTrue);
+      expect(source.contains('resolveIdentity'), isFalse);
+      expect(source.contains('minId: 251'), isFalse);
+      expect(source.contains('maxId: 500'), isFalse);
+      expect(source.contains('_getDownloadUrl'), isFalse);
+      expect(source.contains('targetId: card.identityId'), isTrue);
+      expect(source.contains("'shotType': aiPreferenceShotTypeName"), isTrue);
+      expect(source.contains('targetId: card.storagePath'), isFalse);
+      expect(storageSource.contains('seolleyeon.firebasestorage.app'), isFalse);
+      expect(
+        storageSource.contains('seolleyeon-final.firebasestorage.app'),
+        isTrue,
+      );
     },
   );
 

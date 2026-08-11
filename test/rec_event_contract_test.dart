@@ -47,4 +47,42 @@ void main() {
       'identity',
     );
   });
+
+  test('accepts identity-level AI decision metadata in context', () {
+    final payload = validPayload()
+      ..['targetType'] = 'ai_profile'
+      ..['targetId'] = 'male_007'
+      ..['targetUserId'] = 'male_007'
+      ..['candidateUserId'] = 'male_007'
+      ..['surface'] = 'ai_preference'
+      ..['source'] = 'ai_preference'
+      ..['cardVariant'] = 'ai_profile'
+      ..['context'] = {
+        'decisionScope': 'identity',
+        'aiPreferenceImageCount': 3,
+        'aiPreferenceSchemaVersion': 2,
+      };
+
+    expect(RecEventContract.validatePayload(payload), isNull);
+  });
+
+  test('builds a deterministic identity decision event ID', () {
+    expect(
+      RecEventContract.identityDecisionEventId(
+        sessionId: 'session-1',
+        identityId: 'male_007',
+      ),
+      'ai_session-1_male_007',
+    );
+  });
+
+  test('rejects a shot-level identity event ID', () {
+    expect(
+      () => RecEventContract.identityDecisionEventId(
+        sessionId: 'session-1',
+        identityId: 'male_007_face_card',
+      ),
+      throwsArgumentError,
+    );
+  });
 }

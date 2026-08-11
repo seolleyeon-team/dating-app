@@ -8,6 +8,7 @@ import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
+import '../services/firebase_session_failure.dart';
 import '../services/friend_invite_service.dart';
 import '../services/navigation_service.dart';
 import '../services/storage_service.dart';
@@ -70,7 +71,6 @@ class AuthProvider with ChangeNotifier {
 
     _startEmailLinkListener();
     _startKakaoSchemeListener();
-
     debugPrint('[Auth] deep link listeners started');
   }
 
@@ -112,9 +112,15 @@ class AuthProvider with ChangeNotifier {
           '[Auth] bootstrap Firebase session restored=$restoredBeforeBootstrap',
         );
         if (!restoredBeforeBootstrap) {
-          await _storageService.clearKakaoUserId();
-          await _storageService.clearUserId();
-          _kakaoUserId = null;
+          final preserveLocalIdentity =
+              _authService.lastFirebaseSessionFailure?.isTransient ?? false;
+          if (preserveLocalIdentity) {
+            _kakaoUserId = kakaoUserId;
+          } else {
+            await _storageService.clearKakaoUserId();
+            await _storageService.clearUserId();
+            _kakaoUserId = null;
+          }
           _isAuthenticated = false;
           _isInitialSetupComplete = false;
           _hasSeenTutorial = false;
@@ -230,11 +236,6 @@ class AuthProvider with ChangeNotifier {
   }
 
   void _startKakaoSchemeListener() {
-    receiveKakaoScheme().then((link) async {
-      if (link == null || link.isEmpty) return;
-      await _handleIncomingKakaoScheme(link);
-    });
-
     _kakaoSchemeSub = kakaoSchemeStream.listen(
       (link) async {
         if (link == null || link.isEmpty) return;
@@ -511,7 +512,10 @@ class AuthProvider with ChangeNotifier {
         kakaoUserId,
       );
       if (!firebaseAttached) {
-        throw StateError('Firebase 로그인 세션을 준비하지 못했습니다. 다시 시도해주세요.');
+        throw _authService.lastFirebaseSessionFailure ??
+            const FirebaseSessionFailure(
+              reason: FirebaseSessionFailureReason.callableFailed,
+            );
       }
 
       await _storageService.saveKakaoUserId(kakaoUserId);

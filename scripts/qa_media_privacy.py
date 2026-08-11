@@ -43,9 +43,9 @@ try:
 except Exception:  # pragma: no cover - optional for fixture-only CI
     firestore = None
 
-AVATAR_TEMP_BUCKET = "seolleyeon-avatar-temp"
-APPROVED_AVATAR_BUCKET = "seolleyeon-approved-avatars"
-CHAT_PROFILE_PHOTO_BUCKET = "seolleyeon-chat-profile-photos"
+AVATAR_TEMP_BUCKET = "seolleyeon-final-avatar-temp"
+APPROVED_AVATAR_BUCKET = "seolleyeon-final-approved-avatars"
+CHAT_PROFILE_PHOTO_BUCKET = "seolleyeon-final-chat-profile-photos"
 APPROVED_AVATAR_GCS_PREFIX = f"gs://{APPROVED_AVATAR_BUCKET}/"
 PRIVATE_OR_TEMP_BUCKET_MARKERS = PRIVATE_MEDIA_MARKERS
 SIGNED_URL_MARKERS = (

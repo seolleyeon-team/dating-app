@@ -2,6 +2,7 @@ import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../services/auth_service.dart';
+import '../../../services/firebase_session_failure.dart';
 import '../../../services/user_service.dart';
 
 class KakaoLoginFirestoreBootstrap {
@@ -25,7 +26,10 @@ class KakaoLoginFirestoreBootstrap {
       kakaoUserId,
     );
     if (!firebaseAttached) {
-      throw Exception('Firebase 로그인 세션을 준비하지 못했습니다. 다시 시도해주세요.');
+      throw _authService.lastFirebaseSessionFailure ??
+          const FirebaseSessionFailure(
+            reason: FirebaseSessionFailureReason.callableFailed,
+          );
     }
 
     final existedBeforeLogin = await _authService.kakaoUserExists(kakaoUserId);

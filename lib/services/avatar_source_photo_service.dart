@@ -71,6 +71,16 @@ class AvatarSourcePhotoService {
 
   static String createClientRequestId() => const Uuid().v4();
 
+  static Map<String, dynamic> buildUploadMetadata({
+    required String clientRequestId,
+  }) {
+    return <String, dynamic>{
+      'clientRequestId': clientRequestId,
+      'consentVersion': sourceConsentVersion,
+      'consentPurposes': Map<String, bool>.from(defaultConsentPurposes),
+    };
+  }
+
   final FirebaseFunctions _functions;
   final FirebaseAuth _auth;
 
@@ -91,6 +101,7 @@ class AvatarSourcePhotoService {
     required XFile file,
     int? slotIndex,
     String? uid,
+    String? clientRequestId,
     bool chatPartnerRealPhotoDisclosure = false,
   }) async {
     final currentUser = _auth.currentUser;
@@ -105,6 +116,7 @@ class AvatarSourcePhotoService {
       fileName: file.name,
       slotIndex: slotIndex,
       uid: uid,
+      clientRequestId: clientRequestId,
       chatPartnerRealPhotoDisclosure: chatPartnerRealPhotoDisclosure,
     );
   }
@@ -114,6 +126,7 @@ class AvatarSourcePhotoService {
     String? fileName,
     int? slotIndex,
     String? uid,
+    String? clientRequestId,
     bool chatPartnerRealPhotoDisclosure = false,
   }) async {
     if (bytes.isEmpty) {
@@ -121,12 +134,13 @@ class AvatarSourcePhotoService {
     }
 
     final callable = _functions.httpsCallable('uploadAvatarSourcePhoto');
+    final stableClientRequestId = clientRequestId?.trim().isNotEmpty == true
+        ? clientRequestId!.trim()
+        : createClientRequestId();
     final HttpsCallableResult<dynamic> result;
     try {
       result = await callable.call(<String, dynamic>{
-        'clientRequestId': createClientRequestId(),
-        'consentVersion': sourceConsentVersion,
-        'consentPurposes': defaultConsentPurposes,
+        ...buildUploadMetadata(clientRequestId: stableClientRequestId),
         'imageBase64': base64Encode(bytes),
         'contentType': _contentTypeForFileName(fileName ?? ''),
         if (fileName != null && fileName.trim().isNotEmpty)

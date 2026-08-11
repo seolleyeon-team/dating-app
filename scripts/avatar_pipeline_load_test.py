@@ -28,8 +28,8 @@ from avatar_generation.job_lease import (  # noqa: E402
 
 
 PRIVACY_QA_MARKER = "pr7f_privacy_qa_pass"
-PRIVATE_BUCKET = "seolleyeon-private-source-photos"
-TEMP_BUCKET = "seolleyeon-avatar-temp"
+PRIVATE_BUCKET = "seolleyeon-final-private-source-photos"
+TEMP_BUCKET = "seolleyeon-final-avatar-temp"
 SIGNED_URL_MARKERS = (
     "X-Goog-",
     "GoogleAccessId",

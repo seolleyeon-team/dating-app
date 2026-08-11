@@ -14,6 +14,23 @@ void main() {
     });
   });
 
+  test('request metadata keeps a caller-owned id stable across retries', () {
+    expect(
+      AvatarSourcePhotoService.buildUploadMetadata(
+        clientRequestId: 'request_12345678',
+      ),
+      {
+        'clientRequestId': 'request_12345678',
+        'consentVersion': 'photo_consent_v4',
+        'consentPurposes': {
+          'avatarGeneration': true,
+          'clipRecommendation': false,
+          'sourcePhotoRetention': false,
+        },
+      },
+    );
+  });
+
   test('queued slot token stores job id without a URL', () {
     final token = AvatarSourcePhotoService.queuedSlotToken('avatar_job_abc123');
 

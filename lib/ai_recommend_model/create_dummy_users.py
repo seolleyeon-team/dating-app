@@ -19,7 +19,7 @@ from google.cloud import firestore, storage
 
 
 TEMPLATE_USER_ID = "4705818223"
-BUCKET_NAME = "seolleyeon.firebasestorage.app"
+BUCKET_NAME = "seolleyeon-final.firebasestorage.app"
 AI_PROFILES_PREFIX = "ai_profiles/"
 
 
@@ -137,7 +137,7 @@ def create_dummy_user(
 
 def main():
     p = argparse.ArgumentParser(description="Create dummy users in Firestore")
-    p.add_argument("--firestore_project", type=str, default="seolleyeon")
+    p.add_argument("--firestore_project", type=str, default="seolleyeon-final")
     p.add_argument("--firestore_database", type=str, default=None)
     p.add_argument("--count", type=int, default=100)
     p.add_argument("--template_user", type=str, default=TEMPLATE_USER_ID)

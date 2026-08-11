@@ -94,8 +94,8 @@ except Exception:  # pragma: no cover - optional in pure unit tests
     SERVER_TIMESTAMP = datetime.now(tz=timezone.utc)
 
 
-DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-private-source-photos"
-DEFAULT_AVATAR_TEMP_BUCKET = "seolleyeon-avatar-temp"
+DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-final-private-source-photos"
+DEFAULT_AVATAR_TEMP_BUCKET = "seolleyeon-final-avatar-temp"
 BRIDGE_ENVIRONMENT = "production_bridge"
 FESTIVAL_DATA_PROJECT = "seolleyeon-festival"
 FORBIDDEN_BRIDGE_BUCKET_PREFIX = "seolleyeon-final-"

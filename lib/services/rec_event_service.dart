@@ -3,12 +3,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import 'rec_event_contract.dart';
+
 /// 추천 학습용 이벤트 기록 (recEvents)
 ///
 /// KNN/SVD 학습 스크립트가 읽는 구조:
 ///   recEvents/{userId}/events/{eventId}
 class RecEventService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  RecEventService({FirebaseFirestore? firestore})
+    : _firestore = firestore ?? FirebaseFirestore.instance;
+  final FirebaseFirestore _firestore;
   final _uuid = const Uuid();
 
   CollectionReference<Map<String, dynamic>> _eventsRef(String userId) =>
@@ -24,6 +28,7 @@ class RecEventService {
     required String cardVariant,
     String? exposureId,
     String? sessionId,
+    String? eventId,
     String? dateKey,
     Map<String, dynamic>? context,
   }) async {
@@ -50,7 +55,14 @@ class RecEventService {
       if (sessionId != null) 'sessionId': sessionId,
       'dateKey': dKey,
       if (context != null && context.isNotEmpty) 'context': context,
+      'schemaVersion': RecEventContract.schemaVersion,
     };
+
+    final validationError = RecEventContract.validatePayload(payload);
+    if (validationError != null) {
+      debugPrint('[RecEvent] rejected: $validationError');
+      throw ArgumentError.value(payload, 'payload', validationError);
+    }
 
     debugPrint(
       '[RecEvent] 시도: $eventType surface=$surface ${PrivacyLogUtils.idFingerprint(targetUid)} ${PrivacyLogUtils.idFingerprint(userId)}',
@@ -58,7 +70,7 @@ class RecEventService {
 
     try {
       await _firestore.collection('recEvents').doc(userId).set({
-        'lastEventAt': nowString,
+        'lastEventAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } catch (e) {
       debugPrint(
@@ -66,7 +78,14 @@ class RecEventService {
       );
     }
 
-    await _eventsRef(userId).add(payload);
+    if (eventId == null || eventId.trim().isEmpty) {
+      await _eventsRef(userId).add(payload);
+    } else {
+      // A deterministic document ID makes a retry address the same logical
+      // event. RecEvent rules reject updates, so a successful first write can
+      // never become a second history row.
+      await _eventsRef(userId).doc(eventId.trim()).set(payload);
+    }
 
     debugPrint(
       '[RecEvent] 기록 성공: $eventType surface=$surface ${PrivacyLogUtils.idFingerprint(userId)}',

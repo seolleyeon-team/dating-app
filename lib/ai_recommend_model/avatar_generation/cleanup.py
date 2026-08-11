@@ -18,10 +18,10 @@ except Exception:  # pragma: no cover - optional in unit tests
     SERVER_TIMESTAMP = datetime.now(tz=timezone.utc)
 
 
-PRIVATE_SOURCE_BUCKET = "seolleyeon-private-source-photos"
-AVATAR_TEMP_BUCKET = "seolleyeon-avatar-temp"
-APPROVED_AVATAR_BUCKET = "seolleyeon-approved-avatars"
-CHAT_PROFILE_PHOTO_BUCKET = "seolleyeon-chat-profile-photos"
+PRIVATE_SOURCE_BUCKET = "seolleyeon-final-private-source-photos"
+AVATAR_TEMP_BUCKET = "seolleyeon-final-avatar-temp"
+APPROVED_AVATAR_BUCKET = "seolleyeon-final-approved-avatars"
+CHAT_PROFILE_PHOTO_BUCKET = "seolleyeon-final-chat-profile-photos"
 
 
 class AvatarCleanupError(RuntimeError):

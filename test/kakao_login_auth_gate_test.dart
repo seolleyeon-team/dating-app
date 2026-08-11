@@ -92,10 +92,24 @@ void main() {
     );
   });
 
-  test('OAuth callback does not write a user document before auth', () {
-    final source = read('lib/screens/auth/kakao_callback_screen.dart');
-    expect(source, contains('setKakaoLogin'));
-    expect(source, isNot(contains("services/user_service.dart")));
-    expect(source, isNot(contains('upsertKakaoUser')));
+  test('Kakao OAuth callback is owned by the SDK, not app-side screens', () {
+    final kakaoAuthScreen = read(
+      'lib/features/auth/screens/kakao_auth_screen.dart',
+    );
+    final authProvider = read('lib/providers/auth_provider.dart');
+    final activeRouter = read('lib/router/app_router.dart');
+    final legacyRouter = read('lib/routes/app_router.dart');
+
+    expect(kakaoAuthScreen, isNot(contains('receiveKakaoScheme')));
+    expect(kakaoAuthScreen, isNot(contains('KakaoCallbackScreen')));
+    expect(authProvider, isNot(contains('receiveKakaoScheme')));
+    expect(authProvider, contains('kakaoSchemeStream'));
+    expect(activeRouter, isNot(contains('KakaoCallbackScreen')));
+    expect(activeRouter, isNot(contains("name.contains('code=')")));
+    expect(legacyRouter, isNot(contains('KakaoCallbackScreen')));
+    expect(
+      File('$root/lib/screens/auth/kakao_callback_screen.dart').existsSync(),
+      isFalse,
+    );
   });
 }

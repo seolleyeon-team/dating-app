@@ -50,19 +50,32 @@ def is_ai_profile(target_id: str) -> bool:
     return bool(target_id and re.match(r"^(female|male)_\d+$", str(target_id)))
 
 
-def ai_profile_to_storage_url(
+_AI_PROFILE_SHOT_FILES: Tuple[str, ...] = (
+    "face_card.png",
+    "vibe_card.png",
+    "silhouette_card.png",
+)
+
+
+def ai_profile_to_storage_urls(
     ai_profile_id: str,
     *,
-    bucket: str = "seolleyeon.firebasestorage.app",
-) -> str:
-    """female_385 -> Firebase Storage download URL"""
-    m = re.match(r"^(female|male)_(\d+)$", str(ai_profile_id))
+    bucket: str = "seolleyeon-final.firebasestorage.app",
+) -> List[str]:
+    """female_385 -> three Firebase Storage download URLs"""
+    if not isinstance(ai_profile_id, str):
+        raise ValueError(f"Invalid ai_profile_id: {ai_profile_id}")
+    m = re.fullmatch(r"(female|male)_(\d+)", ai_profile_id)
     if not m:
         raise ValueError(f"Invalid ai_profile_id: {ai_profile_id}")
     folder, pid = m.group(1), m.group(2)
-    path = f"ai_profiles/{folder}/{pid}.png"
-    encoded = quote(path, safe="")
-    return f"https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{encoded}?alt=media"
+    return [
+        (
+            f"https://firebasestorage.googleapis.com/v0/b/{bucket}/o/"
+            f"{quote(f'ai_profiles/{folder}/{pid}/{shot_file}', safe='')}?alt=media"
+        )
+        for shot_file in _AI_PROFILE_SHOT_FILES
+    ]
 
 
 def add_ai_profiles_to_uid_urls(
@@ -70,7 +83,7 @@ def add_ai_profiles_to_uid_urls(
     likes: Dict[str, List[str]],
     nopes: Dict[str, List[str]],
     *,
-    bucket: str = "seolleyeon.firebasestorage.app",
+    bucket: str = "seolleyeon-final.firebasestorage.app",
 ) -> None:
     """likes/nopes에 있는 ai_profile 타겟을 uid_to_urls에 추가 (in-place)"""
     seen: set[str] = set()
@@ -79,8 +92,7 @@ def add_ai_profiles_to_uid_urls(
             if is_ai_profile(t) and t not in seen:
                 seen.add(t)
                 try:
-                    url = ai_profile_to_storage_url(t, bucket=bucket)
-                    uid_to_urls[t] = [url]
+                    uid_to_urls[t] = ai_profile_to_storage_urls(t, bucket=bucket)
                 except Exception:
                     pass
 
@@ -245,7 +257,9 @@ def main():
     print(f"    Users with likes: {len(likes)}, with nopes: {len(nopes)}")
 
     # ai_preference like/nope 타겟(ai_profiles)을 uid_to_urls에 추가
-    bucket = os.environ.get("FIREBASE_STORAGE_BUCKET", "seolleyeon.firebasestorage.app")
+    bucket = os.environ.get(
+        "FIREBASE_STORAGE_BUCKET", "seolleyeon-final.firebasestorage.app"
+    )
     add_ai_profiles_to_uid_urls(uid_to_urls, likes, nopes, bucket=bucket)
 
     # 3) CLIP 임베딩 (uid -> vector)

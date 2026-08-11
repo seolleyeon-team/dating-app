@@ -252,7 +252,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--uid", default="avatar_smoke_user")
     parser.add_argument(
         "--source_gcs_uri",
-        default="gs://seolleyeon-private-source-photos/users/avatar_smoke_user/source/smoke_source_001.jpg",
+        default="gs://seolleyeon-final-private-source-photos/users/avatar_smoke_user/source/smoke_source_001.jpg",
     )
     parser.add_argument("--candidate_count", type=int, default=4)
     parser.add_argument("--dry_run", action="store_true")

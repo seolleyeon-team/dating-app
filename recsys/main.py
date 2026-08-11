@@ -2,16 +2,16 @@
 """Seolleyeon Recommendation Pipeline - Cloud Run Job Entrypoint.
 
 Usage (local):
-  python -m recsys.main --step export  --project seolleyeon --bucket seolleyeon-recs
-  python -m recsys.main --step svd     --project seolleyeon --bucket seolleyeon-recs
-  python -m recsys.main --step knn     --project seolleyeon --bucket seolleyeon-recs
-  python -m recsys.main --step clip    --project seolleyeon
-  python -m recsys.main --step rrf     --project seolleyeon
-  python -m recsys.main --step verify  --project seolleyeon
-  python -m recsys.main --step meeting-group-index --project seolleyeon
-  python -m recsys.main --step meeting-recommend   --project seolleyeon
-  python -m recsys.main --step meeting-daily       --project seolleyeon
-  python -m recsys.main --step meeting-verify      --project seolleyeon
+  python -m recsys.main --step export  --project seolleyeon-final --bucket seolleyeon-final-recs
+  python -m recsys.main --step svd     --project seolleyeon-final --bucket seolleyeon-final-recs
+  python -m recsys.main --step knn     --project seolleyeon-final --bucket seolleyeon-final-recs
+  python -m recsys.main --step clip    --project seolleyeon-final
+  python -m recsys.main --step rrf     --project seolleyeon-final
+  python -m recsys.main --step verify  --project seolleyeon-final
+  python -m recsys.main --step meeting-group-index --project seolleyeon-final
+  python -m recsys.main --step meeting-recommend   --project seolleyeon-final
+  python -m recsys.main --step meeting-daily       --project seolleyeon-final
+  python -m recsys.main --step meeting-verify      --project seolleyeon-final
 
 All steps default --date-key to today (KST YYYYMMDD) when omitted.
 Model steps (`clip`, `svd`, `knn`) dispatch to the v3 training/export scripts.
@@ -260,7 +260,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="YYYYMMDD (KST). Defaults to today.",
     )
     p.add_argument(
-        "--project", default=os.environ.get("GCP_PROJECT", "seolleyeon"),
+        "--project", default=os.environ.get("GCP_PROJECT", "seolleyeon-final"),
     )
     p.add_argument("--bucket", default=os.environ.get("GCS_BUCKET"))
     p.add_argument(

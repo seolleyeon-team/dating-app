@@ -12,6 +12,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../onboarding_route_args.dart';
 import '../../../router/route_names.dart';
 import '../../../services/onboarding_save_helper.dart';
 import '../../../services/storage_service.dart';
@@ -45,6 +46,9 @@ class InterestsSelectionScreen extends StatefulWidget {
   final VoidCallback? onClose;
   final VoidCallback? onComplete;
   final VoidCallback? onBack;
+  final InterestsSelectionMode mode;
+  final Future<List<String>> Function()? loadInterests;
+  final Future<void> Function(List<String> interests)? saveInterests;
   final int maxSelection;
   final int currentStep;
   final int totalSteps;
@@ -54,6 +58,9 @@ class InterestsSelectionScreen extends StatefulWidget {
     this.onClose,
     this.onComplete,
     this.onBack,
+    this.mode = InterestsSelectionMode.onboarding,
+    this.loadInterests,
+    this.saveInterests,
     this.maxSelection = 10,
     this.currentStep = 2,
     this.totalSteps = 9,
@@ -67,8 +74,14 @@ class InterestsSelectionScreen extends StatefulWidget {
 class _InterestsSelectionScreenState extends State<InterestsSelectionScreen> {
   final Set<String> _selectedInterests = {};
   final StorageService _storageService = StorageService();
-  final UserService _userService = UserService();
+  late final UserService _userService = UserService();
+  bool _isLoadingExistingInterests = true;
   bool _isSavingOnExit = false;
+  bool _isHandlingBack = false;
+  String? _repairError;
+
+  bool get _isPrerequisiteRepair =>
+      widget.mode == InterestsSelectionMode.prerequisiteRepair;
 
   @override
   void initState() {
@@ -77,42 +90,138 @@ class _InterestsSelectionScreenState extends State<InterestsSelectionScreen> {
   }
 
   Future<void> _loadExistingInterests() async {
-    final kakaoUserId = await _storageService.getKakaoUserId();
-    if (kakaoUserId == null || kakaoUserId.isEmpty) return;
-    final data = await _userService.getUserProfile(kakaoUserId);
-    if (!mounted || data == null) return;
-    final onboarding = data['onboarding'];
-    if (onboarding is! Map) return;
-    final interestsRaw = onboarding['interests'];
-    if (interestsRaw is List && interestsRaw.isNotEmpty) {
-      _selectedInterests
-        ..clear()
-        ..addAll(interestsRaw.map((e) => e.toString()));
-      if (mounted) setState(() {});
+    try {
+      final interests = widget.loadInterests != null
+          ? await widget.loadInterests!()
+          : await _loadInterestsFromFirestore();
+      if (!mounted) return;
+      setState(() {
+        _selectedInterests
+          ..clear()
+          ..addAll(interests.take(widget.maxSelection));
+        _isLoadingExistingInterests = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingExistingInterests = false;
+        if (_isPrerequisiteRepair) {
+          _repairError = '관심사를 불러오지 못했어요. 다시 시도해주세요.';
+        }
+      });
     }
+  }
+
+  Future<List<String>> _loadInterestsFromFirestore() async {
+    final kakaoUserId = await _storageService.getKakaoUserId();
+    if (kakaoUserId == null || kakaoUserId.isEmpty) {
+      return const <String>[];
+    }
+    final data = await _userService.getUserProfile(kakaoUserId);
+    if (data == null) return const <String>[];
+    final onboarding = data['onboarding'];
+    if (onboarding is! Map) return const <String>[];
+    final interestsRaw = onboarding['interests'];
+    if (interestsRaw is! Iterable) return const <String>[];
+    return interestsRaw
+        .map((e) => e.toString().trim())
+        .where((interest) => interest.isNotEmpty)
+        .toList(growable: false);
   }
 
   Future<void> _saveCurrentInterests() async {
     if (_isSavingOnExit) return;
     _isSavingOnExit = true;
     try {
-      await OnboardingSaveHelper.saveInterests(_selectedInterests.toList());
+      await _saveInterests(_selectedInterests.toList());
     } finally {
       _isSavingOnExit = false;
     }
   }
 
+  Future<bool> _saveInterests(List<String> interests) async {
+    final saveInterests = widget.saveInterests;
+    if (saveInterests != null) {
+      await saveInterests(List<String>.unmodifiable(interests));
+      return true;
+    }
+    return OnboardingSaveHelper.saveInterests(interests);
+  }
+
   Future<void> _handleBack() async {
-    await _saveCurrentInterests();
-    if (!mounted) return;
-    if (widget.onBack != null) {
-      widget.onBack!();
-    } else {
-      Navigator.of(context).pop();
+    if (_isHandlingBack || _isSavingOnExit) return;
+    _isHandlingBack = true;
+    try {
+      if (_isPrerequisiteRepair) {
+        if (!mounted) return;
+        if (widget.onBack != null) {
+          widget.onBack!();
+        } else {
+          Navigator.of(context).pop();
+        }
+        return;
+      }
+
+      await _saveCurrentInterests();
+      if (!mounted) return;
+      if (widget.onBack != null) {
+        widget.onBack!();
+      } else {
+        Navigator.of(context).pop();
+      }
+    } finally {
+      _isHandlingBack = false;
+    }
+  }
+
+  Future<void> _completePrerequisiteRepair() async {
+    if (_isSavingOnExit || _isLoadingExistingInterests) return;
+    if (_selectedInterests.isEmpty) {
+      setState(() {
+        _repairError = '관심사를 1개 이상 선택해주세요.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isSavingOnExit = true;
+      _repairError = null;
+    });
+
+    var didPopWithSuccess = false;
+    try {
+      final saved = await _saveInterests(_selectedInterests.toList());
+      if (!mounted) return;
+      if (!saved) {
+        setState(() {
+          _isSavingOnExit = false;
+          _repairError = '관심사를 저장하지 못했어요. 다시 시도해주세요.';
+        });
+        return;
+      }
+
+      didPopWithSuccess = true;
+      Navigator.of(context).pop(true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isSavingOnExit = false;
+        _repairError = '관심사를 저장하지 못했어요. 다시 시도해주세요.';
+      });
+    } finally {
+      if (!didPopWithSuccess && mounted && _isSavingOnExit) {
+        setState(() {
+          _isSavingOnExit = false;
+        });
+      }
     }
   }
 
   void _toggleInterest(String interest) {
+    if (_isSavingOnExit ||
+        (_isPrerequisiteRepair && _isLoadingExistingInterests)) {
+      return;
+    }
     HapticFeedback.lightImpact();
     setState(() {
       if (_selectedInterests.contains(interest)) {
@@ -148,6 +257,7 @@ class _InterestsSelectionScreenState extends State<InterestsSelectionScreen> {
                   _Header(
                     currentStep: widget.currentStep,
                     totalSteps: widget.totalSteps,
+                    showProgress: !_isPrerequisiteRepair,
                     onBack: _handleBack,
                   ),
                   // 메인 콘텐츠
@@ -189,6 +299,19 @@ class _InterestsSelectionScreenState extends State<InterestsSelectionScreen> {
                             ],
                           ),
                           const SizedBox(height: 24),
+                          if (_isPrerequisiteRepair && _repairError != null)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: Text(
+                                _repairError!,
+                                style: const TextStyle(
+                                  fontFamily: 'NanumSquareRound',
+                                  color: _AppColors.primary,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
                           // 선택된 관심사 칩 영역
                           if (_selectedInterests.isNotEmpty)
                             Padding(
@@ -227,14 +350,24 @@ class _InterestsSelectionScreenState extends State<InterestsSelectionScreen> {
                 right: 0,
                 bottom: 0,
                 child: _BottomFloatingArea(
-                  onNext:
-                      widget.onComplete ??
-                      () async {
-                        final navigator = Navigator.of(context);
-                        await _saveCurrentInterests();
-                        if (!mounted) return;
-                        navigator.pushNamed(RouteNames.onboardingLifestyle);
-                      },
+                  label: _isPrerequisiteRepair ? '관심사 등록 완료' : '다음',
+                  enabled: _isPrerequisiteRepair
+                      ? _selectedInterests.isNotEmpty &&
+                            !_isLoadingExistingInterests &&
+                            !_isSavingOnExit
+                      : true,
+                  loading: _isPrerequisiteRepair && _isSavingOnExit,
+                  onNext: _isPrerequisiteRepair
+                      ? _completePrerequisiteRepair
+                      : widget.onComplete ??
+                            () async {
+                              final navigator = Navigator.of(context);
+                              await _saveCurrentInterests();
+                              if (!mounted) return;
+                              navigator.pushNamed(
+                                RouteNames.onboardingLifestyle,
+                              );
+                            },
                 ),
               ),
             ],
@@ -272,11 +405,13 @@ class _SubtleBackgroundGradient extends StatelessWidget {
 class _Header extends StatelessWidget {
   final int currentStep;
   final int totalSteps;
+  final bool showProgress;
   final VoidCallback? onBack;
 
   const _Header({
     required this.currentStep,
     required this.totalSteps,
+    this.showProgress = true,
     this.onBack,
   });
 
@@ -307,22 +442,27 @@ class _Header extends StatelessWidget {
               backgroundColor: Colors.transparent,
             ),
           ),
-          // 커스텀 프로그레스 인디케이터
-          Row(
-            children: List.generate(totalSteps, (index) {
-              final isCurrent = index == currentStep - 1;
-              return AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                width: isCurrent ? 24 : 8,
-                height: 8,
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                decoration: BoxDecoration(
-                  color: isCurrent ? _AppColors.primary : _AppColors.progressBg,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              );
-            }),
-          ),
+          if (showProgress)
+            Row(
+              key: const ValueKey('interests-selection-progress'),
+              children: List.generate(totalSteps, (index) {
+                final isCurrent = index == currentStep - 1;
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  width: isCurrent ? 24 : 8,
+                  height: 8,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: isCurrent
+                        ? _AppColors.primary
+                        : _AppColors.progressBg,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                );
+              }),
+            )
+          else
+            const SizedBox(width: 40),
           const SizedBox(width: 40),
         ],
       ),
@@ -612,8 +752,16 @@ class _InterestOptionChip extends StatelessWidget {
 // =============================================================================
 class _BottomFloatingArea extends StatelessWidget {
   final VoidCallback? onNext;
+  final String label;
+  final bool enabled;
+  final bool loading;
 
-  const _BottomFloatingArea({this.onNext});
+  const _BottomFloatingArea({
+    this.onNext,
+    this.label = '다음',
+    this.enabled = true,
+    this.loading = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -637,39 +785,58 @@ class _BottomFloatingArea extends StatelessWidget {
       ),
       child: CupertinoButton(
         padding: EdgeInsets.zero,
-        onPressed: () {
-          HapticFeedback.mediumImpact();
-          onNext?.call();
-        },
+        onPressed: enabled && !loading
+            ? () {
+                HapticFeedback.mediumImpact();
+                onNext?.call();
+              }
+            : null,
         child: Container(
           height: 56,
           width: double.infinity,
           decoration: BoxDecoration(
-            color: _AppColors.primary,
+            color: enabled ? _AppColors.primary : _AppColors.border,
             borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: _AppColors.primary.withValues(alpha: 0.24),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
-              ),
-            ],
+            boxShadow: enabled
+                ? [
+                    BoxShadow(
+                      color: _AppColors.primary.withValues(alpha: 0.24),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ]
+                : const [],
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              Text(
-                '다음',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+          child: loading
+              ? const Center(
+                  child: SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  ),
+                )
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                        color: enabled ? Colors.white : _AppColors.textSub,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      Icons.arrow_forward_rounded,
+                      color: enabled ? Colors.white : _AppColors.textSub,
+                      size: 18,
+                    ),
+                  ],
                 ),
-              ),
-              SizedBox(width: 6),
-              Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
-            ],
-          ),
         ),
       ),
     );

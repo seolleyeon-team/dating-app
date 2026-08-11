@@ -55,6 +55,19 @@ class RecEventContract {
   static bool isAllowedEventType(String eventType) =>
       allowedEventTypes.contains(eventType);
 
+  static String identityDecisionEventId({
+    required String sessionId,
+    required String identityId,
+  }) {
+    if (sessionId.trim().isEmpty || identityId.trim().isEmpty) {
+      throw ArgumentError('sessionId and identityId must not be empty');
+    }
+    if (!RegExp(r'^(male|female)_\d+$').hasMatch(identityId.trim())) {
+      throw ArgumentError('identityId must be a canonical AI identity');
+    }
+    return 'ai_${sessionId.trim()}_${identityId.trim()}';
+  }
+
   static String? validatePayload(Map<String, dynamic> payload) {
     final unknown = payload.keys
         .where((k) => !allowedKeys.contains(k))

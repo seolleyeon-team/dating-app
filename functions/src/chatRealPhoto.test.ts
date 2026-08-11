@@ -25,7 +25,7 @@ const consentedPrivateMedia = {
   },
   chatRealPhoto: {
     enabled: true,
-    storageBucket: "seolleyeon-chat-profile-photos",
+    storageBucket: "seolleyeon-final-chat-profile-photos",
     storagePath: "users/u2/chat-profile/src_abc.jpg",
   },
 };
@@ -47,7 +47,7 @@ test("approved avatar resolver rejects signed or private fallbacks", () => {
   assert.equal(
     resolveSafeApprovedAvatarUrl({
       onboarding: {
-        avatarUrls: ["gs://seolleyeon-private-source-photos/users/u/source/src.jpg"],
+        avatarUrls: ["gs://seolleyeon-final-private-source-photos/users/u/source/src.jpg"],
       },
     }),
     ""
@@ -105,7 +105,7 @@ test("valid chat participants with consent can use chat-profile photo asset", ()
 
   assert.equal(decision.kind, "real_photo");
   if (decision.kind === "real_photo") {
-    assert.equal(decision.storageBucket, "seolleyeon-chat-profile-photos");
+    assert.equal(decision.storageBucket, "seolleyeon-final-chat-profile-photos");
     assert.equal(decision.storagePath, "users/u2/chat-profile/src_abc.jpg");
     assert.equal(decision.approvedAvatarUrl, "https://cdn.example/avatar.png");
   }
@@ -162,7 +162,7 @@ test("private source bucket asset is never accepted for chat real photo", () => 
       photoConsent: { chatPartnerRealPhotoDisclosure: true },
       chatRealPhoto: {
         enabled: true,
-        storageBucket: "seolleyeon-private-source-photos",
+        storageBucket: "seolleyeon-final-private-source-photos",
         storagePath: "users/u2/source/src_abc.jpg",
       },
     },

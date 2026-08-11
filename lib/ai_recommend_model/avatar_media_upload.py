@@ -16,9 +16,9 @@ from typing import Any, Dict, Iterable, List, Optional
 from PIL import Image
 
 
-PRIVATE_SOURCE_BUCKET = "seolleyeon-private-" "source-photos"
-APPROVED_AVATAR_BUCKET = "seolleyeon-approved-" "avatars"
-AVATAR_TEMP_BUCKET = "seolleyeon-avatar-temp"
+PRIVATE_SOURCE_BUCKET = "seolleyeon-final-private-" "source-photos"
+APPROVED_AVATAR_BUCKET = "seolleyeon-final-approved-" "avatars"
+AVATAR_TEMP_BUCKET = "seolleyeon-final-avatar-temp"
 PHOTO_CONSENT_VERSION = "photo_consent_v2"
 
 

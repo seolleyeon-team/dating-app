@@ -15,7 +15,8 @@
  *   만 있어서 이 파일은 아직 실행되지 않았다 (B-JDK21).
  *
  * 실제 앱이 쓰는 Storage 경로는 두 개뿐이다 (git grep 으로 확인).
- *   - ai_profiles/{male|female}/{id}.png   (읽기 전용 더미 프로필)
+ *   - ai_profiles/{male|female}/{id}/{face_card|vibe_card|silhouette_card}.png
+ *     (읽기 전용 더미 프로필)
  *   - users/{kakaoUserId}/onboarding/photos/{fileName}
  * 채팅 첨부와 아바타 파이프라인 경로는 저장소에 존재하지 않으므로 "기본 deny"
  * 테스트로만 덮는다.
@@ -35,6 +36,7 @@ const {
   ref,
   uploadBytes,
   getBytes,
+  listAll,
   deleteObject,
 } = require("firebase/storage");
 
@@ -222,30 +224,56 @@ describe("ai_profiles 더미 프로필", () => {
   it("익명 사용자는 읽을 수 없다 (이전에는 공개였다)", async () => {
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await uploadBytes(
-        ref(ctx.storage(), "ai_profiles/female/1.png"),
+        ref(ctx.storage(), "ai_profiles/female/1/face_card.png"),
         PNG_1X1,
         { contentType: "image/png" }
       );
     });
-    await assertFails(getBytes(ref(anon(), "ai_profiles/female/1.png")));
+    await assertFails(
+      getBytes(ref(anon(), "ai_profiles/female/1/face_card.png"))
+    );
   });
 
   it("인증 사용자는 읽을 수 있다", async () => {
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await uploadBytes(
-        ref(ctx.storage(), "ai_profiles/male/2.png"),
+        ref(ctx.storage(), "ai_profiles/male/2/vibe_card.png"),
         PNG_1X1,
         { contentType: "image/png" }
       );
     });
-    await assertSucceeds(getBytes(ref(as(OWNER), "ai_profiles/male/2.png")));
+    await assertSucceeds(
+      getBytes(ref(as(OWNER), "ai_profiles/male/2/vibe_card.png"))
+    );
+  });
+
+  it("인증 사용자는 identity catalog prefix를 목록 조회할 수 있다", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await uploadBytes(
+        ref(ctx.storage(), "ai_profiles/female/104/face_card.png"),
+        PNG_1X1,
+        { contentType: "image/png" }
+      );
+    });
+    const result = await assertSucceeds(
+      listAll(ref(as(OWNER), "ai_profiles/female"))
+    );
+    assert.ok(result.prefixes.some((prefix) => prefix.name === "104"));
+  });
+
+  it("익명 사용자는 identity catalog prefix를 목록 조회할 수 없다", async () => {
+    await assertFails(listAll(ref(anon(), "ai_profiles/female")));
   });
 
   it("클라이언트 쓰기는 거부한다", async () => {
     await assertFails(
-      uploadBytes(ref(as(OWNER), "ai_profiles/male/3.png"), PNG_1X1, {
-        contentType: "image/png",
-      })
+      uploadBytes(
+        ref(as(OWNER), "ai_profiles/male/3/silhouette_card.png"),
+        PNG_1X1,
+        {
+          contentType: "image/png",
+        }
+      )
     );
   });
 });

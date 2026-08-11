@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildPublicProfileFromUser } from "./publicProfileSync";
+import {
+  buildPublicProfileFromUser,
+  publicProfileProjectionChanged,
+  syncPublicProfileForUser,
+} from "./publicProfileSync";
 
 test("public profile omits private PII and moderation internals", () => {
   const publicProfile = buildPublicProfileFromUser("u1", {
@@ -82,4 +86,57 @@ test("withdrawn or invisible users produce no public profile", () => {
     }),
     null,
   );
+});
+
+test("public profile trigger ignores user writes outside the public projection", () => {
+  const before = {
+    nickname: "same",
+    status: "active",
+    profileVisible: true,
+    updatedAt: "old",
+    privateCounter: 1,
+  };
+  const after = { ...before, updatedAt: "new", privateCounter: 2 };
+
+  assert.equal(
+    publicProfileProjectionChanged("u1", before, after),
+    false,
+  );
+  assert.equal(
+    publicProfileProjectionChanged("u1", before, { ...after, nickname: "changed" }),
+    true,
+  );
+});
+
+test("public profile sync does not rewrite an identical destination document", async () => {
+  const userData = {
+    nickname: "same",
+    status: "active",
+    profileVisible: true,
+  };
+  const existing = buildPublicProfileFromUser("u1", userData);
+  let setCalls = 0;
+  let deleteCalls = 0;
+  const ref = {
+    async get() {
+      return { exists: true, data: () => ({ ...existing, updatedAt: "old" }) };
+    },
+    async set() {
+      setCalls += 1;
+    },
+    async delete() {
+      deleteCalls += 1;
+    },
+  };
+  const firestore = {
+    collection() {
+      return { doc: () => ref };
+    },
+  } as never;
+
+  const result = await syncPublicProfileForUser(firestore, "u1", userData);
+
+  assert.equal(result, "unchanged");
+  assert.equal(setCalls, 0);
+  assert.equal(deleteCalls, 0);
 });

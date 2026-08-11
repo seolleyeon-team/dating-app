@@ -617,7 +617,7 @@ def test_qa_fixture_allows_only_approved_avatar_photo_url_compatibility():
                         "status": "approved",
                         "approvedAvatarUrl": approved,
                         "approvedAvatarStoragePath": (
-                            "gs://seolleyeon-approved-avatars/users/safe/avatar/avatar_001.png"
+                            "gs://seolleyeon-final-approved-avatars/users/safe/avatar/avatar_001.png"
                         ),
                     },
                     "onboarding": {
@@ -960,7 +960,7 @@ def test_migration_dry_run_reports_public_https_originals_without_writes():
 def test_storage_rules_settle_public_readable_approved_avatar_model():
     rules = (REPO_ROOT / "storage.rules").read_text(encoding="utf-8")
 
-    assert 'bucket == "seolleyeon-approved-avatars"' in rules
+    assert 'bucket == "seolleyeon-final-approved-avatars"' in rules
     assert "match /users/{userId}/avatar/{avatarId}" in rules
     assert "allow read: if isApprovedAvatarBucket();" in rules
     assert "allow write: if false;" in rules

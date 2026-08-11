@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import os
 
-PRIVATE_SOURCE_BUCKET = "seolleyeon-private-" "source-photos"
-AVATAR_TEMP_BUCKET = "seolleyeon-avatar-temp"
-APPROVED_AVATAR_BUCKET = "seolleyeon-approved-" "avatars"
+PRIVATE_SOURCE_BUCKET = "seolleyeon-final-private-" "source-photos"
+AVATAR_TEMP_BUCKET = "seolleyeon-final-avatar-temp"
+APPROVED_AVATAR_BUCKET = "seolleyeon-final-approved-" "avatars"
 
 
 def _bucket_from_env(name: str, fallback: str) -> str:

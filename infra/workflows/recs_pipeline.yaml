@@ -10,7 +10,7 @@
 #
 # Trigger: Cloud Scheduler (daily 04:00 KST)
 # Input (optional):
-#   { "date_key": "20260309", "bucket": "seolleyeon-recs" }
+#   { "date_key": "20260309", "bucket": "seolleyeon-final-recs" }
 # ==========================================================
 
 main:

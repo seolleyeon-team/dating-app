@@ -25,7 +25,7 @@ FORBIDDEN_RESPONSE_TOKENS = [
     "sourcePhotoGcsUri",
     "gcsUri",
     "userPrivateMedia",
-    "seolleyeon-private-source-photos",
+    "seolleyeon-final-private-source-photos",
     "clipEmbeddings",
     "vector",
 ]
@@ -158,8 +158,12 @@ def firebase_error_status(body: dict[str, Any]) -> str:
 
 def validate_real_photo_result(result: dict[str, Any]) -> list[str]:
     issues: list[str] = []
-    chat_bucket = env("CHAT_PROFILE_PHOTO_BUCKET", "seolleyeon-chat-profile-photos")
-    source_bucket = env("SOURCE_PHOTO_BUCKET", "seolleyeon-private-source-photos")
+    chat_bucket = env(
+        "CHAT_PROFILE_PHOTO_BUCKET", "seolleyeon-final-chat-profile-photos"
+    )
+    source_bucket = env(
+        "SOURCE_PHOTO_BUCKET", "seolleyeon-final-private-source-photos"
+    )
     image_url = str(result.get("imageUrl") or "")
     expires_at = str(result.get("expiresAt") or "")
     if not image_url:

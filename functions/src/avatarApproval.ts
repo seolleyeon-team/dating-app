@@ -14,8 +14,8 @@ import * as logger from "firebase-functions/logger";
 import sharp from "sharp";
 import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
 
-const DEFAULT_AVATAR_TEMP_BUCKET = "seolleyeon-avatar-temp";
-const DEFAULT_APPROVED_AVATAR_BUCKET = "seolleyeon-approved-avatars";
+const DEFAULT_AVATAR_TEMP_BUCKET = "seolleyeon-final-avatar-temp";
+const DEFAULT_APPROVED_AVATAR_BUCKET = "seolleyeon-final-approved-avatars";
 const DEFAULT_PREVIEW_IMAGE_SIZE = 512;
 
 type AvatarApiAuth = CallableRequest<unknown>["auth"];

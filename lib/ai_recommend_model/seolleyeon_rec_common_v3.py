@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import re
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -34,6 +35,11 @@ DEFAULT_NEGATIVE_PREF_WEIGHTS: Dict[str, float] = {
     "block": 1.5,
     "report": 2.0,
 }
+
+_AI_PROFILE_ID_RE = re.compile(r"(?P<gender>female|male)_(?P<number>\d+)")
+_AI_PROFILE_SHOT_ID_RE = re.compile(
+    r"(?P<identity>(?:female|male)_\d+)_(?:face_card|vibe_card|silhouette_card)"
+)
 
 
 def require_firestore() -> None:
@@ -100,10 +106,52 @@ def half_life_decay(age_days: float, half_life_days: float) -> float:
     return 0.5 ** (age_days / half_life_days)
 
 
+def parse_ai_profile_identity(item_id: str) -> Tuple[str, str]:
+    """Parse one canonical AI identity ID while preserving numeric padding.
+
+    AI identities are deliberately stricter than a ``female_``/``male_``
+    prefix check.  A shot-level target is historical input that must be
+    canonicalized before pair construction, never treated as a new identity.
+    """
+    if not isinstance(item_id, str):
+        raise ValueError(f"Invalid AI profile identity: {item_id!r}")
+    match = _AI_PROFILE_ID_RE.fullmatch(item_id.strip())
+    if match is None:
+        raise ValueError(f"Invalid AI profile identity: {item_id!r}")
+    return match.group("gender"), match.group("number")
+
+
+def canonicalize_ai_profile_id(item_id: str) -> str:
+    """Return the canonical identity ID without changing zero padding."""
+    gender, number = parse_ai_profile_identity(item_id)
+    return f"{gender}_{number}"
+
+
+def canonicalize_recommendation_target_id(item_id: str) -> str:
+    """Collapse legacy evidence-shot targets onto their identity target.
+
+    New recEvents use the identity ID directly.  This compatibility boundary
+    keeps old ``*_face_card``/``*_vibe_card``/``*_silhouette_card`` events from
+    becoming three independent interactions during model training.
+    """
+    if not isinstance(item_id, str):
+        return str(item_id)
+    value = item_id.strip()
+    shot_match = _AI_PROFILE_SHOT_ID_RE.fullmatch(value)
+    if shot_match is not None:
+        return shot_match.group("identity")
+    return value
+
+
 def is_ai_profile(item_id: str) -> bool:
-    if not item_id or not isinstance(item_id, str):
+    """Whether ``item_id`` is one canonical AI identity (not a shot ID)."""
+    if not isinstance(item_id, str):
         return False
-    return item_id.startswith("female_") or item_id.startswith("male_")
+    try:
+        parse_ai_profile_identity(item_id)
+    except ValueError:
+        return False
+    return True
 
 
 def parse_firestore_like_ts(value: Any) -> pd.Timestamp:
@@ -479,7 +527,9 @@ class PairBuildConfig:
 def normalize_events_df(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["user_id"] = out["user_id"].astype(str)
-    out["item_id"] = out["item_id"].astype(str)
+    out["item_id"] = out["item_id"].astype(str).map(
+        canonicalize_recommendation_target_id
+    )
     out["event"] = out["event"].astype(str)
     if "ts" not in out.columns:
         out["ts"] = pd.NaT

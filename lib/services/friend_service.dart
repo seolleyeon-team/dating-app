@@ -127,7 +127,6 @@ class FriendService {
     merged['universityName'] = _firstNonEmpty(
       snapshot['universityName'],
       onboarding['university'],
-      _inferYonseiFromEmail(user['studentEmail']?.toString()),
     );
     merged['major'] = _firstNonEmpty(snapshot['major'], onboarding['major']);
     return merged;
@@ -169,14 +168,6 @@ class FriendService {
     for (final value in values) {
       final text = value?.toString().trim() ?? '';
       if (text.isNotEmpty) return text;
-    }
-    return '';
-  }
-
-  String _inferYonseiFromEmail(String? email) {
-    final normalized = email?.trim().toLowerCase() ?? '';
-    if (normalized.endsWith('@yonsei.ac.kr')) {
-      return '연세대학교';
     }
     return '';
   }

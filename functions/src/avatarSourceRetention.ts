@@ -9,7 +9,7 @@ import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as logger from "firebase-functions/logger";
 
-const DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-private-source-photos";
+const DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-final-private-source-photos";
 const SOURCE_RETENTION_STATE_COLLECTION = "avatarSourceRetentionStates";
 const SOURCE_RETENTION_EVENTS_COLLECTION = "avatarSourceRetentionEvents";
 const DEFAULT_LEASE_MS = 10 * 60 * 1000;
@@ -175,6 +175,40 @@ function isTerminalClipStatus(value: unknown): boolean {
     "skipped",
     "disabled",
   ]).has(asString(value).toLowerCase());
+}
+
+function clipDocumentStatus(data: RecordData): string {
+  return asString(data.status) || asString(data.embeddingStatus);
+}
+
+/**
+ * Retention is a one-way operation. A terminal job's timestamp, lease, or
+ * source-redaction write must not claim the same deletion again.
+ */
+export function shouldEvaluateAvatarJobSourceRetentionTransition(params: {
+  beforeData: RecordData | null | undefined;
+  afterData: RecordData | null | undefined;
+}): boolean {
+  if (!params.afterData || !isIrreversibleSourceDeletionTerminal(params.afterData)) {
+    return false;
+  }
+  if (!params.beforeData) return true;
+  return !isIrreversibleSourceDeletionTerminal(params.beforeData);
+}
+
+/**
+ * Clip retention only needs to wake when the clip becomes terminal. The
+ * retention worker's own source-ref redaction is otherwise a no-op event.
+ */
+export function shouldEvaluateClipEmbeddingSourceRetentionTransition(params: {
+  beforeData: RecordData | null | undefined;
+  afterData: RecordData | null | undefined;
+}): boolean {
+  if (!params.afterData || !isTerminalClipStatus(clipDocumentStatus(params.afterData))) {
+    return false;
+  }
+  if (!params.beforeData) return true;
+  return !isTerminalClipStatus(clipDocumentStatus(params.beforeData));
 }
 
 function sourcePhotoIds(jobData: RecordData): string[] {
@@ -676,6 +710,15 @@ export function createAvatarJobSourceRetentionTrigger(firestore: Firestore) {
   return onDocumentWritten("avatarJobs/{jobId}", async (event) => {
     const after = event.data?.after;
     if (!after?.exists) return;
+    const before = event.data?.before;
+    if (
+      !shouldEvaluateAvatarJobSourceRetentionTransition({
+        beforeData: before?.exists ? readMap(before.data()) : null,
+        afterData: readMap(after.data()),
+      })
+    ) {
+      return;
+    }
     const jobData = readMap(after.data());
     const uid = asString(jobData.uid);
     const jobId = asString(event.params.jobId);
@@ -691,6 +734,16 @@ export function createAvatarJobSourceRetentionTrigger(firestore: Firestore) {
 
 export function createClipEmbeddingSourceRetentionTrigger(firestore: Firestore) {
   return onDocumentWritten("clipEmbeddings/{uid}", async (event) => {
+    const before = event.data?.before;
+    const after = event.data?.after;
+    if (
+      !shouldEvaluateClipEmbeddingSourceRetentionTransition({
+        beforeData: before?.exists ? readMap(before.data()) : null,
+        afterData: after?.exists ? readMap(after.data()) : null,
+      })
+    ) {
+      return;
+    }
     const uid = asString(event.params.uid);
     if (!uid) return;
     const jobId = await currentJobIdForUid(firestore, uid);
@@ -712,4 +765,3 @@ export function createAvatarSourceRetentionRecoveryTrigger(firestore: Firestore)
     }
   });
 }
-

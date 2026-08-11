@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/shared/utils/app_check_provider_policy.dart';
 
@@ -24,15 +26,24 @@ void main() {
       },
     );
 
-    test('debug-signed Android release may use debug provider', () {
+    test('debug-signed Android release still uses production providers', () {
       expect(
         shouldUseDebugAppCheckProvider(
           isWeb: false,
           isReleaseMode: true,
           isDebugSignedAndroid: true,
         ),
-        isTrue,
+        isFalse,
       );
+    });
+
+    test('Android debug token is trimmed and absent when unset', () {
+      expect(
+        androidAppCheckDebugToken(fromEnvironment: '  local-token  '),
+        'local-token',
+      );
+      expect(androidAppCheckDebugToken(fromEnvironment: '   '), isNull);
+      expect(androidAppCheckDebugToken(), isNull);
     });
 
     test('non-release app builds use debug providers', () {
@@ -104,5 +115,19 @@ void main() {
       expect(result.callablesLikelyBlocked, isTrue);
       expect(result.errorSummary, 'provider_unavailable');
     });
+
+    test(
+      'main wires stable token only to explicit debug provider branches',
+      () {
+        final source = File('lib/main.dart').readAsStringSync();
+
+        expect(source, contains('APP_CHECK_ANDROID_DEBUG_TOKEN'));
+        expect(source, contains('AndroidDebugProvider(debugToken:'));
+        expect(source, contains('AndroidPlayIntegrityProvider()'));
+        expect(source, contains('AppleAppAttestProvider()'));
+        expect(source, contains('recordAppCheckInitResult'));
+        expect(source, isNot(contains('isDebugSignedAndroid')));
+      },
+    );
   });
 }

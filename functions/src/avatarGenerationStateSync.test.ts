@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { planAvatarGenerationStateSync } from "./avatarGenerationStateSync";
+import {
+  planAvatarGenerationStateSync,
+  shouldSyncAvatarGenerationTransition,
+  syncAvatarGenerationStateForJob,
+} from "./avatarGenerationStateSync";
 
 const uid = "u1";
 const jobId = "avatar_job_1";
@@ -223,4 +227,110 @@ test("superseded job terminal state never overwrites user avatar", () => {
   });
 
   assert.deepEqual(plan, { action: "skip", reason: "job_superseded" });
+});
+
+test("terminal state is applied only when the job enters terminal state", () => {
+  assert.equal(
+    shouldSyncAvatarGenerationTransition({
+      beforeData: { status: "running", updatedAt: "old" },
+      afterData: { status: "completed", updatedAt: "new" },
+    }),
+    true,
+  );
+  assert.equal(
+    shouldSyncAvatarGenerationTransition({
+      beforeData: { status: "completed", updatedAt: "old" },
+      afterData: { status: "completed", updatedAt: "new" },
+    }),
+    false,
+  );
+  assert.equal(
+    shouldSyncAvatarGenerationTransition({
+      beforeData: { status: "completed" },
+      afterData: { status: "retryable_failed" },
+    }),
+    false,
+  );
+  assert.equal(
+    shouldSyncAvatarGenerationTransition({
+      beforeData: { status: "queued" },
+      afterData: { status: "running", progress: 0.5 },
+    }),
+    false,
+  );
+});
+
+test("a terminal job that already matches user state is a semantic no-op", () => {
+  const plan = planAvatarGenerationStateSync({
+    jobId,
+    jobData: avatarJob({ status: "completed" }),
+    privateData: privateMedia(),
+    userData: {
+      profileImageMode: "avatar",
+      avatar: {
+        status: "completed",
+        sourceJobId: jobId,
+        jobId,
+        sourcePhotoId: "photo1",
+        sourceSelectionVersion: 7,
+      },
+      onboarding: {
+        sourcePhotoUploadStatus: "avatar_generation_completed",
+      },
+    },
+  });
+
+  assert.deepEqual(plan, {
+    action: "skip",
+    reason: "already_synchronized",
+  });
+});
+
+test("state sync updates users without writing back to the watched avatar job", async () => {
+  const snapshots: Record<string, { exists: boolean; data: () => Record<string, unknown> }> = {
+    [`avatarJobs/${jobId}`]: {
+      exists: true,
+      data: () => avatarJob({ status: "completed" }),
+    },
+    "userPrivateMedia/u1": {
+      exists: true,
+      data: () => privateMedia(),
+    },
+    "users/u1": {
+      exists: true,
+      data: () => queuedAvatar(),
+    },
+  };
+  const writes: Array<{ type: string; path: string }> = [];
+  const firestore = {
+    collection(name: string) {
+      return {
+        doc(id: string) {
+          return { path: `${name}/${id}` };
+        },
+      };
+    },
+    async runTransaction(callback: (tx: unknown) => Promise<unknown>) {
+      const tx = {
+        async get(ref: { path: string }) {
+          return snapshots[ref.path] ?? { exists: false, data: () => ({}) };
+        },
+        update(ref: { path: string }) {
+          writes.push({ type: "update", path: ref.path });
+        },
+        set(ref: { path: string }) {
+          writes.push({ type: "set", path: ref.path });
+        },
+      };
+      return callback(tx);
+    },
+  } as never;
+
+  const result = await syncAvatarGenerationStateForJob({
+    firestore,
+    jobId,
+  });
+
+  assert.equal(result, "updated");
+  assert.deepEqual(writes, [{ type: "update", path: "users/u1" }]);
 });

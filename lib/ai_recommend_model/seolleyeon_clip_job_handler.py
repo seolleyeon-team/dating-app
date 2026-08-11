@@ -32,7 +32,7 @@ from seolleyeon_rec_common_v3 import redact_private_image_ref
 CLIP_SCHEMA_VERSION = "clip_job_v1"
 CLIP_JOB_TYPE = "clip_embedding"
 DEFAULT_EMBEDDING_VERSION = "clip-vit-large-patch14_v1"
-DEFAULT_PRIVATE_SOURCE_PHOTO_BUCKET = "seolleyeon-private-" "source-photos"
+DEFAULT_PRIVATE_SOURCE_PHOTO_BUCKET = "seolleyeon-final-private-" "source-photos"
 
 
 def _as_str(value: Any) -> str:

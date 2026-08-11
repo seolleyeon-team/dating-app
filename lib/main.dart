@@ -14,15 +14,17 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/services.dart';
 import 'services/firebase_diagnostics.dart';
 import 'services/push_notification_service.dart';
+import 'services/app_check_bootstrap.dart';
 import 'shared/utils/app_check_provider_policy.dart';
+import 'services/windows_protocol_registration_stub.dart'
+    if (dart.library.io) 'services/windows_protocol_registration_io.dart';
+import 'services/app_check_web_storage_stub.dart'
+    if (dart.library.html) 'services/app_check_web_storage_impl.dart';
 import 'services/web_app_check_bootstrap_stub.dart'
     if (dart.library.html) 'services/web_app_check_bootstrap_web.dart'
     as web_app_check_bootstrap;
-import 'services/windows_protocol_registration_stub.dart'
-    if (dart.library.io) 'services/windows_protocol_registration_io.dart';
 import 'firebase_options.dart';
 import 'app.dart';
 import 'webview_web_stub.dart'
@@ -44,32 +46,10 @@ const String _webAppCheckDebugToken = String.fromEnvironment(
   'APP_CHECK_WEB_DEBUG_TOKEN',
   defaultValue: '',
 );
-const MethodChannel _kakaoUtilChannel = MethodChannel(
-  'com.yonsei.dating/kakao_util',
+const String _androidAppCheckDebugToken = String.fromEnvironment(
+  'APP_CHECK_ANDROID_DEBUG_TOKEN',
+  defaultValue: '',
 );
-
-Future<bool> _shouldUseDebugAppCheckProvider() async {
-  if (kIsWeb) return false;
-  if (!kReleaseMode || _forceAppCheckDebugProvider) return true;
-  if (defaultTargetPlatform != TargetPlatform.android) return false;
-
-  try {
-    final isDebugSigned =
-        await _kakaoUtilChannel.invokeMethod<bool>('isDebugSigned') ?? false;
-    if (isDebugSigned) {
-      debugPrint(
-        '[AppCheck] Android app is signed with the debug certificate; '
-        'using debug provider.',
-      );
-    }
-    return isDebugSigned;
-  } catch (e) {
-    debugPrint(
-      '[AppCheck] debug-signing check failed: ${PrivacyLogUtils.errorSummary(e)}',
-    );
-    return false;
-  }
-}
 
 void main() {
   runZonedGuarded(
@@ -96,6 +76,9 @@ void main() {
             host: Uri.base.host,
           );
       final webDebugToken = _webAppCheckDebugToken.trim();
+      if (kIsWeb) {
+        clearStoredWebAppCheckProvider();
+      }
       if (useLocalWebDebugProvider && webDebugToken.isNotEmpty) {
         final primed = web_app_check_bootstrap.primeWebAppCheckDebugProvider(
           webDebugToken,
@@ -112,20 +95,38 @@ void main() {
       );
       FirebaseDiagnostics.logCurrentFirebaseApp('firebase_initialize_success');
 
-      // App Check: local web debug builds use a console-registered debug token;
-      // deployed web builds require the configured reCAPTCHA v3 provider.
+      // App Check: Android/iOS always. Web uses reCAPTCHA v3 normally, with
+      // an explicit debug-provider escape hatch for local Chrome testing.
+      // Callable functions enforce App Check, so either provider must be
+      // registered in Firebase Console before login can succeed.
+      var usedDebugAppCheckProvider = false;
       try {
         if (kIsWeb) {
-          if (useLocalWebDebugProvider) {
+          final useWebDebugProvider =
+              useLocalWebDebugProvider ||
+              (_forceAppCheckDebugProvider &&
+                  shouldUseWebDebugAppCheckProvider(
+                    isDebugMode: true,
+                    host: Uri.base.host,
+                  ));
+          if (useWebDebugProvider) {
+            usedDebugAppCheckProvider = true;
             await FirebaseAppCheck.instance.activate(
-              providerWeb: webDebugToken.isEmpty
-                  ? WebDebugProvider()
-                  : WebDebugProvider(debugToken: webDebugToken),
+              providerWeb: WebDebugProvider(
+                debugToken: webDebugToken.isEmpty ? null : webDebugToken,
+              ),
             );
             await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
             debugPrint(
               '[AppCheck] web debug provider activated for localhost; '
-              'stableTokenConfigured=${webDebugToken.isNotEmpty}.',
+              'register the browser debug token in Firebase Console',
+            );
+            recordAppCheckInitResult(
+              const AppCheckInitResult(
+                status: AppCheckInitStatus.activated,
+                usedDebugProvider: true,
+                platform: 'web',
+              ),
             );
           } else {
             final siteKey = webAppCheckRecaptchaSiteKey(
@@ -137,18 +138,31 @@ void main() {
               );
               await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
               debugPrint('[AppCheck] web reCAPTCHA v3 provider activated');
+              recordAppCheckInitResult(
+                evaluateWebAppCheckActivation(siteKey: siteKey),
+              );
             } else {
               debugPrint(
-                '[AppCheck] web skipped: '
-                'APP_CHECK_WEB_RECAPTCHA_SITE_KEY unset',
+                '[AppCheck] web skipped: APP_CHECK_WEB_RECAPTCHA_SITE_KEY unset',
+              );
+              recordAppCheckInitResult(
+                evaluateWebAppCheckActivation(siteKey: null),
               );
             }
           }
         } else {
-          final useDebugAppCheck = await _shouldUseDebugAppCheckProvider();
+          final useDebugAppCheck = shouldUseDebugAppCheckProvider(
+            isWeb: false,
+            isReleaseMode: kReleaseMode,
+            forceDebugProvider: _forceAppCheckDebugProvider,
+          );
+          usedDebugAppCheckProvider = useDebugAppCheck;
+          final androidDebugToken = androidAppCheckDebugToken(
+            fromEnvironment: _androidAppCheckDebugToken,
+          );
           await FirebaseAppCheck.instance.activate(
             providerAndroid: useDebugAppCheck
-                ? const AndroidDebugProvider()
+                ? AndroidDebugProvider(debugToken: androidDebugToken)
                 : const AndroidPlayIntegrityProvider(),
             providerApple: useDebugAppCheck
                 ? const AppleDebugProvider()
@@ -159,8 +173,28 @@ void main() {
             '[AppCheck] debugProviders=$useDebugAppCheck '
             'kReleaseMode=$kReleaseMode forceDebug=$_forceAppCheckDebugProvider',
           );
+          recordAppCheckInitResult(
+            evaluateNativeAppCheckActivation(
+              usedDebugProvider: useDebugAppCheck,
+              platform: defaultTargetPlatform == TargetPlatform.iOS
+                  ? 'ios'
+                  : 'android',
+            ),
+          );
         }
       } catch (e) {
+        recordAppCheckInitResult(
+          AppCheckInitResult(
+            status: AppCheckInitStatus.failed,
+            usedDebugProvider: usedDebugAppCheckProvider,
+            platform: kIsWeb
+                ? 'web'
+                : defaultTargetPlatform == TargetPlatform.iOS
+                ? 'ios'
+                : 'android',
+            errorSummary: summarizeAppCheckError(e),
+          ),
+        );
         debugPrint(
           '[AppCheck] activate failed: ${PrivacyLogUtils.errorSummary(e)}',
         );

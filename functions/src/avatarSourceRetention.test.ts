@@ -7,12 +7,14 @@ import {
   nextSourceDeletionRetryAt,
   planAvatarSourceRetention,
   redactSourcePhotosAfterDeletion,
+  shouldEvaluateAvatarJobSourceRetentionTransition,
+  shouldEvaluateClipEmbeddingSourceRetentionTransition,
 } from "./avatarSourceRetention";
 
 const uid = "u1";
 const jobId = "avatar_u1_photo1";
 const privateSourceRef =
-  "gs://seolleyeon-private-source-photos/users/u1/source/photo1.jpg";
+  "gs://seolleyeon-final-private-source-photos/users/u1/source/photo1.jpg";
 
 function privateMedia(overrides: Record<string, unknown> = {}) {
   return {
@@ -33,7 +35,7 @@ function privateMedia(overrides: Record<string, unknown> = {}) {
         status: "active",
         avatarGenerationState: "current",
         gcsUri: privateSourceRef,
-        storageBucket: "seolleyeon-private-source-photos",
+        storageBucket: "seolleyeon-final-private-source-photos",
         storagePath: "users/u1/source/photo1.jpg",
         sha256: "audit-hash",
       },
@@ -66,7 +68,7 @@ test("plans source deletion only after irreversible terminal outcome when retent
   assert.equal(decision.sourceSelectionVersion, 3);
   assert.deepEqual(decision.refs, [
     {
-      bucket: "seolleyeon-private-source-photos",
+      bucket: "seolleyeon-final-private-source-photos",
       path: "users/u1/source/photo1.jpg",
     },
   ]);
@@ -252,7 +254,7 @@ test("only UID-bound private source refs are eligible", () => {
           photoId: "photo1",
           status: "active",
           avatarGenerationState: "current",
-          gcsUri: "gs://seolleyeon-avatar-temp/users/u1/jobs/job1/source.png",
+          gcsUri: "gs://seolleyeon-final-avatar-temp/users/u1/jobs/job1/source.png",
         },
       ],
     }),
@@ -275,4 +277,52 @@ test("state ids and retry schedule are deterministic and bounded", () => {
     301_000,
   );
   assert.equal(nextSourceDeletionRetryAt({ attempts: 5, nowMs: 1_000 }), null);
+});
+
+test("avatar retention runs only when a job enters an irreversible terminal state", () => {
+  assert.equal(
+    shouldEvaluateAvatarJobSourceRetentionTransition({
+      beforeData: { status: "running" },
+      afterData: { status: "terminal_failed" },
+    }),
+    true,
+  );
+  assert.equal(
+    shouldEvaluateAvatarJobSourceRetentionTransition({
+      beforeData: { status: "terminal_failed", updatedAt: "old" },
+      afterData: { status: "terminal_failed", updatedAt: "new" },
+    }),
+    false,
+  );
+  assert.equal(
+    shouldEvaluateAvatarJobSourceRetentionTransition({
+      beforeData: { status: "completed" },
+      afterData: { status: "completed", sourceDeletionIrreversible: true },
+    }),
+    true,
+  );
+});
+
+test("clip retention runs only when the clip enters a terminal state", () => {
+  assert.equal(
+    shouldEvaluateClipEmbeddingSourceRetentionTransition({
+      beforeData: { status: "running" },
+      afterData: { status: "completed" },
+    }),
+    true,
+  );
+  assert.equal(
+    shouldEvaluateClipEmbeddingSourceRetentionTransition({
+      beforeData: { status: "completed", updatedAt: "old" },
+      afterData: { status: "completed", updatedAt: "new" },
+    }),
+    false,
+  );
+  assert.equal(
+    shouldEvaluateClipEmbeddingSourceRetentionTransition({
+      beforeData: { status: "pending" },
+      afterData: { status: "running" },
+    }),
+    false,
+  );
 });

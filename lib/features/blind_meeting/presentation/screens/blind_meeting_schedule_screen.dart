@@ -13,7 +13,6 @@
 
 import 'package:flutter/material.dart';
 
-import '../../../../router/route_names.dart';
 import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_repository.dart';
 import '../../domain/blind_meeting_application.dart';
@@ -21,6 +20,7 @@ import '../../domain/blind_meeting_availability.dart';
 import '../../domain/blind_meeting_dna.dart';
 import '../../domain/blind_meeting_enums.dart';
 import '../blind_meeting_route_args.dart';
+import '../blind_meeting_navigation.dart';
 import '../theme/blind_meeting_palette.dart';
 import '../widgets/blind_meeting_common.dart';
 
@@ -209,7 +209,10 @@ class _BlindMeetingScheduleScreenState
     }
 
     try {
-      final result = await _repository.submitApplication(dna);
+      final result =
+          widget.draft.mode == BlindMeetingDnaMode.editExistingApplication
+          ? await _repository.updateApplication(dna)
+          : await _repository.submitApplication(dna);
       if (!mounted) return;
       if (!result.accepted) {
         setState(() {
@@ -242,9 +245,7 @@ class _BlindMeetingScheduleScreenState
         );
       }
       if (!mounted) return;
-      Navigator.of(
-        context,
-      ).pushReplacementNamed(RouteNames.blindTasteMeetingWaiting);
+      pushBlindMeetingWaitingAndClearTransientStack(context);
     } catch (error) {
       if (!mounted) return;
       setState(() {

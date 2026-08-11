@@ -268,6 +268,20 @@ class BlindMeetingRepository {
     return BlindMeetingApplicationResult.fromMap(result);
   }
 
+  /// Updates the currently open application without creating another one.
+  ///
+  /// The callable re-reads and validates the authoritative application
+  /// document before changing either the DNA or matching stage.
+  Future<BlindMeetingApplicationResult> updateApplication(
+    BlindMeetingDna dna,
+  ) async {
+    final result = await _call('submitBlindMeetingApplication', {
+      'dna': dna.toWritePayload(),
+      'editExistingApplication': true,
+    });
+    return BlindMeetingApplicationResult.fromMap(result);
+  }
+
   Future<void> cancelApplication() async {
     await _call('cancelBlindMeetingApplication', const {});
   }
