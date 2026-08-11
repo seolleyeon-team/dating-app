@@ -2,16 +2,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/services/firebase_session_failure.dart';
 
 void main() {
-  test('failure text is safe and maps App Check rejection to user guidance', () {
-    const failure = FirebaseSessionFailure(
-      reason: FirebaseSessionFailureReason.appCheckRejected,
-      errorCode: '403',
-    );
+  test(
+    'failure text is safe and maps App Check rejection to user guidance',
+    () {
+      const failure = FirebaseSessionFailure(
+        reason: FirebaseSessionFailureReason.appCheckRejected,
+        errorCode: '403',
+      );
 
-    expect(failure.toString(), contains('개발 환경 보안 인증'));
-    expect(failure.toString(), isNot(contains('403')));
-    expect(failure.toString(), isNot(contains('secret-token')));
-  });
+      expect(failure.toString(), contains('개발 환경 보안 인증'));
+      expect(failure.toString(), isNot(contains('403')));
+      expect(failure.toString(), isNot(contains('secret-token')));
+    },
+  );
 
   test('transient session inspection gets retry guidance', () {
     const failure = FirebaseSessionFailure(

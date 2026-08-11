@@ -64,6 +64,31 @@ function numericValue(value: unknown): number | null {
   return Number.isFinite(parsed) ? Math.floor(parsed) : null;
 }
 
+function normalizedStatus(value: unknown): string {
+  return asString(value).toLowerCase();
+}
+
+/**
+ * Only a transition into an irreversible terminal state may start the public
+ * state sync. Worker heartbeats, progress writes, and the sync's own
+ * bookkeeping must not re-enter the sync operation.
+ */
+export function shouldSyncAvatarGenerationTransition(params: {
+  beforeData: RecordData | null | undefined;
+  afterData: RecordData | null | undefined;
+}): boolean {
+  if (!params.afterData) return false;
+  const afterStatus = normalizedStatus(params.afterData.status);
+  if (!TERMINAL_JOB_STATUSES.has(afterStatus) || afterStatus === "superseded") {
+    return false;
+  }
+  if (!params.beforeData) return true;
+
+  const beforeStatus = normalizedStatus(params.beforeData.status);
+  if (TERMINAL_JOB_STATUSES.has(beforeStatus)) return false;
+  return beforeStatus !== afterStatus;
+}
+
 function sourcePhotoIds(jobData: RecordData): string[] {
   const ids = Array.isArray(jobData.sourcePhotoIds)
     ? jobData.sourcePhotoIds.map(asString).filter(Boolean)
@@ -140,7 +165,7 @@ function mapTerminalJobStatus(jobStatus: string): {
   onboardingStatus: string;
   avatarErrorCode: string | null;
   clearAvatarError: boolean;
-} | null {
+  } | null {
   switch (jobStatus) {
     case "preview_ready":
       return {
@@ -205,6 +230,30 @@ function mapTerminalJobStatus(jobStatus: string): {
   }
 }
 
+function nullableValueMatches(current: unknown, desired: string | number | null): boolean {
+  if (desired === null) return current === undefined || current === null;
+  return current === desired;
+}
+
+function userStateMatchesPlan(
+  plan: Extract<AvatarGenerationStateSyncPlan, { action: "update_user_avatar" }>,
+  userData: RecordData,
+): boolean {
+  const avatar = readMap(userData.avatar);
+  const onboarding = readMap(userData.onboarding);
+  return (
+    userData.profileImageMode === "avatar" &&
+    avatar.status === plan.avatarStatus &&
+    avatar.sourceJobId === plan.jobId &&
+    avatar.jobId === plan.jobId &&
+    avatar.sourcePhotoId === plan.sourcePhotoId &&
+    nullableValueMatches(avatar.sourceSelectionVersion, plan.sourceSelectionVersion) &&
+    nullableValueMatches(avatar.errorCode, plan.avatarErrorCode) &&
+    nullableValueMatches(avatar.reasonCode, plan.avatarErrorCode) &&
+    onboarding.sourcePhotoUploadStatus === plan.onboardingStatus
+  );
+}
+
 export function planAvatarGenerationStateSync(params: {
   jobId: string;
   jobData: RecordData;
@@ -250,7 +299,7 @@ export function planAvatarGenerationStateSync(params: {
 
   const mapped = mapTerminalJobStatus(jobStatus);
   if (!mapped) return { action: "skip", reason: "terminal_status_not_public" };
-  return {
+  const plan: AvatarGenerationStateSyncPlan = {
     action: "update_user_avatar",
     uid,
     jobId: params.jobId,
@@ -261,6 +310,10 @@ export function planAvatarGenerationStateSync(params: {
     avatarErrorCode: mapped.avatarErrorCode,
     clearAvatarError: mapped.clearAvatarError,
   };
+  if (userStateMatchesPlan(plan, params.userData)) {
+    return { action: "skip", reason: "already_synchronized" };
+  }
+  return plan;
 }
 
 export async function syncAvatarGenerationStateForJob(params: {
@@ -301,10 +354,6 @@ export async function syncAvatarGenerationStateForJob(params: {
       "onboarding.sourcePhotoUploadStatus": plan.onboardingStatus,
       updatedAt: FieldValue.serverTimestamp(),
     });
-    tx.set(jobRef, {
-      publicStateSyncedAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
     return "updated";
   });
 }
@@ -313,6 +362,15 @@ export function createAvatarGenerationStateSyncTrigger(firestore: Firestore) {
   return onDocumentWritten("avatarJobs/{jobId}", async (event) => {
     const after = event.data?.after;
     if (!after?.exists) return;
+    const before = event.data?.before;
+    if (
+      !shouldSyncAvatarGenerationTransition({
+        beforeData: before?.exists ? readMap(before.data()) : null,
+        afterData: readMap(after.data()),
+      })
+    ) {
+      return;
+    }
     const result = await syncAvatarGenerationStateForJob({
       firestore,
       jobId: asString(event.params.jobId),

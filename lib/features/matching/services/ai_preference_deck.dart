@@ -115,7 +115,8 @@ class AiPreferenceIdentityDecisionGate {
       throw ArgumentError.value(identityId, 'identityId', 'must not be empty');
     }
     if (this.presentedShotTypes.length != aiPreferenceShotTypes.length ||
-        this.presentedShotTypes.toSet().length != aiPreferenceShotTypes.length ||
+        this.presentedShotTypes.toSet().length !=
+            aiPreferenceShotTypes.length ||
         !this.presentedShotTypes.every(aiPreferenceShotTypes.contains)) {
       throw ArgumentError.value(
         presentedShotTypes,

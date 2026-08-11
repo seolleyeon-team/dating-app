@@ -13,10 +13,7 @@ enum FirebaseSessionFailureReason {
 
 /// Sanitized failure returned by the Kakao-to-Firebase session bridge.
 class FirebaseSessionFailure implements Exception {
-  const FirebaseSessionFailure({
-    required this.reason,
-    this.errorCode,
-  });
+  const FirebaseSessionFailure({required this.reason, this.errorCode});
 
   final FirebaseSessionFailureReason reason;
   final String? errorCode;

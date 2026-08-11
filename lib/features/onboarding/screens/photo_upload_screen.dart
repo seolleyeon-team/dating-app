@@ -15,6 +15,7 @@ import '../../../services/user_service.dart';
 import '../../../shared/utils/avatar_lock_policy.dart';
 import '../../../shared/utils/privacy_log_utils.dart';
 import '../config/onboarding_feature_flags.dart';
+import '../services/avatar_upload_submission_guard.dart';
 import '../widgets/avatar_candidate_selection_dialog.dart';
 import '../widgets/avatar_generation_error_banner.dart';
 import '../widgets/avatar_generating_overlay.dart';
@@ -72,6 +73,9 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
   final List<String?> _photos = List<String?>.filled(6, null);
   final List<bool> _isUploading = List<bool>.filled(6, false);
+  final AvatarUploadSubmissionGuard _uploadSubmissionGuard =
+      AvatarUploadSubmissionGuard();
+  final Map<int, String> _pendingUploadRequestIds = <int, String>{};
 
   AuthService? _authService;
   AvatarSourcePhotoService? _avatarSourcePhotoService;
@@ -229,26 +233,36 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   }
 
   Future<void> _addPhoto(int index) async {
-    HapticFeedback.lightImpact();
-    if (_avatarLocked) {
-      _showLockedAvatarMessage();
-      return;
-    }
-    if (_isSourceMutationBlocked) {
-      _showSourceLockedAvatarMessage();
-      return;
-    }
-
+    if (!_uploadSubmissionGuard.tryAcquire(index)) return;
     try {
+      HapticFeedback.lightImpact();
+      if (_avatarLocked) {
+        _showLockedAvatarMessage();
+        return;
+      }
+      if (_isSourceMutationBlocked) {
+        _showSourceLockedAvatarMessage();
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          _isUploading[index] = true;
+          _avatarFlowCancelled = true;
+        });
+      }
+
       final XFile? pickedFile = await _imagePicker.pickImage(
         source: ImageSource.gallery,
         imageQuality: 88,
       );
 
       if (pickedFile == null) {
+        _pendingUploadRequestIds.remove(index);
         return;
       }
 
+      if (!mounted) return;
       setState(() {
         final replacedJobId = AvatarSourcePhotoService.queuedJobId(
           _photos[index],
@@ -258,8 +272,6 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
           _activeAvatarSourcePhotoId = null;
           _activeSourceSelectionVersion = null;
         }
-        _isUploading[index] = true;
-        _avatarFlowCancelled = true;
       });
 
       final String? kakaoUserId = await _storage.getKakaoUserId();
@@ -285,17 +297,22 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
         setState(() {
           _photos[index] = result.photoUrl;
-          _isUploading[index] = false;
           _avatarFlowCancelled = false;
         });
+        _pendingUploadRequestIds.remove(index);
         return;
       }
 
+      final clientRequestId = _pendingUploadRequestIds.putIfAbsent(
+        index,
+        AvatarSourcePhotoService.createClientRequestId,
+      );
       _logAvatarFlow('avatar_upload_start', slotIndex: index);
       final result = await _sourcePhotoService.uploadPickedImage(
         file: pickedFile,
         slotIndex: index,
         uid: kakaoUserId,
+        clientRequestId: clientRequestId,
         chatPartnerRealPhotoDisclosure: _chatPartnerRealPhotoDisclosure,
       );
       _logAvatarFlow(
@@ -315,20 +332,23 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         _activeSourceSelectionVersion = result.sourceSelectionVersion;
         _avatarSourceLocked = true;
         _avatarFlowCancelled = false;
-        _isUploading[index] = false;
         _avatarGenerationError = null;
       });
+      _pendingUploadRequestIds.remove(index);
     } catch (e) {
       _logAvatarFlow('avatar_upload_failed', slotIndex: index, error: e);
       if (!mounted) return;
 
       setState(() {
-        _isUploading[index] = false;
         if (e is AvatarSourceLockedException) {
           _avatarSourceLocked = true;
           _avatarFlowCancelled = false;
         }
       });
+      if (e is AvatarAlreadyApprovedException ||
+          e is AvatarSourceLockedException) {
+        _pendingUploadRequestIds.remove(index);
+      }
       if (e is! AvatarSourceLockedException) {
         await _loadExistingPhotos();
         if (!mounted) return;
@@ -355,6 +375,11 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
           behavior: SnackBarBehavior.floating,
         ),
       );
+    } finally {
+      _uploadSubmissionGuard.release(index);
+      if (mounted && _isUploading[index]) {
+        setState(() => _isUploading[index] = false);
+      }
     }
   }
 

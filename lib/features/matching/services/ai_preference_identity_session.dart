@@ -3,9 +3,8 @@ import 'dart:async';
 import '../models/ai_preference_models.dart';
 import 'ai_preference_deck.dart';
 
-typedef AiPreferenceDecisionSink = Future<void> Function(
-  AiPreferenceDecisionCommit commit,
-);
+typedef AiPreferenceDecisionSink =
+    Future<void> Function(AiPreferenceDecisionCommit commit);
 
 /// Owns the identity-level state for the AI preference flow.
 ///
@@ -114,12 +113,14 @@ class AiPreferenceIdentitySessionController {
 }
 
 class _IdentityRuntime {
-  _IdentityRuntime({required this.identity, required Iterable<AiPreferenceImage> shots})
-    : shots = List<AiPreferenceImage>.unmodifiable(shots),
-      decisionGate = AiPreferenceIdentityDecisionGate(
-        identityId: identity.identityId,
-        presentedShotTypes: shots.map((shot) => shot.shotType),
-      );
+  _IdentityRuntime({
+    required this.identity,
+    required Iterable<AiPreferenceImage> shots,
+  }) : shots = List<AiPreferenceImage>.unmodifiable(shots),
+       decisionGate = AiPreferenceIdentityDecisionGate(
+         identityId: identity.identityId,
+         presentedShotTypes: shots.map((shot) => shot.shotType),
+       );
 
   final AiPreferenceIdentity identity;
   final List<AiPreferenceImage> shots;
@@ -132,9 +133,6 @@ class _IdentityRuntime {
     required String eventType,
     required int position,
   }) {
-    return decisionGate.commit(
-      eventType: eventType,
-      position: position,
-    );
+    return decisionGate.commit(eventType: eventType, position: position);
   }
 }

@@ -20,11 +20,9 @@ import 'user_service.dart';
 import 'onboarding_route_resolver.dart';
 
 class AuthService {
-  AuthService({
-    UserService? userService,
-    AppCheckReadiness? appCheckReadiness,
-  }) : _userService = userService ?? UserService(),
-       _appCheckReadiness = appCheckReadiness ?? AppCheckReadiness.firebase();
+  AuthService({UserService? userService, AppCheckReadiness? appCheckReadiness})
+    : _userService = userService ?? UserService(),
+      _appCheckReadiness = appCheckReadiness ?? AppCheckReadiness.firebase();
   final _uuid = const Uuid();
   final UserService _userService;
   final AppCheckReadiness _appCheckReadiness;
@@ -563,8 +561,8 @@ class AuthService {
       );
       final appCheckPreflight = await _appCheckReadiness.preflight();
       if (!appCheckPreflight.isReady) {
-        final reason = appCheckPreflight.status ==
-                AppCheckPreflightStatus.rejected
+        final reason =
+            appCheckPreflight.status == AppCheckPreflightStatus.rejected
             ? FirebaseSessionFailureReason.appCheckRejected
             : FirebaseSessionFailureReason.appCheckUnavailable;
         FirebaseDiagnostics.logAuthBridgePhase(
@@ -634,8 +632,7 @@ class AuthService {
         );
         return false;
       }
-      if (signedInInspection.state ==
-          FirebaseSessionIdentityState.mismatched) {
+      if (signedInInspection.state == FirebaseSessionIdentityState.mismatched) {
         await _signOutFirebaseIfMismatched(kakaoUserId, signedInInspection);
         _setFirebaseSessionFailure(
           const FirebaseSessionFailure(

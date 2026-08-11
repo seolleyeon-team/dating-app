@@ -2,12 +2,7 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 
 import '../shared/utils/privacy_log_utils.dart';
 
-enum AppCheckPreflightStatus {
-  ready,
-  empty,
-  unavailable,
-  rejected,
-}
+enum AppCheckPreflightStatus { ready, empty, unavailable, rejected }
 
 class AppCheckPreflightResult {
   const AppCheckPreflightResult({
@@ -39,9 +34,7 @@ class AppCheckReadiness {
 
   final AppCheckTokenProvider tokenProvider;
 
-  Future<AppCheckPreflightResult> preflight({
-    bool forceRefresh = true,
-  }) async {
+  Future<AppCheckPreflightResult> preflight({bool forceRefresh = true}) async {
     try {
       final token = await tokenProvider(forceRefresh);
       if (token == null || token.trim().isEmpty) {

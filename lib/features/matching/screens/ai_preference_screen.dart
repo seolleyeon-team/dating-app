@@ -343,13 +343,15 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen>
       final d = 'fs-${e.code}';
       _heightDebugCacheById[profileId] = d;
       debugPrint(
-        '[AI_PREF] height load failed id=$profileId '
+        '[AI_PREF] height load failed '
+        '${PrivacyLogUtils.idFingerprint(profileId)} '
         '${PrivacyLogUtils.errorSummary(e)}',
       );
       return _HeightFetchResult(tag: null, debug: d);
     } catch (e) {
       debugPrint(
-        '[AI_PREF] height parse failed id=$profileId '
+        '[AI_PREF] height parse failed '
+        '${PrivacyLogUtils.idFingerprint(profileId)} '
         '${PrivacyLogUtils.errorSummary(e)}',
       );
       _heightDebugCacheById[profileId] = 'err';
@@ -473,7 +475,8 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen>
     } catch (error) {
       bundle.hydrationStarted = false;
       debugPrint(
-        '[AI_PREF] shot prefetch failed identity=${bundle.identityId} '
+        '[AI_PREF] shot prefetch failed '
+        '${PrivacyLogUtils.idFingerprint(bundle.identityId)} '
         '${PrivacyLogUtils.errorSummary(error)}',
       );
     }
@@ -510,7 +513,8 @@ class _AiPreferenceScreenState extends State<AiPreferenceScreen>
       setState(() {});
     } catch (error) {
       debugPrint(
-        '[AI_PREF] shot load failed identity=${bundle.identityId} '
+        '[AI_PREF] shot load failed '
+        '${PrivacyLogUtils.idFingerprint(bundle.identityId)} '
         '${PrivacyLogUtils.errorSummary(error)}',
       );
     } finally {

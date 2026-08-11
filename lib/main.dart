@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart'
         TargetPlatform,
         debugPrint,
         defaultTargetPlatform,
+        kDebugMode,
         kIsWeb,
         kReleaseMode;
 import 'package:firebase_app_check/firebase_app_check.dart';
@@ -21,6 +22,9 @@ import 'services/windows_protocol_registration_stub.dart'
     if (dart.library.io) 'services/windows_protocol_registration_io.dart';
 import 'services/app_check_web_storage_stub.dart'
     if (dart.library.html) 'services/app_check_web_storage_impl.dart';
+import 'services/web_app_check_bootstrap_stub.dart'
+    if (dart.library.html) 'services/web_app_check_bootstrap_web.dart'
+    as web_app_check_bootstrap;
 import 'firebase_options.dart';
 import 'app.dart';
 import 'webview_web_stub.dart'
@@ -65,8 +69,24 @@ void main() {
         javaScriptAppKey: kIsWeb ? kakaoJavaScriptKey : null,
       );
 
+      final useLocalWebDebugProvider =
+          kIsWeb &&
+          shouldUseWebDebugAppCheckProvider(
+            isDebugMode: kDebugMode,
+            host: Uri.base.host,
+          );
+      final webDebugToken = _webAppCheckDebugToken.trim();
       if (kIsWeb) {
         clearStoredWebAppCheckProvider();
+      }
+      if (useLocalWebDebugProvider && webDebugToken.isNotEmpty) {
+        final primed = web_app_check_bootstrap.primeWebAppCheckDebugProvider(
+          webDebugToken,
+        );
+        debugPrint(
+          '[AppCheck] web debug provider primed before Firebase init: '
+          'success=$primed.',
+        );
       }
 
       // ✅ Firebase init
@@ -82,17 +102,23 @@ void main() {
       var usedDebugAppCheckProvider = false;
       try {
         if (kIsWeb) {
-          if (_forceAppCheckDebugProvider) {
+          final useWebDebugProvider =
+              useLocalWebDebugProvider ||
+              (_forceAppCheckDebugProvider &&
+                  shouldUseWebDebugAppCheckProvider(
+                    isDebugMode: true,
+                    host: Uri.base.host,
+                  ));
+          if (useWebDebugProvider) {
             usedDebugAppCheckProvider = true;
-            final debugToken = _webAppCheckDebugToken.trim();
             await FirebaseAppCheck.instance.activate(
               providerWeb: WebDebugProvider(
-                debugToken: debugToken.isEmpty ? null : debugToken,
+                debugToken: webDebugToken.isEmpty ? null : webDebugToken,
               ),
             );
             await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
             debugPrint(
-              '[AppCheck] web debug provider activated; '
+              '[AppCheck] web debug provider activated for localhost; '
               'register the browser debug token in Firebase Console',
             );
             recordAppCheckInitResult(

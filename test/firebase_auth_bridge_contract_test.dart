@@ -31,12 +31,18 @@ void main() {
       'Future<bool> ensureFirebaseSessionForKakao',
       'Future<bool> ensureFirebaseSessionForVerifiedUser',
     );
-    expect(ensureSection, contains('FirebaseSessionIdentityState.inspectionFailed'));
+    expect(
+      ensureSection,
+      contains('FirebaseSessionIdentityState.inspectionFailed'),
+    );
     expect(
       ensureSection,
       contains('FirebaseSessionFailureReason.sessionInspectionFailed'),
     );
-    expect(ensureSection, contains('FirebaseSessionFailureReason.identityMismatch'));
+    expect(
+      ensureSection,
+      contains('FirebaseSessionFailureReason.identityMismatch'),
+    );
   });
 
   test('App Check preflight completes before the custom-token callable', () {
@@ -47,7 +53,9 @@ void main() {
       'Future<bool> ensureFirebaseSessionForVerifiedUser',
     );
     final preflight = ensureSection.indexOf('appCheckReadiness.preflight');
-    final preflightGuard = ensureSection.indexOf('if (!appCheckPreflight.isReady)');
+    final preflightGuard = ensureSection.indexOf(
+      'if (!appCheckPreflight.isReady)',
+    );
     final callable = ensureSection.indexOf(
       "httpsCallable('createFirebaseCustomToken')",
     );
@@ -61,21 +69,27 @@ void main() {
       ensureSection,
       contains('FirebaseSessionFailureReason.appCheckRejected'),
     );
-    expect(ensureSection, contains('FirebaseSessionFailureReason.customTokenEmpty'));
-  });
-
-  test('successful custom-token sign-in validates identity without forced refresh', () {
-    final source = read('lib/services/auth_service.dart');
-    final ensureSection = sectionBetween(
-      source,
-      'Future<bool> ensureFirebaseSessionForKakao',
-      'Future<bool> ensureFirebaseSessionForVerifiedUser',
+    expect(
+      ensureSection,
+      contains('FirebaseSessionFailureReason.customTokenEmpty'),
     );
-
-    expect(ensureSection, contains('_inspectFirebaseSession'));
-    expect(ensureSection, contains('firebase_custom_token_signin_success'));
-    expect(ensureSection, isNot(contains('getIdToken(true)')));
   });
+
+  test(
+    'successful custom-token sign-in validates identity without forced refresh',
+    () {
+      final source = read('lib/services/auth_service.dart');
+      final ensureSection = sectionBetween(
+        source,
+        'Future<bool> ensureFirebaseSessionForKakao',
+        'Future<bool> ensureFirebaseSessionForVerifiedUser',
+      );
+
+      expect(ensureSection, contains('_inspectFirebaseSession'));
+      expect(ensureSection, contains('firebase_custom_token_signin_success'));
+      expect(ensureSection, isNot(contains('getIdToken(true)')));
+    },
+  );
 
   test('login boundaries propagate typed bridge failures', () {
     final bootstrap = read(

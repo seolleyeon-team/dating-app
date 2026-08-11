@@ -20,21 +20,24 @@ void main() {
     expect(loadCount, 0);
   });
 
-  test('matching Firebase UID is accepted without forced token refresh', () async {
-    var loadCount = 0;
+  test(
+    'matching Firebase UID is accepted without forced token refresh',
+    () async {
+      var loadCount = 0;
 
-    final result = await inspector.inspect(
-      expectedKakaoUserId: 'kakao-1',
-      currentUid: 'kakao-1',
-      loadClaims: (forceRefresh) async {
-        loadCount++;
-        return <String, dynamic>{};
-      },
-    );
+      final result = await inspector.inspect(
+        expectedKakaoUserId: 'kakao-1',
+        currentUid: 'kakao-1',
+        loadClaims: (forceRefresh) async {
+          loadCount++;
+          return <String, dynamic>{};
+        },
+      );
 
-    expect(result.state, FirebaseSessionIdentityState.matching);
-    expect(loadCount, 0);
-  });
+      expect(result.state, FirebaseSessionIdentityState.matching);
+      expect(loadCount, 0);
+    },
+  );
 
   test('matching kakaoUserId claim is accepted for a legacy UID', () async {
     var forceRefreshValue = false;
@@ -52,27 +55,33 @@ void main() {
     expect(forceRefreshValue, isTrue);
   });
 
-  test('different UID and claim are classified as an actual mismatch', () async {
-    final result = await inspector.inspect(
-      expectedKakaoUserId: 'kakao-1',
-      currentUid: 'other-user',
-      loadClaims: (forceRefresh) async => <String, dynamic>{
-        'kakaoUserId': 'other-kakao',
-      },
-    );
+  test(
+    'different UID and claim are classified as an actual mismatch',
+    () async {
+      final result = await inspector.inspect(
+        expectedKakaoUserId: 'kakao-1',
+        currentUid: 'other-user',
+        loadClaims: (forceRefresh) async => <String, dynamic>{
+          'kakaoUserId': 'other-kakao',
+        },
+      );
 
-    expect(result.state, FirebaseSessionIdentityState.mismatched);
-  });
+      expect(result.state, FirebaseSessionIdentityState.mismatched);
+    },
+  );
 
-  test('token inspection errors are not classified as identity mismatch', () async {
-    final result = await inspector.inspect(
-      expectedKakaoUserId: 'kakao-1',
-      currentUid: 'other-user',
-      loadClaims: (forceRefresh) async {
-        throw StateError('temporary token refresh failure');
-      },
-    );
+  test(
+    'token inspection errors are not classified as identity mismatch',
+    () async {
+      final result = await inspector.inspect(
+        expectedKakaoUserId: 'kakao-1',
+        currentUid: 'other-user',
+        loadClaims: (forceRefresh) async {
+          throw StateError('temporary token refresh failure');
+        },
+      );
 
-    expect(result.state, FirebaseSessionIdentityState.inspectionFailed);
-  });
+      expect(result.state, FirebaseSessionIdentityState.inspectionFailed);
+    },
+  );
 }

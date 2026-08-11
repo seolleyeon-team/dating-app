@@ -1,3 +1,0 @@
-# PR8.4 activated canary mapping
-# Generated only from rows with exact UID/photo consent.
-

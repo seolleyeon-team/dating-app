@@ -4,25 +4,28 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/services/kakao_login_coordinator.dart';
 
 void main() {
-  test('coalesces concurrent Kakao login operations into one SDK call', () async {
-    final completer = Completer<Map<String, dynamic>>();
-    var operationCount = 0;
+  test(
+    'coalesces concurrent Kakao login operations into one SDK call',
+    () async {
+      final completer = Completer<Map<String, dynamic>>();
+      var operationCount = 0;
 
-    final first = KakaoLoginCoordinator.run(() {
-      operationCount += 1;
-      return completer.future;
-    });
-    final second = KakaoLoginCoordinator.run(() {
-      operationCount += 1;
-      return Future.value(<String, dynamic>{'id': 'unexpected'});
-    });
+      final first = KakaoLoginCoordinator.run(() {
+        operationCount += 1;
+        return completer.future;
+      });
+      final second = KakaoLoginCoordinator.run(() {
+        operationCount += 1;
+        return Future.value(<String, dynamic>{'id': 'unexpected'});
+      });
 
-    expect(operationCount, 1);
-    completer.complete(<String, dynamic>{'id': 'kakao-user'});
+      expect(operationCount, 1);
+      completer.complete(<String, dynamic>{'id': 'kakao-user'});
 
-    expect(await first, <String, dynamic>{'id': 'kakao-user'});
-    expect(await second, <String, dynamic>{'id': 'kakao-user'});
-  });
+      expect(await first, <String, dynamic>{'id': 'kakao-user'});
+      expect(await second, <String, dynamic>{'id': 'kakao-user'});
+    },
+  );
 
   test('releases the Kakao login gate after a failed operation', () async {
     var operationCount = 0;
@@ -36,9 +39,7 @@ void main() {
     }
 
     await expectLater(KakaoLoginCoordinator.run(operation), throwsStateError);
-    expect(await KakaoLoginCoordinator.run(operation), {
-      'id': 'retry-success',
-    });
+    expect(await KakaoLoginCoordinator.run(operation), {'id': 'retry-success'});
     expect(operationCount, 2);
   });
 }

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:uuid/uuid.dart';
 
 class AvatarSourcePhotoUploadResult {
   final String jobId;
@@ -61,6 +62,24 @@ class AvatarSourcePhotoService {
       _auth = auth ?? FirebaseAuth.instance;
 
   static const String _queuedTokenPrefix = 'avatar_generation_queued:';
+  static const String sourceConsentVersion = 'photo_consent_v4';
+  static const Map<String, bool> defaultConsentPurposes = <String, bool>{
+    'avatarGeneration': true,
+    'clipRecommendation': false,
+    'sourcePhotoRetention': false,
+  };
+
+  static String createClientRequestId() => const Uuid().v4();
+
+  static Map<String, dynamic> buildUploadMetadata({
+    required String clientRequestId,
+  }) {
+    return <String, dynamic>{
+      'clientRequestId': clientRequestId,
+      'consentVersion': sourceConsentVersion,
+      'consentPurposes': Map<String, bool>.from(defaultConsentPurposes),
+    };
+  }
 
   final FirebaseFunctions _functions;
   final FirebaseAuth _auth;
@@ -82,6 +101,7 @@ class AvatarSourcePhotoService {
     required XFile file,
     int? slotIndex,
     String? uid,
+    String? clientRequestId,
     bool chatPartnerRealPhotoDisclosure = false,
   }) async {
     final currentUser = _auth.currentUser;
@@ -96,6 +116,7 @@ class AvatarSourcePhotoService {
       fileName: file.name,
       slotIndex: slotIndex,
       uid: uid,
+      clientRequestId: clientRequestId,
       chatPartnerRealPhotoDisclosure: chatPartnerRealPhotoDisclosure,
     );
   }
@@ -105,6 +126,7 @@ class AvatarSourcePhotoService {
     String? fileName,
     int? slotIndex,
     String? uid,
+    String? clientRequestId,
     bool chatPartnerRealPhotoDisclosure = false,
   }) async {
     if (bytes.isEmpty) {
@@ -112,9 +134,13 @@ class AvatarSourcePhotoService {
     }
 
     final callable = _functions.httpsCallable('uploadAvatarSourcePhoto');
+    final stableClientRequestId = clientRequestId?.trim().isNotEmpty == true
+        ? clientRequestId!.trim()
+        : createClientRequestId();
     final HttpsCallableResult<dynamic> result;
     try {
       result = await callable.call(<String, dynamic>{
+        ...buildUploadMetadata(clientRequestId: stableClientRequestId),
         'imageBase64': base64Encode(bytes),
         'contentType': _contentTypeForFileName(fileName ?? ''),
         if (fileName != null && fileName.trim().isNotEmpty)

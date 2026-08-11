@@ -20,16 +20,19 @@ void main() {
     expect(gate.isTerminal, isTrue);
   });
 
-  test('identity decision gate rejects duplicate and conflicting submissions', () {
-    final gate = AiPreferenceIdentityDecisionGate(
-      identityId: 'male_123',
-      presentedShotTypes: aiPreferenceShotTypes,
-    );
+  test(
+    'identity decision gate rejects duplicate and conflicting submissions',
+    () {
+      final gate = AiPreferenceIdentityDecisionGate(
+        identityId: 'male_123',
+        presentedShotTypes: aiPreferenceShotTypes,
+      );
 
-    expect(gate.commit(eventType: 'nope', position: 0), isNotNull);
-    expect(gate.commit(eventType: 'nope', position: 0), isNull);
-    expect(gate.commit(eventType: 'like', position: 0), isNull);
-  });
+      expect(gate.commit(eventType: 'nope', position: 0), isNotNull);
+      expect(gate.commit(eventType: 'nope', position: 0), isNull);
+      expect(gate.commit(eventType: 'like', position: 0), isNull);
+    },
+  );
 
   test('identity decision gate validates event type before terminal lock', () {
     final gate = AiPreferenceIdentityDecisionGate(

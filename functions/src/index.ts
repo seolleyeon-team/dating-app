@@ -41,6 +41,7 @@ import {
   buildReminderScheduledForMs,
   buildUpcomingPromiseReminderTitle,
   PROMISE_REMINDER_QUEUE_PATH,
+  shouldSchedulePromiseReminderTransition,
   type PromiseReminderTaskPayload,
 } from "./promiseReminder";
 import { createInAppNotification, sendPushToUsers } from "./shared/notify";
@@ -61,7 +62,10 @@ import {
 } from "./avatarApproval";
 import { createGetChatRealProfilePhotoFunction } from "./chatRealPhoto";
 import { createCleanupAvatarMediaFunction } from "./avatarCleanup";
-import { syncPublicProfileForUser } from "./publicProfileSync";
+import {
+  publicProfileProjectionChanged,
+  syncPublicProfileForUser,
+} from "./publicProfileSync";
 import { nextAcceptedUserIds } from "./eventTeamInviteAcceptPolicy";
 import {
   createSeasonMeetingCancelFunction,
@@ -1331,6 +1335,10 @@ export const onUserPublicProfileSync = onDocumentWritten(
     const after = event.data?.after?.exists
       ? ((event.data.after.data() ?? {}) as Record<string, unknown>)
       : null;
+    const before = event.data?.before?.exists
+      ? ((event.data.before.data() ?? {}) as Record<string, unknown>)
+      : null;
+    if (!publicProfileProjectionChanged(uid, before, after)) return;
     try {
       await syncPublicProfileForUser(db, uid, after);
     } catch (error) {
@@ -3455,10 +3463,15 @@ export const schedulePromiseReminderTask = onDocumentWritten(
     region: "asia-northeast3",
   },
   async (event) => {
-    const afterData = event.data?.after.data();
+    const afterData = event.data?.after.exists
+      ? ((event.data.after.data() ?? {}) as Record<string, unknown>)
+      : null;
     if (!afterData) {
       return;
     }
+    const beforeData = event.data?.before?.exists
+      ? ((event.data.before.data() ?? {}) as Record<string, unknown>)
+      : null;
 
     const roomId = event.params.roomId;
     const promiseId = event.params.promiseId;
@@ -3491,17 +3504,13 @@ export const schedulePromiseReminderTask = onDocumentWritten(
       return;
     }
 
-    const existingScheduledForMs =
-      typeof afterData.exactReminderScheduledForMs === "number"
-        ? afterData.exactReminderScheduledForMs
-        : null;
-    const existingTaskToken = asStringOrNull(afterData.exactReminderTaskToken);
     if (
-      existingScheduledForMs === scheduledForMs &&
-      existingTaskToken != null
-    ) {
-      return;
-    }
+      !shouldSchedulePromiseReminderTransition({
+        beforeData,
+        afterData,
+        scheduledForMs,
+      })
+    ) return;
 
     const taskToken = randomBytes(16).toString("hex");
     const payload: PromiseReminderTaskPayload = {

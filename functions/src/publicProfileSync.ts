@@ -3,7 +3,8 @@
  * publicProfiles/{uid}. Private users/{uid} fields must never appear here.
  */
 
-import type {Firestore } from "firebase-admin/firestore";
+import { isDeepStrictEqual } from "node:util";
+import type { Firestore } from "firebase-admin/firestore";
 import { FieldValue } from "firebase-admin/firestore";
 
 import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
@@ -144,17 +145,37 @@ export function buildPublicProfileFromUser(
   };
 }
 
+export function publicProfileProjectionChanged(
+  uid: string,
+  beforeData: Record<string, unknown> | null | undefined,
+  afterData: Record<string, unknown> | null | undefined,
+): boolean {
+  return !isDeepStrictEqual(
+    buildPublicProfileFromUser(uid, beforeData),
+    buildPublicProfileFromUser(uid, afterData),
+  );
+}
+
 export async function syncPublicProfileForUser(
   firestore: Firestore,
   uid: string,
   userData: Record<string, unknown> | null | undefined,
-): Promise<"upserted" | "deleted"> {
+): Promise<"upserted" | "deleted" | "unchanged"> {
   const ref = firestore.collection("publicProfiles").doc(uid);
   const payload = buildPublicProfileFromUser(uid, userData);
+  const current = await ref.get();
   if (!payload) {
+    if (!current.exists) return "unchanged";
     await ref.delete().catch(() => undefined);
     return "deleted";
   }
+
+  if (current.exists) {
+    const currentData = current.data() ?? {};
+    const { updatedAt: _updatedAt, ...currentProjection } = currentData;
+    if (isDeepStrictEqual(currentProjection, payload)) return "unchanged";
+  }
+
   await ref.set(
     {
       ...payload,

@@ -7,6 +7,8 @@ import {
   nextSourceDeletionRetryAt,
   planAvatarSourceRetention,
   redactSourcePhotosAfterDeletion,
+  shouldEvaluateAvatarJobSourceRetentionTransition,
+  shouldEvaluateClipEmbeddingSourceRetentionTransition,
 } from "./avatarSourceRetention";
 
 const uid = "u1";
@@ -275,4 +277,52 @@ test("state ids and retry schedule are deterministic and bounded", () => {
     301_000,
   );
   assert.equal(nextSourceDeletionRetryAt({ attempts: 5, nowMs: 1_000 }), null);
+});
+
+test("avatar retention runs only when a job enters an irreversible terminal state", () => {
+  assert.equal(
+    shouldEvaluateAvatarJobSourceRetentionTransition({
+      beforeData: { status: "running" },
+      afterData: { status: "terminal_failed" },
+    }),
+    true,
+  );
+  assert.equal(
+    shouldEvaluateAvatarJobSourceRetentionTransition({
+      beforeData: { status: "terminal_failed", updatedAt: "old" },
+      afterData: { status: "terminal_failed", updatedAt: "new" },
+    }),
+    false,
+  );
+  assert.equal(
+    shouldEvaluateAvatarJobSourceRetentionTransition({
+      beforeData: { status: "completed" },
+      afterData: { status: "completed", sourceDeletionIrreversible: true },
+    }),
+    true,
+  );
+});
+
+test("clip retention runs only when the clip enters a terminal state", () => {
+  assert.equal(
+    shouldEvaluateClipEmbeddingSourceRetentionTransition({
+      beforeData: { status: "running" },
+      afterData: { status: "completed" },
+    }),
+    true,
+  );
+  assert.equal(
+    shouldEvaluateClipEmbeddingSourceRetentionTransition({
+      beforeData: { status: "completed", updatedAt: "old" },
+      afterData: { status: "completed", updatedAt: "new" },
+    }),
+    false,
+  );
+  assert.equal(
+    shouldEvaluateClipEmbeddingSourceRetentionTransition({
+      beforeData: { status: "pending" },
+      afterData: { status: "running" },
+    }),
+    false,
+  );
 });
