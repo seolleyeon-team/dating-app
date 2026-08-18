@@ -37,6 +37,7 @@ import {
   loadPolicy,
   requireVerifiedUser,
   setApplication,
+  cancelOpenApplication,
   updateApplicationForDnaEdit,
 } from "./store";
 import {
@@ -312,12 +313,8 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
 
 async function cancelBlindMeetingApplicationHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
-  await setApplication(user.userId, {
-    status: "cancelled",
-    stage: "cancelled",
-    open: false,
-    meetingId: null,
-  });
+  // 미팅에 배정된 신청은 여기서 취소할 수 없다 (store가 transaction으로 게이트).
+  await cancelOpenApplication(user.userId);
   return { ok: true };
 }
 

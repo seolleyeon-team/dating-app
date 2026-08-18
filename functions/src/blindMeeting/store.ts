@@ -698,6 +698,45 @@ export async function setApplication(
 }
 
 /**
+ * 신청 취소는 아직 미팅에 배정되지 않은 신청에만 허용한다 (transaction 게이트).
+ * 미팅에 배정된(meetingId 존재) 신청을 여기서 취소하면 참가자 문서·미팅 정원·
+ * 보증금 상태와 조용히 어긋나므로, 그 경우 초대 거절(decline) 또는
+ * 취소 요청(requestCancellation) 경로를 사용하도록 명시적으로 거부한다.
+ */
+export async function cancelOpenApplication(userId: string): Promise<void> {
+  const ref = db()
+    .collection(BLIND_MEETING_COLLECTIONS.applications)
+    .doc(userId);
+  await db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return; // 취소할 신청이 없으면 idempotent 성공
+    const raw = snap.data() ?? {};
+    const serverStatus = String(raw.serverStatus ?? raw.status ?? "");
+    if (serverStatus === "cancelled") return; // 이미 취소됨 — idempotent
+    const meetingId =
+      typeof raw.meetingId === "string" ? raw.meetingId.trim() : "";
+    if (meetingId.length > 0) {
+      throw new HttpsError(
+        "failed-precondition",
+        "이미 매칭된 미팅이 있어요. 미팅 화면에서 거절 또는 취소 요청을 이용해주세요."
+      );
+    }
+    tx.set(
+      ref,
+      {
+        status: PARTICIPANT_STATUS_TO_APP.cancelled,
+        serverStatus: "cancelled",
+        stage: "cancelled",
+        open: false,
+        meetingId: null,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  });
+}
+
+/**
  * Updates an open application and its private DNA atomically.
  *
  * The application document is read inside the transaction so a concurrent
