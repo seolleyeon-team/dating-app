@@ -3,7 +3,7 @@ import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
-  private let screenSecurityChannelName = "com.yonsei.dating/screen_security"
+  private let screenSecurityChannelName = "com.seolleyeon.app/screen_security"
   private weak var privacyOverlayView: UIView?
   private var screenSecurityEnabled = false
   private var screenshotOverlayHideWorkItem: DispatchWorkItem?
@@ -17,7 +17,7 @@ import UIKit
     if let registrar = registrar(forPlugin: "CaptureProtectedImagePlugin") {
       registrar.register(
         CaptureProtectedImageViewFactory(),
-        withId: "com.yonsei.dating/capture_protected_image"
+        withId: "com.seolleyeon.app/capture_protected_image"
       )
     }
     if let controller = window?.rootViewController as? FlutterViewController {

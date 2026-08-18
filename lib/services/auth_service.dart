@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../models/user_model.dart';
 import '../router/route_names.dart';
 import 'firebase_diagnostics.dart';
+import 'firebase_runtime.dart';
 import '../utils/phone_hash_utils.dart';
 import '../shared/utils/privacy_log_utils.dart';
 import 'adult_verification_service.dart';
@@ -20,7 +21,7 @@ class AuthService {
   final _storageService = StorageService();
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
   final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
-    region: 'asia-northeast3',
+    region: firebaseFunctionsRegion,
   );
 
   Future<bool> _hasMatchingFirebaseSession(String kakaoUserId) async {
@@ -350,21 +351,27 @@ class AuthService {
 
   Future<void> sendStudentEmailLink({
     required String email,
-    required String continueUrl,
+    String? requestId,
   }) async {
-    final acs = ActionCodeSettings(
-      url: continueUrl,
-      handleCodeInApp: true,
-      iOSBundleId: 'com.yonsei.dating',
-      androidPackageName: 'com.yonsei.dating', // TODO: 안드로이드 패키지명으로 바꿔
-      androidInstallApp: true,
-      androidMinimumVersion: '21',
-    );
+    final kakaoUserId = await _storageService.getKakaoUserId();
+    if (kakaoUserId == null || kakaoUserId.isEmpty) {
+      throw StateError('카카오 로그인 정보가 없습니다.');
+    }
 
-    await _firebaseAuth.sendSignInLinkToEmail(
-      email: email,
-      actionCodeSettings: acs,
-    );
+    // The callable only accepts the Kakao-backed Firebase session. Keeping the
+    // session bridge here prevents a bare email-link account from using this
+    // endpoint as a mail-sending relay.
+    final hasSession = await ensureFirebaseSessionForKakao(kakaoUserId);
+    if (!hasSession) {
+      throw StateError('로그인 세션을 확인하지 못했습니다. 다시 로그인해주세요.');
+    }
+
+    await _functions.httpsCallable('sendStudentVerificationEmail').call<void>({
+      'email': email,
+      'requestId': requestId?.trim().isNotEmpty == true
+          ? requestId!.trim()
+          : _uuid.v4(),
+    });
   }
 
   bool isSignInWithEmailLink(String link) {

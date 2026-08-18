@@ -1,0 +1,6 @@
+# Copy this file to android/key.properties, then replace every placeholder.
+# android/key.properties and the keystore file are ignored by Git.
+storePassword=CHANGE_ME
+keyPassword=CHANGE_ME
+keyAlias=upload
+storeFile=upload-keystore.jks

@@ -1,10 +1,7 @@
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
@@ -16,7 +13,6 @@ import '../../../services/friend_invite_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../shared/layouts/main_scaffold_args.dart';
 import '../../../utils/open_mail_app.dart';
-import '../utils/email_link_continue_url.dart';
 
 class StudentVerificationScreen extends StatefulWidget {
   const StudentVerificationScreen({super.key});
@@ -37,19 +33,12 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
   bool _isSending = false;
   bool _isVerifying = false;
   String? _statusMessage;
+  String? _pendingEmailRequestId;
+  String? _pendingEmailRequestEmail;
   StreamSubscription<Uri>? _linkSubscription;
   int _resumeKey = 0; // 앱 복귀 시 위젯 강제 재생성용
 
   static const String _yonseiDomain = '@yonsei.ac.kr';
-
-  String _buildContinueUrl(String token) {
-    return buildStudentEmailLinkContinueUrl(
-      token: token,
-      isWeb: kIsWeb,
-      webOrigin: kIsWeb ? Uri.base.origin : '',
-      firebaseProjectId: Firebase.app().options.projectId,
-    );
-  }
 
   String _buildYonseiEmail(String input) {
     final raw = input.trim().toLowerCase();
@@ -311,6 +300,12 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     }
 
     final email = _buildYonseiEmail(_emailController.text);
+    final requestId =
+        _pendingEmailRequestEmail == email && _pendingEmailRequestId != null
+        ? _pendingEmailRequestId!
+        : const Uuid().v4();
+    _pendingEmailRequestEmail = email;
+    _pendingEmailRequestId = requestId;
 
     setState(() {
       _isSending = true;
@@ -318,54 +313,28 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     });
 
     try {
-      final token = const Uuid().v4();
-
-      // 1) 토큰 문서 저장 (웹이 이걸 읽어서 email/kakaoUserId를 알아냄)
-      debugPrint('📧 STEP 1: Firestore emailLinkTokens 문서 생성 시작');
-      try {
-        await FirebaseFirestore.instance
-            .collection('emailLinkTokens')
-            .doc(token)
-            .set({
-              'email': email,
-              'kakaoUserId': kakaoUserId,
-              'createdAt': FieldValue.serverTimestamp(),
-              'expiresAt': Timestamp.fromDate(
-                DateTime.now().add(const Duration(minutes: 30)),
-              ),
-            });
-        debugPrint('✅ STEP 1 성공: Firestore 문서 생성 완료');
-      } catch (e) {
-        debugPrint(
-          '❌ STEP 1 실패: Firestore 문서 생성 오류 → '
-          '${FirebaseDiagnostics.safeErrorForLog(e)}',
-        );
-        rethrow;
-      }
-
-      // 2) continueUrl에 토큰 붙이기 (핵심)
-      final continueUrl = _buildContinueUrl(token);
-
-      // 3) Firebase 이메일 링크 전송
-      debugPrint('📧 STEP 2: sendSignInLinkToEmail 시작');
+      // The server owns the token, Firebase action-link generation, rate
+      // limits, and mail delivery. The client never receives a bearer link.
+      debugPrint('📧 학생 인증 메일 서버 발송 요청 시작');
       try {
         await _authService.sendStudentEmailLink(
           email: email,
-          continueUrl: continueUrl,
+          requestId: requestId,
         );
-        debugPrint('✅ STEP 2 성공: 이메일 링크 전송 완료');
+        debugPrint('✅ 학생 인증 메일 발송 요청 완료');
       } catch (e) {
         debugPrint(
-          '❌ STEP 2 실패: sendSignInLinkToEmail 오류 → '
+          '❌ 학생 인증 메일 서버 발송 오류 → '
           '${FirebaseDiagnostics.safeErrorForLog(e)}',
         );
         rethrow;
       }
 
-      // 4) 로컬에 이메일 저장 (웹 인증 후 앱에서 확인용)
+      // 로컬에 이메일 저장 (웹 인증 후 앱에서 확인용)
       await _storageService.saveStudentEmail(kakaoUserId, email);
-      await _storageService.saveStudentVerificationToken(kakaoUserId, token);
       await _storageService.setStudentVerified(kakaoUserId, false);
+      _pendingEmailRequestId = null;
+      _pendingEmailRequestEmail = null;
 
       if (!mounted) return;
       setState(() => _statusMessage = '연세 메일로 인증 링크를 보냈습니다');

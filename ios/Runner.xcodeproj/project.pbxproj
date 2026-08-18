@@ -371,7 +371,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "echo \"=== FLUTTER DIAG ===\"\necho \"FLUTTER_ROOT=${FLUTTER_ROOT:-}\"\necho \"FLUTTER_APPLICATION_PATH=${FLUTTER_APPLICATION_PATH:-}\"\necho \"FLUTTER_BUILD_DIR=${FLUTTER_BUILD_DIR:-}\"\necho \"FLUTTER_TARGET=${FLUTTER_TARGET:-}\"\necho \"Generated.xcconfig exists? $(ls -l \"${SRCROOT}/Flutter/Generated.xcconfig\" 2>/dev/null || echo NO)\"\necho \"====================\"\n\nset -euo pipefail\n\n# FLUTTER_ROOT가 비어있으면 Generated.xcconfig에서 읽어오기\nif [ -z \"${FLUTTER_ROOT:-}\" ]; then\n  FLUTTER_ROOT=$(sed -n 's/^FLUTTER_ROOT=//p' \"${SRCROOT}/Flutter/Generated.xcconfig\" | tail -n 1)\n  export FLUTTER_ROOT\nfi\n\n/bin/sh \"${FLUTTER_ROOT}/packages/flutter_tools/bin/xcode_backend.sh\" build\n";
+			shellScript = "# Prevent Finder metadata from being copied into iOS frameworks.\nexport COPYFILE_DISABLE=1\nexport COPY_EXTENDED_ATTRIBUTES_DISABLE=1\n\necho \"=== FLUTTER DIAG ===\"\necho \"FLUTTER_ROOT=${FLUTTER_ROOT:-}\"\necho \"FLUTTER_APPLICATION_PATH=${FLUTTER_APPLICATION_PATH:-}\"\necho \"FLUTTER_BUILD_DIR=${FLUTTER_BUILD_DIR:-}\"\necho \"FLUTTER_TARGET=${FLUTTER_TARGET:-}\"\necho \"Generated.xcconfig exists? $(ls -l \"${SRCROOT}/Flutter/Generated.xcconfig\" 2>/dev/null || echo NO)\"\necho \"====================\"\n\nset -euo pipefail\n\n# FLUTTER_ROOT가 비어있으면 Generated.xcconfig에서 읽어오기\nif [ -z \"${FLUTTER_ROOT:-}\" ]; then\n  FLUTTER_ROOT=$(sed -n 's/^FLUTTER_ROOT=//p' \"${SRCROOT}/Flutter/Generated.xcconfig\" | tail -n 1)\n  export FLUTTER_ROOT\nfi\n\n/bin/sh \"${FLUTTER_ROOT}/packages/flutter_tools/bin/xcode_backend.sh\" build\n";
 		};
 		D8738A0768C925CDD393F763 /* [CP] Copy Pods Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -508,7 +508,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.yonsei.dating;
+				PRODUCT_BUNDLE_IDENTIFIER = com.seolleyeon.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
@@ -692,7 +692,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.yonsei.dating;
+				PRODUCT_BUNDLE_IDENTIFIER = com.seolleyeon.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -716,7 +716,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.yonsei.dating;
+				PRODUCT_BUNDLE_IDENTIFIER = com.seolleyeon.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;

@@ -11,12 +11,17 @@ import 'package:flutter/foundation.dart'
         kIsWeb,
         kReleaseMode;
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart';
 import 'services/firebase_diagnostics.dart';
+import 'services/firebase_runtime.dart';
 import 'services/push_notification_service.dart';
+import 'features/shop/services/iap_service.dart';
 import 'shared/utils/app_check_provider_policy.dart';
 import 'services/web_app_check_bootstrap_stub.dart'
     if (dart.library.html) 'services/web_app_check_bootstrap_web.dart'
@@ -44,8 +49,19 @@ const String _webAppCheckDebugToken = String.fromEnvironment(
   'APP_CHECK_WEB_DEBUG_TOKEN',
   defaultValue: '',
 );
+const bool _useFirebaseEmulators = bool.fromEnvironment(
+  'USE_FIREBASE_EMULATORS',
+  defaultValue: false,
+);
+
+// Simulator는 기본값(127.0.0.1)을 쓰고, USB/Wi-Fi 실기기 테스트에서는
+// Mac의 LAN IP를 --dart-define=FIREBASE_EMULATOR_HOST=... 로 넘긴다.
+const String _firebaseEmulatorHost = String.fromEnvironment(
+  'FIREBASE_EMULATOR_HOST',
+  defaultValue: '127.0.0.1',
+);
 const MethodChannel _kakaoUtilChannel = MethodChannel(
-  'com.yonsei.dating/kakao_util',
+  'com.seolleyeon.app/kakao_util',
 );
 
 Future<bool> _shouldUseDebugAppCheckProvider() async {
@@ -69,6 +85,23 @@ Future<bool> _shouldUseDebugAppCheckProvider() async {
     );
     return false;
   }
+}
+
+Future<void> _configureFirebaseEmulators() async {
+  // StoreKit Local Testing receipt은 운영 Apple 서버에서 검증할 수 없으므로,
+  // emulator + IAP_VERIFICATION_MODE=storekit_local 조합만 허용한다.
+  if (!_useFirebaseEmulators || kReleaseMode) return;
+
+  FirebaseAuth.instance.useAuthEmulator(_firebaseEmulatorHost, 9099);
+  FirebaseFirestore.instance.useFirestoreEmulator(_firebaseEmulatorHost, 8080);
+  FirebaseFunctions.instance.useFunctionsEmulator(_firebaseEmulatorHost, 5001);
+  FirebaseFunctions.instanceFor(
+    region: firebaseFunctionsRegion,
+  ).useFunctionsEmulator(_firebaseEmulatorHost, 5001);
+  debugPrint(
+    '[Firebase] Using local Auth/Firestore/Functions emulators '
+    'host=$_firebaseEmulatorHost',
+  );
 }
 
 void main() {
@@ -110,7 +143,12 @@ void main() {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
+      await _configureFirebaseEmulators();
       FirebaseDiagnostics.logCurrentFirebaseApp('firebase_initialize_success');
+
+      // 화면 수명과 분리해 앱 재실행 때 StoreKit의 미완료 transaction도 처리한다.
+      // 서비스 내부에서 iOS가 아닌 플랫폼은 아무 StoreKit 호출도 하지 않는다.
+      unawaited(IapService.instance.initialize());
 
       // App Check: local web debug builds use a console-registered debug token;
       // deployed web builds require the configured reCAPTCHA v3 provider.

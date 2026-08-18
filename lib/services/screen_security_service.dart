@@ -8,7 +8,7 @@ class ScreenSecurityService {
   static final ScreenSecurityService instance = ScreenSecurityService._();
 
   static const MethodChannel _channel = MethodChannel(
-    'com.yonsei.dating/screen_security',
+    'com.seolleyeon.app/screen_security',
   );
   int _sensitiveScreenDepth = 0;
 
