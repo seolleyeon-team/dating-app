@@ -2508,6 +2508,10 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
     .doc(buildEventTeamMatchLockId(dateKey, requestingTeamSetupId));
 
   const transactionOutcome = await db.runTransaction(async (tx) => {
+    // Firestore 트랜잭션은 모든 read가 write보다 먼저 와야 한다.
+    // stale lock 삭제는 여기서 바로 실행하지 않고 모아 두었다가
+    // 후보 선정이 끝난 write 단계에서 일괄 처리한다.
+    const staleLockRefs: DocumentReference[] = [];
     const requesterLockSnap = await tx.get(requesterLockRef);
     if (requesterLockSnap.exists) {
       const requesterLockData =
@@ -2528,7 +2532,7 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
           };
         }
       }
-      tx.delete(requesterLockRef);
+      staleLockRefs.push(requesterLockRef);
     }
 
     const freshRequestingGroupSnap = await tx.get(requestingGroupRef);
@@ -2565,7 +2569,7 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
             continue;
           }
         }
-        tx.delete(candidateLockRef);
+        staleLockRefs.push(candidateLockRef);
       }
 
       const candidateGroupRef = db
@@ -2622,6 +2626,15 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
       createdAtIso,
     });
 
+    for (const staleLockRef of staleLockRefs) {
+      if (
+        staleLockRef.path === requesterLockRef.path ||
+        staleLockRef.path === selectedCandidateLockRef.path
+      ) {
+        continue;
+      }
+      tx.delete(staleLockRef);
+    }
     tx.set(resultRef, {
       ...resultPreview,
       createdAt: FieldValue.serverTimestamp(),
