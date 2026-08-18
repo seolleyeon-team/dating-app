@@ -7,9 +7,9 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:810450765203:android:81ca13cb23027d875c9466",
+        "mobilesdk_app_id": "1:810450765203:android:685c8e050fcac6b55c9466",
         "android_client_info": {
-          "package_name": "com.yonsei.dating"
+          "package_name": "com.seolleyeon.app"
         }
       },
       "oauth_client": [],

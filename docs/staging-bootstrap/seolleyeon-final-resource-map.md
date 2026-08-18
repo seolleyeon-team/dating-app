@@ -41,8 +41,8 @@ gcloud ... --project=seolleyeon-final
 
 | Platform | Identifier | Current local config status |
 |---|---|---|
-| Android | `com.yonsei.dating` | existing config still references old project until SG-3 regenerates it |
-| iOS | `com.yonsei.dating` | existing config still references old project until SG-3 regenerates it |
+| Android | `com.seolleyeon.app` | current production package identifier |
+| iOS | `com.seolleyeon.app` | current production bundle identifier |
 
 Files that currently require SG-3 staging regeneration:
 

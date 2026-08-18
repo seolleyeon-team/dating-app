@@ -1,7 +1,7 @@
 param(
   [int]$Seconds = 60,
   [string]$Project = "seolleyeon-final",
-  [string]$Package = "com.yonsei.dating",
+  [string]$Package = "com.seolleyeon.app",
   [string]$FunctionService = "createfirebasecustomtoken"
 )
 

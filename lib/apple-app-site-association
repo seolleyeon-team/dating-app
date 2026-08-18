@@ -3,7 +3,7 @@
     "apps": [],
     "details": [
       {
-        "appID": "9A59VHDQDV.com.yonsei.dating",
+        "appID": "9A59VHDQDV.com.seolleyeon.app",
         "paths": [ "/auth/email-link/*", "/auth/email-link", "/*" ]
       }
     ]

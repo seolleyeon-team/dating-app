@@ -72,6 +72,16 @@
                     android:host="seolleyeon-final.web.app"
                     android:pathPrefix="/invite/friend" />
             </intent-filter>
+            <!-- Firebase Auth 이메일 링크: Firebase Hosting 기반 링크 수신 -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="seolleyeon-final.firebaseapp.com"
+                    android:pathPrefix="/__/auth/links" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

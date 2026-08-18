@@ -1,4 +1,4 @@
-package com.yonsei.dating
+package com.seolleyeon.app
 
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -18,9 +18,9 @@ import java.security.cert.X509Certificate
 
 class MainActivity : FlutterActivity() {
 
-    private val CHANNEL = "com.yonsei.dating/open_mail_app"
-    private val KAKAO_CHANNEL = "com.yonsei.dating/kakao_util"
-    private val SCREEN_SECURITY_CHANNEL = "com.yonsei.dating/screen_security"
+    private val CHANNEL = "com.seolleyeon.app/open_mail_app"
+    private val KAKAO_CHANNEL = "com.seolleyeon.app/kakao_util"
+    private val SCREEN_SECURITY_CHANNEL = "com.seolleyeon.app/screen_security"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         normalizeIntentData(intent)

@@ -10,30 +10,12 @@ service cloud.firestore {
     // Email-link token exchange (app stores Firestore token, web reads token)
     // -----------------------------------------------------------------------
     // A token document is NOT proof of identity. It only carries the
-    // (kakaoUserId, email) pair from the app to the verification web page.
-    // The former email-link custom-token callable was removed. Creation still
-    // stays bound to the caller's Kakao-backed Firebase session so this lookup
-    // document cannot be forged for another uid.
+    // (kakaoUserId, email) pair from the server to the verification web page.
+    // Cloud Functions writes this document with the Admin SDK immediately
+    // before sending the Firebase action link. Client writes are deliberately
+    // denied so this endpoint cannot be abused as a mail relay or token forge.
     match /emailLinkTokens/{token} {
-      allow create: if request.auth != null &&
-          request.resource.data.kakaoUserId is string &&
-          request.auth.uid == request.resource.data.kakaoUserId &&
-          request.resource.data.email is string &&
-          isYonseiEmail(request.resource.data.email) &&
-          request.resource.data.createdAt is timestamp &&
-          request.resource.data.expiresAt is timestamp &&
-          request.resource.data.keys().hasOnly([
-            'email',
-            'kakaoUserId',
-            'createdAt',
-            'expiresAt'
-          ]) &&
-          request.resource.data.keys().hasAll([
-            'email',
-            'kakaoUserId',
-            'createdAt',
-            'expiresAt'
-          ]);
+      allow create: if false;
 
       // The verification page is unauthenticated when the email link opens it,
       // so it has to read the document it was handed. The document id is a
@@ -41,9 +23,8 @@ service cloud.firestore {
       allow get: if true;
       allow list: if false;
 
-      allow update: if false;
-      allow delete: if isSelf(resource.data.kakaoUserId);
-}
+      allow update, delete: if false;
+    }
 
         // -----------------------------------------------------------------------
     // Users

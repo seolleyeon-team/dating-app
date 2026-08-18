@@ -144,6 +144,23 @@ class _EventScreenState extends State<EventScreen> {
                                   // 상태 표시줄
                                   const _StatusStrip(),
                                   const SizedBox(height: 16),
+                                  _SeasonMeetingGuideLink(
+                                    onPressed: () =>
+                                        Navigator.of(
+                                          context,
+                                          rootNavigator: true,
+                                        ).pushNamed(
+                                          RouteNames.seasonMeetingPaymentGuide,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  _SeasonMeetingMockLink(
+                                    onPressed: () => Navigator.of(
+                                      context,
+                                      rootNavigator: true,
+                                    ).pushNamed(RouteNames.groupMatch),
+                                  ),
+                                  const SizedBox(height: 16),
                                   // CTA 버튼
                                   _PrimaryCTA(onPressed: _onStartPressed),
                                   const SizedBox(height: 24),
@@ -574,6 +591,97 @@ class _StatusStrip extends StatelessWidget {
             child: Icon(CupertinoIcons.refresh, size: 18, color: primary),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SeasonMeetingGuideLink extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _SeasonMeetingGuideLink({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: () {
+        HapticFeedback.selectionClick();
+        onPressed();
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: seol.cardSurface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: primary.withValues(alpha: 0.16)),
+        ),
+        child: Row(
+          children: [
+            Icon(CupertinoIcons.doc_text, color: primary, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '3:3 시즌 미팅 이용·결제 안내',
+                    style: TextStyle(
+                      fontFamily: 'NanumSquareRound',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: seol.gray800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '예치금, 환불 기준, 서비스 제공 시점을 확인하세요',
+                    style: TextStyle(
+                      fontFamily: 'NanumSquareRound',
+                      fontSize: 12,
+                      color: seol.sectionTitle,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(CupertinoIcons.chevron_right, color: seol.gray400, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SeasonMeetingMockLink extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _SeasonMeetingMockLink({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+
+    return CupertinoButton(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      onPressed: () {
+        HapticFeedback.selectionClick();
+        onPressed();
+      },
+      child: Text(
+        '3:3 매칭 · 예치금 · 단체 채팅 목업 보기',
+        style: TextStyle(
+          fontFamily: 'NanumSquareRound',
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: seol.sectionTitle,
+          decoration: TextDecoration.underline,
+          decorationColor: seol.sectionTitle.withValues(alpha: 0.55),
+        ),
       ),
     );
   }
