@@ -78,6 +78,7 @@ import {
   MEETING_STATUS_TO_APP,
   PARTICIPANT_STATUS_TO_APP,
   asStrArray,
+  canTransitionParticipant,
   commonDateKeys,
   dateKeyOfSlotId,
   fallbackSlotIdFor,
@@ -962,9 +963,21 @@ export async function handleVacancy(params: {
     limit: policy.replacementOfferWaveSize,
   });
 
-  await updateParticipant(params.meetingId, params.vacantUserId, {
-    status: "replacement_pending",
-  });
+  // 이탈자 상태 표시는 FSM이 허용하는 경우에만 한다. 초대 거절자는 이미
+  // cancelled(terminal)이므로 replacement_pending으로 되돌리지 않는다 —
+  // 좌석 대체 탐색 자체는 상태와 무관하게 계속 진행한다.
+  const vacancyParticipants = await loadParticipants(params.meetingId);
+  const vacantParticipant = vacancyParticipants.find(
+    (participant) => participant.userId === params.vacantUserId
+  );
+  if (
+    vacantParticipant != null &&
+    canTransitionParticipant(vacantParticipant.status, "replacement_pending")
+  ) {
+    await updateParticipant(params.meetingId, params.vacantUserId, {
+      status: "replacement_pending",
+    });
+  }
 
   if (ranked.length === 0) {
     await finalizeCancellationWithoutReplacement({
@@ -1378,12 +1391,27 @@ export async function settleCancellation(params: {
       : "participant_left",
   });
 
-  await setApplication(params.userId, {
-    status: params.isNoShowWithoutContact ? "no_show" : "cancelled",
-    stage: "cancelled",
-    open: false,
-    meetingId: null,
-  });
+  // 신청서가 이미 이 미팅에서 분리됐다면(예: 초대 거절로 재오픈된 신청)
+  // 뒤늦은 정산이 새 신청을 cancelled로 덮어쓰지 않는다.
+  const settledApplicationSnap = await db()
+    .collection(BLIND_MEETING_COLLECTIONS.applications)
+    .doc(params.userId)
+    .get();
+  const settledApplicationMeetingId = String(
+    settledApplicationSnap.data()?.meetingId ?? ""
+  ).trim();
+  if (settledApplicationMeetingId === params.meetingId) {
+    await setApplication(params.userId, {
+      status: params.isNoShowWithoutContact ? "no_show" : "cancelled",
+      stage: "cancelled",
+      open: false,
+      meetingId: null,
+    });
+  } else {
+    logger.info("blindMeeting settle skipped detached application", {
+      meetingId: params.meetingId,
+    });
+  }
 
   if (decision.appliesRestriction) {
     await recordNoShow(params.userId, params.meetingId);
@@ -1484,7 +1512,9 @@ export async function cancelMeeting(
   const policy = await loadPolicy();
 
   for (const participant of participants) {
-    if (participant.status === "replaced" || participant.status === "cancelled") {
+    // terminal 상태(replaced/cancelled/completed/no_show/restricted 등)는
+    // FSM상 cancelled 전이가 불가능하므로 건너뛴다.
+    if (!canTransitionParticipant(participant.status, "cancelled")) {
       continue;
     }
     // 정상 참석 예정자에게는 전액 환급 + 다음 미팅 우선권
