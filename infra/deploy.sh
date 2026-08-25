@@ -164,6 +164,10 @@ create_or_update_job recs-rrf "${COMMON_ARGS[@]}" \
   --cpu=1 --memory=2Gi --task-timeout=600 \
   --args="--step=rrf,--project=${PROJECT_ID}"
 
+create_or_update_job recs-daily "${COMMON_ARGS[@]}" \
+  --cpu=1 --memory=2Gi --task-timeout=900 \
+  --args="--step=daily,--project=${PROJECT_ID}"
+
 create_or_update_job recs-verify "${COMMON_ARGS[@]}" \
   --cpu=1 --memory=1Gi --task-timeout=300 \
   --args="--step=verify,--project=${PROJECT_ID}"

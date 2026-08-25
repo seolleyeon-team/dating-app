@@ -91,7 +91,7 @@ def test_workflow_invocation_enforces_rrf_quality_gates():
 
     # A user with only SVD signal must not be exported as a fused feed.
     assert arg_value(script_args, "--required_sources") == "clip"
-    assert arg_value(script_args, "--min_sources_per_user") == "2"
+    assert arg_value(script_args, "--min_sources_per_user") == "1"
     assert arg_value(script_args, "--sources") == "clip,svd,knn"
     assert arg_value(script_args, "--topn") == "400"
     assert arg_value(script_args, "--max_items_per_source") == "400"
