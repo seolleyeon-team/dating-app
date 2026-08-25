@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import 'storage_service.dart';
 import 'user_service.dart';
 import '../shared/utils/privacy_log_utils.dart';
+import '../shared/utils/recommendation_eligibility.dart';
 
 // =============================================================================
 // 공통 AI 추천 프로필 모델
@@ -126,10 +127,19 @@ class AiRecommendationService {
     required String algo,
     required String dateKey,
     required int limit,
+    required String viewerUid,
     Set<String> blockedUids = const {},
   }) async {
     final List<AiRecommendedProfile> results = [];
     final uuid = const Uuid();
+
+    // 최종 serving guard: 생활권은 hard eligibility다.
+    // 배치 단계에서 이미 걸러지지만, 어제자 fallback 문서나 낡은 source가
+    // 남아 있어도 다른 생활권 후보가 노출되지 않도록 여기서 다시 확인한다.
+    final viewerProfile = await _userService.getUserProfile(viewerUid);
+    final viewerZones = RecommendationEligibility.campusLifeZonesOf(
+      viewerProfile,
+    );
 
     // 순위를 보장하기 위해 items 안의 rank나 순서를 기반으로 정렬 (Python 스크립트는 이미 rank 순 정렬)
     final sortedItems = List.from(rawItems);
@@ -160,6 +170,14 @@ class AiRecommendationService {
       if (userProfile['status'] == 'withdrawn' ||
           userProfile['isWithdrawn'] == true ||
           userProfile['profileVisible'] == false) {
+        continue;
+      }
+
+      // 생활권 교집합이 없으면 제외한다 (값이 없으면 fail-closed).
+      if (!RecommendationEligibility.hasCompatibleCampusLifeZone(
+        viewerZones,
+        RecommendationEligibility.campusLifeZonesOf(userProfile),
+      )) {
         continue;
       }
 
@@ -263,6 +281,7 @@ class AiRecommendationService {
           algo: 'svd',
           dateKey: dateKey,
           limit: limit,
+          viewerUid: uid,
           blockedUids: blockedUids,
         );
       }
@@ -318,6 +337,7 @@ class AiRecommendationService {
           algo: algoUsed,
           dateKey: dateKey,
           limit: limit,
+          viewerUid: uid,
           blockedUids: blockedUids,
         );
       }

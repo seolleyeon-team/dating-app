@@ -212,6 +212,7 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
     interestIds,
     mbti,
     availableDateKeys: dateKeys,
+    campusLifeZones: asStrArray(onboarding.campusLifeZones),
     schoolVerified: true,
     eligible: true,
     blockedUserIds: [],

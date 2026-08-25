@@ -243,6 +243,8 @@ type EventTeamMemberSnapshot = {
   shortIntro: string | null;
   birthYear: number | null;
   major: string | null;
+  /** 생활권 (users/{uid}.onboarding.campusLifeZones). 재계산하지 않는다. */
+  campusLifeZones: string[];
 };
 
 type EventTeamCandidateSnapshot = {
@@ -386,7 +388,45 @@ function buildEventTeamMemberSnapshot(
     ),
     birthYear: firstInteger(profileData.birthYear, onboarding.birthYear, userData.birthYear),
     major: firstNonEmptyString(onboarding.major, userData.major),
+    campusLifeZones: normalizeStringList(
+      onboarding.campusLifeZones ?? profileData.campusLifeZones
+    ),
   };
+}
+
+/**
+ * 그룹 전원이 함께 만날 수 있는 공통 생활권 (교집합).
+ *
+ * 다수결/대표자 기준이 아니다. 한 명이라도 생활권 정보가 없으면 빈 배열
+ * (fail-closed). regionId 정책과는 완전히 독립된 별도 축이다.
+ */
+function sharedCampusLifeZones(zoneLists: string[][]): string[] {
+  if (zoneLists.length === 0) return [] as string[];
+  let shared: string[] | null = null;
+  for (const zones of zoneLists) {
+    const normalized = zones
+      .map((zone) => zone.trim())
+      .filter((zone) => zone.length > 0);
+    if (normalized.length === 0) return [];
+    if (shared === null) {
+      shared = [...new Set(normalized)];
+    } else {
+      const allowed = new Set(normalized);
+      shared = shared.filter((zone) => allowed.has(zone));
+    }
+    if (shared.length === 0) return [];
+  }
+  return (shared ?? []).slice().sort();
+}
+
+/** 두 팀이 함께 만날 수 있는지 (양쪽 공통 생활권의 교집합이 비어있지 않은지). */
+function hasCompatibleCampusLifeZones(
+  left: string[],
+  right: string[]
+): boolean {
+  if (left.length === 0 || right.length === 0) return false;
+  const rightSet = new Set(right);
+  return left.some((zone) => rightSet.has(zone));
 }
 
 function buildDeterministicAcceptedOrder(
@@ -595,6 +635,7 @@ function readTeamCandidateSnapshot(
       shortIntro: asStringOrNull(item.shortIntro) ?? null,
       birthYear: firstInteger(item.birthYear),
       major: asStringOrNull(item.major) ?? null,
+      campusLifeZones: normalizeStringList(item.campusLifeZones),
     }));
   if (membersSnapshot.length !== 3) return null;
 
@@ -2442,6 +2483,28 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
     );
   }
 
+  // 요청 팀 세 명의 공통 생활권. meetingGroups 의 파생 필드를 우선 쓰고,
+  // 아직 동기화되지 않았으면 방금 만든 스냅샷에서 직접 계산한다.
+  const requestingTeamZones = (() => {
+    const stored = normalizeStringList(
+      requestingGroupData.sharedCampusLifeZones
+    );
+    if (stored.length > 0) return stored;
+    return sharedCampusLifeZones(
+      requestingTeamSnapshot.membersSnapshot.map((member) =>
+        normalizeStringList(
+          (member as unknown as Record<string, unknown>).campusLifeZones
+        )
+      )
+    );
+  })();
+  if (requestingTeamZones.length === 0) {
+    throw new HttpsError(
+      "failed-precondition",
+      "팀원들의 생활권 정보가 필요해요. 학년·학과 정보를 먼저 등록해주세요."
+    );
+  }
+
   const dateKey = getKstCompactDateKey();
   const recommendationSource = await loadMeetingRecommendationSource(
     requestingTeamSetupId,
@@ -2487,6 +2550,16 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
     }
     const memberUids = normalizeStringList(groupData.memberUids);
     if (sharesAnyMember(acceptedUserIds, memberUids)) {
+      continue;
+    }
+    // 생활권이 다르면 실제로 함께 만날 수 없다. 추천 점수와 무관한
+    // hard eligibility 이므로 stale 추천 문서가 있어도 여기서 막는다.
+    if (
+      !hasCompatibleCampusLifeZones(
+        requestingTeamZones,
+        normalizeStringList(groupData.sharedCampusLifeZones)
+      )
+    ) {
       continue;
     }
     candidateTeams.push(snapshot);

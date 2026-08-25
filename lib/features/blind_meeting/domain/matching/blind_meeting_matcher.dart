@@ -275,6 +275,10 @@ class BlindMeetingMatcher {
         if (left.userIds.intersection(right.userIds).isNotEmpty) continue;
 
         final members = [...left.members, ...right.members];
+        // 비싼 6인 점수 계산 전에 생활권부터 거른다.
+        if (BlindMeetingHardConstraints.sharedCampusLifeZones(members).isEmpty) {
+          continue;
+        }
         if (!BlindMeetingHardConstraints.isGroupAllowed(
           members,
           dateKey: dateKey,

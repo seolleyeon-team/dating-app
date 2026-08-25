@@ -308,6 +308,14 @@ export async function loadCandidate(
     ),
     interestIds: asStrArray(dna.interestIds),
     mbti: asTrimmedOrNull(dna.mbtiSnapshot),
+    // 생활권은 온보딩에서 계산되어 users/{uid}.onboarding 에 저장된 값을
+    // 그대로 읽는다 (grade/department 로 재계산하지 않는다).
+    // users 문서는 위에서 이미 읽었으므로 추가 read 비용이 없다.
+    campusLifeZones: asStrArray(
+      isRecord(user.onboarding)
+        ? (user.onboarding as Record<string, unknown>).campusLifeZones
+        : null
+    ),
     // 날짜 전용 필드를 우선 읽고, 없으면 legacy 슬롯에서 날짜만 복원한다.
     availableDateKeys: readDateKeys(
       dna.availableDateKeys,

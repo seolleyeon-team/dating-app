@@ -17,6 +17,7 @@ from seolleyeon_meeting_common_v1 import (
     log_struct,
     make_firestore_client,
     normalize_optional_str,
+    shared_campus_life_zones,
     stream_collection_documents,
 )
 
@@ -153,6 +154,12 @@ def _build_member_snapshot(
             user_doc.get("birthYear"),
         ),
         "major": _first_non_empty(onboarding.get("major"), user_doc.get("major")),
+        # 생활권. functions/src/index.ts 의 buildEventTeamMemberSnapshot 와
+        # 동일한 값을 써야 meetingGroups 문서가 어긋나지 않는다.
+        "campusLifeZones": coerce_str_list(
+            onboarding.get("campusLifeZones")
+            or (profile_doc or {}).get("campusLifeZones")
+        ),
     }
 
 
@@ -250,6 +257,12 @@ def _build_meeting_group_payload(
         "vibeTagIds": _derive_vibe_tag_ids(team_doc, user_docs),
         "universityIds": university_ids,
         "primaryUniversityId": primary_university_id,
+        # 세 멤버의 생활권 교집합 (파생값). regionId 와 독립된 축이다.
+        "sharedCampusLifeZones": sorted(
+            shared_campus_life_zones(
+                member.get("campusLifeZones", []) for member in members_snapshot
+            )
+        ),
         "expireAt": expire_at,
         "active": is_eligible,
         "isEligibleForMeetingRec": is_eligible,

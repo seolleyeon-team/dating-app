@@ -15,6 +15,46 @@ class RecommendationEligibility {
     'suspended',
   };
 
+  /// `users/{uid}.onboarding.campusLifeZones` 를 읽는다.
+  ///
+  /// 분류는 온보딩의 [CampusLifeZoneResolver] 가 이미 끝냈다. 여기서
+  /// grade/department/RA 로 재계산하지 않으며, 값이 없으면 빈 집합이다.
+  static Set<String> campusLifeZonesOf(Map<String, dynamic>? profile) {
+    if (profile == null) return const <String>{};
+    final onboarding = profile['onboarding'];
+    final raw = onboarding is Map
+        ? onboarding['campusLifeZones']
+        : profile['campusLifeZones'];
+    if (raw is! List) return const <String>{};
+    return raw
+        .map((zone) => zone?.toString().trim() ?? '')
+        .where((zone) => zone.isNotEmpty)
+        .toSet();
+  }
+
+  /// 생활권이 겹치는지. 복수 생활권 사용자를 위해 equality가 아닌 교집합이다.
+  ///
+  /// 생활권은 랭킹 점수가 아니라 hard eligibility이며, 어느 한쪽이라도
+  /// 값이 없으면 추천하지 않는다 (fail-closed).
+  static bool hasCompatibleCampusLifeZone(
+    Set<String> viewerZones,
+    Set<String> candidateZones,
+  ) {
+    if (viewerZones.isEmpty || candidateZones.isEmpty) return false;
+    return viewerZones.intersection(candidateZones).isNotEmpty;
+  }
+
+  /// 뷰어와 후보 프로필 문서로 바로 판정한다.
+  static bool isCampusLifeZoneCompatible(
+    Map<String, dynamic>? viewerProfile,
+    Map<String, dynamic>? candidateProfile,
+  ) {
+    return hasCompatibleCampusLifeZone(
+      campusLifeZonesOf(viewerProfile),
+      campusLifeZonesOf(candidateProfile),
+    );
+  }
+
   /// 후보 계정 자체가 노출 가능한 상태인지.
   static bool isCandidateDisplayable(Map<String, dynamic>? profile) {
     if (profile == null) return false;

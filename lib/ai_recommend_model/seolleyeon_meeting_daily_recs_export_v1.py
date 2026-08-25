@@ -20,6 +20,7 @@ from seolleyeon_meeting_common_v1 import (
     build_group_embedding_bundle,
     build_group_recent_action_maps,
     build_member_profile_view,
+    campus_zone_compatibility,
     coerce_str_list,
     firestore,
     group_diversity_similarity,
@@ -223,6 +224,20 @@ def main() -> int:
                 continue
             if int(args.exclude_recent_exposure_days) > 0 and group_id in recent_exposure_map.get(actor_group_id, set()):
                 filter_reasons["recent_exposure_exclusion"] += 1
+                continue
+            # 방어적 재검사: upstream(group_ranker) 문서가 낡았더라도
+            # cross-zone 그룹이 최종 추천으로 나가지 않게 한다.
+            candidate_record = records.get(group_id)
+            actor_index_record = records.get(actor_group_id)
+            if candidate_record is None or actor_index_record is None:
+                filter_reasons["missing_group_index"] += 1
+                continue
+            zone_ok, zone_reason = campus_zone_compatibility(
+                actor_index_record.shared_campus_life_zones,
+                candidate_record.shared_campus_life_zones,
+            )
+            if not zone_ok:
+                filter_reasons[zone_reason or "campus_life_zone_mismatch"] += 1
                 continue
             filtered_items.append(item)
 

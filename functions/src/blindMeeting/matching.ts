@@ -43,6 +43,12 @@ export type Candidate = {
   smokingStatus: SmokingStatus;
   interestIds: string[];
   mbti: string | null;
+  /**
+   * 생활권 (users/{uid}.onboarding.campusLifeZones 에 저장된 값).
+   * 분류는 클라이언트 CampusLifeZoneResolver 가 담당하며 여기서 재계산하지
+   * 않는다. 복수 생활권이 가능하므로 집합 교집합으로만 비교한다.
+   */
+  campusLifeZones: string[];
   /** 참여 가능한 날짜 (KST `yyyy-MM-dd`). 세부 시간은 매칭 조건이 아니다. */
   availableDateKeys: string[];
   schoolVerified: boolean;
@@ -64,7 +70,11 @@ export type ConstraintViolation =
   | "smokingRejected"
   | "purposeConflict"
   | "duplicateParticipant"
-  | "invalidGroupSize";
+  | "invalidGroupSize"
+  /** 여섯 명이 함께 만날 수 있는 공통 생활권이 없다 */
+  | "campusLifeZoneMismatch"
+  /** 생활권 정보가 없어 판정할 수 없다 (fail-closed) */
+  | "campusLifeZoneMissing";
 
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -518,6 +528,41 @@ export function waitingTimeBonus(
 // hard constraint
 // -----------------------------------------------------------------------------
 
+/**
+ * 그룹 전원이 함께 만날 수 있는 공통 생활권.
+ *
+ * 다수결/대표자 기준이 아니라 반드시 교집합이다. 한 명이라도 생활권 정보가
+ * 없으면 빈 집합을 돌려준다 (fail-closed).
+ */
+export function sharedCampusLifeZones(members: Candidate[]): string[] {
+  if (members.length === 0) return [];
+  let shared: Set<string> | null = null;
+  for (const member of members) {
+    const zones = new Set(
+      member.campusLifeZones
+        .map((zone) => zone.trim())
+        .filter((zone) => zone.length > 0)
+    );
+    if (zones.size === 0) return [];
+    if (shared == null) {
+      shared = zones;
+      continue;
+    }
+    shared = new Set([...shared].filter((zone) => zones.has(zone)));
+    if (shared.size === 0) return [];
+  }
+  return [...(shared ?? new Set<string>())].sort();
+}
+
+/** 생활권 정보가 비어 있는 참가자가 하나라도 있는지. */
+function hasMissingCampusLifeZone(members: Candidate[]): boolean {
+  return members.some(
+    (member) =>
+      member.campusLifeZones.filter((zone) => zone.trim().length > 0).length ===
+      0
+  );
+}
+
 export function checkCandidateConstraints(
   candidate: Candidate,
   dateKey: string,
@@ -611,6 +656,16 @@ export function checkGroupConstraints(
       for (const v of checkPairConstraints(members[i], members[j])) {
         violations.add(v);
       }
+    }
+  }
+  // 생활권은 날짜와 달리 per-candidate proxy가 없는 진짜 그룹 속성이라
+  // (개인은 여러 생활권을 가질 수 있다) 여기서 교집합을 직접 확인한다.
+  // 실제로 함께 만나려면 전원이 최소 하나의 공통 생활권을 가져야 한다.
+  if (members.length > 0) {
+    if (hasMissingCampusLifeZone(members)) {
+      violations.add("campusLifeZoneMissing");
+    } else if (sharedCampusLifeZones(members).length === 0) {
+      violations.add("campusLifeZoneMismatch");
     }
   }
   // 공통 가능 날짜 검사는 의도적으로 여기서 하지 않는다.
@@ -793,6 +848,9 @@ export function bestGroup(
       if (overlaps) continue;
 
       const members = [...left.members, ...right.members];
+      // 비싼 6인 점수 계산 전에 생활권부터 거른다.
+      // (isGroupAllowed 도 같은 조건을 강제하지만 O(36) pair loop보다 싸다)
+      if (sharedCampusLifeZones(members).length === 0) continue;
       if (!isGroupAllowed(members, dateKey, alcoholFree, 6)) continue;
 
       const score = groupScore(

@@ -22,6 +22,7 @@ from seolleyeon_meeting_common_v1 import (
     build_group_embedding_bundle,
     build_group_recent_action_maps,
     build_member_profile_view,
+    campus_zone_compatibility,
     coerce_str_list,
     compute_group_score,
     firestore,
@@ -64,6 +65,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--allow_missing_region", dest="allow_missing_region", action="store_true")
     parser.add_argument("--disallow_missing_region", dest="allow_missing_region", action="store_false")
     parser.set_defaults(allow_missing_region=True)
+    # 생활권은 regionId 와 독립된 별도 정책이다. 기본값은 fail-closed.
+    parser.add_argument(
+        "--allow_missing_campus_zone",
+        dest="allow_missing_campus_zone",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--disallow_missing_campus_zone",
+        dest="allow_missing_campus_zone",
+        action="store_false",
+    )
+    parser.set_defaults(allow_missing_campus_zone=False)
     parser.add_argument("--exclude_recent_nope_days", default=14, type=int)
     parser.add_argument("--exclude_recent_exposure_days", default=3, type=int)
     parser.add_argument("--block_history_days", default=365, type=int)
@@ -236,6 +249,17 @@ def main() -> int:
                 candidate_record = ready_groups[candidate_group_id]
                 if shares_member(actor_record.member_uids, candidate_record.member_uids):
                     continue
+                # 생활권은 후보 풀 truncation 전에 적용해야 한다. 나중에 걸면
+                # cross-zone 후보가 상위 pool_limit을 점유해 같은 생활권 팀이
+                # 후보군 밖으로 밀려난다.
+                zone_ok, zone_reason = campus_zone_compatibility(
+                    actor_record.shared_campus_life_zones,
+                    candidate_record.shared_campus_life_zones,
+                    allow_missing_campus_zone=bool(args.allow_missing_campus_zone),
+                )
+                if not zone_ok:
+                    reason_counts[zone_reason or "campus_life_zone_mismatch"] += 1
+                    continue
                 candidate_group_ids.append(candidate_group_id)
                 if len(candidate_group_ids) >= pool_limit:
                     break
@@ -264,6 +288,14 @@ def main() -> int:
                 continue
             if has_cross_block_pair(actor_record.member_uids, candidate_record.member_uids, blocked_pairs):
                 reason_counts["cross_block_or_report"] += 1
+                continue
+            zone_ok, zone_reason = campus_zone_compatibility(
+                actor_record.shared_campus_life_zones,
+                candidate_record.shared_campus_life_zones,
+                allow_missing_campus_zone=bool(args.allow_missing_campus_zone),
+            )
+            if not zone_ok:
+                reason_counts[zone_reason or "campus_life_zone_mismatch"] += 1
                 continue
 
             assignment = best_group_assignment(

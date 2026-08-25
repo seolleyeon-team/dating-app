@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import math
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from itertools import permutations
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
@@ -22,6 +22,12 @@ except Exception:  # pragma: no cover
     FieldFilter = None
 
 from seolleyeon_clip_embedder import SeolleyeonCLIPEmbedder
+from campus_life_zone_policy import (
+    campus_zone_compatibility,
+    normalize_campus_life_zones,
+    read_campus_life_zones_from_user_doc,
+    shared_campus_life_zones,
+)
 from seolleyeon_rec_common_v3 import parse_firestore_like_ts
 
 
@@ -312,6 +318,9 @@ class MemberProfileView:
     interest_tag_ids: List[str]
     lifestyle_tag_ids: List[str]
     photo_urls: List[str]
+    # 생활권. users/{uid}.onboarding.campusLifeZones 에 저장된 값을 그대로
+    # 읽는다 (grade/department 로 재계산하지 않는다).
+    campus_life_zones: List[str] = field(default_factory=list)
 
 
 def build_member_profile_view(
@@ -392,6 +401,10 @@ def build_member_profile_view(
         user_keys=("lifestyleTagIds", "keywords"),
     )
     photo_urls = _extract_photo_urls(user_doc)
+    campus_life_zones = sorted(
+        read_campus_life_zones_from_user_doc(user_doc)
+        or normalize_campus_life_zones(profile_doc.get("campusLifeZones"))
+    )
 
     return MemberProfileView(
         uid=uid,
@@ -409,6 +422,7 @@ def build_member_profile_view(
         interest_tag_ids=interest_tag_ids,
         lifestyle_tag_ids=lifestyle_tag_ids,
         photo_urls=photo_urls,
+        campus_life_zones=campus_life_zones,
     )
 
 
@@ -444,6 +458,9 @@ class MeetingGroupIndexRecord:
     skip_reason: Optional[str]
     skip_reasons: List[str]
     member_profile_missing_uids: List[str]
+    # 세 멤버 전원이 공유하는 생활권 (교집합). 다수결이 아니며,
+    # users.campusLifeZones 에서 파생된 값일 뿐 새 source of truth가 아니다.
+    shared_campus_life_zones: List[str] = field(default_factory=list)
 
     def to_document(self) -> Dict[str, Any]:
         return {
@@ -476,6 +493,7 @@ class MeetingGroupIndexRecord:
             "skipReason": self.skip_reason,
             "skipReasons": self.skip_reasons,
             "memberProfileMissingUids": self.member_profile_missing_uids,
+            "sharedCampusLifeZones": self.shared_campus_life_zones,
         }
 
     @classmethod
@@ -511,6 +529,7 @@ class MeetingGroupIndexRecord:
             skip_reason=normalize_optional_str(data.get("skipReason")),
             skip_reasons=coerce_str_list(data.get("skipReasons")),
             member_profile_missing_uids=coerce_str_list(data.get("memberProfileMissingUids")),
+            shared_campus_life_zones=coerce_str_list(data.get("sharedCampusLifeZones")),
         )
 
 
@@ -586,6 +605,17 @@ def build_group_index_record(
     if member_views and min(manners or [0.0]) < float(manner_min_threshold):
         skip_reasons.append("low_manner")
 
+    # 세 멤버가 실제로 함께 만날 수 있으려면 공통 생활권이 하나는 있어야 한다.
+    # 다수결/대표자 기준이 아니라 교집합이며, 한 명이라도 값이 없으면 비어 있다.
+    group_campus_life_zones = sorted(
+        shared_campus_life_zones(view.campus_life_zones for view in member_views)
+    ) if member_views else []
+    if member_views and not group_campus_life_zones:
+        if any(not view.campus_life_zones for view in member_views):
+            skip_reasons.append("missing_campus_life_zones")
+        else:
+            skip_reasons.append("no_shared_campus_life_zone")
+
     index_status = "ready" if not skip_reasons else "skipped"
     skip_reason = skip_reasons[0] if skip_reasons else None
 
@@ -622,6 +652,7 @@ def build_group_index_record(
         skip_reason=skip_reason,
         skip_reasons=skip_reasons,
         member_profile_missing_uids=missing_member_profile_uids,
+        shared_campus_life_zones=group_campus_life_zones,
     )
 
 

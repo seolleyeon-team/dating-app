@@ -19,6 +19,7 @@ import {
   groupScore,
   rankReplacements,
   requiresAlcoholFreeGroup,
+  sharedCampusLifeZones,
   standardPool,
 } from "./matching";
 import { CURRENT_MATCHING_CONFIG } from "./matchingConfig";
@@ -222,6 +223,19 @@ export async function createMeetingFromProposal(
   // 여섯 명이 공통으로 가능한 날짜가 없으면 확정하지 않는다.
   if (proposal.commonDateKeys.length === 0) {
     logger.warn("blindMeeting proposal rejected: no common date", {
+      dateKey: proposal.dateKey,
+    });
+    return null;
+  }
+
+  // 최종 안전망: 여섯 명이 실제로 함께 만날 수 있는 공통 생활권이 있어야 한다.
+  // 후보 생성 단계에서 이미 걸러지지만, 확정 직전에 다시 확인한다.
+  const proposalZones = sharedCampusLifeZones([
+    ...proposal.teamA,
+    ...proposal.teamB,
+  ]);
+  if (proposalZones.length === 0) {
+    logger.warn("blindMeeting proposal rejected: no shared campus life zone", {
       dateKey: proposal.dateKey,
     });
     return null;
