@@ -117,6 +117,10 @@ jobs:
       - run: pytest -q recsys/tests --maxfail=20
         env:
           PYTHONPATH: .
+      # 추천 정책(생활권·차단·학교) 회귀는 CI에서도 막아야 한다.
+      - run: pytest -q tests/test_rec_policy_and_blocks.py tests/test_recsys_policy_args.py --maxfail=20
+        env:
+          PYTHONPATH: .
 
   secret-scan:
     name: Secret scan (gitleaks)

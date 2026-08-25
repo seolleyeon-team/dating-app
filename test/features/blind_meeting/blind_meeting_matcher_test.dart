@@ -492,4 +492,161 @@ void main() {
       }
     });
   });
+
+  group('생활권 hard constraint', () {
+    List<BlindMeetingCandidate> zonedTeam(String prefix, Set<String> zones) =>
+        balancedTeam(prefix)
+            .map((member) => member.copyWith(campusLifeZones: zones))
+            .toList();
+
+    test('그룹 공통 생활권은 교집합이며 다수결이 아니다', () {
+      expect(
+        BlindMeetingHardConstraints.sharedCampusLifeZones([
+          candidate('a', campusLifeZones: const {'sinchon'}),
+          candidate('b', campusLifeZones: const {'sinchon'}),
+          candidate('c', campusLifeZones: const {'sinchon'}),
+        ]),
+        {'sinchon'},
+      );
+      expect(
+        BlindMeetingHardConstraints.sharedCampusLifeZones([
+          candidate('a', campusLifeZones: const {'songdo'}),
+          candidate('b', campusLifeZones: const {'songdo'}),
+          candidate('c', campusLifeZones: const {'sinchon', 'songdo'}),
+        ]),
+        {'songdo'},
+      );
+      // 2명이 신촌이어도 신촌 그룹이 되지 않는다
+      expect(
+        BlindMeetingHardConstraints.sharedCampusLifeZones([
+          candidate('a', campusLifeZones: const {'sinchon'}),
+          candidate('b', campusLifeZones: const {'sinchon'}),
+          candidate('c', campusLifeZones: const {'songdo'}),
+        ]),
+        isEmpty,
+      );
+      // dual-zone 이 bridge 역할을 해도 전체 공통이 없으면 실패
+      expect(
+        BlindMeetingHardConstraints.sharedCampusLifeZones([
+          candidate('a', campusLifeZones: const {'sinchon'}),
+          candidate('b', campusLifeZones: const {'songdo'}),
+          candidate('c', campusLifeZones: const {'sinchon', 'songdo'}),
+        ]),
+        isEmpty,
+      );
+    });
+
+    test('생활권이 비면 fail-closed 로 판정한다', () {
+      final violations = BlindMeetingHardConstraints.checkGroup(
+        [
+          candidate('a', campusLifeZones: const {'sinchon'}),
+          candidate('b', campusLifeZones: const <String>{}),
+        ],
+        dateKey: kDateKey,
+        alcoholFreeGroup: false,
+      );
+      expect(
+        violations,
+        contains(BlindMeetingConstraintViolation.campusLifeZoneMissing),
+      );
+    });
+
+    test('공통 생활권이 없는 6인은 hard constraint 위반이다', () {
+      final members = [
+        ...zonedTeam('a', const {'sinchon'}),
+        ...zonedTeam('b', const {'songdo'}),
+      ];
+      expect(
+        BlindMeetingHardConstraints.checkGroup(
+          members,
+          dateKey: kDateKey,
+          alcoholFreeGroup: false,
+          expectedSize: 6,
+        ),
+        contains(BlindMeetingConstraintViolation.campusLifeZoneMismatch),
+      );
+    });
+
+    test('신촌 3명 + 송도 3명은 점수와 무관하게 매칭되지 않는다', () {
+      final zonedPool = [
+        ...zonedTeam('sin', const {'sinchon'}),
+        ...zonedTeam('song', const {'songdo'}),
+      ];
+      expect(
+        matcher.bestGroup(
+          pool: zonedPool,
+          dateKey: kDateKey,
+          alcoholFree: false,
+        ),
+        isNull,
+      );
+    });
+
+    test('같은 생활권 6명은 정상 매칭된다', () {
+      final zonedPool = [
+        ...zonedTeam('a', const {'sinchon'}),
+        ...zonedTeam('b', const {'sinchon'}),
+      ];
+      final group = matcher.bestGroup(
+        pool: zonedPool,
+        dateKey: kDateKey,
+        alcoholFree: false,
+      );
+      expect(group, isNotNull);
+      final resolved = group!;
+      expect(
+        BlindMeetingHardConstraints.sharedCampusLifeZones([
+          ...resolved.teamA.members,
+          ...resolved.teamB.members,
+        ]),
+        {'sinchon'},
+      );
+    });
+
+    test('dual-zone 사용자는 양쪽 생활권 그룹에 참여할 수 있다', () {
+      for (final zone in ['sinchon', 'songdo']) {
+        final zonedPool = [
+          ...zonedTeam('a', {zone}),
+          ...zonedTeam('b', const {'sinchon', 'songdo'}),
+        ];
+        final group = matcher.bestGroup(
+          pool: zonedPool,
+          dateKey: kDateKey,
+          alcoholFree: false,
+        );
+        expect(group, isNotNull, reason: '$zone 그룹이 구성되어야 한다');
+        final resolved = group!;
+        expect(
+          BlindMeetingHardConstraints.sharedCampusLifeZones([
+            ...resolved.teamA.members,
+            ...resolved.teamB.members,
+          ]),
+          {zone},
+        );
+      }
+    });
+
+    test('생활권은 기존 hard constraint 를 대체하지 않는다', () {
+      final violations = BlindMeetingHardConstraints.checkGroup(
+        [
+          candidate(
+            'a',
+            campusLifeZones: const {'sinchon'},
+            blocked: const {'b'},
+          ),
+          candidate('b', campusLifeZones: const {'sinchon'}),
+        ],
+        dateKey: kDateKey,
+        alcoholFreeGroup: false,
+      );
+      expect(
+        violations,
+        contains(BlindMeetingConstraintViolation.blockedContact),
+      );
+      expect(
+        violations,
+        isNot(contains(BlindMeetingConstraintViolation.campusLifeZoneMismatch)),
+      );
+    });
+  });
 }

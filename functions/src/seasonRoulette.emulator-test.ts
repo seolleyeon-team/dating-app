@@ -66,6 +66,7 @@ async function seedSpinWorld(): Promise<void> {
       name: uid,
       isStudentVerified: true,
       studentEmail: `${uid}@yonsei.ac.kr`,
+      onboarding: { campusLifeZones: ["sinchon"] },
     });
   }
   await db.collection("eventTeamSetups").doc(TEAM_A).set({
@@ -81,6 +82,7 @@ async function seedSpinWorld(): Promise<void> {
     status: "open",
     active: true,
     isEligibleForMeetingRec: true,
+    sharedCampusLifeZones: ["sinchon"],
   });
   await db
     .collection("meetingDailyRecs")
@@ -175,6 +177,7 @@ test("E2E: spin recovers from a stale lock whose result doc is missing", async (
       name: uid,
       isStudentVerified: true,
       studentEmail: `${uid}@yonsei.ac.kr`,
+      onboarding: { campusLifeZones: ["sinchon"] },
     });
   }
   await db.collection("eventTeamSetups").doc(teamA).set({
@@ -190,6 +193,7 @@ test("E2E: spin recovers from a stale lock whose result doc is missing", async (
     status: "open",
     active: true,
     isEligibleForMeetingRec: true,
+    sharedCampusLifeZones: ["sinchon"],
   });
   const dateKey = kstCompactDateKey();
   await db
@@ -232,4 +236,146 @@ test("E2E: spin recovers from a stale lock whose result doc is missing", async (
     .get();
   assert.equal(lockA.data()?.resultId, resultId, "stale requester lock이 새 결과로 교체되어야 한다");
   assert.equal(lockB.data()?.resultId, resultId, "stale candidate lock이 새 결과로 교체되어야 한다");
+});
+
+// -----------------------------------------------------------------------------
+// 생활권 hard eligibility — 다른 생활권 팀은 추천 후보에 오르지 않는다
+// -----------------------------------------------------------------------------
+test("E2E: a cross-zone team is never offered as a roulette candidate", async () => {
+  const teamA = "zoneTeamA";
+  const sameZoneTeam = "zoneTeamSame";
+  const crossZoneTeam = "zoneTeamCross";
+  const aUids = ["zone_a1", "zone_a2", "zone_a3"];
+  const sameUids = ["zone_s1", "zone_s2", "zone_s3"];
+  const crossUids = ["zone_x1", "zone_x2", "zone_x3"];
+
+  const seedUsers = async (uids: string[], zones: string[]) => {
+    for (const uid of uids) {
+      await db.collection("users").doc(uid).set({
+        name: uid,
+        isStudentVerified: true,
+        studentEmail: `${uid}@yonsei.ac.kr`,
+        onboarding: { campusLifeZones: zones },
+      });
+    }
+  };
+  const seedGroup = async (groupId: string, uids: string[], zones: string[]) => {
+    await db.collection("meetingGroups").doc(groupId).set({
+      groupId,
+      memberUids: uids,
+      memberCount: 3,
+      membersSnapshot: uids.map((uid) => ({
+        uid,
+        displayName: uid,
+        isVerified: true,
+        campusLifeZones: zones,
+      })),
+      status: "open",
+      active: true,
+      isEligibleForMeetingRec: true,
+      sharedCampusLifeZones: zones,
+    });
+  };
+
+  await seedUsers(aUids, ["sinchon"]);
+  await seedUsers(sameUids, ["sinchon"]);
+  await seedUsers(crossUids, ["songdo"]);
+  await db.collection("eventTeamSetups").doc(teamA).set({
+    leaderUserId: aUids[0],
+    acceptedUserIds: aUids,
+    status: "ready",
+  });
+  await seedGroup(sameZoneTeam, sameUids, ["sinchon"]);
+  await seedGroup(crossZoneTeam, crossUids, ["songdo"]);
+
+  // 추천 문서에는 cross-zone 팀을 더 높은 점수로 먼저 넣는다.
+  // stale/낡은 추천이 있어도 serving 단계에서 걸러져야 한다.
+  await db
+    .collection("meetingDailyRecs")
+    .doc(teamA)
+    .collection("days")
+    .doc(kstCompactDateKey())
+    .set({
+      status: "ready",
+      candidates: [
+        { groupId: crossZoneTeam, scoreTotal: 9.9 },
+        { groupId: sameZoneTeam, scoreTotal: 0.1 },
+      ],
+    });
+
+  const spin = (await run(spinSeasonMeetingRoulette, aUids[0], {
+    teamSetupId: teamA,
+  })) as Record<string, unknown>;
+
+  const result = spin.result as Record<string, unknown>;
+  const matched = result.matchedTeamSnapshot as Record<string, unknown>;
+  assert.equal(
+    String(matched.groupId),
+    sameZoneTeam,
+    "생활권이 같은 팀만 매칭되어야 한다"
+  );
+
+  const candidateIds = (result.candidateGroupIds as string[]).map(String);
+  assert.ok(
+    candidateIds.includes(sameZoneTeam),
+    "같은 생활권 팀은 후보에 남아야 한다"
+  );
+  assert.ok(
+    !candidateIds.includes(crossZoneTeam),
+    "다른 생활권 팀은 후보 목록에도 오르면 안 된다"
+  );
+});
+
+test("E2E: a team without campus life zones cannot spin (fail-closed)", async () => {
+  const teamA = "noZoneTeamA";
+  const peerTeam = "noZonePeer";
+  const aUids = ["nozone_a1", "nozone_a2", "nozone_a3"];
+  const peerUids = ["nozone_p1", "nozone_p2", "nozone_p3"];
+
+  for (const uid of aUids) {
+    // 생활권 없이 학년/학과만 있는 사용자 — 추천기가 재계산하지 않는다.
+    await db.collection("users").doc(uid).set({
+      name: uid,
+      isStudentVerified: true,
+      studentEmail: `${uid}@yonsei.ac.kr`,
+      onboarding: { grade: "1학년", department: "첨단융합공학부" },
+    });
+  }
+  for (const uid of peerUids) {
+    await db.collection("users").doc(uid).set({
+      name: uid,
+      isStudentVerified: true,
+      studentEmail: `${uid}@yonsei.ac.kr`,
+      onboarding: { campusLifeZones: ["songdo"] },
+    });
+  }
+  await db.collection("eventTeamSetups").doc(teamA).set({
+    leaderUserId: aUids[0],
+    acceptedUserIds: aUids,
+    status: "ready",
+  });
+  await db.collection("meetingGroups").doc(peerTeam).set({
+    groupId: peerTeam,
+    memberUids: peerUids,
+    memberCount: 3,
+    membersSnapshot: peerUids.map((uid) => ({ uid, displayName: uid })),
+    status: "open",
+    active: true,
+    isEligibleForMeetingRec: true,
+    sharedCampusLifeZones: ["songdo"],
+  });
+  await db
+    .collection("meetingDailyRecs")
+    .doc(teamA)
+    .collection("days")
+    .doc(kstCompactDateKey())
+    .set({
+      status: "ready",
+      candidates: [{ groupId: peerTeam, scoreTotal: 1.0 }],
+    });
+
+  await assert.rejects(
+    run(spinSeasonMeetingRoulette, aUids[0], { teamSetupId: teamA }),
+    (error: { code?: string }) => error.code === "failed-precondition"
+  );
 });

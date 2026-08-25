@@ -158,4 +158,136 @@ void main() {
       expect(recommendable(null), isFalse);
     });
   });
+
+  group('생활권 (campus life zone) 최종 serving guard', () {
+    Map<String, dynamic> withZones(List<String>? zones) => {
+      if (zones != null) 'onboarding': {'campusLifeZones': zones},
+    };
+
+    test('저장 경로 users/{uid}.onboarding.campusLifeZones 를 읽는다', () {
+      expect(
+        RecommendationEligibility.campusLifeZonesOf(
+          withZones(['sinchon', 'songdo']),
+        ),
+        {'sinchon', 'songdo'},
+      );
+    });
+
+    test('값이 없으면 학년·학과로 추측하지 않고 빈 집합이다', () {
+      expect(
+        RecommendationEligibility.campusLifeZonesOf({
+          'onboarding': {'grade': '1학년', 'department': '첨단융합공학부'},
+        }),
+        isEmpty,
+      );
+      expect(RecommendationEligibility.campusLifeZonesOf(null), isEmpty);
+    });
+
+    test('공백·빈 문자열은 무시한다', () {
+      expect(
+        RecommendationEligibility.campusLifeZonesOf(
+          withZones([' sinchon ', '', '  ']),
+        ),
+        {'sinchon'},
+      );
+    });
+
+    test('같은 생활권끼리만 추천된다', () {
+      expect(
+        RecommendationEligibility.isCampusLifeZoneCompatible(
+          withZones(['sinchon']),
+          withZones(['sinchon']),
+        ),
+        isTrue,
+      );
+      expect(
+        RecommendationEligibility.isCampusLifeZoneCompatible(
+          withZones(['songdo']),
+          withZones(['songdo']),
+        ),
+        isTrue,
+      );
+      expect(
+        RecommendationEligibility.isCampusLifeZoneCompatible(
+          withZones(['sinchon']),
+          withZones(['songdo']),
+        ),
+        isFalse,
+      );
+    });
+
+    test('복수 생활권 사용자는 양쪽 모두와 추천 가능하다', () {
+      for (final other in ['sinchon', 'songdo']) {
+        expect(
+          RecommendationEligibility.isCampusLifeZoneCompatible(
+            withZones(['sinchon', 'songdo']),
+            withZones([other]),
+          ),
+          isTrue,
+          reason: 'dual-zone ↔ $other 는 추천 가능해야 한다',
+        );
+        expect(
+          RecommendationEligibility.isCampusLifeZoneCompatible(
+            withZones([other]),
+            withZones(['sinchon', 'songdo']),
+          ),
+          isTrue,
+        );
+      }
+      expect(
+        RecommendationEligibility.isCampusLifeZoneCompatible(
+          withZones(['sinchon', 'songdo']),
+          withZones(['sinchon', 'songdo']),
+        ),
+        isTrue,
+      );
+    });
+
+    test('생활권이 없으면 fail-closed (아무 생활권이나 추천하지 않는다)', () {
+      expect(
+        RecommendationEligibility.isCampusLifeZoneCompatible(
+          withZones(['sinchon']),
+          withZones(const []),
+        ),
+        isFalse,
+      );
+      expect(
+        RecommendationEligibility.isCampusLifeZoneCompatible(
+          withZones(['sinchon']),
+          withZones(null),
+        ),
+        isFalse,
+      );
+      expect(
+        RecommendationEligibility.isCampusLifeZoneCompatible(
+          withZones(null),
+          withZones(['songdo']),
+        ),
+        isFalse,
+      );
+    });
+
+    test('판정은 대칭이다', () {
+      const zoneSets = [
+        ['sinchon'],
+        ['songdo'],
+        ['sinchon', 'songdo'],
+        <String>[],
+      ];
+      for (final left in zoneSets) {
+        for (final right in zoneSets) {
+          expect(
+            RecommendationEligibility.isCampusLifeZoneCompatible(
+              withZones(left),
+              withZones(right),
+            ),
+            RecommendationEligibility.isCampusLifeZoneCompatible(
+              withZones(right),
+              withZones(left),
+            ),
+          );
+        }
+      }
+    });
+  });
 }
