@@ -23,6 +23,9 @@ except Exception:  # pragma: no cover
 
 from seolleyeon_clip_embedder import SeolleyeonCLIPEmbedder
 from campus_life_zone_policy import (
+    ACTIVATION_ENFORCED,
+    ACTIVATION_OFF,
+    load_campus_life_zone_activation_with_version,
     campus_zone_compatibility,
     load_campus_life_zone_enforced,
     normalize_campus_life_zones,
@@ -1370,3 +1373,58 @@ def group_diversity_similarity(
         and left.region_id == right.region_id
     ) else 0.0
     return clamp01((0.60 * centroid_score) + (0.25 * same_university) + (0.15 * same_region))
+
+
+# -----------------------------------------------------------------------------
+# 생활권 정책 provenance
+#
+# 1:1 추천 문서와 같은 계약을 쓴다. "이 문서가 어떤 생활권 정책 상태에서
+# 만들어졌는지"를 문서 자체에 남겨야, config 를 읽지 못하는 순간에도 소비자와
+# 검증이 근거를 갖는다. 로그만으로는 문서 하나하나의 출처를 알 수 없다.
+# -----------------------------------------------------------------------------
+
+CAMPUS_LIFE_ZONE_POLICY_FIELD = "campusLifeZone"
+CAMPUS_LIFE_ZONE_POLICY_VERSION_FIELD = "campusLifeZonePolicyVersion"
+
+
+def meeting_policy_provenance(state: str, version: int = 0) -> dict:
+    """미팅 추천 문서에 남길 정책 provenance."""
+    return {
+        CAMPUS_LIFE_ZONE_POLICY_FIELD: state,
+        CAMPUS_LIFE_ZONE_POLICY_VERSION_FIELD: int(version),
+    }
+
+
+def read_meeting_policy_state(doc) -> str | None:
+    """문서에 기록된 생활권 정책 상태. provenance 가 없으면 None (legacy)."""
+    if not isinstance(doc, dict):
+        return None
+    policy = doc.get("policy")
+    if not isinstance(policy, dict):
+        return None
+    state = policy.get(CAMPUS_LIFE_ZONE_POLICY_FIELD)
+    return state if isinstance(state, str) and state else None
+
+
+def upstream_policy_matches(expected_state: str, source_doc) -> bool:
+    """upstream 문서를 이 정책 상태로 재사용해도 되는지.
+
+    정책이 켜진 뒤에는 "생활권을 적용하지 않고 만든" 상위 문서를 그대로
+    내려보내면 안 된다. provenance 가 없는 legacy 문서도 마찬가지다.
+    아직 켜지 않은 준비 단계(OFF)에서는 legacy 문서를 그대로 허용한다 —
+    그 시점에는 생활권으로 거른 것이 없으므로 섞일 위험이 없다.
+    """
+    source_state = read_meeting_policy_state(source_doc)
+    if expected_state == ACTIVATION_ENFORCED:
+        return source_state == ACTIVATION_ENFORCED
+    if source_state is None:
+        return True
+    return source_state == expected_state
+
+
+def load_meeting_campus_zone_activation(db) -> tuple[str, int]:
+    """미팅 배치용 activation 조회.
+
+    조회 실패는 예외로 올라가 배치가 중단된다 (1:1 배치와 같은 계약).
+    """
+    return load_campus_life_zone_activation_with_version(db)

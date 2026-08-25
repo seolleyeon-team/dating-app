@@ -24,7 +24,10 @@ from seolleyeon_meeting_common_v1 import (
     build_member_profile_view,
     campus_zone_compatibility,
     coerce_str_list,
-    load_campus_life_zone_enforced,
+    ACTIVATION_ENFORCED,
+    ACTIVATION_OFF,
+    load_meeting_campus_zone_activation,
+    meeting_policy_provenance,
     compute_group_score,
     firestore,
     has_cross_block_pair,
@@ -146,15 +149,27 @@ def main() -> int:
 
     db = make_firestore_client(args.firestore_project, database=args.firestore_database)
     # rollout activation: CLI 로 명시하지 않으면 config 문서를 따른다.
-    campus_zone_enforced = (
-        bool(args.enforce_campus_life_zone)
-        if args.enforce_campus_life_zone is not None
-        else load_campus_life_zone_enforced(db)
+    # 조회에 실패하면 예외가 올라가 배치가 중단된다 — 활성화 여부를 모른 채
+    # 미팅 추천을 새로 쓰지 않는다 (1:1 배치와 같은 계약).
+    if args.enforce_campus_life_zone is not None:
+        campus_zone_state = (
+            ACTIVATION_ENFORCED if args.enforce_campus_life_zone else ACTIVATION_OFF
+        )
+        campus_zone_policy_version = 0
+    else:
+        campus_zone_state, campus_zone_policy_version = (
+            load_meeting_campus_zone_activation(db)
+        )
+    campus_zone_enforced = campus_zone_state == ACTIVATION_ENFORCED
+    policy_provenance = meeting_policy_provenance(
+        campus_zone_state, campus_zone_policy_version
     )
     log_struct(
         "info",
         "meeting_recommend_campus_zone_activation",
         campusLifeZoneFilterEnabled=campus_zone_enforced,
+        campusLifeZoneActivationState=campus_zone_state,
+        campusLifeZonePolicyVersion=campus_zone_policy_version,
     )
     requested_actor_group_ids = _parse_group_ids(args.group_ids)
 
@@ -250,6 +265,7 @@ def main() -> int:
                 "items": [],
                 "model": {"type": "meeting_group_ranker", "version": algorithm_version},
                 "skipReason": "missing_embeddings",
+                "policy": policy_provenance,
             }
             status_counter["skipped"] += 1
             skip_reason_counter["missing_embeddings"] += 1
@@ -423,6 +439,7 @@ def main() -> int:
                 "sourceRankMode": args.source_rank_mode,
             },
             "skipReason": skip_reason,
+            "policy": policy_provenance,
             "candidateStats": {
                 "candidatePool": len(candidate_group_ids),
                 "survived": len(items),
