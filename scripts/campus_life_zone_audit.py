@@ -65,6 +65,22 @@ def _recommendation_eligible(doc: Mapping[str, Any]) -> bool:
     return verified is True
 
 
+# 측정 전용: CampusLifeZoneResolver 가 값을 만들 수 있는 "입력이 존재하는지"만
+# 본다. 생활권 자체를 계산하지 않는다 (분류 로직 단일 소스 유지).
+_DEPT_ONLY_RULES = ("음악대학", "약학과", "첨단융합공학부")
+
+
+def _resolver_inputs_available(doc: Mapping[str, Any]) -> bool:
+    onboarding = doc.get("onboarding")
+    onboarding = onboarding if _is_map(onboarding) else {}
+    department = str(onboarding.get("department") or "").strip()
+    if not department:
+        return False
+    if any(rule in department for rule in _DEPT_ONLY_RULES):
+        return True
+    return bool(str(onboarding.get("grade") or "").strip())
+
+
 def _decode_rest_value(value: Mapping[str, Any]) -> Any:
     """Firestore REST 의 typed value 를 파이썬 값으로 바꾼다."""
     if "nullValue" in value:
@@ -145,6 +161,8 @@ def audit(project: str, collection: str, limit: int | None, database: str | None
 
     total = 0
     eligible = 0
+    repairable = 0
+    needs_user_input = 0
     zone_state: Counter[str] = Counter()
     combo: Counter[str] = Counter()
     unknown_values: Counter[str] = Counter()
@@ -158,6 +176,10 @@ def audit(project: str, collection: str, limit: int | None, database: str | None
         raw = _raw_zone_value(doc)
         if raw is None:
             zone_state["missing_field"] += 1
+            if _resolver_inputs_available(doc):
+                repairable += 1
+            else:
+                needs_user_input += 1
             continue
         if not isinstance(raw, (list, tuple)):
             zone_state["invalid_type"] += 1
@@ -165,6 +187,10 @@ def audit(project: str, collection: str, limit: int | None, database: str | None
         zones = read_campus_life_zones_from_user_doc(doc)
         if not zones:
             zone_state["empty"] += 1
+            if _resolver_inputs_available(doc):
+                repairable += 1
+            else:
+                needs_user_input += 1
             continue
 
         unknown = zones - CANONICAL
@@ -181,16 +207,23 @@ def audit(project: str, collection: str, limit: int | None, database: str | None
     unusable = sum(
         zone_state[k] for k in ("missing_field", "empty", "invalid_type", "unknown_value")
     )
+    with_zones = zone_state["present"]
     return {
         "project": project,
         "collection": collection,
         "sampled": total,
-        "recommendationEligible": eligible,
+        "totalEligibleUsers": eligible,
+        "withCampusLifeZones": with_zones,
+        "missingCampusLifeZones": zone_state["missing_field"] + zone_state["empty"],
+        "invalidCampusLifeZones": zone_state["invalid_type"] + zone_state["unknown_value"],
+        "sinchonOnly": combo.get("sinchon", 0),
+        "songdoOnly": combo.get("songdo", 0),
+        "dual": combo.get("sinchon+songdo", 0),
+        "repairableFromExistingData": repairable,
+        "requiresUserRepair": needs_user_input,
+        "coverageRatio": round(with_zones / eligible, 4) if eligible else None,
         "zoneState": dict(zone_state),
-        "zoneCombination": dict(combo),
         "unknownZoneValues": dict(unknown_values),
-        "unusableForRecommendation": unusable,
-        "unusableRatio": round(unusable / eligible, 4) if eligible else None,
         "readOnly": True,
     }
 
@@ -206,16 +239,27 @@ def main() -> int:
         default=None,
         help="샘플 문서 수 (미지정 시 전체 스캔 — 비용 주의)",
     )
+    parser.add_argument(
+        "--min-coverage",
+        dest="min_coverage",
+        type=float,
+        default=None,
+        help=(
+            "생활권 보유 비율이 이 값 미만이면 exit 1 (release gate). "
+            "임계값은 제품 판단이므로 기본값을 두지 않는다."
+        ),
+    )
     args = parser.parse_args()
 
     summary = audit(args.project, args.collection, args.limit, args.database)
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
 
-    ratio = summary["unusableRatio"]
-    if ratio is None:
+    if args.min_coverage is None:
         return 0
-    # 정상 사용자 10% 이상이 추천 불가면 배포 blocker 로 취급한다.
-    return 1 if ratio >= 0.10 else 0
+    coverage = summary["coverageRatio"]
+    if coverage is None:
+        return 0
+    return 0 if coverage >= args.min_coverage else 1
 
 
 if __name__ == "__main__":
