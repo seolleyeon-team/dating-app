@@ -101,6 +101,8 @@ class FakeBlindMeetingRepository extends BlindMeetingRepository {
       drinkingLevel: DrinkingLevel.none,
       smokingStatus: SmokingStatus.nonSmoker,
       schoolVerified: true,
+      // 생활권도 hard eligibility 다 (정상 사용자 fixture).
+      campusLifeZones: const ['sinchon'],
       onboardingUpdatedAt: DateTime.utc(2026, 7, 1),
     );
   }

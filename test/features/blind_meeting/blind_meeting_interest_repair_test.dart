@@ -34,12 +34,15 @@ class _IntroRepository extends BlindMeetingRepository {
 BlindMeetingProfileSnapshot _profile({
   required List<String> interests,
   bool schoolVerified = true,
+  // 생활권도 hard eligibility 다. 기본 fixture 는 정상 사용자를 표현한다.
+  List<String> campusLifeZones = const <String>['sinchon'],
 }) {
   return BlindMeetingProfileSnapshot(
     userId: 'fixture-user',
     nickname: '테스터',
     interests: interests,
     schoolVerified: schoolVerified,
+    campusLifeZones: campusLifeZones,
   );
 }
 
@@ -172,6 +175,68 @@ void main() {
       expect(find.textContaining('온보딩에서 관심사를 먼저 등록해주세요.'), findsOneWidget);
       expect(find.text('관심사 등록하러가기'), findsOneWidget);
       expect(find.text('미팅 DNA 작성하기'), findsNothing);
+    });
+  });
+
+  group('블라인드 미팅 생활권 자격 보충 진입', () {
+    testWidgets('생활권이 없으면 안내와 보충 CTA를 보여준다', (tester) async {
+      final repository = _IntroRepository([
+        _profile(
+          interests: const <String>['넷플릭스'],
+          campusLifeZones: const <String>[],
+        ),
+      ]);
+      await tester.pumpWidget(_introApp(repository: repository));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('생활권 설정을 먼저 완료해주세요'), findsOneWidget);
+      expect(find.text('생활권 설정하러가기'), findsOneWidget);
+    });
+
+    testWidgets('생활권이 있으면 보충 CTA를 보여주지 않는다', (tester) async {
+      final repository = _IntroRepository([
+        _profile(interests: const <String>['넷플릭스']),
+      ]);
+      await tester.pumpWidget(_introApp(repository: repository));
+      await tester.pumpAndSettle();
+
+      expect(find.text('생활권 설정하러가기'), findsNothing);
+      expect(find.text('미팅 DNA 작성하기'), findsOneWidget);
+    });
+
+    testWidgets('보충 화면에서 돌아오면 Firestore 프로필을 다시 읽는다', (tester) async {
+      final repository = _IntroRepository([
+        _profile(
+          interests: const <String>['넷플릭스'],
+          campusLifeZones: const <String>[],
+        ),
+        _profile(interests: const <String>['넷플릭스']),
+      ]);
+      await tester.pumpWidget(
+        _introApp(
+          repository: repository,
+          routes: <String, WidgetBuilder>{
+            RouteNames.campusLifeZoneRepair: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('완료'),
+              ),
+            ),
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final zoneCta = find.text('생활권 설정하러가기');
+      await tester.ensureVisible(zoneCta);
+      await tester.tap(zoneCta);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('완료'));
+      await tester.pumpAndSettle();
+
+      // 저장 결과가 아니라 재조회 결과로 자격을 다시 판단한다.
+      expect(repository.profileReads, 2);
+      expect(find.text('생활권 설정하러가기'), findsNothing);
     });
   });
 }
