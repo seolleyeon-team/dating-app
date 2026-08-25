@@ -38,6 +38,7 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
 
   bool _loading = true;
   bool _openingInterestRegistration = false;
+  bool _openingCampusLifeZoneRepair = false;
   String? _error;
   BlindMeetingProfileSnapshot? _profile;
   BlindMeetingApplication? _application;
@@ -83,6 +84,19 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
         _error = '$error';
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _openCampusLifeZoneRepair() async {
+    if (_openingCampusLifeZoneRepair) return;
+    _openingCampusLifeZoneRepair = true;
+    try {
+      await Navigator.of(context).pushNamed(RouteNames.campusLifeZoneRepair);
+      if (!mounted) return;
+      // 저장 결과를 믿지 않고 Firestore 를 다시 읽어 eligibility 를 재계산한다.
+      await _load();
+    } finally {
+      _openingCampusLifeZoneRepair = false;
     }
   }
 
@@ -163,10 +177,13 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
     final profile = _profile;
     final application = _application;
     final needsInterestRepair = profile != null && profile.needsInterests;
+    final needsCampusLifeZoneRepair =
+        profile != null && profile.needsCampusLifeZone;
     final blockedReasons = <String>[
       if (profile == null) '로그인 정보를 확인할 수 없어요.',
       if (profile != null && !profile.schoolVerified) '학교 인증을 먼저 완료해주세요.',
       if (profile != null && profile.needsInterests) '온보딩에서 관심사를 먼저 등록해주세요.',
+      if (needsCampusLifeZoneRepair) '생활권 설정을 먼저 완료해주세요.',
     ];
 
     return SingleChildScrollView(
@@ -295,6 +312,13 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
                       BlindMeetingPrimaryButton(
                         label: '관심사 등록하러가기',
                         onPressed: _openInterestRegistration,
+                      ),
+                    ],
+                    if (needsCampusLifeZoneRepair) ...[
+                      const SizedBox(height: 12),
+                      BlindMeetingPrimaryButton(
+                        label: '생활권 설정하러가기',
+                        onPressed: _openCampusLifeZoneRepair,
                       ),
                     ],
                   ],

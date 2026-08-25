@@ -10,6 +10,8 @@
 // =============================================================================
 
 import 'dart:ui';
+import '../../../services/campus_life_zone_repair_service.dart';
+import '../../../shared/widgets/campus_life_zone_prerequisite.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import '../../../services/storage_service.dart';
@@ -56,6 +58,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
 
   List<AiRecommendedProfile> _profiles = [];
   bool _isLoading = true;
+  bool _needsCampusLifeZone = false;
   String? _kakaoUserId;
 
   @override
@@ -87,9 +90,17 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
       );
       debugPrint('[ProfileCard] 프로필 ${feed.length}개 로드 완료');
 
+      // 피드가 비었을 때만 원인을 확인한다 (정상 피드에는 추가 read 없음).
+      var needsZone = false;
+      if (feed.isEmpty) {
+        final status = await CampusLifeZoneRepairService().loadStatus();
+        needsZone = status?.needsRepair ?? false;
+      }
+
       if (!mounted) return;
       setState(() {
         _profiles = feed;
+        _needsCampusLifeZone = needsZone;
         _isLoading = false;
       });
 
@@ -263,15 +274,20 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                   child: _isLoading
                       ? const Center(child: CupertinoActivityIndicator())
                       : _profiles.isEmpty
-                      ? Center(
-                          child: Text(
-                            '오늘의 추천이 모두 소진되었습니다.',
-                            style: TextStyle(
-                              color: _AppColors.gray500,
-                              fontFamily: 'Pretendard',
-                            ),
-                          ),
-                        )
+                      ? (_needsCampusLifeZone
+                            // 생활권 미설정이면 빈 화면 대신 해결 경로를 준다.
+                            ? CampusLifeZonePrerequisite(
+                                onCompleted: _loadRecommendations,
+                              )
+                            : Center(
+                                child: Text(
+                                  '오늘의 추천이 모두 소진되었습니다.',
+                                  style: TextStyle(
+                                    color: _AppColors.gray500,
+                                    fontFamily: 'Pretendard',
+                                  ),
+                                ),
+                              ))
                       : SeolSwipeDeck(
                           controller: _deckController,
                           onSwiped: _onSwiped,
