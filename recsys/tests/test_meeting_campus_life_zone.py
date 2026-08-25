@@ -33,12 +33,13 @@ def _zone_gate(left, right, *, allow_missing: bool = False):
     )
 
 
+# 시즌 미팅 그룹 인덱스는 production 추천 경로다. 의존성이 없으면 skip 이
+# 아니라 반드시 실패해야 한다.
+import seolleyeon_meeting_common_v1 as meeting_common  # noqa: E402
+
+
 def _require_meeting_common():
-    """seolleyeon_meeting_common_v1 은 CLIP/torch 의존이라 없으면 skip 한다."""
-    return pytest.importorskip(
-        "seolleyeon_meeting_common_v1",
-        reason="meeting pipeline requires numpy/pandas/CLIP dependencies",
-    )
+    return meeting_common
 
 
 # -----------------------------------------------------------------------------

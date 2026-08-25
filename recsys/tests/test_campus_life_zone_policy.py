@@ -29,20 +29,13 @@ from campus_life_zone_policy import (  # noqa: E402
 )
 
 
-def _require_rec_common():
-    """seolleyeon_rec_common_v3 는 scipy/PIL 의존이라 없으면 skip 한다."""
-    return pytest.importorskip(
-        "seolleyeon_rec_common_v3",
-        reason="1:1 pipeline requires numpy/pandas/scipy/PIL",
-    )
-
-
-def _require_daily_selector():
-    """daily selector 모듈이 없는 환경에서는 skip 한다."""
-    return pytest.importorskip(
-        "recsys.jobs.daily_recommender",
-        reason="daily selector module is unavailable",
-    )
+# 아래 두 모듈은 production 추천 경로 그 자체다. 의존성이 없으면 skip 이
+# 아니라 반드시 실패해야 한다 (skip 하면 생활권 필터 미적용을 CI 가 놓친다).
+from seolleyeon_rec_common_v3 import passes_policy  # noqa: E402
+from recsys.jobs.daily_recommender import (  # noqa: E402
+    DailySelectionConfig,
+    select_daily_items,
+)
 
 SINCHON = "sinchon"
 SONGDO = "songdo"
@@ -193,7 +186,6 @@ def _meta(uid: str, zones, *, gender: str = "female") -> dict:
 
 
 def _policy(actor_zones, candidate_zones, **kwargs) -> bool:
-    passes_policy = _require_rec_common().passes_policy
     meta = {**_meta("actor", actor_zones, gender="male"), **_meta("cand", candidate_zones)}
     return passes_policy(
         "actor",
@@ -235,7 +227,6 @@ def test_zone_gate_can_be_disabled_only_by_explicit_opt_out():
 
 def test_zone_gate_does_not_replace_other_eligibility():
     """§12 — 생활권은 기존 조건을 대체하지 않고 추가된다."""
-    passes_policy = _require_rec_common().passes_policy
     meta = {**_meta("actor", [SINCHON], gender="male"), **_meta("cand", [SINCHON])}
     meta["cand"]["isVerified"] = False
     assert (
@@ -276,13 +267,12 @@ def test_daily_feed_never_backfills_with_other_zone_candidates():
         meta.update(_meta(uid, [SONGDO]))
 
     # cross-zone 후보를 더 높은 점수로 먼저 배치해도 밀려나면 안 된다.
-    daily = _require_daily_selector()
-    result = daily.select_daily_items(
+    result = select_daily_items(
         "actor",
         _rrf(*other_zone, *same_zone),
         meta,
         date_key="20260825",
-        config=daily.DailySelectionConfig(topn=10),
+        config=DailySelectionConfig(topn=10),
     )
 
     assert result["status"] == "ready"
@@ -296,13 +286,12 @@ def test_daily_feed_reports_missing_zone_separately():
     meta.update(_meta("nozone", []))
     meta.update(_meta("ok", [SINCHON]))
 
-    daily = _require_daily_selector()
-    result = daily.select_daily_items(
+    result = select_daily_items(
         "actor",
         _rrf("nozone", "ok"),
         meta,
         date_key="20260825",
-        config=daily.DailySelectionConfig(topn=10),
+        config=DailySelectionConfig(topn=10),
     )
 
     assert [item["uid"] for item in result["items"]] == ["ok"]
@@ -316,13 +305,12 @@ def test_daily_feed_is_empty_rather_than_cross_zone():
     for uid in ("a", "b", "c"):
         meta.update(_meta(uid, [SINCHON]))
 
-    daily = _require_daily_selector()
-    result = daily.select_daily_items(
+    result = select_daily_items(
         "actor",
         _rrf("a", "b", "c"),
         meta,
         date_key="20260825",
-        config=daily.DailySelectionConfig(topn=3),
+        config=DailySelectionConfig(topn=3),
     )
 
     assert result["status"] == "empty"
@@ -335,13 +323,12 @@ def test_dual_zone_actor_sees_both_populations():
     meta.update(_meta("sin", [SINCHON]))
     meta.update(_meta("song", [SONGDO]))
 
-    daily = _require_daily_selector()
-    result = daily.select_daily_items(
+    result = select_daily_items(
         "actor",
         _rrf("sin", "song"),
         meta,
         date_key="20260825",
-        config=daily.DailySelectionConfig(topn=3),
+        config=DailySelectionConfig(topn=3),
     )
 
     assert {item["uid"] for item in result["items"]} == {"sin", "song"}
