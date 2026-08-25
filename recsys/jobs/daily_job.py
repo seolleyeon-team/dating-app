@@ -31,6 +31,11 @@ from seolleyeon_rec_common_v3 import (  # noqa: E402
     parse_datekey_to_utc_range,
     resolve_mutual_block_index,
 )
+from campus_life_zone_policy import (  # noqa: E402
+    ACTIVATION_ENFORCED,
+    CampusLifeZoneActivationUnknown,
+    load_campus_life_zone_activation_with_version,
+)
 from recsys.jobs.daily_recommender import (  # noqa: E402
     DailySelectionConfig,
     select_daily_items,
@@ -96,6 +101,14 @@ def _display_ready_candidate_items(
     return ready, skipped
 
 
+def _campus_zone_policy_state(cfg: DailySelectionConfig) -> str:
+    """추천 문서에 기록할 생활권 정책 상태.
+
+    클라이언트가 activation 을 독립 판단하지 않도록 서버가 문서에 남긴다.
+    """
+    return ACTIVATION_ENFORCED if cfg.campus_life_zone_enforced else "off"
+
+
 def build_daily_documents(
     users: Mapping[str, Mapping[str, Any]],
     policy_meta: Mapping[str, Mapping[str, Any]],
@@ -114,6 +127,7 @@ def build_daily_documents(
     blocked_by_actor = blocked_by_actor or {}
     nope_by_actor = nope_by_actor or {}
     recent_exposure_by_actor = recent_exposure_by_actor or {}
+    cfg = config or DailySelectionConfig()
     actor_ids = _eligible_actor_ids(policy_meta, display_status, signal_actor_ids)
     candidate_pool = sum(
         1 for uid, status in display_status.items()
@@ -145,6 +159,7 @@ def build_daily_documents(
                 "items": [],
                 "topN": 0,
                 "algorithmVersion": f"daily_v1_{date_key}",
+                "policy": {"campusLifeZone": _campus_zone_policy_state(cfg)},
                 "selection": {"inputCount": 0, "eligibleCount": 0, "rejected": {}},
             }
             coverage["skipped"] += 1
@@ -164,7 +179,7 @@ def build_daily_documents(
             blocked_by_actor=blocked_by_actor.get(actor_uid, set()),
             nope_by_actor=nope_by_actor.get(actor_uid, set()),
             recent_exposure_by_actor=recent_exposure_by_actor.get(actor_uid, set()),
-            config=config,
+            config=cfg,
         )
         rejected = dict(selection.get("selection", {}).get("rejected", {}))
         if display_skipped:
@@ -188,6 +203,7 @@ def build_daily_documents(
             "eligibleActor": True,
             "source": "rrf",
             "sourceStatus": source_status,
+            "policy": {"campusLifeZone": _campus_zone_policy_state(cfg)},
         }
         docs[actor_uid] = doc
         coverage[selection["status"]] += 1
@@ -332,6 +348,28 @@ def run_daily(
     firestore_edges = _load_firestore_block_edges(db)
     blocks = resolve_mutual_block_index(events, firestore_block_edges=firestore_edges)
 
+    # 생활권 hard filter 의 rollout activation 상태 (Firestore config 문서).
+    # 문서가 없으면 OFF — 준비 단계에서 기존 추천 동작을 유지한다.
+    #
+    # 조회 자체가 실패하면(UNKNOWN) 여기서 배치를 중단한다. 활성화 여부를
+    # 모른 채 추천을 새로 쓰면, 이미 켜진 정책을 무시하고 cross-zone 후보를
+    # 저장할 수 있다. 하루치 배치가 한 번 실패하는 편이 안전하다.
+    try:
+        campus_zone_state, campus_zone_policy_version = (
+            load_campus_life_zone_activation_with_version(db)
+        )
+    except CampusLifeZoneActivationUnknown as error:
+        if logger:
+            logger.error(
+                "Daily recommendation aborted: campus life zone activation unknown",
+                extra={
+                    "campusLifeZoneActivationState": "unknown",
+                    "campusLifeZoneActivationReadFailure": True,
+                },
+            )
+        raise
+    campus_zone_enforced = campus_zone_state == ACTIVATION_ENFORCED
+
     docs, coverage = build_daily_documents(
         users,
         policy_meta,
@@ -342,12 +380,19 @@ def run_daily(
         blocked_by_actor=blocks,
         nope_by_actor=nopes,
         recent_exposure_by_actor=exposure,
+        config=DailySelectionConfig(
+            campus_life_zone_enforced=campus_zone_enforced,
+        ),
     )
     _write_daily_documents(db, date_key, docs)
     result = {
         **coverage,
         "dateKey": date_key,
         "policyMetaSource": meta_source,
+        "campusLifeZoneFilterEnabled": campus_zone_enforced,
+        "campusLifeZoneActivationState": campus_zone_state,
+        "campusLifeZonePolicyVersion": campus_zone_policy_version,
+        "campusLifeZoneActivationReadFailure": False,
         "users": len(users),
         "documentsWritten": len(docs),
     }

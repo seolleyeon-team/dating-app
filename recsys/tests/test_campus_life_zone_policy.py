@@ -76,11 +76,19 @@ def test_compatibility_is_symmetric():
             ) == has_compatible_campus_life_zone(right, left)
 
 
-def test_normalization_drops_blanks_and_keeps_canonical_values():
-    assert normalize_campus_life_zones([SINCHON, " ", None, SINCHON]) == {SINCHON}
+def test_normalization_keeps_canonical_values_and_rejects_malformed():
+    """canonical 값만 인정한다. 손상된 값은 값 전체를 무효로 본다.
+
+    부분적으로 신뢰해서 실제로 만날 수 없는 상대를 추천하는 것보다,
+    보충을 요구하는 편이 안전하다 (fail-closed).
+    """
+    assert normalize_campus_life_zones([SINCHON, SINCHON]) == {SINCHON}
     assert normalize_campus_life_zones([" songdo "]) == {SONGDO}
     assert normalize_campus_life_zones(None) == set()
     assert normalize_campus_life_zones(42) == set()
+    # 빈 문자열/None 이 섞이면 손상된 문서다.
+    assert normalize_campus_life_zones([SINCHON, " "]) == set()
+    assert normalize_campus_life_zones([SINCHON, None]) == set()
 
 
 def test_zone_rejection_distinguishes_missing_from_mismatch():
@@ -272,7 +280,7 @@ def test_daily_feed_never_backfills_with_other_zone_candidates():
         _rrf(*other_zone, *same_zone),
         meta,
         date_key="20260825",
-        config=DailySelectionConfig(topn=10),
+        config=DailySelectionConfig(topn=10, campus_life_zone_enforced=True),
     )
 
     assert result["status"] == "ready"
@@ -291,7 +299,7 @@ def test_daily_feed_reports_missing_zone_separately():
         _rrf("nozone", "ok"),
         meta,
         date_key="20260825",
-        config=DailySelectionConfig(topn=10),
+        config=DailySelectionConfig(topn=10, campus_life_zone_enforced=True),
     )
 
     assert [item["uid"] for item in result["items"]] == ["ok"]
@@ -310,7 +318,7 @@ def test_daily_feed_is_empty_rather_than_cross_zone():
         _rrf("a", "b", "c"),
         meta,
         date_key="20260825",
-        config=DailySelectionConfig(topn=3),
+        config=DailySelectionConfig(topn=3, campus_life_zone_enforced=True),
     )
 
     assert result["status"] == "empty"
@@ -328,7 +336,101 @@ def test_dual_zone_actor_sees_both_populations():
         _rrf("sin", "song"),
         meta,
         date_key="20260825",
-        config=DailySelectionConfig(topn=3),
+        config=DailySelectionConfig(topn=3, campus_life_zone_enforced=True),
     )
 
     assert {item["uid"] for item in result["items"]} == {"sin", "song"}
+
+
+# -----------------------------------------------------------------------------
+# 6. rollout activation (§33) — OFF 는 기존 정책, ON 은 기존 정책 + 생활권
+# -----------------------------------------------------------------------------
+
+
+def test_activation_off_keeps_existing_recommendation_behaviour():
+    """OFF 는 완화 모드가 아니라 '아직 활성화하지 않은' 상태다."""
+    meta = {}
+    meta.update(_meta("actor", [SINCHON], gender="male"))
+    meta.update(_meta("cross", [SONGDO]))
+    meta.update(_meta("nozone", []))
+
+    result = select_daily_items(
+        "actor",
+        _rrf("cross", "nozone"),
+        meta,
+        date_key="20260825",
+        config=DailySelectionConfig(topn=10, campus_life_zone_enforced=False),
+    )
+
+    # 생활권 때문에 제외되지 않는다 (기존 추천 동작 유지).
+    assert result["status"] == "ready"
+    assert {item["uid"] for item in result["items"]} == {"cross", "nozone"}
+    assert "campus_life_zone_mismatch" not in result["selection"]["rejected"]
+    assert "missing_campus_life_zones" not in result["selection"]["rejected"]
+    # 다만 관측은 남긴다 (coverage gate 판단 근거).
+    assert result["selection"]["campusLifeZoneEnforced"] is False
+    observed = result["selection"]["campusLifeZoneObserved"]
+    assert observed["campus_life_zone_mismatch"] == 1
+    assert observed["missing_campus_life_zones"] == 1
+
+
+def test_activation_on_applies_the_final_policy():
+    meta = {}
+    meta.update(_meta("actor", [SINCHON], gender="male"))
+    meta.update(_meta("cross", [SONGDO]))
+    meta.update(_meta("nozone", []))
+    meta.update(_meta("same", [SINCHON]))
+    meta.update(_meta("dual", [SINCHON, SONGDO]))
+
+    result = select_daily_items(
+        "actor",
+        _rrf("cross", "nozone", "same", "dual"),
+        meta,
+        date_key="20260825",
+        config=DailySelectionConfig(topn=10, campus_life_zone_enforced=True),
+    )
+
+    assert {item["uid"] for item in result["items"]} == {"same", "dual"}
+    assert result["selection"]["campusLifeZoneEnforced"] is True
+    assert result["selection"]["rejected"]["campus_life_zone_mismatch"] == 1
+    assert result["selection"]["rejected"]["missing_campus_life_zones"] == 1
+
+
+def test_activation_off_still_applies_every_other_policy():
+    """OFF 가 생활권 외의 조건까지 풀어주지 않는다."""
+    meta = {}
+    meta.update(_meta("actor", [SINCHON], gender="male"))
+    meta.update(_meta("unverified", [SONGDO]))
+    meta["unverified"]["isVerified"] = False
+
+    result = select_daily_items(
+        "actor",
+        _rrf("unverified"),
+        meta,
+        date_key="20260825",
+        config=DailySelectionConfig(topn=10, campus_life_zone_enforced=False),
+    )
+    assert result["items"] == []
+    assert result["selection"]["rejected"]["policy"] == 1
+
+
+def test_activation_default_is_off():
+    """코드 기본값은 OFF (준비 단계 안전 기본값)."""
+    assert DailySelectionConfig().campus_life_zone_enforced is False
+
+
+def test_activation_state_is_read_from_config_document():
+    from campus_life_zone_policy import campus_life_zone_enforced_from_config
+
+    assert campus_life_zone_enforced_from_config(None) is False
+    assert campus_life_zone_enforced_from_config({}) is False
+    assert campus_life_zone_enforced_from_config(
+        {"campusLifeZoneEnforced": False}
+    ) is False
+    assert campus_life_zone_enforced_from_config(
+        {"campusLifeZoneEnforced": True}
+    ) is True
+    # 문자열 "true" 같은 느슨한 값은 활성화로 보지 않는다.
+    assert campus_life_zone_enforced_from_config(
+        {"campusLifeZoneEnforced": "true"}
+    ) is False

@@ -53,6 +53,12 @@ class RecordingAnalyticsSink implements BlindMeetingAnalyticsSink {
 class FakeBlindMeetingRepository extends BlindMeetingRepository {
   FakeBlindMeetingRepository();
 
+  /// rollout activation 은 서버 값이다. fake 는 적용된 상태를 기본으로 둔다.
+  bool campusLifeZoneEnforced = true;
+
+  @override
+  Future<bool> loadCampusLifeZoneEnforced() async => campusLifeZoneEnforced;
+
   final StreamController<BlindMeetingApplication?> _applications =
       StreamController<BlindMeetingApplication?>.broadcast();
   final StreamController<BlindMeetingSession?> _sessions =

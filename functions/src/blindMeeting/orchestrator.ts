@@ -12,6 +12,10 @@ import { HttpsError } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
 import {
+  loadCampusLifeZoneActivation,
+  loadCampusLifeZoneEnforced,
+} from "../campusLifeZoneActivation";
+import {
   Candidate,
   GroupProposal,
   alcoholFreePool,
@@ -126,6 +130,22 @@ export async function runMatchingForDate(dateKey: string): Promise<string[]> {
   if (!isValidDateKey(dateKey)) return [];
 
   const policy = await loadPolicy();
+  // 생활권 hard filter 의 rollout activation. OFF 면 생활권 조건만 비활성이고
+  // DNA/가용일/차단/안전 등 나머지 조건은 전부 그대로 적용된다.
+  const activation = await loadCampusLifeZoneActivation(db());
+  if (activation.state === "unknown") {
+    // 정책 상태를 모른 채 6인을 확정하지 않는다. OFF 로 가정하면 활성화된
+    // 정책을 무시하고 cross-zone 미팅을 만들 수 있고, ON 으로 가정하면 준비
+    // 단계에서 정상 신청자를 전부 떨어뜨린다. 이번 실행만 건너뛰고 다음
+    // 스케줄에서 다시 시도한다 (신청은 그대로 열려 있다).
+    logger.error("blindMeeting matching skipped: activation unknown", {
+      code: "campusLifeZoneActivationReadFailure",
+      campusLifeZoneActivationState: "unknown",
+      dateKey,
+    });
+    return [];
+  }
+  const campusLifeZoneEnforced = activation.state === "enforced";
   const applications = await loadOpenApplications(dateKey);
   if (applications.length < 6) {
     await markStage(applications, "searchingCandidates");
@@ -148,7 +168,8 @@ export async function runMatchingForDate(dateKey: string): Promise<string[]> {
         remaining,
         dateKey,
         alcoholFree,
-        CURRENT_MATCHING_CONFIG
+        CURRENT_MATCHING_CONFIG,
+        campusLifeZoneEnforced
       );
       if (proposal == null) break;
 
@@ -230,11 +251,14 @@ export async function createMeetingFromProposal(
 
   // 최종 안전망: 여섯 명이 실제로 함께 만날 수 있는 공통 생활권이 있어야 한다.
   // 후보 생성 단계에서 이미 걸러지지만, 확정 직전에 다시 확인한다.
+  // rollout activation 이 OFF 면 이 조건만 건너뛴다.
   const proposalZones = sharedCampusLifeZones([
     ...proposal.teamA,
     ...proposal.teamB,
   ]);
-  if (proposalZones.length === 0) {
+  // 최종 그물: 상태를 모르면 만들지 않는다 (확정은 되돌리기 어렵다).
+  const creationActivation = await loadCampusLifeZoneActivation(db());
+  if (creationActivation.state !== "off" && proposalZones.length === 0) {
     logger.warn("blindMeeting proposal rejected: no shared campus life zone", {
       dateKey: proposal.dateKey,
     });
@@ -975,6 +999,10 @@ export async function handleVacancy(params: {
     alcoholFree: meeting.isAlcoholFree,
     urgent: params.urgent,
     limit: policy.replacementOfferWaveSize,
+    // 대체 참가자 제안도 상태를 모르면 생활권을 강제한다 (제안은 보류 가능).
+    campusLifeZoneEnforced: await loadCampusLifeZoneEnforced(db(), {
+      unknownAs: "enforced",
+    }),
   });
 
   // 이탈자 상태 표시는 FSM이 허용하는 경우에만 한다. 초대 거절자는 이미

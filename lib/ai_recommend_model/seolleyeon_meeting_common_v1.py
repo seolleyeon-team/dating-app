@@ -24,6 +24,7 @@ except Exception:  # pragma: no cover
 from seolleyeon_clip_embedder import SeolleyeonCLIPEmbedder
 from campus_life_zone_policy import (
     campus_zone_compatibility,
+    load_campus_life_zone_enforced,
     normalize_campus_life_zones,
     read_campus_life_zones_from_user_doc,
     shared_campus_life_zones,

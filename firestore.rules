@@ -1182,6 +1182,15 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       allow write: if false;
     }
 
+    // 추천 정책의 rollout activation 상태. 서버(Admin SDK)만 쓴다.
+    // 클라이언트는 생활권 prerequisite 를 안내로 보여줄지 차단으로 보여줄지
+    // 판단하기 위해 읽기만 한다. 클라이언트가 activation 을 바꿀 수 없다.
+    match /recommendationConfig/{docId} {
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow write: if false;
+    }
+
     // Analytics: 개인정보 없는 이벤트만 append. 조회는 서버/운영 전용.
     match /blindMeetingAnalytics/{eventId} {
       allow create: if

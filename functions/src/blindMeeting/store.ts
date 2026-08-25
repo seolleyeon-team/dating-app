@@ -6,6 +6,7 @@
  * 모든 쓰기는 이 모듈을 통해 서버에서만 수행된다.
  */
 
+import { readPersistedCampusLifeZones } from "../campusLifeZones";
 import { createHash } from "crypto";
 import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
@@ -311,7 +312,7 @@ export async function loadCandidate(
     // 생활권은 온보딩에서 계산되어 users/{uid}.onboarding 에 저장된 값을
     // 그대로 읽는다 (grade/department 로 재계산하지 않는다).
     // users 문서는 위에서 이미 읽었으므로 추가 read 비용이 없다.
-    campusLifeZones: asStrArray(
+    campusLifeZones: readPersistedCampusLifeZones(
       isRecord(user.onboarding)
         ? (user.onboarding as Record<string, unknown>).campusLifeZones
         : null

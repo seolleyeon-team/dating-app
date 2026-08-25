@@ -24,6 +24,7 @@ from seolleyeon_meeting_common_v1 import (
     build_member_profile_view,
     campus_zone_compatibility,
     coerce_str_list,
+    load_campus_life_zone_enforced,
     compute_group_score,
     firestore,
     has_cross_block_pair,
@@ -77,6 +78,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
     )
     parser.set_defaults(allow_missing_campus_zone=False)
+    # rollout activation. 지정하지 않으면 Firestore config 문서를 따른다.
+    parser.add_argument(
+        "--enforce_campus_life_zone",
+        dest="enforce_campus_life_zone",
+        action="store_true",
+        default=None,
+    )
+    parser.add_argument(
+        "--no_enforce_campus_life_zone",
+        dest="enforce_campus_life_zone",
+        action="store_false",
+    )
     parser.add_argument("--exclude_recent_nope_days", default=14, type=int)
     parser.add_argument("--exclude_recent_exposure_days", default=3, type=int)
     parser.add_argument("--block_history_days", default=365, type=int)
@@ -132,6 +145,17 @@ def main() -> int:
     algorithm_version = args.algorithm_version or f"meeting_group_ranker_v1_{date_key}"
 
     db = make_firestore_client(args.firestore_project, database=args.firestore_database)
+    # rollout activation: CLI 로 명시하지 않으면 config 문서를 따른다.
+    campus_zone_enforced = (
+        bool(args.enforce_campus_life_zone)
+        if args.enforce_campus_life_zone is not None
+        else load_campus_life_zone_enforced(db)
+    )
+    log_struct(
+        "info",
+        "meeting_recommend_campus_zone_activation",
+        campusLifeZoneFilterEnabled=campus_zone_enforced,
+    )
     requested_actor_group_ids = _parse_group_ids(args.group_ids)
 
     ready_groups = load_meeting_group_index_records(
@@ -252,14 +276,15 @@ def main() -> int:
                 # 생활권은 후보 풀 truncation 전에 적용해야 한다. 나중에 걸면
                 # cross-zone 후보가 상위 pool_limit을 점유해 같은 생활권 팀이
                 # 후보군 밖으로 밀려난다.
-                zone_ok, zone_reason = campus_zone_compatibility(
-                    actor_record.shared_campus_life_zones,
-                    candidate_record.shared_campus_life_zones,
-                    allow_missing_campus_zone=bool(args.allow_missing_campus_zone),
-                )
-                if not zone_ok:
-                    reason_counts[zone_reason or "campus_life_zone_mismatch"] += 1
-                    continue
+                if campus_zone_enforced:
+                    zone_ok, zone_reason = campus_zone_compatibility(
+                        actor_record.shared_campus_life_zones,
+                        candidate_record.shared_campus_life_zones,
+                        allow_missing_campus_zone=bool(args.allow_missing_campus_zone),
+                    )
+                    if not zone_ok:
+                        reason_counts[zone_reason or "campus_life_zone_mismatch"] += 1
+                        continue
                 candidate_group_ids.append(candidate_group_id)
                 if len(candidate_group_ids) >= pool_limit:
                     break
@@ -289,14 +314,15 @@ def main() -> int:
             if has_cross_block_pair(actor_record.member_uids, candidate_record.member_uids, blocked_pairs):
                 reason_counts["cross_block_or_report"] += 1
                 continue
-            zone_ok, zone_reason = campus_zone_compatibility(
-                actor_record.shared_campus_life_zones,
-                candidate_record.shared_campus_life_zones,
-                allow_missing_campus_zone=bool(args.allow_missing_campus_zone),
-            )
-            if not zone_ok:
-                reason_counts[zone_reason or "campus_life_zone_mismatch"] += 1
-                continue
+            if campus_zone_enforced:
+                zone_ok, zone_reason = campus_zone_compatibility(
+                    actor_record.shared_campus_life_zones,
+                    candidate_record.shared_campus_life_zones,
+                    allow_missing_campus_zone=bool(args.allow_missing_campus_zone),
+                )
+                if not zone_ok:
+                    reason_counts[zone_reason or "campus_life_zone_mismatch"] += 1
+                    continue
 
             assignment = best_group_assignment(
                 actor_record.member_uids,

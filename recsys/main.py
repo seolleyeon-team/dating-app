@@ -62,7 +62,10 @@ MODEL_SCRIPT_NAMES = {
 RRF_SCRIPT_NAME = "seolleyeon_rrf_export.py"
 DEFAULT_RRF_SOURCES = "clip,svd,knn"
 DEFAULT_RRF_REQUIRED_SOURCES = "clip"
-DEFAULT_RRF_MIN_SOURCES_PER_USER = 1
+# 원래 도입값(33209527, 2026-07-27)은 2였다. 정책 블록이 172bcda5 에서
+# 통째로 사라졌다가 재작성되며 1이 됐다. 별도 제품 요구가 없으므로
+# "SVD 신호만 있는 사용자를 융합 피드로 내보내지 않는다"는 원래 의도로 되돌린다.
+DEFAULT_RRF_MIN_SOURCES_PER_USER = 2
 DEFAULT_RRF_TOPN = 400
 DEFAULT_RRF_MAX_ITEMS_PER_SOURCE = 400
 DEFAULT_RRF_SOURCE_WEIGHTS = '{"clip":1.0,"svd":0.35,"knn":0.25}'

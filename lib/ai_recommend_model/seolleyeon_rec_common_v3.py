@@ -36,12 +36,20 @@ from avatar_media_privacy import (
 # 생활권 정책은 의존성 없는 순수 모듈에 있다. 1:1 / 3:3 블라인드 /
 # 3:3 시즌이 모두 같은 semantics를 공유하도록 여기서 재수출한다.
 from campus_life_zone_policy import (  # noqa: F401
+    ACTIVATION_ENFORCED,
+    ACTIVATION_OFF,
+    ACTIVATION_UNKNOWN,
     CAMPUS_LIFE_ZONE_FIELD,
+    CANONICAL_CAMPUS_LIFE_ZONES,
+    CampusLifeZoneActivationUnknown,
+    campus_life_zone_activation_from_config,
     campus_life_zone_rejection,
     campus_zone_compatibility,
     has_compatible_campus_life_zone,
+    load_campus_life_zone_activation_with_version,
     normalize_campus_life_zones,
     read_campus_life_zones_from_user_doc,
+    read_persisted_campus_life_zones,
     shared_campus_life_zones,
 )
 from seolleyeon_policy_state import policy_state_from_user_doc
@@ -668,6 +676,52 @@ def load_policy_meta_from_firestore(
         database=database,
     )
     return build_policy_meta_from_user_docs(docs), users_collection
+
+
+def load_campus_life_zone_activation_for_project(
+    project_id: str,
+    *,
+    database: Optional[str] = None,
+) -> Tuple[str, int]:
+    """모델 export 스크립트용 activation 조회.
+
+    조회에 실패하면 [CampusLifeZoneActivationUnknown] 이 올라온다. 배치는
+    상태를 모른 채 추천을 새로 쓰지 않는다 — 한 번 실패하는 편이,
+    활성화된 정책을 모른 채 cross-zone 후보를 저장하는 것보다 안전하다.
+    """
+    require_firestore()
+    db = firestore.Client(project=project_id, database=database)
+    return load_campus_life_zone_activation_with_version(db)
+
+
+def resolve_campus_life_zone_activation(
+    override: Optional[bool],
+    project_id: str,
+    *,
+    database: Optional[str] = None,
+) -> Tuple[str, int]:
+    """CLI 오버라이드가 있으면 그것을, 없으면 config 문서를 따른다.
+
+    오버라이드는 운영자가 명시적으로 지정한 상태이므로 조회하지 않는다.
+    조회가 필요한데 실패하면 예외가 그대로 올라가 배치가 중단된다.
+    """
+    if override is not None:
+        return (ACTIVATION_ENFORCED if override else ACTIVATION_OFF), 0
+    return load_campus_life_zone_activation_for_project(
+        project_id, database=database
+    )
+
+
+def campus_life_zone_policy_provenance(state: str, version: int) -> Dict[str, Any]:
+    """추천 문서에 남길 정책 provenance.
+
+    이 문서가 어떤 정책 상태에서 만들어졌는지 소비자(클라이언트/검증)가
+    알 수 있어야 한다. config 를 읽지 못하는 순간에도 문서 자체가 근거가 된다.
+    """
+    return {
+        "campusLifeZone": state,
+        "campusLifeZonePolicyVersion": int(version),
+    }
 
 
 def assert_policy_meta_coverage(

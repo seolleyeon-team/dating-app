@@ -30,6 +30,11 @@ from seolleyeon_rec_common_v3 import (
     canonicalize_recommendation_target_id,
     is_ai_profile,
 )
+from campus_life_zone_policy import (
+    ACTIVATION_ENFORCED,
+    ACTIVATION_OFF,
+    load_campus_life_zone_activation_with_version,
+)
 
 
 DEFAULT_SOURCE_WEIGHTS: Dict[str, float] = {
@@ -171,6 +176,30 @@ def derive_source_confidence(
     return 1.0 if source_name == "clip" else min_confidence
 
 
+def source_policy_state(raw: Dict[str, Any]) -> Optional[str]:
+    """소스 문서에 기록된 생활권 정책 상태를 읽는다.
+
+    provenance 가 없는 legacy 문서는 ``None`` 이다. 어떤 정책으로 만들어졌는지
+    알 수 없다는 뜻이므로, 활성화된 상태에서는 재사용하지 않는다.
+    """
+    policy = raw.get("policy")
+    if not isinstance(policy, dict):
+        return None
+    state = policy.get("campusLifeZone")
+    return state if isinstance(state, str) and state else None
+
+
+def passes_source_quality_gate(
+    merge_meta: Dict[str, Any], min_sources_per_user: int
+) -> bool:
+    """단일 소스만으로 만들어진 피드를 내보내지 않기 위한 품질 게이트.
+
+    예: SVD 신호만 있는 사용자는 협업필터 잔재만 보게 되므로
+    fused feed 로 내보내지 않는다 (§28 의 min_sources_per_user).
+    """
+    return len(merge_meta.get("usedSources", [])) >= int(min_sources_per_user)
+
+
 def rrf_merge(
     source_docs: Dict[str, Dict[str, Any]],
     *,
@@ -272,7 +301,9 @@ def main() -> int:
     # source truncation / quality guardrails
     p.add_argument("--max_items_per_source", type=int, default=300)
     p.add_argument("--max_rank_per_source", type=int, default=300)
-    p.add_argument("--min_sources_per_user", type=int, default=1)
+    # canonical default 는 2 다 (recsys/main.py 와 동일).
+    # SVD 신호만 있는 사용자를 융합 피드로 내보내지 않기 위한 품질 게이트.
+    p.add_argument("--min_sources_per_user", type=int, default=2)
 
     # dynamic confidence
     p.add_argument("--use_dynamic_confidence", dest="use_dynamic_confidence", action="store_true")
@@ -282,6 +313,19 @@ def main() -> int:
     p.add_argument("--min_effective_weight", type=float, default=0.05)
 
     # optional requirement
+    # 생활권 rollout activation. 지정하지 않으면 config 문서를 따른다.
+    p.add_argument(
+        "--enforce_campus_life_zone",
+        dest="enforce_campus_life_zone",
+        action="store_true",
+        default=None,
+    )
+    p.add_argument(
+        "--no_enforce_campus_life_zone",
+        dest="enforce_campus_life_zone",
+        action="store_false",
+    )
+
     p.add_argument("--required_sources", type=str, default="",
                    help="Comma-separated sources that must exist to export a user, e.g. clip")
 
@@ -295,23 +339,66 @@ def main() -> int:
 
     db = firestore.Client(project=args.firestore_project, database=args.firestore_database)
 
+    # 생활권 정책 상태. 조회 실패(UNKNOWN)면 여기서 예외가 올라와 배치가 멈춘다.
+    # 활성화 여부를 모른 채 융합 피드를 새로 쓰지 않기 위해서다.
+    if args.enforce_campus_life_zone is None:
+        campus_zone_state, campus_zone_policy_version = (
+            load_campus_life_zone_activation_with_version(db)
+        )
+    else:
+        campus_zone_state = (
+            ACTIVATION_ENFORCED if args.enforce_campus_life_zone else ACTIVATION_OFF
+        )
+        campus_zone_policy_version = 0
+    print(
+        f"[RRF] campusLifeZone policy: {campus_zone_state} "
+        f"(version {campus_zone_policy_version})"
+    )
+    policy_provenance = {
+        "campusLifeZone": campus_zone_state,
+        "campusLifeZonePolicyVersion": int(campus_zone_policy_version),
+    }
+    stale_policy_sources = 0
+
     user_ids = [doc.id for doc in db.collection("modelRecs").list_documents()]
     print(f"[RRF] scanning users in modelRecs: {len(user_ids):,}")
 
     recs_to_export: Dict[str, List[Dict[str, Any]]] = {}
     merge_meta_by_uid: Dict[str, Dict[str, Any]] = {}
+    empty_status_by_uid: Dict[str, str] = {}
 
     for uid in user_ids:
         source_docs: Dict[str, Dict[str, Any]] = {}
+        source_statuses: Dict[str, str] = {}
         for source_name in source_names:
             doc_ref = db.document(f"modelRecs/{uid}/daily/{date_key}/sources/{source_name}")
+            try:
+                snap = doc_ref.get()
+            except Exception as exc:
+                print(f"[warn] failed to read {doc_ref.path}: {exc}")
+                continue
+            if snap.exists:
+                raw = snap.to_dict() or {}
+                source_statuses[source_name] = str(raw.get("status") or "unknown")
+                if campus_zone_state == ACTIVATION_ENFORCED:
+                    # 정책이 켜진 뒤에는 "생활권을 적용하지 않고 만든" 소스를
+                    # 융합하지 않는다. provenance 가 없는 legacy 문서도 같다.
+                    if source_policy_state(raw) != ACTIVATION_ENFORCED:
+                        stale_policy_sources += 1
+                        continue
             data = load_source_doc(doc_ref)
             if data is not None:
                 source_docs[source_name] = data
 
+        if not source_docs and source_statuses:
+            empty_status_by_uid.setdefault(uid, "stale_campus_life_zone_policy")
         if not source_docs:
+            if source_statuses:
+                empty_status_by_uid[uid] = "no_ready_model_source"
             continue
         if required_sources and not required_sources.issubset(set(source_docs.keys())):
+            if required_sources.intersection(source_statuses):
+                empty_status_by_uid[uid] = "required_source_empty_or_skipped"
             continue
 
         merged, merge_meta = rrf_merge(
@@ -328,8 +415,12 @@ def main() -> int:
         )
 
         if not merged:
+            empty_status_by_uid[uid] = "no_merged_items"
             continue
-        if len(merge_meta.get("usedSources", [])) < int(args.min_sources_per_user):
+        if not passes_source_quality_gate(
+            merge_meta, int(args.min_sources_per_user)
+        ):
+            empty_status_by_uid[uid] = "insufficient_sources"
             continue
 
         recs_to_export[uid] = merged
@@ -363,10 +454,35 @@ def main() -> int:
             "topN": len(items),
             "items": items,
             "merge": merge_meta_by_uid.get(uid, {}),
+            "policy": policy_provenance,
         }
         bw.set(doc_ref, payload, merge=True)
 
+    for uid, reason in empty_status_by_uid.items():
+        if uid in recs_to_export:
+            continue
+        doc_ref = db.document(f"modelRecs/{uid}/daily/{date_key}/sources/rrf")
+        bw.set(
+            doc_ref,
+            {
+                "status": "empty",
+                "algorithmVersion": algo_version,
+                "model": model_meta,
+                "generatedAt": gen_at,
+                "topN": 0,
+                "items": [],
+                "reason": reason,
+                "policy": policy_provenance,
+            },
+            merge=True,
+        )
+
     bw.close()
+    if stale_policy_sources:
+        print(
+            "[RRF] skipped stale-policy source docs: "
+            f"{stale_policy_sources:,} (campusLifeZone enforced)"
+        )
     print("[export] RRF done")
     return 0
 

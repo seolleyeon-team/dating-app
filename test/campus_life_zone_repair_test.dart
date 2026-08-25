@@ -20,6 +20,25 @@ class _FakeRepairService implements CampusLifeZoneRepairService {
 
   Map<String, dynamic> get onboarding => Map.unmodifiable(_onboarding);
 
+  /// 서버가 정하는 값. fake 는 테스트가 지정한 상태를 그대로 돌려준다.
+  bool enforced = false;
+  CampusLifeZoneActivation activation = CampusLifeZoneActivation.off;
+
+  @override
+  Future<CampusLifeZoneActivation> loadActivation() async => activation;
+
+  @override
+  Future<bool> isEnforcementEnabled({bool unknownAs = false}) async {
+    switch (activation) {
+      case CampusLifeZoneActivation.enforced:
+        return true;
+      case CampusLifeZoneActivation.off:
+        return enforced;
+      case CampusLifeZoneActivation.unknown:
+        return unknownAs;
+    }
+  }
+
   @override
   Future<CampusLifeZoneStatus?> loadStatus() async {
     if (!signedIn) return null;
@@ -116,6 +135,46 @@ Future<void> _submit(WidgetTester tester) async {
 }
 
 void main() {
+  group('생활권 rollout activation 판정', () {
+    test('config 문서가 없거나 비어 있으면 OFF 다', () {
+      expect(CampusLifeZoneRepairService.enforcedFromConfig(null), isFalse);
+      expect(
+        CampusLifeZoneRepairService.enforcedFromConfig(<String, dynamic>{}),
+        isFalse,
+      );
+    });
+
+    test('정확히 boolean true 일 때만 ON 이다', () {
+      expect(
+        CampusLifeZoneRepairService.enforcedFromConfig(<String, dynamic>{
+          'campusLifeZoneEnforced': true,
+        }),
+        isTrue,
+      );
+      for (final loose in <dynamic>[false, 'true', 1, 'ON']) {
+        expect(
+          CampusLifeZoneRepairService.enforcedFromConfig(<String, dynamic>{
+            'campusLifeZoneEnforced': loose,
+          }),
+          isFalse,
+          reason: '느슨한 값으로 정책이 켜지면 안 된다',
+        );
+      }
+    });
+
+    test('config 위치가 서버와 같은 곳을 가리킨다', () {
+      expect(
+        CampusLifeZoneRepairService.recommendationConfigCollection,
+        'recommendationConfig',
+      );
+      expect(CampusLifeZoneRepairService.recommendationConfigDoc, 'current');
+      expect(
+        CampusLifeZoneRepairService.campusLifeZoneEnforcedField,
+        'campusLifeZoneEnforced',
+      );
+    });
+  });
+
   group('생활권 보충 서비스', () {
     test('저장된 생활권을 canonical 경로에서 읽는다', () {
       final zones = CampusLifeZoneRepairService.zonesFromProfile({

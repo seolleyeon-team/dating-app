@@ -183,12 +183,20 @@ void main() {
       expect(RecommendationEligibility.campusLifeZonesOf(null), isEmpty);
     });
 
-    test('공백·빈 문자열은 무시한다', () {
+    test('앞뒤 공백은 정리하되 손상된 값은 전체를 무효로 본다', () {
+      // canonical 값의 공백은 정리한다.
+      expect(
+        RecommendationEligibility.campusLifeZonesOf(
+          withZones([' sinchon ', 'sinchon']),
+        ),
+        {'sinchon'},
+      );
+      // 빈 문자열이 섞인 배열은 손상된 문서다 (부분 신뢰하지 않는다).
       expect(
         RecommendationEligibility.campusLifeZonesOf(
           withZones([' sinchon ', '', '  ']),
         ),
-        {'sinchon'},
+        isEmpty,
       );
     });
 
@@ -288,6 +296,92 @@ void main() {
           );
         }
       }
+    });
+  });
+
+  group('serving 단계 생활권 게이트 (rollout activation)', () {
+    // OFF: 아직 적용 전이므로 생활권으로 후보를 거르지 않는다.
+    test('OFF 면 생활권이 달라도 후보를 유지한다', () {
+      expect(
+        RecommendationEligibility.passesCampusLifeZoneGate(
+          enforced: false,
+          viewerZones: const <String>{'sinchon'},
+          candidateZones: const <String>{'songdo'},
+        ),
+        isTrue,
+      );
+    });
+
+    test('OFF 면 양쪽 생활권이 비어 있어도 후보를 유지한다', () {
+      expect(
+        RecommendationEligibility.passesCampusLifeZoneGate(
+          enforced: false,
+          viewerZones: const <String>{},
+          candidateZones: const <String>{},
+        ),
+        isTrue,
+      );
+    });
+
+    // ON: 기존에 검증된 hard filter semantics 그대로여야 한다.
+    test('ON 이면 생활권이 다른 후보를 제외한다', () {
+      expect(
+        RecommendationEligibility.passesCampusLifeZoneGate(
+          enforced: true,
+          viewerZones: const <String>{'sinchon'},
+          candidateZones: const <String>{'songdo'},
+        ),
+        isFalse,
+      );
+    });
+
+    test('ON 이면 값이 없는 쪽을 fail-closed 로 제외한다', () {
+      expect(
+        RecommendationEligibility.passesCampusLifeZoneGate(
+          enforced: true,
+          viewerZones: const <String>{'sinchon'},
+          candidateZones: const <String>{},
+        ),
+        isFalse,
+      );
+      expect(
+        RecommendationEligibility.passesCampusLifeZoneGate(
+          enforced: true,
+          viewerZones: const <String>{},
+          candidateZones: const <String>{'sinchon'},
+        ),
+        isFalse,
+      );
+    });
+
+    test('ON 이면 교집합이 있는 후보는 통과한다 (dual-zone 포함)', () {
+      expect(
+        RecommendationEligibility.passesCampusLifeZoneGate(
+          enforced: true,
+          viewerZones: const <String>{'sinchon'},
+          candidateZones: const <String>{'sinchon'},
+        ),
+        isTrue,
+      );
+      expect(
+        RecommendationEligibility.passesCampusLifeZoneGate(
+          enforced: true,
+          viewerZones: const <String>{'songdo'},
+          candidateZones: const <String>{'sinchon', 'songdo'},
+        ),
+        isTrue,
+      );
+    });
+
+    test('OFF 는 생활권만 풀어주고 다른 자격 판정을 바꾸지 않는다', () {
+      // 게이트는 생활권만 본다. 다른 조건은 호출부가 그대로 적용한다.
+      expect(
+        RecommendationEligibility.hasCompatibleCampusLifeZone(
+          const <String>{'sinchon'},
+          const <String>{'songdo'},
+        ),
+        isFalse,
+      );
     });
   });
 }

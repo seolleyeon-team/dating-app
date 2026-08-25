@@ -6,6 +6,7 @@
 // 다시 중복 질문하지 않고 여기서 불러온다.
 // =============================================================================
 
+import '../../../shared/utils/campus_life_zone_values.dart';
 import '../domain/blind_meeting_enums.dart';
 
 /// 온보딩에서 가져온 값 묶음.
@@ -94,7 +95,10 @@ class BlindMeetingProfileSnapshot {
         lifestyleMap['smoking'],
       ),
       schoolVerified: data['isStudentVerified'] == true,
-      campusLifeZones: _stringList(onboardingMap['campusLifeZones']),
+      // canonical 이 아닌 값은 생활권으로 인정하지 않는다 (fail-closed).
+      campusLifeZones: CampusLifeZoneValues.readPersisted(
+        onboardingMap['campusLifeZones'],
+      ).toList()..sort(),
       oneLineIntro: _nullableString(onboardingMap['selfIntroduction']),
       onboardingUpdatedAt: _dateTime(
         data['onboardingUpdatedAt'] ?? data['updatedAt'],

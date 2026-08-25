@@ -10,6 +10,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
 import '../../../services/auth_service.dart';
+import '../../../services/campus_life_zone_repair_service.dart';
 import '../../../services/storage_service.dart';
 import '../domain/blind_meeting_application.dart';
 import '../domain/blind_meeting_dna.dart';
@@ -147,6 +148,41 @@ class BlindMeetingRepository {
   // ---------------------------------------------------------------------------
 
   Future<String?> currentUserId() => _storageService.getKakaoUserId();
+
+  /// 생활권 hard filter 의 rollout activation 상태.
+  ///
+  /// 서버(Admin SDK)만 쓰는 `recommendationConfig/current` 문서를 따른다.
+  /// 클라이언트는 값을 판단하지 않고 읽기만 하며, 문서·필드가 없거나 읽기에
+  /// 실패하면 아직 적용 전(OFF)으로 본다. OFF 동안에는 생활권이 없어도
+  /// 기존처럼 신청할 수 있어야 하므로 자격 차단에 쓰지 않는다.
+  Future<bool> loadCampusLifeZoneEnforced() async =>
+      (await loadCampusLifeZoneActivation()) ==
+      CampusLifeZoneActivation.enforced;
+
+  /// activation 상태 (off / enforced / unknown).
+  ///
+  /// 조회 실패를 OFF 와 구분한다. 다만 이 화면이 보여주는 것은 안내일 뿐이고
+  /// 실제 매칭 자격은 서버가 다시 판정하므로, 호출부는 unknown 을 차단이
+  /// 아니라 안내로 처리해도 안전하다.
+  Future<CampusLifeZoneActivation> loadCampusLifeZoneActivation() async {
+    try {
+      final snap = await _firestore
+          .collection(
+            CampusLifeZoneRepairService.recommendationConfigCollection,
+          )
+          .doc(CampusLifeZoneRepairService.recommendationConfigDoc)
+          .get()
+          // 정책 조회가 화면 로딩을 붙잡지 않게 한다.
+          .timeout(const Duration(seconds: 3));
+      if (CampusLifeZoneRepairService.enforcedFromConfig(snap.data())) {
+        CampusLifeZoneRepairService.latchEnforcedObserved();
+        return CampusLifeZoneActivation.enforced;
+      }
+      return CampusLifeZoneActivation.off;
+    } catch (_) {
+      return CampusLifeZoneActivation.unknown;
+    }
+  }
 
   /// 비공개 DNA는 Firebase Auth 세션(uid == kakaoUserId)이 있어야 읽을 수 있다.
   ///

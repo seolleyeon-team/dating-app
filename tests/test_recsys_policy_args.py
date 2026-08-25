@@ -91,7 +91,7 @@ def test_workflow_invocation_enforces_rrf_quality_gates():
 
     # A user with only SVD signal must not be exported as a fused feed.
     assert arg_value(script_args, "--required_sources") == "clip"
-    assert arg_value(script_args, "--min_sources_per_user") == "1"
+    assert arg_value(script_args, "--min_sources_per_user") == "2"
     assert arg_value(script_args, "--sources") == "clip,svd,knn"
     assert arg_value(script_args, "--topn") == "400"
     assert arg_value(script_args, "--max_items_per_source") == "400"
@@ -111,3 +111,26 @@ def test_firestore_database_is_forwarded_when_set():
 
     assert arg_value(build_rrf_script_args(args), "--firestore_database") == "recs-db"
     assert arg_value(build_model_script_args(args), "--firestore_database") == "recs-db"
+
+
+def test_rrf_quality_gate_default_is_two_everywhere():
+    """§28 — canonical default 는 한 곳뿐이어야 한다.
+
+    recsys/main.py 가 넘기는 값과 rrf 스크립트 자체 기본값이 어긋나면
+    수동 실행과 배치 실행의 품질 게이트가 달라진다.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    main_src = (root / "recsys" / "main.py").read_text(encoding="utf-8")
+    assert "DEFAULT_RRF_MIN_SOURCES_PER_USER = 2" in main_src
+
+    rrf_src = (
+        root / "lib" / "ai_recommend_model" / "seolleyeon_rrf_export.py"
+    ).read_text(encoding="utf-8")
+    match = re.search(
+        r'"--min_sources_per_user", type=int, default=(\d+)', rrf_src
+    )
+    assert match is not None
+    assert match.group(1) == "2"

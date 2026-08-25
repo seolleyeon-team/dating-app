@@ -1,3 +1,4 @@
+import 'campus_life_zone_values.dart';
 import 'profile_display_image_resolver.dart';
 
 /// 추천 후보로 노출해도 되는지 판정한다.
@@ -25,17 +26,28 @@ class RecommendationEligibility {
     final raw = onboarding is Map
         ? onboarding['campusLifeZones']
         : profile['campusLifeZones'];
-    if (raw is! List) return const <String>{};
-    return raw
-        .map((zone) => zone?.toString().trim() ?? '')
-        .where((zone) => zone.isNotEmpty)
-        .toSet();
+    // canonical(sinchon/songdo) 이 아닌 값은 생활권으로 인정하지 않는다.
+    return CampusLifeZoneValues.readPersisted(raw);
   }
 
   /// 생활권이 겹치는지. 복수 생활권 사용자를 위해 equality가 아닌 교집합이다.
   ///
   /// 생활권은 랭킹 점수가 아니라 hard eligibility이며, 어느 한쪽이라도
   /// 값이 없으면 추천하지 않는다 (fail-closed).
+  /// serving 단계의 생활권 게이트.
+  ///
+  /// [enforced] 는 서버가 정한 rollout activation 상태다. 적용 전(OFF)에는
+  /// 생활권으로 후보를 거르지 않는다. 적용 후(ON)에는 값이 없으면
+  /// fail-closed 로 제외한다 (교집합이 없으면 실제로 만날 수 없으므로).
+  static bool passesCampusLifeZoneGate({
+    required bool enforced,
+    required Set<String> viewerZones,
+    required Set<String> candidateZones,
+  }) {
+    if (!enforced) return true;
+    return hasCompatibleCampusLifeZone(viewerZones, candidateZones);
+  }
+
   static bool hasCompatibleCampusLifeZone(
     Set<String> viewerZones,
     Set<String> candidateZones,

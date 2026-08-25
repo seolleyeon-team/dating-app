@@ -42,6 +42,7 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
   String? _error;
   BlindMeetingProfileSnapshot? _profile;
   BlindMeetingApplication? _application;
+  bool _campusLifeZoneEnforced = false;
 
   @override
   void initState() {
@@ -57,6 +58,9 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
     });
     try {
       final profile = await _repository.loadProfileSnapshot();
+      // 생활권 정책이 실제로 적용됐는지는 서버가 정한다.
+      final campusLifeZoneEnforced = await _repository
+          .loadCampusLifeZoneEnforced();
 
       // 진행 중인 신청 조회는 선택 정보다. 아직 신청 이력이 없거나
       // 읽기 권한이 준비되지 않은 환경에서도 소개 화면은 열려야 하므로
@@ -76,6 +80,7 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
       setState(() {
         _profile = profile;
         _application = application;
+        _campusLifeZoneEnforced = campusLifeZoneEnforced;
         _loading = false;
       });
     } catch (error) {
@@ -177,8 +182,10 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
     final profile = _profile;
     final application = _application;
     final needsInterestRepair = profile != null && profile.needsInterests;
+    // 생활권이 비어 있어도 정책 적용 전이면 신청을 막지 않는다.
+    final missingCampusLifeZone = profile != null && profile.needsCampusLifeZone;
     final needsCampusLifeZoneRepair =
-        profile != null && profile.needsCampusLifeZone;
+        missingCampusLifeZone && _campusLifeZoneEnforced;
     final blockedReasons = <String>[
       if (profile == null) '로그인 정보를 확인할 수 없어요.',
       if (profile != null && !profile.schoolVerified) '학교 인증을 먼저 완료해주세요.',
@@ -289,6 +296,32 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
               ),
             ),
             const SizedBox(height: 24),
+            // 정책 적용 전에는 차단하지 않고 미리 설정하도록만 안내한다.
+            if (missingCampusLifeZone && !_campusLifeZoneEnforced) ...[
+              BlindMeetingCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '생활권 설정을 완료해주세요',
+                      style: BlindMeetingText.sectionTitle(palette.ink),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '곧 신촌·송도 생활권을 기준으로 팀을 구성해요. '
+                      '지금은 그대로 신청할 수 있고, 미리 설정해두면 준비돼요.',
+                      style: BlindMeetingText.caption(palette.inkSoft),
+                    ),
+                    const SizedBox(height: 12),
+                    BlindMeetingSecondaryButton(
+                      label: '생활권 설정하러가기',
+                      onPressed: _openCampusLifeZoneRepair,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
             if (blockedReasons.isNotEmpty)
               BlindMeetingCard(
                 child: Column(

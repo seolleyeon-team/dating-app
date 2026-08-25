@@ -22,6 +22,7 @@ from seolleyeon_meeting_common_v1 import (
     build_member_profile_view,
     campus_zone_compatibility,
     coerce_str_list,
+    load_campus_life_zone_enforced,
     firestore,
     group_diversity_similarity,
     list_recent_date_keys,
@@ -123,6 +124,12 @@ def main() -> int:
     algorithm_version = args.algorithm_version or f"meeting_daily_v1_{date_key}"
 
     db = make_firestore_client(args.firestore_project, database=args.firestore_database)
+    campus_zone_enforced = load_campus_life_zone_enforced(db)
+    log_struct(
+        "info",
+        "meeting_daily_campus_zone_activation",
+        campusLifeZoneFilterEnabled=campus_zone_enforced,
+    )
     ready_groups = load_meeting_group_index_records(
         db,
         collection_name=args.meeting_group_index_collection,
@@ -232,13 +239,14 @@ def main() -> int:
             if candidate_record is None or actor_index_record is None:
                 filter_reasons["missing_group_index"] += 1
                 continue
-            zone_ok, zone_reason = campus_zone_compatibility(
-                actor_index_record.shared_campus_life_zones,
-                candidate_record.shared_campus_life_zones,
-            )
-            if not zone_ok:
-                filter_reasons[zone_reason or "campus_life_zone_mismatch"] += 1
-                continue
+            if campus_zone_enforced:
+                zone_ok, zone_reason = campus_zone_compatibility(
+                    actor_index_record.shared_campus_life_zones,
+                    candidate_record.shared_campus_life_zones,
+                )
+                if not zone_ok:
+                    filter_reasons[zone_reason or "campus_life_zone_mismatch"] += 1
+                    continue
             filtered_items.append(item)
 
         if not filtered_items:

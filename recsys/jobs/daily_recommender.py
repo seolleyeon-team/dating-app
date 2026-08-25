@@ -39,6 +39,9 @@ class DailySelectionConfig:
     require_same_university: bool = True
     reciprocal: bool = True
     exclude_same_gender: bool = True
+    # rollout activation. OFF 면 기존 추천 정책만 적용한다 (생활권 미강제).
+    # 최종 정책 자체를 완화하는 것이 아니라 활성화 시점만 제어한다.
+    campus_life_zone_enforced: bool = False
 
 
 def _stable_tie(actor_uid: str, date_key: str, candidate_uid: str) -> str:
@@ -134,6 +137,8 @@ def select_daily_items(
     noped = {str(uid) for uid in (nope_by_actor or set())}
     recently_seen = {str(uid) for uid in (recent_exposure_by_actor or set())}
     rejected: Counter[str] = Counter()
+    # OFF 상태에서도 얼마나 걸릴지 관측한다 (coverage gate 판단 근거).
+    observed: Counter[str] = Counter()
 
     eligible: list[dict[str, Any]] = []
     for item in _dedupe_rrf_items(rrf_items):
@@ -159,10 +164,13 @@ def select_daily_items(
 
         # 생활권은 hard eligibility다. passes_policy 도 같은 조건을 강제하지만
         # 여기서 먼저 확인해 skip 사유를 구분 가능한 카운터로 남긴다.
+        # rollout activation 이 OFF 면 관측만 하고 제외하지는 않는다.
         zone_rejection = campus_life_zone_rejection(actor_meta, candidate_meta)
         if zone_rejection is not None:
-            rejected[zone_rejection] += 1
-            continue
+            if cfg.campus_life_zone_enforced:
+                rejected[zone_rejection] += 1
+                continue
+            observed[zone_rejection] += 1
 
         if cfg.exclude_same_gender and actor_meta and candidate_meta:
             actor_gender = actor_meta.get("gender")
@@ -179,6 +187,7 @@ def select_daily_items(
             active_within_days=int(cfg.active_within_days),
             require_same_university=bool(cfg.require_same_university),
             reciprocal=bool(cfg.reciprocal),
+            require_same_campus_life_zone=bool(cfg.campus_life_zone_enforced),
         ):
             rejected["policy"] += 1
             continue
@@ -265,6 +274,8 @@ def select_daily_items(
             "dedupedCount": len(_dedupe_rrf_items(rrf_items)),
             "eligibleCount": len(eligible),
             "rejected": dict(rejected),
+            "campusLifeZoneEnforced": bool(cfg.campus_life_zone_enforced),
+            "campusLifeZoneObserved": dict(observed),
             "exploitCount": sum(1 for _item, explore in selected if not explore),
             "exploreCount": sum(1 for _item, explore in selected if explore),
         },

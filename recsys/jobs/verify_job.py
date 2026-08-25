@@ -59,6 +59,31 @@ def build_policy_readiness_metrics(
     }
 
 
+def evaluate_policy_provenance(
+    *,
+    expected_state: str,
+    observed_states: dict[str, int],
+) -> dict:
+    """생성된 추천 문서가 의도한 생활권 정책 상태로 만들어졌는지 확인한다.
+
+    활성화했다고 믿고 있는데 산출물이 ``off`` 로 기록돼 있으면, 그 문서에는
+    cross-zone 후보가 들어 있을 수 있다. 이것을 "성공" 으로 넘기면 안 된다.
+    provenance 가 아예 없는 문서(legacy)도 활성화 이후에는 실패로 본다.
+    """
+    mismatched = {
+        state: count
+        for state, count in observed_states.items()
+        if state != expected_state and count > 0
+    }
+    healthy = not mismatched
+    return {
+        "campusLifeZoneExpectedState": expected_state,
+        "campusLifeZoneObservedStates": dict(observed_states),
+        "campusLifeZonePolicyProvenanceHealthy": healthy,
+        "campusLifeZonePolicyMismatchCounts": mismatched,
+    }
+
+
 def evaluate_verify_health(
     *,
     total_real_users: int,
@@ -67,6 +92,7 @@ def evaluate_verify_health(
     source_stats: dict[str, dict],
     daily_stats: dict[str, int],
     compatible_pairs: int | None = None,
+    policy_provenance: dict | None = None,
 ) -> dict:
     """Evaluate readiness with explicit degraded-versus-fatal semantics.
 
@@ -132,6 +158,13 @@ def evaluate_verify_health(
     if compatible_pairs is not None and int(compatible_pairs) <= 0:
         reasons.append("no_compatible_pair")
 
+    # 활성화했다고 믿는 정책과 산출물의 provenance 가 다르면 치명적이다.
+    # (예: activation ON 인데 문서는 off 로 생성 → cross-zone 이 들어있을 수 있다)
+    if policy_provenance is not None and not policy_provenance.get(
+        "campusLifeZonePolicyProvenanceHealthy", True
+    ):
+        fatal_reasons.append("campus_life_zone_policy_provenance_mismatch")
+
     if fatal_reasons:
         return {
             "healthy": False,
@@ -140,6 +173,7 @@ def evaluate_verify_health(
             "reasons": sorted(set(reasons + fatal_reasons)),
             "fatalReasons": sorted(set(fatal_reasons)),
             "sourceShortageExpected": expected_shortage,
+            **(policy_provenance or {}),
         }
 
     if not reasons and int(daily_stats.get("ready", 0)) <= 0:
@@ -152,6 +186,7 @@ def evaluate_verify_health(
         "reasons": sorted(set(reasons)),
         "fatalReasons": [],
         "sourceShortageExpected": expected_shortage,
+        **(policy_provenance or {}),
     }
 
 
@@ -172,6 +207,11 @@ def run_verify(
     from datetime import timedelta
     from recsys.jobs.daily_job import _eligible_actor_ids, _event_indexes
     from recsys.jobs.policy_audit import audit_policy_pairs
+    from campus_life_zone_policy import (
+        ACTIVATION_UNKNOWN,
+        CampusLifeZoneActivationUnknown,
+        load_campus_life_zone_activation,
+    )
     from seolleyeon_rec_common_v3 import (
         load_avatar_display_status_from_docs,
         load_events_from_firestore,
@@ -339,6 +379,38 @@ def run_verify(
     )
     compatible_pairs = int(pair_audit["compatiblePairs"])
 
+    # 산출물이 어떤 생활권 정책 상태로 만들어졌는지 집계한다.
+    # 기대 상태는 지금의 config (조회 실패면 unknown 으로 표시하고 검증 실패).
+    try:
+        expected_state = load_campus_life_zone_activation(db)
+    except CampusLifeZoneActivationUnknown:
+        expected_state = ACTIVATION_UNKNOWN
+    observed_states: dict[str, int] = {}
+    for detail in daily_details.values():
+        data = detail.get("data") or {}
+        policy = data.get("policy")
+        state = (
+            policy.get("campusLifeZone")
+            if isinstance(policy, dict) and isinstance(policy.get("campusLifeZone"), str)
+            else "missing"
+        )
+        observed_states[state] = observed_states.get(state, 0) + 1
+    for source_detail in source_details.values():
+        for detail in source_detail.values():
+            data = detail.get("data") or {}
+            policy = data.get("policy")
+            state = (
+                policy.get("campusLifeZone")
+                if isinstance(policy, dict)
+                and isinstance(policy.get("campusLifeZone"), str)
+                else "missing"
+            )
+            observed_states[state] = observed_states.get(state, 0) + 1
+    policy_provenance = evaluate_policy_provenance(
+        expected_state=expected_state,
+        observed_states=observed_states,
+    )
+
     health = evaluate_verify_health(
         total_real_users=total_real_users,
         eligible_actors=len(eligible_actor_ids),
@@ -349,6 +421,7 @@ def run_verify(
             for key in ("ready", "empty", "skipped", "missing", "failed")
         },
         compatible_pairs=compatible_pairs,
+        policy_provenance=policy_provenance,
     )
     readiness_metrics = build_policy_readiness_metrics(
         total_real_users=total_real_users,

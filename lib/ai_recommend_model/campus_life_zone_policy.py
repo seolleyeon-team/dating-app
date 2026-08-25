@@ -25,19 +25,174 @@ from typing import Any, Iterable, Mapping, Optional, Sequence, Set, Tuple
 
 CAMPUS_LIFE_ZONE_FIELD = "campusLifeZones"
 
+# -----------------------------------------------------------------------------
+# rollout activation
+#
+# 최종 정책(생활권이 다르면 추천 불가, 값이 없으면 fail-closed)은 고정이다.
+# 이 플래그는 "그 정책을 지금 production 추천 경로에서 강제할 것인가"만
+# 결정한다. missing 사용자만 허용하거나 cross-zone 을 일부 허용하는 완화
+# 모드가 아니다.
+#
+#   OFF -> 기존 추천 정책 그대로 (생활권 조건 미적용)
+#   ON  -> 기존 추천 정책 + 생활권 hard eligibility
+#
+# authoritative 위치는 Firestore `recommendationConfig/current` 문서다
+# (blindMeetingConfig/current 와 같은 관례). 서버 전용 write 이며,
+# 문서나 필드가 없으면 OFF 로 본다 — 롤아웃 준비 단계의 안전한 기본값이다.
+# -----------------------------------------------------------------------------
+
+RECOMMENDATION_CONFIG_COLLECTION = "recommendationConfig"
+RECOMMENDATION_CONFIG_DOC = "current"
+CAMPUS_LIFE_ZONE_ENFORCED_FIELD = "campusLifeZoneEnforced"
+CAMPUS_LIFE_ZONE_POLICY_VERSION_FIELD = "campusLifeZonePolicyVersion"
+
+# activation 은 3-state 다. "명시적으로 꺼져 있다" 와 "지금 상태를 모른다" 를
+# 같은 False 로 뭉개면, 최종 활성화 이후의 일시적 config 조회 실패가 조용히
+# cross-zone 추천을 다시 허용한다 (fail-open).
+#
+#   ACTIVATION_OFF      : 문서를 읽었고 활성화되지 않았다 (문서 없음 포함).
+#   ACTIVATION_ENFORCED : 문서를 읽었고 boolean true 였다.
+#   ACTIVATION_UNKNOWN  : 조회 자체가 실패했다. 어느 쪽으로도 단정하지 않는다.
+ACTIVATION_OFF = "off"
+ACTIVATION_ENFORCED = "enforced"
+ACTIVATION_UNKNOWN = "unknown"
+
+
+class CampusLifeZoneActivationUnknown(RuntimeError):
+    """activation 상태를 확인하지 못했다.
+
+    배치 파이프라인은 이 상태에서 추천을 새로 쓰지 않는다. 한 번 실패하는
+    것이, 활성화된 정책을 모른 채 cross-zone 추천을 저장하는 것보다 안전하다.
+    """
+
+
+def campus_life_zone_activation_from_config(config: Any) -> str:
+    """config 문서 내용만으로 activation 상태를 정한다 (읽기는 성공한 상태).
+
+    정확히 boolean ``True`` 일 때만 ENFORCED 다. ``"true"``/``1`` 같은 느슨한
+    값으로 정책이 켜지지 않는다. 문서·필드가 없으면 OFF (롤아웃 준비 단계).
+    """
+    if not isinstance(config, Mapping):
+        return ACTIVATION_OFF
+    if config.get(CAMPUS_LIFE_ZONE_ENFORCED_FIELD) is True:
+        return ACTIVATION_ENFORCED
+    return ACTIVATION_OFF
+
+
+def campus_life_zone_enforced_from_config(config: Any) -> bool:
+    """config 문서 내용으로 활성화 여부만 본다 (읽기는 성공한 상태).
+
+    조회 실패와 명시적 OFF 를 구분해야 하는 곳은
+    [campus_life_zone_activation_from_config] / [load_campus_life_zone_activation]
+    을 쓴다.
+    """
+    return campus_life_zone_activation_from_config(config) == ACTIVATION_ENFORCED
+
+
+def campus_life_zone_policy_version_from_config(config: Any) -> int:
+    """정책 세대(epoch). 세 런타임이 같은 정책 버전을 쓰는지 확인할 때 쓴다.
+
+    값이 없거나 정수가 아니면 0 (초기 세대).
+    """
+    if not isinstance(config, Mapping):
+        return 0
+    raw = config.get(CAMPUS_LIFE_ZONE_POLICY_VERSION_FIELD)
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return 0
+    return raw if raw > 0 else 0
+
+
+def load_campus_life_zone_activation_with_version(db: Any) -> Tuple[str, int]:
+    """activation 상태와 정책 버전을 한 번의 read 로 읽는다."""
+    try:
+        snap = (
+            db.collection(RECOMMENDATION_CONFIG_COLLECTION)
+            .document(RECOMMENDATION_CONFIG_DOC)
+            .get()
+        )
+        data = snap.to_dict() or {}
+    except Exception as error:
+        raise CampusLifeZoneActivationUnknown(str(error)) from error
+    return (
+        campus_life_zone_activation_from_config(data),
+        campus_life_zone_policy_version_from_config(data),
+    )
+
+
+def load_campus_life_zone_activation(db: Any) -> str:
+    """Firestore 에서 activation 상태를 읽는다. 조회 실패는 UNKNOWN.
+
+    문서가 없는 것은 실패가 아니라 "아직 활성화한 적 없음" 이므로 OFF 다.
+    """
+    state, _version = load_campus_life_zone_activation_with_version(db)
+    return state
+
+
+def load_campus_life_zone_enforced(db: Any, *, on_unknown: str = "raise") -> bool:
+    """activation 상태를 boolean 으로 읽는다.
+
+    Args:
+        on_unknown: 조회 실패 시 동작.
+            ``"raise"`` (기본) — [CampusLifeZoneActivationUnknown] 을 올린다.
+            결과를 저장하는 경로(배치)는 반드시 이 기본값을 쓴다.
+            ``"off"`` — OFF 로 간주한다. 결과를 쓰지 않는 진단 도구 전용.
+    """
+    try:
+        state = load_campus_life_zone_activation(db)
+    except CampusLifeZoneActivationUnknown:
+        if on_unknown == "off":
+            return False
+        raise
+    return state == ACTIVATION_ENFORCED
+
 __all__ = [
+    "ACTIVATION_ENFORCED",
+    "ACTIVATION_OFF",
+    "ACTIVATION_UNKNOWN",
+    "CAMPUS_LIFE_ZONE_ENFORCED_FIELD",
     "CAMPUS_LIFE_ZONE_FIELD",
+    "CAMPUS_LIFE_ZONE_POLICY_VERSION_FIELD",
+    "CANONICAL_CAMPUS_LIFE_ZONES",
+    "CampusLifeZoneActivationUnknown",
+    "RECOMMENDATION_CONFIG_COLLECTION",
+    "RECOMMENDATION_CONFIG_DOC",
+    "campus_life_zone_activation_from_config",
+    "campus_life_zone_enforced_from_config",
+    "campus_life_zone_policy_version_from_config",
+    "load_campus_life_zone_activation",
+    "load_campus_life_zone_activation_with_version",
+    "read_persisted_campus_life_zones",
     "campus_life_zone_rejection",
     "campus_zone_compatibility",
     "has_compatible_campus_life_zone",
+    "load_campus_life_zone_enforced",
     "normalize_campus_life_zones",
     "read_campus_life_zones_from_user_doc",
     "shared_campus_life_zones",
 ]
 
 
+# canonical 생활권 값은 온보딩 resolver(lib/constants/campus_life_zones.dart)가
+# 만드는 두 개뿐이다. 그 밖의 토큰은 손상된 값이며 생활권으로 인정하지 않는다.
+CAMPUS_LIFE_ZONE_SINCHON = "sinchon"
+CAMPUS_LIFE_ZONE_SONGDO = "songdo"
+CANONICAL_CAMPUS_LIFE_ZONES = frozenset(
+    {CAMPUS_LIFE_ZONE_SINCHON, CAMPUS_LIFE_ZONE_SONGDO}
+)
+
+
 def normalize_campus_life_zones(value: Any) -> Set[str]:
-    """저장된 campusLifeZones 값을 집합으로 읽는다. 알 수 없는 형태는 빈 집합."""
+    """생활권 값을 canonical 집합으로 읽는다. 손상된 값은 전부 빈 집합.
+
+    - canonical 이 아닌 토큰이 하나라도 있으면 **값 전체를 무효**로 본다
+      (``["sinchon", "garbage"]`` 도 무효). 손상된 문서를 부분적으로 신뢰해
+      실제로 만날 수 없는 상대를 추천하는 것보다 보충을 요구하는 편이 안전하다.
+    - 빈 집합은 곧 fail-closed 이므로 호출부가 따로 분기할 필요가 없다.
+
+    이 함수는 in-memory 값(집합/리스트/튜플)도 편의상 받는다. Firestore 에
+    저장된 문서를 읽을 때는 타입까지 검증하는
+    [read_persisted_campus_life_zones] 를 쓴다.
+    """
     if isinstance(value, (list, tuple, set, frozenset)):
         items: Iterable[Any] = value
     elif isinstance(value, str):
@@ -46,10 +201,24 @@ def normalize_campus_life_zones(value: Any) -> Set[str]:
         return set()
     zones: Set[str] = set()
     for item in items:
-        text = str(item).strip() if item is not None else ""
-        if text:
-            zones.add(text)
+        if not isinstance(item, str):
+            return set()
+        text = item.strip()
+        if text not in CANONICAL_CAMPUS_LIFE_ZONES:
+            return set()
+        zones.add(text)
     return zones
+
+
+def read_persisted_campus_life_zones(value: Any) -> Set[str]:
+    """Firestore 에 저장된 ``campusLifeZones`` 필드를 읽는다 (스키마 검증 포함).
+
+    canonical 스키마는 ``List<String>`` 이다. raw string ``"sinchon"`` 처럼
+    타입이 다른 값은 손상으로 보고 빈 집합을 돌려준다 (fail-closed).
+    """
+    if not isinstance(value, (list, tuple)):
+        return set()
+    return normalize_campus_life_zones(value)
 
 
 def read_campus_life_zones_from_user_doc(doc: Any) -> Set[str]:
@@ -62,10 +231,12 @@ def read_campus_life_zones_from_user_doc(doc: Any) -> Set[str]:
         return set()
     onboarding = doc.get("onboarding")
     if isinstance(onboarding, Mapping):
-        zones = normalize_campus_life_zones(onboarding.get(CAMPUS_LIFE_ZONE_FIELD))
+        zones = read_persisted_campus_life_zones(
+            onboarding.get(CAMPUS_LIFE_ZONE_FIELD)
+        )
         if zones:
             return zones
-    return normalize_campus_life_zones(doc.get(CAMPUS_LIFE_ZONE_FIELD))
+    return read_persisted_campus_life_zones(doc.get(CAMPUS_LIFE_ZONE_FIELD))
 
 
 def has_compatible_campus_life_zone(left: Any, right: Any) -> bool:
