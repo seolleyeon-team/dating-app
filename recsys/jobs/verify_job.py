@@ -8,7 +8,151 @@ from __future__ import annotations
 import time
 from typing import Optional
 
-from google.cloud import firestore
+try:
+    from google.cloud import firestore
+except Exception:  # pragma: no cover - pure health tests do not need the SDK
+    firestore = None
+
+
+def build_policy_readiness_metrics(
+    *,
+    total_real_users: int,
+    policy_meta: dict[str, dict],
+    display_status: dict[str, dict],
+    compatible_pairs: int,
+) -> dict:
+    """Return aggregate policy/media readiness diagnostics for verification."""
+    total = int(total_real_users)
+    coverage = (len(policy_meta) / total * 100.0) if total else 100.0
+    active_users = sum(1 for meta in policy_meta.values() if meta.get("isActive") is True)
+    complete_users = sum(
+        1 for meta in policy_meta.values() if meta.get("isProfileComplete") is True
+    )
+    policy_eligible = {
+        uid
+        for uid, meta in policy_meta.items()
+        if (
+            meta.get("isActive") is True
+            and meta.get("isVerified") is True
+            and meta.get("isProfileComplete") is True
+        )
+    }
+    media_ready = {
+        str(uid)
+        for uid, status in display_status.items()
+        if status.get("displayReady") is True
+    }
+    policy_and_media = policy_eligible & media_ready
+    suspicious = bool(total and media_ready and not policy_eligible)
+    return {
+        "policyMetadataCoverage": round(coverage, 1),
+        "activeUserCount": active_users,
+        "profileCompleteUserCount": complete_users,
+        "policyEligibleCandidateCount": len(policy_eligible),
+        "mediaReadyCandidateCount": len(media_ready),
+        "policyAndMediaReadyCandidateCount": len(policy_and_media),
+        "compatiblePairCount": int(compatible_pairs),
+        "suspiciousPolicyReadiness": suspicious,
+        "suspiciousPolicyReadinessReason": (
+            "approved_media_without_policy_eligible_candidate" if suspicious else ""
+        ),
+    }
+
+
+def evaluate_verify_health(
+    *,
+    total_real_users: int,
+    eligible_actors: int,
+    candidate_pool: int,
+    source_stats: dict[str, dict],
+    daily_stats: dict[str, int],
+    compatible_pairs: int | None = None,
+) -> dict:
+    """Evaluate readiness with explicit degraded-versus-fatal semantics.
+
+    Data shortage is a successful, degraded run when the daily writer covered
+    every eligible actor with an empty or skipped document. Missing current-day
+    artifacts or partial actor coverage remain fatal.
+    """
+    reasons: list[str] = []
+    fatal_reasons: list[str] = []
+
+    if int(total_real_users) <= 0:
+        return {
+            "healthy": True,
+            "degraded": True,
+            "fatal": False,
+            "reasons": ["no_real_users"],
+            "fatalReasons": [],
+            "sourceShortageExpected": False,
+        }
+
+    if int(eligible_actors) <= 0:
+        return {
+            "healthy": True,
+            "degraded": True,
+            "fatal": False,
+            "reasons": ["no_eligible_actors"],
+            "fatalReasons": [],
+            "sourceShortageExpected": False,
+        }
+
+    daily_covered = (
+        int(daily_stats.get("ready", 0))
+        + int(daily_stats.get("empty", 0))
+        + int(daily_stats.get("skipped", 0))
+    )
+    daily_missing = int(daily_stats.get("missing", 0))
+    daily_failed = int(daily_stats.get("failed", 0))
+    if daily_missing or daily_failed or daily_covered < int(eligible_actors):
+        fatal_reasons.append("incomplete_daily_coverage")
+
+    expected_shortage = True
+    for source_name in ("svd", "knn"):
+        stats = source_stats.get(source_name, {})
+        if int(stats.get("failed", 0)) > 0 or int(stats.get("missing", 0)) > 0:
+            expected_shortage = False
+        if (
+            int(stats.get("skipped", 0)) == 0
+            and int(stats.get("empty", 0)) == 0
+        ):
+            expected_shortage = False
+
+    candidate_shortage = int(candidate_pool) < 2
+    if candidate_shortage:
+        reasons.append("insufficient_candidate_pool")
+
+    for source_name in ("clip", "svd", "knn", "rrf"):
+        stats = source_stats.get(source_name, {})
+        if int(stats.get("failed", 0)) > 0:
+            fatal_reasons.append(f"failed_{source_name}_source")
+        if int(stats.get("missing", 0)) > 0 and not candidate_shortage:
+            fatal_reasons.append(f"missing_{source_name}_source")
+
+    if compatible_pairs is not None and int(compatible_pairs) <= 0:
+        reasons.append("no_compatible_pair")
+
+    if fatal_reasons:
+        return {
+            "healthy": False,
+            "degraded": False,
+            "fatal": True,
+            "reasons": sorted(set(reasons + fatal_reasons)),
+            "fatalReasons": sorted(set(fatal_reasons)),
+            "sourceShortageExpected": expected_shortage,
+        }
+
+    if not reasons and int(daily_stats.get("ready", 0)) <= 0:
+        reasons.append("no_ready_daily_feed")
+
+    return {
+        "healthy": True,
+        "degraded": bool(reasons),
+        "fatal": False,
+        "reasons": sorted(set(reasons)),
+        "fatalReasons": [],
+        "sourceShortageExpected": expected_shortage,
+    }
 
 
 def run_verify(
@@ -19,123 +163,221 @@ def run_verify(
     sources: Optional[list[str]] = None,
     logger=None,
 ) -> dict:
-    """Check modelRecs for completeness.
-
-    Returns dict with per-source stats and overall health flag.
-    """
+    """Check current-date model sources, daily docs, and actor coverage."""
     if sources is None:
         sources = ["clip", "svd", "knn", "rrf"]
+    if firestore is None:
+        raise RuntimeError("google-cloud-firestore is not installed")
+
+    from datetime import timedelta
+    from recsys.jobs.daily_job import _eligible_actor_ids, _event_indexes
+    from recsys.jobs.policy_audit import audit_policy_pairs
+    from seolleyeon_rec_common_v3 import (
+        load_avatar_display_status_from_docs,
+        load_events_from_firestore,
+        load_policy_meta_from_firestore,
+        parse_datekey_to_utc_range,
+    )
 
     t0 = time.time()
     db = firestore.Client(project=project, database=database)
-
-    user_ids = [doc.id for doc in db.collection("modelRecs").list_documents()]
-    total_users = len(user_ids)
-
-    if logger:
-        logger.info(
-            f"Verify: {total_users} users in modelRecs",
-            extra={"count": total_users, "date_key": date_key},
+    user_docs = {
+        doc.id: (doc.to_dict() or {})
+        for doc in db.collection("users").stream()
+    }
+    total_real_users = len(user_docs)
+    if not total_real_users:
+        health = evaluate_verify_health(
+            total_real_users=0,
+            eligible_actors=0,
+            candidate_pool=0,
+            source_stats={},
+            daily_stats={},
         )
+        return {
+            "total_users": 0,
+            "total_real_users": 0,
+            "eligible_actors": 0,
+            "date_key": date_key,
+            "sources": {},
+            "daily": {},
+            **build_policy_readiness_metrics(
+                total_real_users=0,
+                policy_meta={},
+                display_status={},
+                compatible_pairs=0,
+            ),
+            "elapsed_s": round(time.time() - t0, 1),
+            **health,
+        }
+
+    policy_meta, meta_source = load_policy_meta_from_firestore(
+        project,
+        users_collection="users",
+        database=database,
+    )
+    display_status = load_avatar_display_status_from_docs(user_docs)
+    _blocks: dict[str, set[str]] = {}
+    _nopes: dict[str, set[str]] = {}
+    _exposure: dict[str, set[str]] = {}
+    try:
+        _start_of_day_utc, end_utc = parse_datekey_to_utc_range(date_key)
+        events = load_events_from_firestore(
+            project,
+            collection="recEvents",
+            start_time_utc=end_utc - timedelta(days=120),
+            end_time_utc=end_utc,
+            database=database,
+        )
+        _blocks, _nopes, _exposure, signal_actor_ids = _event_indexes(events)
+    except Exception as exc:
+        signal_actor_ids = set()
+        if logger:
+            logger.warning(f"Verify could not load recEvents actor signals: {exc}")
+
+    eligible_actor_ids = _eligible_actor_ids(
+        policy_meta,
+        display_status,
+        signal_actor_ids,
+    )
+    candidate_pool = sum(
+        1
+        for uid, status in display_status.items()
+        if status.get("displayReady") is True
+        and uid in policy_meta
+        and uid in user_docs
+    )
+    pair_candidate_ids = sorted(
+        uid
+        for uid, status in display_status.items()
+        if status.get("displayReady") is True and uid in policy_meta
+    )
+    pair_audit = audit_policy_pairs(
+        eligible_actor_ids,
+        pair_candidate_ids,
+        policy_meta,
+        active_within_days=14,
+        manner_min=33.0,
+        require_same_university=True,
+        reciprocal=True,
+        exclude_same_gender=True,
+        blocked_by_actor=_blocks,
+        nope_by_actor=_nopes,
+        recent_exposure_by_actor=_exposure,
+    )
+
+    def read_status(path: str) -> tuple[str, int, dict]:
+        try:
+            snap = db.document(path).get()
+        except Exception:
+            return "missing", 0, {}
+        if not snap.exists:
+            return "missing", 0, {}
+        data = snap.to_dict() or {}
+        if data.get("dateKey") and str(data.get("dateKey")) != date_key:
+            return "failed", 0, data
+        items = data.get("items", [])
+        n = len(items) if isinstance(items, list) else 0
+        status = str(data.get("status") or "failed")
+        if status == "ready" and n > 0:
+            return "ready", n, data
+        if status == "empty":
+            return "empty", 0, data
+        if status == "skipped":
+            return "skipped", 0, data
+        return "failed", 0, data
+
+    def collect_stats(path_template: str, actor_ids: list[str]) -> tuple[dict, dict[str, dict]]:
+        stats = {
+            "ready": 0,
+            "empty": 0,
+            "skipped": 0,
+            "missing": 0,
+            "failed": 0,
+            "total_items": 0,
+            "avg_items": 0,
+            "min_items": 0,
+            "max_items": 0,
+            "coverage_pct": 0.0,
+        }
+        details: dict[str, dict] = {}
+        item_counts: list[int] = []
+        for uid in actor_ids:
+            status, count, data = read_status(path_template.format(uid=uid))
+            stats[status] += 1
+            stats["total_items"] += count
+            details[uid] = {"status": status, "items": count, "data": data}
+            if status == "ready":
+                item_counts.append(count)
+        if item_counts:
+            stats["avg_items"] = round(sum(item_counts) / len(item_counts), 1)
+            stats["min_items"] = min(item_counts)
+            stats["max_items"] = max(item_counts)
+        if actor_ids:
+            stats["coverage_pct"] = round(
+                (stats["ready"] / len(actor_ids)) * 100,
+                1,
+            )
+        return stats, details
 
     source_stats: dict[str, dict] = {}
-
+    source_details: dict[str, dict[str, dict]] = {}
     for source in sources:
-        ready = 0
-        empty = 0
-        missing = 0
-        total_items = 0
-        min_items = float("inf")
-        max_items = 0
-
-        for uid in user_ids:
-            doc_ref = db.document(
-                f"modelRecs/{uid}/daily/{date_key}/sources/{source}"
-            )
-            try:
-                snap = doc_ref.get()
-            except Exception:
-                missing += 1
-                continue
-
-            if not snap.exists:
-                missing += 1
-                continue
-
-            data = snap.to_dict() or {}
-            status = data.get("status")
-            items = data.get("items", [])
-            n = len(items) if isinstance(items, list) else 0
-
-            if status == "ready" and n > 0:
-                ready += 1
-                total_items += n
-                min_items = min(min_items, n)
-                max_items = max(max_items, n)
-            else:
-                empty += 1
-
-        avg_items = round(total_items / ready, 1) if ready > 0 else 0
-        if min_items == float("inf"):
-            min_items = 0
-
-        coverage = round(ready / total_users * 100, 1) if total_users > 0 else 0.0
-
-        stats = {
-            "ready": ready,
-            "empty": empty,
-            "missing": missing,
-            "total_items": total_items,
-            "avg_items": avg_items,
-            "min_items": min_items,
-            "max_items": max_items,
-            "coverage_pct": coverage,
-        }
-        source_stats[source] = stats
-
-        if logger:
-            logger.info(
-                f"  {source}: ready={ready}, empty={empty}, missing={missing}, "
-                f"coverage={coverage}%, avg_items={avg_items}",
-                extra={"detail": {source: stats}, "date_key": date_key},
-            )
-
-    elapsed = time.time() - t0
-
-    result: dict = {
-        "total_users": total_users,
-        "date_key": date_key,
-        "sources": source_stats,
-        "elapsed_s": round(elapsed, 1),
-    }
-
-    rrf = source_stats.get("rrf", {})
-    if rrf.get("ready", 0) == 0:
-        if logger:
-            logger.warning(
-                "No RRF results found — pipeline may have failed.",
-                extra={"date_key": date_key},
-            )
-        result["healthy"] = False
-    else:
-        result["healthy"] = True
-
-    # Diagnostic hints: which source has lowest coverage
-    if source_stats:
-        weakest = min(source_stats, key=lambda s: source_stats[s]["coverage_pct"])
-        weakest_pct = source_stats[weakest]["coverage_pct"]
-        if weakest_pct < 50 and logger:
-            logger.warning(
-                f"Lowest coverage: {weakest}={weakest_pct}%. "
-                f"Check if min_pos_interactions filter is too aggressive, "
-                f"or profileIndex is incomplete.",
-                extra={"date_key": date_key},
-            )
-
-    if logger:
-        logger.info(
-            f"Verify complete in {elapsed:.1f}s. Healthy={result['healthy']}",
-            extra={"duration_s": round(elapsed, 1), "date_key": date_key},
+        source_stats[source], source_details[source] = collect_stats(
+            f"modelRecs/{{uid}}/daily/{date_key}/sources/{source}",
+            eligible_actor_ids,
         )
 
+    daily_stats, daily_details = collect_stats(
+        f"dailyRecs/{{uid}}/days/{date_key}",
+        eligible_actor_ids,
+    )
+    daily_compatible_actor_count = sum(
+        1
+        for detail in daily_details.values()
+        if int((detail.get("data") or {}).get("selection", {}).get("eligibleCount", 0)) > 0
+    )
+    compatible_pairs = int(pair_audit["compatiblePairs"])
+
+    health = evaluate_verify_health(
+        total_real_users=total_real_users,
+        eligible_actors=len(eligible_actor_ids),
+        candidate_pool=candidate_pool,
+        source_stats=source_stats,
+        daily_stats={
+            key: daily_stats[key]
+            for key in ("ready", "empty", "skipped", "missing", "failed")
+        },
+        compatible_pairs=compatible_pairs,
+    )
+    readiness_metrics = build_policy_readiness_metrics(
+        total_real_users=total_real_users,
+        policy_meta=policy_meta,
+        display_status=display_status,
+        compatible_pairs=compatible_pairs,
+    )
+    elapsed = time.time() - t0
+    result = {
+        "total_users": total_real_users,
+        "total_real_users": total_real_users,
+        "eligible_actors": len(eligible_actor_ids),
+        "candidate_pool": candidate_pool,
+        "policy_meta_source": meta_source,
+        "date_key": date_key,
+        "sources": source_stats,
+        "source_details": source_details,
+        "daily": daily_stats,
+        "daily_details": daily_details,
+        "dailyCompatibleActorCount": daily_compatible_actor_count,
+        "pairAudit": pair_audit,
+        **readiness_metrics,
+        "elapsed_s": round(elapsed, 1),
+        **health,
+    }
+    if logger:
+        logger.info(
+            f"Verify complete in {elapsed:.1f}s. Healthy={result['healthy']} "
+            f"degraded={result['degraded']} fatal={result['fatal']}",
+            extra={"date_key": date_key, "result": result},
+        )
     return result
