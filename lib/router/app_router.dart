@@ -17,6 +17,7 @@ import '../features/onboarding/onboarding_route_args.dart';
 import '../features/onboarding/screens/lifestyle_screen.dart';
 import '../features/onboarding/screens/major_selection_screen.dart';
 import '../features/onboarding/screens/department_screen.dart';
+import '../features/onboarding/screens/campus_life_zone_repair_screen.dart';
 import '../features/onboarding/screens/photo_upload_screen.dart';
 import '../features/onboarding/screens/self_introduction_screen.dart';
 import '../features/onboarding/screens/profile_qa_screen.dart';
@@ -154,6 +155,8 @@ class AppRouter {
         return _cupertino(const MajorSelectionScreen());
       case RouteNames.onboardingDepartment:
         return _cupertino(const DepartmentScreen());
+      case RouteNames.campusLifeZoneRepair:
+        return _cupertino(const CampusLifeZoneRepairScreen());
       case RouteNames.onboardingPhoto:
         return _cupertino(const PhotoUploadScreen());
       case RouteNames.onboardingSelfIntro:

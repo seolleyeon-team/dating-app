@@ -10,6 +10,7 @@
 // =============================================================================
 
 import 'package:flutter/cupertino.dart';
+import '../../../constants/academic_grade_options.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../router/route_names.dart';
@@ -79,13 +80,8 @@ class BasicInfoScreen extends StatefulWidget {
 }
 
 class _BasicInfoScreenState extends State<BasicInfoScreen> {
-  static const List<String> _gradeOptions = <String>[
-    '1학년',
-    '2학년',
-    '3학년',
-    '4학년',
-    '5학년 이상',
-  ];
+  /// 학년 선택지는 생활권 보충 화면과 공유한다 (academic_grade_options.dart).
+  static const List<String> _gradeOptions = academicGradeOptions;
 
   final TextEditingController _nicknameController = TextEditingController();
   final TextEditingController _heightController = TextEditingController();
