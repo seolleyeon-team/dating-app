@@ -73,7 +73,12 @@ def evaluate_policy_provenance(
     mismatched = {
         state: count
         for state, count in observed_states.items()
-        if state != expected_state and count > 0
+        if state != expected_state
+        and count > 0
+        # 아직 켜지 않은 단계에서는 정책 이전에 만들어진 문서(provenance 없음)를
+        # 허용한다. 그 시점에는 생활권으로 거른 것이 없어 섞일 위험이 없다.
+        # 활성화 이후에는 legacy 문서도 실패로 본다.
+        and not (state == "missing" and expected_state != "enforced")
     }
     healthy = not mismatched
     return {
@@ -208,6 +213,7 @@ def run_verify(
     from recsys.jobs.daily_job import _eligible_actor_ids, _event_indexes
     from recsys.jobs.policy_audit import audit_policy_pairs
     from campus_life_zone_policy import (
+        ACTIVATION_ENFORCED,
         ACTIVATION_UNKNOWN,
         CampusLifeZoneActivationUnknown,
         load_campus_life_zone_activation,
@@ -292,6 +298,12 @@ def run_verify(
         for uid, status in display_status.items()
         if status.get("displayReady") is True and uid in policy_meta
     )
+    # 지금 의도한 생활권 정책 상태. 진단 지표와 provenance 검사가 같은 값을 쓴다.
+    try:
+        expected_state = load_campus_life_zone_activation(db)
+    except CampusLifeZoneActivationUnknown:
+        expected_state = ACTIVATION_UNKNOWN
+
     pair_audit = audit_policy_pairs(
         eligible_actor_ids,
         pair_candidate_ids,
@@ -304,6 +316,8 @@ def run_verify(
         blocked_by_actor=_blocks,
         nope_by_actor=_nopes,
         recent_exposure_by_actor=_exposure,
+        # OFF 동안에는 실제 추천도 생활권으로 거르지 않는다.
+        require_same_campus_life_zone=expected_state == ACTIVATION_ENFORCED,
     )
 
     def read_status(path: str) -> tuple[str, int, dict]:
@@ -380,11 +394,6 @@ def run_verify(
     compatible_pairs = int(pair_audit["compatiblePairs"])
 
     # 산출물이 어떤 생활권 정책 상태로 만들어졌는지 집계한다.
-    # 기대 상태는 지금의 config (조회 실패면 unknown 으로 표시하고 검증 실패).
-    try:
-        expected_state = load_campus_life_zone_activation(db)
-    except CampusLifeZoneActivationUnknown:
-        expected_state = ACTIVATION_UNKNOWN
     observed_states: dict[str, int] = {}
     for detail in daily_details.values():
         data = detail.get("data") or {}

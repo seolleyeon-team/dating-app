@@ -56,6 +56,7 @@ def _policy_failures(
     manner_min: float,
     require_same_university: bool,
     reciprocal: bool,
+    require_same_campus_life_zone: bool = True,
 ) -> list[str]:
     actor = policy_meta.get(actor_id)
     candidate = policy_meta.get(candidate_id)
@@ -85,9 +86,12 @@ def _policy_failures(
 
     # 생활권은 hard eligibility다. passes_policy 와 같은 조건을 여기서도
     # 재현해 감사 지표가 실제 추천 결과와 어긋나지 않게 한다.
-    zone_rejection = campus_life_zone_rejection(actor, candidate)
-    if zone_rejection is not None:
-        failures.append(zone_rejection)
+    # 단 rollout activation 이 OFF 면 실제 추천도 거르지 않으므로 여기서도
+    # 실패로 세지 않는다 (지표가 서빙과 어긋나면 진단 가치가 없다).
+    if require_same_campus_life_zone:
+        zone_rejection = campus_life_zone_rejection(actor, candidate)
+        if zone_rejection is not None:
+            failures.append(zone_rejection)
 
     if require_same_university:
         if not actor.get("universityId") or not candidate.get("universityId"):
@@ -138,6 +142,7 @@ def audit_policy_pairs(
     blocked_by_actor: Mapping[str, set[str]] | None = None,
     nope_by_actor: Mapping[str, set[str]] | None = None,
     recent_exposure_by_actor: Mapping[str, set[str]] | None = None,
+    require_same_campus_life_zone: bool = True,
 ) -> dict[str, Any]:
     """Audit first-failure and all-failure constraints without writing data."""
     timestamp = _utc_timestamp(now or datetime.now(timezone.utc))
@@ -188,6 +193,7 @@ def audit_policy_pairs(
                         manner_min=manner_min,
                         require_same_university=require_same_university,
                         reciprocal=reciprocal,
+                        require_same_campus_life_zone=require_same_campus_life_zone,
                     )
                 )
 
