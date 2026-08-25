@@ -80,9 +80,8 @@ class _FakeRepairService implements CampusLifeZoneRepairService {
 
 Future<void> _pumpRepair(
   WidgetTester tester,
-  _FakeRepairService service, {
-  List<bool>? popResults,
-}) async {
+  _FakeRepairService service,
+) async {
   await tester.pumpWidget(
     MaterialApp(
       home: Builder(
