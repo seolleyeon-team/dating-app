@@ -552,11 +552,18 @@ def load_profile_index_from_firestore(
     meta: Dict[str, Dict[str, Any]] = {}
     for doc in db.collection(collection).stream():
         d = doc.to_dict() or {}
+        # 완성 여부는 users 경로와 같은 규칙으로 읽는다.
+        # 여기서만 `isProfileComplete` 를 직접 보면, 앱이 실제로 쓰는
+        # `initialSetupComplete` 만 가진 사용자가 index 경로에서는 미완성으로
+        # 판정된다 (같은 사용자가 경로에 따라 다르게 취급된다).
+        completion = profile_completion_provenance(d)
         meta[doc.id] = {
             "universityId": d.get("universityId"),
             "isVerified": bool(d.get("isVerified", False)),
             "isActive": bool(d.get("isActive", False)),
-            "isProfileComplete": bool(d.get("isProfileComplete", False)),
+            "isProfileComplete": completion["value"] is True,
+            "profileCompleteSource": completion["source"],
+            "profileCompleteReason": completion["reason"],
             "gender": d.get("gender"),
             "birthYear": d.get("birthYear"),
             "prefGender": d.get("prefGender", []) or [],

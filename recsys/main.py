@@ -196,9 +196,30 @@ def _run_script(
     return result.returncode
 
 
+def _campus_zone_policy_provenance(args):
+    """이 실행이 어떤 생활권 정책 상태인지.
+
+    조회에 실패하면 예외가 그대로 올라간다. 활성화 여부를 모르는 채로
+    상태 문서를 쓰면, 나중에 검증이 그 문서를 어떤 정책 세대의 산출물로
+    봐야 할지 알 수 없다. `off` 로 적어 두는 것은 더 나쁘다 — 사실이 아닐 수
+    있는 정책 상태를 기록으로 남기게 된다.
+    """
+    sys.path.insert(0, AI_MODEL_DIR) if AI_MODEL_DIR not in sys.path else None
+    from campus_life_zone_policy import (
+        load_campus_life_zone_activation_with_version,
+    )
+    from google.cloud import firestore
+
+    db = firestore.Client(project=args.project, database=args.database)
+    state, version = load_campus_life_zone_activation_with_version(db)
+    return {"campusLifeZone": state, "campusLifeZonePolicyVersion": int(version)}
+
+
 def _persist_expected_skip(args, source: str, reason: str) -> None:
     from recsys.jobs.model_status import write_source_status
 
+    # 학습 데이터가 없어도 정책 세대는 기록한다. 모델 가용성과 정책 epoch 는
+    # 서로 다른 정보이고, 활성화 이후 검증은 provenance 없는 문서를 신뢰하지 않는다.
     write_source_status(
         project=args.project,
         date_key=args.date_key,
@@ -206,6 +227,7 @@ def _persist_expected_skip(args, source: str, reason: str) -> None:
         status="skipped",
         reason=reason,
         database=args.database,
+        policy_provenance=_campus_zone_policy_provenance(args),
     )
 
 
