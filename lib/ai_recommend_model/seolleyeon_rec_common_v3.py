@@ -947,22 +947,47 @@ def build_mutual_block_index(
     return dict(index)
 
 
+class NoUsableTrainingEvents(ValueError):
+    """협업필터 학습에 쓸 상호작용이 남지 않았다.
+
+    어느 필터에서 비었는지 알 수 있게 단계별 건수를 함께 들고 다닌다.
+    "이벤트가 아예 없다" 와 "전부 AI 취향 카드였다" 는 운영상 완전히 다른
+    상황인데, 메시지만으로는 구분되지 않아 매번 원본 데이터를 다시 뒤져야 했다.
+
+    개인 식별 정보는 담지 않는다 (건수와 이벤트 종류만).
+    """
+
+    def __init__(self, stages: Dict[str, int], event_counts: Dict[str, int]):
+        self.stages = dict(stages)
+        self.event_counts = dict(event_counts)
+        detail = ", ".join(f"{k}={v}" for k, v in stages.items())
+        seen = ", ".join(f"{k}={v}" for k, v in sorted(event_counts.items()))
+        super().__init__(
+            "No usable events after filtering known events / AI profiles. "
+            f"stages: {detail}. events seen: {seen or '(none)'}"
+        )
+
+
 def collapse_pair_events(
     df: pd.DataFrame,
     cfg: PairBuildConfig,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     df = normalize_events_df(df)
+    stages = {"normalized": int(len(df))}
+    event_counts = {
+        str(name): int(count) for name, count in df["event"].value_counts().items()
+    } if len(df) else {}
+
     known_events = set(cfg.event_weights.keys()) | set(cfg.negative_events)
     df = df[df["event"].isin(known_events)].copy()
+    stages["known_event"] = int(len(df))
 
     if cfg.exclude_ai_items_from_training:
         df = df[~df["item_id"].apply(is_ai_profile)].copy()
+        stages["non_ai_item"] = int(len(df))
 
     if df.empty:
-        raise ValueError(
-            "No usable events after filtering known events"
-            + (" / AI profiles." if cfg.exclude_ai_items_from_training else ".")
-        )
+        raise NoUsableTrainingEvents(stages, event_counts)
 
     rows: List[Dict[str, Any]] = []
     negative_rows: List[Dict[str, Any]] = []
