@@ -148,3 +148,40 @@ def test_error_is_still_a_valueerror_for_existing_callers():
     df = _events([("1111111111", "male_3", "like")])
     with pytest.raises(ValueError):
         collapse_pair_events(df, _cfg())
+
+def test_message_still_matches_the_pipeline_degraded_marker():
+    """진단 문구가 파이프라인의 degraded 분류를 깨지 않아야 한다.
+
+    recsys/main.py 는 이 메시지 문자열을 마커로 삼아 SVD/KNN 의 학습 데이터
+    부족을 "failed" 가 아니라 "skipped(insufficient_signal)" 로 분류하고,
+    그 상태를 modelRecs 문서에 기록한다. 메시지를 바꾸면서 마커를 깨면
+    데이터 부족이 갑자기 런타임 실패로 보고된다.
+    """
+    from recsys.main import _SIGNAL_SHORTAGE_MARKER, classify_subprocess_result
+
+    df = _events([("1111111111", "male_3", "like")])
+    with pytest.raises(NoUsableTrainingEvents) as excinfo:
+        collapse_pair_events(df, _cfg())
+
+    message = str(excinfo.value)
+    assert _SIGNAL_SHORTAGE_MARKER in message
+
+    status, reason = classify_subprocess_result(
+        "seolleyeon_svd_train_export_v3.py", 1, message
+    )
+    assert (status, reason) == ("skipped", "insufficient_signal")
+
+    knn_status, knn_reason = classify_subprocess_result(
+        "seolleyeon_knn_train_export_v3.py", 1, message
+    )
+    assert (knn_status, knn_reason) == ("skipped", "insufficient_signal")
+
+
+def test_unrelated_failures_are_still_reported_as_failures():
+    """데이터 부족 마커가 없는 실패는 계속 failed 로 분류된다."""
+    from recsys.main import classify_subprocess_result
+
+    status, reason = classify_subprocess_result(
+        "seolleyeon_svd_train_export_v3.py", 1, "MemoryError: out of memory"
+    )
+    assert (status, reason) == ("failed", "runtime_error")
