@@ -34,11 +34,31 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.yonsei.dating"
+        // applicationId 는 flavor 가 정한다 (productFlavors 참고).
+        // production 은 Google Play 에 이미 등록된 com.seolleyeon.app 이고,
+        // staging 은 개발용 com.yonsei.dating 이다. 여기에 기본값을 두면
+        // flavor 를 빼먹은 빌드가 조용히 한쪽 패키지로 나가므로 두지 않는다.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    flavorDimensions += "environment"
+
+    productFlavors {
+        create("production") {
+            dimension = "environment"
+            // Google Play 에 등록된 실제 앱. 이 값이어야 기존 사용자에게
+            // 업데이트로 전달된다.
+            applicationId = "com.seolleyeon.app"
+        }
+
+        create("staging") {
+            dimension = "environment"
+            // 개발/검증용. Play 에 올리지 않는다.
+            applicationId = "com.yonsei.dating"
+        }
     }
 
     signingConfigs {

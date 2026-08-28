@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+
+import '../constants/app_identity.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/email_link_completion.dart';
@@ -357,8 +359,10 @@ class AuthService {
     final acs = ActionCodeSettings(
       url: continueUrl,
       handleCodeInApp: true,
-      iOSBundleId: 'com.yonsei.dating',
-      androidPackageName: 'com.yonsei.dating', // TODO: 안드로이드 패키지명으로 바꿔
+      iOSBundleId: AppIdentity.iosBundleId,
+      // 실행 중인 빌드의 패키지여야 이메일 링크가 앱을 연다.
+      // production 은 com.seolleyeon.app, staging 은 com.yonsei.dating.
+      androidPackageName: AppIdentity.androidPackage,
       androidInstallApp: true,
       androidMinimumVersion: '21',
     );
