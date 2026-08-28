@@ -39,7 +39,24 @@ GOOGLE_SERVICES = REPO_ROOT / "android" / "app" / "google-services.json"
 FIREBASE_OPTIONS = REPO_ROOT / "lib" / "firebase_options.dart"
 ASSETLINKS = REPO_ROOT / "public" / "assetlinks.json"
 
+# Google Play Console -> 설정 -> 앱 무결성 에서 확인한 공개 지문.
+#
+# 앱 서명 인증서: Play 가 사용자에게 배포하는 APK 를 서명하는 키.
+#   설치된 앱이 갖는 인증서이므로 App Links / Kakao key hash 는 이 값을 쓴다.
+# 업로드 인증서: 우리가 AAB 에 서명해 Play 에 올릴 때 쓰는 키.
+#   Play 가 검증하고 벗겨내므로 설치본에는 남지 않는다.
+PLAY_APP_SIGNING_SHA256 = (
+    "ec75e01b4744773122cffc22b3a46facd31e0e7cee513ce08a9cc42c503651cf"
+)
+PLAY_UPLOAD_SHA256 = (
+    "02035e72cde18bb20acb472c225c1288d05b0348caf3a5179f6a9872cb44a9c6"
+)
+
 failures: list[str] = []
+
+
+def _normalize(fingerprint: str) -> str:
+    return re.sub(r"[^0-9a-f]", "", fingerprint.lower())
 
 
 def check(name: str, ok: bool, detail: str = "") -> None:
@@ -129,15 +146,30 @@ def main() -> int:
     print("[4] assetlinks.json")
     if ASSETLINKS.is_file():
         links = json.loads(ASSETLINKS.read_text(encoding="utf-8"))
-        targets = {
-            entry.get("target", {}).get("package_name") for entry in links
+        entries = {
+            entry.get("target", {}).get("package_name"): entry.get("target", {})
+            for entry in links
         }
-        has_production = PRODUCTION_PACKAGE in targets
-        print(f"    등록된 대상 패키지: {sorted(t for t in targets if t)}")
-        if not has_production:
-            print(
-                "    NOTE production 항목 없음 - Play 앱 서명 인증서 SHA-256 확정 후 추가해야 한다"
-            )
+        print(f"    등록된 대상 패키지: {sorted(t for t in entries if t)}")
+        check(f"{PRODUCTION_PACKAGE} 항목 존재", PRODUCTION_PACKAGE in entries)
+
+        production_entry = entries.get(PRODUCTION_PACKAGE, {})
+        fingerprints = {
+            _normalize(value)
+            for value in production_entry.get("sha256_cert_fingerprints", [])
+        }
+        # Play 가 재서명하므로 사용자 기기에 설치된 앱은 앱 서명 인증서를 갖는다.
+        # 업로드 인증서를 적으면 링크 검증이 실패한다.
+        check(
+            "production 지문 = Play 앱 서명 인증서",
+            PLAY_APP_SIGNING_SHA256 in fingerprints,
+            "앱 서명 인증서가 아니다",
+        )
+        check(
+            "업로드 인증서를 쓰지 않았다",
+            PLAY_UPLOAD_SHA256 not in fingerprints,
+            "업로드 인증서로는 설치본 링크가 검증되지 않는다",
+        )
     else:
         print("    assetlinks.json 없음")
 
