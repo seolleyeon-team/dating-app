@@ -129,7 +129,7 @@ class _EventScreenState extends State<EventScreen> {
               ),
               // 스크롤 영역
               Expanded(
-                child: _selectedTabIndex == 0
+                child: _selectedTabIndex == 1
                     ? (kSeasonMeetingReleased
                           ? SingleChildScrollView(
                               physics: const BouncingScrollPhysics(),
@@ -275,15 +275,15 @@ class _SegmentedControl extends StatelessWidget {
         child: Row(
           children: [
             _SegmentTab(
-              label: '3:3 시즌 미팅',
+              label: '블라인드 취향 미팅',
               isSelected: selectedIndex == 0,
-              locked: true,
+              locked: false,
               onTap: () => onChanged(0),
             ),
             _SegmentTab(
-              label: '블라인드 취향 미팅',
+              label: '3:3 시즌 미팅',
               isSelected: selectedIndex == 1,
-              locked: false,
+              locked: true,
               onTap: () => onChanged(1),
             ),
           ],

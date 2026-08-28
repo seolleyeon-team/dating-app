@@ -135,19 +135,35 @@ import UIKit
     }
 
     let overlay = UIView(frame: window.bounds)
-    overlay.backgroundColor = UIColor(red: 0.98, green: 0.98, blue: 0.98, alpha: 1.0)
+    overlay.backgroundColor = UIColor(
+      red: 250.0 / 255.0,
+      green: 250.0 / 255.0,
+      blue: 250.0 / 255.0,
+      alpha: 1.0
+    )
     overlay.isUserInteractionEnabled = false
     overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
     let titleLabel = UILabel()
     titleLabel.translatesAutoresizingMaskIntoConstraints = false
-    titleLabel.text = "설레연"
+    titleLabel.attributedText = NSAttributedString(
+      string: "설레연",
+      attributes: [
+        .underlineStyle: 0,
+        .underlineColor: UIColor.clear
+      ]
+    )
     titleLabel.font = UIFont.systemFont(ofSize: 36, weight: .bold)
-    titleLabel.textColor = UIColor(red: 1.0, green: 0.42, blue: 0.54, alpha: 1.0)
+    titleLabel.textColor = UIColor(
+      red: 1.0,
+      green: 107.0 / 255.0,
+      blue: 138.0 / 255.0,
+      alpha: 1.0
+    )
 
     let spinner = UIActivityIndicatorView(style: .medium)
     spinner.translatesAutoresizingMaskIntoConstraints = false
-    spinner.color = UIColor(red: 1.0, green: 0.42, blue: 0.54, alpha: 1.0)
+    spinner.color = titleLabel.textColor
     spinner.startAnimating()
 
     overlay.addSubview(titleLabel)
@@ -157,7 +173,7 @@ import UIKit
       titleLabel.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
       titleLabel.centerYAnchor.constraint(equalTo: overlay.centerYAnchor, constant: -10),
       spinner.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
-      spinner.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 14)
+      spinner.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16)
     ])
 
     window.addSubview(overlay)

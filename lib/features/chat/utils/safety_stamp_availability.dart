@@ -220,6 +220,19 @@ SafetyStampAvailabilityResult evaluateSafetyStampAvailability(
     }
   }
 
+  // 헤어짐 도장은 만남 확인이 끝난 시점부터 24시간 동안만 제공한다.
+  // 이 기간을 넘긴 약속은 채팅 상단 진입 버튼도 숨긴다.
+  if (phase == SafetyStampPhase.goodbye &&
+      !canOpenGoodbyeSafetyStamp(promise, now: resolvedNow)) {
+    return const SafetyStampAvailabilityResult(
+      isVisible: false,
+      canOpen: false,
+      promiseTime: null,
+      message: '',
+      phase: SafetyStampPhase.completed,
+    );
+  }
+
   final canOpen = phase == SafetyStampPhase.goodbye
       ? isOpenableSafetyStampStatus(promiseStatus) &&
             canOpenGoodbyeSafetyStamp(promise, now: resolvedNow)
