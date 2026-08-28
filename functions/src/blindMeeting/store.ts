@@ -190,55 +190,53 @@ export function readApplicationDoc(
   };
 }
 
-async function loadBlockedUserIds(userId: string): Promise<string[]> {
-  try {
-    const snap = await db()
-      .collection("blocks")
-      .doc(userId)
-      .collection("targets")
-      .get();
-    return snap.docs.map((d) => d.id).filter((id) => id.length > 0);
-  } catch (error) {
-    logger.warn("blindMeeting block load failed", { userId, error });
-    return [];
-  }
+// 차단·제재 조회는 안전 게이트다. Firestore 오류를 삼켜 빈 목록/false 로
+// 되돌리면(fail-open) 서로 차단한 사용자가 매칭되거나 제재 사용자가 게이트를
+// 통과한다. 그래서 오류를 그대로 전파해(fail-closed) 후보 로딩과 매칭 실행을
+// 중단시키고 다음 스케줄 tick 에서 재시도하게 한다.
+// (dna/user 문서 read 도 이미 같은 방식으로 예외를 전파한다.)
+// database 인자는 테스트에서 오류 주입을 위한 seam 이며 기본값은 실제 db() 다.
+export async function loadBlockedUserIds(
+  userId: string,
+  database: ReturnType<typeof db> = db()
+): Promise<string[]> {
+  const snap = await database
+    .collection("blocks")
+    .doc(userId)
+    .collection("targets")
+    .get();
+  return snap.docs.map((d) => d.id).filter((id) => id.length > 0);
 }
 
-async function loadRecentlyMetUserIds(
+export async function loadRecentlyMetUserIds(
   userId: string,
-  lookbackMs: number
+  lookbackMs: number,
+  database: ReturnType<typeof db> = db()
 ): Promise<string[]> {
   const since = Timestamp.fromMillis(Date.now() - lookbackMs);
-  try {
-    const snap = await db()
-      .collection(BLIND_MEETING_COLLECTIONS.matchHistory)
-      .doc(userId)
-      .collection("metUsers")
-      .where("metAt", ">=", since)
-      .get();
-    return snap.docs.map((d) => d.id);
-  } catch (error) {
-    logger.warn("blindMeeting history load failed", { userId, error });
-    return [];
-  }
+  const snap = await database
+    .collection(BLIND_MEETING_COLLECTIONS.matchHistory)
+    .doc(userId)
+    .collection("metUsers")
+    .where("metAt", ">=", since)
+    .get();
+  return snap.docs.map((d) => d.id);
 }
 
-async function isRestricted(userId: string): Promise<boolean> {
-  try {
-    const snap = await db()
-      .collection(BLIND_MEETING_COLLECTIONS.restrictions)
-      .doc(userId)
-      .get();
-    if (!snap.exists) return false;
-    const until = snap.data()?.restrictedUntil;
-    if (until instanceof Timestamp) {
-      return until.toMillis() > Date.now();
-    }
-    return snap.data()?.restricted === true;
-  } catch (error) {
-    logger.warn("blindMeeting restriction load failed", { userId, error });
-    return false;
+export async function isRestricted(
+  userId: string,
+  database: ReturnType<typeof db> = db()
+): Promise<boolean> {
+  const snap = await database
+    .collection(BLIND_MEETING_COLLECTIONS.restrictions)
+    .doc(userId)
+    .get();
+  if (!snap.exists) return false;
+  const until = snap.data()?.restrictedUntil;
+  if (until instanceof Timestamp) {
+    return until.toMillis() > Date.now();
   }
+  return snap.data()?.restricted === true;
 }
 
 /**
