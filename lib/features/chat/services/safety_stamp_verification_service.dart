@@ -28,9 +28,17 @@ class SafetyStampVerificationService {
     bool preferGpsOnly = false,
   }) async {
     if (kIsWeb || preferGpsOnly) {
-      return SafetyStampVerificationResult.failure(
-        failure: SafetyStampVerificationFailure.unknown,
-        message: '안전도장은 두 분 모두 모바일 앱에서 블루투스 근접 확인을 해야 진행할 수 있어요.',
+      final location = await _captureLocation();
+      if (!location.isSuccess) {
+        return location;
+      }
+
+      return SafetyStampVerificationResult.success(
+        message: preferGpsOnly
+            ? '상대가 웹에서 접속 중이라 현재 위치를 기준으로 안전도장을 기록했어요.'
+            : '웹에서는 현재 위치를 기준으로 안전도장을 기록했어요.',
+        rssi: 0,
+        location: location.location!,
       );
     }
 

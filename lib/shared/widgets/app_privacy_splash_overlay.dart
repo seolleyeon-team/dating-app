@@ -1,5 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
+import 'seolleyeon_splash_view.dart';
+
 class AppPrivacySplashOverlay extends StatefulWidget {
   final Widget child;
 
@@ -57,39 +59,10 @@ class _AppPrivacySplashOverlayState extends State<AppPrivacySplashOverlay>
           child: AnimatedOpacity(
             duration: const Duration(milliseconds: 140),
             opacity: _shouldShowOverlay ? 1 : 0,
-            child: const _PrivacySplashView(),
+            child: const SeolleyeonSplashView(),
           ),
         ),
       ],
-    );
-  }
-}
-
-class _PrivacySplashView extends StatelessWidget {
-  const _PrivacySplashView();
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(color: Color(0xFFFAFAFA)),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            Text(
-              '설레연',
-              style: TextStyle(
-                fontFamily: 'NanumSquareRound',
-                fontSize: 36,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFFFF6B8A),
-              ),
-            ),
-            SizedBox(height: 14),
-            CupertinoActivityIndicator(color: Color(0xFFFF6B8A)),
-          ],
-        ),
-      ),
     );
   }
 }

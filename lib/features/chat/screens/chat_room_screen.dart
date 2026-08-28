@@ -1010,26 +1010,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 final safetyStampPhase = activePromise == null
                     ? null
                     : deriveSafetyStampPhase(activePromise);
-                final promiseTime = activePromise == null
-                    ? null
-                    : parsePromiseDateTime(activePromise['dateTime']);
-                final isPromiseWithinVisibleWindow =
-                    promiseTime != null &&
-                    !_currentNow.isAfter(
-                      promiseTime.add(const Duration(hours: 1)),
-                    );
-                final shouldShowSafetyStampButton =
-                    activePromise != null &&
-                    isPromiseWithinVisibleWindow &&
-                    safetyStampPhase != SafetyStampPhase.completed;
-                final shouldShowActivePromiseBanner =
-                    activePromise != null &&
-                    isPromiseWithinVisibleWindow &&
-                    safetyStampPhase == SafetyStampPhase.meetup;
                 final safetyStampAvailability = evaluateSafetyStampAvailability(
                   activePromise,
                   now: _currentNow,
                 );
+                final shouldShowSafetyStampButton =
+                    safetyStampAvailability.isVisible;
+                final shouldShowActivePromiseBanner =
+                    activePromise != null &&
+                    safetyStampAvailability.isVisible &&
+                    safetyStampPhase == SafetyStampPhase.meetup;
 
                 return Column(
                   mainAxisSize: MainAxisSize.min,

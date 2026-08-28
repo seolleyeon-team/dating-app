@@ -258,6 +258,29 @@ void main() {
       expect(advancedPhotos, hasLength(2));
     });
 
+    testWidgets('사진 없이도 임시 설정에서 다음 단계로 넘어간다', (tester) async {
+      await _useMobileSurface(tester);
+      List<String>? advancedPhotos;
+
+      await tester.pumpWidget(
+        _harness(
+          client: _ReadyAvatarClient(),
+          initialPhotos: const [],
+          onNext: (photos) => advancedPhotos = photos,
+        ),
+      );
+      await tester.pump();
+
+      final nextButton = tester.widget<ElevatedButton>(_nextButton());
+      expect(nextButton.onPressed, isNotNull);
+      expect(find.text('사진은 나중에 추가할 수 있어요'), findsOneWidget);
+
+      await tester.tap(_nextButton());
+      await tester.pump();
+
+      expect(advancedPhotos, isEmpty);
+    });
+
     testWidgets('polls latest queued test job instead of first stale slot', (
       tester,
     ) async {

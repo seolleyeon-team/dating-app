@@ -8,3 +8,11 @@ const bool kEnableOnboardingAvatarGeneration = bool.fromEnvironment(
   'ENABLE_ONBOARDING_AVATAR_GENERATION',
   defaultValue: false,
 );
+
+/// Temporarily lets new users continue onboarding before adding profile photos.
+/// Restore the two-photo gate for a release with:
+/// `--dart-define=REQUIRE_ONBOARDING_PHOTOS=true`
+const bool kRequireOnboardingPhotos = bool.fromEnvironment(
+  'REQUIRE_ONBOARDING_PHOTOS',
+  defaultValue: false,
+);

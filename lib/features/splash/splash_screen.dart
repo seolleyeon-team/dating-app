@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import '../../router/route_names.dart';
 import '../../services/auth_service.dart';
 import '../../services/storage_service.dart';
+import '../../shared/widgets/seolleyeon_splash_view.dart';
 import '../auth/utils/email_link_continue_url.dart';
 
 /// 스플래시 화면
@@ -146,25 +147,9 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
-      backgroundColor: const Color(0xFFFAFAFA),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text(
-              '설레연',
-              style: TextStyle(
-                fontSize: 36,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFFFF6B8A),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const CupertinoActivityIndicator(color: Color(0xFFFF6B8A)),
-          ],
-        ),
-      ),
+    return const CupertinoPageScaffold(
+      backgroundColor: SeolleyeonSplashView.backgroundColor,
+      child: SeolleyeonSplashView(),
     );
   }
 }

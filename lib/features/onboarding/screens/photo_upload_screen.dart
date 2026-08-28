@@ -66,7 +66,7 @@ class PhotoUploadScreen extends StatefulWidget {
 }
 
 class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
-  static const int _minRequiredPhotos = 2;
+  static const int _requiredPhotoCount = 2;
   static const Duration _avatarPollInterval = Duration(seconds: 2);
   static const Duration _avatarPollTimeout = Duration(seconds: 300);
 
@@ -101,6 +101,9 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   int? _activeSourceSelectionVersion;
 
   int get _photoCount => _photos.where((p) => p != null).length;
+
+  int get _minRequiredPhotos =>
+      kRequireOnboardingPhotos ? _requiredPhotoCount : 0;
 
   bool get _isAvatarGenerationEnabled =>
       kEnableOnboardingAvatarGeneration ||
@@ -1542,7 +1545,9 @@ class _BottomActionBar extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  '최소 $minRequired장 필요',
+                  minRequired == 0
+                      ? '사진은 나중에 추가할 수 있어요'
+                      : '최소 $minRequired장 필요',
                   style: const TextStyle(
                     fontFamily: 'Pretendard',
                     fontSize: 12,

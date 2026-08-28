@@ -24,6 +24,10 @@ import '../services/ai_preference_performance_trace.dart';
 Color _postItColor(int index) =>
     const [Color(0xFFFFF1A8), Color(0xFFF7CDD9), Color(0xFFCDE9F3)][index % 3];
 
+// Temporary: keep the locker recommendation UI visible while the feed is
+// loading or empty so the in-progress surface can be reviewed in the app.
+const bool _temporarilyShowLockerPreview = true;
+
 class MysteryCardScreen extends StatefulWidget {
   final int notificationCount;
   final int remainingMatches;
@@ -492,7 +496,14 @@ class _LockerRecommendationContentState
         ),
         const SizedBox(height: 12),
         Expanded(
-          child: _isLoading
+          child:
+              _temporarilyShowLockerPreview && (_isLoading || _profiles.isEmpty)
+              ? _LockerBoard(
+                  profiles: const [],
+                  onOpen: _openNote,
+                  showPreviewNotes: true,
+                )
+              : _isLoading
               ? const Center(child: CupertinoActivityIndicator())
               : _profiles.isEmpty
               ? Center(
@@ -512,8 +523,13 @@ class _LockerRecommendationContentState
 class _LockerBoard extends StatelessWidget {
   final List<AiRecommendedProfile> profiles;
   final void Function(AiRecommendedProfile profile, int index) onOpen;
+  final bool showPreviewNotes;
 
-  const _LockerBoard({required this.profiles, required this.onOpen});
+  const _LockerBoard({
+    required this.profiles,
+    required this.onOpen,
+    this.showPreviewNotes = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -533,6 +549,7 @@ class _LockerBoard extends StatelessWidget {
         ];
         return Center(
           child: SizedBox(
+            key: const Key('locker_recommendation_board'),
             width: width,
             height: height,
             child: Stack(
@@ -554,6 +571,16 @@ class _LockerBoard extends StatelessWidget {
                       onTap: () => onOpen(profiles[index], index),
                     ),
                   ),
+                if (showPreviewNotes)
+                  for (var index = 0; index < positions.length; index++)
+                    _positionedNote(
+                      positions[index],
+                      _LockerPreviewPostIt(
+                        width: noteWidth,
+                        angle: positions[index].angle,
+                        colorIndex: index,
+                      ),
+                    ),
               ],
             ),
           ),
@@ -762,6 +789,71 @@ class _LockerPostIt extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _LockerPreviewPostIt extends StatelessWidget {
+  final double width;
+  final double angle;
+  final int colorIndex;
+
+  const _LockerPreviewPostIt({
+    required this.width,
+    required this.angle,
+    required this.colorIndex,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _postItColor(colorIndex);
+    return Transform.rotate(
+      angle: angle,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: width,
+            height: width * 0.86,
+            padding: const EdgeInsets.fromLTRB(8, 15, 8, 8),
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(5),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 7,
+                  offset: const Offset(1, 4),
+                ),
+              ],
+            ),
+            child: const Center(
+              child: Text(
+                '추천 준비 중',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF9B596B),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: -7,
+            left: width * 0.29,
+            child: Transform.rotate(
+              angle: -0.018,
+              child: Container(
+                width: width * 0.40,
+                height: 14,
+                color: const Color(0xFFF6E9D2).withValues(alpha: 0.66),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
