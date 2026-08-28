@@ -422,7 +422,9 @@ class BlindMeetingRepository {
       if (name.isEmpty) continue;
       final category = _nullableString(data['category']);
       final alcoholFreeFriendly =
-          category == null || !RegExp(r'술|바|펍|포차').hasMatch(category);
+          category == null ||
+          (category.trim().toLowerCase() != 'bar' &&
+              !RegExp(r'술|바|펍|포차').hasMatch(category));
       if (alcoholFreeOnly && !alcoholFreeFriendly) continue;
       result.add(
         BlindMeetingVenueCandidate(

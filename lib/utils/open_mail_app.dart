@@ -4,7 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-const _channel = MethodChannel('com.yonsei.dating/open_mail_app');
+const _channel = MethodChannel('com.seolleyeon.app/open_mail_app');
 
 Future<void> openGmailApp(BuildContext context) async {
   // Android: 네이티브 getLaunchIntentForPackage로 Gmail 앱 직접 실행

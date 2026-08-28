@@ -111,6 +111,8 @@ class RouteNames {
   static const String eventTeamFriendPicker = '/event/team-friend-picker';
   static const String eventTeamInviteResponse = '/event/team-invite-response';
   static const String seasonMeetingRoulette = '/event/season-meeting-roulette';
+  static const String seasonMeetingPaymentGuide =
+      '/event/season-meeting-payment-guide';
   static const String matchResult = '/event/match-result';
   static const String randomMathcingWait =
       '/event/random-matching-wait'; // 신청 내역 (typo 유지)

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:kakao_flutter_sdk_talk/kakao_flutter_sdk_talk.dart';
 
+import '../shared/utils/privacy_log_utils.dart';
+
 class KakaoTalkFriendItem {
   final String uuid;
   final int? serviceUserId;
@@ -46,14 +48,51 @@ class KakaoTalkFriendLookupResult {
 
 class KakaoConsentStatus {
   final int? userId;
+  final bool friendsUsing;
   final bool friendsAgreed;
+  final bool talkMessageUsing;
   final bool talkMessageAgreed;
 
   const KakaoConsentStatus({
     required this.userId,
+    required this.friendsUsing,
     required this.friendsAgreed,
+    required this.talkMessageUsing,
     required this.talkMessageAgreed,
   });
+
+  factory KakaoConsentStatus.fromScopes({
+    required int? userId,
+    required Iterable<Scope> scopes,
+  }) {
+    final scopesById = <String, Scope>{
+      for (final scope in scopes) scope.id: scope,
+    };
+    return KakaoConsentStatus(
+      userId: userId,
+      friendsUsing:
+          scopesById[KakaoTalkFriendService.friendsScope]?.using == true,
+      friendsAgreed:
+          scopesById[KakaoTalkFriendService.friendsScope]?.agreed == true,
+      talkMessageUsing:
+          scopesById[KakaoTalkFriendService.talkMessageScope]?.using == true,
+      talkMessageAgreed:
+          scopesById[KakaoTalkFriendService.talkMessageScope]?.agreed == true,
+    );
+  }
+}
+
+class KakaoTalkReviewException implements Exception {
+  final String code;
+  final String userMessage;
+
+  const KakaoTalkReviewException({
+    required this.code,
+    required this.userMessage,
+  });
+
+  @override
+  String toString() => userMessage;
 }
 
 class KakaoTalkMessageResult {
@@ -65,6 +104,18 @@ class KakaoTalkMessageResult {
   const KakaoTalkMessageResult({
     required this.sent,
     required this.receiverUuidExists,
+    this.errorCode,
+    this.errorMessage,
+  });
+}
+
+class KakaoTalkMemoResult {
+  final bool sent;
+  final int? errorCode;
+  final String? errorMessage;
+
+  const KakaoTalkMemoResult({
+    required this.sent,
     this.errorCode,
     this.errorMessage,
   });
@@ -91,13 +142,9 @@ class KakaoTalkFriendService {
 
   Future<KakaoConsentStatus> getConsentStatus() async {
     final info = await UserApi.instance.scopes(scopes: _reviewScopes);
-    final scopes = <String, Scope>{
-      for (final scope in info.scopes ?? const <Scope>[]) scope.id: scope,
-    };
-    return KakaoConsentStatus(
+    return KakaoConsentStatus.fromScopes(
       userId: info.id,
-      friendsAgreed: scopes[friendsScope]?.agreed == true,
-      talkMessageAgreed: scopes[talkMessageScope]?.agreed == true,
+      scopes: info.scopes ?? const <Scope>[],
     );
   }
 
@@ -105,28 +152,93 @@ class KakaoTalkFriendService {
   Future<KakaoConsentStatus> ensureRequiredConsents({
     required bool requireTalkMessage,
   }) async {
-    var status = await getConsentStatus();
-    final requiredScopes = <String>[
-      friendsScope,
-      if (requireTalkMessage) talkMessageScope,
-    ];
-    final missingScopes = requiredScopes
-        .where((scope) {
-          return switch (scope) {
-            friendsScope => !status.friendsAgreed,
-            talkMessageScope => !status.talkMessageAgreed,
-            _ => false,
-          };
-        })
-        .toList(growable: false);
+    try {
+      var status = await getConsentStatus();
+      final requiredScopes = <String>[
+        friendsScope,
+        if (requireTalkMessage) talkMessageScope,
+      ];
 
-    if (missingScopes.isEmpty) return status;
+      final unavailableScopes = requiredScopes
+          .where((scope) {
+            return switch (scope) {
+              friendsScope => !status.friendsUsing,
+              talkMessageScope => !status.talkMessageUsing,
+              _ => true,
+            };
+          })
+          .toList(growable: false);
+      if (unavailableScopes.isNotEmpty) {
+        throw KakaoTalkReviewException(
+          code: 'scope_not_enabled',
+          userMessage: '카카오디벨로퍼스에서 친구목록/메시지 동의항목이 사용 설정되지 않았어요. 설정을 확인해 주세요.',
+        );
+      }
 
-    debugPrint('[KakaoFriend] consent requested');
-    await UserApi.instance.loginWithNewScopes(missingScopes);
-    await fetchCurrentUser();
-    status = await getConsentStatus();
-    return status;
+      final missingScopes = requiredScopes
+          .where((scope) {
+            return switch (scope) {
+              friendsScope => !status.friendsAgreed,
+              talkMessageScope => !status.talkMessageAgreed,
+              _ => false,
+            };
+          })
+          .toList(growable: false);
+
+      if (missingScopes.isNotEmpty) {
+        debugPrint(
+          '[KakaoFriend] consent requested scopes=${missingScopes.join(',')}',
+        );
+        await UserApi.instance.loginWithNewScopes(missingScopes);
+      }
+
+      // 팀멤버의 앱 연결이 정리되지 않도록 동의 이후 사용자 정보 조회까지 완료합니다.
+      await fetchCurrentUser();
+      status = await getConsentStatus();
+      final stillMissing = requiredScopes.any((scope) {
+        return switch (scope) {
+          friendsScope => !status.friendsAgreed,
+          talkMessageScope => !status.talkMessageAgreed,
+          _ => false,
+        };
+      });
+      if (stillMissing) {
+        throw const KakaoTalkReviewException(
+          code: 'consent_not_completed',
+          userMessage: '필수 카카오 동의가 완료되지 않았어요. 동의 화면에서 모두 허용해 주세요.',
+        );
+      }
+      return status;
+    } on KakaoTalkReviewException {
+      rethrow;
+    } on KakaoAuthException catch (error) {
+      if (error.error == AuthErrorCause.accessDenied) {
+        throw const KakaoTalkReviewException(
+          code: 'consent_cancelled',
+          userMessage: '카카오 추가 동의가 취소되었어요.',
+        );
+      }
+      throw KakaoTalkReviewException(
+        code: error.error.name,
+        userMessage: _consentFailureMessage(error),
+      );
+    } on KakaoClientException catch (error) {
+      if (error.reason == ClientErrorCause.cancelled) {
+        throw const KakaoTalkReviewException(
+          code: 'consent_cancelled',
+          userMessage: '카카오 추가 동의가 취소되었어요.',
+        );
+      }
+      throw KakaoTalkReviewException(
+        code: error.reason.name,
+        userMessage: _consentFailureMessage(error),
+      );
+    } catch (error) {
+      throw KakaoTalkReviewException(
+        code: 'consent_failed',
+        userMessage: _consentFailureMessage(error),
+      );
+    }
   }
 
   /// 실제 Friend API (`TalkApi.friends`)를 호출합니다.
@@ -134,7 +246,7 @@ class KakaoTalkFriendService {
     bool requestConsentIfNeeded = true,
   }) async {
     if (requestConsentIfNeeded) {
-      await ensureRequiredConsents(requireTalkMessage: false);
+      await ensureRequiredConsents(requireTalkMessage: true);
     }
 
     try {
@@ -149,12 +261,43 @@ class KakaoTalkFriendService {
       }
 
       // 카카오 콘솔에서 동의항목을 사용 설정한 뒤의 첫 호출에도 대응합니다.
-      await ensureRequiredConsents(requireTalkMessage: false);
+      await ensureRequiredConsents(requireTalkMessage: true);
       final result = await _fetchFriendsOnce();
       debugPrint(
         '[KakaoFriend] friends fetch success count=${result.friends.length}',
       );
       return result;
+    }
+  }
+
+  /// 체크리스트의 첫 Message API 단계인 `나에게 보내기`를 실제 호출합니다.
+  Future<KakaoTalkMemoResult> sendTestMessageToMe({Uri? appUrl}) async {
+    try {
+      await ensureRequiredConsents(requireTalkMessage: true);
+      final linkUrl = appUrl ?? Uri.parse('https://seolleyeon-final.web.app');
+      final link = Link(webUrl: linkUrl, mobileWebUrl: linkUrl);
+      await TalkApi.instance.sendDefaultMemo(
+        TextTemplate(
+          text: '설레연 카카오 Message API 나에게 보내기 테스트입니다.',
+          link: link,
+          buttons: [Button(title: '설레연 열기', link: link)],
+          buttonTitle: '설레연 열기',
+        ),
+      );
+      debugPrint('[KakaoMessage] memo send success');
+      return const KakaoTalkMemoResult(sent: true);
+    } catch (error) {
+      final code = _kakaoErrorCode(error);
+      final detail = _safeErrorMessage(error);
+      debugPrint(
+        '[KakaoMessage] memo send failed code=${code ?? 'unknown'} '
+        'message=${PrivacyLogUtils.errorSummary(error)}',
+      );
+      return KakaoTalkMemoResult(
+        sent: false,
+        errorCode: code,
+        errorMessage: detail,
+      );
     }
   }
 
@@ -220,11 +363,16 @@ class KakaoTalkFriendService {
         errorMessage: message,
       );
     } catch (error) {
+      final code = _kakaoErrorCode(error);
       final detail = _safeErrorMessage(error);
-      debugPrint('[KakaoMessage] send failed code=exception message=$detail');
+      debugPrint(
+        '[KakaoMessage] send failed code=${code ?? 'unknown'} '
+        'message=${PrivacyLogUtils.errorSummary(error)}',
+      );
       return KakaoTalkMessageResult(
         sent: false,
         receiverUuidExists: true,
+        errorCode: code,
         errorMessage: detail,
       );
     }
@@ -287,10 +435,53 @@ class KakaoTalkFriendService {
     return trimmed.isEmpty ? '친구' : trimmed;
   }
 
+  int? _kakaoErrorCode(Object error) {
+    if (error is KakaoApiException) {
+      final code = error.toJson()['code'];
+      return code is int ? code : int.tryParse('$code');
+    }
+    return null;
+  }
+
+  String _consentFailureMessage(Object error) {
+    if (error is KakaoAuthException) {
+      if (error.error == AuthErrorCause.unauthorized) {
+        return '카카오 앱에 친구목록/메시지 사용 권한이 없어요. 카카오디벨로퍼스 설정을 확인해 주세요.';
+      }
+      if (error.error == AuthErrorCause.invalidScope) {
+        return '카카오 친구목록/메시지 동의항목 설정이 올바르지 않아요.';
+      }
+    }
+    if (error is KakaoClientException &&
+        error.reason == ClientErrorCause.tokenNotFound) {
+      return '카카오 로그인 정보가 없어요. 카카오로 다시 로그인해 주세요.';
+    }
+    if (error is KakaoApiException) {
+      if (error.code == ApiErrorCause.unsupportedApi) {
+        return '카카오 앱에서 Friend/Message API 사용 설정을 완료하지 않았어요.';
+      }
+      if (error.code == ApiErrorCause.insufficientScope) {
+        return '카카오 친구목록/메시지 동의가 필요해요.';
+      }
+      if (error.code == ApiErrorCause.invalidToken) {
+        return '카카오 로그인 세션이 만료되었어요. 다시 로그인해 주세요.';
+      }
+      if (error.code == ApiErrorCause.notTalkUser) {
+        return '카카오톡을 사용 중인 계정으로 로그인해 주세요.';
+      }
+    }
+    return '카카오 추가 동의를 완료하지 못했어요. 다시 시도해 주세요.';
+  }
+
   String _safeErrorMessage(Object error) {
-    return error
-        .toString()
-        .replaceFirst('Exception: ', '')
+    final message = switch (error) {
+      KakaoApiException() => error.msg,
+      KakaoAuthException() => error.errorDescription ?? error.error.name,
+      KakaoClientException() => error.msg,
+      KakaoTalkReviewException() => error.userMessage,
+      _ => error.toString().replaceFirst('Exception: ', ''),
+    };
+    return message
         .replaceAll(
           RegExp(r'access[_ -]?token[^, ]*', caseSensitive: false),
           '[redacted]',

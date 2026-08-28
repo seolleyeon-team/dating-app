@@ -45,6 +45,7 @@ class PromiseMapLaunch {
     required String name,
     String? kakaoPlaceId,
   }) async {
+    final hasCoordinates = lat.abs() > 0.000001 || lng.abs() > 0.000001;
     final pCenter = '$lat,$lng';
 
     if (!kIsWeb && kakaoPlaceId != null && kakaoPlaceId.trim().isNotEmpty) {
@@ -61,16 +62,18 @@ class PromiseMapLaunch {
       final appSearch = Uri(
         scheme: 'kakaomap',
         host: 'search',
-        queryParameters: {'q': name, 'p': pCenter},
+        queryParameters: {'q': name, if (hasCoordinates) 'p': pCenter},
       );
       if (await _launchCustomScheme(appSearch)) return true;
 
-      final appLook = Uri(
-        scheme: 'kakaomap',
-        host: 'look',
-        queryParameters: {'p': pCenter},
-      );
-      if (await _launchCustomScheme(appLook)) return true;
+      if (hasCoordinates) {
+        final appLook = Uri(
+          scheme: 'kakaomap',
+          host: 'look',
+          queryParameters: {'p': pCenter},
+        );
+        if (await _launchCustomScheme(appLook)) return true;
+      }
     }
 
     return _launchWebOnly(Uri.https('map.kakao.com', '/', {'q': name}));

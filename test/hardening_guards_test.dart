@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/shared/utils/in_app_purchase_policy.dart';
 import 'package:seolleyeon/shared/utils/safe_catch.dart';
@@ -8,10 +9,29 @@ enum _Sample { alpha, beta }
 
 void main() {
   group('InAppPurchasePolicy', () {
-    test('purchases are disabled by default', () {
+    test('Google Play is enabled while unverified iOS remains gated', () {
       expect(InAppPurchasePolicy.enabled, isFalse);
-      expect(InAppPurchasePolicy.allowPurchaseUi, isFalse);
-      expect(InAppPurchasePolicy.unavailableMessage, contains('준비'));
+      expect(
+        InAppPurchasePolicy.allowPurchaseUiFor(
+          isWeb: false,
+          platform: TargetPlatform.android,
+        ),
+        isTrue,
+      );
+      expect(
+        InAppPurchasePolicy.allowPurchaseUiFor(
+          isWeb: false,
+          platform: TargetPlatform.iOS,
+        ),
+        isFalse,
+      );
+      expect(
+        InAppPurchasePolicy.allowPurchaseUiFor(
+          isWeb: true,
+          platform: TargetPlatform.android,
+        ),
+        isFalse,
+      );
     });
 
     test('heart recharge screens refuse purchases unless policy enabled', () {
@@ -28,6 +48,18 @@ void main() {
         isTrue,
       );
       expect(charge.contains('InAppPurchasePolicy.unavailableMessage'), isTrue);
+    });
+
+    test('Google Play unfinished purchases are explicitly recovered', () {
+      final service = File(
+        'lib/features/shop/services/iap_service.dart',
+      ).readAsStringSync();
+      final charge = File(
+        'lib/features/profile/screens/heart_charge_screen.dart',
+      ).readAsStringSync();
+      expect(service.contains('_inAppPurchase.restorePurchases()'), isTrue);
+      expect(service.contains('restorePendingPurchases()'), isTrue);
+      expect(charge.contains('_iapService.restorePendingPurchases()'), isTrue);
     });
   });
 

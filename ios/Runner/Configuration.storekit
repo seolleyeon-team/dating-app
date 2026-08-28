@@ -1,0 +1,128 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "1BEBCE68-4409-4405-896C-4F2B6C083C4A",
+  "nonRenewingSubscriptionGroups" : [
+
+  ],
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "currency" : "KRW",
+      "displayPrice" : "₩3,000",
+      "familyShareable" : false,
+      "internalID" : "4EDB7B59-C1D4-4B35-9F12-BD6A7A1BBA10",
+      "localizations" : [
+        {
+          "description" : "설레연 하트 10개를 충전합니다.",
+          "displayName" : "하트 10개",
+          "locale" : "ko"
+        }
+      ],
+      "price" : 3000,
+      "productID" : "seolleyeon.heart.10",
+      "referenceName" : "Heart 10",
+      "type" : "Consumable"
+    },
+    {
+      "currency" : "KRW",
+      "displayPrice" : "₩7,000",
+      "familyShareable" : false,
+      "internalID" : "037B4A49-A08B-46CF-9E7F-CFD9F5B0C530",
+      "localizations" : [
+        {
+          "description" : "설레연 하트 30개를 충전합니다.",
+          "displayName" : "하트 30개",
+          "locale" : "ko"
+        }
+      ],
+      "price" : 7000,
+      "productID" : "seolleyeon.heart.30",
+      "referenceName" : "Heart 30",
+      "type" : "Consumable"
+    },
+    {
+      "currency" : "KRW",
+      "displayPrice" : "₩18,000",
+      "familyShareable" : false,
+      "internalID" : "E933C142-2FBC-4C8A-AACA-059759A67B87",
+      "localizations" : [
+        {
+          "description" : "설레연 하트 100개를 충전합니다.",
+          "displayName" : "하트 100개",
+          "locale" : "ko"
+        }
+      ],
+      "price" : 18000,
+      "productID" : "seolleyeon.heart.100",
+      "referenceName" : "Heart 100",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : {
+    "_askToBuyEnabled" : false,
+    "_billingGracePeriodEnabled" : false,
+    "_billingIssuesEnabled" : false,
+    "_disableDialogs" : false,
+    "_failTransactionsEnabled" : false,
+    "_locale" : "ko",
+    "_renewalBillingIssuesEnabled" : false,
+    "_storefront" : "KOR",
+    "_storeKitErrors" : [
+      {
+        "enabled" : false,
+        "name" : "Load Products"
+      },
+      {
+        "enabled" : false,
+        "name" : "Purchase"
+      },
+      {
+        "enabled" : false,
+        "name" : "Verification"
+      },
+      {
+        "enabled" : false,
+        "name" : "App Store Sync"
+      },
+      {
+        "enabled" : false,
+        "name" : "Subscription Status"
+      },
+      {
+        "enabled" : false,
+        "name" : "App Transaction"
+      },
+      {
+        "enabled" : false,
+        "name" : "Manage Subscriptions Sheet"
+      },
+      {
+        "enabled" : false,
+        "name" : "Refund Request Sheet"
+      },
+      {
+        "enabled" : false,
+        "name" : "Offer Code Redeem Sheet"
+      }
+    ],
+    "_timeRate" : 0
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+4
+version: 1.0.0+13
 
 environment:
   sdk: ^3.9.2
@@ -38,7 +38,11 @@ dependencies:
   firebase_storage: ^13.0.0
   firebase_auth: ^6.1.4
   cloud_firestore: ^6.1.2
-  cloud_functions: 6.0.7
+  cloud_functions: ^6.4.0
+  in_app_purchase: ^3.2.3
+  # `in_app_purchase`의 Google Play 구현체. 별도 BillingClient를 도입하지 않고
+  # 소비 완료 시점만 공통 IAP 서비스에서 제어하기 위해 사용한다.
+  in_app_purchase_android: ^0.5.2
   shared_preferences: ^2.5.4
   url_launcher: ^6.3.2
   geolocator: ^13.0.4
@@ -65,7 +69,7 @@ dependencies:
   audioplayers: 6.7.1
   flutter_contacts: ^2.0.1
   crypto: ^3.0.7
-  firebase_app_check: ^0.4.2
+  firebase_app_check: ^0.4.7
   flutter_blue_plus: ^1.35.5
   flutter_ble_peripheral: ^2.1.0
   ffi: ^2.1.4

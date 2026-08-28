@@ -1,37 +1,57 @@
-// =============================================================================
-// 하트 충전 화면
-// 경로: lib/features/profile/screens/heart_charge_screen.dart
-//
-// HTML to Flutter 변환 구현
-// - Cupertino 스타일 적용
-// - 그라데이션 배너 및 애니메이션 효과
-// - 하트 상품 리스트 UI
-// =============================================================================
+import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show Colors;
-import 'package:flutter/services.dart';
-import 'package:seolleyeon/shared/utils/in_app_purchase_policy.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
 
-// =============================================================================
-// 색상 정의
-// =============================================================================
+import '../../../services/storage_service.dart';
+import '../../shop/services/heart_products.dart';
+import '../../shop/services/iap_service.dart';
+import '../../../shared/utils/in_app_purchase_policy.dart';
+
 class _AppColors {
-  static const Color primary = Color(0xFFFF4081); // Pinkish accent
+  static const Color primary = Color(0xFFFF4081);
   static const Color backgroundLight = Color(0xFFF8F9FA);
   static const Color surfaceLight = CupertinoColors.white;
   static const Color textPrimary = Color(0xFF1A1A1A);
   static const Color textSecondary = Color(0xFF8E8E93);
 }
 
-// =============================================================================
-// 메인 화면
-// =============================================================================
-class HeartChargeScreen extends StatelessWidget {
+/// 하트 구매 화면입니다. 플랫폼별 IAP는 IapService가 앱 단위로 관리합니다.
+class HeartChargeScreen extends StatefulWidget {
   const HeartChargeScreen({super.key});
 
-  void _showPurchaseUnavailable(BuildContext context) {
-    HapticFeedback.selectionClick();
+  @override
+  State<HeartChargeScreen> createState() => _HeartChargeScreenState();
+}
+
+class _HeartChargeScreenState extends State<HeartChargeScreen> {
+  final IapService _iapService = IapService.instance;
+  final StorageService _storageService = StorageService();
+  String? _kakaoUserId;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_preparePurchases());
+  }
+
+  Future<void> _preparePurchases() async {
+    await _loadUser();
+    await _iapService.initialize();
+    await _iapService.restorePendingPurchases();
+  }
+
+  Future<void> _loadUser() async {
+    final userId = await _storageService.getKakaoUserId();
+    if (mounted) setState(() => _kakaoUserId = userId);
+  }
+
+  void _onBuy(ProductDetails details) {
+    if (InAppPurchasePolicy.allowPurchaseUi) {
+      unawaited(_iapService.buy(details));
+      return;
+    }
     showCupertinoDialog<void>(
       context: context,
       builder: (context) => CupertinoAlertDialog(
@@ -51,99 +71,89 @@ class HeartChargeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
       backgroundColor: _AppColors.backgroundLight,
-      child: Stack(
-        children: [
-          SafeArea(
-            child: Column(
-              children: [
-                // 상단 고정 영역 (헤더 + 현재 보유 하트)
-                Container(
-                  color: _AppColors.surfaceLight,
-                  child: Column(
-                    children: [
-                      _Header(onClose: () => Navigator.of(context).pop()),
-                      const _CurrentBalance(balance: 20),
-                      const SizedBox(height: 16),
-                    ],
-                  ),
+      child: SafeArea(
+        child: AnimatedBuilder(
+          animation: _iapService,
+          builder: (context, _) => Column(
+            children: [
+              _Header(onClose: () => Navigator.of(context).pop()),
+              _CurrentBalance(kakaoUserId: _kakaoUserId),
+              const SizedBox(height: 8),
+              const _PromoBanner(),
+              const SizedBox(height: 16),
+              if (_iapService.lastError != null)
+                _PurchaseNotice(message: _iapService.lastError!, isError: true)
+              else if (_iapService.lastSuccessProductId != null)
+                const _PurchaseNotice(
+                  message: '하트가 성공적으로 충전됐어요.',
+                  isError: false,
                 ),
-                // 스크롤 가능한 상품 리스트
-                Expanded(
-                  child: ListView(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    children: [
-                      _ProductCard(
-                        hearts: 6,
-                        price: 1500,
-                        unitPrice: 250,
-                        onTap: () {
-                          if (!InAppPurchasePolicy.allowPurchaseUi) {
-                            _showPurchaseUnavailable(context);
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      _ProductCard(
-                        hearts: 18,
-                        price: 4400,
-                        originalPrice: 4500,
-                        unitPrice: 245,
-                        discountPercent: 2,
-                        onTap: () {
-                          if (!InAppPurchasePolicy.allowPurchaseUi) {
-                            _showPurchaseUnavailable(context);
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      _ProductCard(
-                        hearts: 43,
-                        price: 9900,
-                        originalPrice: 10750,
-                        unitPrice: 231,
-                        discountPercent: 7,
-                        isPopular: true,
-                        onTap: () {
-                          if (!InAppPurchasePolicy.allowPurchaseUi) {
-                            _showPurchaseUnavailable(context);
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      _ProductCard(
-                        hearts: 120,
-                        price: 25000,
-                        originalPrice: 30000,
-                        unitPrice: 209,
-                        discountPercent: 16,
-                        onTap: () {
-                          if (!InAppPurchasePolicy.allowPurchaseUi) {
-                            _showPurchaseUnavailable(context);
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 24),
-                      const _FooterNote(),
-                      const SizedBox(height: 100), // 하단 여백
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              Expanded(child: _buildProductBody()),
+            ],
           ),
-        ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildProductBody() {
+    if (!_iapService.supportsIap) {
+      return const _CenteredMessage(
+        '하트 구매는 iPhone, iPad 또는 Android에서 이용할 수 있어요.',
+      );
+    }
+    if (_iapService.isLoadingProducts) {
+      return const Center(child: CupertinoActivityIndicator());
+    }
+    if (!_iapService.isStoreAvailable) {
+      return _CenteredMessage('현재 ${_iapService.storeName} 결제를 사용할 수 없어요.');
+    }
+    if (_iapService.products.isEmpty) {
+      return Center(
+        child: CupertinoButton(
+          onPressed: _iapService.loadProducts,
+          child: const Text('상품을 다시 불러오기'),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 48),
+      itemCount: _iapService.products.length + 1,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        if (index == _iapService.products.length) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Center(
+              child: Text(
+                '결제는 ${_iapService.storeName}을 통해 안전하게 처리됩니다.',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: _AppColors.textSecondary,
+                ),
+              ),
+            ),
+          );
+        }
+        final details = _iapService.products[index];
+        final package = HeartProducts.fromProductId(
+          details.id,
+          platform: _iapService.platform!,
+        )!;
+        return _ProductCard(
+          details: details,
+          heartPackage: package,
+          isBusy: _iapService.isPurchaseInProgress,
+          isActive: _iapService.activeProductId == details.id,
+          onPressed: () => _onBuy(details),
+        );
+      },
     );
   }
 }
 
-// =============================================================================
-// 헤더
-// =============================================================================
 class _Header extends StatelessWidget {
   final VoidCallback onClose;
 
@@ -159,7 +169,7 @@ class _Header extends StatelessWidget {
           const Text(
             '하트 충전',
             style: TextStyle(
-              fontFamily: 'NanumSquareRound',
+              fontFamily: 'Pretendard',
               fontSize: 24,
               fontWeight: FontWeight.w700,
               color: _AppColors.textPrimary,
@@ -172,15 +182,11 @@ class _Header extends StatelessWidget {
             onPressed: onClose,
             child: Container(
               padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: _AppColors.backgroundLight,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
-                CupertinoIcons.xmark,
-                color: Color(0xFF424242),
-                size: 20,
-              ),
+              child: const Icon(CupertinoIcons.xmark, color: Color(0xFF424242)),
             ),
           ),
         ],
@@ -189,13 +195,34 @@ class _Header extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// 현재 보유 하트
-// =============================================================================
 class _CurrentBalance extends StatelessWidget {
+  final String? kakaoUserId;
+
+  const _CurrentBalance({required this.kakaoUserId});
+
+  @override
+  Widget build(BuildContext context) {
+    final userId = kakaoUserId;
+    if (userId == null || userId.isEmpty) return const _BalanceRow(balance: 0);
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data();
+        final balance = (data?['heartBalance'] as num?)?.toInt() ?? 0;
+        return _BalanceRow(balance: balance);
+      },
+    );
+  }
+}
+
+class _BalanceRow extends StatelessWidget {
   final int balance;
 
-  const _CurrentBalance({required this.balance});
+  const _BalanceRow({required this.balance});
 
   @override
   Widget build(BuildContext context) {
@@ -226,199 +253,186 @@ class _CurrentBalance extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// 상품 카드
-// =============================================================================
-class _ProductCard extends StatelessWidget {
-  final int hearts;
-  final int price;
-  final int? originalPrice;
-  final int unitPrice;
-  final int? discountPercent;
-  final bool isPopular;
-  final VoidCallback onTap;
-
-  const _ProductCard({
-    required this.hearts,
-    required this.price,
-    this.originalPrice,
-    required this.unitPrice,
-    this.discountPercent,
-    this.isPopular = false,
-    required this.onTap,
-  });
+class _PromoBanner extends StatelessWidget {
+  const _PromoBanner();
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoButton(
-      padding: EdgeInsets.zero,
-      onPressed: onTap,
-      child: Stack(
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFCE4EC), Color(0xFFF3E5F5)],
+        ),
+      ),
+      child: const Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: _AppColors.surfaceLight,
-              borderRadius: BorderRadius.circular(16),
-              border: isPopular
-                  ? Border.all(
-                      color: _AppColors.primary.withValues(alpha: 0.1),
-                      width: 2,
-                    )
-                  : Border.all(color: Colors.transparent),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Icon(CupertinoIcons.heart_fill, color: _AppColors.primary, size: 28),
+          SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 좌측 아이콘 및 정보
-                Row(
-                  children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFCE4EC), // pink-50
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: _AppColors.primary.withValues(alpha: 0.3),
-                            blurRadius: 10,
-                            spreadRadius: 0,
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        CupertinoIcons.heart_fill,
-                        color: _AppColors.primary,
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '$hearts하트',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: _AppColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '1하트당 $unitPrice원',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: _AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                Text(
+                  '더 많은 연결을 시작해보세요',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: _AppColors.textPrimary,
+                  ),
                 ),
-                // 우측 가격 정보
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    if (originalPrice != null && discountPercent != null)
-                      Row(
-                        children: [
-                          Text(
-                            '$originalPrice',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFFBDBDBD),
-                              decoration: TextDecoration.lineThrough,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFCE4EC), // pink-100
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              '$discountPercent% 할인',
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: _AppColors.primary,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '₩$price',
-                      style: TextStyle(
-                        fontSize: isPopular ? 20 : 18,
-                        fontWeight: FontWeight.w700,
-                        color: _AppColors.textPrimary,
-                      ),
-                    ),
-                  ],
+                SizedBox(height: 4),
+                Text(
+                  '하트는 좋아요를 보내는 데 사용할 수 있어요.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF616161)),
                 ),
               ],
             ),
           ),
-          if (isPopular)
-            Positioned(
-              top: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: _AppColors.primary.withValues(alpha: 0.1),
-                  borderRadius: const BorderRadius.only(
-                    topRight: Radius.circular(14), // Border width 고려 살짝 줄임
-                    bottomLeft: Radius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  'POPULAR',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    color: _AppColors.primary,
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );
   }
 }
 
-// =============================================================================
-// 하단 안내 문구
-// =============================================================================
-class _FooterNote extends StatelessWidget {
-  const _FooterNote();
+class _PurchaseNotice extends StatelessWidget {
+  final String message;
+  final bool isError;
+
+  const _PurchaseNotice({required this.message, required this.isError});
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isError ? const Color(0xFFFFE8EA) : const Color(0xFFE8F7EE),
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Text(
-        '구매 내역은 설정 > 결제 내역에서 확인 가능합니다.',
-        style: TextStyle(fontSize: 12, color: _AppColors.textSecondary),
+        message,
+        style: TextStyle(
+          fontSize: 13,
+          color: isError ? const Color(0xFFB3263D) : const Color(0xFF167244),
+        ),
       ),
     );
   }
+}
+
+class _ProductCard extends StatelessWidget {
+  final ProductDetails details;
+  final HeartProduct heartPackage;
+  final bool isBusy;
+  final bool isActive;
+  final VoidCallback onPressed;
+
+  const _ProductCard({
+    required this.details,
+    required this.heartPackage,
+    required this.isBusy,
+    required this.isActive,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A000000),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: const BoxDecoration(
+              color: Color(0xFFFCE4EC),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              CupertinoIcons.heart_fill,
+              color: _AppColors.primary,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  details.title,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: _AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  details.description.isEmpty
+                      ? '${heartPackage.hearts}하트'
+                      : details.description,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: _AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          CupertinoButton(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            color: _AppColors.primary,
+            disabledColor: const Color(0xFFFFB6CB),
+            onPressed: isBusy ? null : onPressed,
+            child: isActive
+                ? const CupertinoActivityIndicator(color: CupertinoColors.white)
+                : Text(
+                    details.price,
+                    style: const TextStyle(
+                      color: CupertinoColors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CenteredMessage extends StatelessWidget {
+  final String message;
+
+  const _CenteredMessage(this.message);
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: _AppColors.textSecondary),
+      ),
+    ),
+  );
 }

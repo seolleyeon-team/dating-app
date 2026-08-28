@@ -33,11 +33,23 @@ class _AppColors {
 // =============================================================================
 // 메인 화면
 // =============================================================================
-class GroupMatchScreen extends StatelessWidget {
+class GroupMatchScreen extends StatefulWidget {
   const GroupMatchScreen({super.key});
 
   @override
+  State<GroupMatchScreen> createState() => _GroupMatchScreenState();
+}
+
+enum _DemoStep { matchConfirmed, depositStatus, payment, groupChat }
+
+class _GroupMatchScreenState extends State<GroupMatchScreen> {
+  _DemoStep _step = _DemoStep.matchConfirmed;
+
+  void _goTo(_DemoStep step) => setState(() => _step = step);
+
+  @override
   Widget build(BuildContext context) {
+    final title = _step == _DemoStep.groupChat ? '3:3 단체 채팅' : '미팅 방';
     return CupertinoPageScaffold(
       backgroundColor: _AppColors.backgroundLight,
       navigationBar: CupertinoNavigationBar(
@@ -48,8 +60,8 @@ class GroupMatchScreen extends StatelessWidget {
           child: const Icon(CupertinoIcons.back, color: _AppColors.textMain),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        middle: const Text(
-          '미팅 방',
+        middle: Text(
+          title,
           style: TextStyle(
             fontFamily: 'NanumSquareRound',
             fontWeight: FontWeight.w700,
@@ -57,31 +69,377 @@ class GroupMatchScreen extends StatelessWidget {
           ),
         ),
       ),
-      child: Stack(
-        children: [
-          // 메인 스크롤 영역
-          SafeArea(
-            bottom: false,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.only(bottom: 160), // 하단 시트 공간 확보
-              physics: const BouncingScrollPhysics(),
-              child: Column(
-                children: const [
-                  _TeamMatchSection(),
-                  _DepositProgressSection(),
-                  _LockedChatSection(),
+      child: switch (_step) {
+        _DemoStep.matchConfirmed => _MatchConfirmedScreen(
+          onJoin: () => _goTo(_DemoStep.depositStatus),
+        ),
+        _DemoStep.depositStatus => Stack(
+          children: [
+            SafeArea(
+              bottom: false,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(bottom: 160),
+                physics: const BouncingScrollPhysics(),
+                child: const Column(
+                  children: [
+                    _TeamMatchSection(),
+                    _DepositProgressSection(),
+                    _LockedChatSection(),
+                  ],
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _BottomActionSheet(
+                onDeposit: () => _goTo(_DemoStep.payment),
+              ),
+            ),
+          ],
+        ),
+        _DemoStep.payment => _DepositPaymentScreen(
+          onComplete: () => _goTo(_DemoStep.groupChat),
+        ),
+        _DemoStep.groupChat => const _ActiveGroupChatScreen(),
+      },
+    );
+  }
+}
+
+class _MatchConfirmedScreen extends StatelessWidget {
+  final VoidCallback onJoin;
+
+  const _MatchConfirmedScreen({required this.onJoin});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 92,
+              height: 92,
+              decoration: BoxDecoration(
+                color: _AppColors.teamABg,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                CupertinoIcons.check_mark_circled_solid,
+                size: 52,
+                color: _AppColors.primary,
+              ),
+            ),
+            const SizedBox(height: 28),
+            const Text(
+              '3:3 매칭이 성사되었습니다!',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: 'NanumSquareRound',
+                fontSize: 23,
+                fontWeight: FontWeight.w800,
+                color: _AppColors.textMain,
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              '상대 팀과 미팅을 준비해 보세요.\n참여 예치금을 내면 단체 채팅방이 열립니다.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                height: 1.55,
+                color: _AppColors.textSub,
+              ),
+            ),
+            const SizedBox(height: 32),
+            const _TeamMatchSection(),
+            const Spacer(),
+            _PrimaryDemoButton(label: '미팅 참여하기', onPressed: onJoin),
+            const SizedBox(height: 12),
+            const Text(
+              '목업 화면이며 실제 매칭·결제는 진행되지 않습니다.',
+              style: TextStyle(fontSize: 12, color: _AppColors.textSub),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DepositPaymentScreen extends StatelessWidget {
+  final VoidCallback onComplete;
+
+  const _DepositPaymentScreen({required this.onComplete});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 28),
+            const Icon(
+              CupertinoIcons.lock_shield_fill,
+              size: 48,
+              color: _AppColors.primary,
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              '미팅 참여 예치금',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: 'NanumSquareRound',
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: _AppColors.textMain,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '전원 예치금 확인 후 3:3 단체 채팅방이 열립니다.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: _AppColors.textSub),
+            ),
+            const SizedBox(height: 32),
+            Container(
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                color: _AppColors.surfaceLight,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: CupertinoColors.systemGrey5),
+              ),
+              child: const Column(
+                children: [
+                  _PaymentRow(label: '상품', value: '3:3 시즌 미팅 참여 보증금'),
+                  SizedBox(height: 18),
+                  _PaymentRow(label: '예치금', value: '5,000원', isAmount: true),
+                  SizedBox(height: 18),
+                  _PaymentRow(label: '불참 시', value: '예치금 환급 불가'),
+                  SizedBox(height: 18),
+                  _PaymentRow(label: '대타', value: '참석이 어려우면 본인이 반드시 구해야 함'),
                 ],
               ),
             ),
+            const Spacer(),
+            _PrimaryDemoButton(label: '5,000원 예치하기', onPressed: onComplete),
+            const SizedBox(height: 12),
+            const Text(
+              '결제 기능 연동 전 목업입니다. 실제 금액은 청구되지 않습니다.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: _AppColors.textSub),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PaymentRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool isAmount;
+
+  const _PaymentRow({
+    required this.label,
+    required this.value,
+    this.isAmount = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 58,
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 14, color: _AppColors.textSub),
           ),
-          // 하단 고정 액션 시트
-          const Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _BottomActionSheet(),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              fontSize: isAmount ? 20 : 14,
+              fontWeight: isAmount ? FontWeight.w800 : FontWeight.w600,
+              color: isAmount ? _AppColors.primary : _AppColors.textMain,
+              height: 1.35,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PrimaryDemoButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onPressed;
+
+  const _PrimaryDemoButton({required this.label, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: onPressed,
+      child: Container(
+        height: 56,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: _AppColors.primary,
+          borderRadius: BorderRadius.circular(28),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActiveGroupChatScreen extends StatelessWidget {
+  const _ActiveGroupChatScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        children: [
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: _AppColors.teamABg,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Row(
+              children: [
+                Icon(
+                  CupertinoIcons.check_mark_circled_solid,
+                  color: _AppColors.primary,
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '예치금이 확인되어 3:3 단체 채팅방이 열렸어요.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: _AppColors.textMain,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: const [
+                _ChatBubble(name: '민지', message: '안녕하세요! 드디어 만나게 됐네요 😊'),
+                _ChatBubble(name: '준호', message: '반가워요. 다 같이 일정 맞춰봐요!'),
+                _ChatBubble(
+                  name: '나',
+                  message: '좋아요. 주말 저녁은 어떠세요?',
+                  isMine: true,
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+            decoration: const BoxDecoration(
+              color: _AppColors.surfaceLight,
+              border: Border(
+                top: BorderSide(color: CupertinoColors.systemGrey5),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: CupertinoTextField(
+                    placeholder: '메시지를 입력하세요',
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(
+                  CupertinoIcons.arrow_up_circle_fill,
+                  color: _AppColors.primary,
+                  size: 34,
+                ),
+              ],
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ChatBubble extends StatelessWidget {
+  final String name;
+  final String message;
+  final bool isMine;
+
+  const _ChatBubble({
+    required this.name,
+    required this.message,
+    this.isMine = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: isMine ? _AppColors.teamABg : _AppColors.surfaceLight,
+          borderRadius: BorderRadius.circular(16),
+          border: isMine
+              ? null
+              : Border.all(color: CupertinoColors.systemGrey5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              name,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: _AppColors.textSub,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              message,
+              style: const TextStyle(fontSize: 14, color: _AppColors.textMain),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -588,7 +946,9 @@ class _LockedChatSection extends StatelessWidget {
 // 하단 고정 액션 시트
 // =============================================================================
 class _BottomActionSheet extends StatelessWidget {
-  const _BottomActionSheet();
+  final VoidCallback onDeposit;
+
+  const _BottomActionSheet({required this.onDeposit});
 
   @override
   Widget build(BuildContext context) {
@@ -617,7 +977,7 @@ class _BottomActionSheet extends StatelessWidget {
             // 예치금 내기 버튼
             CupertinoButton(
               padding: EdgeInsets.zero,
-              onPressed: () {},
+              onPressed: onDeposit,
               child: Container(
                 height: 56,
                 decoration: BoxDecoration(
@@ -656,7 +1016,7 @@ class _BottomActionSheet extends StatelessWidget {
             // 대타 구하기 버튼
             CupertinoButton(
               padding: EdgeInsets.zero,
-              onPressed: () {},
+              onPressed: () => _showReplacementNotice(context),
               child: Container(
                 height: 56,
                 alignment: Alignment.center,
@@ -666,7 +1026,7 @@ class _BottomActionSheet extends StatelessWidget {
                   border: Border.all(color: CupertinoColors.systemGrey4),
                 ),
                 child: const Text(
-                  '대타 구하기',
+                  '대타 구하기 (필수)',
                   style: TextStyle(
                     color: Color(0xFF334155), // slate-700
                     fontSize: 16,
@@ -702,6 +1062,27 @@ class _BottomActionSheet extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showReplacementNotice(BuildContext context) {
+    showCupertinoDialog<void>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('대타 구하기 안내'),
+        content: const Padding(
+          padding: EdgeInsets.only(top: 8),
+          child: Text(
+            '참여 의사를 확정한 뒤 참석이 어려워지면 본인이 대타를 반드시 구해야 합니다. 불참 또는 참여 취소 시 예치금은 환급되지 않습니다.',
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('확인'),
+          ),
+        ],
       ),
     );
   }

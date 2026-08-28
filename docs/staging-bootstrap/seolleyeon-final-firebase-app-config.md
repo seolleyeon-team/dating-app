@@ -10,9 +10,9 @@ Status: `COMPLETE_FOR_ANDROID_IOS`
 
 | Platform | App identifier |
 |---|---|
-| Android applicationId | `com.yonsei.dating` |
-| Android namespace | `com.yonsei.dating` |
-| iOS bundle id | `com.yonsei.dating` |
+| Android applicationId | `com.seolleyeon.app` |
+| Android namespace | `com.seolleyeon.app` |
+| iOS bundle id | `com.seolleyeon.app` |
 
 ## Firebase apps created
 
@@ -41,12 +41,12 @@ The backup files are gitignored. They are local recovery artifacts only.
 ## Commands
 
 ```sh
-firebase apps:create android "Seolleyeon Staging Android" --package-name com.yonsei.dating --project seolleyeon-final --json
-firebase apps:create ios "Seolleyeon Staging iOS" --bundle-id com.yonsei.dating --project seolleyeon-final --json
-firebase apps:sdkconfig ANDROID 1:810450765203:android:81ca13cb23027d875c9466 --project seolleyeon-final > android/app/google-services.json
-firebase apps:sdkconfig IOS 1:810450765203:ios:7e51bb82970a77145c9466 --project seolleyeon-final > ios/Runner/GoogleService-Info.plist
+firebase apps:create android "Seolleyeon Staging Android" --package-name com.seolleyeon.app --project seolleyeon-final --json
+firebase apps:create ios "Seolleyeon Staging iOS" --bundle-id com.seolleyeon.app --project seolleyeon-final --json
+firebase apps:sdkconfig ANDROID 1:810450765203:android:685c8e050fcac6b55c9466 --project seolleyeon-final > android/app/google-services.json
+firebase apps:sdkconfig IOS 1:810450765203:ios:fddeea51ac71dc4e5c9466 --project seolleyeon-final > ios/Runner/GoogleService-Info.plist
 dart pub global activate flutterfire_cli
-flutterfire configure --project=seolleyeon-final --platforms=android,ios --android-package-name=com.yonsei.dating --ios-bundle-id=com.yonsei.dating --out=lib/firebase_options.dart --yes
+flutterfire configure --project=seolleyeon-final --platforms=android,ios --android-package-name=com.seolleyeon.app --ios-bundle-id=com.seolleyeon.app --out=lib/firebase_options.dart --yes
 flutter pub get
 flutter analyze
 flutter test test/profile_display_image_resolver_test.dart

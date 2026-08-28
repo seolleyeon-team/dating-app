@@ -8,13 +8,25 @@ void main() {
       const failure = FirebaseSessionFailure(
         reason: FirebaseSessionFailureReason.appCheckRejected,
         errorCode: '403',
+        supportCode: 'AC-R-ATTESTATION',
       );
 
       expect(failure.toString(), contains('개발 환경 보안 인증'));
+      expect(failure.toString(), contains('진단 코드: AC-R-ATTESTATION'));
       expect(failure.toString(), isNot(contains('403')));
       expect(failure.toString(), isNot(contains('secret-token')));
     },
   );
+
+  test('support code is sanitized before it is shown to a tester', () {
+    const failure = FirebaseSessionFailure(
+      reason: FirebaseSessionFailureReason.appCheckUnavailable,
+      supportCode: 'ac-u-network\nsecret-token',
+    );
+
+    expect(failure.toString(), contains('진단 코드: AC-U-NETWORK-SECRET-TOKEN'));
+    expect(failure.toString(), isNot(contains('\nsecret-token')));
+  });
 
   test('transient session inspection gets retry guidance', () {
     const failure = FirebaseSessionFailure(

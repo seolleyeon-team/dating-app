@@ -24,7 +24,7 @@ class CaptureProtectedImage extends StatelessWidget {
     this.placeholderIconSize = 28,
   });
 
-  static const String _viewType = 'com.yonsei.dating/capture_protected_image';
+  static const String _viewType = 'com.seolleyeon.app/capture_protected_image';
 
   final String imageUrl;
   final BoxFit fit;

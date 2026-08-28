@@ -50,6 +50,8 @@ app.*.map.json
 **/serviceAccountKey.json
 **/*-service-account*.json
 .local_secrets/
+# Android PortOne build inputs are provided interactively; never persist them.
+android/portone.local.properties
 .venv_mediapipe_preflight/
 .cache/
 functions/.env.seolleyeon-final

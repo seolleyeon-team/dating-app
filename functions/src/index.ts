@@ -17,6 +17,7 @@
  */
 
 import { setGlobalOptions } from "firebase-functions/v2";
+import { defineSecret, defineString } from "firebase-functions/params";
 import {
   onDocumentCreated,
   onDocumentUpdated,
@@ -35,7 +36,8 @@ import {
   Timestamp,
   DocumentReference,
 } from "firebase-admin/firestore";
-import { createHash, randomBytes } from "crypto";
+import { createHash, randomBytes, randomUUID } from "crypto";
+import { GoogleAuth } from "google-auth-library";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import {
   buildReminderScheduledForMs,
@@ -91,6 +93,11 @@ import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge
 import { createCompleteStudentEmailLinkFunction } from "./emailLinkCompletion";
 import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
 import { createUploadOnboardingPhotoFunction } from "./onboardingPhotoUpload";
+import {
+  buildStudentVerificationEmail,
+  decideStudentVerificationRateLimit,
+  normalizeYonseiEmail,
+} from "./studentVerificationEmail";
 
 // Firebase Admin 초기화
 initializeApp();
@@ -98,10 +105,14 @@ const db = getFirestore();
 const FRIEND_INVITE_HOST = "seolleyeon-final.web.app";
 const FRIEND_INVITE_PATH = "/invite/friend";
 const FRIEND_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
-// PortOne secret is read from env / .env only until Secret Manager is configured.
-// Binding defineSecret here blocks all-function deploys when the secret is unset.
+// 가입 허용 기준: 연 나이 20세 이상. 예를 들어 2026년에는 2006년생까지 허용한다.
+const MINIMUM_SERVICE_AGE = 20;
 const PORTONE_STORE_ID = "store-ec95a751-307e-4b85-97bd-7c6fa0bbe0e2";
-const ADULT_VERIFICATION_PROVIDER = "kg_inicis_via_portone_test";
+const ADULT_VERIFICATION_PROVIDER = "kg_inicis_via_portone";
+const PORTONE_API_SECRET = defineSecret("PORTONE_API_SECRET");
+const RESEND_API_KEY = defineSecret("RESEND_API_KEY");
+const RESEND_FROM_EMAIL = defineString("RESEND_FROM_EMAIL", { default: "" });
+const RESEND_REPLY_TO = defineString("RESEND_REPLY_TO", { default: "" });
 
 // 전역 옵션
 setGlobalOptions({
@@ -179,7 +190,7 @@ function readBirthYear(customer: Record<string, unknown>): number | null {
 }
 
 function isAdultByKoreanYear(birthYear: number, now = new Date()): boolean {
-  return getKstFullYear(now) - birthYear >= 19;
+  return getKstFullYear(now) - birthYear >= MINIMUM_SERVICE_AGE;
 }
 
 function readPortOneCustomer(
@@ -202,7 +213,7 @@ function readPortOneVerificationPayload(
 }
 
 function getPortOneSecret(): string {
-  return asNonEmptyString(process.env.PORTONE_API_SECRET) ?? "";
+  return PORTONE_API_SECRET.value().trim();
 }
 
 function buildDirectRoomId(userA: string, userB: string): string {
@@ -1219,6 +1230,402 @@ function getCallableData(request: {
   return {};
 }
 
+// =============================================================================
+// App Store / Google Play IAP — 하트 Consumable 지급
+// =============================================================================
+// 가격/하트 수량은 앱 요청에서 받지 않는다. 새 상품을 추가할 때는 StoreKit
+// Configuration과 이 신뢰 mapping을 함께 변경해야 한다.
+const APPLE_HEART_PRODUCT_AMOUNTS: Readonly<Record<string, number>> = {
+  "seolleyeon.heart.10": 10,
+  "seolleyeon.heart.30": 30,
+  "seolleyeon.heart.100": 100,
+};
+const GOOGLE_PLAY_HEART_PRODUCT_AMOUNTS: Readonly<Record<string, number>> = {
+  "seolleyeon.heart.10": 10,
+};
+const GOOGLE_PLAY_PACKAGE_NAME = "com.seolleyeon.app";
+
+type IapVerificationMode = "storekit_local" | "production";
+type IapPlatform = "ios" | "android";
+type IapProvider = "app_store" | "google_play";
+
+type PurchaseVerificationInput = {
+  productId: string;
+  platform: IapPlatform;
+  transactionId: string;
+  verificationData: string;
+  verificationSource: string;
+};
+
+type VerifiedPurchase = {
+  receiptFingerprint: string;
+  environment: "storekit_local" | "production" | "google_play";
+  provider: IapProvider;
+  needsGooglePlayConsumption: boolean;
+};
+
+interface PurchaseVerifier {
+  verify(
+    input: PurchaseVerificationInput,
+    expectedAccountId: string
+  ): Promise<VerifiedPurchase>;
+  complete(
+    input: PurchaseVerificationInput,
+    verified: VerifiedPurchase
+  ): Promise<void>;
+}
+
+/**
+ * Xcode StoreKit Configuration / Firebase Emulator 전용 verifier.
+ * StoreKit local receipt는 Apple production server에서 검증할 수 없으므로,
+ * 이 verifier는 명시적으로 IAP_VERIFICATION_MODE=storekit_local일 때만 쓸 수 있다.
+ * production Cloud Functions의 기본값은 아래 ProductionApplePurchaseVerifier다.
+ */
+class LocalStoreKitPurchaseVerifier implements PurchaseVerifier {
+  async verify(
+    input: PurchaseVerificationInput,
+    _expectedAccountId: string
+  ): Promise<VerifiedPurchase> {
+    if (input.verificationData.length < 16) {
+      throw new HttpsError(
+        "failed-precondition",
+        "StoreKit 테스트 transaction 데이터를 확인하지 못했어요."
+      );
+    }
+
+    return {
+      // receipt 원문은 Firestore/로그에 보관하지 않는다.
+      receiptFingerprint: createHash("sha256")
+        .update(input.verificationData)
+        .digest("hex"),
+      environment: "storekit_local",
+      provider: "app_store",
+      needsGooglePlayConsumption: false,
+    };
+  }
+
+  async complete(): Promise<void> {}
+}
+
+/**
+ * 운영 전환 지점. App Store Server API 또는 App Store Server Library 기반의
+ * JWS 검증을 이 클래스에만 구현한다. 미구현 상태에서는 절대로 하트를 지급하지
+ * 않아 StoreKit local verifier가 실수로 운영에서 사용되지 않는다.
+ */
+class ProductionApplePurchaseVerifier implements PurchaseVerifier {
+  async verify(
+    _input: PurchaseVerificationInput,
+    _expectedAccountId: string
+  ): Promise<VerifiedPurchase> {
+    throw new HttpsError(
+      "failed-precondition",
+      "Apple 운영 transaction 검증이 아직 설정되지 않았어요."
+    );
+  }
+
+  async complete(): Promise<void> {}
+}
+
+type GooglePlayProductPurchase = {
+  purchaseState?: number;
+  consumptionState?: number;
+  productId?: string;
+  quantity?: number;
+  obfuscatedExternalAccountId?: string;
+};
+
+/**
+ * Google Play Developer API로 serverVerificationData(purchaseToken)를 확인한다.
+ * Cloud Functions의 서비스 계정에는 Play Console의 주문/구독 관리 권한을 부여해야
+ * 하며, credential은 앱이나 소스 코드에 저장하지 않는다.
+ */
+class GooglePlayPurchaseVerifier implements PurchaseVerifier {
+  async verify(
+    input: PurchaseVerificationInput,
+    expectedAccountId: string
+  ): Promise<VerifiedPurchase> {
+    const auth = new GoogleAuth({
+      scopes: ["https://www.googleapis.com/auth/androidpublisher"],
+    });
+    try {
+      const client = await auth.getClient();
+      const response = await client.request<GooglePlayProductPurchase>({
+        url:
+          "https://androidpublisher.googleapis.com/androidpublisher/v3/" +
+          `applications/${encodeURIComponent(GOOGLE_PLAY_PACKAGE_NAME)}/purchases/products/` +
+          `${encodeURIComponent(input.productId)}/tokens/` +
+          encodeURIComponent(input.verificationData),
+      });
+      if (response.data.purchaseState !== 0) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Google Play에서 완료된 구매를 확인하지 못했어요."
+        );
+      }
+      if (
+        response.data.productId !== input.productId ||
+        (response.data.quantity ?? 1) !== 1
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Google Play 상품 정보가 요청과 일치하지 않아요."
+        );
+      }
+      if (response.data.obfuscatedExternalAccountId !== expectedAccountId) {
+        throw new HttpsError(
+          "permission-denied",
+          "Google Play 구매 계정이 현재 앱 계정과 일치하지 않아요."
+        );
+      }
+
+      return {
+        receiptFingerprint: createHash("sha256")
+          .update(input.verificationData)
+          .digest("hex"),
+        environment: "google_play",
+        provider: "google_play",
+        needsGooglePlayConsumption: response.data.consumptionState !== 1,
+      };
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      logger.warn("Google Play purchase verification failed", {
+        productId: input.productId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new HttpsError(
+        "failed-precondition",
+        "Google Play 구매 검증을 완료하지 못했어요."
+      );
+    }
+  }
+
+  async complete(
+    input: PurchaseVerificationInput,
+    verified: VerifiedPurchase
+  ): Promise<void> {
+    if (!verified.needsGooglePlayConsumption) return;
+    const auth = new GoogleAuth({
+      scopes: ["https://www.googleapis.com/auth/androidpublisher"],
+    });
+    try {
+      const client = await auth.getClient();
+      await client.request({
+        method: "POST",
+        url:
+          "https://androidpublisher.googleapis.com/androidpublisher/v3/" +
+          `applications/${encodeURIComponent(GOOGLE_PLAY_PACKAGE_NAME)}/purchases/products/` +
+          `${encodeURIComponent(input.productId)}/tokens/` +
+          `${encodeURIComponent(input.verificationData)}:consume`,
+      });
+    } catch (error) {
+      logger.error("Google Play purchase consumption failed", {
+        productId: input.productId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new HttpsError(
+        "unavailable",
+        "Google Play 결제 마무리를 완료하지 못했어요."
+      );
+    }
+  }
+}
+
+function getIapVerificationMode(): IapVerificationMode {
+  const configured = (process.env.IAP_VERIFICATION_MODE ?? "production")
+    .trim()
+    .toLowerCase();
+  if (configured === "storekit_local") return "storekit_local";
+  if (configured === "production") return "production";
+  throw new HttpsError(
+    "failed-precondition",
+    "IAP_VERIFICATION_MODE는 production 또는 storekit_local이어야 해요."
+  );
+}
+
+function createPurchaseVerifier(input: PurchaseVerificationInput): PurchaseVerifier {
+  // StoreKit local verifier는 Android token에 절대 적용하지 않는다. Android는
+  // Play Console 상품/License Tester 여부와 관계없이 Developer API 검증이 필수다.
+  if (input.platform === "android") return new GooglePlayPurchaseVerifier();
+  return getIapVerificationMode() === "storekit_local"
+    ? new LocalStoreKitPurchaseVerifier()
+    : new ProductionApplePurchaseVerifier();
+}
+
+function readIapRequest(request: {
+  data?: unknown;
+  rawRequest?: { body?: unknown } | null;
+}): PurchaseVerificationInput {
+  const data = getCallableData(request);
+  const productId = asNonEmptyString(data.productId);
+  const platformValue = asNonEmptyString(data.platform) ?? "ios";
+  const platform: IapPlatform | null =
+    platformValue === "ios" || platformValue === "android"
+      ? platformValue
+      : null;
+  const transactionId = asNonEmptyString(data.transactionId);
+  const verificationData = asNonEmptyString(data.verificationData);
+  const verificationSource = asNonEmptyString(data.verificationSource) ?? "";
+
+  const productAmounts =
+    platform === "android"
+      ? GOOGLE_PLAY_HEART_PRODUCT_AMOUNTS
+      : APPLE_HEART_PRODUCT_AMOUNTS;
+  if (!productId || !Object.prototype.hasOwnProperty.call(productAmounts, productId)) {
+    throw new HttpsError("invalid-argument", "유효하지 않은 하트 상품이에요.");
+  }
+  if (!transactionId || transactionId.length > 512) {
+    throw new HttpsError("invalid-argument", "유효하지 않은 transaction ID예요.");
+  }
+  if (!verificationData || verificationData.length > 200000) {
+    throw new HttpsError("invalid-argument", "구매 검증 데이터가 올바르지 않아요.");
+  }
+
+  if (!platform) {
+    throw new HttpsError("invalid-argument", "유효하지 않은 결제 플랫폼이에요.");
+  }
+
+  return {
+    productId,
+    platform,
+    transactionId,
+    verificationData,
+    verificationSource,
+  };
+}
+
+/**
+ * StoreKit/Google Play 구매를 검증하고 단 한 번만 하트를 지급한다.
+ * transaction 문서와 users/{kakaoUserId}.heartBalance 변경은 하나의 Firestore
+ * transaction으로 커밋되어 이벤트 재전달/앱 강제 종료에도 중복 지급되지 않는다.
+ */
+export const grantPurchasedHearts = onCall(withAppCheck(), async (request) => {
+  const user = await resolveAuthedAppUser(request.auth);
+  const purchase = readIapRequest(request);
+  const verifier = createPurchaseVerifier(purchase);
+  const expectedAccountId = createHash("sha256")
+    .update(user.userId)
+    .digest("hex");
+  const verified = await verifier.verify(purchase, expectedAccountId);
+  const productAmounts =
+    purchase.platform === "android"
+      ? GOOGLE_PLAY_HEART_PRODUCT_AMOUNTS
+      : APPLE_HEART_PRODUCT_AMOUNTS;
+  const heartAmount = productAmounts[purchase.productId];
+
+  // iOS의 기존 key는 그대로 유지해 배포 전 transaction도 재처리하지 않는다.
+  // Android에는 purchaseToken과 충돌하지 않는 provider prefix를 포함한다.
+  const transactionKey = createHash("sha256")
+    .update(
+      purchase.platform === "android"
+        ? `google_play:${purchase.transactionId}`
+        : purchase.transactionId
+    )
+    .digest("hex");
+  const transactionRef = db.collection("iapTransactions").doc(transactionKey);
+  const userRef = db.collection("users").doc(user.userId);
+
+  const result = await db.runTransaction(async (transaction) => {
+    const existing = await transaction.get(transactionRef);
+    const userSnap = await transaction.get(userRef);
+
+    if (existing.exists) {
+      const existingData = (existing.data() ?? {}) as Record<string, unknown>;
+      if (
+        existingData.uid !== user.userId ||
+        existingData.productId !== purchase.productId ||
+        existingData.platform !== purchase.platform
+      ) {
+        throw new HttpsError(
+          "already-exists",
+          "이미 처리된 다른 구매 transaction이에요."
+        );
+      }
+      return {
+        granted: false,
+        alreadyGranted: true,
+        heartBalance: Number(existingData.heartBalanceAfter ?? 0),
+      };
+    }
+
+    if (!userSnap.exists) {
+      throw new HttpsError("not-found", "사용자 정보를 찾을 수 없어요.");
+    }
+
+    const currentRaw = userSnap.get("heartBalance");
+    const currentBalance =
+      typeof currentRaw === "number" &&
+      Number.isFinite(currentRaw) &&
+      currentRaw >= 0
+        ? Math.floor(currentRaw)
+        : 0;
+    const heartBalance = currentBalance + heartAmount;
+
+    transaction.set(
+      userRef,
+      {
+        heartBalance,
+        heartBalanceUpdatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    transaction.create(transactionRef, {
+      uid: user.userId,
+      productId: purchase.productId,
+      heartAmount,
+      // Google Play purchaseToken 원문은 Firestore에 보관하지 않는다. hash와
+      // transactionKey로 동일 token의 재전달을 idempotent하게 처리한다.
+      ...(purchase.platform === "ios"
+        ? { transactionId: purchase.transactionId }
+        : { purchaseTokenHash: verified.receiptFingerprint }),
+      transactionKey,
+      receiptFingerprint: verified.receiptFingerprint,
+      verificationSource: purchase.verificationSource,
+      platform: purchase.platform,
+      provider: verified.provider,
+      environment: verified.environment,
+      status: "granted",
+      heartBalanceAfter: heartBalance,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    return { granted: true, alreadyGranted: false, heartBalance };
+  });
+
+  // Consume only after the Firestore entitlement transaction commits. On a
+  // retry, the transaction is idempotent and this resumes the unfinished Play
+  // completion without granting hearts again.
+  await verifier.complete(purchase, verified);
+  if (purchase.platform === "android") {
+    try {
+      await transactionRef.set(
+        {
+          status: "completed",
+          completedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (error) {
+      // Entitlement and Play consumption are already complete. A telemetry
+      // marker failure must not turn a successful customer purchase into an
+      // apparent failure response.
+      logger.warn("IAP completion marker write failed", {
+        transactionKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  logger.info("IAP hearts grant processed", {
+    userId: user.userId,
+    productId: purchase.productId,
+    transactionKey,
+    granted: result.granted,
+    alreadyGranted: result.alreadyGranted,
+    environment: verified.environment,
+  });
+  return result;
+});
+
 /** Firebase Auth 없이 호출될 때: 클라이언트가 검증된 카카오 액세스 토큰을 넘김 */
 async function resolveVerifiedUserByKakaoId(
   kakaoUserId: string
@@ -1421,6 +1828,302 @@ export const completeStudentEmailLink = createCompleteStudentEmailLinkFunction(
   getAuth()
 );
 
+const STUDENT_VERIFICATION_TOKEN_TTL_MS = 30 * 60 * 1000;
+const STUDENT_VERIFICATION_REQUEST_TTL_MS = 31 * 24 * 60 * 60 * 1000;
+const SAFE_EMAIL_REQUEST_ID = /^[A-Za-z0-9_-]{16,128}$/;
+
+function buildStudentVerificationContinueUrl(token: string): string {
+  const projectId = asNonEmptyString(process.env.GCLOUD_PROJECT) ?? "";
+  const origin =
+    projectId === "seolleyeon-final"
+      ? "https://seolleyeon-final.web.app"
+      : "https://seolleyeon.web.app";
+  const url = new URL("/auth/email-link", origin);
+  url.searchParams.set("t", token);
+  return url.toString();
+}
+
+function timestampMs(value: unknown): number | null {
+  return asDate(value)?.getTime() ?? null;
+}
+
+function requireResendFromEmail(): { from: string; replyTo?: string } {
+  const from = RESEND_FROM_EMAIL.value().trim();
+  const replyTo = RESEND_REPLY_TO.value().trim();
+  if (!from || /[\r\n]/.test(from) || /[\r\n]/.test(replyTo)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "인증 메일 발신자 설정이 완료되지 않았어요."
+    );
+  }
+  return replyTo ? { from, replyTo } : { from };
+}
+
+async function sendStudentVerificationEmailWithResend(params: {
+  apiKey: string;
+  from: string;
+  replyTo?: string;
+  to: string;
+  requestId: string;
+  actionLink: string;
+}): Promise<string> {
+  const message = buildStudentVerificationEmail(params.actionLink);
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${params.apiKey}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": `student-verification/${params.requestId}`,
+    },
+    body: JSON.stringify({
+      from: params.from,
+      to: [params.to],
+      ...(params.replyTo ? { reply_to: params.replyTo } : {}),
+      subject: message.subject,
+      html: message.html,
+      text: message.text,
+    }),
+  });
+
+  let payload: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = await response.json();
+    if (isRecord(parsed)) payload = parsed;
+  } catch (_) {
+    // Provider responses are deliberately not logged: they can contain an
+    // email address or another value derived from the bearer action link.
+  }
+
+  if (!response.ok) {
+    logger.error("student verification email provider rejected request", {
+      status: response.status,
+    });
+    throw new HttpsError(
+      "internal",
+      "인증 메일을 보내지 못했어요. 잠시 후 다시 시도해주세요."
+    );
+  }
+
+  return asNonEmptyString(payload.id) ?? "accepted";
+}
+
+/**
+ * Generates the usual Firebase email-link credential, but delivers it through
+ * Resend so the user-facing subject and content are fully owned by Seolleyeon.
+ *
+ * The client supplies no continue URL, token, or recipient identity other than
+ * the Yonsei address. The authenticated Kakao-backed Firebase uid is the sole
+ * user identity, and all request/token documents are Admin-SDK-only writes.
+ */
+export const sendStudentVerificationEmail = onCall(
+  withAppCheck({
+    timeoutSeconds: 30,
+    memory: "256MiB",
+    maxInstances: 3,
+    concurrency: 10,
+    secrets: [RESEND_API_KEY],
+  }),
+  async (request) => {
+    const uid = asNonEmptyString(request.auth?.uid);
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "로그인이 필요해요.");
+    }
+
+    const data = getCallableData(request);
+    const email = normalizeYonseiEmail(data.email);
+    const clientRequestId = asNonEmptyString(data.requestId);
+    if (!email || !clientRequestId || !SAFE_EMAIL_REQUEST_ID.test(clientRequestId)) {
+      throw new HttpsError("invalid-argument", "연세 이메일 인증 요청이 올바르지 않아요.");
+    }
+
+    // An arbitrary Firebase email-link account must not become a mail-sending
+    // principal. Only the Kakao session created by createFirebaseCustomToken
+    // owns users/{uid} and may request a student-verification email.
+    const userSnap = await db.collection("users").doc(uid).get();
+    const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
+    if (!userSnap.exists || asNonEmptyString(userData.kakaoUserId) !== uid) {
+      throw new HttpsError("permission-denied", "로그인 세션을 다시 확인해주세요.");
+    }
+
+    // Reject an incomplete mail-provider configuration before reserving an
+    // action token or consuming a user's resend quota.
+    const sender = requireResendFromEmail();
+    const apiKey = RESEND_API_KEY.value().trim();
+    if (!apiKey) {
+      throw new HttpsError("failed-precondition", "인증 메일 발송 설정이 완료되지 않았어요.");
+    }
+    const now = new Date();
+    const nowMs = now.getTime();
+    const requestRef = db
+      .collection("studentVerificationEmailRequests")
+      .doc(sha256Hex(`request:${uid}:${clientRequestId}`));
+    const emailRateRef = db
+      .collection("studentVerificationEmailRateLimits")
+      .doc(sha256Hex(`email:${email}`));
+    const emailHash = sha256Hex(email);
+
+    const reservation = await db.runTransaction(async (tx) => {
+      const existingRequest = await tx.get(requestRef);
+      if (existingRequest.exists) {
+        const existing = (existingRequest.data() ?? {}) as Record<string, unknown>;
+        if (
+          existing.uid !== uid ||
+          existing.emailHash !== emailHash ||
+          existing.clientRequestId !== clientRequestId
+        ) {
+          throw new HttpsError("permission-denied", "인증 요청을 확인할 수 없어요.");
+        }
+        return {
+          existing: true,
+          status: asNonEmptyString(existing.status) ?? "preparing",
+          actionLink: asNonEmptyString(existing.actionLink),
+          token: asNonEmptyString(existing.token),
+        };
+      }
+
+      const emailRateSnap = await tx.get(emailRateRef);
+      const emailRate = (emailRateSnap.data() ?? {}) as Record<string, unknown>;
+      const emailDecision = decideStudentVerificationRateLimit(
+        {
+          minuteWindowStartedAtMs: timestampMs(emailRate.minuteWindowStartedAt),
+          minuteRequestCount:
+            typeof emailRate.minuteRequestCount === "number"
+              ? emailRate.minuteRequestCount
+              : null,
+          dayWindowStartedAtMs: timestampMs(emailRate.dayWindowStartedAt),
+          dayRequestCount:
+            typeof emailRate.dayRequestCount === "number" ? emailRate.dayRequestCount : null,
+        },
+        nowMs
+      );
+      if (!emailDecision.allowed) {
+        throw new HttpsError(
+          "resource-exhausted",
+          "인증 메일은 잠시 후 다시 보낼 수 있어요."
+        );
+      }
+
+      const token = randomUUID();
+      const expiresAt = Timestamp.fromMillis(nowMs + STUDENT_VERIFICATION_TOKEN_TTL_MS);
+      const rateUpdate = (decision: Extract<typeof emailDecision, { allowed: true }>) => ({
+        minuteWindowStartedAt: Timestamp.fromMillis(decision.minuteWindowStartedAtMs),
+        minuteRequestCount: decision.minuteRequestCount,
+        dayWindowStartedAt: Timestamp.fromMillis(decision.dayWindowStartedAtMs),
+        dayRequestCount: decision.dayRequestCount,
+        updatedAt: Timestamp.fromMillis(nowMs),
+      });
+
+      // This keeps recipient rate-limits and the request reservation transactional.
+      // No client can create these docs under Firestore rules.
+      tx.set(emailRateRef, rateUpdate(emailDecision), { merge: true });
+      tx.set(db.collection("emailLinkTokens").doc(token), {
+        email,
+        kakaoUserId: uid,
+        createdAt: Timestamp.fromMillis(nowMs),
+        expiresAt,
+      });
+      tx.set(requestRef, {
+        uid,
+        emailHash,
+        clientRequestId,
+        token,
+        status: "preparing",
+        createdAt: Timestamp.fromMillis(nowMs),
+        expiresAt,
+        purgeAt: Timestamp.fromMillis(nowMs + STUDENT_VERIFICATION_REQUEST_TTL_MS),
+      });
+      return { existing: false, status: "preparing", actionLink: null, token };
+    });
+
+    if (reservation.status === "sent") {
+      return { accepted: true, duplicate: true };
+    }
+    if (!reservation.token) {
+      throw new HttpsError("failed-precondition", "인증 요청이 만료됐어요. 다시 시도해주세요.");
+    }
+
+    let actionLink = reservation.actionLink;
+    if (!actionLink) {
+      if (reservation.existing) {
+        // A simultaneous call with the same id is already generating the
+        // action link. Do not generate a different link under the same Resend
+        // idempotency key; the client can safely retry shortly.
+        throw new HttpsError("aborted", "인증 메일을 준비 중이에요. 잠시 후 다시 시도해주세요.");
+      }
+      try {
+        actionLink = await getAuth().generateSignInWithEmailLink(email, {
+          url: buildStudentVerificationContinueUrl(reservation.token),
+          handleCodeInApp: true,
+          iOS: { bundleId: "com.seolleyeon.app" },
+          android: {
+            packageName: "com.seolleyeon.app",
+            installApp: true,
+            minimumVersion: "21",
+          },
+        });
+        await requestRef.update({
+          actionLink,
+          status: "sending",
+          updatedAt: Timestamp.fromMillis(Date.now()),
+        });
+      } catch (error) {
+        await requestRef.set(
+          { status: "generation_failed", updatedAt: Timestamp.fromMillis(Date.now()) },
+          { merge: true }
+        );
+        logger.error("student verification Firebase action-link generation failed", {
+          error: error instanceof Error ? error.name : "unknown",
+        });
+        throw new HttpsError(
+          "internal",
+          "인증 링크를 만들지 못했어요. 잠시 후 다시 시도해주세요."
+        );
+      }
+    }
+
+    try {
+      const providerMessageId = await sendStudentVerificationEmailWithResend({
+        apiKey,
+        from: sender.from,
+        replyTo: sender.replyTo,
+        to: email,
+        requestId: clientRequestId,
+        actionLink,
+      });
+      // The bearer link is no longer needed on our server after Resend accepts
+      // it. Retain only a provider id/hash for delivery troubleshooting.
+      await requestRef.set(
+        {
+          status: "sent",
+          providerMessageId,
+          sentAt: Timestamp.fromMillis(Date.now()),
+          updatedAt: Timestamp.fromMillis(Date.now()),
+          actionLink: FieldValue.delete(),
+        },
+        { merge: true }
+      );
+      logger.info("student verification email accepted by provider", {
+        requestIdHash: sha256Hex(clientRequestId).slice(0, 12),
+        uidHash: sha256Hex(uid).slice(0, 12),
+      });
+      return { accepted: true, duplicate: false };
+    } catch (error) {
+      await requestRef.set(
+        { status: "sending_unknown", updatedAt: Timestamp.fromMillis(Date.now()) },
+        { merge: true }
+      );
+      if (error instanceof HttpsError) throw error;
+      logger.error("student verification email provider call failed", {
+        error: error instanceof Error ? error.name : "unknown",
+      });
+      throw new HttpsError(
+        "internal",
+        "인증 메일을 보내지 못했어요. 잠시 후 다시 시도해주세요."
+      );
+    }
+  }
+);
+
 async function fetchPortOneIdentityVerification(
   identityVerificationId: string,
   apiSecret: string
@@ -1517,7 +2220,7 @@ async function assertUniqueIdentityNotReused(
 }
 
 export const verifyAdultIdentityAfterLogin = onCall(
-  withAppCheck(),
+  withAppCheck({ secrets: [PORTONE_API_SECRET] }),
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) {
