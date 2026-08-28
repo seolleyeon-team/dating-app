@@ -114,6 +114,25 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
   void initState() {
     super.initState();
     _loadExistingBasicInfo();
+    _showStudentVerificationWelcomeIfNeeded();
+  }
+
+  Future<void> _showStudentVerificationWelcomeIfNeeded() async {
+    final kakaoUserId = await _storageService.getKakaoUserId();
+    if (kakaoUserId == null || kakaoUserId.isEmpty) return;
+    final shouldShow = await _storageService.consumeStudentVerificationWelcome(
+      kakaoUserId,
+    );
+    if (!shouldShow || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('연세메일 인증이 완료되었습니다! 이제 프로필을 입력해주세요😃'),
+          duration: Duration(seconds: 4),
+        ),
+      );
+    });
   }
 
   Future<void> _loadExistingBasicInfo() async {

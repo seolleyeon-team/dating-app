@@ -105,10 +105,11 @@ const db = getFirestore();
 const FRIEND_INVITE_HOST = "seolleyeon-final.web.app";
 const FRIEND_INVITE_PATH = "/invite/friend";
 const FRIEND_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
-// PortOne secret is read from env / .env only until Secret Manager is configured.
-// Binding defineSecret here blocks all-function deploys when the secret is unset.
+// 가입 허용 기준: 연 나이 20세 이상. 예를 들어 2026년에는 2006년생까지 허용한다.
+const MINIMUM_SERVICE_AGE = 20;
 const PORTONE_STORE_ID = "store-ec95a751-307e-4b85-97bd-7c6fa0bbe0e2";
-const ADULT_VERIFICATION_PROVIDER = "kg_inicis_via_portone_test";
+const ADULT_VERIFICATION_PROVIDER = "kg_inicis_via_portone";
+const PORTONE_API_SECRET = defineSecret("PORTONE_API_SECRET");
 const RESEND_API_KEY = defineSecret("RESEND_API_KEY");
 const RESEND_FROM_EMAIL = defineString("RESEND_FROM_EMAIL", { default: "" });
 const RESEND_REPLY_TO = defineString("RESEND_REPLY_TO", { default: "" });
@@ -189,7 +190,7 @@ function readBirthYear(customer: Record<string, unknown>): number | null {
 }
 
 function isAdultByKoreanYear(birthYear: number, now = new Date()): boolean {
-  return getKstFullYear(now) - birthYear >= 19;
+  return getKstFullYear(now) - birthYear >= MINIMUM_SERVICE_AGE;
 }
 
 function readPortOneCustomer(
@@ -212,7 +213,7 @@ function readPortOneVerificationPayload(
 }
 
 function getPortOneSecret(): string {
-  return asNonEmptyString(process.env.PORTONE_API_SECRET) ?? "";
+  return PORTONE_API_SECRET.value().trim();
 }
 
 function buildDirectRoomId(userA: string, userB: string): string {
@@ -1234,11 +1235,15 @@ function getCallableData(request: {
 // =============================================================================
 // 가격/하트 수량은 앱 요청에서 받지 않는다. 새 상품을 추가할 때는 StoreKit
 // Configuration과 이 신뢰 mapping을 함께 변경해야 한다.
-const HEART_PRODUCT_AMOUNTS: Readonly<Record<string, number>> = {
+const APPLE_HEART_PRODUCT_AMOUNTS: Readonly<Record<string, number>> = {
   "seolleyeon.heart.10": 10,
   "seolleyeon.heart.30": 30,
   "seolleyeon.heart.100": 100,
 };
+const GOOGLE_PLAY_HEART_PRODUCT_AMOUNTS: Readonly<Record<string, number>> = {
+  "seolleyeon.heart.10": 10,
+};
+const GOOGLE_PLAY_PACKAGE_NAME = "com.seolleyeon.app";
 
 type IapVerificationMode = "storekit_local" | "production";
 type IapPlatform = "ios" | "android";
@@ -1256,10 +1261,18 @@ type VerifiedPurchase = {
   receiptFingerprint: string;
   environment: "storekit_local" | "production" | "google_play";
   provider: IapProvider;
+  needsGooglePlayConsumption: boolean;
 };
 
 interface PurchaseVerifier {
-  verify(input: PurchaseVerificationInput): Promise<VerifiedPurchase>;
+  verify(
+    input: PurchaseVerificationInput,
+    expectedAccountId: string
+  ): Promise<VerifiedPurchase>;
+  complete(
+    input: PurchaseVerificationInput,
+    verified: VerifiedPurchase
+  ): Promise<void>;
 }
 
 /**
@@ -1269,7 +1282,10 @@ interface PurchaseVerifier {
  * production Cloud Functions의 기본값은 아래 ProductionApplePurchaseVerifier다.
  */
 class LocalStoreKitPurchaseVerifier implements PurchaseVerifier {
-  async verify(input: PurchaseVerificationInput): Promise<VerifiedPurchase> {
+  async verify(
+    input: PurchaseVerificationInput,
+    _expectedAccountId: string
+  ): Promise<VerifiedPurchase> {
     if (input.verificationData.length < 16) {
       throw new HttpsError(
         "failed-precondition",
@@ -1284,8 +1300,11 @@ class LocalStoreKitPurchaseVerifier implements PurchaseVerifier {
         .digest("hex"),
       environment: "storekit_local",
       provider: "app_store",
+      needsGooglePlayConsumption: false,
     };
   }
+
+  async complete(): Promise<void> {}
 }
 
 /**
@@ -1294,16 +1313,25 @@ class LocalStoreKitPurchaseVerifier implements PurchaseVerifier {
  * 않아 StoreKit local verifier가 실수로 운영에서 사용되지 않는다.
  */
 class ProductionApplePurchaseVerifier implements PurchaseVerifier {
-  async verify(_input: PurchaseVerificationInput): Promise<VerifiedPurchase> {
+  async verify(
+    _input: PurchaseVerificationInput,
+    _expectedAccountId: string
+  ): Promise<VerifiedPurchase> {
     throw new HttpsError(
       "failed-precondition",
       "Apple 운영 transaction 검증이 아직 설정되지 않았어요."
     );
   }
+
+  async complete(): Promise<void> {}
 }
 
 type GooglePlayProductPurchase = {
   purchaseState?: number;
+  consumptionState?: number;
+  productId?: string;
+  quantity?: number;
+  obfuscatedExternalAccountId?: string;
 };
 
 /**
@@ -1312,17 +1340,10 @@ type GooglePlayProductPurchase = {
  * 하며, credential은 앱이나 소스 코드에 저장하지 않는다.
  */
 class GooglePlayPurchaseVerifier implements PurchaseVerifier {
-  async verify(input: PurchaseVerificationInput): Promise<VerifiedPurchase> {
-    const packageName = (
-      process.env.GOOGLE_PLAY_PACKAGE_NAME ?? "com.seolleyeon.app"
-    ).trim();
-    if (!packageName) {
-      throw new HttpsError(
-        "failed-precondition",
-        "Google Play package name이 설정되지 않았어요."
-      );
-    }
-
+  async verify(
+    input: PurchaseVerificationInput,
+    expectedAccountId: string
+  ): Promise<VerifiedPurchase> {
     const auth = new GoogleAuth({
       scopes: ["https://www.googleapis.com/auth/androidpublisher"],
     });
@@ -1331,7 +1352,7 @@ class GooglePlayPurchaseVerifier implements PurchaseVerifier {
       const response = await client.request<GooglePlayProductPurchase>({
         url:
           "https://androidpublisher.googleapis.com/androidpublisher/v3/" +
-          `applications/${encodeURIComponent(packageName)}/purchases/products/` +
+          `applications/${encodeURIComponent(GOOGLE_PLAY_PACKAGE_NAME)}/purchases/products/` +
           `${encodeURIComponent(input.productId)}/tokens/` +
           encodeURIComponent(input.verificationData),
       });
@@ -1341,6 +1362,30 @@ class GooglePlayPurchaseVerifier implements PurchaseVerifier {
           "Google Play에서 완료된 구매를 확인하지 못했어요."
         );
       }
+      if (
+        response.data.productId !== input.productId ||
+        (response.data.quantity ?? 1) !== 1
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Google Play 상품 정보가 요청과 일치하지 않아요."
+        );
+      }
+      if (response.data.obfuscatedExternalAccountId !== expectedAccountId) {
+        throw new HttpsError(
+          "permission-denied",
+          "Google Play 구매 계정이 현재 앱 계정과 일치하지 않아요."
+        );
+      }
+
+      return {
+        receiptFingerprint: createHash("sha256")
+          .update(input.verificationData)
+          .digest("hex"),
+        environment: "google_play",
+        provider: "google_play",
+        needsGooglePlayConsumption: response.data.consumptionState !== 1,
+      };
     } catch (error) {
       if (error instanceof HttpsError) throw error;
       logger.warn("Google Play purchase verification failed", {
@@ -1352,14 +1397,36 @@ class GooglePlayPurchaseVerifier implements PurchaseVerifier {
         "Google Play 구매 검증을 완료하지 못했어요."
       );
     }
+  }
 
-    return {
-      receiptFingerprint: createHash("sha256")
-        .update(input.verificationData)
-        .digest("hex"),
-      environment: "google_play",
-      provider: "google_play",
-    };
+  async complete(
+    input: PurchaseVerificationInput,
+    verified: VerifiedPurchase
+  ): Promise<void> {
+    if (!verified.needsGooglePlayConsumption) return;
+    const auth = new GoogleAuth({
+      scopes: ["https://www.googleapis.com/auth/androidpublisher"],
+    });
+    try {
+      const client = await auth.getClient();
+      await client.request({
+        method: "POST",
+        url:
+          "https://androidpublisher.googleapis.com/androidpublisher/v3/" +
+          `applications/${encodeURIComponent(GOOGLE_PLAY_PACKAGE_NAME)}/purchases/products/` +
+          `${encodeURIComponent(input.productId)}/tokens/` +
+          `${encodeURIComponent(input.verificationData)}:consume`,
+      });
+    } catch (error) {
+      logger.error("Google Play purchase consumption failed", {
+        productId: input.productId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new HttpsError(
+        "unavailable",
+        "Google Play 결제 마무리를 완료하지 못했어요."
+      );
+    }
   }
 }
 
@@ -1399,10 +1466,11 @@ function readIapRequest(request: {
   const verificationData = asNonEmptyString(data.verificationData);
   const verificationSource = asNonEmptyString(data.verificationSource) ?? "";
 
-  if (
-    !productId ||
-    !Object.prototype.hasOwnProperty.call(HEART_PRODUCT_AMOUNTS, productId)
-  ) {
+  const productAmounts =
+    platform === "android"
+      ? GOOGLE_PLAY_HEART_PRODUCT_AMOUNTS
+      : APPLE_HEART_PRODUCT_AMOUNTS;
+  if (!productId || !Object.prototype.hasOwnProperty.call(productAmounts, productId)) {
     throw new HttpsError("invalid-argument", "유효하지 않은 하트 상품이에요.");
   }
   if (!transactionId || transactionId.length > 512) {
@@ -1430,12 +1498,19 @@ function readIapRequest(request: {
  * transaction 문서와 users/{kakaoUserId}.heartBalance 변경은 하나의 Firestore
  * transaction으로 커밋되어 이벤트 재전달/앱 강제 종료에도 중복 지급되지 않는다.
  */
-export const grantPurchasedHearts = onCall(async (request) => {
+export const grantPurchasedHearts = onCall(withAppCheck(), async (request) => {
   const user = await resolveAuthedAppUser(request.auth);
   const purchase = readIapRequest(request);
   const verifier = createPurchaseVerifier(purchase);
-  const verified = await verifier.verify(purchase);
-  const heartAmount = HEART_PRODUCT_AMOUNTS[purchase.productId];
+  const expectedAccountId = createHash("sha256")
+    .update(user.userId)
+    .digest("hex");
+  const verified = await verifier.verify(purchase, expectedAccountId);
+  const productAmounts =
+    purchase.platform === "android"
+      ? GOOGLE_PLAY_HEART_PRODUCT_AMOUNTS
+      : APPLE_HEART_PRODUCT_AMOUNTS;
+  const heartAmount = productAmounts[purchase.productId];
 
   // iOS의 기존 key는 그대로 유지해 배포 전 transaction도 재처리하지 않는다.
   // Android에는 purchaseToken과 충돌하지 않는 provider prefix를 포함한다.
@@ -1516,6 +1591,30 @@ export const grantPurchasedHearts = onCall(async (request) => {
     return { granted: true, alreadyGranted: false, heartBalance };
   });
 
+  // Consume only after the Firestore entitlement transaction commits. On a
+  // retry, the transaction is idempotent and this resumes the unfinished Play
+  // completion without granting hearts again.
+  await verifier.complete(purchase, verified);
+  if (purchase.platform === "android") {
+    try {
+      await transactionRef.set(
+        {
+          status: "completed",
+          completedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (error) {
+      // Entitlement and Play consumption are already complete. A telemetry
+      // marker failure must not turn a successful customer purchase into an
+      // apparent failure response.
+      logger.warn("IAP completion marker write failed", {
+        transactionKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   logger.info("IAP hearts grant processed", {
     userId: user.userId,
     productId: purchase.productId,
@@ -1526,7 +1625,6 @@ export const grantPurchasedHearts = onCall(async (request) => {
   });
   return result;
 });
-
 
 /** Firebase Auth 없이 호출될 때: 클라이언트가 검증된 카카오 액세스 토큰을 넘김 */
 async function resolveVerifiedUserByKakaoId(
@@ -2122,7 +2220,7 @@ async function assertUniqueIdentityNotReused(
 }
 
 export const verifyAdultIdentityAfterLogin = onCall(
-  withAppCheck(),
+  withAppCheck({ secrets: [PORTONE_API_SECRET] }),
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) {

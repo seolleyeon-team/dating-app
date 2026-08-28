@@ -157,6 +157,14 @@
         "source": "/signup-guide/**",
         "destination": "/signup-guide.html"
       },
+      {
+        "source": "/auth/email-link",
+        "destination": "/auth-email-link.html"
+      },
+      {
+        "source": "/auth/email-link/**",
+        "destination": "/auth-email-link.html"
+      },
 
       {
         "source": "**",

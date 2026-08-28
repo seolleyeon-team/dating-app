@@ -5,6 +5,7 @@ import '../../../services/avatar_source_photo_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/utils/avatar_lock_policy.dart';
+import '../../../shared/widgets/profile_photo_mosaic.dart';
 import '../../../router/route_names.dart';
 import '../../matching/models/profile_card_args.dart';
 
@@ -1298,59 +1299,51 @@ class _PhotoSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final gap = 8.0;
-
-              Widget buildCell(int index) {
-                final isLoading = isUploading.isNotEmpty
-                    ? isUploading[index]
-                    : false;
-                if (photos[index] != null) {
-                  final lockedCell =
-                      avatarLocked && photos[index] == lockedApprovedAvatarUrl;
-                  return _PhotoItem(
-                    imageUrl: photos[index]!,
-                    onRemove: (lockedCell || sourceLocked)
-                        ? null
-                        : () => onRemovePhoto?.call(index),
-                    locked: lockedCell,
-                    showMainLabel: index == 0,
-                  );
-                }
-                return _AddPhotoButton(
-                  isLoading: isLoading,
-                  onTap: () => onAddPhoto?.call(index),
+          ProfilePhotoMosaic(
+            gap: 8,
+            featuredBadge: const _FeaturedPhotoBadge(),
+            itemBuilder: (context, index) {
+              final isLoading = isUploading.isNotEmpty
+                  ? isUploading[index]
+                  : false;
+              if (photos[index] != null) {
+                final lockedCell =
+                    avatarLocked && photos[index] == lockedApprovedAvatarUrl;
+                return _PhotoItem(
+                  imageUrl: photos[index]!,
+                  onRemove: (lockedCell || sourceLocked)
+                      ? null
+                      : () => onRemovePhoto?.call(index),
+                  locked: lockedCell,
                 );
               }
-
-              return Column(
-                children: List.generate(3, (row) {
-                  final leftIndex = row * 2;
-                  final rightIndex = row * 2 + 1;
-                  return Padding(
-                    padding: EdgeInsets.only(bottom: row == 2 ? 0 : gap),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: AspectRatio(
-                            aspectRatio: 3 / 4,
-                            child: buildCell(leftIndex),
-                          ),
-                        ),
-                        SizedBox(width: gap),
-                        Expanded(
-                          child: AspectRatio(
-                            aspectRatio: 3 / 4,
-                            child: buildCell(rightIndex),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }),
+              return _AddPhotoButton(
+                isLoading: isLoading,
+                onTap: () => onAddPhoto?.call(index),
               );
             },
+          ),
+          const SizedBox(height: 12),
+          const Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                CupertinoIcons.info_circle,
+                color: _AppColors.primary,
+                size: 17,
+              ),
+              SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  '아바타를 생성하는 사진으로, 가입 후 바꿀 수 없어요',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: _AppColors.textSub,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           if (avatarLocked) ...[
@@ -1401,13 +1394,11 @@ class _PhotoItem extends StatelessWidget {
   final String imageUrl;
   final VoidCallback? onRemove;
   final bool locked;
-  final bool showMainLabel;
 
   const _PhotoItem({
     required this.imageUrl,
     this.onRemove,
     this.locked = false,
-    this.showMainLabel = false,
   });
 
   @override
@@ -1446,26 +1437,6 @@ class _PhotoItem extends StatelessWidget {
                 )
               : Image.network(imageUrl, fit: BoxFit.cover),
         ),
-        if (showMainLabel)
-          Positioned(
-            top: 8,
-            left: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Text(
-                '메인',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ),
         if (!locked && onRemove != null)
           Positioned(
             top: 4,
@@ -1511,6 +1482,36 @@ class _PhotoItem extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _FeaturedPhotoBadge extends StatelessWidget {
+  const _FeaturedPhotoBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: _AppColors.primary,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 2,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: const Text(
+        '대표 사진',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
+        ),
+      ),
     );
   }
 }

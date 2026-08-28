@@ -44,14 +44,26 @@ abstract final class HeartProducts {
 
   static const all = <HeartProduct>[heart10, heart30, heart100];
 
+  // Google Play first launch exposes only the 10-heart consumable. The iOS
+  // catalog is kept intact for StoreKit local testing, but production iOS
+  // purchases remain gated by InAppPurchasePolicy.
+  static const googlePlayLaunchProducts = <HeartProduct>[heart10];
+
+  static List<HeartProduct> productsFor(HeartPurchasePlatform platform) =>
+      platform == HeartPurchasePlatform.android
+      ? googlePlayLaunchProducts
+      : all;
+
   static Set<String> productIdsFor(HeartPurchasePlatform platform) =>
-      all.map((product) => product.productIdFor(platform)).toSet();
+      productsFor(
+        platform,
+      ).map((product) => product.productIdFor(platform)).toSet();
 
   static HeartProduct? fromProductId(
     String productId, {
     required HeartPurchasePlatform platform,
   }) {
-    for (final product in all) {
+    for (final product in productsFor(platform)) {
       if (product.productIdFor(platform) == productId) return product;
     }
     return null;

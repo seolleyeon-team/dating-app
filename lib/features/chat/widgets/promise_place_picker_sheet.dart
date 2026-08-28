@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../data/promise_campus_places.dart';
 import '../models/promise_place.dart';
 import '../services/promise_place_service.dart';
 import '../utils/promise_map_launch.dart';
@@ -16,7 +17,7 @@ class _PickerColors {
 }
 
 /// `PromisePlace.category` 키(`cafe` 등)와 대응하는 필터.
-enum _PlaceCategoryFilter { all, cafe, restaurant, bar, other }
+enum _PlaceCategoryFilter { all, cafe, restaurant, bar, campus, other }
 
 bool _placeMatchesFilter(PromisePlace p, _PlaceCategoryFilter f) {
   switch (f) {
@@ -28,6 +29,8 @@ bool _placeMatchesFilter(PromisePlace p, _PlaceCategoryFilter f) {
       return p.category == PromisePlaceCategory.restaurant;
     case _PlaceCategoryFilter.bar:
       return p.category == PromisePlaceCategory.bar;
+    case _PlaceCategoryFilter.campus:
+      return p.category == PromisePlaceCategory.campus;
     case _PlaceCategoryFilter.other:
       return p.category == PromisePlaceCategory.extra;
   }
@@ -145,13 +148,17 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
   }
 
   List<PromisePlace> get _visiblePlaces {
-    return _places.where((e) => _placeMatchesFilter(e, _filter)).toList();
+    final allPlaces = [...PromiseCampusPlaces.options, ..._places];
+    return allPlaces.where((e) => _placeMatchesFilter(e, _filter)).toList();
   }
 
   void _setFilter(_PlaceCategoryFilter f) {
     setState(() {
       _filter = f;
-      final visible = _places.where((e) => _placeMatchesFilter(e, f)).toList();
+      final visible = [
+        ...PromiseCampusPlaces.options,
+        ..._places,
+      ].where((e) => _placeMatchesFilter(e, f)).toList();
       if (_expandedPlaceId != null &&
           !visible.any((e) => e.placeId == _expandedPlaceId)) {
         _expandedPlaceId = null;
@@ -171,7 +178,7 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
       return const Center(child: CupertinoActivityIndicator());
     }
 
-    if (_places.isEmpty) {
+    if (_places.isEmpty && PromiseCampusPlaces.options.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -277,6 +284,11 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
                 onTap: () => _setFilter(_PlaceCategoryFilter.bar),
               ),
               _FilterChip(
+                label: '캠퍼스 안',
+                selected: _filter == _PlaceCategoryFilter.campus,
+                onTap: () => _setFilter(_PlaceCategoryFilter.campus),
+              ),
+              _FilterChip(
                 label: '그 외 장소',
                 selected: _filter == _PlaceCategoryFilter.other,
                 onTap: () => _setFilter(_PlaceCategoryFilter.other),
@@ -305,8 +317,18 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-              itemCount: visible.length,
+              itemCount:
+                  visible.length +
+                  (_filter == _PlaceCategoryFilter.campus ? 1 : 0),
               itemBuilder: (context, i) {
+                if (i == visible.length) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _CustomCampusPlaceCard(
+                      onTap: _showCustomCampusPlaceDialog,
+                    ),
+                  );
+                }
                 final p = visible[i];
                 final isInitial = widget.initialPlaceId == p.placeId;
                 final expanded = _expandedPlaceId == p.placeId;
@@ -324,6 +346,82 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
             ),
           ),
       ],
+    );
+  }
+
+  Future<void> _showCustomCampusPlaceDialog() async {
+    final controller = TextEditingController();
+    final place = await showCupertinoDialog<PromisePlace>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('장소 직접 입력'),
+        content: Column(
+          children: [
+            const SizedBox(height: 12),
+            CupertinoTextField(
+              controller: controller,
+              autofocus: true,
+              placeholder: '예) 학생회관 1층 앞',
+              textCapitalization: TextCapitalization.words,
+            ),
+          ],
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('취소'),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () {
+              final name = controller.text.trim();
+              if (name.isEmpty) return;
+              Navigator.of(dialogContext).pop(PromiseCampusPlaces.custom(name));
+            },
+            child: const Text('선택'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (place != null && mounted) Navigator.of(context).pop(place);
+  }
+}
+
+class _CustomCampusPlaceCard extends StatelessWidget {
+  const _CustomCampusPlaceCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        decoration: BoxDecoration(
+          color: CupertinoColors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _PickerColors.primarySoft),
+        ),
+        child: const Row(
+          children: [
+            Icon(CupertinoIcons.pencil, color: _PickerColors.primary, size: 18),
+            SizedBox(width: 10),
+            Text(
+              '직접 입력',
+              style: TextStyle(
+                fontFamily: 'NanumSquareRound',
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: _PickerColors.primary,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -494,7 +592,13 @@ class _InlinePlaceDetailState extends State<_InlinePlaceDetail> {
   @override
   void initState() {
     super.initState();
-    _resolveDistance();
+    if (widget.place.category != PromisePlaceCategory.campus &&
+        !widget.place.isCustomInput &&
+        widget.place.hasCoordinates) {
+      _resolveDistance();
+    } else {
+      _locLoading = false;
+    }
   }
 
   Future<void> _resolveDistance() async {
@@ -564,122 +668,126 @@ class _InlinePlaceDetailState extends State<_InlinePlaceDetail> {
             ),
           ),
           const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+          if (!p.isCustomInput)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(top: 2),
+                  child: Icon(
+                    CupertinoIcons.placemark,
+                    size: 18,
+                    color: _PickerColors.textSubtle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    p.address.isNotEmpty ? p.address : '주소 정보 없음',
+                    style: const TextStyle(
+                      fontFamily: 'NanumSquareRound',
+                      fontSize: 14,
+                      height: 1.4,
+                      color: _PickerColors.textMain,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          if (!p.isCustomInput &&
+              p.category != PromisePlaceCategory.campus) ...[
+            const SizedBox(height: 12),
+            if (_locLoading)
               const Padding(
-                padding: EdgeInsets.only(top: 2),
-                child: Icon(
-                  CupertinoIcons.placemark,
-                  size: 18,
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Center(child: CupertinoActivityIndicator()),
+              )
+            else if (_distanceLabel != null)
+              Text(
+                '내 위치 기준 약 $_distanceLabel',
+                style: const TextStyle(
+                  fontFamily: 'NanumSquareRound',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: _PickerColors.primary,
+                ),
+              )
+            else if (_locNote != null)
+              Text(
+                _locNote!,
+                style: const TextStyle(
+                  fontFamily: 'NanumSquareRound',
+                  fontSize: 12,
                   color: _PickerColors.textSubtle,
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  p.address.isNotEmpty ? p.address : '주소 정보 없음',
-                  style: const TextStyle(
-                    fontFamily: 'NanumSquareRound',
-                    fontSize: 14,
-                    height: 1.4,
-                    color: _PickerColors.textMain,
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () {
+                      PromiseMapLaunch.openNaverMap(
+                        lat: p.lat,
+                        lng: p.lng,
+                        name: p.name,
+                        naverPlaceId: p.externalLinks.naverPlaceId,
+                      );
+                    },
+                    child: Container(
+                      height: 48,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF03C75A),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Text(
+                        '네이버지도',
+                        style: TextStyle(
+                          fontFamily: 'NanumSquareRound',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: CupertinoColors.white,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (_locLoading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Center(child: CupertinoActivityIndicator()),
-            )
-          else if (_distanceLabel != null)
-            Text(
-              '내 위치 기준 약 $_distanceLabel',
-              style: const TextStyle(
-                fontFamily: 'NanumSquareRound',
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: _PickerColors.primary,
-              ),
-            )
-          else if (_locNote != null)
-            Text(
-              _locNote!,
-              style: const TextStyle(
-                fontFamily: 'NanumSquareRound',
-                fontSize: 12,
-                color: _PickerColors.textSubtle,
-              ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () {
+                      PromiseMapLaunch.openKakaoMap(
+                        lat: p.lat,
+                        lng: p.lng,
+                        name: p.name,
+                        kakaoPlaceId: p.externalLinks.kakaoPlaceId,
+                      );
+                    },
+                    child: Container(
+                      height: 48,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEE500),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Text(
+                        '카카오맵',
+                        style: TextStyle(
+                          fontFamily: 'NanumSquareRound',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF191919),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: () {
-                    PromiseMapLaunch.openNaverMap(
-                      lat: p.lat,
-                      lng: p.lng,
-                      name: p.name,
-                      naverPlaceId: p.externalLinks.naverPlaceId,
-                    );
-                  },
-                  child: Container(
-                    height: 48,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF03C75A),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Text(
-                      '네이버지도',
-                      style: TextStyle(
-                        fontFamily: 'NanumSquareRound',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: CupertinoColors.white,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: () {
-                    PromiseMapLaunch.openKakaoMap(
-                      lat: p.lat,
-                      lng: p.lng,
-                      name: p.name,
-                      kakaoPlaceId: p.externalLinks.kakaoPlaceId,
-                    );
-                  },
-                  child: Container(
-                    height: 48,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFEE500),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Text(
-                      '카카오맵',
-                      style: TextStyle(
-                        fontFamily: 'NanumSquareRound',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF191919),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+          ],
           const SizedBox(height: 14),
           CupertinoButton(
             padding: EdgeInsets.zero,

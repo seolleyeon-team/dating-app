@@ -6,6 +6,7 @@ import 'route_names.dart';
 // Splash & Auth (로그인 화면 없음: /login → 카카오 인증 화면으로 통일)
 import '../features/splash/splash_screen.dart';
 import '../features/auth/screens/kakao_auth_screen.dart';
+import '../features/auth/screens/adult_verification_gate_screen.dart';
 import '../features/auth/screens/student_verification_screen.dart';
 import '../features/onboarding/screens/terms_screen.dart';
 
@@ -134,6 +135,8 @@ class AppRouter {
       case RouteNames.login:
       case RouteNames.kakaoAuth:
         return _cupertino(const KakaoAuthScreen());
+      case RouteNames.adultVerification:
+        return _cupertino(const AdultVerificationGateScreen());
       case RouteNames.terms:
         return _cupertino(const TermsScreen());
       case RouteNames.studentVerification:

@@ -325,6 +325,12 @@ class AuthService {
     return resolveOnboardingNextRoute(profile);
   }
 
+  /// Marks an already complete legacy profile as finished after its required
+  /// onboarding fields have been verified from Firestore.
+  Future<void> completeOnboarding(String kakaoUserId) async {
+    await _userService.completeOnboarding(kakaoUserId);
+  }
+
   Future<bool> hasSeenTutorial(String kakaoUserId) async {
     return await _userService.hasSeenTutorial(kakaoUserId);
   }
@@ -582,6 +588,7 @@ class AuthService {
           FirebaseSessionFailure(
             reason: reason,
             errorCode: appCheckPreflight.errorCode,
+            supportCode: appCheckPreflight.supportCode,
           ),
           kakaoUserId: kakaoUserId,
         );

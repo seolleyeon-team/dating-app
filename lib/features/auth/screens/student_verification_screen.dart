@@ -16,6 +16,7 @@ import '../../../services/storage_service.dart';
 import '../../../shared/layouts/main_scaffold_args.dart';
 import '../../../utils/open_mail_app.dart';
 import '../utils/email_link_continue_url.dart';
+import '../utils/post_student_verification_route.dart';
 
 class StudentVerificationScreen extends StatefulWidget {
   const StudentVerificationScreen({super.key});
@@ -133,6 +134,46 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     return true;
   }
 
+  /// Reads the server-owned onboarding marker after Yonsei verification.
+  /// A returning user who has already completed every required profile step
+  /// should never be sent back through onboarding merely to verify email.
+  Future<void> _navigateAfterStudentVerification(String kakaoUserId) async {
+    final initialSetupComplete = await _authService.isInitialSetupComplete(
+      kakaoUserId,
+    );
+    final nextOnboardingRoute = initialSetupComplete
+        ? null
+        : await _authService.getOnboardingNextRoute(kakaoUserId);
+    if (!mounted) return;
+
+    // Some existing users completed every required profile field before this
+    // explicit marker was introduced. Persist the marker before entering main
+    // so the rest of the app observes the same server-confirmed state.
+    final inferredComplete =
+        !initialSetupComplete && nextOnboardingRoute == null;
+    if (inferredComplete) {
+      await _authService.completeOnboarding(kakaoUserId);
+      if (!mounted) return;
+      context.read<AuthProvider>().markInitialSetupComplete();
+    }
+
+    final route = resolvePostStudentVerificationRoute(
+      initialSetupComplete: initialSetupComplete,
+      nextOnboardingRoute: nextOnboardingRoute,
+    );
+    if (route != RouteNames.main) {
+      await _storageService.saveStudentVerificationWelcome(kakaoUserId);
+    }
+    if (!mounted) return;
+    if (route == RouteNames.main) {
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
+      return;
+    }
+    Navigator.of(context).pushReplacementNamed(route);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -211,9 +252,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         if (!hasFirebaseSession || !mounted) return;
         final handledInvite = await _handlePendingInviteAfterVerification();
         if (handledInvite || !mounted) return;
-        Navigator.of(
-          context,
-        ).pushReplacementNamed(RouteNames.onboardingBasicInfo);
+        await _navigateAfterStudentVerification(kakaoUserId);
       }
     } catch (_) {}
   }
@@ -287,9 +326,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       setState(() => _statusMessage = '학생 인증 완료!');
       final handledInvite = await _handlePendingInviteAfterVerification();
       if (handledInvite || !mounted) return;
-      Navigator.of(
-        context,
-      ).pushReplacementNamed(RouteNames.onboardingBasicInfo);
+      await _navigateAfterStudentVerification(kakaoUserId);
     } catch (e) {
       if (!mounted) return;
       setState(() => _statusMessage = '인증 실패: ${e.toString()}');
@@ -414,9 +451,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         HapticFeedback.mediumImpact();
         final handledInvite = await _handlePendingInviteAfterVerification();
         if (handledInvite || !mounted) return;
-        Navigator.of(
-          context,
-        ).pushReplacementNamed(RouteNames.onboardingBasicInfo);
+        await _navigateAfterStudentVerification(kakaoUserId);
         return;
       }
 

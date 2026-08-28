@@ -22,19 +22,20 @@ import '../services/profile_photo_access_service.dart';
 const String _kFontFamily = 'Pretendard';
 
 class _AppColors {
-  static const Color primary = Color(0xFFFF5A7E);
-  static const Color backgroundLight = Color(0xFFFFF7F9);
-  static const Color blush = Color(0xFFFFF1F4);
-  static const Color cardSurface = Color(0xFFFFFCFD);
-  static const Color textMain = Color(0xFF1E1A1C);
-  static const Color textSub = Color(0xFF6A6367);
-  static const Color titleLight = Color(0xFFA39AA0);
-  static const Color softPink = Color(0xFFE4E7EB);
-  static const Color chipBg = Color(0xFFFFFFFF);
-  static const Color chipBg2 = Color(0xFFFFFFFF);
-  static const Color gray100 = Color(0xFFF8F1F4);
-  static const Color gray200 = Color(0xFFF1E1E7);
-  static const Color gray300 = Color(0xFFE8D3DB);
+  static const Color primary = Color(0xFFF05B78);
+  static const Color accent = Color(0xFF52697D);
+  static const Color backgroundLight = Color(0xFFF3F6F8);
+  static const Color pageBackground = Color(0xFFF3F6F8);
+  static const Color cardSurface = Color(0xFFFFFFFF);
+  static const Color textMain = Color(0xFF18222D);
+  static const Color textSub = Color(0xFF687582);
+  static const Color titleLight = Color(0xFF697887);
+  static const Color borderSoft = Color(0xFFE1E7EC);
+  static const Color chipBg = Color(0xFFF8FAFB);
+  static const Color chipBg2 = Color(0xFFF4F7F9);
+  static const Color gray100 = Color(0xFFF4F7F9);
+  static const Color gray200 = Color(0xFFE2E8ED);
+  static const Color gray300 = Color(0xFFC7D0D8);
 }
 
 class _ResolvedProfile {
@@ -1145,9 +1146,9 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
     final profile = _profile;
 
     return CupertinoPageScaffold(
-      backgroundColor: _AppColors.blush,
+      backgroundColor: _AppColors.pageBackground,
       navigationBar: CupertinoNavigationBar(
-        backgroundColor: _AppColors.blush.withValues(alpha: 0.95),
+        backgroundColor: _AppColors.pageBackground.withValues(alpha: 0.95),
         border: null,
         leading: CupertinoButton(
           padding: EdgeInsets.zero,
@@ -1182,7 +1183,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
             fontSize: 14,
             fontWeight: FontWeight.w700,
             letterSpacing: 1.2,
-            color: _AppColors.primary.withValues(alpha: 0.9),
+            color: _AppColors.textMain,
           ),
         ),
         trailing: CupertinoButton(
@@ -1298,12 +1299,12 @@ class _ProfileCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: _AppColors.cardSurface,
-        borderRadius: BorderRadius.circular(40),
+        borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-            color: _AppColors.primary.withValues(alpha: 0.10),
-            blurRadius: 36,
-            offset: const Offset(0, 12),
+            color: CupertinoColors.black.withValues(alpha: 0.07),
+            blurRadius: 28,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
@@ -1581,8 +1582,8 @@ class _HeroImage extends StatelessWidget {
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     decoration: BoxDecoration(
                       color: isActive
-                          ? _AppColors.primary
-                          : _AppColors.primary.withValues(alpha: 0.28),
+                          ? _AppColors.accent
+                          : CupertinoColors.white.withValues(alpha: 0.55),
                       borderRadius: BorderRadius.circular(999),
                     ),
                   );
@@ -1627,13 +1628,13 @@ class _SectionCard extends StatelessWidget {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: CupertinoColors.white,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: _AppColors.gray200),
         boxShadow: [
           BoxShadow(
-            color: _AppColors.primary.withValues(alpha: 0.06),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+            color: CupertinoColors.black.withValues(alpha: 0.025),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -1656,15 +1657,8 @@ class _InfoChip extends StatelessWidget {
         gradient: const LinearGradient(
           colors: [_AppColors.chipBg, _AppColors.chipBg2],
         ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _AppColors.softPink),
-        boxShadow: [
-          BoxShadow(
-            color: _AppColors.primary.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _AppColors.borderSoft),
       ),
       child: RichText(
         text: TextSpan(
@@ -1675,7 +1669,7 @@ class _InfoChip extends StatelessWidget {
                 fontFamily: _kFontFamily,
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
-                color: _AppColors.primary,
+                color: _AppColors.accent,
               ),
             ),
             TextSpan(
@@ -1707,15 +1701,8 @@ class _TagChip extends StatelessWidget {
         gradient: const LinearGradient(
           colors: [_AppColors.chipBg, _AppColors.chipBg2],
         ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _AppColors.softPink),
-        boxShadow: [
-          BoxShadow(
-            color: CupertinoColors.black.withValues(alpha: 0.035),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _AppColors.borderSoft),
       ),
       child: Text(
         text,
@@ -1746,7 +1733,7 @@ class _LifestyleRow extends StatelessWidget {
             fontFamily: _kFontFamily,
             fontSize: 14,
             fontWeight: FontWeight.w700,
-            color: _AppColors.primary,
+            color: _AppColors.accent,
           ),
         ),
         const SizedBox(width: 12),
@@ -1781,13 +1768,13 @@ class _QaItem extends StatelessWidget {
         gradient: const LinearGradient(
           colors: [CupertinoColors.white, _AppColors.backgroundLight],
         ),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: _AppColors.gray200),
         boxShadow: [
           BoxShadow(
-            color: _AppColors.primary.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: CupertinoColors.black.withValues(alpha: 0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -1800,7 +1787,7 @@ class _QaItem extends StatelessWidget {
               fontFamily: _kFontFamily,
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: _AppColors.primary,
+              color: _AppColors.accent,
             ),
           ),
           const SizedBox(height: 8),
@@ -1846,9 +1833,9 @@ class _MyGallerySlider extends StatelessWidget {
               color: _AppColors.gray100,
               boxShadow: [
                 BoxShadow(
-                  color: _AppColors.primary.withValues(alpha: 0.08),
-                  blurRadius: 14,
-                  offset: const Offset(0, 6),
+                  color: CupertinoColors.black.withValues(alpha: 0.07),
+                  blurRadius: 12,
+                  offset: const Offset(0, 5),
                 ),
               ],
             ),
@@ -1898,9 +1885,9 @@ class _BottomActionBar extends StatelessWidget {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            _AppColors.blush.withValues(alpha: 0),
-            _AppColors.blush.withValues(alpha: 0.95),
-            _AppColors.blush,
+            _AppColors.pageBackground.withValues(alpha: 0),
+            _AppColors.pageBackground.withValues(alpha: 0.95),
+            _AppColors.pageBackground,
           ],
         ),
       ),
@@ -2208,7 +2195,7 @@ class _AskBottomSheetState extends State<_AskBottomSheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: _AppColors.softPink,
+                  color: _AppColors.borderSoft,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -2372,7 +2359,7 @@ class _MessageBottomSheetState extends State<_MessageBottomSheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: _AppColors.softPink,
+                  color: _AppColors.borderSoft,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),

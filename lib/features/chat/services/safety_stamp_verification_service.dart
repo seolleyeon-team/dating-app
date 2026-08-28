@@ -14,12 +14,10 @@ class SafetyStampVerificationService {
 
   final FlutterBlePeripheral _peripheral;
 
-  // Temporary override: allow safety stamps even when nearby verification fails.
-  static const bool _disableNearbyRequirement = true;
-  // Temporary override: allow safety stamps even when location capture fails.
-  static const bool _disableLocationRequirement = true;
   static const String _serviceUuid = '9c836097-1f17-4ef8-9f0c-6b8d3f2f61a2';
   static const Duration _scanTimeout = Duration(seconds: 8);
+  static const Duration _advertisingReadyTimeout = Duration(seconds: 3);
+  static const Duration _peripheralReadyTimeout = Duration(seconds: 5);
   static const int _nearbyRssiThreshold = -78;
   static const int _maxAdvertisedNameLength = 26;
 
@@ -29,28 +27,10 @@ class SafetyStampVerificationService {
     required String partnerUserId,
     bool preferGpsOnly = false,
   }) async {
-    if (_disableLocationRequirement) {
-      return SafetyStampVerificationResult.success(
-        message: _disableNearbyRequirement
-            ? '상대 거리와 현재 위치 확인 없이 안전도장을 준비했어요.'
-            : '현재 위치 확인 없이 안전도장을 준비했어요.',
-        rssi: 0,
-        location: _placeholderLocation(),
-      );
-    }
-
     if (kIsWeb || preferGpsOnly) {
-      final location = await _captureLocation();
-      if (!location.isSuccess) {
-        return location;
-      }
-
-      return SafetyStampVerificationResult.success(
-        message: preferGpsOnly
-            ? '상대가 웹에서 접속 중이라 현재 위치를 기준으로 안전도장을 기록했어요.'
-            : '웹에서는 현재 위치를 기준으로 안전도장을 기록했어요.',
-        rssi: 0,
-        location: location.location!,
+      return SafetyStampVerificationResult.failure(
+        failure: SafetyStampVerificationFailure.unknown,
+        message: '안전도장은 두 분 모두 모바일 앱에서 블루투스 근접 확인을 해야 진행할 수 있어요.',
       );
     }
 
@@ -71,7 +51,13 @@ class SafetyStampVerificationService {
     StreamSubscription<List<ScanResult>>? scanSubscription;
 
     try {
-      await _startAdvertising(localAlias);
+      final isAdvertising = await _startAdvertising(localAlias);
+      if (!isAdvertising) {
+        return SafetyStampVerificationResult.failure(
+          failure: SafetyStampVerificationFailure.bluetoothOff,
+          message: '블루투스 광고를 시작하지 못했어요. 블루투스를 켠 뒤 다시 시도해주세요.',
+        );
+      }
 
       final resultCompleter = Completer<int?>();
       scanSubscription = FlutterBluePlus.onScanResults.listen((results) {
@@ -99,20 +85,20 @@ class SafetyStampVerificationService {
         onTimeout: () => null,
       );
 
-      if (!_disableNearbyRequirement &&
-          (rssi == null || rssi < _nearbyRssiThreshold)) {
+      if (rssi == null || rssi < _nearbyRssiThreshold) {
         return SafetyStampVerificationResult.failure(
           failure: SafetyStampVerificationFailure.partnerNotNearby,
           message: '상대방이 충분히 가까이 있어야 안전도장을 찍을 수 있어요. 휴대폰을 더 가까이 두고 다시 시도해주세요.',
         );
       }
 
+      final location = await _captureLocation();
+      if (!location.isSuccess) return location;
+
       return SafetyStampVerificationResult.success(
-        message: _disableNearbyRequirement
-            ? '상대 거리 확인 없이 안전도장을 준비했어요.'
-            : '근처에서 상대방이 확인되어 안전도장을 준비했어요.',
-        rssi: rssi ?? 0,
-        location: _placeholderLocation(),
+        message: '근처에서 상대방과 현재 위치가 확인되었어요.',
+        rssi: rssi,
+        location: location.location!,
       );
     } catch (_) {
       return SafetyStampVerificationResult.failure(
@@ -150,11 +136,8 @@ class SafetyStampVerificationService {
     final adapterState = await FlutterBluePlus.adapterState
         .where((state) => state != BluetoothAdapterState.unknown)
         .first;
-    if (adapterState == BluetoothAdapterState.on) {
-      return null;
-    }
-
-    if (defaultTargetPlatform == TargetPlatform.android) {
+    if (adapterState != BluetoothAdapterState.on &&
+        defaultTargetPlatform == TargetPlatform.android) {
       final enabled = await _peripheral.enableBluetooth();
       if (enabled) {
         await FlutterBluePlus.adapterState
@@ -169,7 +152,7 @@ class SafetyStampVerificationService {
       }
     }
 
-    if (await _peripheral.isBluetoothOn) {
+    if (await _waitForPeripheralBluetooth()) {
       return null;
     }
 
@@ -185,7 +168,16 @@ class SafetyStampVerificationService {
         state == BluetoothPeripheralState.limited;
   }
 
-  Future<void> _startAdvertising(String localAlias) async {
+  Future<bool> _waitForPeripheralBluetooth() async {
+    final deadline = DateTime.now().add(_peripheralReadyTimeout);
+    while (DateTime.now().isBefore(deadline)) {
+      if (await _peripheral.isBluetoothOn) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+    return false;
+  }
+
+  Future<bool> _startAdvertising(String localAlias) async {
     final advertiseData = AdvertiseData(
       serviceUuid: _serviceUuid,
       localName: localAlias,
@@ -193,6 +185,12 @@ class SafetyStampVerificationService {
 
     await _peripheral.stop();
     await _peripheral.start(advertiseData: advertiseData);
+    final deadline = DateTime.now().add(_advertisingReadyTimeout);
+    while (DateTime.now().isBefore(deadline)) {
+      if (await _peripheral.isAdvertising) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    }
+    return false;
   }
 
   Future<void> _stopAdvertising() async {
@@ -256,14 +254,5 @@ class SafetyStampVerificationService {
         message: '현재 위치를 가져오지 못했어요. 잠시 후 다시 시도해주세요.',
       );
     }
-  }
-
-  SafetyStampLocationSnapshot _placeholderLocation() {
-    return SafetyStampLocationSnapshot(
-      latitude: 0,
-      longitude: 0,
-      accuracyMeters: 0,
-      capturedAt: DateTime.now(),
-    );
   }
 }

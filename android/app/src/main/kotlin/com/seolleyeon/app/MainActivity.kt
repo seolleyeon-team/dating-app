@@ -1,31 +1,35 @@
 package com.seolleyeon.app
 
 import android.content.Intent
+import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.util.Base64
 import android.util.Log
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
-import java.io.ByteArrayInputStream
 import java.security.MessageDigest
-import java.security.cert.CertificateFactory
-import java.security.cert.X509Certificate
+import java.util.Locale
 
 class MainActivity : FlutterActivity() {
 
+    companion object {
+        // TEMPORARY: disabled for internal-test screenshot collection.
+        // Set this back to true before the production release.
+        private const val SCREEN_CAPTURE_PROTECTION_ENABLED = false
+    }
+
     private val CHANNEL = "com.seolleyeon.app/open_mail_app"
-    private val KAKAO_CHANNEL = "com.seolleyeon.app/kakao_util"
     private val SCREEN_SECURITY_CHANNEL = "com.seolleyeon.app/screen_security"
+    private val RUNTIME_DIAGNOSTIC_CHANNEL = "com.seolleyeon.app/runtime_diagnostics"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         normalizeIntentData(intent)
         super.onCreate(savedInstanceState)
-        enableScreenSecurity()
+        applyScreenSecurityPolicy()
         try {
             Log.d("MainActivity", "onCreate data=" + intent?.dataString)
         } catch (_: Exception) {
@@ -42,24 +46,22 @@ class MainActivity : FlutterActivity() {
                 result.notImplemented()
             }
         }
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, KAKAO_CHANNEL).setMethodCallHandler { call, result ->
-            if (call.method == "getKeyHash") {
-                result.success(getKeyHash())
-            } else if (call.method == "isDebugSigned") {
-                result.success(isDebugSigned())
-            } else {
-                result.notImplemented()
-            }
-        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SCREEN_SECURITY_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "enableProtection", "enableSensitiveProtection", "disableSensitiveProtection" -> {
-                    enableScreenSecurity()
+                    applyScreenSecurityPolicy()
                     result.success(null)
                 }
                 else -> {
                     result.notImplemented()
                 }
+            }
+        }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, RUNTIME_DIAGNOSTIC_CHANNEL).setMethodCallHandler { call, result ->
+            if (call.method == "getAppCheck") {
+                result.success(appCheckRuntimeDiagnostics())
+            } else {
+                result.notImplemented()
             }
         }
     }
@@ -100,37 +102,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun getKeyHash(): String {
-        return try {
-            val signatures = getSigningCertificates()
-            if (signatures.isNotEmpty()) {
-                val md = MessageDigest.getInstance("SHA")
-                md.update(signatures[0].toByteArray())
-                Base64.encodeToString(md.digest(), Base64.NO_WRAP).trim()
-            } else {
-                ""
-            }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "getKeyHash error", e)
-            ""
-        }
-    }
-
-    private fun isDebugSigned(): Boolean {
-        return try {
-            val certificateFactory = CertificateFactory.getInstance("X.509")
-            getSigningCertificates().any { signature ->
-                val certificate = certificateFactory.generateCertificate(
-                    ByteArrayInputStream(signature.toByteArray())
-                ) as X509Certificate
-                certificate.subjectX500Principal.name.contains("CN=Android Debug")
-            }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "isDebugSigned error", e)
-            false
-        }
-    }
-
     private fun getSigningCertificates() =
         @Suppress("DEPRECATION")
         (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -144,6 +115,36 @@ class MainActivity : FlutterActivity() {
                 PackageManager.GET_SIGNATURES
             ).signatures
         }) ?: emptyArray()
+
+    private fun appCheckRuntimeDiagnostics(): Map<String, Any> {
+        val packageInfo = packageManager.getPackageInfo(packageName, 0)
+        val installerPackage = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                packageManager.getInstallSourceInfo(packageName).installingPackageName
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getInstallerPackageName(packageName)
+            }
+        } catch (_: Exception) {
+            null
+        }
+        return mapOf(
+            "packageName" to packageName,
+            "versionName" to (packageInfo.versionName ?: "확인 불가"),
+            "versionCode" to if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageInfo.longVersionCode.toString()
+            } else {
+                @Suppress("DEPRECATION")
+                packageInfo.versionCode.toString()
+            },
+            "installerPackage" to (installerPackage ?: "확인 불가"),
+            "signingCertificateSha256" to getSigningCertificates().map { signature ->
+                MessageDigest.getInstance("SHA-256")
+                    .digest(signature.toByteArray())
+                    .joinToString(":") { byte -> "%02X".format(Locale.US, byte.toInt() and 0xff) }
+            },
+        )
+    }
 
     private fun launchAppByPackage(packageName: String): Boolean {
         return try {
@@ -166,10 +167,11 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun enableScreenSecurity() {
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE
-        )
+    private fun applyScreenSecurityPolicy() {
+        if (SCREEN_CAPTURE_PROTECTION_ENABLED) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
     }
 }

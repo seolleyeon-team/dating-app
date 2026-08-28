@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../services/auth_service.dart';
@@ -35,6 +38,13 @@ class HeartPurchaseGateway {
   final AuthService _authService;
   final StorageService _storageService;
 
+  /// Prepares the authenticated app account before opening Google Play's
+  /// purchase sheet and returns a non-reversible account identifier.
+  Future<String> prepareGooglePlayAccountId() async {
+    final kakaoUserId = await _prepareAuthenticatedUserId();
+    return sha256.convert(utf8.encode(kakaoUserId)).toString();
+  }
+
   Future<HeartGrantResult> grantPurchasedHearts({
     required String productId,
     required HeartPurchasePlatform platform,
@@ -47,20 +57,7 @@ class HeartPurchaseGateway {
       '[${platform.name.toUpperCase()}] preparing authenticated heart grant '
       'product=$productId',
     );
-    final kakaoUserId = await _storageService.getKakaoUserId();
-    if (kakaoUserId == null || kakaoUserId.isEmpty) {
-      throw StateError('로그인 정보를 찾을 수 없어요. 다시 로그인해주세요.');
-    }
-
-    // Callable은 request.auth를 기준으로 사용자 문서를 결정한다. SharedPreferences
-    // user id를 서버에 보내거나 권한 판단에 사용하지 않는다.
-    final isSessionReady = await _authService.ensureFirebaseSessionForKakao(
-      kakaoUserId,
-    );
-    if (!isSessionReady) {
-      throw StateError('구매 정보를 저장할 로그인 세션을 준비하지 못했어요.');
-    }
-
+    await _prepareAuthenticatedUserId();
     _debugLog(
       '[${platform.name.toUpperCase()}] authenticated; requesting server grant',
     );
@@ -105,6 +102,23 @@ class HeartPurchaseGateway {
       'balance=${result.heartBalance}',
     );
     return result;
+  }
+
+  Future<String> _prepareAuthenticatedUserId() async {
+    final kakaoUserId = await _storageService.getKakaoUserId();
+    if (kakaoUserId == null || kakaoUserId.isEmpty) {
+      throw StateError('로그인 정보를 찾을 수 없어요. 다시 로그인해주세요.');
+    }
+
+    // Callable은 request.auth를 기준으로 사용자 문서를 결정한다. SharedPreferences
+    // user id를 서버에 보내거나 권한 판단에 사용하지 않는다.
+    final isSessionReady = await _authService.ensureFirebaseSessionForKakao(
+      kakaoUserId,
+    );
+    if (!isSessionReady) {
+      throw StateError('구매 정보를 저장할 로그인 세션을 준비하지 못했어요.');
+    }
+    return kakaoUserId;
   }
 
   void _debugLog(String message) {

@@ -13,9 +13,9 @@ Configuration 파일은 Scheme에 자동으로 고정하지 않았습니다. 개
 
 | Product ID | 지급 하트 | StoreKit 테스트 가격 |
 | --- | ---: | --- |
-| `seolleyeon.heart.10` | 10 | ₩1,500 |
-| `seolleyeon.heart.30` | 30 | ₩3,900 |
-| `seolleyeon.heart.100` | 100 | ₩9,900 |
+| `seolleyeon.heart.10` | 10 | ₩3,000 |
+| `seolleyeon.heart.30` | 30 | ₩7,000 |
+| `seolleyeon.heart.100` | 100 | ₩18,000 |
 
 표의 가격은 `.storekit` 테스트 데이터입니다. 앱 UI는 가격을 하드코딩하지 않고 StoreKit의 `ProductDetails.price`만 표시합니다.
 

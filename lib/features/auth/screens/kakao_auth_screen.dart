@@ -4,16 +4,15 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kDebugMode, kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../../router/route_names.dart';
+import '../../../services/adult_verification_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/friend_invite_service.dart';
 import '../services/kakao_login_firestore_bootstrap.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/layouts/main_scaffold_args.dart';
-import '../../../utils/kakao_key_hash_util.dart';
 
 /// 카카오 인증 화면
 class KakaoAuthScreen extends StatefulWidget {
@@ -25,6 +24,7 @@ class KakaoAuthScreen extends StatefulWidget {
 
 class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
   final _authService = AuthService();
+  final _adultVerificationService = AdultVerificationService();
   final _storageService = StorageService();
   final _friendInviteService = FriendInviteService();
   final _userService = UserService();
@@ -40,6 +40,31 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
   String get _currentPlatformLabel {
     if (kIsWeb) return 'web';
     return defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
+  }
+
+  /// A completed identity-verification session is the only way to enter the
+  /// Kakao flow for a new sign-in. The server still re-fetches and verifies
+  /// PortOne's result after Firebase identity is attached.
+  Future<bool> _requireAdultVerificationBeforeKakaoLogin() async {
+    if (await _adultVerificationService.hasPendingKakaoLoginSession()) {
+      return true;
+    }
+    if (!mounted) return false;
+    Navigator.of(context).pushReplacementNamed(RouteNames.adultVerification);
+    return false;
+  }
+
+  Future<bool> _verifyAdultIdentityAfterKakaoLogin() async {
+    final result = await _adultVerificationService
+        .verifyPendingSessionAfterLogin();
+    if (result.isVerified) return true;
+
+    await _authService.signOutAll();
+    await _storageService.clearKakaoUserId();
+    await _storageService.clearUserId();
+    if (!mounted) return false;
+    Navigator.of(context).pushReplacementNamed(RouteNames.adultVerification);
+    return false;
   }
 
   String _formatLoginErrorMessage(String rawMessage) {
@@ -186,6 +211,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
 
   Future<void> _login() async {
     if (_isLoading) return;
+    if (!await _requireAdultVerificationBeforeKakaoLogin()) return;
 
     setState(() {
       _isLoading = true;
@@ -210,6 +236,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
           platform: _currentPlatformLabel,
         ),
       );
+      if (!await _verifyAdultIdentityAfterKakaoLogin()) return;
       await _storageService.saveKakaoUserId(kakaoUserId);
       if (await _runFirestoreStep(
         '재가입 제한 확인',
@@ -295,16 +322,6 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
       debugPrint('[KAKAO] login failed: ${PrivacyLogUtils.errorSummary(e)}');
       final msg = _formatLoginErrorMessage(e.toString());
       if (!mounted) return;
-      final isKeyHashError =
-          msg.toLowerCase().contains('keyhash') ||
-          msg.toLowerCase().contains('key hash');
-      if (isKeyHashError) {
-        final keyHash = await getAndroidKeyHash();
-        if (keyHash != null && keyHash.isNotEmpty && mounted) {
-          await _showKeyHashDialog(keyHash);
-        }
-      }
-      if (!mounted) return;
       setState(() {
         _errorMessage = msg;
         // 서버 권한/규칙 문제는 웹 로그인으로도 해결되지 않으므로 대안을 권하지 않는다.
@@ -315,77 +332,10 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
     }
   }
 
-  Future<void> _showKeyHashIfAndroid() async {
-    final keyHash = await getAndroidKeyHash();
-    if (keyHash != null && keyHash.isNotEmpty && mounted) {
-      await _showKeyHashDialog(keyHash);
-    }
-  }
-
-  Future<void> _showKeyHashDialog(String keyHash) async {
-    await showCupertinoDialog<void>(
-      context: context,
-      builder: (ctx) => CupertinoAlertDialog(
-        title: const Text('키 해시 등록 필요'),
-        content: Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '카카오 개발자 콘솔에 아래 키 해시를 등록해주세요.\n\n'
-                '1. developers.kakao.com 접속\n'
-                '2. 앱 선택 → 앱 설정 → 플랫폼 → Android\n'
-                '3. 키 해시에 아래 값을 추가 후 저장',
-                style: TextStyle(fontSize: 13),
-              ),
-              const SizedBox(height: 12),
-              GestureDetector(
-                onLongPress: () {
-                  Clipboard.setData(ClipboardData(text: keyHash));
-                  HapticFeedback.mediumImpact();
-                },
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: CupertinoColors.systemGrey6,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: SelectableText(
-                    keyHash,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 14,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '길게 눌러 복사',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: CupertinoColors.systemGrey,
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('확인'),
-          ),
-        ],
-      ),
-    );
-  }
-
   /// iOS 번들 ID 오류 등으로 카카오톡 앱 로그인이 안 될 때만 사용 (웹 로그인)
   Future<void> _loginWithWeb() async {
     if (_isLoading) return;
+    if (!await _requireAdultVerificationBeforeKakaoLogin()) return;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -407,6 +357,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
           platform: _currentPlatformLabel,
         ),
       );
+      if (!await _verifyAdultIdentityAfterKakaoLogin()) return;
       await _storageService.saveKakaoUserId(kakaoUserId);
       if (await _runFirestoreStep(
         '재가입 제한 확인',
@@ -488,16 +439,6 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
       );
       if (!mounted) return;
       final msg = _formatLoginErrorMessage(e.toString());
-      final isKeyHashError =
-          msg.toLowerCase().contains('keyhash') ||
-          msg.toLowerCase().contains('key hash');
-      if (isKeyHashError) {
-        final keyHash = await getAndroidKeyHash();
-        if (keyHash != null && keyHash.isNotEmpty && mounted) {
-          await _showKeyHashDialog(keyHash);
-        }
-      }
-      if (!mounted) return;
       setState(() => _errorMessage = msg);
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -614,23 +555,6 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
                   ),
                 ),
               ),
-              if (!kIsWeb &&
-                  defaultTargetPlatform == TargetPlatform.android) ...[
-                const SizedBox(height: 8),
-                Center(
-                  child: CupertinoButton(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 6,
-                    ),
-                    onPressed: _isLoading ? null : _showKeyHashIfAndroid,
-                    child: const Text(
-                      '키 해시 확인',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
-                    ),
-                  ),
-                ),
-              ],
             ],
           ),
         ),

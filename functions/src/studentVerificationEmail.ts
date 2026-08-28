@@ -109,7 +109,7 @@ export function buildStudentVerificationEmail(actionLink: string): {
         <p style="margin:0 0 20px;font-size:24px;font-weight:700;letter-spacing:-.4px;">설레연</p>
         <h1 style="margin:0 0 16px;font-size:22px;line-height:1.4;">연세대학교 이메일 인증이 필요해요</h1>
         <p style="margin:0 0 26px;font-size:15px;line-height:1.7;color:#555963;">아래 버튼을 눌러 연세대학교 이메일 인증을 완료해 주세요.</p>
-        <p style="margin:0 0 26px;"><a href="${safeLink}" style="display:inline-block;background:#3B82F6;color:#ffffff;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:700;">이메일 인증하기</a></p>
+        <p style="margin:0 0 26px;"><a href="${safeLink}" style="display:inline-block;background:#FF6B8A;color:#ffffff;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:700;">이메일 인증하기</a></p>
         <p style="margin:0;font-size:13px;line-height:1.7;color:#777b84;">인증 요청은 30분 안에 완료해 주세요.<br />본인이 요청하지 않은 메일이라면 링크를 열지 말고 이 메일을 무시해 주세요.</p>
       </div>
     </div>

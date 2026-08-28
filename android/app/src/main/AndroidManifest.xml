@@ -1,5 +1,8 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="com.android.vending.BILLING"/>
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>
@@ -8,6 +11,15 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <!-- flutter_ble_peripheral adds API 23-30 variants of these permissions.
+         Keep this app-level declaration as the single source of truth so the
+         packaged manifest does not contain duplicate location permissions. -->
+    <uses-permission-sdk-23
+        android:name="android.permission.ACCESS_COARSE_LOCATION"
+        tools:node="remove"/>
+    <uses-permission-sdk-23
+        android:name="android.permission.ACCESS_FINE_LOCATION"
+        tools:node="remove"/>
     <uses-permission android:name="android.permission.READ_CONTACTS"/>
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false"/>
     <application
@@ -64,9 +76,9 @@
                     android:host="kakaolink" />
             </intent-filter>
             <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
+              <action android:name="android.intent.action.VIEW" />
+              <category android:name="android.intent.category.DEFAULT" />
+              <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:scheme="https"
                     android:host="seolleyeon-final.web.app"
@@ -81,6 +93,17 @@
                     android:scheme="https"
                     android:host="seolleyeon-final.firebaseapp.com"
                     android:pathPrefix="/__/auth/links" />
+            </intent-filter>
+            <!-- 이메일 인증 링크가 Hosting continue URL로 돌아오는 경우에도
+                 브라우저가 아니라 설치된 설레연 앱에서 처리한다. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="seolleyeon-final.web.app"
+                    android:pathPrefix="/auth/email-link" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

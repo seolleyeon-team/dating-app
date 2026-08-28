@@ -179,7 +179,7 @@ class _TermsScreenState extends State<TermsScreen> {
       await StorageService().savePendingLegalConsents();
       HapticFeedback.mediumImpact();
       if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed(RouteNames.kakaoAuth);
+      Navigator.of(context).pushReplacementNamed(RouteNames.adultVerification);
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);

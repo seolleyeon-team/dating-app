@@ -21,6 +21,10 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 
+/// 시즌 미팅은 다음 이벤트 공개 전까지 이벤트 탭에서 잠가 둔다.
+/// 공개 준비가 끝나면 이 값만 true로 바꿔 기존 화면을 다시 노출한다.
+const bool kSeasonMeetingReleased = false;
+
 // =============================================================================
 // 메인 화면
 // =============================================================================
@@ -126,55 +130,48 @@ class _EventScreenState extends State<EventScreen> {
               // 스크롤 영역
               Expanded(
                 child: _selectedTabIndex == 0
-                    ? SingleChildScrollView(
-                        physics: const BouncingScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(0, 16, 0, 120),
-                        child: Column(
-                          children: [
-                            // ━━━ 기존 콘텐츠 ━━━
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
+                    ? (kSeasonMeetingReleased
+                          ? SingleChildScrollView(
+                              physics: const BouncingScrollPhysics(),
+                              padding: const EdgeInsets.fromLTRB(0, 16, 0, 120),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                ),
+                                child: Column(
+                                  children: [
+                                    const _HeroCard(),
+                                    const SizedBox(height: 16),
+                                    const _StatusStrip(),
+                                    const SizedBox(height: 16),
+                                    _SeasonMeetingGuideLink(
+                                      onPressed: () =>
+                                          Navigator.of(
+                                            context,
+                                            rootNavigator: true,
+                                          ).pushNamed(
+                                            RouteNames
+                                                .seasonMeetingPaymentGuide,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    _SeasonMeetingMockLink(
+                                      onPressed: () => Navigator.of(
+                                        context,
+                                        rootNavigator: true,
+                                      ).pushNamed(RouteNames.groupMatch),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    _PrimaryCTA(onPressed: _onStartPressed),
+                                    const SizedBox(height: 24),
+                                    const _Divider(),
+                                    const SizedBox(height: 24),
+                                    const _PartnerVenueSection(),
+                                  ],
+                                ),
                               ),
-                              child: Column(
-                                children: [
-                                  // 히어로 카드 (슬롯머신)
-                                  const _HeroCard(),
-                                  const SizedBox(height: 16),
-                                  // 상태 표시줄
-                                  const _StatusStrip(),
-                                  const SizedBox(height: 16),
-                                  _SeasonMeetingGuideLink(
-                                    onPressed: () =>
-                                        Navigator.of(
-                                          context,
-                                          rootNavigator: true,
-                                        ).pushNamed(
-                                          RouteNames.seasonMeetingPaymentGuide,
-                                        ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  _SeasonMeetingMockLink(
-                                    onPressed: () => Navigator.of(
-                                      context,
-                                      rootNavigator: true,
-                                    ).pushNamed(RouteNames.groupMatch),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  // CTA 버튼
-                                  _PrimaryCTA(onPressed: _onStartPressed),
-                                  const SizedBox(height: 24),
-                                  // 구분선
-                                  const _Divider(),
-                                  const SizedBox(height: 24),
-                                  // 제휴 장소 섹션
-                                  const _PartnerVenueSection(),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
+                            )
+                          : const _SeasonMeetingComingSoonCard())
                     : const BlindMeetingEventCard(),
               ),
             ],
@@ -280,11 +277,13 @@ class _SegmentedControl extends StatelessWidget {
             _SegmentTab(
               label: '3:3 시즌 미팅',
               isSelected: selectedIndex == 0,
+              locked: true,
               onTap: () => onChanged(0),
             ),
             _SegmentTab(
               label: '블라인드 취향 미팅',
               isSelected: selectedIndex == 1,
+              locked: false,
               onTap: () => onChanged(1),
             ),
           ],
@@ -297,11 +296,13 @@ class _SegmentedControl extends StatelessWidget {
 class _SegmentTab extends StatelessWidget {
   final String label;
   final bool isSelected;
+  final bool locked;
   final VoidCallback onTap;
 
   const _SegmentTab({
     required this.label,
     required this.isSelected,
+    required this.locked,
     required this.onTap,
   });
 
@@ -329,15 +330,135 @@ class _SegmentTab extends StatelessWidget {
                 : [],
           ),
           child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'NanumSquareRound',
-                fontSize: 14,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-                // 비선택 탭은 '비활성'이 아니라 '선택 가능'으로 읽혀야 한다.
-                color: isSelected ? primary : seol.bodyText,
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (locked) ...[
+                  Icon(
+                    CupertinoIcons.lock_fill,
+                    size: 13,
+                    color: isSelected ? primary : seol.bodyText,
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontFamily: 'NanumSquareRound',
+                    fontSize: 14,
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                    color: isSelected ? primary : seol.bodyText,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 출시 전인 시즌 미팅은 이벤트 탭에서만 안내하고 신청·결제·팀 구성으로
+/// 진입할 수 없게 한다. 실제 서비스 공개 시 이 카드를 기존 시즌 미팅 홈으로
+/// 교체하면 된다.
+class _SeasonMeetingComingSoonCard extends StatelessWidget {
+  const _SeasonMeetingComingSoonCard();
+
+  void _showNotice(BuildContext context) {
+    HapticFeedback.selectionClick();
+    showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('3:3 시즌 미팅은 준비 중이에요'),
+        content: const Text('다음에 공개되는 이벤트예요. 지금은 사용할 수 없어요.'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 40, 16, 120),
+      child: Semantics(
+        button: true,
+        label: '3대3 시즌 미팅, 준비 중',
+        child: GestureDetector(
+          onTap: () => _showNotice(context),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(24, 36, 24, 32),
+            decoration: BoxDecoration(
+              color: seol.cardSurface,
+              borderRadius: BorderRadius.circular(32),
+              border: Border.all(color: primary.withValues(alpha: 0.14)),
+              boxShadow: [
+                BoxShadow(
+                  color: CupertinoColors.black.withValues(alpha: 0.05),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: primary.withValues(alpha: 0.10),
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(
+                    CupertinoIcons.lock_fill,
+                    size: 30,
+                    color: primary,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  '3:3 시즌 미팅',
+                  style: TextStyle(
+                    fontFamily: 'NanumSquareRound',
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: seol.gray800,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  '다음에 공개되는 이벤트예요.\n지금은 사용할 수 없어요.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: 'NanumSquareRound',
+                    fontSize: 15,
+                    height: 1.55,
+                    fontWeight: FontWeight.w500,
+                    color: seol.bodyText,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Text(
+                  '탭해서 안내 보기',
+                  style: TextStyle(
+                    fontFamily: 'NanumSquareRound',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: primary,
+                  ),
+                ),
+              ],
             ),
           ),
         ),

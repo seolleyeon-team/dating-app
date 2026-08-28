@@ -28,6 +28,7 @@ class IapService extends ChangeNotifier {
 
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
   Future<void>? _initializeFuture;
+  Future<void>? _googlePlayRestoreFuture;
   Future<void> _purchaseQueue = Future<void>.value();
 
   bool _isStoreAvailable = false;
@@ -84,10 +85,54 @@ class IapService extends ChangeNotifier {
     _debugLog('${platform!.name} store available=$_isStoreAvailable');
     if (_isStoreAvailable) {
       await loadProducts();
+      if (supportsGooglePlayIap) {
+        // A purchase can outlive the app process (for example, if the app is
+        // killed after Play confirms payment but before the backend consumes
+        // the token). Query owned purchases explicitly; purchaseStream alone
+        // only guarantees live BillingClient updates.
+        await _restorePendingGooglePlayPurchases(showUserError: false);
+      }
     } else {
       _recordError('현재 기기에서는 $storeName 결제를 사용할 수 없어요.');
     }
     notifyListeners();
+  }
+
+  /// Re-queries unconsumed Google Play purchases and sends them through the
+  /// same idempotent server verification path as a live purchase update.
+  ///
+  /// The heart screen calls this after loading the signed-in Kakao account so
+  /// a purchase that could not be granted during logged-out app startup gets a
+  /// deterministic retry without asking the user to pay again.
+  Future<void> restorePendingPurchases() async {
+    await initialize();
+    if (!supportsGooglePlayIap || !_isStoreAvailable) return;
+    await _restorePendingGooglePlayPurchases(showUserError: true);
+  }
+
+  Future<void> _restorePendingGooglePlayPurchases({
+    required bool showUserError,
+  }) {
+    final inFlight = _googlePlayRestoreFuture;
+    if (inFlight != null) return inFlight;
+
+    final restore = () async {
+      try {
+        _debugLog('Querying unconsumed Google Play purchases');
+        await _inAppPurchase.restorePurchases();
+      } catch (error) {
+        if (showUserError) {
+          _recordError('이전에 완료되지 않은 결제 내역을 확인하지 못했어요. 다시 시도해주세요.');
+        }
+        _debugLog('Google Play pending purchase query failed: $error');
+      }
+    }();
+    _googlePlayRestoreFuture = restore;
+    return restore.whenComplete(() {
+      if (identical(_googlePlayRestoreFuture, restore)) {
+        _googlePlayRestoreFuture = null;
+      }
+    });
   }
 
   Future<void> loadProducts() async {
@@ -112,7 +157,7 @@ class IapService extends ChangeNotifier {
       final byId = <String, ProductDetails>{
         for (final product in response.productDetails) product.id: product,
       };
-      _products = HeartProducts.all
+      _products = HeartProducts.productsFor(purchasePlatform)
           .map(
             (heartProduct) => byId[heartProduct.productIdFor(purchasePlatform)],
           )
@@ -157,8 +202,15 @@ class IapService extends ChangeNotifier {
     );
 
     try {
+      final purchaseParam = supportsGooglePlayIap
+          ? GooglePlayPurchaseParam(
+              productDetails: product,
+              applicationUserName: await _purchaseGateway
+                  .prepareGooglePlayAccountId(),
+            )
+          : PurchaseParam(productDetails: product);
       final started = await _inAppPurchase.buyConsumable(
-        purchaseParam: PurchaseParam(productDetails: product),
+        purchaseParam: purchaseParam,
         // Android는 서버 지급이 성공한 뒤 명시적으로 consume한다. 기본값 true는
         // purchaseStream listener보다 먼저 token을 소비할 수 있다.
         autoConsume: !supportsGooglePlayIap,
@@ -287,7 +339,7 @@ class IapService extends ChangeNotifier {
       _recordError(
         granted
             ? '하트는 지급됐지만 결제 마무리를 확인하지 못했어요. 앱을 다시 열어주세요.'
-            : '결제는 확인됐지만 하트 지급을 완료하지 못했어요. 앱을 다시 열어 재시도해주세요.',
+            : '결제 처리 상태를 확인 중이에요. 하트가 보이지 않으면 앱을 다시 열어주세요.',
       );
       _debugLog(
         'Purchase processing failed transaction=${_logKey(transactionId)}: $error',
@@ -326,16 +378,14 @@ class IapService extends ChangeNotifier {
     String transactionId,
   ) async {
     if (supportsGooglePlayIap) {
-      final androidAddition = _inAppPurchase
-          .getPlatformAddition<InAppPurchaseAndroidPlatformAddition>();
-      await androidAddition.consumePurchase(purchase);
+      // Google Play products are consumed by the verified backend callable.
       _debugLog(
-        'android purchase consumed transaction=${_logKey(transactionId)}',
+        'android purchase completed by backend transaction=${_logKey(transactionId)}',
       );
+      return;
     }
 
-    // Android 소비는 acknowledgement를 포함한다. plugin object가 아직 pending으로
-    // 표시되는 경우에만 completePurchase를 호출해 재시작 복구 경로도 유지한다.
+    // StoreKit transaction is completed only after the server grants hearts.
     if (purchase.pendingCompletePurchase && !supportsGooglePlayIap) {
       _debugLog(
         '[IOS] completing StoreKit transaction=${_logKey(transactionId)}',

@@ -18,6 +18,8 @@ class StorageService {
   static const String _studentVerifiedKeyPrefix = 'student_verified_';
   static const String _studentVerificationTokenKeyPrefix =
       'student_verification_token_';
+  static const String _studentVerificationWelcomeKeyPrefix =
+      'student_verification_welcome_';
   static const String _onboardingDraftKeyPrefix = 'onboarding_draft_';
   static const String _pendingFriendInviteTokenKey = 'pending_friend_invite';
   static const String _eventTeamSetupIdKeyPrefix = 'event_team_setup_id_';
@@ -144,6 +146,22 @@ class StorageService {
   Future<void> clearStudentVerificationToken(String kakaoUserId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('$_studentVerificationTokenKeyPrefix$kakaoUserId');
+  }
+
+  Future<void> saveStudentVerificationWelcome(String kakaoUserId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(
+      '$_studentVerificationWelcomeKeyPrefix$kakaoUserId',
+      true,
+    );
+  }
+
+  Future<bool> consumeStudentVerificationWelcome(String kakaoUserId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = '$_studentVerificationWelcomeKeyPrefix$kakaoUserId';
+    final shouldShow = prefs.getBool(key) == true;
+    if (shouldShow) await prefs.remove(key);
+    return shouldShow;
   }
 
   // ---------------------------------------------------------------------------

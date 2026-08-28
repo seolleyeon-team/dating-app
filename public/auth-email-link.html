@@ -45,15 +45,6 @@
       const setStatus = (html) => { statusEl.innerHTML = html; };
       const setDebug = (html) => { if (debugEl) debugEl.innerHTML = html; };
 
-      // Legacy Hosting deployments may still serve this page. Complete the
-      // mailbox verification here, then return to the Flutter shell so its
-      // Kakao-backed session gate can run normally.
-      const returnToApp = () => {
-        const appUrl = new URL('/', window.location.origin);
-        appUrl.searchParams.set('emailLinkComplete', '1');
-        window.location.replace(appUrl.toString());
-      };
-
       // firebase 객체 준비 대기
       const waitFirebase = async (timeoutMs = 12000) => {
         const start = Date.now();
@@ -205,9 +196,8 @@
         try { await tokenRef.delete(); } catch (_) {}
 
         setStatus(
-          '<span class="success">🎉 인증이 완료되었습니다!<br/>앱으로 돌아가서 다음을 진행해 주세요.</span>'
+          '<span class="success">⏳ 이메일 인증이 완료되었습니다!<br/>설레연을 설치한 휴대폰에서 <b>인증 완료 확인</b>을 눌러주세요.</span>'
         );
-        setTimeout(returnToApp, 500);
 
       } catch (e) {
         console.error(e);

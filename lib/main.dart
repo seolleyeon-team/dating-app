@@ -56,6 +56,13 @@ const String _androidAppCheckDebugToken = String.fromEnvironment(
   defaultValue: '',
 );
 
+/// Internal-test-only switch for isolating a single App Check token request.
+/// Production and ordinary internal-test builds must leave this unset.
+const bool _appCheckDiagnosticMode = bool.fromEnvironment(
+  'APP_CHECK_DIAGNOSTIC_MODE',
+  defaultValue: false,
+);
+
 const bool _useFirebaseEmulators = bool.fromEnvironment(
   'USE_FIREBASE_EMULATORS',
   defaultValue: false,
@@ -128,10 +135,6 @@ void main() {
       );
       await _configureFirebaseEmulators();
       FirebaseDiagnostics.logCurrentFirebaseApp('firebase_initialize_success');
-
-      // 화면 수명과 분리해 앱 재실행 때 StoreKit/Google Play의 미완료
-      // transaction도 같은 서버 검증 경로로 처리한다.
-      unawaited(IapService.instance.initialize());
 
       // App Check: Android/iOS always. Web uses reCAPTCHA v3 normally, with
       // an explicit debug-provider escape hatch for local Chrome testing.
@@ -206,10 +209,13 @@ void main() {
                 ? const AppleDebugProvider()
                 : const AppleAppAttestProvider(),
           );
-          await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
+          await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(
+            !_appCheckDiagnosticMode,
+          );
           debugPrint(
             '[AppCheck] debugProviders=$useDebugAppCheck '
-            'kReleaseMode=$kReleaseMode forceDebug=$_forceAppCheckDebugProvider',
+            'kReleaseMode=$kReleaseMode forceDebug=$_forceAppCheckDebugProvider '
+            'diagnostic=$_appCheckDiagnosticMode',
           );
           recordAppCheckInitResult(
             evaluateNativeAppCheckActivation(
@@ -237,6 +243,10 @@ void main() {
           '[AppCheck] activate failed: ${PrivacyLogUtils.errorSummary(e)}',
         );
       }
+
+      // Subscribe only after App Check activation so unfinished purchases can
+      // reach the protected grant callable on their first redelivery.
+      unawaited(IapService.instance.initialize());
 
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 

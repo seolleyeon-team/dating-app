@@ -33,8 +33,13 @@ class _HeartChargeScreenState extends State<HeartChargeScreen> {
   @override
   void initState() {
     super.initState();
-    unawaited(_loadUser());
-    unawaited(_iapService.initialize());
+    unawaited(_preparePurchases());
+  }
+
+  Future<void> _preparePurchases() async {
+    await _loadUser();
+    await _iapService.initialize();
+    await _iapService.restorePendingPurchases();
   }
 
   Future<void> _loadUser() async {

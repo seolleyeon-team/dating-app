@@ -50,5 +50,6 @@ test("student verification email escapes the opaque Firebase action link", () =>
   const email = buildStudentVerificationEmail('https://example.test/?q="<unsafe>');
   assert.equal(email.subject, "설레연에서 온 인증 메일");
   assert.match(email.html, /q=&quot;&lt;unsafe&gt;/);
+  assert.match(email.html, /background:#FF6B8A/);
   assert.match(email.text, /https:\/\/example\.test/);
 });
