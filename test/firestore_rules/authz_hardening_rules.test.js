@@ -131,7 +131,7 @@ describe("계정 탈취 체인", () => {
     );
   });
 
-  it("인증 사용자도 남의 kakaoUserId 로 emailLinkTokens 를 만들 수 없다", async () => {
+  it("인증 사용자도 emailLinkTokens 를 만들 수 없다", async () => {
     await assertFails(
       setDoc(doc(as(ATTACKER), "emailLinkTokens", "forged-token-2"), {
         email: VICTIM_EMAIL,
@@ -142,8 +142,8 @@ describe("계정 탈취 체인", () => {
     );
   });
 
-  it("본인 kakaoUserId 로는 emailLinkTokens 를 만들 수 있다 (학생 인증 유지)", async () => {
-    await assertSucceeds(
+  it("본인 kakaoUserId 로도 emailLinkTokens 를 만들 수 없다 (서버 전용)", async () => {
+    await assertFails(
       setDoc(doc(as(ATTACKER), "emailLinkTokens", "own-token"), {
         email: "attacker@yonsei.ac.kr",
         kakaoUserId: ATTACKER,

@@ -127,7 +127,9 @@ class CampusLifeZoneRepairService {
   }
 
   /// 보충 화면에 미리 채울 기존 값.
-  static CampusLifeZoneRepairPrefill prefillFrom(Map<String, dynamic>? profile) {
+  static CampusLifeZoneRepairPrefill prefillFrom(
+    Map<String, dynamic>? profile,
+  ) {
     final onboarding = profile?['onboarding'];
     final map = onboarding is Map
         ? onboarding.map((k, v) => MapEntry(k.toString(), v))

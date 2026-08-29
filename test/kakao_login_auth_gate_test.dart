@@ -27,20 +27,41 @@ void main() {
         nextMethod == -1 ? source.length : nextMethod,
       );
       final bootstrap = section.indexOf('_loginBootstrap.bootstrap');
+      final adultVerification = section.indexOf(
+        '_verifyAdultIdentityAfterKakaoLogin',
+      );
       final localIdSave = section.indexOf('saveKakaoUserId');
 
       expect(bootstrap, isNonNegative, reason: methodMarker);
       expect(localIdSave, isNonNegative, reason: methodMarker);
+      expect(adultVerification, isNonNegative, reason: methodMarker);
       expect(
         bootstrap,
+        lessThan(adultVerification),
+        reason: 'PortOne verification requires an attached Firebase session.',
+      );
+      expect(
+        adultVerification,
         lessThan(localIdSave),
         reason:
-            'Firebase must be attached before local login state is persisted.',
+            'Identity verification must finish before local login state is persisted.',
       );
       expect(section, isNot(contains('_attachFirebaseSession')));
       expect(section, isNot(contains('_ensureUserShellIfMissing')));
       expect(section, isNot(contains('_userService.upsertKakaoUser')));
     }
+  });
+
+  test('terms require identity verification before the Kakao login screen', () {
+    final terms = read('lib/features/onboarding/screens/terms_screen.dart');
+    final router = read('lib/router/app_router.dart');
+    final verification = read('lib/services/adult_verification_service.dart');
+
+    expect(terms, contains('RouteNames.adultVerification'));
+    expect(router, contains('AdultVerificationGateScreen'));
+    expect(router, contains('case RouteNames.adultVerification'));
+    expect(verification, contains("'ADULT_VERIFICATION_BYPASS'"));
+    expect(verification, isNot(contains('isTemporarilyDisabled = true')));
   });
 
   test('splash validates the Firebase session before reading users', () {

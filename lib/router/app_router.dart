@@ -6,6 +6,7 @@ import 'route_names.dart';
 // Splash & Auth (로그인 화면 없음: /login → 카카오 인증 화면으로 통일)
 import '../features/splash/splash_screen.dart';
 import '../features/auth/screens/kakao_auth_screen.dart';
+import '../features/auth/screens/adult_verification_gate_screen.dart';
 import '../features/auth/screens/student_verification_screen.dart';
 import '../features/onboarding/screens/terms_screen.dart';
 
@@ -83,6 +84,7 @@ import '../features/profile/screens/settings_screen.dart';
 import '../features/profile/screens/account_management_screen.dart';
 import '../features/profile/screens/safety_stamp_log_screen.dart';
 import '../features/profile/screens/contact_block_screen.dart';
+import '../features/profile/screens/kakao_friend_message_test_screen.dart';
 import '../features/matching/models/profile_card_args.dart';
 import '../features/profile/screens/terms_webview_screen.dart';
 import '../features/reports/issue_report_screen.dart';
@@ -101,6 +103,7 @@ import '../features/event/screens/team_friend_picker_screen.dart';
 import '../features/event/screens/event_team_invite_response_screen.dart';
 import '../features/event/models/event_team_route_args.dart';
 import '../features/event/screens/season_meeting_roulette_screen.dart';
+import '../features/event/screens/season_meeting_payment_guide_screen.dart';
 import '../features/event/meeting_icebreaker/presentation/bomb_pass_timer_screen.dart';
 import '../features/event/screens/match_result_screen.dart';
 import '../features/event/screens/random_mathcing_screen.dart';
@@ -133,6 +136,8 @@ class AppRouter {
       case RouteNames.login:
       case RouteNames.kakaoAuth:
         return _cupertino(const KakaoAuthScreen());
+      case RouteNames.adultVerification:
+        return _cupertino(const AdultVerificationGateScreen());
       case RouteNames.terms:
         return _cupertino(const TermsScreen());
       case RouteNames.studentVerification:
@@ -307,6 +312,8 @@ class AppRouter {
         return _cupertino(const SafetyStampLogScreen());
       case RouteNames.contactBlock:
         return _cupertino(const ContactBlockScreen());
+      case RouteNames.kakaoFriendMessageTest:
+        return _cupertino(const KakaoFriendMessageTestScreen());
       case RouteNames.asksInbox:
         return _cupertino(const AsksInboxScreen());
       case RouteNames.termsWebview:
@@ -394,6 +401,8 @@ class AppRouter {
       case RouteNames.seasonMeetingRoulette:
         final args = settings.arguments as SeasonMeetingRouletteArgs?;
         return _cupertino(SeasonMeetingRouletteScreen(args: args));
+      case RouteNames.seasonMeetingPaymentGuide:
+        return _cupertino(const SeasonMeetingPaymentGuideScreen());
       case RouteNames.matchResult:
         final args = settings.arguments as EventMatchResultArgs?;
         return _cupertino(MatchResultScreen(args: args));

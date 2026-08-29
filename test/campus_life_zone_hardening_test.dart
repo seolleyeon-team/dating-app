@@ -101,9 +101,18 @@ void main() {
     });
 
     test('보충 서비스도 손상된 값을 보충 필요 상태로 본다', () {
-      expect(CampusLifeZoneRepairService.hasZones(_profile(['garbage'])), isFalse);
-      expect(CampusLifeZoneRepairService.hasZones(_profile('sinchon')), isFalse);
-      expect(CampusLifeZoneRepairService.hasZones(_profile(['sinchon'])), isTrue);
+      expect(
+        CampusLifeZoneRepairService.hasZones(_profile(['garbage'])),
+        isFalse,
+      );
+      expect(
+        CampusLifeZoneRepairService.hasZones(_profile('sinchon')),
+        isFalse,
+      );
+      expect(
+        CampusLifeZoneRepairService.hasZones(_profile(['sinchon'])),
+        isTrue,
+      );
     });
   });
 
@@ -201,12 +210,17 @@ void main() {
     });
 
     test('문서 metadata 를 읽는 규칙', () {
-      expect(AiRecommendationService.policyStateOf(_recDoc('enforced')), 'enforced');
+      expect(
+        AiRecommendationService.policyStateOf(_recDoc('enforced')),
+        'enforced',
+      );
       expect(AiRecommendationService.policyStateOf(_recDoc('off')), 'off');
       expect(AiRecommendationService.policyStateOf(_recDoc(null)), isNull);
       expect(AiRecommendationService.policyStateOf(null), isNull);
       expect(
-        AiRecommendationService.policyStateOf(<String, dynamic>{'policy': 'off'}),
+        AiRecommendationService.policyStateOf(<String, dynamic>{
+          'policy': 'off',
+        }),
         isNull,
       );
     });

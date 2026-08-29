@@ -1,3 +1,5 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
 #include? "Local.xcconfig"
+FRAMEWORK_SEARCH_PATHS = $(inherited) "$(PODS_CONFIGURATION_BUILD_DIR)"
+BUILT_PRODUCTS_DIR = $(PODS_CONFIGURATION_BUILD_DIR)

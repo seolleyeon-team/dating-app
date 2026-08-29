@@ -37,9 +37,7 @@ void main() {
       dotAll: true,
     ).firstMatch(buildGradle)?.group(1);
     if (block == null) return null;
-    return RegExp(
-      r'applicationId\s*=\s*"([^"]+)"',
-    ).firstMatch(block)?.group(1);
+    return RegExp(r'applicationId\s*=\s*"([^"]+)"').firstMatch(block)?.group(1);
   }
 
   test('production flavor targets the Play package', () {
@@ -62,10 +60,7 @@ void main() {
       dotAll: true,
     ).firstMatch(buildGradle)?.group(1);
     expect(defaultConfig, isNotNull);
-    final withoutComments = defaultConfig!.replaceAll(
-      RegExp(r'//[^\n]*'),
-      '',
-    );
+    final withoutComments = defaultConfig!.replaceAll(RegExp(r'//[^\n]*'), '');
     expect(withoutComments, isNot(contains('applicationId')));
   });
 

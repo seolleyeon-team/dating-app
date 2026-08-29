@@ -7,6 +7,7 @@ import 'package:flutter/material.dart' show Brightness, Theme;
 import 'package:flutter/services.dart';
 
 import '../models/promise_place.dart';
+import '../data/promise_campus_places.dart';
 import '../services/chat_service.dart';
 import '../services/promise_place_service.dart';
 import '../utils/safety_stamp_availability.dart';
@@ -2228,7 +2229,9 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
     PromisePlace? selected;
     final id = widget.initialPlaceId;
     if (id != null && id.isNotEmpty) {
+      selected = PromiseCampusPlaces.byId(id);
       for (final p in list) {
+        if (selected != null) break;
         if (p.placeId == id) {
           selected = p;
           break;
@@ -2238,7 +2241,18 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
     if (selected == null) {
       final name = widget.initialPlace;
       if (name != null && name.isNotEmpty) {
+        if (id == PromisePlace.customCampusPlaceId) {
+          selected = PromiseCampusPlaces.custom(name);
+        }
+        for (final p in PromiseCampusPlaces.options) {
+          if (selected != null) break;
+          if (p.name == name) {
+            selected = p;
+            break;
+          }
+        }
         for (final p in list) {
+          if (selected != null) break;
           if (p.name == name) {
             selected = p;
             break;

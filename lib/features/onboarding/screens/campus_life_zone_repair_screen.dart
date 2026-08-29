@@ -56,7 +56,9 @@ class _CampusLifeZoneRepairScreenState
         return;
       }
       final prefill = status.prefill;
-      _grade = academicGradeOptions.contains(prefill.grade) ? prefill.grade : null;
+      _grade = academicGradeOptions.contains(prefill.grade)
+          ? prefill.grade
+          : null;
       _major = YonseiDepartments.hasMajor(prefill.major) ? prefill.major : null;
       final departments = YonseiDepartments.departmentsFor(_major);
       _department = departments.contains(prefill.department)
@@ -344,5 +346,4 @@ class _ChipGroup extends StatelessWidget {
 }
 
 /// 생활권 라벨 (안내 문구용).
-String campusLifeZoneLabel(String zone) =>
-    CampusLifeZones.labels[zone] ?? zone;
+String campusLifeZoneLabel(String zone) => CampusLifeZones.labels[zone] ?? zone;

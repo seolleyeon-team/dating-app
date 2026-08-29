@@ -22,14 +22,14 @@ logs.
 
    - Open `seolleyeon-final`.
    - Go to Build -> App Check -> Get started.
-   - Register the Android app `com.yonsei.dating`.
+   - Register the Android app `com.seolleyeon.app`.
    - For local debug/staging devices, add the debug token printed by the app log:
      `Enter this debug secret into the allow list...`
    - Do not add the debug token to source control.
 
 3. For iOS staging:
 
-   - Register the iOS app `com.yonsei.dating`.
+   - Register the iOS app `com.seolleyeon.app`.
    - Use the debug provider only for debug builds.
    - Use App Attest/DeviceCheck for production-style release builds.
 

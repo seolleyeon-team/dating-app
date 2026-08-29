@@ -22,6 +22,7 @@ class _KakaoFriendMessageTestScreenState
   int? _kakaoUserId;
   KakaoConsentStatus? _consentStatus;
   KakaoTalkFriendLookupResult? _friendResult;
+  KakaoTalkMemoResult? _memoResult;
   KakaoTalkMessageResult? _messageResult;
   String? _lastError;
   DateTime? _lastTestAt;
@@ -95,12 +96,23 @@ class _KakaoFriendMessageTestScreenState
     });
   }
 
+  Future<void> _sendMessageToMe() {
+    return _run('Message API 나에게 보내기', () async {
+      final result = await _service.sendTestMessageToMe();
+      if (!mounted) return;
+      setState(() => _memoResult = result);
+      if (!result.sent) {
+        throw Exception(result.errorMessage ?? '나에게 메시지 발송이 실패했어요.');
+      }
+    });
+  }
+
   Future<void> _sendFirstFriendMessage() {
     return _run('Message API 테스트 메시지 발송', () async {
       var friends = _friendResult;
       friends ??= await _service.fetchFriends();
       final eligibleFriends = friends.friends
-          .where((item) => item.canReceiveMessage)
+          .where((item) => item.hasUuid && item.canReceiveMessage)
           .toList(growable: false);
       final friend = eligibleFriends.isEmpty ? null : eligibleFriends.first;
       if (friend == null) {
@@ -159,6 +171,7 @@ class _KakaoFriendMessageTestScreenState
     final friend = _friendResult?.friends.isNotEmpty == true
         ? _friendResult!.friends.first
         : null;
+    final memo = _memoResult;
     final message = _messageResult;
 
     return CupertinoPageScaffold(
@@ -172,7 +185,9 @@ class _KakaoFriendMessageTestScreenState
             _statusCard('현재 상태', [
               '카카오 로그인: ${_boolText(_isLoggedIn)}',
               '카카오 user id: ${_maskId(_kakaoUserId)}',
+              '친구목록 항목 사용 설정: ${_enabledText(_consentStatus?.friendsUsing)}',
               '친구목록 동의: ${_boolText(_consentStatus?.friendsAgreed)}',
+              '메시지 항목 사용 설정: ${_enabledText(_consentStatus?.talkMessageUsing)}',
               '메시지 권한 동의: ${_boolText(_consentStatus?.talkMessageAgreed)}',
             ]),
             const SizedBox(height: 14),
@@ -180,6 +195,7 @@ class _KakaoFriendMessageTestScreenState
             _actionButton('카카오 추가 동의 요청', _requestConsents),
             _actionButton('사용자정보조회 API 호출', _fetchMe),
             _actionButton('Friend API 친구 목록 조회', _fetchFriends),
+            _actionButton('나에게 Message API 테스트 메시지 보내기', _sendMessageToMe),
             _actionButton(
               '첫 번째 친구에게 Message API 테스트 메시지 보내기',
               _sendFirstFriendMessage,
@@ -199,6 +215,16 @@ class _KakaoFriendMessageTestScreenState
                   ? '있음 (${friend.maskedUuid})'
                   : '없음'}',
               if (friend != null) '첫 친구: ${friend.maskedNickname}',
+            ]),
+            const SizedBox(height: 14),
+            _statusCard('Message API 나에게 보내기 결과', [
+              '발송 상태: ${memo == null
+                  ? '미호출'
+                  : memo.sent
+                  ? '성공'
+                  : '실패'}',
+              if (memo?.errorCode != null) '에러 코드: ${memo!.errorCode}',
+              if (memo?.errorMessage != null) '에러 메시지: ${memo!.errorMessage}',
             ]),
             const SizedBox(height: 14),
             _statusCard('Message API 결과', [
@@ -300,6 +326,12 @@ class _KakaoFriendMessageTestScreenState
       : value
       ? '동의함'
       : '미동의';
+
+  String _enabledText(bool? value) => value == null
+      ? '미확인'
+      : value
+      ? '사용 중'
+      : '사용 안 함';
 
   String _maskId(int? value) {
     if (value == null) return '미확인';

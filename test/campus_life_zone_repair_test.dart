@@ -279,9 +279,7 @@ void main() {
     });
 
     testWidgets('Case F — 저장 전에는 기존 데이터가 바뀌지 않는다', (tester) async {
-      final service = _FakeRepairService(
-        onboarding: {'major': 'science'},
-      );
+      final service = _FakeRepairService(onboarding: {'major': 'science'});
       await _pumpRepair(tester, service);
 
       await _select(tester, '1학년');
@@ -317,24 +315,14 @@ void main() {
   group('학년 선택지 단일 소스', () {
     test('resolver 가 인식하는 문자열과 일치한다', () {
       // 옵션 라벨이 바뀌면 생활권 분류가 조용히 깨진다.
-      expect(academicGradeOptions, [
-        '1학년',
-        '2학년',
-        '3학년',
-        '4학년',
-        '5학년 이상',
-      ]);
+      expect(academicGradeOptions, ['1학년', '2학년', '3학년', '4학년', '5학년 이상']);
       for (final grade in academicGradeOptions) {
         final resolved = CampusLifeZoneResolver.resolve(
           grade: grade,
           department: '건축공학과',
           isRa: false,
         );
-        expect(
-          resolved?.zones,
-          isNotEmpty,
-          reason: '$grade 은 생활권으로 해석되어야 한다',
-        );
+        expect(resolved?.zones, isNotEmpty, reason: '$grade 은 생활권으로 해석되어야 한다');
       }
     });
   });

@@ -21,7 +21,7 @@ class IosSecureCaptureTarget extends StatefulWidget {
 class _IosSecureCaptureTargetState extends State<IosSecureCaptureTarget>
     with WidgetsBindingObserver {
   static const MethodChannel _channel = MethodChannel(
-    'com.yonsei.dating/screen_security',
+    'com.seolleyeon.app/screen_security',
   );
 
   final GlobalKey _targetKey = GlobalKey();

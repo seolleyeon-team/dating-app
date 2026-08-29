@@ -1,5 +1,6 @@
-import java.util.Properties
 import java.io.FileInputStream
+import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
@@ -19,7 +20,7 @@ if (hasReleaseKeystore) {
 }
 
 android {
-    namespace = "com.yonsei.dating"
+    namespace = "com.seolleyeon.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -27,10 +28,6 @@ android {
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
     }
 
     defaultConfig {
@@ -82,10 +79,24 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_11)
+    }
+}
+
 flutter {
     source = "../.."
 }
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+}
+
+gradle.taskGraph.whenReady {
+    if (!hasReleaseKeystore && allTasks.any { it.name.contains("Release", ignoreCase = true) }) {
+        throw GradleException(
+            "Missing android/key.properties. Create a release keystore before building an AAB.",
+        )
+    }
 }

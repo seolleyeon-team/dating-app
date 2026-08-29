@@ -183,7 +183,8 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
     final application = _application;
     final needsInterestRepair = profile != null && profile.needsInterests;
     // 생활권이 비어 있어도 정책 적용 전이면 신청을 막지 않는다.
-    final missingCampusLifeZone = profile != null && profile.needsCampusLifeZone;
+    final missingCampusLifeZone =
+        profile != null && profile.needsCampusLifeZone;
     final needsCampusLifeZoneRepair =
         missingCampusLifeZone && _campusLifeZoneEnforced;
     final blockedReasons = <String>[

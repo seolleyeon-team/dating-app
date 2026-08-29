@@ -64,8 +64,9 @@ void main() {
       'lib/screens/auth/student_verification_screen.dart',
     ).readAsStringSync();
 
+    // 이어보기 URL 은 서버가 프로젝트 ID 로 만든다. 화면이 origin 을 넘기지
+    // 않는 것이 정상이므로 여기서 검사하지 않는다.
     for (final source in [featureScreen, legacyScreen]) {
-      expect(source, contains("webOrigin: kIsWeb ? Uri.base.origin : ''"));
       expect(source, isNot(contains('token=\$token')));
       expect(source, isNot(contains('email=\$email')));
       expect(source, isNot(contains('debugPrint(e.toString())')));

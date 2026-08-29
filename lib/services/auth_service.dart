@@ -3,8 +3,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-
-import '../constants/app_identity.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/email_link_completion.dart';
@@ -13,6 +11,7 @@ import 'firebase_diagnostics.dart';
 import 'app_check_readiness.dart';
 import 'firebase_session_failure.dart';
 import 'firebase_session_inspector.dart';
+import 'firebase_runtime.dart';
 import '../utils/phone_hash_utils.dart';
 import '../shared/utils/privacy_log_utils.dart';
 import 'adult_verification_service.dart';
@@ -33,7 +32,7 @@ class AuthService {
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
-    region: 'asia-northeast3',
+    region: firebaseFunctionsRegion,
   );
   FirebaseSessionFailure? _lastFirebaseSessionFailure;
 
@@ -326,6 +325,12 @@ class AuthService {
     return resolveOnboardingNextRoute(profile);
   }
 
+  /// Marks an already complete legacy profile as finished after its required
+  /// onboarding fields have been verified from Firestore.
+  Future<void> completeOnboarding(String kakaoUserId) async {
+    await _userService.completeOnboarding(kakaoUserId);
+  }
+
   Future<bool> hasSeenTutorial(String kakaoUserId) async {
     return await _userService.hasSeenTutorial(kakaoUserId);
   }
@@ -354,23 +359,27 @@ class AuthService {
 
   Future<void> sendStudentEmailLink({
     required String email,
-    required String continueUrl,
+    String? requestId,
   }) async {
-    final acs = ActionCodeSettings(
-      url: continueUrl,
-      handleCodeInApp: true,
-      iOSBundleId: AppIdentity.iosBundleId,
-      // 실행 중인 빌드의 패키지여야 이메일 링크가 앱을 연다.
-      // production 은 com.seolleyeon.app, staging 은 com.yonsei.dating.
-      androidPackageName: AppIdentity.androidPackage,
-      androidInstallApp: true,
-      androidMinimumVersion: '21',
-    );
+    final kakaoUserId = await _storageService.getKakaoUserId();
+    if (kakaoUserId == null || kakaoUserId.isEmpty) {
+      throw StateError('카카오 로그인 정보가 없습니다.');
+    }
 
-    await _firebaseAuth.sendSignInLinkToEmail(
-      email: email,
-      actionCodeSettings: acs,
-    );
+    // The callable only accepts the Kakao-backed Firebase session. Keeping the
+    // session bridge here prevents a bare email-link account from using this
+    // endpoint as a mail-sending relay.
+    final hasSession = await ensureFirebaseSessionForKakao(kakaoUserId);
+    if (!hasSession) {
+      throw StateError('로그인 세션을 확인하지 못했습니다. 다시 로그인해주세요.');
+    }
+
+    await _functions.httpsCallable('sendStudentVerificationEmail').call<void>({
+      'email': email,
+      'requestId': requestId?.trim().isNotEmpty == true
+          ? requestId!.trim()
+          : _uuid.v4(),
+    });
   }
 
   bool isSignInWithEmailLink(String link) {
@@ -579,6 +588,7 @@ class AuthService {
           FirebaseSessionFailure(
             reason: reason,
             errorCode: appCheckPreflight.errorCode,
+            supportCode: appCheckPreflight.supportCode,
           ),
           kakaoUserId: kakaoUserId,
         );

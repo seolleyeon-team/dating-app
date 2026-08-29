@@ -8,12 +8,12 @@ class PortOneConfig {
 
   static const kgInicisIdentityChannelKey = String.fromEnvironment(
     'PORTONE_KG_INICIS_IDENTITY_CHANNEL_KEY',
-    defaultValue: 'channel-key-283ccf6b-ed74-4541-b74e-916c7df010eb',
+    defaultValue: '',
   );
 
   static const verificationProvider = String.fromEnvironment(
     'ADULT_VERIFICATION_PROVIDER',
-    defaultValue: 'kg_inicis_via_portone_test',
+    defaultValue: 'kg_inicis_via_portone',
   );
 
   static const pendingSessionMinutes = int.fromEnvironment(

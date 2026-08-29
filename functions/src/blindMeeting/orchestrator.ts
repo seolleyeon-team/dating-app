@@ -819,7 +819,9 @@ async function maybeConfirmSchedule(
         lat: typeof place.lat === "number" ? place.lat : null,
         lng: typeof place.lng === "number" ? place.lng : null,
         // 무알코올 미팅은 주류 중심 장소를 권하지 않는다.
-        alcoholFreeFriendly: category == null ? false : !/술|바|펍|포차/.test(category),
+        alcoholFreeFriendly:
+          category != null &&
+          (category.trim().toLowerCase() !== "bar" && !/술|바|펍|포차/.test(category)),
       };
     }
   }

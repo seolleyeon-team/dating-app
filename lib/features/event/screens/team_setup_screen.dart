@@ -17,6 +17,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/event_team_service.dart';
 import '../../../services/team_meeting_request_service.dart';
 import '../../../services/kakao_friend_invite_helper.dart';
+import '../../../services/kakao_talk_friend_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 
@@ -44,6 +45,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
   final AuthService _auth = AuthService();
   final UserService _userService = UserService();
   final EventTeamService _eventTeam = EventTeamService();
+  final KakaoTalkFriendService _kakaoFriendService = KakaoTalkFriendService();
 
   String? _kakaoUserId;
   bool _sessionOk = false;
@@ -56,6 +58,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
   /// Cloud Function 등에서 온 실제 사유 (Wi-Fi와 무관한 경우가 많음)
   String? _bootstrapErrorDetail;
   String _kakaoShareName = '친구';
+  bool _isSendingKakaoInvite = false;
 
   @override
   void initState() {
@@ -218,6 +221,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
   }
 
   Future<void> _kakaoInvite() async {
+    if (_isSendingKakaoInvite) return;
     final uid = _kakaoUserId;
     if (uid == null || uid.isEmpty) {
       _briefAlert('로그인이 필요해요.');
@@ -233,15 +237,100 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
       }
     }
     HapticFeedback.mediumImpact();
+    setState(() => _isSendingKakaoInvite = true);
     try {
-      await KakaoFriendInviteHelper.createAndShareKakaoInvite(
-        inviterDisplayName: _kakaoShareName,
+      final lookup = await _kakaoFriendService.fetchFriends();
+      final eligibleFriends = lookup.friends
+          .where((friend) => friend.hasUuid && friend.canReceiveMessage)
+          .toList(growable: false);
+      if (!mounted) return;
+
+      if (eligibleFriends.isEmpty) {
+        await _showKakaoShareFallback(
+          '카카오톡 친구가 조회되지 않았습니다. 상대방도 앱 팀멤버로 등록되어 있고, 설레연에 카카오 로그인 및 친구목록/메시지 동의가 필요합니다.',
+        );
+        return;
+      }
+
+      final selectedFriend = await _selectKakaoFriend(eligibleFriends);
+      if (selectedFriend == null || !mounted) return;
+
+      final invite = await KakaoFriendInviteHelper.createKakaoInvitePayload();
+      final messageResult = await _kakaoFriendService.sendMeetingInviteMessage(
+        receiverUuid: selectedFriend.uuid,
+        inviterName: _kakaoShareName,
+        inviteUrl: Uri.parse(invite.inviteUrl),
+      );
+      if (!mounted) return;
+
+      if (messageResult.sent) {
+        _briefAlert('카카오톡 초대 메시지를 보냈습니다.');
+        return;
+      }
+
+      await _showKakaoShareFallback(
+        '메시지 발송에 실패했습니다. 친구가 앱에 연결되어 있고 메시지 권한에 동의했는지 확인해 주세요.',
       );
     } catch (e) {
       if (mounted) {
         _briefAlert(e.toString().replaceFirst('Exception: ', ''));
       }
+    } finally {
+      if (mounted) setState(() => _isSendingKakaoInvite = false);
     }
+  }
+
+  Future<KakaoTalkFriendItem?> _selectKakaoFriend(
+    List<KakaoTalkFriendItem> friends,
+  ) {
+    return showCupertinoModalPopup<KakaoTalkFriendItem>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        title: const Text('카카오 친구 선택'),
+        message: Text(
+          'Friend API로 조회된 친구 ${friends.length}명 중 초대 메시지를 보낼 한 명을 선택해 주세요.',
+        ),
+        actions: [
+          for (final friend in friends)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(sheetContext).pop(friend),
+              child: Text(
+                '${friend.nickname} · UUID ${friend.hasUuid ? '있음' : '없음'}',
+              ),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: const Text('취소'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showKakaoShareFallback(String message) async {
+    final shouldShare = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        content: Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(message),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('닫기'),
+          ),
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('카카오톡 공유하기'),
+          ),
+        ],
+      ),
+    );
+    if (shouldShare != true) return;
+    await KakaoFriendInviteHelper.createAndShareKakaoInvite(
+      inviterDisplayName: _kakaoShareName,
+    );
   }
 
   void _briefAlert(String message) {
@@ -400,7 +489,10 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
                         const SizedBox(height: 32),
                         const _HelperText(),
                         const SizedBox(height: 32),
-                        _InviteButtons(onKakao: _kakaoInvite),
+                        _InviteButtons(
+                          onKakao: _kakaoInvite,
+                          isKakaoLoading: _isSendingKakaoInvite,
+                        ),
                         const SizedBox(height: 100),
                       ],
                     ),
@@ -1029,8 +1121,9 @@ class _HelperText extends StatelessWidget {
 
 class _InviteButtons extends StatelessWidget {
   final VoidCallback onKakao;
+  final bool isKakaoLoading;
 
-  const _InviteButtons({required this.onKakao});
+  const _InviteButtons({required this.onKakao, required this.isKakaoLoading});
 
   @override
   Widget build(BuildContext context) {
@@ -1039,7 +1132,7 @@ class _InviteButtons extends StatelessWidget {
         Expanded(
           child: CupertinoButton(
             padding: EdgeInsets.zero,
-            onPressed: onKakao,
+            onPressed: isKakaoLoading ? null : onKakao,
             child: Container(
               height: 48,
               decoration: BoxDecoration(
@@ -1053,16 +1146,19 @@ class _InviteButtons extends StatelessWidget {
                   ),
                 ],
               ),
-              child: const Row(
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    CupertinoIcons.chat_bubble_fill,
-                    color: _AppColors.kakaoYellow,
-                    size: 20,
-                  ),
-                  SizedBox(width: 8),
-                  Text(
+                  if (isKakaoLoading)
+                    const CupertinoActivityIndicator()
+                  else
+                    const Icon(
+                      CupertinoIcons.chat_bubble_fill,
+                      color: _AppColors.kakaoYellow,
+                      size: 20,
+                    ),
+                  const SizedBox(width: 8),
+                  const Text(
                     '카카오로 초대',
                     style: TextStyle(
                       fontSize: 14,

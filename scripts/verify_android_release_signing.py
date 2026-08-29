@@ -19,7 +19,7 @@ release 빌드가 "성공"했다는 것만으로는 스토어에 올릴 수 있�
 사용 예:
     python scripts/verify_android_release_signing.py
     python scripts/verify_android_release_signing.py \\
-        --aab build/app/outputs/bundle/release/app-release.aab
+        --aab build/app/outputs/bundle/productionRelease/app-production-release.aab
 """
 
 from __future__ import annotations
@@ -196,7 +196,9 @@ def main() -> int:
     )
     parser.add_argument(
         "--aab",
-        default="build/app/outputs/bundle/release/app-release.aab",
+        # applicationId 가 flavor 로 갈리면서 Play 에 올리는 산출물은
+        # production variant 아래에만 생긴다.
+        default="build/app/outputs/bundle/productionRelease/app-production-release.aab",
         help="검사할 AAB/APK 경로 (저장소 루트 기준)",
     )
     args = parser.parse_args()

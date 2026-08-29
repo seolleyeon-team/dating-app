@@ -14,6 +14,7 @@ import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/utils/avatar_lock_policy.dart';
 import '../../../shared/utils/privacy_log_utils.dart';
+import '../../../shared/widgets/profile_photo_mosaic.dart';
 import '../config/onboarding_feature_flags.dart';
 import '../services/avatar_upload_submission_guard.dart';
 import '../widgets/avatar_candidate_selection_dialog.dart';
@@ -882,20 +883,11 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
                         children: [
                           const _TitleSection(),
                           const SizedBox(height: 24),
-                          GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2,
-                                  childAspectRatio: 3 / 4,
-                                  crossAxisSpacing: 12,
-                                  mainAxisSpacing: 12,
-                                ),
-                            itemCount: 6,
+                          ProfilePhotoMosaic(
+                            gap: 10,
+                            featuredBadge: const _FeaturedPhotoBadge(),
                             itemBuilder: (context, index) {
                               return _PhotoSlot(
-                                index: index,
                                 photoUrl: _photos[index],
                                 isUploading: _isUploading[index],
                                 isLocked:
@@ -906,6 +898,29 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
                                 onRemove: () => _removePhoto(index),
                               );
                             },
+                          ),
+                          const SizedBox(height: 12),
+                          const Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                Icons.info_outline_rounded,
+                                color: _AppColors.primary,
+                                size: 17,
+                              ),
+                              SizedBox(width: 7),
+                              Expanded(
+                                child: Text(
+                                  '아바타를 생성하는 사진으로, 가입 후 바꿀 수 없어요',
+                                  style: TextStyle(
+                                    fontFamily: 'Pretendard',
+                                    fontSize: 13,
+                                    color: _AppColors.textSub,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                           if (_avatarLocked) ...[
                             const SizedBox(height: 16),
@@ -1174,7 +1189,6 @@ class _ChatRealPhotoConsentNotice extends StatelessWidget {
 }
 
 class _PhotoSlot extends StatelessWidget {
-  final int index;
   final String? photoUrl;
   final bool isUploading;
   final bool isLocked;
@@ -1183,7 +1197,6 @@ class _PhotoSlot extends StatelessWidget {
   final VoidCallback onRemove;
 
   const _PhotoSlot({
-    required this.index,
     required this.photoUrl,
     required this.isUploading,
     required this.isLocked,
@@ -1275,37 +1288,6 @@ class _PhotoSlot extends StatelessWidget {
                     )
                   : null,
             ),
-            if (index == 0)
-              Positioned(
-                top: 8,
-                left: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _AppColors.primary,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.1),
-                        blurRadius: 2,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
-                  ),
-                  child: const Text(
-                    '대표',
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
             if (!isLocked && !isDisabled)
               Positioned(
                 top: -8,
@@ -1418,6 +1400,37 @@ class _PhotoSlot extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FeaturedPhotoBadge extends StatelessWidget {
+  const _FeaturedPhotoBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: _AppColors.primary,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 2,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: const Text(
+        '대표 사진',
+        style: TextStyle(
+          fontFamily: 'Pretendard',
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
         ),
       ),
     );

@@ -24,19 +24,24 @@ class PromisePlaceExternalLinks {
 }
 
 /// Firestore `place_catalog_items.category` — 소문자 키만 사용:
-/// `cafe` → 카페, `restaurant` → 식당, `bar` → 술집/바, `extra` → 그 외 장소.
+/// `cafe` → 카페, `restaurant` → 식당, `bar` → 술집/바,
+/// `campus` → 캠퍼스 안, `extra` → 그 외 장소.
 abstract final class PromisePlaceCategory {
   static const String cafe = 'cafe';
   static const String restaurant = 'restaurant';
   static const String bar = 'bar';
+  static const String campus = 'campus';
   static const String extra = 'extra';
 
   /// 저장·필터용 키로 통일. 예전 한글 `placeCategory` 문자열은 가능한 범위에서 키로 환산.
   static String normalize(String? raw) {
     if (raw == null || raw.trim().isEmpty) return extra;
     final t = raw.trim().toLowerCase();
-    if (t == cafe || t == restaurant || t == bar || t == extra) return t;
+    if (t == cafe || t == restaurant || t == bar || t == campus || t == extra) {
+      return t;
+    }
     final o = raw.trim();
+    if (o.contains('캠퍼스') || o.contains('교내')) return campus;
     if (o.contains('카페')) return cafe;
     if (o.contains('식당') || o.contains('맛집')) return restaurant;
     if (o.contains('술집') || o == '바' || o.contains('바')) return bar;
@@ -51,6 +56,8 @@ abstract final class PromisePlaceCategory {
         return '식당';
       case bar:
         return '술집/바';
+      case campus:
+        return '캠퍼스 안';
       case extra:
         return '그 외 장소';
       default:
@@ -67,6 +74,8 @@ abstract final class PromisePlaceCategory {
 
 /// 송도 등 지역 약속 장소 카탈로그 항목.
 class PromisePlace {
+  static const String customCampusPlaceId = 'campus_custom_input';
+
   final String placeId;
   final String name;
   final String category;
@@ -80,6 +89,12 @@ class PromisePlace {
   final int sortOrder;
   final List<String> tags;
   final PromisePlaceExternalLinks externalLinks;
+
+  bool get isCustomInput => placeId == customCampusPlaceId;
+
+  /// 좌표가 제공된 장소만 거리 계산·지도 핀 이동에 사용한다.
+  /// 카탈로그에 지도 검색 링크만 있는 장소는 0, 0으로 저장될 수 있다.
+  bool get hasCoordinates => lat.abs() > 0.000001 || lng.abs() > 0.000001;
 
   const PromisePlace({
     required this.placeId,

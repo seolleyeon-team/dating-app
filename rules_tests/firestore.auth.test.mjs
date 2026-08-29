@@ -87,11 +87,11 @@ test("SEC-P0-01: a signed-in user cannot create an emailLinkTokens doc for anoth
   );
 });
 
-test("legit: the app creates an emailLinkTokens doc for its own session uid", async () => {
+test("SEC-P0-01: even the owning app session cannot create emailLinkTokens", async () => {
   await seedVictim();
   const db = await kakaoSession(VICTIM);
 
-  await assertSucceeds(
+  await assertFails(
     setDoc(doc(db, "emailLinkTokens", "own-token-id"), {
       email: VICTIM_EMAIL,
       kakaoUserId: VICTIM,

@@ -87,10 +87,10 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyDSBDbN6inF09enjKz946oZOX3rJ0tdAW0',
-    appId: '1:810450765203:ios:7e51bb82970a77145c9466',
+    appId: '1:810450765203:ios:fddeea51ac71dc4e5c9466',
     messagingSenderId: '810450765203',
     projectId: 'seolleyeon-final',
     storageBucket: 'seolleyeon-final.firebasestorage.app',
-    iosBundleId: 'com.yonsei.dating',
+    iosBundleId: 'com.seolleyeon.app',
   );
 }

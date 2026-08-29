@@ -33,6 +33,7 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
   bool _isLoadingKakaoFriends = false;
   ContactBlockSyncResult? _result;
   KakaoTalkFriendLookupResult? _kakaoFriendResult;
+  KakaoConsentStatus? _kakaoConsentStatus;
   KakaoFriendBlockSyncResult? _kakaoFriendSyncResult;
   String? _error;
   String? _kakaoFriendError;
@@ -108,12 +109,14 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
 
     try {
       final result = await _kakaoFriendService.fetchFriends();
+      final consentStatus = await _kakaoFriendService.getConsentStatus();
       final syncResult = await _service.syncKakaoTalkFriendBlocks(
         result.friends.map((friend) => friend.serviceUserId),
       );
       if (!mounted) return;
       setState(() {
         _kakaoFriendResult = result;
+        _kakaoConsentStatus = consentStatus;
         _kakaoFriendSyncResult = syncResult;
         _isLoadingKakaoFriends = false;
       });
@@ -498,6 +501,18 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
             ),
           ),
           const SizedBox(height: 8),
+          if (_kakaoConsentStatus != null) ...[
+            Text(
+              '친구목록 동의 ${_kakaoConsentStatus!.friendsAgreed ? '완료' : '미완료'} · '
+              '메시지 동의 ${_kakaoConsentStatus!.talkMessageAgreed ? '완료' : '미완료'}',
+              style: const TextStyle(
+                fontFamily: 'NanumSquareRound',
+                fontSize: 12,
+                color: _AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
           Text(
             'Friend API 조회 성공 · 조회된 친구 $friendCount명 · 추천 제외 저장 $storedCount명',
             style: const TextStyle(

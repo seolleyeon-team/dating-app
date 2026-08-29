@@ -1,16 +1,12 @@
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/firebase_diagnostics.dart';
 import '../../services/storage_service.dart';
 import '../../utils/open_mail_app.dart';
-import '../../features/auth/utils/email_link_continue_url.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:uuid/uuid.dart';
 
 class StudentVerificationScreen extends StatefulWidget {
   const StudentVerificationScreen({super.key});
@@ -28,15 +24,8 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
   bool _isSending = false;
   bool _isVerifying = false;
   String? _statusMessage;
-
-  String _buildContinueUrl(String token) {
-    return buildStudentEmailLinkContinueUrl(
-      token: token,
-      isWeb: kIsWeb,
-      webOrigin: kIsWeb ? Uri.base.origin : '',
-      firebaseProjectId: Firebase.app().options.projectId,
-    );
-  }
+  String? _pendingEmailRequestId;
+  String? _pendingEmailRequestEmail;
 
   @override
   void initState() {
@@ -111,6 +100,12 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
     }
 
     final email = _emailController.text.trim();
+    final requestId =
+        _pendingEmailRequestEmail == email && _pendingEmailRequestId != null
+        ? _pendingEmailRequestId!
+        : const Uuid().v4();
+    _pendingEmailRequestEmail = email;
+    _pendingEmailRequestId = requestId;
 
     setState(() {
       _isSending = true;
@@ -118,33 +113,17 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
     });
 
     try {
-      final token = const Uuid().v4();
-
-      // 1) 토큰 문서 저장 (웹이 이걸 읽어서 email/kakaoUserId를 알아냄)
-      await FirebaseFirestore.instance
-          .collection('emailLinkTokens')
-          .doc(token)
-          .set({
-            'email': email,
-            'kakaoUserId': kakaoUserId,
-            'createdAt': FieldValue.serverTimestamp(),
-            'expiresAt': Timestamp.fromDate(
-              DateTime.now().add(const Duration(minutes: 30)),
-            ),
-          });
-
-      // 2) continueUrl에 토큰 붙이기 (핵심)
-      final continueUrl = _buildContinueUrl(token);
-
-      // 3) Firebase 이메일 링크 전송
+      // The callable creates the token and sends the Firebase action link.
       await _authService.sendStudentEmailLink(
         email: email,
-        continueUrl: continueUrl,
+        requestId: requestId,
       );
 
-      // 4) 로컬에 이메일 저장 (웹 인증 후 앱에서 확인용)
+      // 로컬에 이메일 저장 (웹 인증 후 앱에서 확인용)
       await _storageService.saveStudentEmail(kakaoUserId, email);
       await _storageService.setStudentVerified(kakaoUserId, false);
+      _pendingEmailRequestId = null;
+      _pendingEmailRequestEmail = null;
 
       if (!mounted) return;
 

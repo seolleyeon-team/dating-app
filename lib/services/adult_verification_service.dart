@@ -39,7 +39,13 @@ class AdultVerificationService {
   static const String providerPortOneKgInicis =
       PortOneConfig.verificationProvider;
   static const String providerMock = 'mock_debug';
-  static const bool isTemporarilyDisabled = true;
+
+  /// Production builds must verify through PortOne before Kakao login.
+  /// This flag exists only for an explicitly opted-in local debug build.
+  static const bool isTemporarilyDisabled = bool.fromEnvironment(
+    'ADULT_VERIFICATION_BYPASS',
+    defaultValue: false,
+  );
 
   final StorageService _storageService;
   final FirebaseFunctions _functions;

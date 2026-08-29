@@ -1,8 +1,11 @@
-/// In-app purchase / heart recharge is not production-ready until a real
-/// billing provider is wired and store review assets exist.
+import 'package:flutter/foundation.dart';
+
+/// Android heart purchases use Google Play Billing in production.
 ///
-/// Enable locally with:
-/// `--dart-define=ENABLE_IN_APP_PURCHASE=true`
+/// Apple production receipt verification is intentionally still gated behind
+/// `--dart-define=ENABLE_IN_APP_PURCHASE=true` until the App Store verifier is
+/// implemented. This prevents enabling an unverified iOS purchase path while
+/// allowing the production-ready Google Play path without a fragile build flag.
 class InAppPurchasePolicy {
   const InAppPurchasePolicy._();
 
@@ -11,9 +14,18 @@ class InAppPurchasePolicy {
     defaultValue: false,
   );
 
-  /// Store/release builds must not complete a fake purchase.
-  static bool get allowPurchaseUi => enabled;
+  static bool allowPurchaseUiFor({
+    required bool isWeb,
+    required TargetPlatform platform,
+  }) {
+    if (isWeb) return false;
+    if (platform == TargetPlatform.android) return true;
+    return platform == TargetPlatform.iOS && enabled;
+  }
 
-  static String get unavailableMessage =>
-      '하트 충전 결제는 아직 준비 중입니다.\n스토어 배포 전에 결제 연동이 완료됩니다.';
+  /// Android is enabled by default; iOS remains explicitly gated.
+  static bool get allowPurchaseUi =>
+      allowPurchaseUiFor(isWeb: kIsWeb, platform: defaultTargetPlatform);
+
+  static String get unavailableMessage => '현재 사용 중인 플랫폼에서는 하트 결제를 이용할 수 없어요.';
 }

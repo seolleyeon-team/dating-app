@@ -495,9 +495,9 @@ void main() {
 
   group('생활권 hard constraint', () {
     List<BlindMeetingCandidate> zonedTeam(String prefix, Set<String> zones) =>
-        balancedTeam(prefix)
-            .map((member) => member.copyWith(campusLifeZones: zones))
-            .toList();
+        balancedTeam(
+          prefix,
+        ).map((member) => member.copyWith(campusLifeZones: zones)).toList();
 
     test('그룹 공통 생활권은 교집합이며 다수결이 아니다', () {
       expect(
