@@ -34,6 +34,8 @@ const {
   setDoc,
   updateDoc,
   deleteDoc,
+  writeBatch,
+  increment,
   serverTimestamp,
   Timestamp,
 } = require("firebase/firestore");
@@ -781,10 +783,26 @@ describe("asks / interactions / bamboo_posts", () => {
     );
   });
 
-  it("likeCount 를 1 증가시키는 것은 허용한다 (좋아요 정상 흐름)", async () => {
-    await assertSucceeds(
-      updateDoc(doc(as(ATTACKER), "bamboo_posts", "p1"), { likeCount: 6 })
+  it("좋아요는 like 문서 생성과 함께 원자적으로만 likeCount 를 올릴 수 있다 (SEC-P3-01)", async () => {
+    // like 문서 없이 likeCount 만 올리는 것은 이제 거부된다(랭킹 조작 차단).
+    await assertFails(
+      updateDoc(doc(as(ATTACKER), "bamboo_posts", "p1"), {
+        likeCount: increment(1),
+        score7d: increment(1),
+      })
     );
+    // 정상 흐름: like 문서 생성 + likeCount/score7d +1 을 한 배치로.
+    const db = as(ATTACKER);
+    const batch = writeBatch(db);
+    batch.set(doc(db, "bamboo_posts", "p1", "likes", ATTACKER), {
+      userId: ATTACKER,
+      createdAt: serverTimestamp(),
+    });
+    batch.update(doc(db, "bamboo_posts", "p1"), {
+      likeCount: increment(1),
+      score7d: increment(1),
+    });
+    await assertSucceeds(batch.commit());
   });
 
   it("작성자가 아니면 글을 soft delete 할 수 없다", async () => {
