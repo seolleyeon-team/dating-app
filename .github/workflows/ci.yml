@@ -138,11 +138,35 @@ jobs:
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
+    env:
+      # 공식 OSS CLI 를 고정 버전으로 쓴다. gitleaks-action 은 조직 저장소에서
+      # 라이선스 키를 요구해 스캔이 아예 실행되지 않았다.
+      GITLEAKS_VERSION: "8.30.1"
     steps:
       - uses: actions/checkout@v4
         with:
+          # 전체 history 를 스캔하려면 얕은 클론으로는 안 된다.
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_CONFIG: .gitleaks.toml
+      - name: Install gitleaks CLI
+        run: |
+          set -euo pipefail
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          curl -fsSL "$base/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          curl -fsSL "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt" -o /tmp/gitleaks-checksums.txt
+          # 공식 manifest 와 대조해 통과할 때만 설치한다.
+          expected="$(awk -v f="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" '$2 == f {print $1}' /tmp/gitleaks-checksums.txt)"
+          actual="$(sha256sum /tmp/gitleaks.tar.gz | awk '{print $1}')"
+          if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+            echo "gitleaks checksum verification failed" >&2
+            exit 1
+          fi
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          installed="$(gitleaks version)"
+          if [ "$installed" != "$GITLEAKS_VERSION" ]; then
+            echo "gitleaks version mismatch: $installed != $GITLEAKS_VERSION" >&2
+            exit 1
+          fi
+      - name: Scan full git history
+        # 값은 --redact 로 가리고 위치만 남긴다. finding 이 있으면 non-zero 로 끝난다.
+        run: gitleaks git --config .gitleaks.toml --redact --verbose .
