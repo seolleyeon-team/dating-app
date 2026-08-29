@@ -628,6 +628,7 @@ class ChatService {
   Future<void> acceptPromise({
     required String roomId,
     required String promiseId,
+    required String acceptedBy,
   }) async {
     final roomRef = _firestore.collection('chat_rooms').doc(roomId);
     final promiseRef = roomRef.collection('promises').doc(promiseId);
@@ -640,6 +641,11 @@ class ChatService {
       }
 
       final data = promiseSnap.data()!;
+      // 약속을 받은 사람만 수락할 수 있다 (editPromise의 권한 검사와 대칭).
+      final requestedTo = data['requestedTo']?.toString() ?? '';
+      if (requestedTo.isNotEmpty && acceptedBy != requestedTo) {
+        throw Exception('약속을 받은 사람만 수락할 수 있어요.');
+      }
       final messageId = data['messageId']?.toString();
       final messageRef = messageId != null && messageId.isNotEmpty
           ? roomRef.collection('messages').doc(messageId)

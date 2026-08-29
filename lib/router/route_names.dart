@@ -17,6 +17,9 @@ class RouteNames {
   static const String onboardingLifestyle = '/onboarding/lifestyle';
   static const String onboardingMajor = '/onboarding/major';
   static const String onboardingDepartment = '/onboarding/department';
+
+  /// 기존 사용자의 생활권 보충 (전체 온보딩 재진행 아님).
+  static const String campusLifeZoneRepair = '/onboarding/campus-life-zone';
   static const String onboardingPhoto = '/onboarding/photo';
   static const String onboardingSelfIntro = '/onboarding/self-intro';
   static const String onboardingProfileQa = '/onboarding/profile-qa';

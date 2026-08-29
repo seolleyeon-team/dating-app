@@ -40,7 +40,7 @@ class ApiClient {
       );
       _headers.forEach((key, value) => request.headers.set(key, value));
       final response = await request.close();
-      return _handleResponse(response);
+      return await _handleResponse(response);
     } on SocketException {
       throw NetworkException('네트워크 연결을 확인해주세요.');
     }
@@ -60,7 +60,7 @@ class ApiClient {
         request.write(jsonEncode(body));
       }
       final response = await request.close();
-      return _handleResponse(response);
+      return await _handleResponse(response);
     } on SocketException {
       throw NetworkException('네트워크 연결을 확인해주세요.');
     }
@@ -80,7 +80,7 @@ class ApiClient {
         request.write(jsonEncode(body));
       }
       final response = await request.close();
-      return _handleResponse(response);
+      return await _handleResponse(response);
     } on SocketException {
       throw NetworkException('네트워크 연결을 확인해주세요.');
     }
@@ -94,7 +94,7 @@ class ApiClient {
       );
       _headers.forEach((key, value) => request.headers.set(key, value));
       final response = await request.close();
-      return _handleResponse(response);
+      return await _handleResponse(response);
     } on SocketException {
       throw NetworkException('네트워크 연결을 확인해주세요.');
     }

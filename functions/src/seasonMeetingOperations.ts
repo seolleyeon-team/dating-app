@@ -18,7 +18,94 @@ import {
   type SeasonDepositIntent,
 } from "./seasonMeetingLifecycle";
 import type { ReplacementSeatClaim } from "./seasonMeetingConcurrency";
-import { canTransitionSeasonMeeting } from "./seasonMeetingStateMachine";
+import {
+  canTransitionSeasonMeeting,
+  type SeasonMeetingPhase,
+} from "./seasonMeetingStateMachine";
+
+const SEASON_PHASES: ReadonlySet<string> = new Set([
+  "team_forming",
+  "team_ready",
+  "exploring",
+  "request_pending",
+  "matched",
+  "deposit_pending",
+  "deposit_paid",
+  "chat_open",
+  "promise_set",
+  "safety_start",
+  "in_meeting",
+  "roulette_done",
+  "safety_end",
+  "refund_pending",
+  "completed",
+  "cancelled",
+  "noshow_review",
+  "replacement_open",
+]);
+
+function readSeasonPhaseRaw(data: Record<string, unknown> | undefined): string {
+  return String(data?.seasonPhase ?? "matched");
+}
+
+/**
+ * eventThreeVsThreeMatches/{meetingId}의 seasonPhase를 FSM 검증과 함께
+ * 단일 트랜잭션으로 전이한다. 허용되지 않는 전이는 failed-precondition.
+ * from === to 재시도는 idempotent 성공으로 처리한다.
+ */
+async function transitionMatchSeasonPhase(
+  firestore: Firestore,
+  meetingId: string,
+  to: SeasonMeetingPhase,
+  extra: Record<string, unknown> = {},
+): Promise<{ from: SeasonMeetingPhase; transitioned: boolean }> {
+  const matchRef = firestore
+    .collection("eventThreeVsThreeMatches")
+    .doc(meetingId);
+  return firestore.runTransaction(async (tx) => {
+    const snap = await tx.get(matchRef);
+    if (!snap.exists) {
+      throw new HttpsError("not-found", "meeting_missing");
+    }
+    const rawFrom = readSeasonPhaseRaw(snap.data() as Record<string, unknown>);
+    if (!SEASON_PHASES.has(rawFrom)) {
+      // 알 수 없는 phase는 자동 복구하지 않고 명시적으로 실패시킨다 (fail-closed).
+      throw new HttpsError(
+        "failed-precondition",
+        `season_phase_unknown:${rawFrom}`,
+      );
+    }
+    const from = rawFrom as SeasonMeetingPhase;
+    if (from === to) {
+      // idempotent 재시도: phase는 그대로 두되 동반 필드는 갱신한다
+      // (예: noshow_review 상태에서 추가 신고 기록).
+      if (Object.keys(extra).length > 0) {
+        tx.set(
+          matchRef,
+          { ...extra, updatedAt: FieldValue.serverTimestamp() },
+          { merge: true },
+        );
+      }
+      return { from, transitioned: false };
+    }
+    if (!canTransitionSeasonMeeting(from, to)) {
+      throw new HttpsError(
+        "failed-precondition",
+        `season_phase_transition_rejected:${from}->${to}`,
+      );
+    }
+    tx.set(
+      matchRef,
+      {
+        seasonPhase: to,
+        ...extra,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    return { from, transitioned: true };
+  });
+}
 
 type ResolveUser = (
   auth: { uid: string; token?: Record<string, unknown> } | undefined,
@@ -99,19 +186,17 @@ export function createSeasonMeetingDepositIntentFunction(
         createdAt: FieldValue.serverTimestamp(),
       });
 
-      const matchRef = firestore
-        .collection("eventThreeVsThreeMatches")
-        .doc(meetingId);
-      const matchSnap = await matchRef.get();
-      const currentPhase = String(matchSnap.data()?.seasonPhase ?? "matched");
-      if (canTransitionSeasonMeeting(currentPhase as never, "deposit_pending")) {
-        await matchRef.set(
-          {
-            seasonPhase: "deposit_pending",
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true },
-        );
+      // 입금 intent 생성은 성공시키되, phase 전이는 FSM이 허용할 때만
+      // 트랜잭션으로 수행한다 (전이 불가는 intent 흐름을 막지 않는다).
+      try {
+        await transitionMatchSeasonPhase(firestore, meetingId, "deposit_pending");
+      } catch (error) {
+        if (
+          !(error instanceof HttpsError) ||
+          error.code !== "failed-precondition"
+        ) {
+          throw error;
+        }
       }
       return intent;
     },
@@ -135,6 +220,10 @@ export function createSeasonMeetingCancelFunction(
       }
       await requireSeasonMeetingParticipant(firestore, meetingId, user.userId);
       const refund = evaluateCancelRefund({ window, depositCaptured });
+      // FSM 검증이 먼저다: 전이가 거부되면 audit도 남기지 않고 실패한다.
+      await transitionMatchSeasonPhase(firestore, meetingId, "cancelled", {
+        cancelledByUserId: user.userId,
+      });
       await firestore.collection("seasonMeetingCancelAudit").add({
         meetingId,
         actorUid: user.userId,
@@ -142,13 +231,6 @@ export function createSeasonMeetingCancelFunction(
         refund,
         createdAt: FieldValue.serverTimestamp(),
       });
-      await firestore.collection("eventThreeVsThreeMatches").doc(meetingId).set(
-        {
-          seasonPhase: "cancelled",
-          updatedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      );
       return { ok: true, refund };
     },
   );
@@ -187,19 +269,14 @@ export function createSeasonMeetingReportNoShowFunction(
           decision.reason ?? "rejected",
         );
       }
-      await firestore.collection("eventThreeVsThreeMatches").doc(meetingId).set(
-        {
-          seasonPhase: "noshow_review",
-          noShowReport: {
-            reporterUid: user.userId,
-            accusedUid,
-            status: decision.status,
-            at: FieldValue.serverTimestamp(),
-          },
-          updatedAt: FieldValue.serverTimestamp(),
+      await transitionMatchSeasonPhase(firestore, meetingId, "noshow_review", {
+        noShowReport: {
+          reporterUid: user.userId,
+          accusedUid,
+          status: decision.status,
+          at: FieldValue.serverTimestamp(),
         },
-        { merge: true },
-      );
+      });
       return decision;
     },
   );

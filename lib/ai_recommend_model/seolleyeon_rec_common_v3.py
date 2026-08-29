@@ -6,11 +6,53 @@ import math
 import re
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+)
 
 import numpy as np
 import pandas as pd
 from scipy import sparse
+from avatar_media_privacy import (
+   PRIVATE_SOURCE_PHOTO_BUCKET,
+    PRIVATE_SOURCE_PHOTO_BUCKETS,
+    CHAT_PROFILE_PHOTO_BUCKETS,
+   _is_private_or_signed_image_ref,
+    extract_display_avatar_url,
+    filter_recommendation_items_for_display_ready,
+    load_avatar_display_status_from_docs,
+    load_users_with_private_source_photos_from_docs,
+    sanitize_public_recommendation_item,
+    validate_public_recommendation_item,
+)
+# 생활권 정책은 의존성 없는 순수 모듈에 있다. 1:1 / 3:3 블라인드 /
+# 3:3 시즌이 모두 같은 semantics를 공유하도록 여기서 재수출한다.
+from campus_life_zone_policy import (  # noqa: F401
+    ACTIVATION_ENFORCED,
+    ACTIVATION_OFF,
+    ACTIVATION_UNKNOWN,
+    CAMPUS_LIFE_ZONE_FIELD,
+    CANONICAL_CAMPUS_LIFE_ZONES,
+    CampusLifeZoneActivationUnknown,
+    campus_life_zone_activation_from_config,
+    campus_life_zone_rejection,
+    campus_zone_compatibility,
+    has_compatible_campus_life_zone,
+    load_campus_life_zone_activation_with_version,
+    normalize_campus_life_zones,
+    read_campus_life_zones_from_user_doc,
+    read_persisted_campus_life_zones,
+    shared_campus_life_zones,
+)
+from seolleyeon_policy_state import policy_state_from_user_doc
 
 try:
     from google.cloud import firestore
@@ -28,6 +70,9 @@ DEFAULT_EVENT_WEIGHTS: Dict[str, float] = {
     "chat_first_message": 9.0,
 }
 DEFAULT_NEGATIVE_EVENTS = {"nope", "block", "report"}
+# `nope` is a one-directional taste signal. Block/report are safety events and
+# are expanded symmetrically before any candidate export.
+DEFAULT_HARD_BLOCK_EVENTS = {"block", "report"}
 DEFAULT_STRONG_POSITIVE_EVENTS = {"like", "match_created", "chat_first_message"}
 DEFAULT_FIRESTORE_LAYOUT = "auto"  # auto | top_level | user_subcollections
 DEFAULT_NEGATIVE_PREF_WEIGHTS: Dict[str, float] = {
@@ -62,6 +107,32 @@ def safe_int(x: Any, default: int = 0) -> int:
         return int(x)
     except Exception:
         return default
+
+
+def coerce_str_list(value: Any) -> List[str]:
+    """Return a stable, de-duplicated list for optional string-list fields."""
+    if not isinstance(value, list):
+        return []
+    out: List[str] = []
+    seen: Set[str] = set()
+    for item in value:
+        text = str(item).strip() if item is not None else ""
+        if text and text not in seen:
+            seen.add(text)
+            out.append(text)
+    return out
+
+
+def redact_private_image_ref(value: Any) -> Any:
+    """Compatibility redaction for worker logs and non-public job metadata."""
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not _is_private_or_signed_image_ref(text):
+        return value
+    if text.startswith(("gs://", "gcs://")):
+        return "gs://[redacted-private-image]"
+    return "[redacted-private-image-url]"
 
 
 def clamp(value: float, lo: float, hi: float) -> float:
@@ -405,6 +476,71 @@ def load_users_with_photos_from_firestore(
     return result
 
 
+def load_user_documents_from_firestore(
+    project_id: str,
+    *,
+    users_collection: str = "users",
+    database: Optional[str] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Load raw user documents for the shared policy/media adapter."""
+    require_firestore()
+    db = firestore.Client(project=project_id, database=database)
+    return {
+        doc.id: (doc.to_dict() or {})
+        for doc in db.collection(users_collection).stream()
+    }
+
+
+def approved_avatar_urls_from_user_docs(
+    users: Dict[str, Dict[str, Any]],
+) -> Dict[str, List[str]]:
+    """Return only approved HTTPS avatars from an in-memory users snapshot."""
+    result: Dict[str, List[str]] = {}
+    for uid, doc in users.items():
+        if not isinstance(doc, dict):
+            continue
+        approved = extract_display_avatar_url(doc)
+        if approved:
+            result[str(uid)] = [approved]
+    return result
+
+
+def load_users_with_approved_avatars_from_firestore(
+    project_id: str,
+    *,
+    users_collection: str = "users",
+    database: Optional[str] = None,
+) -> Dict[str, List[str]]:
+    """Load only canonical, approved public avatar URLs for candidates.
+
+    `onboarding.photoUrls` and `onboarding.avatarUrls` are historical/source
+    fields. They are intentionally not treated as display-ready recommendation
+    media. AI profile URLs are added by CLIP only to its private preference
+    embedding map, never to this candidate map.
+    """
+    docs = load_user_documents_from_firestore(
+        project_id,
+        users_collection=users_collection,
+        database=database,
+    )
+    return approved_avatar_urls_from_user_docs(docs)
+
+
+def load_avatar_display_status_from_firestore(
+    project_id: str,
+    *,
+    users_collection: str = "users",
+    database: Optional[str] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Load display-readiness metadata using the canonical avatar helper."""
+    docs = load_user_documents_from_firestore(
+        project_id,
+        users_collection=users_collection,
+        database=database,
+    )
+    return load_avatar_display_status_from_docs(docs)
+
+
 def load_profile_index_from_firestore(
     project_id: str,
     *,
@@ -416,11 +552,18 @@ def load_profile_index_from_firestore(
     meta: Dict[str, Dict[str, Any]] = {}
     for doc in db.collection(collection).stream():
         d = doc.to_dict() or {}
+        # 완성 여부는 users 경로와 같은 규칙으로 읽는다.
+        # 여기서만 `isProfileComplete` 를 직접 보면, 앱이 실제로 쓰는
+        # `initialSetupComplete` 만 가진 사용자가 index 경로에서는 미완성으로
+        # 판정된다 (같은 사용자가 경로에 따라 다르게 취급된다).
+        completion = profile_completion_provenance(d)
         meta[doc.id] = {
             "universityId": d.get("universityId"),
             "isVerified": bool(d.get("isVerified", False)),
-            "isActive": bool(d.get("isActive", True)),
-            "isProfileComplete": bool(d.get("isProfileComplete", True)),
+            "isActive": bool(d.get("isActive", False)),
+            "isProfileComplete": completion["value"] is True,
+            "profileCompleteSource": completion["source"],
+            "profileCompleteReason": completion["reason"],
             "gender": d.get("gender"),
             "birthYear": d.get("birthYear"),
             "prefGender": d.get("prefGender", []) or [],
@@ -428,8 +571,186 @@ def load_profile_index_from_firestore(
             "prefAgeMax": d.get("prefAgeMax"),
             "mannerScore": safe_float(d.get("mannerScore", 36.5), 36.5),
             "lastActiveAt": parse_firestore_like_ts(d.get("lastActiveAt")),
+            # 생활권은 users 원본에서 파생된 값이다. index가 아직 이 필드를
+            # 전파하지 않으면 빈 값이 되고, 그 사용자는 fail-closed로 제외된다.
+            "campusLifeZones": sorted(
+                normalize_campus_life_zones(d.get(CAMPUS_LIFE_ZONE_FIELD))
+            ),
         }
     return meta
+
+
+def university_id_from_student_email(email: Any) -> Optional[str]:
+    """Derive a university key without inventing one for malformed mail."""
+    text = str(email or "").strip().lower()
+    if "@" not in text:
+        return None
+    labels = [label for label in text.rsplit("@", 1)[1].split(".") if label]
+    if len(labels) < 2:
+        return None
+    if labels[-2:] == ["ac", "kr"]:
+        return labels[-3] if len(labels) >= 3 else None
+    return labels[-2]
+
+
+def build_policy_meta_from_user_docs(
+    users: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    """Derive the shared policy shape from raw ``users`` documents.
+
+    Verified is false when its source field is absent. Completion follows the
+    app's explicit ``isProfileComplete`` -> ``initialSetupComplete`` contract;
+    an absent completion field remains conservative. Account availability is
+    separate from recency, and login activity fields are normalized before the
+    active-within-days policy is applied.
+    """
+    out: Dict[str, Dict[str, Any]] = {}
+    for uid, doc in users.items():
+        if not isinstance(doc, dict):
+            continue
+        onboarding = doc.get("onboarding") if isinstance(doc.get("onboarding"), dict) else {}
+        ideal_type = doc.get("idealType") if isinstance(doc.get("idealType"), dict) else {}
+        ideal_age = (
+            ideal_type.get("idealAge")
+            if isinstance(ideal_type.get("idealAge"), dict)
+            else {}
+        )
+        policy_state = policy_state_from_user_doc(doc)
+
+        birth_year = onboarding.get("birthYear", doc.get("birthYear"))
+        birth_year_int = safe_int(birth_year, 0) or None
+        gender = onboarding.get("gender", doc.get("gender"))
+        gender_text = str(gender).strip().lower() if gender is not None else None
+
+        university_id = None
+        for candidate in (
+            onboarding.get("universityId"),
+            doc.get("universityId"),
+            university_id_from_student_email(doc.get("studentEmail")),
+        ):
+            text = str(candidate).strip() if candidate is not None else ""
+            if text:
+                university_id = text
+                break
+
+        out[str(uid)] = {
+            "universityId": university_id,
+            "isVerified": bool(doc.get("isStudentVerified", doc.get("isVerified", False))),
+            "isActive": policy_state["isActive"],
+            "isProfileComplete": policy_state["isProfileComplete"],
+            "activeSource": policy_state["activeSource"],
+            "activeReason": policy_state["activeReason"],
+            "profileCompleteSource": policy_state["profileCompleteSource"],
+            "profileCompleteReason": policy_state["profileCompleteReason"],
+            "gender": gender_text,
+            "birthYear": birth_year_int,
+            "prefGender": coerce_str_list(ideal_type.get("preferredGenders")),
+            "prefAgeMin": safe_int(
+                ideal_age.get("min", ideal_type.get("minAge")), 0
+            ) or None,
+            "prefAgeMax": safe_int(
+                ideal_age.get("max", ideal_type.get("maxAge")), 0
+            ) or None,
+            "mannerScore": safe_float(doc.get("mannerScore", 36.5), 36.5),
+            "lastActiveAt": parse_firestore_like_ts(policy_state["lastActiveAt"]),
+            "activitySource": policy_state["activitySource"],
+            "activityReason": policy_state["activityReason"],
+            # users/{uid}.onboarding.campusLifeZones 가 canonical 위치다.
+            "campusLifeZones": sorted(read_campus_life_zones_from_user_doc(doc)),
+        }
+    return out
+
+
+def load_policy_meta_from_firestore(
+    project_id: str,
+    *,
+    profile_index_collection: str = "profileIndex",
+    users_collection: str = "users",
+    database: Optional[str] = None,
+) -> Tuple[Dict[str, Dict[str, Any]], str]:
+    """Load profileIndex first, falling back to the normalized users adapter."""
+    meta = load_profile_index_from_firestore(
+        project_id,
+        collection=profile_index_collection,
+        database=database,
+    )
+    if meta:
+        return meta, profile_index_collection
+
+    docs = load_user_documents_from_firestore(
+        project_id,
+        users_collection=users_collection,
+        database=database,
+    )
+    return build_policy_meta_from_user_docs(docs), users_collection
+
+
+def load_campus_life_zone_activation_for_project(
+    project_id: str,
+    *,
+    database: Optional[str] = None,
+) -> Tuple[str, int]:
+    """모델 export 스크립트용 activation 조회.
+
+    조회에 실패하면 [CampusLifeZoneActivationUnknown] 이 올라온다. 배치는
+    상태를 모른 채 추천을 새로 쓰지 않는다 — 한 번 실패하는 편이,
+    활성화된 정책을 모른 채 cross-zone 후보를 저장하는 것보다 안전하다.
+    """
+    require_firestore()
+    db = firestore.Client(project=project_id, database=database)
+    return load_campus_life_zone_activation_with_version(db)
+
+
+def resolve_campus_life_zone_activation(
+    override: Optional[bool],
+    project_id: str,
+    *,
+    database: Optional[str] = None,
+) -> Tuple[str, int]:
+    """CLI 오버라이드가 있으면 그것을, 없으면 config 문서를 따른다.
+
+    오버라이드는 운영자가 명시적으로 지정한 상태이므로 조회하지 않는다.
+    조회가 필요한데 실패하면 예외가 그대로 올라가 배치가 중단된다.
+    """
+    if override is not None:
+        return (ACTIVATION_ENFORCED if override else ACTIVATION_OFF), 0
+    return load_campus_life_zone_activation_for_project(
+        project_id, database=database
+    )
+
+
+def campus_life_zone_policy_provenance(state: str, version: int) -> Dict[str, Any]:
+    """추천 문서에 남길 정책 provenance.
+
+    이 문서가 어떤 정책 상태에서 만들어졌는지 소비자(클라이언트/검증)가
+    알 수 있어야 한다. config 를 읽지 못하는 순간에도 문서 자체가 근거가 된다.
+    """
+    return {
+        "campusLifeZone": state,
+        "campusLifeZonePolicyVersion": int(version),
+    }
+
+
+def assert_policy_meta_coverage(
+    meta: Dict[str, Dict[str, Any]],
+    required_uids: Sequence[str],
+    *,
+    min_coverage: float,
+    source: str,
+) -> float:
+    """Fail loudly when policy metadata is too sparse to filter safely."""
+    unique_uids = {str(uid) for uid in required_uids}
+    if not unique_uids:
+        return 1.0
+    covered = sum(1 for uid in unique_uids if uid in meta)
+    coverage = covered / len(unique_uids)
+    if coverage < min_coverage:
+        raise ValueError(
+            f"Policy metadata from '{source}' covers only {covered}/{len(unique_uids)} "
+            f"users ({coverage:.1%} < {min_coverage:.1%}). Refusing to export a "
+            "silently empty or unfiltered feed."
+        )
+    return coverage
 
 
 def now_year_kst() -> int:
@@ -450,10 +771,15 @@ def passes_policy(
     active_within_days: int,
     require_same_university: bool,
     reciprocal: bool,
+    require_same_campus_life_zone: bool = True,
 ) -> bool:
     mu = meta.get(user_id)
     mv = meta.get(cand_id)
     if mu is None or mv is None:
+        return False
+
+    # 생활권은 점수가 아니라 eligibility다. 값이 없으면 fail-closed.
+    if require_same_campus_life_zone and campus_life_zone_rejection(mu, mv):
         return False
 
     if not mv.get("isActive", True):
@@ -539,22 +865,136 @@ def normalize_events_df(df: pd.DataFrame) -> pd.DataFrame:
     return out[["user_id", "item_id", "event", "ts", "_row_order"]]
 
 
+def block_edges_from_owner_targets(
+    owner_targets: Dict[str, Sequence[str]],
+) -> List[Tuple[str, str]]:
+    """Normalize ``blocks/{owner}/targets/{target}`` data into directed edges."""
+    edges: List[Tuple[str, str]] = []
+    for owner, targets in (owner_targets or {}).items():
+        owner_uid = str(owner or "").strip()
+        if not owner_uid or not isinstance(targets, Sequence) or isinstance(targets, (str, bytes)):
+            continue
+        for target in targets:
+            target_uid = str(target or "").strip()
+            if target_uid and target_uid != owner_uid:
+                edges.append((owner_uid, target_uid))
+    return edges
+
+
+def extend_mutual_block_index(
+    base: Dict[str, Set[str]],
+    firestore_block_edges: Sequence[Tuple[str, str]],
+) -> Dict[str, Set[str]]:
+    """Merge directed Firestore block edges into a symmetric index."""
+    result: Dict[str, Set[str]] = {
+        str(owner): set(targets)
+        for owner, targets in (base or {}).items()
+    }
+    for owner, target in firestore_block_edges or []:
+        owner_uid = str(owner or "").strip()
+        target_uid = str(target or "").strip()
+        if not owner_uid or not target_uid or owner_uid == target_uid:
+            continue
+        result.setdefault(owner_uid, set()).add(target_uid)
+        result.setdefault(target_uid, set()).add(owner_uid)
+    return result
+
+
+def resolve_mutual_block_index(
+    df: pd.DataFrame,
+    *,
+    firestore_block_edges: Optional[Sequence[Tuple[str, str]]] = None,
+    block_events: Optional[Sequence[str]] = None,
+) -> Dict[str, Set[str]]:
+    """Combine recEvents block/report signals with active Firestore blocks."""
+    return extend_mutual_block_index(
+        build_mutual_block_index(df, block_events=block_events),
+        firestore_block_edges or [],
+    )
+
+
+def load_firestore_block_edges_from_firestore(
+    project_id: str,
+    *,
+    blocks_collection: str = "blocks",
+    database: Optional[str] = None,
+) -> List[Tuple[str, str]]:
+    """Read active ``blocks/{owner}/targets`` edges from Firestore."""
+    require_firestore()
+    db = firestore.Client(project=project_id, database=database)
+    owner_targets: Dict[str, List[str]] = {}
+    for owner_ref in db.collection(blocks_collection).list_documents():
+        owner_targets[owner_ref.id] = [
+            target_ref.id
+            for target_ref in owner_ref.collection("targets").list_documents()
+        ]
+    return block_edges_from_owner_targets(owner_targets)
+
+
+def build_mutual_block_index(
+    df: pd.DataFrame,
+    *,
+    block_events: Optional[Sequence[str]] = None,
+) -> Dict[str, Set[str]]:
+    """Map each uid to users hidden by block/report safety events."""
+    events = set(block_events) if block_events is not None else set(DEFAULT_HARD_BLOCK_EVENTS)
+    index: Dict[str, Set[str]] = defaultdict(set)
+    if df is None or len(df) == 0 or not events:
+        return {}
+
+    normalized = normalize_events_df(df)
+    hard = normalized[normalized["event"].isin(events)]
+    for actor, target in zip(hard["user_id"], hard["item_id"]):
+        actor_uid = str(actor).strip()
+        target_uid = str(target).strip()
+        if not actor_uid or not target_uid or actor_uid == target_uid:
+            continue
+        index[actor_uid].add(target_uid)
+        index[target_uid].add(actor_uid)
+    return dict(index)
+
+
+class NoUsableTrainingEvents(ValueError):
+    """협업필터 학습에 쓸 상호작용이 남지 않았다.
+
+    어느 필터에서 비었는지 알 수 있게 단계별 건수를 함께 들고 다닌다.
+    "이벤트가 아예 없다" 와 "전부 AI 취향 카드였다" 는 운영상 완전히 다른
+    상황인데, 메시지만으로는 구분되지 않아 매번 원본 데이터를 다시 뒤져야 했다.
+
+    개인 식별 정보는 담지 않는다 (건수와 이벤트 종류만).
+    """
+
+    def __init__(self, stages: Dict[str, int], event_counts: Dict[str, int]):
+        self.stages = dict(stages)
+        self.event_counts = dict(event_counts)
+        detail = ", ".join(f"{k}={v}" for k, v in stages.items())
+        seen = ", ".join(f"{k}={v}" for k, v in sorted(event_counts.items()))
+        super().__init__(
+            "No usable events after filtering known events / AI profiles. "
+            f"stages: {detail}. events seen: {seen or '(none)'}"
+        )
+
+
 def collapse_pair_events(
     df: pd.DataFrame,
     cfg: PairBuildConfig,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     df = normalize_events_df(df)
+    stages = {"normalized": int(len(df))}
+    event_counts = {
+        str(name): int(count) for name, count in df["event"].value_counts().items()
+    } if len(df) else {}
+
     known_events = set(cfg.event_weights.keys()) | set(cfg.negative_events)
     df = df[df["event"].isin(known_events)].copy()
+    stages["known_event"] = int(len(df))
 
     if cfg.exclude_ai_items_from_training:
         df = df[~df["item_id"].apply(is_ai_profile)].copy()
+        stages["non_ai_item"] = int(len(df))
 
     if df.empty:
-        raise ValueError(
-            "No usable events after filtering known events"
-            + (" / AI profiles." if cfg.exclude_ai_items_from_training else ".")
-        )
+        raise NoUsableTrainingEvents(stages, event_counts)
 
     rows: List[Dict[str, Any]] = []
     negative_rows: List[Dict[str, Any]] = []

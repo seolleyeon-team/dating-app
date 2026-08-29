@@ -70,6 +70,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
+          # 릴리스 검증 기준 SDK. floating stable 은 formatter/analyzer/위젯
+          # assertion 이 바뀌면서 로컬과 다른 결과를 내므로 고정한다.
+          flutter-version: '3.47.2'
           channel: stable
           cache: true
       - run: flutter pub get
@@ -84,10 +87,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
+          # 릴리스 검증 기준 SDK. floating stable 은 formatter/analyzer/위젯
+          # assertion 이 바뀌면서 로컬과 다른 결과를 내므로 고정한다.
+          flutter-version: '3.47.2'
           channel: stable
           cache: true
       - run: flutter pub get
-      - run: flutter build apk --debug
+      # applicationId 는 flavor 가 정하므로 flavor 없는 빌드는 성립하지 않는다.
+      # Play 에 나가는 패키지가 production 이므로 그쪽을 먼저 확인하고,
+      # staging 도 함께 돌려 개발용 flavor 가 조용히 깨지지 않게 한다.
+      - run: flutter build apk --debug --flavor production
+      - run: flutter build apk --debug --flavor staging
 
   web-build:
     name: Web build smoke
@@ -96,6 +106,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
+          # 릴리스 검증 기준 SDK. floating stable 은 formatter/analyzer/위젯
+          # assertion 이 바뀌면서 로컬과 다른 결과를 내므로 고정한다.
+          flutter-version: '3.47.2'
           channel: stable
           cache: true
       - run: flutter pub get
@@ -117,15 +130,43 @@ jobs:
       - run: pytest -q recsys/tests --maxfail=20
         env:
           PYTHONPATH: .
+      # 추천 정책(생활권·차단·학교) 회귀는 CI에서도 막아야 한다.
+      - run: pytest -q tests/test_rec_policy_and_blocks.py tests/test_recsys_policy_args.py --maxfail=20
+        env:
+          PYTHONPATH: .
 
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
+    env:
+      # 공식 OSS CLI 를 고정 버전으로 쓴다. gitleaks-action 은 조직 저장소에서
+      # 라이선스 키를 요구해 스캔이 아예 실행되지 않았다.
+      GITLEAKS_VERSION: "8.30.1"
     steps:
       - uses: actions/checkout@v4
         with:
+          # 전체 history 를 스캔하려면 얕은 클론으로는 안 된다.
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_CONFIG: .gitleaks.toml
+      - name: Install gitleaks CLI
+        run: |
+          set -euo pipefail
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          curl -fsSL "$base/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          curl -fsSL "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt" -o /tmp/gitleaks-checksums.txt
+          # 공식 manifest 와 대조해 통과할 때만 설치한다.
+          expected="$(awk -v f="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" '$2 == f {print $1}' /tmp/gitleaks-checksums.txt)"
+          actual="$(sha256sum /tmp/gitleaks.tar.gz | awk '{print $1}')"
+          if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+            echo "gitleaks checksum verification failed" >&2
+            exit 1
+          fi
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          installed="$(gitleaks version)"
+          if [ "$installed" != "$GITLEAKS_VERSION" ]; then
+            echo "gitleaks version mismatch: $installed != $GITLEAKS_VERSION" >&2
+            exit 1
+          fi
+      - name: Scan full git history
+        # 값은 --redact 로 가리고 위치만 남긴다. finding 이 있으면 non-zero 로 끝난다.
+        run: gitleaks git --config .gitleaks.toml --redact --verbose .

@@ -37,7 +37,14 @@ const ALLOWED: Record<SeasonMeetingPhase, ReadonlySet<SeasonMeetingPhase>> = {
   team_ready: new Set(["exploring", "cancelled"]),
   exploring: new Set(["request_pending", "team_ready", "cancelled"]),
   request_pending: new Set(["matched", "exploring", "cancelled"]),
-  matched: new Set(["deposit_pending", "cancelled", "replacement_open"]),
+  // noshow_review from matched: deposit provider가 비활성인 동안에는
+  // phase가 matched에 머문 채 실제 만남이 진행되므로 노쇼 신고를 허용한다.
+  matched: new Set([
+    "deposit_pending",
+    "cancelled",
+    "replacement_open",
+    "noshow_review",
+  ]),
   deposit_pending: new Set(["deposit_paid", "cancelled", "noshow_review"]),
   deposit_paid: new Set(["chat_open", "refund_pending", "cancelled"]),
   chat_open: new Set(["promise_set", "refund_pending", "cancelled"]),

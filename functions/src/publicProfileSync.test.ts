@@ -194,3 +194,30 @@ test("public profile sync does not rewrite an identical destination document", a
   assert.equal(setCalls, 0);
   assert.equal(deleteCalls, 0);
 });
+
+test("public profile carries campusLifeZones for the recommendation serving guard", () => {
+  // 클라이언트는 타인 문서를 publicProfiles 로만 읽는다. 이 필드가 빠지면
+  // 생활권 serving guard 가 모든 후보를 fail-closed 로 제외해 1:1 피드가
+  // 전원 빈 상태가 된다 (production 장애).
+  const payload = buildPublicProfileFromUser("u1", {
+    nickname: "nick",
+    onboarding: {
+      nickname: "nick",
+      department: "언더우드국제대학",
+      campusLifeZones: ["sinchon", "songdo"],
+    },
+  });
+  assert.ok(payload != null);
+  const onboarding = payload?.onboarding as Record<string, unknown>;
+  assert.deepEqual(onboarding.campusLifeZones, ["sinchon", "songdo"]);
+});
+
+test("public profile omits campusLifeZones when the user has none", () => {
+  const payload = buildPublicProfileFromUser("u2", {
+    nickname: "nick",
+    onboarding: { nickname: "nick", department: "" },
+  });
+  assert.ok(payload != null);
+  const onboarding = payload?.onboarding as Record<string, unknown> | undefined;
+  assert.equal(onboarding?.campusLifeZones, undefined);
+});

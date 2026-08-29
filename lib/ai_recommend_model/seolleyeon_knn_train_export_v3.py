@@ -30,18 +30,28 @@ from seolleyeon_rec_common_v3 import (
     DEFAULT_NEGATIVE_EVENTS,
     DEFAULT_STRONG_POSITIVE_EVENTS,
     PairBuildConfig,
+    assert_policy_meta_coverage,
     build_interaction_matrix_from_pairs,
+    build_mutual_block_index,
     collapse_pair_events,
     compute_source_confidence,
     compute_user_signal_stats,
+    filter_recommendation_items_for_display_ready,
     is_ai_profile,
+    load_avatar_display_status_from_firestore,
     load_events_from_csv,
     load_events_from_firestore,
-    load_profile_index_from_firestore,
+    load_firestore_block_edges_from_firestore,
+    load_policy_meta_from_firestore,
     load_user_genders_from_firestore,
     passes_policy,
+    resolve_campus_life_zone_activation,
+    campus_life_zone_policy_provenance,
+    ACTIVATION_ENFORCED,
+    ACTIVATION_OFF,
     prune_training_pairs,
     require_firestore,
+    resolve_mutual_block_index,
 )
 from seolleyeon_recommendation_privacy import (
     filter_recommendations,
@@ -207,6 +217,7 @@ def export_to_firestore(
     model_meta: Dict[str, Any],
     user_signal_meta: Optional[Dict[str, Dict[str, Any]]] = None,
     database: Optional[str] = None,
+    policy_provenance: Optional[Dict[str, Any]] = None,
 ) -> None:
     require_firestore()
     db = firestore.Client(project=project_id, database=database)
@@ -230,6 +241,10 @@ def export_to_firestore(
             "topN": len(items),
             "items": items,
         }
+        if policy_provenance is not None:
+            # 이 문서가 어떤 생활권 정책 상태에서 만들어졌는지 남긴다.
+            # 소비자(클라이언트/검증)는 config 를 못 읽는 순간에도 이 값을 믿는다.
+            payload["policy"] = policy_provenance
         if user_signal_meta and uid in user_signal_meta:
             payload["signal"] = user_signal_meta[uid]
         bw.set(doc_ref, payload, merge=False)
@@ -307,7 +322,39 @@ def main() -> None:
     p.add_argument("--oversample", type=int, default=6)
 
     p.add_argument("--apply_policy_filters", action="store_true")
+    # 생활권 hard filter 의 rollout activation.
+    # 지정하지 않으면 recommendationConfig/current 문서를 따른다.
+    # 상태를 확인하지 못하면(UNKNOWN) export 를 중단한다 — 활성화된 정책을
+    # 모른 채 cross-zone 후보를 저장하지 않기 위해서다.
+    p.add_argument(
+        "--enforce_campus_life_zone",
+        dest="enforce_campus_life_zone",
+        action="store_true",
+        default=None,
+    )
+    p.add_argument(
+        "--no_enforce_campus_life_zone",
+        dest="enforce_campus_life_zone",
+        action="store_false",
+    )
     p.add_argument("--profile_index_collection", type=str, default="profileIndex")
+    p.add_argument("--policy_min_meta_coverage", type=float, default=0.9)
+    p.add_argument(
+        "--require_approved_avatar_for_candidates",
+        dest="require_approved_avatar_for_candidates",
+        action="store_true",
+    )
+    p.add_argument(
+        "--no_require_approved_avatar_for_candidates",
+        dest="require_approved_avatar_for_candidates",
+        action="store_false",
+    )
+    p.set_defaults(require_approved_avatar_for_candidates=True)
+    p.add_argument("--display_ready_users_collection", type=str, default="users")
+    p.add_argument("--allow_missing_avatar_candidates", action="store_true", default=False)
+    p.add_argument("--firestore_blocks", dest="firestore_blocks", action="store_true")
+    p.add_argument("--no_firestore_blocks", dest="firestore_blocks", action="store_false")
+    p.set_defaults(firestore_blocks=True)
     p.add_argument("--manner_min", type=float, default=33.0)
     p.add_argument("--active_within_days", type=int, default=14)
     p.add_argument("--require_same_university", dest="require_same_university", action="store_true")
@@ -321,6 +368,11 @@ def main() -> None:
     p.add_argument("--algorithm_version", type=str, default=None)
 
     args = p.parse_args()
+
+    require_approved_avatar = (
+        bool(args.require_approved_avatar_for_candidates)
+        and not bool(args.allow_missing_avatar_candidates)
+    )
 
     event_weights = safe_json_update(DEFAULT_EVENT_WEIGHTS, args.event_weights_json)
     negative_events = set(json.loads(args.negative_events_json)) if args.negative_events_json else set(DEFAULT_NEGATIVE_EVENTS)
@@ -364,6 +416,17 @@ def main() -> None:
         allow_open_only_pairs=bool(args.allow_open_only_pairs),
         exclude_ai_items_from_training=not bool(args.include_ai_profiles_in_training),
     )
+    firestore_block_edges = []
+    if args.firestore_blocks and args.firestore_project:
+        firestore_block_edges = load_firestore_block_edges_from_firestore(
+            args.firestore_project,
+            database=args.firestore_database,
+        )
+    mutual_blocks = resolve_mutual_block_index(
+        df,
+        firestore_block_edges=firestore_block_edges,
+    )
+    print(f"[blocks] users with mutual block/report exclusions: {len(mutual_blocks):,}")
     pair_df_all, neg_df_all = collapse_pair_events(df, pair_cfg)
     print(f"[pairs] surviving positive pairs: {len(pair_df_all):,}")
     print(f"[pairs] final negative pairs: {0 if neg_df_all.empty else len(neg_df_all):,}")
@@ -442,15 +505,38 @@ def main() -> None:
     trained_at = datetime.now(tz=timezone.utc).isoformat()
 
     meta = None
+    campus_zone_enforced = False
+    campus_zone_state = ACTIVATION_OFF
+    campus_zone_policy_version = 0
     if args.apply_policy_filters:
         if not args.firestore_project:
             raise ValueError("--firestore_project is required for --apply_policy_filters")
-        meta = load_profile_index_from_firestore(
+        campus_zone_state, campus_zone_policy_version = (
+            resolve_campus_life_zone_activation(
+                args.enforce_campus_life_zone,
+                args.firestore_project,
+                database=args.firestore_database,
+            )
+        )
+        campus_zone_enforced = campus_zone_state == ACTIVATION_ENFORCED
+        print(
+            f"[policy] campusLifeZone={campus_zone_state} "
+            f"version={campus_zone_policy_version}"
+        )
+
+        meta, meta_source = load_policy_meta_from_firestore(
             args.firestore_project,
-            collection=args.profile_index_collection,
+            profile_index_collection=args.profile_index_collection,
             database=args.firestore_database,
         )
-        print(f"[meta] loaded profileIndex docs: {len(meta):,}")
+        print(f"[meta] loaded policy metadata from '{meta_source}': {len(meta):,}")
+        coverage = assert_policy_meta_coverage(
+            meta,
+            [u for u in export_user_ids if not is_ai_profile(u)],
+            min_coverage=float(args.policy_min_meta_coverage),
+            source=meta_source,
+        )
+        print(f"[meta] policy metadata covers {coverage:.1%} of exportable users")
 
     gender_by_uid: Dict[str, str] = {}
     if args.firestore_project:
@@ -460,6 +546,17 @@ def main() -> None:
             database=args.firestore_database,
         )
         print(f"[gender] loaded users/onboarding genders: {len(gender_by_uid):,}")
+
+    display_status: Dict[str, Dict[str, Any]] = {}
+    if require_approved_avatar:
+        if not args.firestore_project:
+            raise ValueError("--firestore_project is required when approved avatar gating is enabled")
+        display_status = load_avatar_display_status_from_firestore(
+            args.firestore_project,
+            users_collection=args.display_ready_users_collection,
+            database=args.firestore_database,
+        )
+        print(f"[display] loaded avatar display status for {len(display_status):,} users")
 
     idx2user = [None] * len(user2idx)
     for uid, i in user2idx.items():
@@ -481,6 +578,11 @@ def main() -> None:
         self_item_idx = item2idx.get(uid)
         if self_item_idx is not None:
             filter_items.add(self_item_idx)
+        blocked_uids = mutual_blocks.get(uid, frozenset())
+        for blocked_uid in blocked_uids:
+            blocked_item_idx = item2idx.get(blocked_uid)
+            if blocked_item_idx is not None:
+                filter_items.add(blocked_item_idx)
 
         # implicit item-item recommenders expect a single-row CSR matrix for
         # scalar user queries, not the full user-item matrix.
@@ -503,6 +605,8 @@ def main() -> None:
             cand_uid = idx2item[int(ii)]
             if is_ai_profile(cand_uid):
                 continue
+            if cand_uid in blocked_uids:
+                continue
 
             u_gender = gender_by_uid.get(uid)
             v_gender = gender_by_uid.get(cand_uid)
@@ -518,14 +622,24 @@ def main() -> None:
                     active_within_days=int(args.active_within_days),
                     require_same_university=bool(args.require_same_university),
                     reciprocal=reciprocal,
+                    require_same_campus_life_zone=campus_zone_enforced,
                 ):
                     continue
 
-            items_out.append({
+            item = {
                 "uid": cand_uid,
                 "rank": rank,
                 "score": float(score),
-            })
+            }
+            filtered, _skipped = filter_recommendation_items_for_display_ready(
+                [item],
+                display_status,
+                require_approved_avatar=require_approved_avatar,
+            )
+            if not filtered:
+                continue
+            filtered[0]["rank"] = rank
+            items_out.append(filtered[0])
             rank += 1
             if rank > topn:
                 break
@@ -588,6 +702,9 @@ def main() -> None:
             model_meta=model_meta,
             user_signal_meta=signal_meta_by_uid,
             database=args.firestore_database,
+            policy_provenance=campus_life_zone_policy_provenance(
+                campus_zone_state, campus_zone_policy_version
+            ),
         )
         print("[export] done")
 

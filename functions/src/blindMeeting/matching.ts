@@ -11,6 +11,7 @@
  * 결과는 deterministic 하다 (동점 시 정렬된 참가자 id로 tie-break).
  */
 
+import { normalizeCampusLifeZones } from "../campusLifeZones";
 import { interestCategoryIdOf } from "./interestTaxonomy";
 import {
   CURRENT_MATCHING_CONFIG,
@@ -43,6 +44,12 @@ export type Candidate = {
   smokingStatus: SmokingStatus;
   interestIds: string[];
   mbti: string | null;
+  /**
+   * 생활권 (users/{uid}.onboarding.campusLifeZones 에 저장된 값).
+   * 분류는 클라이언트 CampusLifeZoneResolver 가 담당하며 여기서 재계산하지
+   * 않는다. 복수 생활권이 가능하므로 집합 교집합으로만 비교한다.
+   */
+  campusLifeZones: string[];
   /** 참여 가능한 날짜 (KST `yyyy-MM-dd`). 세부 시간은 매칭 조건이 아니다. */
   availableDateKeys: string[];
   schoolVerified: boolean;
@@ -64,7 +71,11 @@ export type ConstraintViolation =
   | "smokingRejected"
   | "purposeConflict"
   | "duplicateParticipant"
-  | "invalidGroupSize";
+  | "invalidGroupSize"
+  /** 여섯 명이 함께 만날 수 있는 공통 생활권이 없다 */
+  | "campusLifeZoneMismatch"
+  /** 생활권 정보가 없어 판정할 수 없다 (fail-closed) */
+  | "campusLifeZoneMissing";
 
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -518,6 +529,36 @@ export function waitingTimeBonus(
 // hard constraint
 // -----------------------------------------------------------------------------
 
+/**
+ * 그룹 전원이 함께 만날 수 있는 공통 생활권.
+ *
+ * 다수결/대표자 기준이 아니라 반드시 교집합이다. 한 명이라도 생활권 정보가
+ * 없으면 빈 집합을 돌려준다 (fail-closed).
+ */
+export function sharedCampusLifeZones(members: Candidate[]): string[] {
+  if (members.length === 0) return [];
+  let shared: Set<string> | null = null;
+  for (const member of members) {
+    // canonical 이 아닌 값은 생활권으로 인정하지 않는다 (손상된 문서 방어).
+    const zones = new Set(normalizeCampusLifeZones(member.campusLifeZones));
+    if (zones.size === 0) return [];
+    if (shared == null) {
+      shared = zones;
+      continue;
+    }
+    shared = new Set([...shared].filter((zone) => zones.has(zone)));
+    if (shared.size === 0) return [];
+  }
+  return [...(shared ?? new Set<string>())].sort();
+}
+
+/** 생활권 정보가 비어 있는 참가자가 하나라도 있는지. */
+function hasMissingCampusLifeZone(members: Candidate[]): boolean {
+  return members.some(
+    (member) => normalizeCampusLifeZones(member.campusLifeZones).length === 0
+  );
+}
+
 export function checkCandidateConstraints(
   candidate: Candidate,
   dateKey: string,
@@ -588,7 +629,12 @@ export function checkGroupConstraints(
   members: Candidate[],
   dateKey: string,
   alcoholFreeGroup: boolean,
-  expectedSize?: number
+  expectedSize?: number,
+  /**
+   * 생활권 hard filter 의 rollout activation.
+   * false 면 생활권 조건만 비활성이고 나머지 조건은 전부 유지된다.
+   */
+  campusLifeZoneEnforced: boolean = true
 ): ConstraintViolation[] {
   const violations = new Set<ConstraintViolation>();
   if (expectedSize !== undefined && members.length !== expectedSize) {
@@ -613,6 +659,16 @@ export function checkGroupConstraints(
       }
     }
   }
+  // 생활권은 날짜와 달리 per-candidate proxy가 없는 진짜 그룹 속성이라
+  // (개인은 여러 생활권을 가질 수 있다) 여기서 교집합을 직접 확인한다.
+  // 실제로 함께 만나려면 전원이 최소 하나의 공통 생활권을 가져야 한다.
+  if (campusLifeZoneEnforced && members.length > 0) {
+    if (hasMissingCampusLifeZone(members)) {
+      violations.add("campusLifeZoneMissing");
+    } else if (sharedCampusLifeZones(members).length === 0) {
+      violations.add("campusLifeZoneMismatch");
+    }
+  }
   // 공통 가능 날짜 검사는 의도적으로 여기서 하지 않는다.
   // 전원이 dateKey를 갖고 있어야 통과하므로 교집합은 항상 dateKey를 포함한다.
   // 최종 6인 구성 검사는 createMeetingFromProposal 에서 한 번만 수행한다.
@@ -623,11 +679,17 @@ export function isGroupAllowed(
   members: Candidate[],
   dateKey: string,
   alcoholFreeGroup: boolean,
-  expectedSize?: number
+  expectedSize?: number,
+  campusLifeZoneEnforced: boolean = true
 ): boolean {
   return (
-    checkGroupConstraints(members, dateKey, alcoholFreeGroup, expectedSize)
-      .length === 0
+    checkGroupConstraints(
+      members,
+      dateKey,
+      alcoholFreeGroup,
+      expectedSize,
+      campusLifeZoneEnforced
+    ).length === 0
   );
 }
 
@@ -712,7 +774,8 @@ export function buildTeamProposals(
   pool: Candidate[],
   dateKey: string,
   alcoholFree: boolean,
-  config: MatchingConfig = CURRENT_MATCHING_CONFIG
+  config: MatchingConfig = CURRENT_MATCHING_CONFIG,
+  campusLifeZoneEnforced: boolean = true
 ): TeamProposal[] {
   const eligible = eligiblePool(pool, dateKey, alcoholFree);
   if (eligible.length < 3) return [];
@@ -720,7 +783,7 @@ export function buildTeamProposals(
   const byKey = new Map<string, TeamProposal>();
 
   const tryTeam = (trio: Candidate[]) => {
-    if (!isGroupAllowed(trio, dateKey, alcoholFree, 3)) return;
+    if (!isGroupAllowed(trio, dateKey, alcoholFree, 3, campusLifeZoneEnforced)) return;
     const ordered = orderTeamMembers(trio);
     const proposal: TeamProposal = {
       members: ordered,
@@ -771,9 +834,16 @@ export function bestGroup(
   pool: Candidate[],
   dateKey: string,
   alcoholFree: boolean,
-  config: MatchingConfig = CURRENT_MATCHING_CONFIG
+  config: MatchingConfig = CURRENT_MATCHING_CONFIG,
+  campusLifeZoneEnforced: boolean = true
 ): GroupProposal | null {
-  const teams = buildTeamProposals(pool, dateKey, alcoholFree, config);
+  const teams = buildTeamProposals(
+    pool,
+    dateKey,
+    alcoholFree,
+    config,
+    campusLifeZoneEnforced
+  );
   if (teams.length < 2) return null;
 
   const shortlist = teams.slice(0, config.teamShortlistSize);
@@ -793,7 +863,25 @@ export function bestGroup(
       if (overlaps) continue;
 
       const members = [...left.members, ...right.members];
-      if (!isGroupAllowed(members, dateKey, alcoholFree, 6)) continue;
+      // 비싼 6인 점수 계산 전에 생활권부터 거른다.
+      // (isGroupAllowed 도 같은 조건을 강제하지만 O(36) pair loop보다 싸다)
+      if (
+        campusLifeZoneEnforced &&
+        sharedCampusLifeZones(members).length === 0
+      ) {
+        continue;
+      }
+      if (
+        !isGroupAllowed(
+          members,
+          dateKey,
+          alcoholFree,
+          6,
+          campusLifeZoneEnforced
+        )
+      ) {
+        continue;
+      }
 
       const score = groupScore(
         left.members,
@@ -862,6 +950,8 @@ export type ReplacementEvaluation = {
 };
 
 export function evaluateReplacement(params: {
+  /** 생활권 rollout activation (기본 ON). */
+  campusLifeZoneEnforced?: boolean;
   teamA: Candidate[];
   teamB: Candidate[];
   vacantUserId: string;
@@ -895,7 +985,8 @@ export function evaluateReplacement(params: {
     members,
     params.dateKey,
     params.alcoholFree,
-    6
+    6,
+    params.campusLifeZoneEnforced !== false
   )) {
     violations.add(v);
   }
@@ -929,6 +1020,8 @@ export function evaluateReplacement(params: {
 }
 
 export function rankReplacements(params: {
+  /** 생활권 rollout activation (기본 ON). evaluateReplacement 로 그대로 전달된다. */
+  campusLifeZoneEnforced?: boolean;
   teamA: Candidate[];
   teamB: Candidate[];
   vacantUserId: string;

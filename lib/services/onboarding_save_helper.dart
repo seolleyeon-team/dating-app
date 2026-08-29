@@ -97,6 +97,41 @@ class OnboardingSaveHelper {
     );
   }
 
+  /// 생활권(campusLifeZones) 보충 저장.
+  ///
+  /// 기존 사용자가 학년·학과 정보를 갖고 있지 않아 생활권이 계산되지 않은
+  /// 경우, 부족한 값만 채워 저장한다. 저장 자체는 기존
+  /// [UserService.saveOnboardingBasicInfo] 를 그대로 쓰므로 병합된 온보딩
+  /// 데이터에 대해 기존 [CampusLifeZoneResolver] 가 실행되어
+  /// `onboarding.campusLifeZones` 가 기록된다.
+  ///
+  /// 여기서 생활권을 직접 계산하지 않는다 (분류 로직 단일 소스 유지).
+  /// null 인 인자는 기존 값을 덮어쓰지 않는다.
+  static Future<bool> saveCampusLifeZoneInputs({
+    String? grade,
+    String? major,
+    String? department,
+    bool? isRa,
+  }) async {
+    final uid = await _getUserId();
+    if (uid == null || uid.isEmpty) return false;
+
+    final basicInfo = <String, dynamic>{};
+    if (grade != null && grade.isNotEmpty) basicInfo['grade'] = grade;
+    if (major != null && major.isNotEmpty) basicInfo['major'] = major;
+    if (department != null && department.isNotEmpty) {
+      basicInfo['department'] = department;
+    }
+    if (isRa != null) basicInfo['isRa'] = isRa;
+    if (basicInfo.isEmpty) return false;
+
+    await _userService.saveOnboardingBasicInfo(
+      kakaoUserId: uid,
+      basicInfo: basicInfo,
+    );
+    return true;
+  }
+
   /// Step 5: 세부 학과
   static Future<void> saveDepartment(String department) async {
     final uid = await _getUserId();

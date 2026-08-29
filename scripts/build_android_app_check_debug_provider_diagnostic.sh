@@ -8,7 +8,8 @@ project_root="${0:A:h:h}"
 cd "$project_root"
 
 readonly portone_store_id="store-ec95a751-307e-4b85-97bd-7c6fa0bbe0e2"
-readonly artifact_path="$project_root/build/app/outputs/bundle/release/app-release.aab"
+# applicationId 가 flavor 로 갈리면서 산출물도 variant 별로 나뉜다.
+readonly artifact_path="$project_root/build/app/outputs/bundle/productionRelease/app-production-release.aab"
 readonly archive_dir="${AAB_ARCHIVE_DIR:-$HOME/Desktop/설레연-AAB-보관}"
 
 cleanup() {
@@ -52,7 +53,7 @@ if [[ -e "$archive_path" ]]; then
   exit 1
 fi
 
-flutter build appbundle --release \
+flutter build appbundle --release --flavor production \
   --dart-define="PORTONE_STORE_ID=$portone_store_id" \
   --dart-define="PORTONE_KG_INICIS_IDENTITY_CHANNEL_KEY=$PORTONE_CHANNEL_KEY" \
   --dart-define=FORCE_APP_CHECK_DEBUG=true \

@@ -597,10 +597,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Future<void> _approvePromise(_ChatMessage message) async {
-    if (message.promiseId == null) return;
+    if (message.promiseId == null || _currentUserId == null) return;
     await _chatService.acceptPromise(
       roomId: _roomId,
       promiseId: message.promiseId!,
+      acceptedBy: _currentUserId!,
     );
   }
 

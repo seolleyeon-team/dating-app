@@ -12,6 +12,10 @@ import { HttpsError } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
 import {
+  loadCampusLifeZoneActivation,
+  loadCampusLifeZoneEnforced,
+} from "../campusLifeZoneActivation";
+import {
   Candidate,
   GroupProposal,
   alcoholFreePool,
@@ -19,6 +23,7 @@ import {
   groupScore,
   rankReplacements,
   requiresAlcoholFreeGroup,
+  sharedCampusLifeZones,
   standardPool,
 } from "./matching";
 import { CURRENT_MATCHING_CONFIG } from "./matchingConfig";
@@ -78,6 +83,7 @@ import {
   MEETING_STATUS_TO_APP,
   PARTICIPANT_STATUS_TO_APP,
   asStrArray,
+  canTransitionParticipant,
   commonDateKeys,
   dateKeyOfSlotId,
   fallbackSlotIdFor,
@@ -124,6 +130,22 @@ export async function runMatchingForDate(dateKey: string): Promise<string[]> {
   if (!isValidDateKey(dateKey)) return [];
 
   const policy = await loadPolicy();
+  // 생활권 hard filter 의 rollout activation. OFF 면 생활권 조건만 비활성이고
+  // DNA/가용일/차단/안전 등 나머지 조건은 전부 그대로 적용된다.
+  const activation = await loadCampusLifeZoneActivation(db());
+  if (activation.state === "unknown") {
+    // 정책 상태를 모른 채 6인을 확정하지 않는다. OFF 로 가정하면 활성화된
+    // 정책을 무시하고 cross-zone 미팅을 만들 수 있고, ON 으로 가정하면 준비
+    // 단계에서 정상 신청자를 전부 떨어뜨린다. 이번 실행만 건너뛰고 다음
+    // 스케줄에서 다시 시도한다 (신청은 그대로 열려 있다).
+    logger.error("blindMeeting matching skipped: activation unknown", {
+      code: "campusLifeZoneActivationReadFailure",
+      campusLifeZoneActivationState: "unknown",
+      dateKey,
+    });
+    return [];
+  }
+  const campusLifeZoneEnforced = activation.state === "enforced";
   const applications = await loadOpenApplications(dateKey);
   if (applications.length < 6) {
     await markStage(applications, "searchingCandidates");
@@ -146,7 +168,8 @@ export async function runMatchingForDate(dateKey: string): Promise<string[]> {
         remaining,
         dateKey,
         alcoholFree,
-        CURRENT_MATCHING_CONFIG
+        CURRENT_MATCHING_CONFIG,
+        campusLifeZoneEnforced
       );
       if (proposal == null) break;
 
@@ -221,6 +244,22 @@ export async function createMeetingFromProposal(
   // 여섯 명이 공통으로 가능한 날짜가 없으면 확정하지 않는다.
   if (proposal.commonDateKeys.length === 0) {
     logger.warn("blindMeeting proposal rejected: no common date", {
+      dateKey: proposal.dateKey,
+    });
+    return null;
+  }
+
+  // 최종 안전망: 여섯 명이 실제로 함께 만날 수 있는 공통 생활권이 있어야 한다.
+  // 후보 생성 단계에서 이미 걸러지지만, 확정 직전에 다시 확인한다.
+  // rollout activation 이 OFF 면 이 조건만 건너뛴다.
+  const proposalZones = sharedCampusLifeZones([
+    ...proposal.teamA,
+    ...proposal.teamB,
+  ]);
+  // 최종 그물: 상태를 모르면 만들지 않는다 (확정은 되돌리기 어렵다).
+  const creationActivation = await loadCampusLifeZoneActivation(db());
+  if (creationActivation.state !== "off" && proposalZones.length === 0) {
+    logger.warn("blindMeeting proposal rejected: no shared campus life zone", {
       dateKey: proposal.dateKey,
     });
     return null;
@@ -405,6 +444,17 @@ export async function declineInvitation(
   if (!meeting.participantIds.includes(userId)) {
     throw new HttpsError("permission-denied", "참가 중인 미팅이 아니에요.");
   }
+  // 수락 대기/보증금 대기 단계까지만 거절할 수 있다.
+  // 확정 이후에는 requestCancellation(취소 요청) 경로를 사용해야 한다.
+  if (
+    meeting.status !== "awaiting_acceptance" &&
+    meeting.status !== "awaiting_deposits"
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "지금은 초대를 거절할 수 있는 단계가 아니에요. 참여가 어려우면 취소 요청을 이용해주세요."
+    );
+  }
 
   await updateParticipant(meetingId, userId, {
     status: "cancelled",
@@ -437,6 +487,15 @@ async function advanceAfterAcceptance(meetingId: string): Promise<void> {
   if (!moved) return;
 
   for (const participant of participants) {
+    // awaiting_acceptance 단계에서 미리 결제한 참가자의 paid/confirmed
+    // 상태를 pending으로 되돌리지 않는다.
+    if (
+      participant.status === "confirmed" ||
+      participant.depositStatus === "paid" ||
+      participant.depositStatus === "authorized"
+    ) {
+      continue;
+    }
     await updateParticipant(meetingId, participant.userId, {
       status: "deposit_pending",
       depositStatus: policy.depositAmount > 0 ? "pending" : "not_required",
@@ -447,6 +506,11 @@ async function advanceAfterAcceptance(meetingId: string): Promise<void> {
     await advanceAfterDeposit(meetingId);
     return;
   }
+
+  // 전원이 이미 결제를 마친 상태로 수락이 완료됐을 수 있으므로 재확인한다.
+  // advanceAfterDeposit은 awaiting_deposits 상태를 스스로 검증한다.
+  const advanced = await advanceAfterDeposit(meetingId);
+  if (advanced) return;
 
   await notifyBlindMeeting({
     userIds: meeting.participantIds,
@@ -513,8 +577,13 @@ export async function beginDeposit(
   };
 }
 
-async function advanceAfterDeposit(meetingId: string): Promise<void> {
+async function advanceAfterDeposit(meetingId: string): Promise<boolean> {
   const meeting = await loadMeeting(meetingId);
+  // awaiting_acceptance 단계의 조기 결제 등으로 호출되어도
+  // 미팅이 실제 awaiting_deposits일 때만 확정 로직을 진행한다.
+  // (참가자 6명이 deposit_pending으로 전환되기 전에는 not_required
+  //  기본값 때문에 settled 계산이 과대평가되는 문제가 있었다.)
+  if (meeting.status !== "awaiting_deposits") return false;
   const policy = await loadPolicy();
   const participants = await loadParticipants(meetingId);
   const seatCount = meeting.participantIds.length;
@@ -524,7 +593,14 @@ async function advanceAfterDeposit(meetingId: string): Promise<void> {
       p.depositStatus === "not_required" ||
       p.status === "confirmed"
   );
-  if (settled.length < seatCount) return;
+  if (settled.length < seatCount) return false;
+
+  // FSM 전이를 먼저 통과시킨다. 전이가 거부되면 (동시 실행, 이미 확정,
+  // 취소됨 등) 참가자/신청서 문서를 confirmed로 오염시키지 않는다.
+  const confirmed = await transitionMeetingStatus(meetingId, "confirmed", {
+    confirmedAt: FieldValue.serverTimestamp(),
+  });
+  if (!confirmed) return false;
 
   for (const participant of participants) {
     if (participant.status !== "confirmed") {
@@ -535,11 +611,6 @@ async function advanceAfterDeposit(meetingId: string): Promise<void> {
     }
     await setApplication(participant.userId, { status: "confirmed" });
   }
-
-  const confirmed = await transitionMeetingStatus(meetingId, "confirmed", {
-    confirmedAt: FieldValue.serverTimestamp(),
-  });
-  if (!confirmed) return;
 
   await notifyBlindMeeting({
     userIds: meeting.participantIds,
@@ -585,6 +656,7 @@ async function advanceAfterDeposit(meetingId: string): Promise<void> {
     deeplinkId: roomId,
     data: { roomId },
   });
+  return true;
 }
 
 // -----------------------------------------------------------------------------
@@ -754,23 +826,17 @@ async function maybeConfirmSchedule(
     }
   }
 
-  await db()
-    .collection(BLIND_MEETING_COLLECTIONS.meetings)
-    .doc(meetingId)
-    .set(
-      {
-        // 최종 확정 시간. 참가 신청 단계의 날짜 선택과 구분되는 값이다.
-        slotId,
-        confirmedDateKey: dateKeyOfSlotId(slotId),
-        venue,
-        scheduledStartAt: startAt ? Timestamp.fromDate(startAt) : null,
-        scheduleConfirmedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-  const moved = await transitionMeetingStatus(meetingId, "schedule_confirmed");
+  // TOCTOU 방지: 일정 필드와 상태 전이를 단일 트랜잭션으로 묶는다.
+  // 동시 실행에서 전이에 진 쪽은 일정 필드도 쓰지 않으므로,
+  // 확정된 slotId는 항상 전이에 성공한 실행의 값이다.
+  const moved = await transitionMeetingStatus(meetingId, "schedule_confirmed", {
+    // 최종 확정 시간. 참가 신청 단계의 날짜 선택과 구분되는 값이다.
+    slotId,
+    confirmedDateKey: dateKeyOfSlotId(slotId),
+    venue,
+    scheduledStartAt: startAt ? Timestamp.fromDate(startAt) : null,
+    scheduleConfirmedAt: FieldValue.serverTimestamp(),
+  });
   if (!moved) return;
 
   if (meeting.groupChatId) {
@@ -935,11 +1001,27 @@ export async function handleVacancy(params: {
     alcoholFree: meeting.isAlcoholFree,
     urgent: params.urgent,
     limit: policy.replacementOfferWaveSize,
+    // 대체 참가자 제안도 상태를 모르면 생활권을 강제한다 (제안은 보류 가능).
+    campusLifeZoneEnforced: await loadCampusLifeZoneEnforced(db(), {
+      unknownAs: "enforced",
+    }),
   });
 
-  await updateParticipant(params.meetingId, params.vacantUserId, {
-    status: "replacement_pending",
-  });
+  // 이탈자 상태 표시는 FSM이 허용하는 경우에만 한다. 초대 거절자는 이미
+  // cancelled(terminal)이므로 replacement_pending으로 되돌리지 않는다 —
+  // 좌석 대체 탐색 자체는 상태와 무관하게 계속 진행한다.
+  const vacancyParticipants = await loadParticipants(params.meetingId);
+  const vacantParticipant = vacancyParticipants.find(
+    (participant) => participant.userId === params.vacantUserId
+  );
+  if (
+    vacantParticipant != null &&
+    canTransitionParticipant(vacantParticipant.status, "replacement_pending")
+  ) {
+    await updateParticipant(params.meetingId, params.vacantUserId, {
+      status: "replacement_pending",
+    });
+  }
 
   if (ranked.length === 0) {
     await finalizeCancellationWithoutReplacement({
@@ -1041,6 +1123,28 @@ export async function respondReplacementOffer(params: {
     const meetingData = meetingSnap.data();
     if (!meetingSnap.exists || !meetingData) {
       return { ok: false as const, code: "meeting_missing" as const };
+    }
+
+    // 활성 단계에서만 대체 합류를 허용한다. 취소·완료·보관된 미팅의
+    // 참가자 명단은 교체하지 않는다 (알 수 없는 상태 포함 fail-closed).
+    const meetingServerStatus = String(
+      meetingData.serverStatus ?? meetingData.status ?? ""
+    );
+    const replacementOpenStatuses = new Set([
+      "awaiting_acceptance",
+      "awaiting_deposits",
+      "confirmed",
+      "chat_open",
+      "schedule_confirmed",
+      "checkin_open",
+    ]);
+    if (!replacementOpenStatuses.has(meetingServerStatus)) {
+      tx.set(
+        offerRef,
+        { offerStatus: "expired", updatedAt: FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+      return { ok: false as const, code: "meeting_closed" as const };
     }
 
     const participantIds = asStrArray(meetingData.participantIds);
@@ -1331,12 +1435,27 @@ export async function settleCancellation(params: {
       : "participant_left",
   });
 
-  await setApplication(params.userId, {
-    status: params.isNoShowWithoutContact ? "no_show" : "cancelled",
-    stage: "cancelled",
-    open: false,
-    meetingId: null,
-  });
+  // 신청서가 이미 이 미팅에서 분리됐다면(예: 초대 거절로 재오픈된 신청)
+  // 뒤늦은 정산이 새 신청을 cancelled로 덮어쓰지 않는다.
+  const settledApplicationSnap = await db()
+    .collection(BLIND_MEETING_COLLECTIONS.applications)
+    .doc(params.userId)
+    .get();
+  const settledApplicationMeetingId = String(
+    settledApplicationSnap.data()?.meetingId ?? ""
+  ).trim();
+  if (settledApplicationMeetingId === params.meetingId) {
+    await setApplication(params.userId, {
+      status: params.isNoShowWithoutContact ? "no_show" : "cancelled",
+      stage: "cancelled",
+      open: false,
+      meetingId: null,
+    });
+  } else {
+    logger.info("blindMeeting settle skipped detached application", {
+      meetingId: params.meetingId,
+    });
+  }
 
   if (decision.appliesRestriction) {
     await recordNoShow(params.userId, params.meetingId);
@@ -1437,7 +1556,9 @@ export async function cancelMeeting(
   const policy = await loadPolicy();
 
   for (const participant of participants) {
-    if (participant.status === "replaced" || participant.status === "cancelled") {
+    // terminal 상태(replaced/cancelled/completed/no_show/restricted 등)는
+    // FSM상 cancelled 전이가 불가능하므로 건너뛴다.
+    if (!canTransitionParticipant(participant.status, "cancelled")) {
       continue;
     }
     // 정상 참석 예정자에게는 전액 환급 + 다음 미팅 우선권

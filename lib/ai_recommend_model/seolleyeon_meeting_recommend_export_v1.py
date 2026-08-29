@@ -22,7 +22,12 @@ from seolleyeon_meeting_common_v1 import (
     build_group_embedding_bundle,
     build_group_recent_action_maps,
     build_member_profile_view,
+    campus_zone_compatibility,
     coerce_str_list,
+    ACTIVATION_ENFORCED,
+    ACTIVATION_OFF,
+    load_meeting_campus_zone_activation,
+    meeting_policy_provenance,
     compute_group_score,
     firestore,
     has_cross_block_pair,
@@ -64,6 +69,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--allow_missing_region", dest="allow_missing_region", action="store_true")
     parser.add_argument("--disallow_missing_region", dest="allow_missing_region", action="store_false")
     parser.set_defaults(allow_missing_region=True)
+    # 생활권은 regionId 와 독립된 별도 정책이다. 기본값은 fail-closed.
+    parser.add_argument(
+        "--allow_missing_campus_zone",
+        dest="allow_missing_campus_zone",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--disallow_missing_campus_zone",
+        dest="allow_missing_campus_zone",
+        action="store_false",
+    )
+    parser.set_defaults(allow_missing_campus_zone=False)
+    # rollout activation. 지정하지 않으면 Firestore config 문서를 따른다.
+    parser.add_argument(
+        "--enforce_campus_life_zone",
+        dest="enforce_campus_life_zone",
+        action="store_true",
+        default=None,
+    )
+    parser.add_argument(
+        "--no_enforce_campus_life_zone",
+        dest="enforce_campus_life_zone",
+        action="store_false",
+    )
     parser.add_argument("--exclude_recent_nope_days", default=14, type=int)
     parser.add_argument("--exclude_recent_exposure_days", default=3, type=int)
     parser.add_argument("--block_history_days", default=365, type=int)
@@ -119,6 +148,29 @@ def main() -> int:
     algorithm_version = args.algorithm_version or f"meeting_group_ranker_v1_{date_key}"
 
     db = make_firestore_client(args.firestore_project, database=args.firestore_database)
+    # rollout activation: CLI 로 명시하지 않으면 config 문서를 따른다.
+    # 조회에 실패하면 예외가 올라가 배치가 중단된다 — 활성화 여부를 모른 채
+    # 미팅 추천을 새로 쓰지 않는다 (1:1 배치와 같은 계약).
+    if args.enforce_campus_life_zone is not None:
+        campus_zone_state = (
+            ACTIVATION_ENFORCED if args.enforce_campus_life_zone else ACTIVATION_OFF
+        )
+        campus_zone_policy_version = 0
+    else:
+        campus_zone_state, campus_zone_policy_version = (
+            load_meeting_campus_zone_activation(db)
+        )
+    campus_zone_enforced = campus_zone_state == ACTIVATION_ENFORCED
+    policy_provenance = meeting_policy_provenance(
+        campus_zone_state, campus_zone_policy_version
+    )
+    log_struct(
+        "info",
+        "meeting_recommend_campus_zone_activation",
+        campusLifeZoneFilterEnabled=campus_zone_enforced,
+        campusLifeZoneActivationState=campus_zone_state,
+        campusLifeZonePolicyVersion=campus_zone_policy_version,
+    )
     requested_actor_group_ids = _parse_group_ids(args.group_ids)
 
     ready_groups = load_meeting_group_index_records(
@@ -213,6 +265,7 @@ def main() -> int:
                 "items": [],
                 "model": {"type": "meeting_group_ranker", "version": algorithm_version},
                 "skipReason": "missing_embeddings",
+                "policy": policy_provenance,
             }
             status_counter["skipped"] += 1
             skip_reason_counter["missing_embeddings"] += 1
@@ -236,6 +289,18 @@ def main() -> int:
                 candidate_record = ready_groups[candidate_group_id]
                 if shares_member(actor_record.member_uids, candidate_record.member_uids):
                     continue
+                # 생활권은 후보 풀 truncation 전에 적용해야 한다. 나중에 걸면
+                # cross-zone 후보가 상위 pool_limit을 점유해 같은 생활권 팀이
+                # 후보군 밖으로 밀려난다.
+                if campus_zone_enforced:
+                    zone_ok, zone_reason = campus_zone_compatibility(
+                        actor_record.shared_campus_life_zones,
+                        candidate_record.shared_campus_life_zones,
+                        allow_missing_campus_zone=bool(args.allow_missing_campus_zone),
+                    )
+                    if not zone_ok:
+                        reason_counts[zone_reason or "campus_life_zone_mismatch"] += 1
+                        continue
                 candidate_group_ids.append(candidate_group_id)
                 if len(candidate_group_ids) >= pool_limit:
                     break
@@ -265,6 +330,15 @@ def main() -> int:
             if has_cross_block_pair(actor_record.member_uids, candidate_record.member_uids, blocked_pairs):
                 reason_counts["cross_block_or_report"] += 1
                 continue
+            if campus_zone_enforced:
+                zone_ok, zone_reason = campus_zone_compatibility(
+                    actor_record.shared_campus_life_zones,
+                    candidate_record.shared_campus_life_zones,
+                    allow_missing_campus_zone=bool(args.allow_missing_campus_zone),
+                )
+                if not zone_ok:
+                    reason_counts[zone_reason or "campus_life_zone_mismatch"] += 1
+                    continue
 
             assignment = best_group_assignment(
                 actor_record.member_uids,
@@ -365,6 +439,7 @@ def main() -> int:
                 "sourceRankMode": args.source_rank_mode,
             },
             "skipReason": skip_reason,
+            "policy": policy_provenance,
             "candidateStats": {
                 "candidatePool": len(candidate_group_ids),
                 "survived": len(items),

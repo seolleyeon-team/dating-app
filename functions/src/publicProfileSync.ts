@@ -24,6 +24,11 @@ const PUBLIC_ONBOARDING_KEYS = [
   "keywords",
   "interests",
   "profileQa",
+  // 추천 serving guard(생활권 hard eligibility)가 후보 판정에 쓴다.
+  // 클라이언트는 타인 문서를 publicProfiles 로만 읽을 수 있으므로
+  // 이 필드가 없으면 모든 후보가 fail-closed 로 제외된다.
+  // grade/department 는 이미 공개 필드라 노출 증분은 없다.
+  "campusLifeZones",
 ] as const;
 
 function asString(value: unknown): string | null {

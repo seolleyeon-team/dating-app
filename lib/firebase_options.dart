@@ -56,9 +56,30 @@ class DefaultFirebaseOptions {
     measurementId: 'G-17X0QMS7ZH',
   );
 
-  static const FirebaseOptions android = FirebaseOptions(
+  /// 빌드된 flavor 이름. `--flavor` 를 주면 Flutter 가 자동으로 넣어준다.
+  ///
+  /// Android 는 flavor 마다 applicationId 가 다르고, 패키지마다 별도의 Firebase
+  /// 앱이 등록돼 있다. 여기서 flavor 를 보지 않으면 production 번들이 staging
+  /// Firebase 앱으로 초기화된다.
+  static const String appFlavor = String.fromEnvironment('FLUTTER_APP_FLAVOR');
+
+  /// Android 는 flavor 에 따라 서로 다른 Firebase 앱을 쓴다.
+  static FirebaseOptions get android =>
+      appFlavor == 'staging' ? androidStaging : androidProduction;
+
+  /// Google Play 에 등록된 실제 앱 (com.seolleyeon.app).
+  static const FirebaseOptions androidProduction = FirebaseOptions(
     apiKey: 'AIzaSyCXdft1O8zRTn48Jkwzl9PBN7Xb0pcsScs',
     appId: '1:810450765203:android:685c8e050fcac6b55c9466',
+    messagingSenderId: '810450765203',
+    projectId: 'seolleyeon-final',
+    storageBucket: 'seolleyeon-final.firebasestorage.app',
+  );
+
+  /// 개발/검증용 (com.yonsei.dating). Play 에 올리지 않는다.
+  static const FirebaseOptions androidStaging = FirebaseOptions(
+    apiKey: 'AIzaSyCXdft1O8zRTn48Jkwzl9PBN7Xb0pcsScs',
+    appId: '1:810450765203:android:81ca13cb23027d875c9466',
     messagingSenderId: '810450765203',
     projectId: 'seolleyeon-final',
     storageBucket: 'seolleyeon-final.firebasestorage.app',

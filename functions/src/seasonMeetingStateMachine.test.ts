@@ -35,4 +35,15 @@ describe("seasonMeetingStateMachine", () => {
     assert.equal(canTransitionSeasonMeeting("matched", "chat_open"), false);
     assert.equal(canTransitionSeasonMeeting("matched", "deposit_pending"), true);
   });
+
+  it("allows no-show review from matched (deposit provider disabled path)", () => {
+    assert.equal(canTransitionSeasonMeeting("matched", "noshow_review"), true);
+    assert.equal(canTransitionSeasonMeeting("matched", "cancelled"), true);
+  });
+
+  it("terminal phases reject further transitions", () => {
+    assert.equal(canTransitionSeasonMeeting("cancelled", "matched"), false);
+    assert.equal(canTransitionSeasonMeeting("cancelled", "noshow_review"), false);
+    assert.equal(canTransitionSeasonMeeting("completed", "cancelled"), false);
+  });
 });

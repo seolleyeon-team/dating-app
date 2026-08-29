@@ -1,4 +1,5 @@
 import 'dart:ui';
+import '../../../shared/widgets/campus_life_zone_prerequisite.dart';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
@@ -42,6 +43,8 @@ class _SeasonMeetingRouletteScreenState
   bool _spinning = false;
   String? _statusMessage;
   String? _errorMessage;
+  bool _needsCampusLifeZone = false;
+  bool _openingCampusLifeZoneRepair = false;
 
   List<Widget> _buildReelItems(int memberIndex) {
     if (_candidateTeams.isEmpty) {
@@ -70,6 +73,7 @@ class _SeasonMeetingRouletteScreenState
     setState(() {
       _resolvingSpin = true;
       _errorMessage = null;
+      _needsCampusLifeZone = false;
       _statusMessage = '추천 팀을 찾고 있어요...';
     });
     widget.onSpin?.call();
@@ -140,6 +144,7 @@ class _SeasonMeetingRouletteScreenState
         _spinning = false;
         _statusMessage = null;
         _errorMessage = _readErrorMessage(error);
+        _needsCampusLifeZone = _isCampusLifeZoneError(error);
       });
     }
   }
@@ -155,8 +160,32 @@ class _SeasonMeetingRouletteScreenState
     );
   }
 
+  Future<void> _openCampusLifeZoneRepair() async {
+    if (_openingCampusLifeZoneRepair) return;
+    _openingCampusLifeZoneRepair = true;
+    try {
+      final completed = await CampusLifeZonePrerequisite.open(context);
+      if (!mounted) return;
+      if (completed) {
+        setState(() {
+          _needsCampusLifeZone = false;
+          _errorMessage = null;
+        });
+      }
+    } finally {
+      _openingCampusLifeZoneRepair = false;
+    }
+  }
+
+  /// 서버가 생활권 미설정으로 거부했는지.
+  static bool _isCampusLifeZoneError(Object error) =>
+      error.toString().contains('생활권');
+
   String _readErrorMessage(Object error) {
     final message = error.toString();
+    if (_isCampusLifeZoneError(error)) {
+      return '팀원들의 생활권 정보가 필요해요. 학년·학과를 설정하면 바로 이용할 수 있어요.';
+    }
     if (message.contains('추천 결과가 아직 준비되지 않았어요')) {
       return '추천 결과를 준비 중이에요. 잠시 후 다시 시도해 주세요.';
     }
@@ -191,10 +220,35 @@ class _SeasonMeetingRouletteScreenState
                 const _TitleSection(),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
-                  child: _StatusBanner(
-                    message: _statusMessage,
-                    errorMessage: _errorMessage,
-                    hasResolvedTeams: _candidateTeams.isNotEmpty,
+                  child: Column(
+                    children: [
+                      _StatusBanner(
+                        message: _statusMessage,
+                        errorMessage: _errorMessage,
+                        hasResolvedTeams: _candidateTeams.isNotEmpty,
+                      ),
+                      // 생활권 미설정이면 안내만 하지 말고 해결 경로를 준다.
+                      if (_needsCampusLifeZone)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: CupertinoButton(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 10,
+                            ),
+                            color: const Color(0xFF3E3548),
+                            borderRadius: BorderRadius.circular(14),
+                            onPressed: _openCampusLifeZoneRepair,
+                            child: const Text(
+                              '생활권 설정하기',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 Expanded(

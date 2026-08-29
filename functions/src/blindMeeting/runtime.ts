@@ -19,6 +19,9 @@ export const BLIND_MEETING_CALLABLE_OPTIONS = {
   concurrency: 1,
   memory: "256MiB" as const,
   maxInstances: 5,
+  // 다른 모든 callable과 동일하게 App Check를 강제한다. 이 dispatcher만
+  // 빠지면 보증금/취소/안전스탬프 action이 앱 밖에서 스크립트로 호출될 수 있다.
+  enforceAppCheck: true,
 };
 
 export const BLIND_MEETING_SCHEDULE_OPTIONS = {

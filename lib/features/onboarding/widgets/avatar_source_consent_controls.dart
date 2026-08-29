@@ -43,49 +43,54 @@ class AvatarSourceConsentControls extends StatelessWidget {
         ),
         child: Padding(
           padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('아바타 생성 동의', style: titleStyle),
-              const SizedBox(height: 6),
-              Text(
-                '업로드한 사진은 아바타 생성과 관련 안전 검토를 위해 처리됩니다. 이 항목은 아바타 생성에 필수입니다.',
-                style: bodyStyle,
-              ),
-              const SizedBox(height: 10),
-              CheckboxListTile(
-                key: clipRecommendationKey,
-                value: value.clipRecommendation,
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                title: const Text('추천 품질 개선에 사용'),
-                subtitle: const Text(
-                  '선택하면 사진 처리 결과를 맞춤 추천 품질 개선에 함께 사용할 수 있습니다.',
+          // 타일은 가장 가까운 Material 에 잉크를 그린다. DecoratedBox 의 배경이
+          // 그 사이에 있으면 잉크가 가려지므로 여기에 투명 Material 을 둔다.
+          child: Material(
+            type: MaterialType.transparency,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('아바타 생성 동의', style: titleStyle),
+                const SizedBox(height: 6),
+                Text(
+                  '업로드한 사진은 아바타 생성과 관련 안전 검토를 위해 처리됩니다. 이 항목은 아바타 생성에 필수입니다.',
+                  style: bodyStyle,
                 ),
-                onChanged: locked
-                    ? null
-                    : (checked) => onChanged(
-                        value.copyWith(clipRecommendation: checked == true),
-                      ),
-              ),
-              CheckboxListTile(
-                key: sourcePhotoRetentionKey,
-                value: value.sourcePhotoRetention,
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                title: const Text('원본 사진 보관 허용'),
-                subtitle: const Text(
-                  '선택하면 재생성, 오류 확인, 고객 문의 대응을 위해 원본 사진을 제한적으로 보관할 수 있습니다.',
+                const SizedBox(height: 10),
+                CheckboxListTile(
+                  key: clipRecommendationKey,
+                  value: value.clipRecommendation,
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('추천 품질 개선에 사용'),
+                  subtitle: const Text(
+                    '선택하면 사진 처리 결과를 맞춤 추천 품질 개선에 함께 사용할 수 있습니다.',
+                  ),
+                  onChanged: locked
+                      ? null
+                      : (checked) => onChanged(
+                          value.copyWith(clipRecommendation: checked == true),
+                        ),
                 ),
-                onChanged: locked
-                    ? null
-                    : (checked) => onChanged(
-                        value.copyWith(sourcePhotoRetention: checked == true),
-                      ),
-              ),
-            ],
+                CheckboxListTile(
+                  key: sourcePhotoRetentionKey,
+                  value: value.sourcePhotoRetention,
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('원본 사진 보관 허용'),
+                  subtitle: const Text(
+                    '선택하면 재생성, 오류 확인, 고객 문의 대응을 위해 원본 사진을 제한적으로 보관할 수 있습니다.',
+                  ),
+                  onChanged: locked
+                      ? null
+                      : (checked) => onChanged(
+                          value.copyWith(sourcePhotoRetention: checked == true),
+                        ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

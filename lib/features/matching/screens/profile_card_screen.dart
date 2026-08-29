@@ -11,6 +11,10 @@
 
 import 'dart:async';
 import 'dart:ui';
+import '../../../services/campus_life_zone_repair_service.dart';
+import '../../../services/contact_block_service.dart';
+import '../../../shared/widgets/campus_life_zone_prerequisite.dart';
+import '../../../shared/widgets/kakao_recommendation_privacy_prerequisite.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import '../../../services/storage_service.dart';
@@ -55,11 +59,18 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
   final _deckController = SeolSwipeDeckController();
   final _storageService = StorageService();
   final _aiService = AiRecommendationService();
+  final _contactBlockService = ContactBlockService();
 
   List<AiRecommendedProfile> _profiles = [];
   bool _isLoading = true;
   bool _isReloading = false;
   bool _reloadRequested = false;
+  bool _needsCampusLifeZone = false;
+  bool _campusLifeZoneEnforced = false;
+  bool _privacyConsentRequired = false;
+  bool _recommendationLoadFailed = false;
+  bool _isSyncingPrivacy = false;
+  String? _privacySyncError;
   String? _kakaoUserId;
   String? _privacyWatchedUid;
   StreamSubscription<void>? _privacySubscription;
@@ -90,11 +101,23 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
       if (mounted) setState(() => _kakaoUserId = kakaoUserId);
 
       if (kakaoUserId == null || kakaoUserId.isEmpty) {
-        debugPrint(
-          '[ProfileCard] ⚠️ kakaoUserId is null/empty — recEvents 기록 불가',
-        );
-      } else {
-        _watchRecommendationPrivacy(kakaoUserId);
+        throw StateError('missing_kakao_user_id');
+      }
+      _watchRecommendationPrivacy(kakaoUserId);
+
+      final privacyReady = await _aiService.isViewerRecommendationPrivacyReady(
+        kakaoUserId,
+      );
+      if (!privacyReady) {
+        if (!mounted) return;
+        setState(() {
+          _profiles = [];
+          _privacyConsentRequired = true;
+          _recommendationLoadFailed = false;
+          _isLoading = false;
+        });
+        _watchCandidateEligibility(const []);
+        return;
       }
 
       final feed = await _aiService.fetchProfileFeed(
@@ -103,9 +126,31 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
       );
       debugPrint('[ProfileCard] 프로필 ${feed.length}개 로드 완료');
 
+      // 생활권 정책의 rollout 상태는 서버가 정한다. 클라이언트는 따르기만 한다.
+      final repairService = CampusLifeZoneRepairService();
+      // 안내를 차단으로 보여줄지 정하는 값이다. 상태를 모르면(unknown)
+      // 차단하지 않는다 — 실제 후보 필터링은 피드 생성 경로가
+      // 문서 metadata 까지 보고 따로 판정한다.
+      final enforced = await repairService.isEnforcementEnabled(
+        unknownAs: false,
+      );
+
+      // ON: 피드가 비었을 때만 원인을 확인한다 (정상 피드에는 추가 read 없음).
+      // OFF: 차단하지 않고 미리 설정하도록 안내만 하므로 상태를 확인한다.
+      var needsZone = false;
+      if (feed.isEmpty || !enforced) {
+        final status = await repairService.loadStatus();
+        needsZone = status?.needsRepair ?? false;
+      }
+
       if (!mounted) return;
       setState(() {
         _profiles = feed;
+        _needsCampusLifeZone = needsZone;
+        _campusLifeZoneEnforced = enforced;
+        _privacyConsentRequired = false;
+        _recommendationLoadFailed = false;
+        _privacySyncError = null;
         _isLoading = false;
       });
       _watchCandidateEligibility(feed);
@@ -120,7 +165,12 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
         '[ProfileCard] load recommendations ${PrivacyLogUtils.errorSummary(e)}',
       );
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _profiles = [];
+          _recommendationLoadFailed = true;
+          _privacyConsentRequired = false;
+          _isLoading = false;
+        });
       }
     } finally {
       _isReloading = false;
@@ -130,6 +180,49 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
         _privacyReloadDebounce = Timer(Duration.zero, _loadRecommendations);
       }
     }
+  }
+
+  Future<void> _requestKakaoConsentAndSync() async {
+    if (_isSyncingPrivacy) return;
+    setState(() {
+      _isSyncingPrivacy = true;
+      _privacySyncError = null;
+    });
+    try {
+      final result = await _contactBlockService.syncKakaoTalkFriendBlocks(
+        requestConsentIfNeeded: true,
+      );
+      if (!result.recommendationPrivacyReady) {
+        throw StateError('recommendation_privacy_not_ready_after_sync');
+      }
+      if (!mounted) return;
+      setState(() {
+        _privacyConsentRequired = false;
+        _isLoading = true;
+      });
+      await _loadRecommendations();
+    } catch (error) {
+      debugPrint(
+        '[ProfileCard] Kakao privacy sync '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
+      if (!mounted) return;
+      setState(() {
+        _privacySyncError =
+            '동의를 완료하지 못했어요. 카카오 동의 화면에서 친구목록을 허용한 뒤 다시 시도해 주세요.';
+      });
+    } finally {
+      if (mounted) setState(() => _isSyncingPrivacy = false);
+    }
+  }
+
+  Future<void> _retryRecommendations() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _recommendationLoadFailed = false;
+    });
+    await _loadRecommendations();
   }
 
   void _watchCandidateEligibility(List<AiRecommendedProfile> profiles) {
@@ -342,30 +435,58 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                   child: _isLoading
                       ? const Center(child: CupertinoActivityIndicator())
-                      : _profiles.isEmpty
-                      ? Center(
-                          child: Text(
-                            '오늘의 추천이 모두 소진되었습니다.',
-                            style: TextStyle(
-                              color: _AppColors.gray500,
-                              fontFamily: 'Pretendard',
-                            ),
-                          ),
+                      : _privacyConsentRequired
+                      ? KakaoRecommendationPrivacyPrerequisite(
+                          isWorking: _isSyncingPrivacy,
+                          errorMessage: _privacySyncError,
+                          onConsentAndSync: _requestKakaoConsentAndSync,
                         )
-                      : SeolSwipeDeck(
-                          controller: _deckController,
-                          onSwiped: _onSwiped,
-                          cards: _profiles
-                              .map(
-                                (p) => _ProfileCard(
-                                  profile: p,
-                                  pulseController: _pulseController,
-                                  onShare: widget.onShare,
-                                  onMoreOptions: () =>
-                                      _showMoreOptions(context, p),
-                                ),
+                      : _recommendationLoadFailed
+                      ? RecommendationLoadFailure(
+                          onRetry: _retryRecommendations,
+                        )
+                      : _profiles.isEmpty
+                      ? (_needsCampusLifeZone && _campusLifeZoneEnforced
+                            // 생활권 미설정이면 빈 화면 대신 해결 경로를 준다.
+                            // (정책이 적용된 상태에서만 이게 원인이다)
+                            ? CampusLifeZonePrerequisite(
+                                onCompleted: _loadRecommendations,
                               )
-                              .toList(),
+                            : Center(
+                                child: Text(
+                                  '오늘의 추천이 모두 소진되었습니다.',
+                                  style: TextStyle(
+                                    color: _AppColors.gray500,
+                                    fontFamily: 'Pretendard',
+                                  ),
+                                ),
+                              ))
+                      : Column(
+                          children: [
+                            // 정책 적용 전에는 추천을 막지 않고 안내만 덧붙인다.
+                            if (_needsCampusLifeZone &&
+                                !_campusLifeZoneEnforced)
+                              CampusLifeZoneAdvisoryBanner(
+                                onCompleted: _loadRecommendations,
+                              ),
+                            Expanded(
+                              child: SeolSwipeDeck(
+                                controller: _deckController,
+                                onSwiped: _onSwiped,
+                                cards: _profiles
+                                    .map(
+                                      (p) => _ProfileCard(
+                                        profile: p,
+                                        pulseController: _pulseController,
+                                        onShare: widget.onShare,
+                                        onMoreOptions: () =>
+                                            _showMoreOptions(context, p),
+                                      ),
+                                    )
+                                    .toList(),
+                              ),
+                            ),
+                          ],
                         ),
                 ),
               ),

@@ -219,6 +219,86 @@ export function canTransitionMeeting(
   return (ALLOWED_MEETING_TRANSITIONS[from] ?? []).includes(to);
 }
 
+/**
+ * 허용된 참가자 상태 전환.
+ *
+ * lib/features/blind_meeting/domain/blind_meeting_session.dart 의
+ * allowedParticipantTransitions 와 1:1 동일해야 한다 (Dart 쪽 주석대로
+ * "여기 정의된 전환 표는 서버 로직과 UI 판단의 단일 기준"). 파리티는
+ * __tests__/stateMachines.test.ts 의 fingerprint 테스트가 지킨다.
+ */
+export const ALLOWED_PARTICIPANT_TRANSITIONS: Record<
+  ParticipantStatus,
+  ParticipantStatus[]
+> = {
+  applied: ["waitlisted", "invited", "cancelled", "restricted"],
+  waitlisted: ["invited", "cancelled", "restricted"],
+  invited: ["accepted", "cancelled", "waitlisted"],
+  accepted: ["deposit_pending", "confirmed", "cancel_requested", "cancelled"],
+  deposit_pending: ["confirmed", "cancel_requested", "cancelled"],
+  confirmed: [
+    "cancel_requested",
+    "replacement_pending",
+    "attended",
+    "no_show",
+    "cancelled",
+  ],
+  cancel_requested: ["replacement_pending", "cancelled", "confirmed"],
+  replacement_pending: ["replaced", "confirmed", "cancelled"],
+  replaced: [],
+  cancelled: [],
+  no_show: ["restricted", "attended"],
+  attended: ["completed", "no_show"],
+  completed: [],
+  restricted: [],
+};
+
+export function canTransitionParticipant(
+  from: ParticipantStatus,
+  to: ParticipantStatus
+): boolean {
+  if (from === to) return false;
+  return (ALLOWED_PARTICIPANT_TRANSITIONS[from] ?? []).includes(to);
+}
+
+/**
+ * 허용된 신청서 상태 전환.
+ *
+ * 신청서(blindMeetingApplications/{uid})는 사용자당 하나의 문서를 미팅을
+ * 넘나들며 재사용하므로 participant 와 lifecycle이 다르다:
+ * - `applied` 로의 재진입 edge(재신청, 미팅 취소 후 재오픈, 거절 후 재오픈)
+ * - `applied → confirmed` 는 대체 참가자 직접 합류 전용
+ * cancel_requested / replacement_pending / replaced / attended 는
+ * participant 전용 상태로, 신청서에는 쓰지 않는다.
+ */
+export const ALLOWED_APPLICATION_TRANSITIONS: Record<
+  ParticipantStatus,
+  ParticipantStatus[]
+> = {
+  applied: ["waitlisted", "invited", "confirmed", "cancelled", "restricted"],
+  waitlisted: ["invited", "applied", "cancelled", "restricted"],
+  invited: ["accepted", "applied", "cancelled", "no_show"],
+  accepted: ["confirmed", "applied", "cancelled", "no_show"],
+  deposit_pending: ["confirmed", "applied", "cancelled", "no_show"],
+  confirmed: ["completed", "applied", "cancelled", "no_show"],
+  cancel_requested: [],
+  replacement_pending: [],
+  replaced: [],
+  attended: [],
+  completed: ["applied"],
+  cancelled: ["applied"],
+  no_show: ["applied"],
+  restricted: ["applied"],
+};
+
+export function canTransitionApplication(
+  from: ParticipantStatus,
+  to: ParticipantStatus
+): boolean {
+  if (from === to) return false;
+  return (ALLOWED_APPLICATION_TRANSITIONS[from] ?? []).includes(to);
+}
+
 /** 참가자가 단체 채팅 멤버십을 가질 수 있는 상태 */
 export const CHAT_MEMBERSHIP_STATUSES: ParticipantStatus[] = [
   "confirmed",

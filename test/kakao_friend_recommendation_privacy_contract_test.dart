@@ -154,8 +154,39 @@ void main() {
     expect(verify, contains('privacy_violations'));
     expect(verify, contains('privacy_policy.allows(uid, candidate_uid)'));
 
+    final rrf = _read(
+      'lib/ai_recommend_model/seolleyeon_rrf_export.py',
+    );
+    expect(rrf, contains('privacy_prefilter_limit'));
+    expect(rrf, contains('merged = privacy_policy.filter_items(uid, merged)'));
+
+    final daily = _read('recsys/jobs/daily_job.py');
+    expect(daily, contains('load_recommendation_privacy_policy'));
+    expect(daily, contains('privacy_policy.filter_items'));
+    expect(daily, contains('viewer_privacy_not_ready'));
+
     final workflow = _read('infra/workflows/recs_pipeline.yaml');
+    expect(workflow, contains('recs-daily'));
     expect(workflow, contains('raise_verify'));
+  });
+
+  test('1:1 screens distinguish consent, load failure, and empty feed', () {
+    final prerequisite = _read(
+      'lib/shared/widgets/kakao_recommendation_privacy_prerequisite.dart',
+    );
+    expect(prerequisite, contains('카카오 친구목록 동의가 필요해요'));
+    expect(prerequisite, contains('추천 정보를 불러오지 못했어요.'));
+    expect(prerequisite, contains('인터넷 연결을 확인하고 다시 시도해 주세요.'));
+
+    for (final path in [
+      'lib/features/matching/screens/profile_card_screen.dart',
+      'lib/features/matching/screens/mystery_card_screen.dart',
+    ]) {
+      final screen = _read(path);
+      expect(screen, contains('KakaoRecommendationPrivacyPrerequisite'));
+      expect(screen, contains('RecommendationLoadFailure'));
+      expect(screen, contains('syncKakaoTalkFriendBlocks'));
+    }
   });
 
   test('clients cannot write recommendation exclusion pairs', () {
@@ -166,5 +197,11 @@ void main() {
 
     expect(section, contains('allow get, list: if isSelf(viewerUid);'));
     expect(section, contains('allow create, update, delete: if false;'));
+
+    expect(
+      rules,
+      contains('match /dailyRecs/{userId}/days/{dateKey}'),
+    );
+    expect(rules, contains('allow read: if isSelf(userId);'));
   });
 }

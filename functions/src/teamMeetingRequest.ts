@@ -1,6 +1,8 @@
 import { createHash } from "crypto";
 import {
   FieldValue,
+  type DocumentReference,
+  type DocumentSnapshot,
   type Firestore,
   type Transaction,
 } from "firebase-admin/firestore";
@@ -336,6 +338,64 @@ function getCallableData(request: CallableRequest<unknown>): Record<string, unkn
   return isRecord(request.data) ? request.data : {};
 }
 
+/**
+ * 두 팀 구성원 사이(3×3, 양방향)의 차단 관계를 트랜잭션 안에서 조회한다.
+ * blocks/{uid}/targets/{targetUid} 스키마는 reportAndBlock/contact sync와 공유.
+ */
+async function findCrossTeamBlockedPair(
+  tx: Transaction,
+  firestore: Firestore,
+  leftUids: string[],
+  rightUids: string[]
+): Promise<boolean> {
+  const refs: DocumentReference[] = [];
+  for (const left of leftUids) {
+    for (const right of rightUids) {
+      if (!SAFE_PATH_SEGMENT.test(left) || !SAFE_PATH_SEGMENT.test(right)) {
+        continue;
+      }
+      refs.push(
+        firestore.collection("blocks").doc(left).collection("targets").doc(right)
+      );
+      refs.push(
+        firestore.collection("blocks").doc(right).collection("targets").doc(left)
+      );
+    }
+  }
+  if (refs.length === 0) return false;
+  const snaps = await Promise.all(refs.map((ref) => tx.get(ref)));
+  return snaps.some((snap) => snap.exists);
+}
+
+/**
+ * 수락 시점에 파생 스냅샷이 아니라 권위 팀 문서(meetingGroups)를 다시 읽어
+ * 팀 구성이 요청 당시와 동일한지 검증한다 (fail-closed).
+ */
+function assertGroupMembersUnchanged(
+  groupSnap: DocumentSnapshot,
+  expectedMemberUids: string[],
+  teamLabel: string
+): void {
+  if (!groupSnap.exists || groupSnap.data() == null) {
+    throw new HttpsError(
+      "failed-precondition",
+      `season_meeting_team_missing:${teamLabel}`
+    );
+  }
+  const data = (groupSnap.data() ?? {}) as Record<string, unknown>;
+  const liveMembers = dedupeSorted(readStringList(data.memberUids));
+  const expected = dedupeSorted(expectedMemberUids);
+  if (
+    liveMembers.length !== expected.length ||
+    liveMembers.join("|") !== expected.join("|")
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "팀 구성이 변경되어 매칭을 진행할 수 없어요."
+    );
+  }
+}
+
 export function createTeamMeetingRequestFunction(
   firestore: Firestore,
   resolveUser: ResolveCallableUser
@@ -370,6 +430,48 @@ export function createTeamMeetingRequestFunction(
           .doc(plan.pairLockId);
         const pairLockSnap = await tx.get(pairLockRef);
         const pairLockData = (pairLockSnap.data() ?? {}) as Record<string, unknown>;
+
+        // 같은 팀 pair에 이미 성사된(accepted) 매칭이 살아 있으면
+        // 날짜가 달라져도 두 번째 match/room을 만들지 않는다.
+        if (asString(pairLockData.status) === "accepted") {
+          const acceptedRequestId = asString(pairLockData.requestId);
+          if (SAFE_PATH_SEGMENT.test(acceptedRequestId)) {
+            const acceptedMatchSnap = await tx.get(
+              firestore
+                .collection("eventThreeVsThreeMatches")
+                .doc(teamMeetingMatchId(acceptedRequestId))
+            );
+            const acceptedMatch =
+              (acceptedMatchSnap.data() ?? {}) as Record<string, unknown>;
+            const acceptedStatus = asString(acceptedMatch.status).toLowerCase();
+            const acceptedPhase = asString(acceptedMatch.seasonPhase);
+            const matchStillActive =
+              acceptedMatchSnap.exists &&
+              !["cancelled", "canceled", "expired"].includes(acceptedStatus) &&
+              acceptedPhase !== "cancelled";
+            if (matchStillActive) {
+              throw new HttpsError(
+                "failed-precondition",
+                "이미 매칭이 성사된 팀이에요."
+              );
+            }
+          }
+        }
+
+        // 요청 생성 시점에 두 팀 구성원 간 차단 관계를 재검증한다 (fail-closed).
+        const createBlocked = await findCrossTeamBlockedPair(
+          tx,
+          firestore,
+          readStringList(plan.requestData.fromTeamMemberUids),
+          readStringList(plan.requestData.toTeamMemberUids)
+        );
+        if (createBlocked) {
+          throw new HttpsError(
+            "failed-precondition",
+            "차단 관계가 있어 미팅 요청을 보낼 수 없어요."
+          );
+        }
+
         const lockedRequestId = asString(pairLockData.status) === "pending"
           ? requireSafePathSegment(pairLockData.requestId, "lockedRequestId")
           : "";
@@ -578,6 +680,85 @@ export function createRespondTeamMeetingRequestFunction(
               .doc(requireSafePathSegment(rawPairLockId, "pairLockId"))
           : null;
         const pairLockSnap = pairLockRef ? await tx.get(pairLockRef) : null;
+
+        // 신규 accept에 한해 (idempotent replay 제외) 추가 재검증을 수행한다.
+        const isFreshAccept = plan.status === "accepted" && plan.matchData != null;
+        if (isFreshAccept) {
+          const guardLockData =
+            (pairLockSnap?.data() ?? {}) as Record<string, unknown>;
+          if (
+            asString(guardLockData.status) === "accepted" &&
+            asString(guardLockData.requestId) !== requestId
+          ) {
+            throw new HttpsError(
+              "failed-precondition",
+              "이미 다른 요청으로 매칭이 성사된 팀이에요."
+            );
+          }
+
+          const fromTeamId = asString(requestData.fromTeamId);
+          const toTeamId = asString(requestData.toTeamId);
+          const fromTeamMemberUids = readStringList(requestData.fromTeamMemberUids);
+          const toTeamMemberUids = readStringList(requestData.toTeamMemberUids);
+          if (
+            SAFE_PATH_SEGMENT.test(fromTeamId) &&
+            SAFE_PATH_SEGMENT.test(toTeamId)
+          ) {
+            const [fromGroupSnap, toGroupSnap] = await Promise.all([
+              tx.get(firestore.collection("meetingGroups").doc(fromTeamId)),
+              tx.get(firestore.collection("meetingGroups").doc(toTeamId)),
+            ]);
+            assertGroupMembersUnchanged(fromGroupSnap, fromTeamMemberUids, "from");
+            assertGroupMembersUnchanged(toGroupSnap, toTeamMemberUids, "to");
+          }
+
+          const acceptBlocked = await findCrossTeamBlockedPair(
+            tx,
+            firestore,
+            fromTeamMemberUids,
+            toTeamMemberUids
+          );
+          if (acceptBlocked) {
+            throw new HttpsError(
+              "failed-precondition",
+              "차단 관계가 있어 매칭을 진행할 수 없어요."
+            );
+          }
+
+          // 한 팀은 동시에 하나의 활성 match만 가질 수 있다.
+          // 트랜잭션 내 쿼리는 serializable 하므로 A-B / A-C 동시 수락이나
+          // 양방향(legacy) 요청 동시 수락에서도 정확히 하나만 커밋된다.
+          const matches = firestore.collection("eventThreeVsThreeMatches");
+          const [fromLeft, fromRight, toLeft, toRight] = await Promise.all([
+            tx.get(matches.where("leftTeamId", "==", fromTeamId)),
+            tx.get(matches.where("rightTeamId", "==", fromTeamId)),
+            tx.get(matches.where("leftTeamId", "==", toTeamId)),
+            tx.get(matches.where("rightTeamId", "==", toTeamId)),
+          ]);
+          const conflictingMatch = [
+            ...fromLeft.docs,
+            ...fromRight.docs,
+            ...toLeft.docs,
+            ...toRight.docs,
+          ].find((doc) => {
+            if (doc.id === plan.matchId) return false;
+            const docData = (doc.data() ?? {}) as Record<string, unknown>;
+            const docStatus = asString(docData.status).toLowerCase();
+            const docPhase = asString(docData.seasonPhase);
+            return (
+              !["cancelled", "canceled", "expired"].includes(docStatus) &&
+              docPhase !== "cancelled" &&
+              docPhase !== "completed"
+            );
+          });
+          if (conflictingMatch != null) {
+            throw new HttpsError(
+              "failed-precondition",
+              "이미 진행 중인 매칭이 있는 팀이에요."
+            );
+          }
+        }
+
         // Read every document needed for the accepted-match side effect before
         // issuing any transaction writes. This keeps retries serializable and
         // lets us validate existing links instead of overwriting them.

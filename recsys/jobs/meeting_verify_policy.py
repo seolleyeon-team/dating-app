@@ -11,6 +11,23 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+ACTIVATION_ENFORCED = "enforced"
+
+
+class _Unchecked:
+    """생활권 정책 검사를 요청하지 않은 호출부를 구분하는 표식.
+
+    ``None`` 은 "확인하려 했으나 activation 을 읽지 못했다" 라는 뜻이고,
+    이 표식은 "이번 호출은 정책 검사를 요청하지 않았다" 라는 뜻이다.
+    둘을 같은 값으로 두면 기존 호출부가 전부 실패한다.
+    """
+
+    def __repr__(self) -> str:  # pragma: no cover - 디버깅 편의
+        return "<unchecked>"
+
+
+UNCHECKED = _Unchecked()
+
 
 VALID_OUTPUT_STATUSES = frozenset({"ready", "empty", "skipped"})
 
@@ -45,6 +62,9 @@ def _summarize_output_documents(
     missing = 0
     malformed = 0
     malformed_reasons: Counter[str] = Counter()
+    # 이 문서가 어떤 생활권 정책 상태에서 만들어졌는지. provenance 가 없는
+    # legacy 문서는 "missing" 으로 센다.
+    policy_states: Counter[str] = Counter()
 
     for group_id in group_ids:
         if group_id not in docs:
@@ -66,6 +86,16 @@ def _summarize_output_documents(
         status_counts[str(status)] += 1
         _append_skip_reason(reason_counts, doc.get("skipReason"))
 
+        policy = doc.get("policy")
+        policy_state = (
+            policy.get("campusLifeZone")
+            if isinstance(policy, Mapping)
+            and isinstance(policy.get("campusLifeZone"), str)
+            and policy.get("campusLifeZone")
+            else "missing"
+        )
+        policy_states[str(policy_state)] += 1
+
         algorithm_version = doc.get("algorithmVersion")
         if isinstance(algorithm_version, str) and algorithm_version.strip():
             algorithm_versions[group_id] = algorithm_version.strip()
@@ -86,11 +116,46 @@ def _summarize_output_documents(
         "missing": missing,
         "malformed": malformed,
         "malformedReasons": dict(malformed_reasons),
+        "policyStates": dict(policy_states),
     }
     return result, reason_counts, algorithm_versions
 
 
-def evaluate_meeting_verification(summary: Mapping[str, Any]) -> dict[str, Any]:
+def campus_life_zone_policy_failures(
+    summary: Mapping[str, Any], expected_state: str | None
+) -> list[str]:
+    """산출물이 의도한 생활권 정책 상태로 만들어졌는지 확인한다.
+
+    활성화했다고 믿는데 문서가 ``off`` 로 기록돼 있으면, 그 문서에는
+    cross-zone 후보가 들어 있을 수 있다. 이것을 성공으로 넘기면 안 된다.
+
+    - ``expected_state`` 가 ``None`` 이면(조회 실패) 판정하지 않고 실패로 본다.
+    - ``enforced`` 를 기대하면 provenance 가 없는 legacy 문서도 실패다.
+    - ``off`` (준비 단계) 를 기대할 때는 provenance 가 없는 legacy 문서를
+      허용한다. 그 시점에는 생활권으로 거른 것이 없어 섞일 위험이 없다.
+    """
+    if expected_state is None:
+        return ["campusLifeZone:activation_unknown"]
+
+    failures: list[str] = []
+    for output_name in ("meetingModelRecs", "meetingDailyRecs"):
+        output = summary.get(output_name, {}) or {}
+        states = output.get("policyStates", {}) or {}
+        for state, count in states.items():
+            if int(count or 0) <= 0:
+                continue
+            if state == expected_state:
+                continue
+            if state == "missing" and expected_state != ACTIVATION_ENFORCED:
+                continue
+            failures.append(f"{output_name}:campusLifeZone_{state}")
+    return failures
+
+
+def evaluate_meeting_verification(
+    summary: Mapping[str, Any],
+    expected_campus_life_zone_state: Any = UNCHECKED,
+) -> dict[str, Any]:
     """Apply the production failure policy to a verification summary."""
 
     ready_groups = int(summary.get("readyGroups", 0) or 0)
@@ -109,11 +174,20 @@ def evaluate_meeting_verification(summary: Mapping[str, Any]) -> dict[str, Any]:
         if int(output.get("malformed", 0) or 0) > 0:
             failure_reasons.append(f"{output_name}:malformed")
 
-    return {
+    checked = not isinstance(expected_campus_life_zone_state, _Unchecked)
+    if checked:
+        failure_reasons.extend(
+            campus_life_zone_policy_failures(summary, expected_campus_life_zone_state)
+        )
+
+    result = {
         "status": "healthy" if not failure_reasons else "failed",
         "healthy": not failure_reasons,
         "failureReasons": failure_reasons,
     }
+    if checked:
+        result["campusLifeZoneExpectedState"] = expected_campus_life_zone_state
+    return result
 
 
 def build_meeting_verification_summary(
@@ -121,6 +195,7 @@ def build_meeting_verification_summary(
     group_records: Mapping[str, Any],
     model_docs: Mapping[str, Any],
     daily_docs: Mapping[str, Any],
+    expected_campus_life_zone_state: Any = UNCHECKED,
 ) -> dict[str, Any]:
     """Build a JSON-safe summary and evaluate it.
 
@@ -188,6 +263,8 @@ def build_meeting_verification_summary(
         },
         "skipReasonHistogram": dict(reason_counts),
     }
-    summary.update(evaluate_meeting_verification(summary))
+    summary.update(
+        evaluate_meeting_verification(summary, expected_campus_life_zone_state)
+    )
     return summary
 

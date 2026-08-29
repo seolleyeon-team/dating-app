@@ -43,13 +43,13 @@ def test_workflow_resolves_one_kst_date_key_and_runs_meeting_steps_in_order():
     assert "raise_meeting_verify" in workflow
 
 
-def test_existing_one_to_one_verify_remains_non_fatal():
+def test_one_to_one_verify_failure_propagates_before_meeting_steps():
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     start = workflow.index("- run_verify:")
     end = workflow.index("- run_meeting_group_index:")
     verify_block = workflow[start:end]
-    assert "Verify failed (non-fatal)" in verify_block
-    assert "raise_verify" not in verify_block
+    assert "Verify failed:" in verify_block
+    assert "raise_verify" in verify_block
 
 
 def test_deploy_script_declares_all_meeting_jobs_and_resources():

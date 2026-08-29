@@ -59,8 +59,9 @@ BlindMeetingCandidate hydrate(Map<String, dynamic> raw, String dateKey) {
     ),
     interestIds: (raw['interestIds'] as List).map((e) => '$e').toSet(),
     mbti: raw['mbti'] as String?,
-    // 골든 벡터는 점수 계산만 검증한다. 날짜는 전원 동일하게 둔다.
+    // 골든 벡터는 점수 계산만 검증한다. 날짜·생활권은 전원 동일하게 둔다.
     availableDateKeys: {dateKey},
+    campusLifeZones: const {'sinchon'},
   );
 }
 

@@ -141,6 +141,10 @@ test("matching and recommendation rules are participant or owner scoped", () => 
     "match /modelRecs/{userId}/daily/{dateKey}/sources/{algo} { allow read: if isSelf(userId); allow write: if false; }"
   );
   assertContains(
+    "daily recs must be readable only by the target user",
+    "match /dailyRecs/{userId}/days/{dateKey} { allow read: if isSelf(userId); allow write: if false; }"
+  );
+  assertContains(
     "asks must be participant-readable and recipient can only mark read",
     "match /asks/{askId} { allow read: if isAskParticipant(resource.data); allow create: if isSignedIn() && request.resource.data.fromUserId is string && request.resource.data.fromUserId == request.auth.uid"
   );

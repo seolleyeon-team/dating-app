@@ -10,12 +10,14 @@ import '../../../core/constants/app_colors.dart';
 import '../../../router/route_names.dart';
 import '../../../services/ai_recommendation_service.dart';
 import '../../../services/ask_service.dart';
+import '../../../services/contact_block_service.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/constants/photo_blur_constants.dart';
 import '../../../shared/utils/privacy_log_utils.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
+import '../../../shared/widgets/kakao_recommendation_privacy_prerequisite.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 import '../../chat/services/chat_service.dart';
 import '../../notifications/services/notification_service.dart';
@@ -292,12 +294,17 @@ class _LockerRecommendationContentState
   final _askService = AskService();
   final _userService = UserService();
   final _aiService = AiRecommendationService();
+  final _contactBlockService = ContactBlockService();
   List<AiRecommendedProfile> _profiles = [];
   String? _userId;
   String _userNickname = '회원';
   bool _isLoading = true;
   bool _isReloading = false;
   bool _reloadRequested = false;
+  bool _privacyConsentRequired = false;
+  bool _recommendationLoadFailed = false;
+  bool _isSyncingPrivacy = false;
+  String? _privacySyncError;
   String? _privacyWatchedUid;
   StreamSubscription<void>? _privacySubscription;
   StreamSubscription<void>? _candidateSubscription;
@@ -319,19 +326,31 @@ class _LockerRecommendationContentState
     _reloadRequested = false;
     try {
       final userId = await _storageService.getKakaoUserId();
-      if (userId != null && userId.isNotEmpty) {
-        _watchRecommendationPrivacy(userId);
+      if (userId == null || userId.isEmpty) {
+        throw StateError('missing_kakao_user_id');
+      }
+      _watchRecommendationPrivacy(userId);
+      final privacyReady = await _aiService.isViewerRecommendationPrivacyReady(
+        userId,
+      );
+      if (!privacyReady) {
+        if (!mounted) return;
+        setState(() {
+          _userId = userId;
+          _profiles = [];
+          _privacyConsentRequired = true;
+          _recommendationLoadFailed = false;
+          _isLoading = false;
+        });
+        _watchCandidateEligibility(const []);
+        return;
       }
       final profiles = await _aiService.fetchMysteryFeed(
         limit: 3,
         userId: userId,
       );
-      final userProfile = userId == null
-          ? null
-          : await _userService.getUserProfile(userId);
-      final onboarding = userId == null
-          ? <String, dynamic>{}
-          : await _storageService.getOnboardingDraft(userId);
+      final userProfile = await _userService.getUserProfile(userId);
+      final onboarding = await _storageService.getOnboardingDraft(userId);
       final nickname = userProfile?['nickname']?.toString().trim();
       if (!mounted) return;
       setState(() {
@@ -342,6 +361,9 @@ class _LockerRecommendationContentState
             : (onboarding['nickname']?.toString().trim().isNotEmpty == true
                   ? onboarding['nickname'].toString().trim()
                   : '회원');
+        _privacyConsentRequired = false;
+        _recommendationLoadFailed = false;
+        _privacySyncError = null;
         _isLoading = false;
       });
       _watchCandidateEligibility(profiles);
@@ -353,7 +375,14 @@ class _LockerRecommendationContentState
         '[MysteryCard] load recommendations '
         '${PrivacyLogUtils.errorSummary(error)}',
       );
-      _invalidateRecommendations();
+      if (mounted) {
+        setState(() {
+          _profiles = [];
+          _privacyConsentRequired = false;
+          _recommendationLoadFailed = true;
+          _isLoading = false;
+        });
+      }
     } finally {
       _isReloading = false;
       if (_reloadRequested && mounted) {
@@ -362,6 +391,49 @@ class _LockerRecommendationContentState
         _privacyReloadDebounce = Timer(Duration.zero, _loadRecommendations);
       }
     }
+  }
+
+  Future<void> _requestKakaoConsentAndSync() async {
+    if (_isSyncingPrivacy) return;
+    setState(() {
+      _isSyncingPrivacy = true;
+      _privacySyncError = null;
+    });
+    try {
+      final result = await _contactBlockService.syncKakaoTalkFriendBlocks(
+        requestConsentIfNeeded: true,
+      );
+      if (!result.recommendationPrivacyReady) {
+        throw StateError('recommendation_privacy_not_ready_after_sync');
+      }
+      if (!mounted) return;
+      setState(() {
+        _privacyConsentRequired = false;
+        _isLoading = true;
+      });
+      await _loadRecommendations();
+    } catch (error) {
+      debugPrint(
+        '[MysteryCard] Kakao privacy sync '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
+      if (!mounted) return;
+      setState(() {
+        _privacySyncError =
+            '동의를 완료하지 못했어요. 카카오 동의 화면에서 친구목록을 허용한 뒤 다시 시도해 주세요.';
+      });
+    } finally {
+      if (mounted) setState(() => _isSyncingPrivacy = false);
+    }
+  }
+
+  Future<void> _retryRecommendations() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _recommendationLoadFailed = false;
+    });
+    await _loadRecommendations();
   }
 
   void _watchCandidateEligibility(List<AiRecommendedProfile> profiles) {
@@ -596,8 +668,16 @@ class _LockerRecommendationContentState
         ),
         const SizedBox(height: 12),
         Expanded(
-          child:
-              _temporarilyShowLockerPreview && (_isLoading || _profiles.isEmpty)
+          child: _privacyConsentRequired
+              ? KakaoRecommendationPrivacyPrerequisite(
+                  isWorking: _isSyncingPrivacy,
+                  errorMessage: _privacySyncError,
+                  onConsentAndSync: _requestKakaoConsentAndSync,
+                )
+              : _recommendationLoadFailed
+              ? RecommendationLoadFailure(onRetry: _retryRecommendations)
+              : _temporarilyShowLockerPreview &&
+                    (_isLoading || _profiles.isEmpty)
               ? _LockerBoard(
                   profiles: const [],
                   onOpen: _openNote,
