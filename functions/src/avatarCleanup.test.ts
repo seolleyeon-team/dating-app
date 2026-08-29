@@ -7,6 +7,7 @@ import {
   accountDeletionDocsFromParts,
   executeAvatarCleanup,
   isBlocksTargetRefPath,
+  isRecommendationExclusionTargetRefPath,
   isUidBoundCleanupRef,
   planAccountDeletionPiiOperations,
   requireAvatarCleanupRequest,
@@ -23,6 +24,8 @@ const zeroAccountDeletionCounts = {
   contactBlockedHashIndexOwnersDeleted: 0,
   blockTargetsDeleted: 0,
   reverseBlockTargetsDeleted: 0,
+  recommendationExclusionTargetsDeleted: 0,
+  reverseRecommendationExclusionTargetsDeleted: 0,
   interactionsDeleted: 0,
   asksDeleted: 0,
   friendshipsDeleted: 0,
@@ -357,6 +360,8 @@ test("account deletion plans scoped PII cleanup operations", () => {
     contactBlockedHashIds: ["hash_1"],
     blockTargetIds: ["blocked_u2"],
     reverseBlockViewerUids: ["blocker_u3", "u1"],
+    recommendationExclusionTargetIds: ["friend_u4"],
+    reverseRecommendationExclusionViewerUids: ["friend_u5", "u1"],
   });
 
   const operations = planAccountDeletionPiiOperations({ uid: "u1", docs });
@@ -371,6 +376,11 @@ test("account deletion plans scoped PII cleanup operations", () => {
     { kind: "deleteUserPrivate" },
     { kind: "deleteBlockTarget", targetUid: "blocked_u2" },
     { kind: "deleteReverseBlockTarget", viewerUid: "blocker_u3" },
+    { kind: "deleteRecommendationExclusionTarget", targetUid: "friend_u4" },
+    {
+      kind: "deleteReverseRecommendationExclusionTarget",
+      viewerUid: "friend_u5",
+    },
   ]);
 });
 
@@ -381,6 +391,20 @@ test("reverse block cleanup only accepts blocks target paths", () => {
   );
   assert.equal(
     isBlocksTargetRefPath("other/viewer_u3/targets/u1", "u1"),
+    false,
+  );
+  assert.equal(
+    isRecommendationExclusionTargetRefPath(
+      "recommendationExclusions/viewer_u3/targets/u1",
+      "u1",
+    ),
+    true,
+  );
+  assert.equal(
+    isRecommendationExclusionTargetRefPath(
+      "blocks/viewer_u3/targets/u1",
+      "u1",
+    ),
     false,
   );
 });
@@ -401,6 +425,8 @@ test("account deletion includes PII cleanup counts and skips PII for consent wit
           contactBlockedHashIds: ["cb_hash_1"],
           blockTargetIds: ["target_1"],
           reverseBlockViewerUids: ["viewer_1"],
+          recommendationExclusionTargetIds: ["target_2"],
+          reverseRecommendationExclusionViewerUids: ["viewer_2"],
         }),
       };
     },
@@ -433,6 +459,8 @@ test("account deletion includes PII cleanup counts and skips PII for consent wit
     contactBlockedHashIndexOwnersDeleted: 1,
     blockTargetsDeleted: 1,
     reverseBlockTargetsDeleted: 1,
+    recommendationExclusionTargetsDeleted: 1,
+    reverseRecommendationExclusionTargetsDeleted: 1,
     interactionsDeleted: 0,
     asksDeleted: 0,
     friendshipsDeleted: 0,

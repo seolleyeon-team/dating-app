@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
@@ -290,10 +291,18 @@ class _LockerRecommendationContentState
   final _storageService = StorageService();
   final _askService = AskService();
   final _userService = UserService();
+  final _aiService = AiRecommendationService();
   List<AiRecommendedProfile> _profiles = [];
   String? _userId;
   String _userNickname = '회원';
   bool _isLoading = true;
+  bool _isReloading = false;
+  bool _reloadRequested = false;
+  String? _privacyWatchedUid;
+  StreamSubscription<void>? _privacySubscription;
+  StreamSubscription<void>? _candidateSubscription;
+  Timer? _privacyReloadDebounce;
+  String _watchedCandidateKey = '';
 
   @override
   void initState() {
@@ -302,32 +311,123 @@ class _LockerRecommendationContentState
   }
 
   Future<void> _loadRecommendations() async {
-    final userId = await _storageService.getKakaoUserId();
-    final profiles = await AiRecommendationService().fetchMysteryFeed(
-      limit: 3,
-      userId: userId,
-    );
-    final userProfile = userId == null
-        ? null
-        : await _userService.getUserProfile(userId);
-    final onboarding = userId == null
-        ? <String, dynamic>{}
-        : await _storageService.getOnboardingDraft(userId);
-    final nickname = userProfile?['nickname']?.toString().trim();
+    if (_isReloading) {
+      _reloadRequested = true;
+      return;
+    }
+    _isReloading = true;
+    _reloadRequested = false;
+    try {
+      final userId = await _storageService.getKakaoUserId();
+      if (userId != null && userId.isNotEmpty) {
+        _watchRecommendationPrivacy(userId);
+      }
+      final profiles = await _aiService.fetchMysteryFeed(
+        limit: 3,
+        userId: userId,
+      );
+      final userProfile = userId == null
+          ? null
+          : await _userService.getUserProfile(userId);
+      final onboarding = userId == null
+          ? <String, dynamic>{}
+          : await _storageService.getOnboardingDraft(userId);
+      final nickname = userProfile?['nickname']?.toString().trim();
+      if (!mounted) return;
+      setState(() {
+        _userId = userId;
+        _profiles = profiles;
+        _userNickname = nickname?.isNotEmpty == true
+            ? nickname!
+            : (onboarding['nickname']?.toString().trim().isNotEmpty == true
+                  ? onboarding['nickname'].toString().trim()
+                  : '회원');
+        _isLoading = false;
+      });
+      _watchCandidateEligibility(profiles);
+      for (var index = 0; index < profiles.length; index++) {
+        _logEvent(profiles[index], index, 'impression');
+      }
+    } catch (error) {
+      debugPrint(
+        '[MysteryCard] load recommendations '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
+      _invalidateRecommendations();
+    } finally {
+      _isReloading = false;
+      if (_reloadRequested && mounted) {
+        _reloadRequested = false;
+        _privacyReloadDebounce?.cancel();
+        _privacyReloadDebounce = Timer(Duration.zero, _loadRecommendations);
+      }
+    }
+  }
+
+  void _watchCandidateEligibility(List<AiRecommendedProfile> profiles) {
+    final ids = profiles.map((profile) => profile.candidateUid).toList()
+      ..sort();
+    final key = ids.join('|');
+    if (_watchedCandidateKey == key) return;
+    _candidateSubscription?.cancel();
+    _watchedCandidateKey = key;
+    if (ids.isEmpty) return;
+    _candidateSubscription = _aiService
+        .watchCandidateRecommendationChanges(ids)
+        .listen(
+          (_) => _invalidateAndReloadRecommendations(),
+          onError: (_) => _invalidateRecommendations(),
+        );
+  }
+
+  void _invalidateRecommendations() {
     if (!mounted) return;
     setState(() {
-      _userId = userId;
-      _profiles = profiles;
-      _userNickname = nickname?.isNotEmpty == true
-          ? nickname!
-          : (onboarding['nickname']?.toString().trim().isNotEmpty == true
-                ? onboarding['nickname'].toString().trim()
-                : '회원');
+      _profiles = [];
       _isLoading = false;
     });
-    for (var index = 0; index < profiles.length; index++) {
-      _logEvent(profiles[index], index, 'impression');
-    }
+  }
+
+  void _invalidateAndReloadRecommendations() {
+    if (!mounted) return;
+    setState(() {
+      _profiles = [];
+      _isLoading = true;
+    });
+    _privacyReloadDebounce?.cancel();
+    _privacyReloadDebounce = Timer(
+      const Duration(milliseconds: 150),
+      _loadRecommendations,
+    );
+  }
+
+  void _watchRecommendationPrivacy(String uid) {
+    if (_privacyWatchedUid == uid) return;
+    _privacySubscription?.cancel();
+    _privacyWatchedUid = uid;
+    _privacySubscription = _aiService
+        .watchRecommendationPrivacyChanges(uid)
+        .listen(
+          (_) {
+            // Remove existing cards immediately. The server-authoritative
+            // reload may take a moment, but a newly excluded friend must not
+            // remain tappable while it is in flight.
+            _invalidateAndReloadRecommendations();
+          },
+          onError: (_) {
+            // A listener error is privacy-sensitive: keep the surface empty
+            // until a later authoritative reload succeeds.
+            _invalidateRecommendations();
+          },
+        );
+  }
+
+  @override
+  void dispose() {
+    _privacyReloadDebounce?.cancel();
+    _privacySubscription?.cancel();
+    _candidateSubscription?.cancel();
+    super.dispose();
   }
 
   void _logEvent(AiRecommendedProfile profile, int index, String eventType) {

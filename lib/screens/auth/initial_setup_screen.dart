@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
+import '../../services/contact_block_service.dart';
 import '../../services/user_service.dart';
 
 class InitialSetupScreen extends StatefulWidget {
@@ -15,6 +16,7 @@ class InitialSetupScreen extends StatefulWidget {
 class _InitialSetupScreenState extends State<InitialSetupScreen> {
   final _formKey = GlobalKey<FormState>();
   final _userService = UserService();
+  final _contactBlockService = ContactBlockService();
   final _userNameController = TextEditingController();
   final _nicknameController = TextEditingController();
   final _introductionController = TextEditingController();
@@ -103,7 +105,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
       'preferredHeight': _preferredHeightController.text.trim(),
       'preferredAge': _preferredAgeController.text.trim(),
       'preferredLifestyle': _preferredLifestyleController.text.trim(),
-      'initialSetupComplete': true,
+      'initialSetupComplete': false,
     };
 
     if (authProvider.isStudentVerified &&
@@ -121,6 +123,8 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
         email: _kakaoUserInfo?['email'],
         extraFields: extraFields,
       );
+      await _contactBlockService.syncKakaoTalkFriendBlocks();
+      await _userService.completeOnboarding(_kakaoUserId!);
 
       if (!mounted) return;
       authProvider.markInitialSetupComplete();

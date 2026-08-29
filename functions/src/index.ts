@@ -98,6 +98,11 @@ import {
   decideStudentVerificationRateLimit,
   normalizeYonseiEmail,
 } from "./studentVerificationEmail";
+import {
+  buildRecommendationExclusionPairId,
+  fetchKakaoFriendServiceUserIds,
+  isKakaoFriendAvoidanceEnabled,
+} from "./kakaoFriendRecommendationPrivacy";
 
 // Firebase Admin 초기화
 initializeApp();
@@ -1756,6 +1761,38 @@ export const onUserPublicProfileSync = onDocumentWritten(
           : { code: "sync_failed" }),
       });
     }
+  },
+);
+
+/**
+ * New accounts cannot participate in 1:1 recommendations until the Kakao
+ * friend privacy reconciliation has completed. A transaction avoids racing a
+ * very fast reconciliation that may finish before this trigger is delivered.
+ */
+export const onUserRecommendationPrivacyBootstrap = onDocumentCreated(
+  "users/{uid}",
+  async (event) => {
+    const uid = asString(event.params.uid ?? "", "");
+    if (!uid) return;
+    const ref = db.collection("users").doc(uid);
+    await db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(ref);
+      if (!snapshot.exists) return;
+      const data = snapshot.data() ?? {};
+      const updates: Record<string, unknown> = {};
+      if (typeof data.kakaoFriendAvoidanceEnabled !== "boolean") {
+        updates.kakaoFriendAvoidanceEnabled = false;
+      }
+      if (typeof data.recommendationPrivacyReady !== "boolean") {
+        updates.recommendationPrivacyReady = false;
+      }
+      if (typeof data.kakaoFriendReconcileStatus !== "string") {
+        updates.kakaoFriendReconcileStatus = "pending";
+      }
+      if (Object.keys(updates).length > 0) {
+        transaction.set(ref, updates, { merge: true });
+      }
+    });
   },
 );
 
@@ -4766,111 +4803,392 @@ export const syncContactBlocks = onCall(withAppCheck(), async (request) => {
 });
 
 // =============================================================================
-// syncKakaoTalkFriendBlocks — 카카오톡 친구 추천 제외 Callable
+// syncKakaoTalkFriendBlocks — server-verified mutual recommendation privacy
 // =============================================================================
-const MAX_KAKAO_TALK_FRIEND_IDS = 1000;
+const KAKAO_RECOMMENDATION_SYNC_CHUNK_SIZE = 200;
 
-export const syncKakaoTalkFriendBlocks = onCall(withAppCheck(), async (request) => {
-  const data = getCallableData(request);
-  let callerUid = asNonEmptyString(request.auth?.uid);
+function recommendationExclusionRef(ownerUid: string, targetUid: string) {
+  return db
+    .collection("recommendationExclusions")
+    .doc(ownerUid)
+    .collection("targets")
+    .doc(targetUid);
+}
 
-  if (!callerUid) {
+async function reconcileRecommendationExclusionPair(
+  userA: string,
+  userB: string,
+  verifiedNow: boolean,
+): Promise<boolean> {
+  if (!userA || !userB || userA === userB) return false;
+
+  return db.runTransaction(async (transaction) => {
+    const userARef = db.collection("users").doc(userA);
+    const userBRef = db.collection("users").doc(userB);
+    const [userASnapshot, userBSnapshot] = await transaction.getAll(
+      userARef,
+      userBRef,
+    );
+    const userATargetRef = recommendationExclusionRef(userA, userB);
+    const userBTargetRef = recommendationExclusionRef(userB, userA);
+
+    if (!userASnapshot.exists || !userBSnapshot.exists) {
+      transaction.delete(userATargetRef);
+      transaction.delete(userBTargetRef);
+      return false;
+    }
+
+    const userAEnabled = isKakaoFriendAvoidanceEnabled(
+      userASnapshot.data() ?? {},
+    );
+    const userBEnabled = isKakaoFriendAvoidanceEnabled(
+      userBSnapshot.data() ?? {},
+    );
+    const payload: Record<string, unknown> = {
+      pairId: buildRecommendationExclusionPairId(userA, userB),
+      userIds: [userA, userB].sort(),
+      source: "kakao_talk_friend",
+      reason: "kakao_friend_avoidance",
+      enabledBy: {
+        [userA]: userAEnabled,
+        [userB]: userBEnabled,
+      },
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    if (verifiedNow) payload.verifiedAt = FieldValue.serverTimestamp();
+
+    // Reading both source-of-truth user documents in this transaction makes a
+    // simultaneous preference change retry instead of overwriting newer data.
+    transaction.set(userATargetRef, payload, { merge: true });
+    transaction.set(userBTargetRef, payload, { merge: true });
+    return userAEnabled || userBEnabled;
+  });
+}
+
+async function reconcilePairsWithConcurrency(
+  callerUid: string,
+  targetUids: string[],
+  verifiedTargetUids: Set<string>,
+): Promise<Map<string, boolean>> {
+  const results = new Map<string, boolean>();
+  const concurrency = 20;
+  for (let offset = 0; offset < targetUids.length; offset += concurrency) {
+    const chunk = targetUids.slice(offset, offset + concurrency);
+    const activeValues = await Promise.all(
+      chunk.map((targetUid) =>
+        reconcileRecommendationExclusionPair(
+          callerUid,
+          targetUid,
+          verifiedTargetUids.has(targetUid),
+        ),
+      ),
+    );
+    chunk.forEach((targetUid, index) => {
+      results.set(targetUid, activeValues[index]);
+    });
+  }
+  return results;
+}
+
+/**
+ * Closes both viewer- and candidate-side gates before the client attempts to
+ * read/validate a Kakao token. If that later step fails or consent was revoked,
+ * the last successful `ready` state cannot remain open indefinitely.
+ */
+export const beginKakaoFriendRecommendationPrivacySync = onCall(
+  withAppCheck(),
+  async (request) => {
+    const data = getCallableData(request);
+    const accessToken = asNonEmptyString(data.kakaoAccessToken);
+    let callerUid: string;
+    if (accessToken) {
+      callerUid = (await verifyKakaoAccessToken(accessToken)).userId;
+      const authUid = asNonEmptyString(request.auth?.uid);
+      const claimedKakaoUid = asNonEmptyString(
+        (request.auth?.token as Record<string, unknown> | undefined)?.kakaoUserId,
+      );
+      if (authUid && authUid !== callerUid && claimedKakaoUid !== callerUid) {
+        throw new HttpsError(
+          "permission-denied",
+          "로그인한 계정과 카카오 계정이 일치하지 않아요.",
+        );
+      }
+    } else {
+      callerUid = (await resolveAuthedAppUser(request.auth)).userId;
+    }
+
+    const callerRef = db.collection("users").doc(callerUid);
+    const callerSnapshot = await callerRef.get();
+    // Do not create a user shell before mandatory consent/onboarding. This
+    // token-only path exists to close a previously registered account.
+    if (!callerSnapshot.exists) {
+      return { recommendationPrivacyReady: false, accountFound: false };
+    }
+    const pendingId = randomUUID();
+    await callerRef.set(
+      {
+        recommendationPrivacyReady: false,
+        kakaoFriendReconcileStatus: "pending",
+        kakaoFriendReconcileId: pendingId,
+        kakaoFriendReconcileErrorCode: FieldValue.delete(),
+      },
+      { merge: true },
+    );
+    const pendingSnapshot = await callerRef.get();
+    await syncPublicProfileForUser(
+      db,
+      callerUid,
+      pendingSnapshot.data() as Record<string, unknown> | undefined,
+    );
+    return { recommendationPrivacyReady: false, accountFound: true };
+  },
+);
+
+export const syncKakaoTalkFriendBlocks = onCall(
+  withAppCheck({ timeoutSeconds: 180, memory: "512MiB" }),
+  async (request) => {
+    const data = getCallableData(request);
     const accessToken = asNonEmptyString(data.kakaoAccessToken);
     if (!accessToken) {
-      throw new HttpsError("unauthenticated", "로그인이 필요해요.");
+      throw new HttpsError(
+        "unauthenticated",
+        "카카오 친구 관계를 확인하려면 다시 로그인해 주세요.",
+      );
     }
-    callerUid = (await verifyKakaoAccessToken(accessToken)).userId;
-  }
 
-  const rawFriendUserIds = data.friendUserIds;
-  if (!Array.isArray(rawFriendUserIds)) {
-    throw new HttpsError(
-      "invalid-argument",
-      "friendUserIds 배열이 필요합니다."
+    const kakaoUser = await verifyKakaoAccessToken(accessToken);
+    const callerUid = kakaoUser.userId;
+    const authUid = asNonEmptyString(request.auth?.uid);
+    const claimedKakaoUid = asNonEmptyString(
+      (request.auth?.token as Record<string, unknown> | undefined)?.kakaoUserId,
     );
-  }
+    if (!authUid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Firebase 로그인 세션을 확인할 수 없어요.",
+      );
+    }
+    if (authUid !== callerUid && claimedKakaoUid !== callerUid) {
+      throw new HttpsError(
+        "permission-denied",
+        "로그인한 계정과 카카오 계정이 일치하지 않아요.",
+      );
+    }
 
-  const seen = new Set<string>();
-  const friendUserIds: string[] = [];
-  for (const rawId of rawFriendUserIds) {
-    const friendUserId = asString(rawId, "").trim();
-    if (!/^\d+$/.test(friendUserId) || seen.has(friendUserId)) continue;
-    seen.add(friendUserId);
-    friendUserIds.push(friendUserId);
-    if (friendUserIds.length >= MAX_KAKAO_TALK_FRIEND_IDS) break;
-  }
+    const callerRef = db.collection("users").doc(callerUid);
+    const callerSnapshot = await callerRef.get();
+    if (!callerSnapshot.exists) {
+      throw new HttpsError("failed-precondition", "사용자 프로필이 필요해요.");
+    }
 
-  let matchedUserCount = 0;
-  let newlyExcludedCount = 0;
-  let alreadyExcludedCount = 0;
-  let skippedSelfCount = 0;
-  const CHUNK_SIZE = 400;
+    const currentCallerData = callerSnapshot.data() ?? {};
+    const requestedPreference = data.avoidanceEnabled;
+    if (
+      requestedPreference !== undefined &&
+      typeof requestedPreference !== "boolean"
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "avoidanceEnabled 값이 올바르지 않아요.",
+      );
+    }
+    const callerEnabled =
+      typeof requestedPreference === "boolean"
+        ? requestedPreference
+        : isKakaoFriendAvoidanceEnabled(currentCallerData);
+    const reconcileId = randomUUID();
 
-  for (let i = 0; i < friendUserIds.length; i += CHUNK_SIZE) {
-    const chunk = friendUserIds.slice(i, i + CHUNK_SIZE);
-    const candidateIds = chunk.filter((id) => {
-      if (id === callerUid) {
-        skippedSelfCount++;
-        return false;
-      }
-      return true;
-    });
-
-    if (candidateIds.length === 0) continue;
-
-    const userRefs = candidateIds.map((id) => db.collection("users").doc(id));
-    const blockRefs = candidateIds.map((id) =>
-      db.collection("blocks").doc(callerUid).collection("targets").doc(id)
+    await callerRef.set(
+      {
+        // Persist the requested preference before pair transactions. Each
+        // transaction then reads the latest preference for both participants.
+        kakaoFriendAvoidanceEnabled: callerEnabled,
+        recommendationPrivacyReady: false,
+        kakaoFriendReconcileStatus: "syncing",
+        kakaoFriendReconcileId: reconcileId,
+        kakaoFriendReconcileErrorCode: FieldValue.delete(),
+      },
+      { merge: true },
     );
-    const [userDocs, existingBlockDocs] = await Promise.all([
-      db.getAll(...userRefs),
-      db.getAll(...blockRefs),
-    ]);
-    const batch = db.batch();
-    let chunkNewlyExcludedCount = 0;
 
-    for (let index = 0; index < candidateIds.length; index++) {
-      if (!userDocs[index].exists) continue;
+    try {
+      // Do not wait for the asynchronous users -> publicProfiles trigger to
+      // close the candidate-side gate. A sync starts fail-closed immediately.
+      const syncingCallerSnapshot = await callerRef.get();
+      await syncPublicProfileForUser(
+        db,
+        callerUid,
+        syncingCallerSnapshot.data() as Record<string, unknown> | undefined,
+      );
 
-      matchedUserCount++;
-      if (existingBlockDocs[index].exists) {
-        alreadyExcludedCount++;
-        continue;
-      }
-
-      batch.set(blockRefs[index], {
-        fromUserId: callerUid,
-        toUserId: candidateIds[index],
-        reason: "kakao_talk_friend",
-        source: "kakao_talk_friends",
-        createdAt: FieldValue.serverTimestamp(),
+      const fetchedFriendIds = await fetchKakaoFriendServiceUserIds(accessToken);
+      let skippedSelfCount = 0;
+      const friendUserIds = fetchedFriendIds.filter((id) => {
+        if (id === callerUid) {
+          skippedSelfCount++;
+          return false;
+        }
+        return true;
       });
-      newlyExcludedCount++;
-      chunkNewlyExcludedCount++;
+
+      let matchedUserCount = 0;
+      const matchedTargetUids = new Set<string>();
+      for (
+        let offset = 0;
+        offset < friendUserIds.length;
+        offset += KAKAO_RECOMMENDATION_SYNC_CHUNK_SIZE
+      ) {
+        const candidateIds = friendUserIds.slice(
+          offset,
+          offset + KAKAO_RECOMMENDATION_SYNC_CHUNK_SIZE,
+        );
+        const userRefs = candidateIds.map((id) =>
+          db.collection("users").doc(id),
+        );
+        const userDocs = userRefs.length > 0
+          ? await db.getAll(...userRefs)
+          : [];
+        for (let index = 0; index < candidateIds.length; index++) {
+          const friendDoc = userDocs[index];
+          if (!friendDoc?.exists) continue;
+          const friendUid = candidateIds[index];
+          matchedUserCount++;
+          matchedTargetUids.add(friendUid);
+        }
+      }
+
+      // OFF must also clear the caller's contribution from relationships that
+      // were materialized by an earlier sync but are absent from today's API.
+      const existingTargetSnapshot = callerEnabled
+        ? null
+        : await db
+          .collection("recommendationExclusions")
+          .doc(callerUid)
+          .collection("targets")
+          .get();
+      const existingTargetUids = new Set(
+        (existingTargetSnapshot?.docs ?? [])
+          .map((doc) => doc.id)
+          .filter((uid) => uid && uid !== callerUid),
+      );
+      const allTargetUids = new Set(matchedTargetUids);
+      if (!callerEnabled) {
+        for (const uid of existingTargetUids) allTargetUids.add(uid);
+      }
+      const pairStates = await reconcilePairsWithConcurrency(
+        callerUid,
+        [...allTargetUids],
+        matchedTargetUids,
+      );
+      const activeExcludedPairCount = [...matchedTargetUids].filter(
+        (uid) => pairStates.get(uid) === true,
+      ).length;
+      const clearedExistingPairCount = callerEnabled
+        ? 0
+        : existingTargetUids.size;
+
+      let finalizedCallerData: Record<string, unknown> | null = null;
+      await db.runTransaction(async (transaction) => {
+        const latest = await transaction.get(callerRef);
+        const latestData = (latest.data() ?? {}) as Record<string, unknown>;
+        // An older request must never mark a newer ON/OFF sync ready or
+        // overwrite its preference. Only the latest generation may finalize.
+        if (latestData.kakaoFriendReconcileId !== reconcileId) return;
+        const terminalData = {
+          ...latestData,
+          recommendationPrivacyReady: true,
+          kakaoFriendReconcileStatus: "ready",
+          kakaoFriendReconciledAt: FieldValue.serverTimestamp(),
+          kakaoFriendReconcileId: FieldValue.delete(),
+          kakaoFriendReconcileErrorCode: FieldValue.delete(),
+        };
+        transaction.set(callerRef, terminalData, { merge: true });
+        finalizedCallerData = terminalData;
+      });
+      if (!finalizedCallerData) {
+        throw new HttpsError(
+          "aborted",
+          "더 최근의 친구 피하기 설정을 동기화하고 있어요.",
+        );
+      }
+      await syncPublicProfileForUser(db, callerUid, finalizedCallerData);
+
+      logger.info("syncKakaoTalkFriendBlocks completed", {
+        callerUidHash: createHash("sha256")
+          .update(callerUid)
+          .digest("hex")
+          .slice(0, 16),
+        fetchedFriendCount: friendUserIds.length,
+        matchedUserCount,
+        activeExcludedPairCount,
+        clearedExistingPairCount,
+        skippedSelfCount,
+        avoidanceEnabled: callerEnabled,
+      });
+
+      return {
+        submittedFriendCount: friendUserIds.length,
+        matchedUserCount,
+        activeExcludedPairCount,
+        clearedExistingPairCount,
+        skippedSelfCount,
+        avoidanceEnabled: callerEnabled,
+        recommendationPrivacyReady: true,
+      };
+    } catch (error) {
+      if (error instanceof HttpsError && error.code === "aborted") {
+        throw error;
+      }
+      const code = error instanceof Error ? error.message.slice(0, 80) : "unknown";
+      let failedCallerData: Record<string, unknown> | null = null;
+      await db.runTransaction(async (transaction) => {
+        const latest = await transaction.get(callerRef);
+        const latestData = (latest.data() ?? {}) as Record<string, unknown>;
+        // A stale failing request cannot knock a newer successful sync back to
+        // failed. This is the failure-side half of the generation guard.
+        if (latestData.kakaoFriendReconcileId !== reconcileId) return;
+        const terminalData = {
+          ...latestData,
+          recommendationPrivacyReady: false,
+          kakaoFriendReconcileStatus: "failed",
+          kakaoFriendReconcileErrorCode: code,
+          kakaoFriendReconcileFailedAt: FieldValue.serverTimestamp(),
+          kakaoFriendReconcileId: FieldValue.delete(),
+        };
+        transaction.set(callerRef, terminalData, { merge: true });
+        failedCallerData = terminalData;
+      });
+      if (!failedCallerData) {
+        throw new HttpsError(
+          "aborted",
+          "더 최근의 친구 피하기 설정을 동기화하고 있어요.",
+        );
+      }
+      try {
+        await syncPublicProfileForUser(db, callerUid, failedCallerData);
+      } catch (publicSyncError) {
+        logger.error("public profile privacy gate sync failed", {
+          callerUidHash: createHash("sha256")
+            .update(callerUid)
+            .digest("hex")
+            .slice(0, 16),
+          code: publicSyncError instanceof Error ? "sync_failed" : "unknown",
+        });
+      }
+      logger.warn("syncKakaoTalkFriendBlocks failed", {
+        callerUidHash: createHash("sha256")
+          .update(callerUid)
+          .digest("hex")
+          .slice(0, 16),
+        code,
+      });
+      throw new HttpsError(
+        "failed-precondition",
+        "카카오 친구 관계 확인을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.",
+      );
     }
-
-    if (chunkNewlyExcludedCount > 0) {
-      await batch.commit();
-    }
-  }
-
-  logger.info("syncKakaoTalkFriendBlocks completed", {
-    callerUid,
-    submittedFriendCount: friendUserIds.length,
-    matchedUserCount,
-    newlyExcludedCount,
-    alreadyExcludedCount,
-    skippedSelfCount,
-  });
-
-  return {
-    submittedFriendCount: friendUserIds.length,
-    matchedUserCount,
-    newlyExcludedCount,
-    alreadyExcludedCount,
-    skippedSelfCount,
-  };
-});
+  },
+);
 
 /**
  * A↔B 상호 block을 blocks/{uid}/targets/{targetUid}에 생성.

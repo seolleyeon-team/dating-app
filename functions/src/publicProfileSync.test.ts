@@ -21,6 +21,7 @@ test("public profile omits private PII and moderation internals", () => {
     status: "active",
     profileVisible: true,
     isStudentVerified: true,
+    initialSetupComplete: true,
     profileImageUrl:
       "https://storage.googleapis.com/seolleyeon-avatar-temp/users/u1/jobs/j/c.png?x-goog-signature=secret",
     avatar: {
@@ -43,6 +44,10 @@ test("public profile omits private PII and moderation internals", () => {
   assert.ok(publicProfile);
   assert.equal(publicProfile.nickname, "공개닉");
   assert.equal(publicProfile.isStudentVerified, true);
+  assert.equal(publicProfile.initialSetupComplete, true);
+  assert.equal(publicProfile.isProfileComplete, true);
+  assert.equal(publicProfile.schemaVersion, 2);
+  assert.equal(publicProfile.recommendationPrivacyReady, false);
   assert.equal(publicProfile.profileImageUrl, "https://cdn.example/safe-avatar.png");
   assert.deepEqual(publicProfile.onboarding, {
     nickname: "공개닉",
@@ -60,6 +65,20 @@ test("public profile omits private PII and moderation internals", () => {
   assert.equal(publicProfile.notificationSettings, undefined);
   assert.equal(publicProfile.loginDisabled, undefined);
   assert.equal(publicProfile.withdrawalReason, undefined);
+});
+
+test("public profile exposes only the recommendation readiness gate", () => {
+  const publicProfile = buildPublicProfileFromUser("u1", {
+    nickname: "pending",
+    recommendationPrivacyReady: false,
+    kakaoFriendAvoidanceEnabled: true,
+    kakaoFriendReconcileStatus: "syncing",
+  });
+
+  assert.ok(publicProfile);
+  assert.equal(publicProfile.recommendationPrivacyReady, false);
+  assert.equal(publicProfile.kakaoFriendAvoidanceEnabled, undefined);
+  assert.equal(publicProfile.kakaoFriendReconcileStatus, undefined);
 });
 
 test("withdrawn or invisible users produce no public profile", () => {
@@ -83,6 +102,41 @@ test("withdrawn or invisible users produce no public profile", () => {
     buildPublicProfileFromUser("u1", {
       status: "banned",
       nickname: "banned",
+    }),
+    null,
+  );
+  for (const status of [
+    "blocked",
+    "deleted",
+    "restricted_rejoin",
+    "suspended",
+  ]) {
+    assert.equal(
+      buildPublicProfileFromUser("u1", { status, nickname: status }),
+      null,
+    );
+  }
+  assert.equal(
+    buildPublicProfileFromUser("u1", {
+      status: "active",
+      isDeleted: true,
+      nickname: "deleted-flag",
+    }),
+    null,
+  );
+  assert.equal(
+    buildPublicProfileFromUser("u1", {
+      status: "active",
+      isSuspended: true,
+      nickname: "suspended-flag",
+    }),
+    null,
+  );
+  assert.equal(
+    buildPublicProfileFromUser("u1", {
+      status: "active",
+      isActive: false,
+      nickname: "inactive-flag",
     }),
     null,
   );

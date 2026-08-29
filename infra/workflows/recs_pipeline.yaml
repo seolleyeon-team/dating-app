@@ -5,7 +5,7 @@
 #   1. export        (recEvents → GCS CSV)
 #   2. clip/svd/knn  (parallel, train + Firestore export)
 #   3. rrf           (merge all sources)
-#   4. verify        (1:1 health check, non-fatal)
+#   4. verify        (1:1 health + privacy check, fatal on failure)
 #   5. meeting group-index -> recommend -> daily -> strict verify
 #
 # Trigger: Cloud Scheduler (daily 04:00 KST)
@@ -193,7 +193,7 @@ main:
           severity: "INFO"
 
     # --------------------------------------------------
-    # 4. Verify
+    # 4. Verify (privacy violations are fatal)
     # --------------------------------------------------
     - run_verify:
         try:
@@ -214,8 +214,10 @@ main:
             - log_verify_fail:
                 call: sys.log
                 args:
-                  data: '${"Verify failed (non-fatal): " + json.encode_to_string(e)}'
-                  severity: "WARNING"
+                  data: '${"Verify failed: " + json.encode_to_string(e)}'
+                  severity: "ERROR"
+            - raise_verify:
+                raise: '${e}'
 
     # --------------------------------------------------
     # 5. 3:3 season meeting recommendation pipeline

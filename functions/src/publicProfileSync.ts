@@ -104,11 +104,24 @@ export function buildPublicProfileFromUser(
   if (!userData) return null;
 
   const status = asString(userData.status) ?? "active";
-  const isWithdrawn = userData.isWithdrawn === true || status === "withdrawn";
+  const inactiveStatuses = new Set([
+    "banned",
+    "blocked",
+    "deleted",
+    "restricted_rejoin",
+    "suspended",
+    "withdrawn",
+  ]);
+  const isInactive =
+    inactiveStatuses.has(status) ||
+    userData.isWithdrawn === true ||
+    userData.isDeleted === true ||
+    userData.isSuspended === true ||
+    userData.isActive === false;
   const profileVisible = userData.profileVisible !== false;
 
-  // Withdrawn / invisible users leave no public profile surface.
-  if (isWithdrawn || !profileVisible || status === "banned") {
+  // Moderated, deleted, withdrawn, or invisible users leave no public surface.
+  if (isInactive || !profileVisible) {
     return null;
   }
 
@@ -131,6 +144,13 @@ export function buildPublicProfileFromUser(
     isWithdrawn: false,
     profileVisible: true,
     isStudentVerified: userData.isStudentVerified === true,
+    initialSetupComplete: userData.initialSetupComplete === true,
+    isProfileComplete: userData.initialSetupComplete === true,
+    // This boolean contains no friend information. It only prevents a profile
+    // from entering 1:1 recommendation surfaces before privacy reconciliation.
+    // Missing is not ready. Legacy accounts must complete the same verified
+    // reconciliation as new accounts before becoming recommendation-visible.
+    recommendationPrivacyReady: userData.recommendationPrivacyReady === true,
     onboarding: publicOnboarding,
     avatar:
       avatar.status === "approved" &&
@@ -141,7 +161,7 @@ export function buildPublicProfileFromUser(
             approvedAvatarUrl,
           }
         : null,
-    schemaVersion: 1,
+    schemaVersion: 2,
   };
 }
 

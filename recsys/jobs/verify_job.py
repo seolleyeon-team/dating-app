@@ -5,10 +5,25 @@ and reports coverage, item counts, and health status.
 """
 from __future__ import annotations
 
+import os
+import sys
 import time
 from typing import Optional
 
 from google.cloud import firestore
+
+
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_AI_MODEL_DIR = os.environ.get(
+    "AI_MODEL_DIR",
+    os.path.join(_PROJECT_ROOT, "lib", "ai_recommend_model"),
+)
+if _AI_MODEL_DIR not in sys.path:
+    sys.path.insert(0, _AI_MODEL_DIR)
+
+from seolleyeon_recommendation_privacy import (  # noqa: E402
+    load_recommendation_privacy_policy,
+)
 
 
 def run_verify(
@@ -28,6 +43,7 @@ def run_verify(
 
     t0 = time.time()
     db = firestore.Client(project=project, database=database)
+    privacy_policy = load_recommendation_privacy_policy(db)
 
     user_ids = [doc.id for doc in db.collection("modelRecs").list_documents()]
     total_users = len(user_ids)
@@ -47,6 +63,7 @@ def run_verify(
         total_items = 0
         min_items = float("inf")
         max_items = 0
+        privacy_violations = 0
 
         for uid in user_ids:
             doc_ref = db.document(
@@ -72,6 +89,14 @@ def run_verify(
                 total_items += n
                 min_items = min(min_items, n)
                 max_items = max(max_items, n)
+                for item in items:
+                    candidate_uid = (
+                        str(item.get("uid") or "").strip()
+                        if isinstance(item, dict)
+                        else ""
+                    )
+                    if not privacy_policy.allows(uid, candidate_uid):
+                        privacy_violations += 1
             else:
                 empty += 1
 
@@ -90,6 +115,7 @@ def run_verify(
             "min_items": min_items,
             "max_items": max_items,
             "coverage_pct": coverage,
+            "privacy_violations": privacy_violations,
         }
         source_stats[source] = stats
 
@@ -107,6 +133,9 @@ def run_verify(
         "date_key": date_key,
         "sources": source_stats,
         "elapsed_s": round(elapsed, 1),
+        "privacy_violations": sum(
+            stats["privacy_violations"] for stats in source_stats.values()
+        ),
     }
 
     rrf = source_stats.get("rrf", {})
@@ -115,6 +144,16 @@ def run_verify(
             logger.warning(
                 "No RRF results found — pipeline may have failed.",
                 extra={"date_key": date_key},
+            )
+        result["healthy"] = False
+    elif result["privacy_violations"] > 0:
+        if logger:
+            logger.error(
+                "Recommendation privacy verification failed.",
+                extra={
+                    "date_key": date_key,
+                    "privacy_violations": result["privacy_violations"],
+                },
             )
         result["healthy"] = False
     else:

@@ -917,6 +917,21 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         );
     }
 
+    // 클라이언트가 만드는 방은 미팅/매치 연결 필드를 가질 수 없다.
+    // roomType/type 분류를 우회한 위조(예: type:'direct' + threeVsThreeMatchId,
+    // 임의 meetingId 부착)를 create 시점에 차단한다. 시즌/블라인드 방은
+    // 서버(Admin SDK)만 생성하므로 규칙의 영향을 받지 않는다.
+    function chatRoomCreateHasNoMeetingLinkage(data) {
+      return !data.keys().hasAny([
+        'meetingId',
+        'matchId',
+        'threeVsThreeMatchId',
+        'seasonMeetingMatchId',
+        'eventThreeVsThreeMatchId',
+        'eventType'
+      ]);
+    }
+
     function seasonMeetingRoomMutableOnly() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         'lastMessage',
@@ -955,6 +970,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       allow create: if isChatRoomParticipantAfter() &&
         !isBlindMeetingRoomData(request.resource.data) &&
         !isSeasonMeetingRoomData(request.resource.data) &&
+        chatRoomCreateHasNoMeetingLinkage(request.resource.data) &&
         chatRoomDoesNotPersistPrivateMedia(request.resource.data);
       // participantIds is immutable after create — changing it would let a
       // participant add a third party who can then read the full history.
@@ -1147,6 +1163,15 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       allow write: if false;
     }
 
+    // 추천 정책의 rollout activation 상태. 서버(Admin SDK)만 쓴다.
+    // 클라이언트는 생활권 prerequisite 를 안내로 보여줄지 차단으로 보여줄지
+    // 판단하기 위해 읽기만 한다. 클라이언트가 activation 을 바꿀 수 없다.
+    match /recommendationConfig/{docId} {
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow write: if false;
+    }
+
     // Analytics: 개인정보 없는 이벤트만 append. 조회는 서버/운영 전용.
     match /blindMeetingAnalytics/{eventId} {
       allow create: if
@@ -1335,6 +1360,28 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           allow delete: if isSelf(userId);
           allow update: if false;
         }
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Recommendation exclusions
+    // -----------------------------------------------------------------------
+    // Assumed server-owned model:
+    // recommendationExclusions/{viewerUid}/targets/{targetUid}
+    // - pairId: string
+    // - userIds: list<string> (the two participants)
+    // - source: "kakao_talk_friend"
+    // - reason: "kakao_friend_avoidance"
+    // - enabledBy: map<uid,bool>; active when either value is true
+    // - verifiedAt, updatedAt: timestamps
+    // A user may read only their own materialized exclusion targets. Kakao
+    // verification and every write are owned by the Admin SDK callable.
+    match /recommendationExclusions/{viewerUid} {
+      allow get, list, create, update, delete: if false;
+
+      match /targets/{targetUid} {
+        allow get, list: if isSelf(viewerUid);
+        allow create, update, delete: if false;
       }
     }
 

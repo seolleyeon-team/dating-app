@@ -79,6 +79,13 @@ test("blocks and user reports are server-written only", () => {
   );
 });
 
+test("recommendation exclusions are server-written and owner-readable", () => {
+  assertContains(
+    "recommendation exclusion targets must be owner-readable only",
+    "match /recommendationExclusions/{viewerUid} { allow get, list, create, update, delete: if false; match /targets/{targetUid} { allow get, list: if isSelf(viewerUid); allow create, update, delete: if false; } }"
+  );
+});
+
 
 test("festival avatar buckets keep private media out of public user docs", () => {
   for (const forbiddenBucket of [

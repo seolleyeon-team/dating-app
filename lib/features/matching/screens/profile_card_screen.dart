@@ -9,6 +9,7 @@
 // );
 // =============================================================================
 
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
@@ -53,10 +54,18 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
   late AnimationController _pulseController;
   final _deckController = SeolSwipeDeckController();
   final _storageService = StorageService();
+  final _aiService = AiRecommendationService();
 
   List<AiRecommendedProfile> _profiles = [];
   bool _isLoading = true;
+  bool _isReloading = false;
+  bool _reloadRequested = false;
   String? _kakaoUserId;
+  String? _privacyWatchedUid;
+  StreamSubscription<void>? _privacySubscription;
+  StreamSubscription<void>? _candidateSubscription;
+  Timer? _privacyReloadDebounce;
+  String _watchedCandidateKey = '';
 
   @override
   void initState() {
@@ -69,6 +78,12 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
   }
 
   Future<void> _loadRecommendations() async {
+    if (_isReloading) {
+      _reloadRequested = true;
+      return;
+    }
+    _isReloading = true;
+    _reloadRequested = false;
     try {
       final kakaoUserId = await _storageService.getKakaoUserId();
       debugPrint('[ProfileCard] ${PrivacyLogUtils.idFingerprint(kakaoUserId)}');
@@ -78,10 +93,11 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
         debugPrint(
           '[ProfileCard] ⚠️ kakaoUserId is null/empty — recEvents 기록 불가',
         );
+      } else {
+        _watchRecommendationPrivacy(kakaoUserId);
       }
 
-      final aiService = AiRecommendationService();
-      final feed = await aiService.fetchProfileFeed(
+      final feed = await _aiService.fetchProfileFeed(
         limit: 10,
         userId: kakaoUserId,
       );
@@ -92,6 +108,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
         _profiles = feed;
         _isLoading = false;
       });
+      _watchCandidateEligibility(feed);
 
       if (_profiles.isNotEmpty) {
         WidgetsBinding.instance.addPostFrameCallback(
@@ -105,11 +122,74 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    } finally {
+      _isReloading = false;
+      if (_reloadRequested && mounted) {
+        _reloadRequested = false;
+        _privacyReloadDebounce?.cancel();
+        _privacyReloadDebounce = Timer(Duration.zero, _loadRecommendations);
+      }
     }
+  }
+
+  void _watchCandidateEligibility(List<AiRecommendedProfile> profiles) {
+    final ids = profiles.map((profile) => profile.candidateUid).toList()
+      ..sort();
+    final key = ids.join('|');
+    if (_watchedCandidateKey == key) return;
+    _candidateSubscription?.cancel();
+    _watchedCandidateKey = key;
+    if (ids.isEmpty) return;
+    _candidateSubscription = _aiService
+        .watchCandidateRecommendationChanges(ids)
+        .listen(
+          (_) => _invalidateAndReloadRecommendations(),
+          onError: (_) => _invalidateRecommendations(),
+        );
+  }
+
+  void _invalidateRecommendations() {
+    if (!mounted) return;
+    setState(() {
+      _profiles = [];
+      _isLoading = false;
+    });
+  }
+
+  void _invalidateAndReloadRecommendations() {
+    if (!mounted) return;
+    setState(() {
+      _profiles = [];
+      _isLoading = true;
+    });
+    _privacyReloadDebounce?.cancel();
+    _privacyReloadDebounce = Timer(
+      const Duration(milliseconds: 150),
+      _loadRecommendations,
+    );
+  }
+
+  void _watchRecommendationPrivacy(String uid) {
+    if (_privacyWatchedUid == uid) return;
+    _privacySubscription?.cancel();
+    _privacyWatchedUid = uid;
+    _privacySubscription = _aiService
+        .watchRecommendationPrivacyChanges(uid)
+        .listen(
+          (_) {
+            _invalidateAndReloadRecommendations();
+          },
+          onError: (_) {
+            _invalidateRecommendations();
+          },
+        );
   }
 
   @override
   void dispose() {
+    _privacyReloadDebounce?.cancel();
+    _privacySubscription?.cancel();
+    _candidateSubscription?.cancel();
     _pulseController.dispose();
     _deckController.dispose();
     super.dispose();

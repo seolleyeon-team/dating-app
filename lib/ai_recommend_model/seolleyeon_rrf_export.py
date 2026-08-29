@@ -30,6 +30,9 @@ from seolleyeon_rec_common_v3 import (
     canonicalize_recommendation_target_id,
     is_ai_profile,
 )
+from seolleyeon_recommendation_privacy import (
+    load_recommendation_privacy_policy,
+)
 
 
 DEFAULT_SOURCE_WEIGHTS: Dict[str, float] = {
@@ -294,14 +297,20 @@ def main() -> int:
     source_weights = parse_source_weights_json(args.source_weights_json)
 
     db = firestore.Client(project=args.firestore_project, database=args.firestore_database)
+    privacy_policy = load_recommendation_privacy_policy(db)
 
     user_ids = [doc.id for doc in db.collection("modelRecs").list_documents()]
     print(f"[RRF] scanning users in modelRecs: {len(user_ids):,}")
 
     recs_to_export: Dict[str, List[Dict[str, Any]]] = {}
     merge_meta_by_uid: Dict[str, Dict[str, Any]] = {}
+    ineligible_reasons: Dict[str, str] = {}
 
     for uid in user_ids:
+        if uid not in privacy_policy.ready_user_ids:
+            ineligible_reasons[uid] = "viewer_privacy_not_ready"
+            continue
+
         source_docs: Dict[str, Dict[str, Any]] = {}
         for source_name in source_names:
             doc_ref = db.document(f"modelRecs/{uid}/daily/{date_key}/sources/{source_name}")
@@ -310,8 +319,10 @@ def main() -> int:
                 source_docs[source_name] = data
 
         if not source_docs:
+            ineligible_reasons[uid] = "no_ready_sources"
             continue
         if required_sources and not required_sources.issubset(set(source_docs.keys())):
+            ineligible_reasons[uid] = "missing_required_sources"
             continue
 
         merged, merge_meta = rrf_merge(
@@ -326,10 +337,13 @@ def main() -> int:
             min_effective_weight=float(args.min_effective_weight),
             topn=int(args.topn),
         )
+        merged = privacy_policy.filter_items(uid, merged)
 
         if not merged:
+            ineligible_reasons[uid] = "no_privacy_eligible_candidates"
             continue
         if len(merge_meta.get("usedSources", [])) < int(args.min_sources_per_user):
+            ineligible_reasons[uid] = "insufficient_sources"
             continue
 
         recs_to_export[uid] = merged
@@ -365,6 +379,24 @@ def main() -> int:
             "merge": merge_meta_by_uid.get(uid, {}),
         }
         bw.set(doc_ref, payload, merge=True)
+
+    # A rerun for the same date must not leave an older ready RRF document
+    # behind when the viewer or every candidate became privacy-ineligible.
+    for uid, reason in ineligible_reasons.items():
+        doc_ref = db.document(f"modelRecs/{uid}/daily/{date_key}/sources/rrf")
+        bw.set(
+            doc_ref,
+            {
+                "status": "ineligible",
+                "algorithmVersion": algo_version,
+                "model": model_meta,
+                "generatedAt": gen_at,
+                "topN": 0,
+                "items": [],
+                "privacyReason": reason,
+            },
+            merge=False,
+        )
 
     bw.close()
     print("[export] RRF done")

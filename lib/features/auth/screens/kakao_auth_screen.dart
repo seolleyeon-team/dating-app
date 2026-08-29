@@ -8,7 +8,9 @@ import 'package:flutter/material.dart';
 import '../../../router/route_names.dart';
 import '../../../services/adult_verification_service.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/contact_block_service.dart';
 import '../../../services/friend_invite_service.dart';
+import '../../../services/kakao_talk_friend_service.dart';
 import '../services/kakao_login_firestore_bootstrap.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
@@ -27,6 +29,8 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
   final _adultVerificationService = AdultVerificationService();
   final _storageService = StorageService();
   final _friendInviteService = FriendInviteService();
+  final _contactBlockService = ContactBlockService();
+  final _kakaoTalkFriendService = KakaoTalkFriendService();
   final _userService = UserService();
   late final _loginBootstrap = KakaoLoginFirestoreBootstrap(
     authService: _authService,
@@ -36,6 +40,8 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
   bool _isLoading = false;
   String? _errorMessage;
   bool _showWebLoginFallback = false;
+  bool _friendsConsentRequired = false;
+  Map<String, dynamic>? _pendingKakaoUserInfo;
 
   String get _currentPlatformLabel {
     if (kIsWeb) return 'web';
@@ -209,6 +215,206 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
     return true;
   }
 
+  Future<bool> _pauseForMissingFriendsConsent(
+    Map<String, dynamic> userInfo,
+  ) async {
+    final status = await _kakaoTalkFriendService.getConsentStatus();
+    if (!status.friendsUsing) {
+      throw const KakaoTalkReviewException(
+        code: 'friends_scope_not_enabled',
+        userMessage: '카카오디벨로퍼스에서 친구목록 동의항목을 사용 설정하지 않았어요. 설정을 확인해 주세요.',
+      );
+    }
+    if (status.friendsAgreed) {
+      _pendingKakaoUserInfo = null;
+      if (mounted) {
+        setState(() => _friendsConsentRequired = false);
+      }
+      return false;
+    }
+
+    try {
+      await _contactBlockService
+          .markRecommendationPrivacyPendingAfterConsentRefusal();
+    } catch (error) {
+      // The user remains on the consent-required screen either way. Do not
+      // expose token/server details in UI logs.
+      debugPrint(
+        '[KAKAO] privacy pending after consent refusal: '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
+    }
+
+    _pendingKakaoUserInfo = Map<String, dynamic>.from(userInfo);
+    if (mounted) {
+      setState(() {
+        _friendsConsentRequired = true;
+        _errorMessage = null;
+        _showWebLoginFallback = false;
+      });
+    }
+    return true;
+  }
+
+  Future<void> _continueAfterKakaoLogin(Map<String, dynamic> userInfo) async {
+    final kakaoUserId = userInfo['id']?.toString();
+    if (kakaoUserId == null || kakaoUserId.isEmpty) {
+      throw Exception('카카오 사용자 ID를 가져오지 못했습니다.');
+    }
+
+    // Firebase 세션을 먼저 붙인다. 이 단계가 실패하면 이후 Firestore
+    // 조회/라우팅을 수행하지 않는다. 신규 users 셸은 서버 callable이
+    // 검증된 Kakao 토큰으로 생성한다.
+    final existedBeforeLogin = await _runFirestoreStep(
+      '카카오 Firebase 세션 준비',
+      () => _loginBootstrap.bootstrap(
+        kakaoUserId: kakaoUserId,
+        platform: _currentPlatformLabel,
+      ),
+    );
+    if (!await _verifyAdultIdentityAfterKakaoLogin()) return;
+    await _storageService.saveKakaoUserId(kakaoUserId);
+    if (await _runFirestoreStep(
+      '재가입 제한 확인',
+      () => _stopIfRejoinRestrictedAccount(kakaoUserId),
+    )) {
+      return;
+    }
+    final reactivatedForRejoin = await _runFirestoreStep(
+      '탈퇴 계정 재활성화',
+      () => _reactivateIfWithdrawnForRejoin(
+        kakaoUserId: kakaoUserId,
+        userInfo: userInfo,
+      ),
+    );
+    await _runFirestoreStep(
+      '접속 플랫폼 기록(users.lastActivePlatform)',
+      () => _userService.setLastActivePlatform(
+        kakaoUserId: kakaoUserId,
+        platform: _currentPlatformLabel,
+      ),
+    );
+    await _runFirestoreStep(
+      '약관 동의 저장(users.legalConsents)',
+      () => _authService.syncPendingLegalConsents(kakaoUserId),
+    );
+
+    if (!mounted) return;
+    if (reactivatedForRejoin) {
+      Navigator.of(
+        context,
+      ).pushReplacementNamed(RouteNames.studentVerification);
+      return;
+    }
+
+    // 이미 서버에 등록된 유저(재설치 후 약관→카카오 로그인 포함)는
+    // 연세메일과 초기설정이 모두 끝났으면 바로 홈으로 보낸다.
+    if (existedBeforeLogin) {
+      final isVerified = await _authService.isStudentVerified(kakaoUserId);
+      final isInitialSetupComplete = await _authService.isInitialSetupComplete(
+        kakaoUserId,
+      );
+
+      if (isVerified && isInitialSetupComplete) {
+        await _reconcileReturningUserRecommendationPrivacy();
+        final handledInvite = await _handlePendingInviteAfterLogin();
+        if (handledInvite || !mounted) return;
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
+        return;
+      }
+
+      if (!mounted) return;
+      if (!isVerified) {
+        Navigator.of(
+          context,
+        ).pushReplacementNamed(RouteNames.studentVerification);
+        return;
+      }
+      if (!isInitialSetupComplete) {
+        final nextRoute = await _authService.getOnboardingNextRoute(
+          kakaoUserId,
+        );
+        if (!mounted) return;
+        Navigator.of(
+          context,
+        ).pushReplacementNamed(nextRoute ?? RouteNames.onboardingBasicInfo);
+        return;
+      }
+      final hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
+      if (!hasSeenTutorial) {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacementNamed(RouteNames.welcomeTutorial);
+        return;
+      }
+    }
+
+    if (!mounted) return;
+    Navigator.of(context).pushReplacementNamed(RouteNames.studentVerification);
+  }
+
+  Future<void> _reconcileReturningUserRecommendationPrivacy() async {
+    try {
+      // Always refresh on an explicit Kakao login so newly joined friends and
+      // consent revoked in Kakao are reflected before recommendations reopen.
+      await _contactBlockService.syncKakaoTalkFriendBlocks(
+        requestConsentIfNeeded: false,
+      );
+    } catch (error) {
+      // 로그인과 일반 앱 이용은 계속 허용한다. 동기화가 실패한 계정은
+      // recommendationPrivacyReady=false라서 1:1 추천 양쪽에서 제외된다.
+      debugPrint(
+        '[KAKAO] recommendation privacy sync pending: '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
+    }
+  }
+
+  Future<void> _requestFriendsConsentAgain() async {
+    if (_isLoading) return;
+    final pendingUserInfo = _pendingKakaoUserInfo;
+    if (pendingUserInfo == null) {
+      await _login();
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+      _showWebLoginFallback = false;
+    });
+
+    try {
+      final status = await _kakaoTalkFriendService.ensureRequiredConsents(
+        requireTalkMessage: false,
+      );
+      final expectedUserId = pendingUserInfo['id']?.toString();
+      if (expectedUserId == null ||
+          status.userId?.toString() != expectedUserId) {
+        throw Exception('처음 로그인한 카카오 계정과 추가 동의한 계정이 달라요. 다시 로그인해 주세요.');
+      }
+      if (!mounted) return;
+      setState(() => _friendsConsentRequired = false);
+      _pendingKakaoUserInfo = null;
+      await _continueAfterKakaoLogin(pendingUserInfo);
+    } on KakaoTalkReviewException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _friendsConsentRequired = true;
+        _errorMessage = error.userMessage;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _friendsConsentRequired = true;
+        _errorMessage = _formatLoginErrorMessage(error.toString());
+      });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _login() async {
     if (_isLoading) return;
     if (!await _requireAdultVerificationBeforeKakaoLogin()) return;
@@ -216,108 +422,14 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _friendsConsentRequired = false;
+      _pendingKakaoUserInfo = null;
     });
 
     try {
       final userInfo = await _authService.loginWithKakao();
-      final kakaoUserId = userInfo['id']?.toString();
-
-      if (kakaoUserId == null || kakaoUserId.isEmpty) {
-        throw Exception('카카오 사용자 ID를 가져오지 못했습니다.');
-      }
-
-      // Firebase 세션을 먼저 붙인다. 이 단계가 실패하면 이후 Firestore
-      // 조회/라우팅을 수행하지 않는다. 신규 users 셸은 서버 callable이
-      // 검증된 Kakao 토큰으로 생성한다.
-      final existedBeforeLogin = await _runFirestoreStep(
-        '카카오 Firebase 세션 준비',
-        () => _loginBootstrap.bootstrap(
-          kakaoUserId: kakaoUserId,
-          platform: _currentPlatformLabel,
-        ),
-      );
-      if (!await _verifyAdultIdentityAfterKakaoLogin()) return;
-      await _storageService.saveKakaoUserId(kakaoUserId);
-      if (await _runFirestoreStep(
-        '재가입 제한 확인',
-        () => _stopIfRejoinRestrictedAccount(kakaoUserId),
-      )) {
-        return;
-      }
-      final reactivatedForRejoin = await _runFirestoreStep(
-        '탈퇴 계정 재활성화',
-        () => _reactivateIfWithdrawnForRejoin(
-          kakaoUserId: kakaoUserId,
-          userInfo: userInfo,
-        ),
-      );
-      await _runFirestoreStep(
-        '접속 플랫폼 기록(users.lastActivePlatform)',
-        () => _userService.setLastActivePlatform(
-          kakaoUserId: kakaoUserId,
-          platform: _currentPlatformLabel,
-        ),
-      );
-      await _runFirestoreStep(
-        '약관 동의 저장(users.legalConsents)',
-        () => _authService.syncPendingLegalConsents(kakaoUserId),
-      );
-
-      if (!mounted) return;
-      if (reactivatedForRejoin) {
-        Navigator.of(
-          context,
-        ).pushReplacementNamed(RouteNames.studentVerification);
-        return;
-      }
-      // ✅ 이미 서버에 등록된 유저(재설치 후 약관→카카오 로그인 포함): 연세+초기설정 완료 시 홈으로
-      if (existedBeforeLogin) {
-        final isVerified = await _authService.isStudentVerified(kakaoUserId);
-        final isInitialSetupComplete = await _authService
-            .isInitialSetupComplete(kakaoUserId);
-
-        if (isVerified && isInitialSetupComplete) {
-          final handledInvite = await _handlePendingInviteAfterLogin();
-          if (handledInvite || !mounted) return;
-          if (!mounted) return;
-          Navigator.of(
-            context,
-          ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
-          return;
-        }
-
-        if (!mounted) return;
-        if (!isVerified) {
-          Navigator.of(
-            context,
-          ).pushReplacementNamed(RouteNames.studentVerification);
-          return;
-        }
-        if (!isInitialSetupComplete) {
-          final nextRoute = await _authService.getOnboardingNextRoute(
-            kakaoUserId,
-          );
-          if (!mounted) return;
-          Navigator.of(
-            context,
-          ).pushReplacementNamed(nextRoute ?? RouteNames.onboardingBasicInfo);
-          return;
-        }
-        final hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
-        if (!hasSeenTutorial) {
-          if (!mounted) return;
-          Navigator.of(
-            context,
-          ).pushReplacementNamed(RouteNames.welcomeTutorial);
-          return;
-        }
-      }
-
-      // 신규/미완료 유저 기본 플로우
-      if (!mounted) return;
-      Navigator.of(
-        context,
-      ).pushReplacementNamed(RouteNames.studentVerification);
+      if (await _pauseForMissingFriendsConsent(userInfo)) return;
+      await _continueAfterKakaoLogin(userInfo);
     } catch (e) {
       debugPrint('[KAKAO] login failed: ${PrivacyLogUtils.errorSummary(e)}');
       final msg = _formatLoginErrorMessage(e.toString());
@@ -340,99 +452,13 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
       _isLoading = true;
       _errorMessage = null;
       _showWebLoginFallback = false;
+      _friendsConsentRequired = false;
+      _pendingKakaoUserInfo = null;
     });
     try {
       final userInfo = await _authService.loginWithKakaoAccountOnly();
-      final kakaoUserId = userInfo['id']?.toString();
-      if (kakaoUserId == null || kakaoUserId.isEmpty) {
-        throw Exception('카카오 사용자 ID를 가져오지 못했습니다.');
-      }
-      // Firebase 세션을 먼저 붙인다. 이 단계가 실패하면 이후 Firestore
-      // 조회/라우팅을 수행하지 않는다. 신규 users 셸은 서버 callable이
-      // 검증된 Kakao 토큰으로 생성한다.
-      final existedBeforeLogin = await _runFirestoreStep(
-        '카카오 Firebase 세션 준비',
-        () => _loginBootstrap.bootstrap(
-          kakaoUserId: kakaoUserId,
-          platform: _currentPlatformLabel,
-        ),
-      );
-      if (!await _verifyAdultIdentityAfterKakaoLogin()) return;
-      await _storageService.saveKakaoUserId(kakaoUserId);
-      if (await _runFirestoreStep(
-        '재가입 제한 확인',
-        () => _stopIfRejoinRestrictedAccount(kakaoUserId),
-      )) {
-        return;
-      }
-      final reactivatedForRejoin = await _runFirestoreStep(
-        '탈퇴 계정 재활성화',
-        () => _reactivateIfWithdrawnForRejoin(
-          kakaoUserId: kakaoUserId,
-          userInfo: userInfo,
-        ),
-      );
-      await _runFirestoreStep(
-        '접속 플랫폼 기록(users.lastActivePlatform)',
-        () => _userService.setLastActivePlatform(
-          kakaoUserId: kakaoUserId,
-          platform: _currentPlatformLabel,
-        ),
-      );
-      await _runFirestoreStep(
-        '약관 동의 저장(users.legalConsents)',
-        () => _authService.syncPendingLegalConsents(kakaoUserId),
-      );
-      if (!mounted) return;
-      if (reactivatedForRejoin) {
-        Navigator.of(
-          context,
-        ).pushReplacementNamed(RouteNames.studentVerification);
-        return;
-      }
-      if (existedBeforeLogin) {
-        final isVerified = await _authService.isStudentVerified(kakaoUserId);
-        final isInitialSetupComplete = await _authService
-            .isInitialSetupComplete(kakaoUserId);
-        if (isVerified && isInitialSetupComplete) {
-          final handledInvite = await _handlePendingInviteAfterLogin();
-          if (handledInvite || !mounted) return;
-          if (!mounted) return;
-          Navigator.of(
-            context,
-          ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
-          return;
-        }
-        if (!mounted) return;
-        if (!isVerified) {
-          Navigator.of(
-            context,
-          ).pushReplacementNamed(RouteNames.studentVerification);
-          return;
-        }
-        if (!isInitialSetupComplete) {
-          final nextRoute = await _authService.getOnboardingNextRoute(
-            kakaoUserId,
-          );
-          if (!mounted) return;
-          Navigator.of(
-            context,
-          ).pushReplacementNamed(nextRoute ?? RouteNames.onboardingBasicInfo);
-          return;
-        }
-        final hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
-        if (!hasSeenTutorial) {
-          if (!mounted) return;
-          Navigator.of(
-            context,
-          ).pushReplacementNamed(RouteNames.welcomeTutorial);
-          return;
-        }
-      }
-      if (!mounted) return;
-      Navigator.of(
-        context,
-      ).pushReplacementNamed(RouteNames.studentVerification);
+      if (await _pauseForMissingFriendsConsent(userInfo)) return;
+      await _continueAfterKakaoLogin(userInfo);
     } catch (e) {
       debugPrint(
         '[KAKAO] web login failed: ${PrivacyLogUtils.errorSummary(e)}',
@@ -467,7 +493,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
               ),
               const SizedBox(height: 10),
               const Text(
-                '카카오 계정으로 로그인하면\n바로 프로필 설정을 진행할 수 있어요.',
+                '가입을 계속하려면 카카오 친구목록 동의가 필요해요.\n친구 관계는 1:1 추천 제외 확인에만 사용해요.',
                 style: TextStyle(
                   fontSize: 15,
                   height: 1.4,
@@ -475,6 +501,52 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
                 ),
               ),
               const SizedBox(height: 18),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: _friendsConsentRequired
+                      ? const Color(0xFFFFF7E6)
+                      : const Color(0xFFF3F6FF),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: _friendsConsentRequired
+                        ? const Color(0xFFFFD37A)
+                        : const Color(0xFFD7E1FF),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      _friendsConsentRequired
+                          ? CupertinoIcons.exclamationmark_shield_fill
+                          : CupertinoIcons.shield_fill,
+                      size: 22,
+                      color: _friendsConsentRequired
+                          ? const Color(0xFFB54708)
+                          : const Color(0xFF4969D8),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _friendsConsentRequired
+                            ? '친구목록 동의가 완료되지 않았어요. 아래 버튼을 눌러 동의한 뒤 가입을 계속해 주세요.'
+                            : '친구의 이름이나 프로필은 저장하지 않으며, 설레연 사용자 간 추천 제외 여부를 확인하는 데만 사용해요.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.4,
+                          fontWeight: FontWeight.w500,
+                          color: _friendsConsentRequired
+                              ? const Color(0xFF7A2E0E)
+                              : const Color(0xFF3854B5),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
               if (_errorMessage != null) ...[
                 Container(
                   width: double.infinity,
@@ -503,12 +575,16 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
                   padding: EdgeInsets.zero,
                   borderRadius: BorderRadius.circular(28),
                   color: const Color(0xFFFF6B8A),
-                  onPressed: _isLoading ? null : _login,
+                  onPressed: _isLoading
+                      ? null
+                      : (_friendsConsentRequired
+                            ? _requestFriendsConsentAgain
+                            : _login),
                   child: _isLoading
                       ? const CupertinoActivityIndicator(color: Colors.white)
-                      : const Text(
-                          '카카오로 로그인',
-                          style: TextStyle(
+                      : Text(
+                          _friendsConsentRequired ? '다시 동의하기' : '동의하고 카카오로 로그인',
+                          style: const TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
                             color: Colors.white,
@@ -516,7 +592,7 @@ class _KakaoAuthScreenState extends State<KakaoAuthScreen> {
                         ),
                 ),
               ),
-              if (_showWebLoginFallback) ...[
+              if (_showWebLoginFallback && !_friendsConsentRequired) ...[
                 const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,

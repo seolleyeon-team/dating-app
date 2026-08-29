@@ -1,11 +1,13 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import 'storage_service.dart';
-import 'user_service.dart';
 import '../shared/utils/privacy_log_utils.dart';
+import '../shared/utils/recommendation_eligibility.dart';
 
 // =============================================================================
 // 공통 AI 추천 프로필 모델
@@ -51,22 +53,128 @@ class AiRecommendedProfile {
 // =============================================================================
 class AiRecommendationService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final UserService _userService = UserService();
   final StorageService _storageService = StorageService();
 
   /// blocks/{uid}/targets/* 에서 차단된 UID 세트를 가져온다.
   Future<Set<String>> _fetchBlockedUids(String uid) async {
-    try {
-      final snap = await _firestore
-          .collection('blocks')
-          .doc(uid)
-          .collection('targets')
-          .get();
-      return snap.docs.map((d) => d.id).toSet();
-    } catch (e) {
-      debugPrint('[AI] _fetchBlockedUids ${PrivacyLogUtils.errorSummary(e)}');
-      return {};
+    // Safety/privacy filters must never fall back to an empty set. Requiring a
+    // server response also prevents an offline stale cache from reopening a
+    // recommendation that was excluded on another device.
+    final snap = await _firestore
+        .collection('blocks')
+        .doc(uid)
+        .collection('targets')
+        .get(const GetOptions(source: Source.server));
+    return snap.docs.map((d) => d.id).toSet();
+  }
+
+  /// Recommendation-only exclusions are separate from safety blocks because
+  /// Kakao friend privacy must not disable chat, push, or other meeting flows.
+  /// A read failure is allowed to propagate so the feed fails closed.
+  Future<Set<String>> _fetchRecommendationExcludedUids(String uid) async {
+    final snap = await _firestore
+        .collection('recommendationExclusions')
+        .doc(uid)
+        .collection('targets')
+        .get(const GetOptions(source: Source.server));
+    final excluded = <String>{};
+    for (final doc in snap.docs) {
+      final enabledBy = doc.data()['enabledBy'];
+      final active = doc.data()['active'] == true;
+      if (active ||
+          (enabledBy is Map &&
+              enabledBy.values.any((value) => value == true))) {
+        excluded.add(doc.id);
+      }
     }
+    return excluded;
+  }
+
+  Future<bool> _isViewerRecommendationPrivacyReady(String uid) async {
+    final snapshot = await _firestore
+        .collection('users')
+        .doc(uid)
+        .get(const GetOptions(source: Source.server));
+    final profile = snapshot.data();
+    if (profile == null) return false;
+    // Missing is not ready: legacy accounts must also reconcile before they
+    // can receive recommendations.
+    return profile['recommendationPrivacyReady'] == true;
+  }
+
+  /// Keeps already-rendered cards from surviving an ON/OFF change made in a
+  /// different tab or on the other member's device.
+  Stream<void> watchRecommendationPrivacyChanges(String uid) {
+    late final StreamController<void> controller;
+    StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? userSub;
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? exclusionsSub;
+
+    controller = StreamController<void>(
+      onListen: () {
+        userSub = _firestore
+            .collection('users')
+            .doc(uid)
+            .snapshots()
+            .listen((_) => controller.add(null), onError: controller.addError);
+        exclusionsSub = _firestore
+            .collection('recommendationExclusions')
+            .doc(uid)
+            .collection('targets')
+            .snapshots()
+            .listen((_) => controller.add(null), onError: controller.addError);
+      },
+      onCancel: () async {
+        await userSub?.cancel();
+        await exclusionsSub?.cancel();
+      },
+    );
+    return controller.stream;
+  }
+
+  /// Watches only the small set of cards currently rendered. An account that
+  /// becomes hidden, suspended, or privacy-not-ready is removed without
+  /// waiting for the tab to be recreated.
+  Stream<void> watchCandidateRecommendationChanges(Iterable<String> uids) {
+    final candidateUids = uids
+        .map((uid) => uid.trim())
+        .where((uid) => uid.isNotEmpty)
+        .toSet();
+    late final StreamController<void> controller;
+    final subscriptions =
+        <StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>[];
+
+    controller = StreamController<void>(
+      onListen: () {
+        for (final uid in candidateUids) {
+          var receivedInitialEligibleSnapshot = false;
+          final subscription = _firestore
+              .collection('publicProfiles')
+              .doc(uid)
+              .snapshots()
+              .listen((snapshot) {
+                final data = snapshot.data();
+                final eligible =
+                    data != null &&
+                    data['recommendationPrivacyReady'] == true &&
+                    data['status'] != 'withdrawn' &&
+                    data['isWithdrawn'] != true &&
+                    data['profileVisible'] != false;
+                if (!receivedInitialEligibleSnapshot) {
+                  receivedInitialEligibleSnapshot = eligible;
+                  if (eligible) return;
+                }
+                controller.add(null);
+              }, onError: controller.addError);
+          subscriptions.add(subscription);
+        }
+      },
+      onCancel: () async {
+        for (final subscription in subscriptions) {
+          await subscription.cancel();
+        }
+      },
+    );
+    return controller.stream;
   }
 
   /// KST 기준 YYYYMMDD 날짜 키 생성
@@ -97,7 +205,10 @@ class AiRecommendationService {
         .get();
 
     if (snap.exists && snap.data() != null) {
-      return {'dateKey': todayKey, 'data': snap.data()};
+      final data = snap.data() as Map<String, dynamic>;
+      if (data['status'] == 'ready') {
+        return {'dateKey': todayKey, 'data': data};
+      }
     }
 
     // 2순위: 어제자 추천 피드 fallback
@@ -114,7 +225,10 @@ class AiRecommendationService {
         .get();
 
     if (snap.exists && snap.data() != null) {
-      return {'dateKey': yesterdayKey, 'data': snap.data()};
+      final data = snap.data() as Map<String, dynamic>;
+      if (data['status'] == 'ready') {
+        return {'dateKey': yesterdayKey, 'data': data};
+      }
     }
 
     return null;
@@ -139,11 +253,12 @@ class AiRecommendationService {
       return rankA.compareTo(rankB);
     });
 
-    for (final item in sortedItems.take(limit + blockedUids.length)) {
+    for (final item in sortedItems) {
       if (results.length >= limit) break;
 
-      final candUid = item['uid'] as String?;
-      if (candUid == null) continue;
+      if (item is! Map) continue;
+      final candUid = item['uid']?.toString().trim();
+      if (candUid == null || candUid.isEmpty) continue;
 
       // 차단된 사용자 제외
       if (blockedUids.contains(candUid)) continue;
@@ -155,11 +270,23 @@ class AiRecommendationService {
       }
 
       // 2. Fallback: users/{uid} 문서에서 onboarding.photoUrls 조회
-      final userProfile = await _userService.getUserProfile(candUid);
+      // Candidate eligibility is privacy-sensitive, so never trust an offline
+      // public-profile cache that may predate consent revocation or suspension.
+      final publicSnapshot = await _firestore
+          .collection('publicProfiles')
+          .doc(candUid)
+          .get(const GetOptions(source: Source.server));
+      final userProfile = publicSnapshot.data();
       if (userProfile == null) continue; // 삭제/탈퇴된 유저 패스
-      if (userProfile['status'] == 'withdrawn' ||
-          userProfile['isWithdrawn'] == true ||
-          userProfile['profileVisible'] == false) {
+      // Missing is not ready so legacy candidates cannot bypass the gate.
+      if (userProfile['recommendationPrivacyReady'] != true) continue;
+      final schemaVersion =
+          (userProfile['schemaVersion'] as num?)?.toInt() ?? 1;
+      final isDisplayable = schemaVersion >= 2
+          ? RecommendationEligibility.isCandidateDisplayable(userProfile)
+          : RecommendationEligibility.isAccountActive(userProfile) &&
+                userProfile['isStudentVerified'] == true;
+      if (!isDisplayable) {
         continue;
       }
 
@@ -251,7 +378,11 @@ class AiRecommendationService {
     if (uid == null || uid.isEmpty) return [];
 
     try {
-      final blockedUids = await _fetchBlockedUids(uid);
+      if (!await _isViewerRecommendationPrivacyReady(uid)) return [];
+      final blockedUids = <String>{
+        ...await _fetchBlockedUids(uid),
+        ...await _fetchRecommendationExcludedUids(uid),
+      };
 
       final result = await _fetchRawRecs(uid, 'svd');
       if (result != null) {
@@ -282,7 +413,11 @@ class AiRecommendationService {
     if (uid == null || uid.isEmpty) return [];
 
     try {
-      final blockedUids = await _fetchBlockedUids(uid);
+      if (!await _isViewerRecommendationPrivacyReady(uid)) return [];
+      final blockedUids = <String>{
+        ...await _fetchBlockedUids(uid),
+        ...await _fetchRecommendationExcludedUids(uid),
+      };
 
       var result = await _fetchRawRecs(uid, 'rrf');
       var algoUsed = 'rrf';
@@ -301,18 +436,6 @@ class AiRecommendationService {
         final dateKey = result['dateKey'] as String;
         var items = data['items'] as List<dynamic>? ?? [];
 
-        if (algoUsed == 'rrf') {
-          items =
-              items.where((item) {
-                final r = (item['rank'] as num?)?.toInt() ?? 999;
-                return r >= 1 && r <= 3;
-              }).toList()..sort((a, b) {
-                final rankA = (a['rank'] as num?)?.toInt() ?? 999;
-                final rankB = (b['rank'] as num?)?.toInt() ?? 999;
-                return rankA.compareTo(rankB);
-              });
-        }
-
         return await _hydrateProfiles(
           rawItems: items,
           algo: algoUsed,
@@ -329,8 +452,10 @@ class AiRecommendationService {
   }
 
   Future<String?> _resolveUid() async {
+    final kakaoUid = await _storageService.getKakaoUserId();
+    if (kakaoUid != null && kakaoUid.isNotEmpty) return kakaoUid;
     final firebaseUid = FirebaseAuth.instance.currentUser?.uid;
     if (firebaseUid != null && firebaseUid.isNotEmpty) return firebaseUid;
-    return await _storageService.getKakaoUserId();
+    return null;
   }
 }
