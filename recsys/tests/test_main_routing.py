@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from recsys.jobs.meeting_job import (
     MeetingStepOptions,
     build_meeting_script_args,
 )
-from recsys.main import STEPS, build_parser
+from recsys.main import STEPS, build_parser, classify_subprocess_result, step_verify
 from recsys.jobs.common import KST
 
 
@@ -89,3 +90,56 @@ def test_kst_date_key_boundary_is_explicit():
     after_midnight = datetime(2026, 8, 1, 15, 0, tzinfo=timezone.utc)
     assert before_midnight.astimezone(KST).strftime("%Y%m%d") == "20260801"
     assert after_midnight.astimezone(KST).strftime("%Y%m%d") == "20260802"
+
+
+def test_model_signal_shortage_is_classified_as_non_fatal_skip():
+    result = classify_subprocess_result(
+        "seolleyeon_svd_train_export_v3.py",
+        1,
+        "ValueError: No usable events after filtering known events / AI profiles.",
+    )
+
+    assert result == ("skipped", "insufficient_signal")
+
+
+def test_unexpected_model_failure_remains_fatal():
+    result = classify_subprocess_result(
+        "seolleyeon_svd_train_export_v3.py",
+        1,
+        "PermissionError: Firestore access denied",
+    )
+
+    assert result == ("failed", "runtime_error")
+
+
+def test_verify_step_logs_summary_without_serializing_firestore_values(monkeypatch):
+    from recsys.jobs import verify_job
+
+    monkeypatch.setattr(
+        verify_job,
+        "run_verify",
+        lambda **_: {
+            "healthy": True,
+            "degraded": True,
+            "fatal": False,
+            "reasons": ["no_compatible_pair"],
+            "source_details": {"clip": {"data": {"generatedAt": object()}}},
+        },
+    )
+
+    class Logger:
+        def __init__(self):
+            self.messages = []
+
+        def info(self, message, **_kwargs):
+            self.messages.append(message)
+
+    logger = Logger()
+    args = SimpleNamespace(
+        project="test-project",
+        date_key="20260824",
+        database=None,
+    )
+
+    assert step_verify(args, logger) == 0
+    assert "Verify result summary" in logger.messages[-1]

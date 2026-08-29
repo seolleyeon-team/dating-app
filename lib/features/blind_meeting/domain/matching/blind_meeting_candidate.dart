@@ -31,6 +31,12 @@ class BlindMeetingCandidate {
   /// 세부 시간은 매칭 조건이 아니다. 팀 구성 후 단체 채팅방에서 정한다.
   final Set<String> availableDateKeys;
 
+  /// 생활권 (`users/{uid}.onboarding.campusLifeZones` 에 저장된 값).
+  ///
+  /// 분류는 [CampusLifeZoneResolver] 가 담당하며 매칭기는 재계산하지 않는다.
+  /// 한 사용자가 신촌·송도를 동시에 가질 수 있으므로 비교는 항상 교집합이다.
+  final Set<String> campusLifeZones;
+
   /// 학교 인증 완료.
   final bool schoolVerified;
 
@@ -58,6 +64,7 @@ class BlindMeetingCandidate {
     required this.interestIds,
     this.mbti,
     required this.availableDateKeys,
+    this.campusLifeZones = const <String>{},
     this.schoolVerified = true,
     this.eligible = true,
     this.blockedUserIds = const <String>{},
@@ -85,6 +92,7 @@ class BlindMeetingCandidate {
     Set<String>? interestIds,
     String? mbti,
     Set<String>? availableDateKeys,
+    Set<String>? campusLifeZones,
     bool? schoolVerified,
     bool? eligible,
     Set<String>? blockedUserIds,
@@ -103,6 +111,7 @@ class BlindMeetingCandidate {
       interestIds: interestIds ?? this.interestIds,
       mbti: mbti ?? this.mbti,
       availableDateKeys: availableDateKeys ?? this.availableDateKeys,
+      campusLifeZones: campusLifeZones ?? this.campusLifeZones,
       schoolVerified: schoolVerified ?? this.schoolVerified,
       eligible: eligible ?? this.eligible,
       blockedUserIds: blockedUserIds ?? this.blockedUserIds,

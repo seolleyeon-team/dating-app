@@ -5,8 +5,9 @@
 #   1. export        (recEvents → GCS CSV)
 #   2. clip/svd/knn  (parallel, train + Firestore export)
 #   3. rrf           (merge all sources)
-#   4. verify        (1:1 health check, non-fatal)
-#   5. meeting group-index -> recommend -> daily -> strict verify
+#   4. daily         (RRF → policy-safe Top3 dailyRecs)
+#   5. verify        (1:1 health check, fatal on missing/partial output)
+#   6. meeting group-index -> recommend -> daily -> strict verify
 #
 # Trigger: Cloud Scheduler (daily 04:00 KST)
 # Input (optional):
@@ -193,7 +194,40 @@ main:
           severity: "INFO"
 
     # --------------------------------------------------
-    # 4. Verify
+    # 4. Build dailyRecs from RRF
+    # --------------------------------------------------
+    - run_daily:
+        try:
+          call: googleapis.run.v2.projects.locations.jobs.run
+          args:
+            name: '${"projects/" + project_id + "/locations/" + region + "/jobs/recs-daily"}'
+            body:
+              overrides:
+                containerOverrides:
+                  - args:
+                      - "--step=daily"
+                      - '${"--date-key=" + date_key}'
+                      - '${"--project=" + project_id}'
+          result: daily_result
+        except:
+          as: e
+          steps:
+            - log_daily_fail:
+                call: sys.log
+                args:
+                  data: '${"Daily recommendation build failed: " + json.encode_to_string(e)}'
+                  severity: "ERROR"
+            - raise_daily:
+                raise: '${e}'
+
+    - log_daily_done:
+        call: sys.log
+        args:
+          data: "Daily recommendation documents completed"
+          severity: "INFO"
+
+    # --------------------------------------------------
+    # 5. Verify
     # --------------------------------------------------
     - run_verify:
         try:
@@ -214,11 +248,13 @@ main:
             - log_verify_fail:
                 call: sys.log
                 args:
-                  data: '${"Verify failed (non-fatal): " + json.encode_to_string(e)}'
-                  severity: "WARNING"
+                  data: '${"Verify failed: " + json.encode_to_string(e)}'
+                  severity: "ERROR"
+            - raise_verify:
+                raise: '${e}'
 
     # --------------------------------------------------
-    # 5. 3:3 season meeting recommendation pipeline
+    # 6. 3:3 season meeting recommendation pipeline
     # --------------------------------------------------
     - run_meeting_group_index:
         try:
@@ -318,7 +354,7 @@ main:
                 raise: '${e}'
 
     # --------------------------------------------------
-    # 6. Done
+    # 7. Done
     # --------------------------------------------------
     - log_complete:
         call: sys.log

@@ -6,6 +6,8 @@ import 'package:uuid/uuid.dart';
 import 'storage_service.dart';
 import 'user_service.dart';
 import '../shared/utils/privacy_log_utils.dart';
+import '../shared/utils/recommendation_eligibility.dart';
+import 'campus_life_zone_repair_service.dart';
 
 // =============================================================================
 // 공통 AI 추천 프로필 모델
@@ -52,6 +54,8 @@ class AiRecommendedProfile {
 class AiRecommendationService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final UserService _userService = UserService();
+  final CampusLifeZoneRepairService _campusLifeZoneRepairService =
+      CampusLifeZoneRepairService();
   final StorageService _storageService = StorageService();
 
   /// blocks/{uid}/targets/* 에서 차단된 UID 세트를 가져온다.
@@ -120,16 +124,83 @@ class AiRecommendationService {
     return null;
   }
 
+  /// 추천 문서에 서버가 남긴 생활권 정책 상태.
+  ///
+  /// 배치가 문서를 만들 때의 정책이 그대로 기록돼 있다. config 를 못 읽는
+  /// 순간에도 이 값이 "이 문서가 어떤 정책으로 만들어졌는지"의 근거가 된다.
+  /// provenance 가 없는 legacy 문서는 `null`.
+  static String? policyStateOf(Map<String, dynamic>? recDoc) {
+    final policy = recDoc?['policy'];
+    if (policy is! Map) return null;
+    final state = policy['campusLifeZone'];
+    return state is String && state.isNotEmpty ? state : null;
+  }
+
+  /// 이 피드에 생활권 hard filter 를 적용해야 하는지 정한다.
+  ///
+  /// 클라이언트가 정책을 직접 정하지 않는다. 서버가 남긴 두 가지 근거
+  /// (추천 문서의 정책 metadata, config 문서의 activation)를 합칠 뿐이다.
+  ///
+  ///  - 문서가 `enforced` 로 만들어졌다  -> 적용 (config 를 못 읽어도)
+  ///  - config 가 `enforced` 다           -> 적용 (문서가 낡아 `off` 여도)
+  ///  - 이 세션에서 활성화를 확인한 적이 있다 -> 적용 (조회 실패 중이어도)
+  ///  - 그 밖에                            -> 미적용 (준비 단계 기본값)
+  ///
+  /// 마지막 항목이 준비 단계의 안전한 기본값이다. 조회 실패를 무조건 적용으로
+  /// 바꾸면 아직 생활권이 없는 기존 사용자가 장애 때 전부 빈 피드를 받는다.
+  static bool shouldEnforceCampusLifeZone({
+    required String? documentPolicyState,
+    required CampusLifeZoneActivation activation,
+    required bool enforcedObserved,
+  }) {
+    if (documentPolicyState == 'enforced') return true;
+    switch (activation) {
+      case CampusLifeZoneActivation.enforced:
+        return true;
+      case CampusLifeZoneActivation.off:
+        return false;
+      case CampusLifeZoneActivation.unknown:
+        // 활성화를 확인한 적이 있으면 그 상태를 유지한다 (last-known-good).
+        return enforcedObserved;
+    }
+  }
+
   /// 후보자 UID 리스트를 순회하며 User 프로필(이미지, 기본 정보)을 Hydrate
   Future<List<AiRecommendedProfile>> _hydrateProfiles({
     required List<dynamic> rawItems,
     required String algo,
     required String dateKey,
     required int limit,
+    required String viewerUid,
     Set<String> blockedUids = const {},
+    String? documentPolicyState,
   }) async {
     final List<AiRecommendedProfile> results = [];
     final uuid = const Uuid();
+
+    // 최종 serving guard: 생활권은 hard eligibility다.
+    // 배치 단계에서 이미 걸러지지만, 어제자 fallback 문서나 낡은 source가
+    // 남아 있어도 다른 생활권 후보가 노출되지 않도록 여기서 다시 확인한다.
+    //
+    // 단 rollout activation 이 OFF 인 동안에는 강제하지 않는다. 활성화
+    // 여부는 클라이언트가 판단하지 않고 서버가 남긴 근거를 따른다.
+    // (OFF 에서 강제하면 아직 생활권이 없는 기존 사용자가 빈 피드를 받는다)
+    if (documentPolicyState == 'enforced') {
+      // 서버가 이미 활성화된 정책으로 만든 문서다. config 조회 실패가
+      // 이후에 정책을 되돌리지 못하게 기록한다.
+      CampusLifeZoneRepairService.latchEnforcedObserved();
+    }
+    final activation = await _campusLifeZoneRepairService.loadActivation();
+    final enforceCampusLifeZone = shouldEnforceCampusLifeZone(
+      documentPolicyState: documentPolicyState,
+      activation: activation,
+      enforcedObserved: CampusLifeZoneRepairService.enforcedObserved,
+    );
+    final viewerZones = enforceCampusLifeZone
+        ? RecommendationEligibility.campusLifeZonesOf(
+            await _userService.getUserProfile(viewerUid),
+          )
+        : const <String>{};
 
     // 순위를 보장하기 위해 items 안의 rank나 순서를 기반으로 정렬 (Python 스크립트는 이미 rank 순 정렬)
     final sortedItems = List.from(rawItems);
@@ -160,6 +231,18 @@ class AiRecommendationService {
       if (userProfile['status'] == 'withdrawn' ||
           userProfile['isWithdrawn'] == true ||
           userProfile['profileVisible'] == false) {
+        continue;
+      }
+
+      // 생활권 교집합이 없으면 제외한다 (값이 없으면 fail-closed).
+      // activation OFF 면 이 조건을 적용하지 않는다.
+      if (!RecommendationEligibility.passesCampusLifeZoneGate(
+        enforced: enforceCampusLifeZone,
+        viewerZones: viewerZones,
+        candidateZones: RecommendationEligibility.campusLifeZonesOf(
+          userProfile,
+        ),
+      )) {
         continue;
       }
 
@@ -263,7 +346,9 @@ class AiRecommendationService {
           algo: 'svd',
           dateKey: dateKey,
           limit: limit,
+          viewerUid: uid,
           blockedUids: blockedUids,
+          documentPolicyState: policyStateOf(data),
         );
       }
       return await _emptyFeedBecauseNoModelRecs('profile_feed_no_modelRecs');
@@ -318,7 +403,9 @@ class AiRecommendationService {
           algo: algoUsed,
           dateKey: dateKey,
           limit: limit,
+          viewerUid: uid,
           blockedUids: blockedUids,
+          documentPolicyState: policyStateOf(data),
         );
       }
       return await _emptyFeedBecauseNoModelRecs('mystery_feed_no_modelRecs');

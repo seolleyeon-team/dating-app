@@ -6,6 +6,7 @@
  * 모든 쓰기는 이 모듈을 통해 서버에서만 수행된다.
  */
 
+import { readPersistedCampusLifeZones } from "../campusLifeZones";
 import { createHash } from "crypto";
 import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
@@ -46,7 +47,9 @@ import {
   asStr,
   asStrArray,
   asTrimmedOrNull,
+  canTransitionApplication,
   canTransitionMeeting,
+  canTransitionParticipant,
   holdsChatMembership,
   isRecord,
   isValidDateKey,
@@ -187,55 +190,53 @@ export function readApplicationDoc(
   };
 }
 
-async function loadBlockedUserIds(userId: string): Promise<string[]> {
-  try {
-    const snap = await db()
-      .collection("blocks")
-      .doc(userId)
-      .collection("targets")
-      .get();
-    return snap.docs.map((d) => d.id).filter((id) => id.length > 0);
-  } catch (error) {
-    logger.warn("blindMeeting block load failed", { userId, error });
-    return [];
-  }
+// 차단·제재 조회는 안전 게이트다. Firestore 오류를 삼켜 빈 목록/false 로
+// 되돌리면(fail-open) 서로 차단한 사용자가 매칭되거나 제재 사용자가 게이트를
+// 통과한다. 그래서 오류를 그대로 전파해(fail-closed) 후보 로딩과 매칭 실행을
+// 중단시키고 다음 스케줄 tick 에서 재시도하게 한다.
+// (dna/user 문서 read 도 이미 같은 방식으로 예외를 전파한다.)
+// database 인자는 테스트에서 오류 주입을 위한 seam 이며 기본값은 실제 db() 다.
+export async function loadBlockedUserIds(
+  userId: string,
+  database: ReturnType<typeof db> = db()
+): Promise<string[]> {
+  const snap = await database
+    .collection("blocks")
+    .doc(userId)
+    .collection("targets")
+    .get();
+  return snap.docs.map((d) => d.id).filter((id) => id.length > 0);
 }
 
-async function loadRecentlyMetUserIds(
+export async function loadRecentlyMetUserIds(
   userId: string,
-  lookbackMs: number
+  lookbackMs: number,
+  database: ReturnType<typeof db> = db()
 ): Promise<string[]> {
   const since = Timestamp.fromMillis(Date.now() - lookbackMs);
-  try {
-    const snap = await db()
-      .collection(BLIND_MEETING_COLLECTIONS.matchHistory)
-      .doc(userId)
-      .collection("metUsers")
-      .where("metAt", ">=", since)
-      .get();
-    return snap.docs.map((d) => d.id);
-  } catch (error) {
-    logger.warn("blindMeeting history load failed", { userId, error });
-    return [];
-  }
+  const snap = await database
+    .collection(BLIND_MEETING_COLLECTIONS.matchHistory)
+    .doc(userId)
+    .collection("metUsers")
+    .where("metAt", ">=", since)
+    .get();
+  return snap.docs.map((d) => d.id);
 }
 
-async function isRestricted(userId: string): Promise<boolean> {
-  try {
-    const snap = await db()
-      .collection(BLIND_MEETING_COLLECTIONS.restrictions)
-      .doc(userId)
-      .get();
-    if (!snap.exists) return false;
-    const until = snap.data()?.restrictedUntil;
-    if (until instanceof Timestamp) {
-      return until.toMillis() > Date.now();
-    }
-    return snap.data()?.restricted === true;
-  } catch (error) {
-    logger.warn("blindMeeting restriction load failed", { userId, error });
-    return false;
+export async function isRestricted(
+  userId: string,
+  database: ReturnType<typeof db> = db()
+): Promise<boolean> {
+  const snap = await database
+    .collection(BLIND_MEETING_COLLECTIONS.restrictions)
+    .doc(userId)
+    .get();
+  if (!snap.exists) return false;
+  const until = snap.data()?.restrictedUntil;
+  if (until instanceof Timestamp) {
+    return until.toMillis() > Date.now();
   }
+  return snap.data()?.restricted === true;
 }
 
 /**
@@ -306,6 +307,14 @@ export async function loadCandidate(
     ),
     interestIds: asStrArray(dna.interestIds),
     mbti: asTrimmedOrNull(dna.mbtiSnapshot),
+    // 생활권은 온보딩에서 계산되어 users/{uid}.onboarding 에 저장된 값을
+    // 그대로 읽는다 (grade/department 로 재계산하지 않는다).
+    // users 문서는 위에서 이미 읽었으므로 추가 read 비용이 없다.
+    campusLifeZones: readPersistedCampusLifeZones(
+      isRecord(user.onboarding)
+        ? (user.onboarding as Record<string, unknown>).campusLifeZones
+        : null
+    ),
     // 날짜 전용 필드를 우선 읽고, 없으면 legacy 슬롯에서 날짜만 복원한다.
     availableDateKeys: readDateKeys(
       dna.availableDateKeys,
@@ -581,15 +590,11 @@ export async function transitionMeetingStatus(
   });
 }
 
-export async function updateParticipant(
-  meetingId: string,
-  userId: string,
-  patch: {
-    status?: ParticipantStatus;
-    depositStatus?: DepositStatus;
-    extra?: Record<string, unknown>;
-  }
-): Promise<void> {
+function buildParticipantPatchPayload(patch: {
+  status?: ParticipantStatus;
+  depositStatus?: DepositStatus;
+  extra?: Record<string, unknown>;
+}): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     ...(patch.extra ?? {}),
     updatedAt: FieldValue.serverTimestamp(),
@@ -602,12 +607,114 @@ export async function updateParticipant(
     payload.depositStatus = DEPOSIT_STATUS_TO_APP[patch.depositStatus];
     payload.serverDepositStatus = patch.depositStatus;
   }
-  await db()
+  return payload;
+}
+
+/**
+ * 참가자 문서의 유일한 사후 status writer (choke point).
+ *
+ * status가 포함된 patch는 단일 트랜잭션 안에서
+ *   participant/meeting read → 상태 파싱(fail-closed) → 참가자 FSM 검증
+ *   → terminal meeting 게이트 → write
+ * 를 수행한다. status가 없는 patch(depositStatus/extra)는 기존처럼 merge.
+ *
+ * 예외(참가자 FSM을 통과하지 않는 write)는 두 곳뿐이다:
+ * - createMeetingFromProposal: 참가자 문서 최초 생성 (invited)
+ * - respondReplacementOffer tx: 대체 합류(confirmed 생성) + 이탈자(replaced)
+ * 둘 다 자체 트랜잭션에서 선행 검증을 마친 INITIAL/전용 경로다.
+ */
+export async function updateParticipant(
+  meetingId: string,
+  userId: string,
+  patch: {
+    status?: ParticipantStatus;
+    depositStatus?: DepositStatus;
+    extra?: Record<string, unknown>;
+  }
+): Promise<void> {
+  const participantRef = db()
     .collection(BLIND_MEETING_COLLECTIONS.meetings)
     .doc(meetingId)
     .collection(BLIND_MEETING_COLLECTIONS.participants)
-    .doc(userId)
-    .set(payload, { merge: true });
+    .doc(userId);
+
+  if (!patch.status) {
+    await participantRef.set(buildParticipantPatchPayload(patch), {
+      merge: true,
+    });
+    return;
+  }
+
+  const to = patch.status;
+  const meetingRef = db()
+    .collection(BLIND_MEETING_COLLECTIONS.meetings)
+    .doc(meetingId);
+
+  await db().runTransaction(async (tx) => {
+    const [meetingSnap, participantSnap] = await Promise.all([
+      tx.get(meetingRef),
+      tx.get(participantRef),
+    ]);
+    if (!meetingSnap.exists) {
+      throw new HttpsError("failed-precondition", "blind_meeting_missing");
+    }
+    if (!participantSnap.exists) {
+      throw new HttpsError("failed-precondition", "blind_participant_missing");
+    }
+
+    const rawFrom = String(participantSnap.data()?.serverStatus ?? "");
+    if (!(rawFrom in PARTICIPANT_STATUS_TO_APP)) {
+      // 알 수 없는 상태는 정상 상태로 보정하지 않는다 (fail-closed).
+      logger.error("blindMeeting participant status unknown", {
+        meetingId,
+        rawStatusLength: rawFrom.length,
+      });
+      throw new HttpsError(
+        "failed-precondition",
+        `blind_participant_status_unknown:${rawFrom}`
+      );
+    }
+    const from = rawFrom as ParticipantStatus;
+
+    // terminal meeting 게이트: 보관된 미팅은 어떤 참가자 전이도 불가,
+    // 취소된 미팅은 취소 정산 계열 전이만 허용한다.
+    const meetingRaw = String(
+      meetingSnap.data()?.serverStatus ?? meetingSnap.data()?.status ?? ""
+    );
+    if (meetingRaw === "archived") {
+      throw new HttpsError(
+        "failed-precondition",
+        "blind_meeting_archived_participant_frozen"
+      );
+    }
+    if (
+      meetingRaw === "cancelled" &&
+      to !== "cancelled" &&
+      to !== "no_show"
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        `blind_meeting_cancelled_participant_transition_rejected:${from}->${to}`
+      );
+    }
+
+    if (from === to) {
+      // idempotent 재시도: 동반 필드(depositStatus/extra)만 갱신한다.
+      tx.set(participantRef, buildParticipantPatchPayload(patch), {
+        merge: true,
+      });
+      return;
+    }
+    if (!canTransitionParticipant(from, to)) {
+      throw new HttpsError(
+        "failed-precondition",
+        `blind_participant_transition_rejected:${from}->${to}`
+      );
+    }
+    tx.set(participantRef, buildParticipantPatchPayload(patch), {
+      merge: true,
+    });
+  });
 }
 
 export type ParticipantDoc = {
@@ -669,16 +776,22 @@ export async function loadParticipants(
 // 신청 문서
 // -----------------------------------------------------------------------------
 
-export async function setApplication(
-  userId: string,
-  patch: {
-    status?: ParticipantStatus;
-    stage?: MatchingStage;
-    open?: boolean;
-    meetingId?: string | null;
-    extra?: Record<string, unknown>;
-  }
-): Promise<void> {
+/** camelCase(앱 표기) → snake_case(서버 표기) 역매핑. 레거시 문서 파싱용. */
+const APP_STATUS_TO_SERVER: Record<string, ParticipantStatus> = Object.fromEntries(
+  (Object.entries(PARTICIPANT_STATUS_TO_APP) as [ParticipantStatus, string][])
+    .flatMap(([server, app]) => [
+      [server, server],
+      [app, server],
+    ])
+) as Record<string, ParticipantStatus>;
+
+function buildApplicationPatchPayload(patch: {
+  status?: ParticipantStatus;
+  stage?: MatchingStage;
+  open?: boolean;
+  meetingId?: string | null;
+  extra?: Record<string, unknown>;
+}): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     ...(patch.extra ?? {}),
     updatedAt: FieldValue.serverTimestamp(),
@@ -690,11 +803,121 @@ export async function setApplication(
   if (patch.stage) payload.stage = patch.stage;
   if (patch.open !== undefined) payload.open = patch.open;
   if (patch.meetingId !== undefined) payload.meetingId = patch.meetingId;
+  return payload;
+}
 
-  await db()
+/**
+ * 신청서 문서의 유일한 status writer (choke point).
+ *
+ * status가 포함된 patch는 단일 트랜잭션 안에서
+ *   read → 상태 파싱(fail-closed) → 신청서 FSM 검증 → write
+ * 를 수행한다. 문서가 없으면 최초 신청(`applied`)만 생성을 허용한다.
+ * status가 없는 patch(stage/open/extra)는 기존처럼 merge.
+ *
+ * FSM을 통과하지 않는 예외는 자체 트랜잭션에서 검증을 마친 두 곳뿐:
+ * - createMeetingFromProposal (open 신청 6개의 원자적 invited 클레임)
+ * - respondReplacementOffer (open 신청의 confirmed 직접 합류)
+ * - cancelOpenApplication (아래 전용 helper — applied/waitlisted→cancelled)
+ */
+export async function setApplication(
+  userId: string,
+  patch: {
+    status?: ParticipantStatus;
+    stage?: MatchingStage;
+    open?: boolean;
+    meetingId?: string | null;
+    extra?: Record<string, unknown>;
+  }
+): Promise<void> {
+  const ref = db()
     .collection(BLIND_MEETING_COLLECTIONS.applications)
-    .doc(userId)
-    .set(payload, { merge: true });
+    .doc(userId);
+
+  if (!patch.status) {
+    await ref.set(buildApplicationPatchPayload(patch), { merge: true });
+    return;
+  }
+
+  const to = patch.status;
+  await db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) {
+      // 최초 신청만 문서 생성을 허용한다.
+      if (to !== "applied") {
+        throw new HttpsError(
+          "failed-precondition",
+          `blind_application_missing_for_transition:${to}`
+        );
+      }
+      tx.set(ref, buildApplicationPatchPayload(patch), { merge: true });
+      return;
+    }
+
+    const rawFrom = String(
+      snap.data()?.serverStatus ?? snap.data()?.status ?? ""
+    );
+    const from = APP_STATUS_TO_SERVER[rawFrom];
+    if (from == null) {
+      logger.error("blindMeeting application status unknown", {
+        rawStatusLength: rawFrom.length,
+      });
+      throw new HttpsError(
+        "failed-precondition",
+        `blind_application_status_unknown:${rawFrom}`
+      );
+    }
+
+    if (from === to) {
+      tx.set(ref, buildApplicationPatchPayload(patch), { merge: true });
+      return;
+    }
+    if (!canTransitionApplication(from, to)) {
+      throw new HttpsError(
+        "failed-precondition",
+        `blind_application_transition_rejected:${from}->${to}`
+      );
+    }
+    tx.set(ref, buildApplicationPatchPayload(patch), { merge: true });
+  });
+}
+
+/**
+ * 신청 취소는 아직 미팅에 배정되지 않은 신청에만 허용한다 (transaction 게이트).
+ * 미팅에 배정된(meetingId 존재) 신청을 여기서 취소하면 참가자 문서·미팅 정원·
+ * 보증금 상태와 조용히 어긋나므로, 그 경우 초대 거절(decline) 또는
+ * 취소 요청(requestCancellation) 경로를 사용하도록 명시적으로 거부한다.
+ */
+export async function cancelOpenApplication(userId: string): Promise<void> {
+  const ref = db()
+    .collection(BLIND_MEETING_COLLECTIONS.applications)
+    .doc(userId);
+  await db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return; // 취소할 신청이 없으면 idempotent 성공
+    const raw = snap.data() ?? {};
+    const serverStatus = String(raw.serverStatus ?? raw.status ?? "");
+    if (serverStatus === "cancelled") return; // 이미 취소됨 — idempotent
+    const meetingId =
+      typeof raw.meetingId === "string" ? raw.meetingId.trim() : "";
+    if (meetingId.length > 0) {
+      throw new HttpsError(
+        "failed-precondition",
+        "이미 매칭된 미팅이 있어요. 미팅 화면에서 거절 또는 취소 요청을 이용해주세요."
+      );
+    }
+    tx.set(
+      ref,
+      {
+        status: PARTICIPANT_STATUS_TO_APP.cancelled,
+        serverStatus: "cancelled",
+        stage: "cancelled",
+        open: false,
+        meetingId: null,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  });
 }
 
 /**

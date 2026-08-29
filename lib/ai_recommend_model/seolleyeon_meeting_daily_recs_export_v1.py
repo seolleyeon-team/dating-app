@@ -20,7 +20,14 @@ from seolleyeon_meeting_common_v1 import (
     build_group_embedding_bundle,
     build_group_recent_action_maps,
     build_member_profile_view,
+    campus_zone_compatibility,
     coerce_str_list,
+    ACTIVATION_ENFORCED,
+    ACTIVATION_OFF,
+    load_meeting_campus_zone_activation,
+    meeting_policy_provenance,
+    read_meeting_policy_state,
+    upstream_policy_matches,
     firestore,
     group_diversity_similarity,
     list_recent_date_keys,
@@ -122,6 +129,20 @@ def main() -> int:
     algorithm_version = args.algorithm_version or f"meeting_daily_v1_{date_key}"
 
     db = make_firestore_client(args.firestore_project, database=args.firestore_database)
+    campus_zone_state, campus_zone_policy_version = (
+        load_meeting_campus_zone_activation(db)
+    )
+    campus_zone_enforced = campus_zone_state == ACTIVATION_ENFORCED
+    policy_provenance = meeting_policy_provenance(
+        campus_zone_state, campus_zone_policy_version
+    )
+    log_struct(
+        "info",
+        "meeting_daily_campus_zone_activation",
+        campusLifeZoneFilterEnabled=campus_zone_enforced,
+        campusLifeZoneActivationState=campus_zone_state,
+        campusLifeZonePolicyVersion=campus_zone_policy_version,
+    )
     ready_groups = load_meeting_group_index_records(
         db,
         collection_name=args.meeting_group_index_collection,
@@ -194,6 +215,25 @@ def main() -> int:
             f"{args.meeting_daily_recs_collection}/{actor_group_id}/days/{date_key}"
         )
         ranker_doc = ranker_docs.get(actor_group_id, {})
+        if not upstream_policy_matches(campus_zone_state, ranker_doc):
+            # 상위 문서가 다른 정책 상태에서 만들어졌다. 그대로 내려보내면
+            # 현재 정책과 어긋난 후보가 그대로 서빙된다.
+            skip_reason = "stale_campus_life_zone_policy"
+            payload = {
+                "status": "skipped",
+                "algorithmVersion": algorithm_version,
+                "candidateGroupIds": [],
+                "candidates": [],
+                "createdAt": firestore.SERVER_TIMESTAMP if firestore is not None else None,
+                "skipReason": skip_reason,
+                "policy": policy_provenance,
+                "sourcePolicy": read_meeting_policy_state(ranker_doc),
+            }
+            status_counts["skipped"] += 1
+            reason_counts[skip_reason] += 1
+            if bw is not None:
+                bw.set(doc_ref, payload, merge=True)
+            continue
         if ranker_doc.get("status") != "ready":
             status = ranker_doc.get("status") or "skipped"
             skip_reason = ranker_doc.get("skipReason") or "missing_group_ranker_doc"
@@ -204,6 +244,7 @@ def main() -> int:
                 "candidates": [],
                 "createdAt": firestore.SERVER_TIMESTAMP if firestore is not None else None,
                 "skipReason": skip_reason,
+                "policy": policy_provenance,
             }
             status_counts[status] += 1
             reason_counts[skip_reason] += 1
@@ -224,6 +265,21 @@ def main() -> int:
             if int(args.exclude_recent_exposure_days) > 0 and group_id in recent_exposure_map.get(actor_group_id, set()):
                 filter_reasons["recent_exposure_exclusion"] += 1
                 continue
+            # 방어적 재검사: upstream(group_ranker) 문서가 낡았더라도
+            # cross-zone 그룹이 최종 추천으로 나가지 않게 한다.
+            candidate_record = records.get(group_id)
+            actor_index_record = records.get(actor_group_id)
+            if candidate_record is None or actor_index_record is None:
+                filter_reasons["missing_group_index"] += 1
+                continue
+            if campus_zone_enforced:
+                zone_ok, zone_reason = campus_zone_compatibility(
+                    actor_index_record.shared_campus_life_zones,
+                    candidate_record.shared_campus_life_zones,
+                )
+                if not zone_ok:
+                    filter_reasons[zone_reason or "campus_life_zone_mismatch"] += 1
+                    continue
             filtered_items.append(item)
 
         if not filtered_items:
@@ -235,6 +291,7 @@ def main() -> int:
                 "candidates": [],
                 "createdAt": firestore.SERVER_TIMESTAMP if firestore is not None else None,
                 "skipReason": skip_reason,
+                "policy": policy_provenance,
             }
             status_counts["empty"] += 1
             reason_counts[skip_reason] += 1
@@ -267,6 +324,7 @@ def main() -> int:
                 "candidates": [],
                 "createdAt": firestore.SERVER_TIMESTAMP if firestore is not None else None,
                 "skipReason": skip_reason,
+                "policy": policy_provenance,
             }
             status_counts["empty"] += 1
             reason_counts[skip_reason] += 1
@@ -343,6 +401,7 @@ def main() -> int:
             "candidateGroupIds": [candidate["groupId"] for candidate in candidates],
             "candidates": candidates,
             "createdAt": firestore.SERVER_TIMESTAMP if firestore is not None else None,
+            "policy": policy_provenance,
         }
         if bw is not None:
             bw.set(doc_ref, payload, merge=True)

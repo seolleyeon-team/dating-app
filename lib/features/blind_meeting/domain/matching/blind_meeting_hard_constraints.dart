@@ -48,6 +48,12 @@ enum BlindMeetingConstraintViolation {
 
   /// 팀/그룹 인원 수가 맞지 않음
   invalidGroupSize,
+
+  /// 여섯 명이 함께 만날 수 있는 공통 생활권이 없음
+  campusLifeZoneMismatch,
+
+  /// 생활권 정보가 없어 판정할 수 없음 (fail-closed)
+  campusLifeZoneMissing,
 }
 
 extension BlindMeetingConstraintViolationMessage
@@ -150,12 +156,47 @@ class BlindMeetingHardConstraints {
         violations.addAll(checkPair(members[i], members[j]));
       }
     }
+    // 생활권은 날짜와 달리 per-candidate proxy가 없는 진짜 그룹 속성이라
+    // (개인은 여러 생활권을 가질 수 있다) 여기서 교집합을 직접 확인한다.
+    // 실제로 함께 만나려면 전원이 최소 하나의 공통 생활권을 가져야 한다.
+    if (members.isNotEmpty) {
+      if (members.any((member) => _normalizedZones(member).isEmpty)) {
+        violations.add(BlindMeetingConstraintViolation.campusLifeZoneMissing);
+      } else if (sharedCampusLifeZones(members).isEmpty) {
+        violations.add(BlindMeetingConstraintViolation.campusLifeZoneMismatch);
+      }
+    }
     // 공통 가능 날짜 검사는 의도적으로 여기서 하지 않는다.
     // 전원이 [dateKey]를 갖고 있어야 통과하므로 교집합은 항상 dateKey를 포함한다.
     // 즉 여기서 교집합을 계산해도 판정이 달라지지 않으면서,
     // 모든 3인 조합과 팀 쌍마다 반복 실행되는 비용만 생긴다.
     // 최종 6인 구성에 대한 검사는 미팅 생성 시점([commonDateKeys] 호출부)에서 한다.
     return violations;
+  }
+
+  static Set<String> _normalizedZones(BlindMeetingCandidate candidate) {
+    return candidate.campusLifeZones
+        .map((zone) => zone.trim())
+        .where((zone) => zone.isNotEmpty)
+        .toSet();
+  }
+
+  /// 그룹 전원이 함께 만날 수 있는 공통 생활권.
+  ///
+  /// 다수결/대표자 기준이 아니라 반드시 교집합이다. 한 명이라도 생활권
+  /// 정보가 없으면 빈 집합을 돌려준다 (fail-closed).
+  static Set<String> sharedCampusLifeZones(
+    List<BlindMeetingCandidate> members,
+  ) {
+    if (members.isEmpty) return <String>{};
+    Set<String>? shared;
+    for (final member in members) {
+      final zones = _normalizedZones(member);
+      if (zones.isEmpty) return <String>{};
+      shared = shared == null ? zones : shared.intersection(zones);
+      if (shared.isEmpty) return <String>{};
+    }
+    return shared ?? <String>{};
   }
 
   /// 그룹이 조건을 모두 만족하는지.

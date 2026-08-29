@@ -3,15 +3,15 @@
 ///
 /// Slots remain independent so a user can upload different photos in parallel.
 class AvatarUploadSubmissionGuard {
-  final Set<int> _activeSlots = <int>{};
+  final Set<int> _lockedSlots = <int>{};
 
-  /// Marks [slotIndex] as active and returns whether this call acquired it.
-  bool tryAcquire(int slotIndex) => _activeSlots.add(slotIndex);
+  /// Marks [slotIndex] as in flight and returns whether this call acquired it.
+  bool tryAcquire(int slotIndex) => _lockedSlots.add(slotIndex);
 
   /// Releases [slotIndex] after its upload flow finishes or is cancelled.
   void release(int slotIndex) {
-    _activeSlots.remove(slotIndex);
+    _lockedSlots.remove(slotIndex);
   }
 
-  bool isActive(int slotIndex) => _activeSlots.contains(slotIndex);
+  bool isLocked(int slotIndex) => _lockedSlots.contains(slotIndex);
 }

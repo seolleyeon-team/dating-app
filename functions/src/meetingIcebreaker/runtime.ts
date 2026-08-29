@@ -18,6 +18,8 @@ export const MEETING_ICEBREAKER_CALLABLE_OPTIONS = {
   concurrency: 1,
   memory: "256MiB" as const,
   maxInstances: 5,
+  // 다른 모든 callable과 동일하게 App Check를 강제한다.
+  enforceAppCheck: true,
 };
 
 export const MEETING_ICEBREAKER_SCHEDULE_OPTIONS = {

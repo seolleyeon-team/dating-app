@@ -26,10 +26,12 @@ import {
   initiativeCompatibility,
   interestSimilarity,
   internalTeamScore,
+  isGroupAllowed,
   mbtiCompatibility,
   proposeGroups,
   purposeCompatibility,
   rankReplacements,
+  sharedCampusLifeZones,
   smokingCompatibility,
   standardPool,
   waitingTimeBonus,
@@ -86,6 +88,9 @@ function candidate(
     interestIds: ["커피", "영화"],
     mbti: "ENFP",
     availableDateKeys: [DATE],
+    // 생활권은 hard eligibility다. 기본 fixture는 같은 생활권을 쓰고
+    // 생활권 자체를 검증하는 테스트만 명시적으로 덮어쓴다.
+    campusLifeZones: ["sinchon"],
     schoolVerified: true,
     eligible: true,
     blockedUserIds: [],
@@ -510,6 +515,174 @@ describe("무알코올 후보군 분리", () => {
       })
     );
     assert.equal(bestGroup(pool, DATE, true), null);
+  });
+});
+
+describe("생활권 hard constraint", () => {
+  function zonedTeam(prefix: string, zones: string[]): Candidate[] {
+    return balancedTeam(prefix).map((member) => ({
+      ...member,
+      campusLifeZones: zones,
+    }));
+  }
+
+  it("그룹 공통 생활권은 교집합이며 다수결이 아니다", () => {
+    assert.deepEqual(
+      sharedCampusLifeZones([
+        candidate("a", { campusLifeZones: ["sinchon"] }),
+        candidate("b", { campusLifeZones: ["sinchon"] }),
+        candidate("c", { campusLifeZones: ["sinchon"] }),
+      ]),
+      ["sinchon"]
+    );
+    assert.deepEqual(
+      sharedCampusLifeZones([
+        candidate("a", { campusLifeZones: ["songdo"] }),
+        candidate("b", { campusLifeZones: ["songdo"] }),
+        candidate("c", { campusLifeZones: ["sinchon", "songdo"] }),
+      ]),
+      ["songdo"]
+    );
+    // 2명이 신촌이어도 신촌 그룹이 되지 않는다
+    assert.deepEqual(
+      sharedCampusLifeZones([
+        candidate("a", { campusLifeZones: ["sinchon"] }),
+        candidate("b", { campusLifeZones: ["sinchon"] }),
+        candidate("c", { campusLifeZones: ["songdo"] }),
+      ]),
+      []
+    );
+    // dual-zone 이 bridge 역할을 해도 전체 공통이 없으면 실패
+    assert.deepEqual(
+      sharedCampusLifeZones([
+        candidate("a", { campusLifeZones: ["sinchon"] }),
+        candidate("b", { campusLifeZones: ["songdo"] }),
+        candidate("c", { campusLifeZones: ["sinchon", "songdo"] }),
+      ]),
+      []
+    );
+    assert.deepEqual(
+      sharedCampusLifeZones([
+        candidate("a", { campusLifeZones: ["sinchon", "songdo"] }),
+        candidate("b", { campusLifeZones: ["sinchon", "songdo"] }),
+        candidate("c", { campusLifeZones: ["sinchon", "songdo"] }),
+      ]),
+      ["sinchon", "songdo"]
+    );
+  });
+
+  it("생활권이 비면 fail-closed 로 판정한다", () => {
+    assert.deepEqual(
+      sharedCampusLifeZones([
+        candidate("a", { campusLifeZones: ["sinchon"] }),
+        candidate("b", { campusLifeZones: [] }),
+      ]),
+      []
+    );
+    const violations = checkGroupConstraints(
+      [
+        candidate("a", { campusLifeZones: ["sinchon"] }),
+        candidate("b", { campusLifeZones: [] }),
+      ],
+      DATE,
+      false
+    );
+    assert.ok(violations.includes("campusLifeZoneMissing"));
+  });
+
+  it("공통 생활권이 없는 그룹은 hard constraint 위반이다", () => {
+    const violations = checkGroupConstraints(
+      [...zonedTeam("a", ["sinchon"]), ...zonedTeam("b", ["songdo"])],
+      DATE,
+      false,
+      6
+    );
+    assert.ok(violations.includes("campusLifeZoneMismatch"));
+    assert.equal(
+      isGroupAllowed(
+        [...zonedTeam("a", ["sinchon"]), ...zonedTeam("b", ["songdo"])],
+        DATE,
+        false,
+        6
+      ),
+      false
+    );
+  });
+
+  it("신촌 3명 + 송도 3명은 점수와 무관하게 매칭되지 않는다", () => {
+    const pool = [...zonedTeam("sin", ["sinchon"]), ...zonedTeam("song", ["songdo"])];
+    assert.equal(bestGroup(pool, DATE, false), null);
+  });
+
+  it("같은 생활권 6명은 정상 매칭된다", () => {
+    const pool = [...zonedTeam("a", ["sinchon"]), ...zonedTeam("b", ["sinchon"])];
+    const group = bestGroup(pool, DATE, false);
+    assert.ok(group != null);
+    assert.deepEqual(
+      sharedCampusLifeZones([...group.teamA, ...group.teamB]),
+      ["sinchon"]
+    );
+  });
+
+  it("dual-zone 사용자는 양쪽 생활권 그룹에 참여할 수 있다", () => {
+    const withSinchon = [
+      ...zonedTeam("a", ["sinchon"]),
+      ...zonedTeam("b", ["sinchon", "songdo"]),
+    ];
+    const sinchonGroup = bestGroup(withSinchon, DATE, false);
+    assert.ok(sinchonGroup != null);
+    assert.deepEqual(
+      sharedCampusLifeZones([...sinchonGroup.teamA, ...sinchonGroup.teamB]),
+      ["sinchon"]
+    );
+
+    const withSongdo = [
+      ...zonedTeam("a", ["songdo"]),
+      ...zonedTeam("b", ["sinchon", "songdo"]),
+    ];
+    const songdoGroup = bestGroup(withSongdo, DATE, false);
+    assert.ok(songdoGroup != null);
+    assert.deepEqual(
+      sharedCampusLifeZones([...songdoGroup.teamA, ...songdoGroup.teamB]),
+      ["songdo"]
+    );
+  });
+
+  it("생활권이 부족하면 다른 생활권으로 채우지 않고 매칭하지 않는다", () => {
+    // 신촌 5명 + 송도 10명 — 신촌이 6명에 못 미치므로 구성 불가
+    const pool = [
+      ...Array.from({ length: 5 }, (_, i) =>
+        candidate(`sin${i}`, { campusLifeZones: ["sinchon"] })
+      ),
+      ...Array.from({ length: 10 }, (_, i) =>
+        candidate(`song${i}`, { campusLifeZones: ["songdo"] })
+      ),
+    ];
+    const group = bestGroup(pool, DATE, false);
+    // 송도 10명만으로도 구성이 가능하므로 결과가 나오면 반드시 송도 전용이어야 한다
+    if (group != null) {
+      assert.deepEqual(
+        sharedCampusLifeZones([...group.teamA, ...group.teamB]),
+        ["songdo"]
+      );
+      for (const member of [...group.teamA, ...group.teamB]) {
+        assert.ok(!member.userId.startsWith("sin"));
+      }
+    }
+  });
+
+  it("생활권은 기존 hard constraint 를 대체하지 않는다", () => {
+    // 같은 생활권이어도 차단 관계가 있으면 여전히 거부된다
+    const violations = checkGroupConstraints(
+      [
+        candidate("a", { campusLifeZones: ["sinchon"], blockedUserIds: ["b"] }),
+        candidate("b", { campusLifeZones: ["sinchon"] }),
+      ],
+      DATE,
+      false
+    );
+    assert.ok(violations.includes("blockedContact"));
+    assert.ok(!violations.includes("campusLifeZoneMismatch"));
   });
 });
 

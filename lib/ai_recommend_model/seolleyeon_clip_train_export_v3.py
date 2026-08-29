@@ -43,6 +43,9 @@ from seolleyeon_rec_common_v3 import (
     DEFAULT_NEGATIVE_PREF_WEIGHTS,
     DEFAULT_STRONG_POSITIVE_EVENTS,
     PairBuildConfig,
+    assert_policy_meta_coverage,
+    load_avatar_display_status_from_firestore,
+    load_firestore_block_edges_from_firestore,
     clamp01,
     collapse_pair_events,
     compute_clip_signal_confidence,
@@ -50,11 +53,17 @@ from seolleyeon_rec_common_v3 import (
     is_ai_profile,
     load_events_from_csv,
     load_events_from_firestore,
-    load_profile_index_from_firestore,
+    load_policy_meta_from_firestore,
     load_user_genders_from_firestore,
-    load_users_with_photos_from_firestore,
+    resolve_campus_life_zone_activation,
+    campus_life_zone_policy_provenance,
+    ACTIVATION_ENFORCED,
+    ACTIVATION_OFF,
+    load_users_with_approved_avatars_from_firestore,
     passes_policy,
     require_firestore,
+    resolve_mutual_block_index,
+    filter_recommendation_items_for_display_ready,
 )
 
 
@@ -117,6 +126,39 @@ def add_ai_profiles_to_uid_urls(
             pass
 
 
+def build_clip_actor_candidate_sets(
+    candidate_uids: Sequence[str],
+    signal_actor_ids: Sequence[str],
+) -> Tuple[set[str], set[str]]:
+    """Keep real approved candidates separate from actor preference signals."""
+    candidates = {
+        str(uid) for uid in candidate_uids
+        if str(uid).strip() and not is_ai_profile(str(uid))
+    }
+    actors = candidates | {
+        str(uid) for uid in signal_actor_ids
+        if str(uid).strip() and not is_ai_profile(str(uid))
+    }
+    return candidates, actors
+
+
+def seed_clip_embedding_statuses(
+    status_by_uid: Dict[str, Dict[str, Any]],
+    all_actor_uids: Sequence[str],
+    runnable_actor_uids: Sequence[str],
+) -> None:
+    """Record explicit skips for actors dropped after media embedding."""
+    runnable = {str(uid) for uid in runnable_actor_uids}
+    for uid in sorted({str(value) for value in all_actor_uids if str(value).strip()} - runnable):
+        status_by_uid.setdefault(
+            uid,
+            {
+                "status": "skipped",
+                "reason": "embedding_unavailable",
+            },
+        )
+
+
 def l2_normalize_np(x: np.ndarray, eps: float = 1e-12) -> np.ndarray:
     norm = float(np.linalg.norm(x))
     if norm <= eps:
@@ -160,23 +202,38 @@ def export_to_firestore(
     algorithm_version: str,
     model_meta: Dict[str, Any],
     user_signal_meta: Optional[Dict[str, Dict[str, Any]]] = None,
+    source_status_by_uid: Optional[Dict[str, Dict[str, Any]]] = None,
     database: Optional[str] = None,
+    policy_provenance: Optional[Dict[str, Any]] = None,
 ) -> None:
     require_firestore()
     db = firestore.Client(project=project_id, database=database)
     bw = db.bulk_writer()
     gen_at = firestore.SERVER_TIMESTAMP
 
-    for uid, items in recommendations.items():
+    export_uids = set(recommendations)
+    if source_status_by_uid:
+        export_uids.update(source_status_by_uid)
+
+    for uid in sorted(export_uids):
+        items = recommendations.get(uid, [])
+        status_meta = (source_status_by_uid or {}).get(uid, {})
+        status = str(status_meta.get("status") or ("ready" if items else "empty"))
         doc_ref = db.document(f"modelRecs/{uid}/daily/{date_key}/sources/clip")
         payload: Dict[str, Any] = {
-            "status": "ready",
+            "status": status,
             "algorithmVersion": algorithm_version,
             "model": model_meta,
             "generatedAt": gen_at,
             "topN": len(items),
             "items": items,
         }
+        if policy_provenance is not None:
+            # 이 문서가 어떤 생활권 정책 상태에서 만들어졌는지 남긴다.
+            # 소비자(클라이언트/검증)는 config 를 못 읽는 순간에도 이 값을 믿는다.
+            payload["policy"] = policy_provenance
+        if status_meta.get("reason"):
+            payload["reason"] = status_meta["reason"]
         if user_signal_meta and uid in user_signal_meta:
             payload["signal"] = user_signal_meta[uid]
         bw.set(doc_ref, payload, merge=True)
@@ -218,13 +275,33 @@ def main() -> int:
     p.add_argument("--no_blend_self_profile", action="store_true")
 
     p.add_argument("--apply_policy_filters", action="store_true")
+    # 생활권 hard filter 의 rollout activation.
+    # 지정하지 않으면 recommendationConfig/current 문서를 따른다.
+    # 상태를 확인하지 못하면(UNKNOWN) export 를 중단한다 — 활성화된 정책을
+    # 모른 채 cross-zone 후보를 저장하지 않기 위해서다.
+    p.add_argument(
+        "--enforce_campus_life_zone",
+        dest="enforce_campus_life_zone",
+        action="store_true",
+        default=None,
+    )
+    p.add_argument(
+        "--no_enforce_campus_life_zone",
+        dest="enforce_campus_life_zone",
+        action="store_false",
+    )
     p.add_argument("--profile_index_collection", type=str, default="profileIndex")
+    p.add_argument("--policy_min_meta_coverage", type=float, default=0.9)
     p.add_argument("--manner_min", type=float, default=33.0)
     p.add_argument("--active_within_days", type=int, default=14)
     p.add_argument("--require_same_university", dest="require_same_university", action="store_true")
     p.add_argument("--no_require_same_university", dest="require_same_university", action="store_false")
     p.set_defaults(require_same_university=True)
     p.add_argument("--no_reciprocal", action="store_true")
+    p.add_argument("--display_ready_users_collection", type=str, default="users")
+    p.add_argument("--firestore_blocks", dest="firestore_blocks", action="store_true")
+    p.add_argument("--no_firestore_blocks", dest="firestore_blocks", action="store_false")
+    p.set_defaults(firestore_blocks=True)
 
     p.add_argument("--algorithm_version", type=str, default=None)
     args = p.parse_args()
@@ -239,15 +316,18 @@ def main() -> int:
     )
     negative_pref_weights = safe_json_update(DEFAULT_NEGATIVE_PREF_WEIGHTS, args.negative_pref_weights_json)
 
-    print("[1] Loading users with photos...")
-    uid_to_urls = load_users_with_photos_from_firestore(
+    print("[1] Loading approved avatar candidates...")
+    candidate_uid_to_urls = load_users_with_approved_avatars_from_firestore(
         args.firestore_project,
         users_collection=args.users_collection,
         database=args.firestore_database,
     )
-    print(f"    Loaded {len(uid_to_urls)} users with photos")
-    if len(uid_to_urls) < 2:
-        print("[!] Not enough users with photos. Skipping CLIP export.")
+    preference_uid_to_urls = {
+        uid: list(urls) for uid, urls in candidate_uid_to_urls.items()
+    }
+    print(f"    Loaded {len(candidate_uid_to_urls)} approved avatar candidates")
+    if len(candidate_uid_to_urls) < 2:
+        print("[!] Not enough approved avatar candidates. Skipping CLIP export.")
         return 0
 
     if args.events_csv:
@@ -273,8 +353,20 @@ def main() -> int:
     signal_meta_by_uid: Dict[str, Dict[str, Any]] = {}
     pos_by_user: Dict[str, Any] = {}
     neg_by_user: Dict[str, Any] = {}
+    mutual_blocks: Dict[str, set[str]] = {}
 
     if df is not None and not df.empty:
+        firestore_block_edges = []
+        if args.firestore_blocks:
+            firestore_block_edges = load_firestore_block_edges_from_firestore(
+                args.firestore_project,
+                database=args.firestore_database,
+            )
+        mutual_blocks = resolve_mutual_block_index(
+            df,
+            firestore_block_edges=firestore_block_edges,
+        )
+        print(f"[blocks] users with mutual block/report exclusions: {len(mutual_blocks):,}")
         pair_cfg = PairBuildConfig(
             event_weights=event_weights,
             negative_events=negative_events,
@@ -313,9 +405,23 @@ def main() -> int:
         bucket = os.environ.get(
             "FIREBASE_STORAGE_BUCKET", "seolleyeon-final.firebasestorage.app"
         )
-        add_ai_profiles_to_uid_urls(uid_to_urls, all_signal_targets, bucket=bucket)
+        add_ai_profiles_to_uid_urls(
+            preference_uid_to_urls,
+            all_signal_targets,
+            bucket=bucket,
+        )
     else:
         print("[events] no usable events; CLIP will run in pure cold-start/self-profile mode")
+
+    candidate_uids, actor_uids = build_clip_actor_candidate_sets(
+        candidate_uid_to_urls.keys(),
+        signal_meta_by_uid.keys(),
+    )
+    all_actor_uids = set(actor_uids)
+    source_status_by_uid: Dict[str, Dict[str, Any]] = {}
+    # AI target cards live only in this preference map. They never enter the
+    # candidate matrix or any Firestore recommendation item.
+    uid_to_urls = preference_uid_to_urls
 
     try:
         embedder = SeolleyeonCLIPEmbedder(device=args.device)
@@ -334,8 +440,11 @@ def main() -> int:
         except Exception as ex:
             print(f"    Skip {uid}: {ex}")
 
-    if len(uid_to_vec) < 2:
-        print("[!] Not enough embeddings. Skipping.")
+    candidate_uids = {uid for uid in candidate_uids if uid in uid_to_vec}
+    actor_uids = {uid for uid in actor_uids if uid in signal_meta_by_uid or uid in uid_to_vec}
+    seed_clip_embedding_statuses(source_status_by_uid, all_actor_uids, actor_uids)
+    if len(candidate_uids) < 2:
+        print("[!] Not enough candidate embeddings. Skipping.")
         return 0
 
     gender_by_uid = load_user_genders_from_firestore(
@@ -346,17 +455,46 @@ def main() -> int:
     print(f"[gender] loaded from users/onboarding: {len(gender_by_uid)} users")
 
     meta = None
+    campus_zone_enforced = False
+    campus_zone_state = ACTIVATION_OFF
+    campus_zone_policy_version = 0
     if args.apply_policy_filters:
-        meta = load_profile_index_from_firestore(
+        campus_zone_state, campus_zone_policy_version = (
+            resolve_campus_life_zone_activation(
+                args.enforce_campus_life_zone,
+                args.firestore_project,
+                database=args.firestore_database,
+            )
+        )
+        campus_zone_enforced = campus_zone_state == ACTIVATION_ENFORCED
+        print(
+            f"[policy] campusLifeZone={campus_zone_state} "
+            f"version={campus_zone_policy_version}"
+        )
+        meta, meta_source = load_policy_meta_from_firestore(
             args.firestore_project,
-            collection=args.profile_index_collection,
+            profile_index_collection=args.profile_index_collection,
             database=args.firestore_database,
         )
-        print(f"[meta] loaded profileIndex docs: {len(meta):,}")
+        print(f"[meta] loaded policy metadata from '{meta_source}': {len(meta):,}")
+        coverage = assert_policy_meta_coverage(
+            meta,
+            sorted(candidate_uids | actor_uids),
+            min_coverage=float(args.policy_min_meta_coverage),
+            source=meta_source,
+        )
+        print(f"[meta] policy metadata covers {coverage:.1%} of CLIP actors/candidates")
 
-    uids = list(uid_to_vec.keys())
-    emb_matrix = np.array([uid_to_vec[u] for u in uids], dtype=np.float32)
-    uid_to_idx = {u: i for i, u in enumerate(uids)}
+    display_status = load_avatar_display_status_from_firestore(
+        args.firestore_project,
+        users_collection=args.display_ready_users_collection,
+        database=args.firestore_database,
+    )
+    print(f"[display] loaded avatar display status for {len(display_status):,} users")
+
+    candidate_uids = sorted(candidate_uids)
+    emb_matrix = np.array([uid_to_vec[u] for u in candidate_uids], dtype=np.float32)
+    candidate_uid_to_idx = {u: i for i, u in enumerate(candidate_uids)}
     reciprocal = not args.no_reciprocal
     topn = int(args.topn)
     oversample = max(1, int(args.oversample))
@@ -364,14 +502,11 @@ def main() -> int:
     print("[3] Generating recommendations...")
     recs_to_export: Dict[str, List[Dict[str, Any]]] = {}
 
-    for user_id in tqdm(list(uid_to_vec.keys()), desc="recs"):
+    for user_id in tqdm(sorted(actor_uids), desc="recs"):
         if is_ai_profile(user_id):
             continue
-        if user_id not in uid_to_idx:
-            continue
 
-        user_idx = uid_to_idx[user_id]
-        self_vec = emb_matrix[user_idx]
+        self_vec = uid_to_vec.get(user_id)
         user_signal = signal_meta_by_uid.get(
             user_id,
             {
@@ -395,37 +530,60 @@ def main() -> int:
                 ev = str(row.get("final_negative_event") or "nope")
                 neg_targets.append((str(row["item_id"]), float(negative_pref_weights.get(ev, 1.0))))
 
-        pos_mean, n_pos_used = weighted_mean_from_targets(pos_targets, uid_to_vec, exclude_uid=user_id)
-        neg_mean, n_neg_used = weighted_mean_from_targets(neg_targets, uid_to_vec, exclude_uid=user_id)
+        pos_mean, n_pos_used = weighted_mean_from_targets(
+            pos_targets, uid_to_vec, exclude_uid=user_id
+        )
+        neg_mean, n_neg_used = weighted_mean_from_targets(
+            neg_targets, uid_to_vec, exclude_uid=user_id
+        )
 
         signal_pref: Optional[np.ndarray] = None
         if pos_mean is not None and neg_mean is not None:
-            signal_pref = l2_normalize_np(pos_mean - float(args.negative_pref_scale) * neg_mean)
+            signal_pref = l2_normalize_np(
+                pos_mean - float(args.negative_pref_scale) * neg_mean
+            )
         elif pos_mean is not None:
             signal_pref = pos_mean
         elif neg_mean is not None:
-            signal_pref = l2_normalize_np(self_vec - float(args.negative_pref_scale) * neg_mean)
+            if self_vec is not None:
+                signal_pref = l2_normalize_np(
+                    self_vec - float(args.negative_pref_scale) * neg_mean
+                )
+            else:
+                signal_pref = l2_normalize_np(
+                    -float(args.negative_pref_scale) * neg_mean
+                )
 
         cold_start_fallback = signal_pref is None
-        clip_conf = float(user_signal.get("confidence", 0.0))
-        clip_conf = clamp01(clip_conf)
+        clip_conf = clamp01(float(user_signal.get("confidence", 0.0)))
 
         if signal_pref is None:
+            if self_vec is None:
+                source_status_by_uid[user_id] = {
+                    "status": "skipped",
+                    "reason": "no_actor_preference_signal",
+                }
+                continue
             pref = self_vec
-        elif args.no_blend_self_profile:
+        elif args.no_blend_self_profile or self_vec is None:
             pref = signal_pref
         else:
-            pref = l2_normalize_np((clip_conf * signal_pref) + ((1.0 - clip_conf) * self_vec))
+            pref = l2_normalize_np(
+                (clip_conf * signal_pref) + ((1.0 - clip_conf) * self_vec)
+            )
 
         scores = emb_matrix @ pref
-
-        exclude = {user_idx}
+        exclude: set[int] = set()
+        user_idx = candidate_uid_to_idx.get(user_id)
+        if user_idx is not None:
+            exclude.add(user_idx)
         for target_uid, _w in pos_targets + neg_targets:
-            if target_uid in uid_to_idx:
-                exclude.add(uid_to_idx[target_uid])
-        for idx, candidate_uid in enumerate(uids):
-            if is_ai_profile(candidate_uid):
-                exclude.add(idx)
+            if target_uid in candidate_uid_to_idx:
+                exclude.add(candidate_uid_to_idx[target_uid])
+        blocked_uids = mutual_blocks.get(user_id, frozenset())
+        for blocked_uid in blocked_uids:
+            if blocked_uid in candidate_uid_to_idx:
+                exclude.add(candidate_uid_to_idx[blocked_uid])
         if exclude:
             scores[list(exclude)] = -np.inf
 
@@ -434,8 +592,8 @@ def main() -> int:
         for ii in top_indices.tolist():
             if not np.isfinite(scores[ii]):
                 continue
-            cand_uid = uids[ii]
-            if is_ai_profile(cand_uid):
+            cand_uid = candidate_uids[ii]
+            if cand_uid in blocked_uids:
                 continue
 
             u_g = gender_by_uid.get(user_id)
@@ -443,23 +601,32 @@ def main() -> int:
             if u_g and v_g and u_g == v_g:
                 continue
 
-            if meta is not None:
-                if not passes_policy(
-                    user_id,
-                    cand_uid,
-                    meta,
-                    manner_min=float(args.manner_min),
-                    active_within_days=int(args.active_within_days),
-                    require_same_university=bool(args.require_same_university),
-                    reciprocal=reciprocal,
-                ):
-                    continue
+            if meta is not None and not passes_policy(
+                user_id,
+                cand_uid,
+                meta,
+                manner_min=float(args.manner_min),
+                active_within_days=int(args.active_within_days),
+                require_same_university=bool(args.require_same_university),
+                reciprocal=reciprocal,
+                require_same_campus_life_zone=campus_zone_enforced,
+            ):
+                continue
 
-            items_out.append({
+            item = {
                 "uid": cand_uid,
                 "rank": len(items_out) + 1,
                 "score": float(scores[ii]),
-            })
+            }
+            filtered, _skipped = filter_recommendation_items_for_display_ready(
+                [item],
+                display_status,
+                require_approved_avatar=True,
+            )
+            if not filtered:
+                continue
+            filtered[0]["rank"] = len(items_out) + 1
+            items_out.append(filtered[0])
             if len(items_out) >= topn:
                 break
 
@@ -477,11 +644,16 @@ def main() -> int:
 
         if items_out:
             recs_to_export[user_id] = items_out
+            source_status_by_uid[user_id] = {"status": "ready"}
+        else:
+            source_status_by_uid[user_id] = {
+                "status": "empty",
+                "reason": "no_policy_compatible_candidate",
+            }
 
     print(f"[export] prepared recs for {len(recs_to_export)} users")
 
-    if args.export_firestore and recs_to_export:
-        db = firestore.Client(project=args.firestore_project, database=args.firestore_database)
+    if args.export_firestore and source_status_by_uid:
         trained_at = datetime.now(tz=timezone.utc).isoformat()
         algo_version = args.algorithm_version or f"clip_v3_{date_key}"
         model_meta = {
@@ -503,7 +675,11 @@ def main() -> int:
             algorithm_version=algo_version,
             model_meta=model_meta,
             user_signal_meta=signal_meta_by_uid,
+            source_status_by_uid=source_status_by_uid,
             database=args.firestore_database,
+            policy_provenance=campus_life_zone_policy_provenance(
+                campus_zone_state, campus_zone_policy_version
+            ),
         )
         print("[export] CLIP done")
 

@@ -135,11 +135,17 @@ def test_extend_mutual_block_index_is_symmetric_and_idempotent():
 # ---------------------------------------------------------------------------
 
 def verified_user_doc(**overrides):
+    # 생활권은 hard eligibility다. 정상 사용자 fixture는 같은 생활권을 갖고,
+    # 생활권 자체를 검증하는 테스트만 onboarding 을 덮어쓴다.
     doc = {
         "isStudentVerified": True,
         "initialSetupComplete": True,
         "studentEmail": "someone@yonsei.ac.kr",
-        "onboarding": {"gender": "female", "birthYear": 2002},
+        "onboarding": {
+            "gender": "female",
+            "birthYear": 2002,
+            "campusLifeZones": ["sinchon"],
+        },
         "idealType": {"idealAge": {"min": 20, "max": 28}},
     }
     doc.update(overrides)
@@ -157,6 +163,28 @@ def test_policy_meta_is_derived_from_users_when_profile_index_is_absent():
     assert meta["u1"]["universityId"] == "yonsei"
     assert meta["u1"]["prefAgeMin"] == 20
     assert meta["u1"]["prefAgeMax"] == 28
+
+
+def test_policy_meta_uses_login_activity_writer_and_modern_ideal_age_fields():
+    recent = pd.Timestamp("2026-08-24", tz="UTC")
+    meta = build_policy_meta_from_user_docs(
+        {
+            "u1": verified_user_doc(
+                lastActivePlatformUpdatedAt=recent,
+                idealType={"minAge": 23, "maxAge": 27},
+            )
+        }
+    )
+
+    assert meta["u1"]["lastActiveAt"] == recent
+    assert meta["u1"]["activitySource"] == "users.lastActivePlatformUpdatedAt"
+    assert meta["u1"]["activityReason"] == "login_activity"
+    assert meta["u1"]["profileCompleteSource"] == "users.initialSetupComplete"
+    assert meta["u1"]["profileCompleteReason"] == "canonical_true"
+    assert meta["u1"]["activeSource"] == "users.account_status"
+    assert meta["u1"]["activeReason"] == "no_blocking_status"
+    assert meta["u1"]["prefAgeMin"] == 23
+    assert meta["u1"]["prefAgeMax"] == 27
 
 
 def test_unverified_and_suspended_users_are_marked_ineligible():
@@ -178,7 +206,13 @@ def test_unverified_and_suspended_users_are_marked_ineligible():
 def test_derived_meta_lets_passes_policy_reject_unverified_candidates():
     meta = build_policy_meta_from_user_docs(
         {
-            "viewer": verified_user_doc(onboarding={"gender": "male", "birthYear": 2001}),
+            "viewer": verified_user_doc(
+                onboarding={
+                    "gender": "male",
+                    "birthYear": 2001,
+                    "campusLifeZones": ["sinchon"],
+                }
+            ),
             "ok": verified_user_doc(),
             "unverified": verified_user_doc(isStudentVerified=False),
         }

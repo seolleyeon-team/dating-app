@@ -19,6 +19,10 @@ from seolleyeon_meeting_common_v1 import (
     make_firestore_client,
     parse_date_key,
 )
+from campus_life_zone_policy import (
+    CampusLifeZoneActivationUnknown,
+    load_campus_life_zone_activation,
+)
 
 try:
     from recsys.jobs.meeting_verify_policy import build_meeting_verification_summary
@@ -107,11 +111,20 @@ def main() -> int:
         else {}
     )
 
+    # 산출물이 "지금 의도한" 생활권 정책 상태로 만들어졌는지 함께 본다.
+    # 조회에 실패하면 판정하지 않고 unhealthy 로 끝낸다 — 어떤 정책으로
+    # 만들어졌어야 하는지 모른 채 healthy 라고 말하지 않는다.
+    try:
+        expected_campus_zone_state = load_campus_life_zone_activation(db)
+    except CampusLifeZoneActivationUnknown:
+        expected_campus_zone_state = None
+
     summary = build_meeting_verification_summary(
         date_key,
         group_records,
         model_docs,
         daily_docs,
+        expected_campus_life_zone_state=expected_campus_zone_state,
     )
     log_struct("info", "meeting_verify_summary", **summary)
 

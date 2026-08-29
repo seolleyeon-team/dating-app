@@ -6,6 +6,7 @@
 // 다시 중복 질문하지 않고 여기서 불러온다.
 // =============================================================================
 
+import '../../../shared/utils/campus_life_zone_values.dart';
 import '../domain/blind_meeting_enums.dart';
 
 /// 온보딩에서 가져온 값 묶음.
@@ -18,6 +19,9 @@ class BlindMeetingProfileSnapshot {
   final DrinkingLevel? drinkingLevel;
   final SmokingStatus? smokingStatus;
   final bool schoolVerified;
+
+  /// 저장된 생활권 (`onboarding.campusLifeZones`). 없으면 빈 목록.
+  final List<String> campusLifeZones;
   final String? oneLineIntro;
   final DateTime? onboardingUpdatedAt;
 
@@ -30,6 +34,7 @@ class BlindMeetingProfileSnapshot {
     this.drinkingLevel,
     this.smokingStatus,
     this.schoolVerified = false,
+    this.campusLifeZones = const <String>[],
     this.oneLineIntro,
     this.onboardingUpdatedAt,
   });
@@ -40,6 +45,12 @@ class BlindMeetingProfileSnapshot {
 
   /// 관심사가 없어 보완 입력이 필요한지.
   bool get needsInterests => interests.isEmpty;
+
+  /// 생활권이 계산된 적이 없어 보완 입력이 필요한지.
+  ///
+  /// 미팅은 실제로 만날 수 있는 생활권끼리만 성사되므로 값이 없으면
+  /// 후보에서 제외된다 (fail-closed).
+  bool get needsCampusLifeZone => campusLifeZones.isEmpty;
 
   /// 스냅샷이 오래되어 재확인이 필요한지.
   bool isStale(DateTime now, {Duration threshold = const Duration(days: 180)}) {
@@ -84,6 +95,10 @@ class BlindMeetingProfileSnapshot {
         lifestyleMap['smoking'],
       ),
       schoolVerified: data['isStudentVerified'] == true,
+      // canonical 이 아닌 값은 생활권으로 인정하지 않는다 (fail-closed).
+      campusLifeZones: CampusLifeZoneValues.readPersisted(
+        onboardingMap['campusLifeZones'],
+      ).toList()..sort(),
       oneLineIntro: _nullableString(onboardingMap['selfIntroduction']),
       onboardingUpdatedAt: _dateTime(
         data['onboardingUpdatedAt'] ?? data['updatedAt'],

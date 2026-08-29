@@ -24,6 +24,8 @@ import {
 } from "firebase-functions/v2/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { withAppCheck } from "./appCheckPolicy";
+import { loadCampusLifeZoneActivation } from "./campusLifeZoneActivation";
+import { readPersistedCampusLifeZones } from "./campusLifeZones";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onTaskDispatched } from "firebase-functions/v2/tasks";
 import * as logger from "firebase-functions/logger";
@@ -254,6 +256,8 @@ type EventTeamMemberSnapshot = {
   shortIntro: string | null;
   birthYear: number | null;
   major: string | null;
+  /** 생활권 (users/{uid}.onboarding.campusLifeZones). 재계산하지 않는다. */
+  campusLifeZones: string[];
 };
 
 type EventTeamCandidateSnapshot = {
@@ -397,7 +401,46 @@ function buildEventTeamMemberSnapshot(
     ),
     birthYear: firstInteger(profileData.birthYear, onboarding.birthYear, userData.birthYear),
     major: firstNonEmptyString(onboarding.major, userData.major),
+    // canonical(sinchon/songdo) 이 아닌 값은 생활권으로 인정하지 않는다.
+    campusLifeZones: readPersistedCampusLifeZones(
+      onboarding.campusLifeZones ?? profileData.campusLifeZones
+    ),
   };
+}
+
+/**
+ * 그룹 전원이 함께 만날 수 있는 공통 생활권 (교집합).
+ *
+ * 다수결/대표자 기준이 아니다. 한 명이라도 생활권 정보가 없으면 빈 배열
+ * (fail-closed). regionId 정책과는 완전히 독립된 별도 축이다.
+ */
+function sharedCampusLifeZones(zoneLists: string[][]): string[] {
+  if (zoneLists.length === 0) return [] as string[];
+  let shared: string[] | null = null;
+  for (const zones of zoneLists) {
+    const normalized = zones
+      .map((zone) => zone.trim())
+      .filter((zone) => zone.length > 0);
+    if (normalized.length === 0) return [];
+    if (shared === null) {
+      shared = [...new Set(normalized)];
+    } else {
+      const allowed = new Set(normalized);
+      shared = shared.filter((zone) => allowed.has(zone));
+    }
+    if (shared.length === 0) return [];
+  }
+  return (shared ?? []).slice().sort();
+}
+
+/** 두 팀이 함께 만날 수 있는지 (양쪽 공통 생활권의 교집합이 비어있지 않은지). */
+function hasCompatibleCampusLifeZones(
+  left: string[],
+  right: string[]
+): boolean {
+  if (left.length === 0 || right.length === 0) return false;
+  const rightSet = new Set(right);
+  return left.some((zone) => rightSet.has(zone));
 }
 
 function buildDeterministicAcceptedOrder(
@@ -606,6 +649,7 @@ function readTeamCandidateSnapshot(
       shortIntro: asStringOrNull(item.shortIntro) ?? null,
       birthYear: firstInteger(item.birthYear),
       major: asStringOrNull(item.major) ?? null,
+      campusLifeZones: readPersistedCampusLifeZones(item.campusLifeZones),
     }));
   if (membersSnapshot.length !== 3) return null;
 
@@ -3145,6 +3189,51 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
     );
   }
 
+  // 생활권 hard filter 의 rollout activation. OFF 면 생활권 조건만 비활성이고
+  // 팀 상태·중복 멤버·추천 준비 여부 등 나머지 조건은 그대로 적용된다.
+  //
+  // 상태를 확인하지 못하면(cold start + 조회 실패) 어느 쪽으로도 가정하지
+  // 않는다. OFF 로 보면 활성화된 정책을 무시하고 다른 생활권 팀을 붙일 수
+  // 있고, ON 으로 보면 준비 단계의 정상 사용자를 막는다. 재시도 가능한
+  // 오류로 돌려주는 편이 안전하다.
+  const campusLifeZoneActivation = await loadCampusLifeZoneActivation(db);
+  if (campusLifeZoneActivation.state === "unknown") {
+    logger.error("season roulette blocked: campus life zone activation unknown", {
+      code: "campusLifeZoneActivationReadFailure",
+      campusLifeZoneActivationState: "unknown",
+    });
+    throw new HttpsError(
+      "unavailable",
+      "지금은 룰렛을 시작할 수 없어요. 잠시 후 다시 시도해 주세요."
+    );
+  }
+  const campusLifeZoneEnforced =
+    campusLifeZoneActivation.state === "enforced";
+
+  // 요청 팀 세 명의 공통 생활권. meetingGroups 의 파생 필드를 우선 쓰고,
+  // 아직 동기화되지 않았으면 방금 만든 스냅샷에서 직접 계산한다.
+  const requestingTeamZones = (() => {
+    // 파생 필드도 canonical 검증을 거친다. 손상된 값이 남아 있으면 그것을
+    // 생활권으로 쓰지 않고, 멤버 스냅샷에서 다시 계산한다.
+    const stored = readPersistedCampusLifeZones(
+      requestingGroupData.sharedCampusLifeZones
+    );
+    if (stored.length > 0) return stored;
+    return sharedCampusLifeZones(
+      requestingTeamSnapshot.membersSnapshot.map((member) =>
+        readPersistedCampusLifeZones(
+          (member as unknown as Record<string, unknown>).campusLifeZones
+        )
+      )
+    );
+  })();
+  if (campusLifeZoneEnforced && requestingTeamZones.length === 0) {
+    throw new HttpsError(
+      "failed-precondition",
+      "팀원들의 생활권 정보가 필요해요. 학년·학과 정보를 먼저 등록해주세요."
+    );
+  }
+
   const dateKey = getKstCompactDateKey();
   const recommendationSource = await loadMeetingRecommendationSource(
     requestingTeamSetupId,
@@ -3192,6 +3281,17 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
     if (sharesAnyMember(acceptedUserIds, memberUids)) {
       continue;
     }
+    // 생활권이 다르면 실제로 함께 만날 수 없다. 추천 점수와 무관한
+    // hard eligibility 이므로 stale 추천 문서가 있어도 여기서 막는다.
+    if (
+      campusLifeZoneEnforced &&
+      !hasCompatibleCampusLifeZones(
+        requestingTeamZones,
+        readPersistedCampusLifeZones(groupData.sharedCampusLifeZones)
+      )
+    ) {
+      continue;
+    }
     candidateTeams.push(snapshot);
     if (candidateTeams.length >= EVENT_TEAM_CANDIDATE_POOL_LIMIT) {
       break;
@@ -3211,6 +3311,10 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
     .doc(buildEventTeamMatchLockId(dateKey, requestingTeamSetupId));
 
   const transactionOutcome = await db.runTransaction(async (tx) => {
+    // Firestore 트랜잭션은 모든 read가 write보다 먼저 와야 한다.
+    // stale lock 삭제는 여기서 바로 실행하지 않고 모아 두었다가
+    // 후보 선정이 끝난 write 단계에서 일괄 처리한다.
+    const staleLockRefs: DocumentReference[] = [];
     const requesterLockSnap = await tx.get(requesterLockRef);
     if (requesterLockSnap.exists) {
       const requesterLockData =
@@ -3231,7 +3335,7 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
           };
         }
       }
-      tx.delete(requesterLockRef);
+      staleLockRefs.push(requesterLockRef);
     }
 
     const freshRequestingGroupSnap = await tx.get(requestingGroupRef);
@@ -3268,7 +3372,7 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
             continue;
           }
         }
-        tx.delete(candidateLockRef);
+        staleLockRefs.push(candidateLockRef);
       }
 
       const candidateGroupRef = db
@@ -3325,6 +3429,15 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
       createdAtIso,
     });
 
+    for (const staleLockRef of staleLockRefs) {
+      if (
+        staleLockRef.path === requesterLockRef.path ||
+        staleLockRef.path === selectedCandidateLockRef.path
+      ) {
+        continue;
+      }
+      tx.delete(staleLockRef);
+    }
     tx.set(resultRef, {
       ...resultPreview,
       createdAt: FieldValue.serverTimestamp(),

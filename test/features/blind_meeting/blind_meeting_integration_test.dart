@@ -53,6 +53,12 @@ class RecordingAnalyticsSink implements BlindMeetingAnalyticsSink {
 class FakeBlindMeetingRepository extends BlindMeetingRepository {
   FakeBlindMeetingRepository();
 
+  /// rollout activation 은 서버 값이다. fake 는 적용된 상태를 기본으로 둔다.
+  bool campusLifeZoneEnforced = true;
+
+  @override
+  Future<bool> loadCampusLifeZoneEnforced() async => campusLifeZoneEnforced;
+
   final StreamController<BlindMeetingApplication?> _applications =
       StreamController<BlindMeetingApplication?>.broadcast();
   final StreamController<BlindMeetingSession?> _sessions =
@@ -101,6 +107,8 @@ class FakeBlindMeetingRepository extends BlindMeetingRepository {
       drinkingLevel: DrinkingLevel.none,
       smokingStatus: SmokingStatus.nonSmoker,
       schoolVerified: true,
+      // 생활권도 hard eligibility 다 (정상 사용자 fixture).
+      campusLifeZones: const ['sinchon'],
       onboardingUpdatedAt: DateTime.utc(2026, 7, 1),
     );
   }

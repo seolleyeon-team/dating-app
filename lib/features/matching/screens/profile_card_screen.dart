@@ -10,6 +10,8 @@
 // =============================================================================
 
 import 'dart:ui';
+import '../../../services/campus_life_zone_repair_service.dart';
+import '../../../shared/widgets/campus_life_zone_prerequisite.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import '../../../services/storage_service.dart';
@@ -56,6 +58,8 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
 
   List<AiRecommendedProfile> _profiles = [];
   bool _isLoading = true;
+  bool _needsCampusLifeZone = false;
+  bool _campusLifeZoneEnforced = false;
   String? _kakaoUserId;
 
   @override
@@ -87,9 +91,28 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
       );
       debugPrint('[ProfileCard] 프로필 ${feed.length}개 로드 완료');
 
+      // 생활권 정책의 rollout 상태는 서버가 정한다. 클라이언트는 따르기만 한다.
+      final repairService = CampusLifeZoneRepairService();
+      // 안내를 차단으로 보여줄지 정하는 값이다. 상태를 모르면(unknown)
+      // 차단하지 않는다 — 실제 후보 필터링은 피드 생성 경로가
+      // 문서 metadata 까지 보고 따로 판정한다.
+      final enforced = await repairService.isEnforcementEnabled(
+        unknownAs: false,
+      );
+
+      // ON: 피드가 비었을 때만 원인을 확인한다 (정상 피드에는 추가 read 없음).
+      // OFF: 차단하지 않고 미리 설정하도록 안내만 하므로 상태를 확인한다.
+      var needsZone = false;
+      if (feed.isEmpty || !enforced) {
+        final status = await repairService.loadStatus();
+        needsZone = status?.needsRepair ?? false;
+      }
+
       if (!mounted) return;
       setState(() {
         _profiles = feed;
+        _needsCampusLifeZone = needsZone;
+        _campusLifeZoneEnforced = enforced;
         _isLoading = false;
       });
 
@@ -263,29 +286,47 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                   child: _isLoading
                       ? const Center(child: CupertinoActivityIndicator())
                       : _profiles.isEmpty
-                      ? Center(
-                          child: Text(
-                            '오늘의 추천이 모두 소진되었습니다.',
-                            style: TextStyle(
-                              color: _AppColors.gray500,
-                              fontFamily: 'Pretendard',
-                            ),
-                          ),
-                        )
-                      : SeolSwipeDeck(
-                          controller: _deckController,
-                          onSwiped: _onSwiped,
-                          cards: _profiles
-                              .map(
-                                (p) => _ProfileCard(
-                                  profile: p,
-                                  pulseController: _pulseController,
-                                  onShare: widget.onShare,
-                                  onMoreOptions: () =>
-                                      _showMoreOptions(context, p),
-                                ),
+                      ? (_needsCampusLifeZone && _campusLifeZoneEnforced
+                            // 생활권 미설정이면 빈 화면 대신 해결 경로를 준다.
+                            // (정책이 적용된 상태에서만 이게 원인이다)
+                            ? CampusLifeZonePrerequisite(
+                                onCompleted: _loadRecommendations,
                               )
-                              .toList(),
+                            : Center(
+                                child: Text(
+                                  '오늘의 추천이 모두 소진되었습니다.',
+                                  style: TextStyle(
+                                    color: _AppColors.gray500,
+                                    fontFamily: 'Pretendard',
+                                  ),
+                                ),
+                              ))
+                      : Column(
+                          children: [
+                            // 정책 적용 전에는 추천을 막지 않고 안내만 덧붙인다.
+                            if (_needsCampusLifeZone &&
+                                !_campusLifeZoneEnforced)
+                              CampusLifeZoneAdvisoryBanner(
+                                onCompleted: _loadRecommendations,
+                              ),
+                            Expanded(
+                              child: SeolSwipeDeck(
+                                controller: _deckController,
+                                onSwiped: _onSwiped,
+                                cards: _profiles
+                                    .map(
+                                      (p) => _ProfileCard(
+                                        profile: p,
+                                        pulseController: _pulseController,
+                                        onShare: widget.onShare,
+                                        onMoreOptions: () =>
+                                            _showMoreOptions(context, p),
+                                      ),
+                                    )
+                                    .toList(),
+                              ),
+                            ),
+                          ],
                         ),
                 ),
               ),
