@@ -124,6 +124,22 @@ def test_expected_svd_knn_shortage_does_not_fail_clip_only_pipeline():
     assert result["sourceShortageExpected"] is True
 
 
+def test_any_remaining_kakao_privacy_violation_is_fatal():
+    result = evaluate_verify_health(
+        total_real_users=4,
+        eligible_actors=2,
+        candidate_pool=3,
+        compatible_pairs=2,
+        source_stats=source_stats(),
+        daily_stats=daily(ready=2),
+        privacy_violations=1,
+    )
+
+    assert result["healthy"] is False
+    assert result["fatal"] is True
+    assert "recommendation_privacy_violation" in result["fatalReasons"]
+
+
 def test_policy_readiness_metrics_are_aggregate_and_flag_suspicious_state():
     policy_meta = {
         "complete": {"isActive": True, "isVerified": True, "isProfileComplete": True},

@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../router/route_names.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/contact_block_service.dart';
 import '../../../services/firebase_diagnostics.dart';
 import '../../../services/friend_invite_service.dart';
 import '../../../services/storage_service.dart';
@@ -31,6 +32,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _authService = AuthService();
+  final _contactBlockService = ContactBlockService();
   final _storageService = StorageService();
   final _friendInviteService = FriendInviteService();
 
@@ -152,6 +154,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     final inferredComplete =
         !initialSetupComplete && nextOnboardingRoute == null;
     if (inferredComplete) {
+      await _contactBlockService.syncKakaoTalkFriendBlocks();
       await _authService.completeOnboarding(kakaoUserId);
       if (!mounted) return;
       context.read<AuthProvider>().markInitialSetupComplete();
@@ -166,6 +169,12 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     }
     if (!mounted) return;
     if (route == RouteNames.main) {
+      final privacyStatus = await _contactBlockService
+          .getKakaoFriendAvoidanceStatus();
+      if (!privacyStatus.recommendationPrivacyReady) {
+        await _contactBlockService.syncKakaoTalkFriendBlocks();
+      }
+      if (!mounted) return;
       Navigator.of(
         context,
       ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);

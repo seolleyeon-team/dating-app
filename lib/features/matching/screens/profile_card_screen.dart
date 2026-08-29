@@ -9,9 +9,12 @@
 // );
 // =============================================================================
 
+import 'dart:async';
 import 'dart:ui';
 import '../../../services/campus_life_zone_repair_service.dart';
+import '../../../services/contact_block_service.dart';
 import '../../../shared/widgets/campus_life_zone_prerequisite.dart';
+import '../../../shared/widgets/kakao_recommendation_privacy_prerequisite.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import '../../../services/storage_service.dart';
@@ -55,12 +58,25 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
   late AnimationController _pulseController;
   final _deckController = SeolSwipeDeckController();
   final _storageService = StorageService();
+  final _aiService = AiRecommendationService();
+  final _contactBlockService = ContactBlockService();
 
   List<AiRecommendedProfile> _profiles = [];
   bool _isLoading = true;
+  bool _isReloading = false;
+  bool _reloadRequested = false;
   bool _needsCampusLifeZone = false;
   bool _campusLifeZoneEnforced = false;
+  bool _privacyConsentRequired = false;
+  bool _recommendationLoadFailed = false;
+  bool _isSyncingPrivacy = false;
+  String? _privacySyncError;
   String? _kakaoUserId;
+  String? _privacyWatchedUid;
+  StreamSubscription<void>? _privacySubscription;
+  StreamSubscription<void>? _candidateSubscription;
+  Timer? _privacyReloadDebounce;
+  String _watchedCandidateKey = '';
 
   @override
   void initState() {
@@ -73,19 +89,38 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
   }
 
   Future<void> _loadRecommendations() async {
+    if (_isReloading) {
+      _reloadRequested = true;
+      return;
+    }
+    _isReloading = true;
+    _reloadRequested = false;
     try {
       final kakaoUserId = await _storageService.getKakaoUserId();
       debugPrint('[ProfileCard] ${PrivacyLogUtils.idFingerprint(kakaoUserId)}');
       if (mounted) setState(() => _kakaoUserId = kakaoUserId);
 
       if (kakaoUserId == null || kakaoUserId.isEmpty) {
-        debugPrint(
-          '[ProfileCard] ⚠️ kakaoUserId is null/empty — recEvents 기록 불가',
-        );
+        throw StateError('missing_kakao_user_id');
+      }
+      _watchRecommendationPrivacy(kakaoUserId);
+
+      final privacyReady = await _aiService.isViewerRecommendationPrivacyReady(
+        kakaoUserId,
+      );
+      if (!privacyReady) {
+        if (!mounted) return;
+        setState(() {
+          _profiles = [];
+          _privacyConsentRequired = true;
+          _recommendationLoadFailed = false;
+          _isLoading = false;
+        });
+        _watchCandidateEligibility(const []);
+        return;
       }
 
-      final aiService = AiRecommendationService();
-      final feed = await aiService.fetchProfileFeed(
+      final feed = await _aiService.fetchProfileFeed(
         limit: 10,
         userId: kakaoUserId,
       );
@@ -113,8 +148,12 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
         _profiles = feed;
         _needsCampusLifeZone = needsZone;
         _campusLifeZoneEnforced = enforced;
+        _privacyConsentRequired = false;
+        _recommendationLoadFailed = false;
+        _privacySyncError = null;
         _isLoading = false;
       });
+      _watchCandidateEligibility(feed);
 
       if (_profiles.isNotEmpty) {
         WidgetsBinding.instance.addPostFrameCallback(
@@ -126,13 +165,124 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
         '[ProfileCard] load recommendations ${PrivacyLogUtils.errorSummary(e)}',
       );
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _profiles = [];
+          _recommendationLoadFailed = true;
+          _privacyConsentRequired = false;
+          _isLoading = false;
+        });
+      }
+    } finally {
+      _isReloading = false;
+      if (_reloadRequested && mounted) {
+        _reloadRequested = false;
+        _privacyReloadDebounce?.cancel();
+        _privacyReloadDebounce = Timer(Duration.zero, _loadRecommendations);
       }
     }
   }
 
+  Future<void> _requestKakaoConsentAndSync() async {
+    if (_isSyncingPrivacy) return;
+    setState(() {
+      _isSyncingPrivacy = true;
+      _privacySyncError = null;
+    });
+    try {
+      final result = await _contactBlockService.syncKakaoTalkFriendBlocks(
+        requestConsentIfNeeded: true,
+      );
+      if (!result.recommendationPrivacyReady) {
+        throw StateError('recommendation_privacy_not_ready_after_sync');
+      }
+      if (!mounted) return;
+      setState(() {
+        _privacyConsentRequired = false;
+        _isLoading = true;
+      });
+      await _loadRecommendations();
+    } catch (error) {
+      debugPrint(
+        '[ProfileCard] Kakao privacy sync '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
+      if (!mounted) return;
+      setState(() {
+        _privacySyncError =
+            '동의를 완료하지 못했어요. 카카오 동의 화면에서 친구목록을 허용한 뒤 다시 시도해 주세요.';
+      });
+    } finally {
+      if (mounted) setState(() => _isSyncingPrivacy = false);
+    }
+  }
+
+  Future<void> _retryRecommendations() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _recommendationLoadFailed = false;
+    });
+    await _loadRecommendations();
+  }
+
+  void _watchCandidateEligibility(List<AiRecommendedProfile> profiles) {
+    final ids = profiles.map((profile) => profile.candidateUid).toList()
+      ..sort();
+    final key = ids.join('|');
+    if (_watchedCandidateKey == key) return;
+    _candidateSubscription?.cancel();
+    _watchedCandidateKey = key;
+    if (ids.isEmpty) return;
+    _candidateSubscription = _aiService
+        .watchCandidateRecommendationChanges(ids)
+        .listen(
+          (_) => _invalidateAndReloadRecommendations(),
+          onError: (_) => _invalidateRecommendations(),
+        );
+  }
+
+  void _invalidateRecommendations() {
+    if (!mounted) return;
+    setState(() {
+      _profiles = [];
+      _isLoading = false;
+    });
+  }
+
+  void _invalidateAndReloadRecommendations() {
+    if (!mounted) return;
+    setState(() {
+      _profiles = [];
+      _isLoading = true;
+    });
+    _privacyReloadDebounce?.cancel();
+    _privacyReloadDebounce = Timer(
+      const Duration(milliseconds: 150),
+      _loadRecommendations,
+    );
+  }
+
+  void _watchRecommendationPrivacy(String uid) {
+    if (_privacyWatchedUid == uid) return;
+    _privacySubscription?.cancel();
+    _privacyWatchedUid = uid;
+    _privacySubscription = _aiService
+        .watchRecommendationPrivacyChanges(uid)
+        .listen(
+          (_) {
+            _invalidateAndReloadRecommendations();
+          },
+          onError: (_) {
+            _invalidateRecommendations();
+          },
+        );
+  }
+
   @override
   void dispose() {
+    _privacyReloadDebounce?.cancel();
+    _privacySubscription?.cancel();
+    _candidateSubscription?.cancel();
     _pulseController.dispose();
     _deckController.dispose();
     super.dispose();
@@ -285,6 +435,16 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                   child: _isLoading
                       ? const Center(child: CupertinoActivityIndicator())
+                      : _privacyConsentRequired
+                      ? KakaoRecommendationPrivacyPrerequisite(
+                          isWorking: _isSyncingPrivacy,
+                          errorMessage: _privacySyncError,
+                          onConsentAndSync: _requestKakaoConsentAndSync,
+                        )
+                      : _recommendationLoadFailed
+                      ? RecommendationLoadFailure(
+                          onRetry: _retryRecommendations,
+                        )
                       : _profiles.isEmpty
                       ? (_needsCampusLifeZone && _campusLifeZoneEnforced
                             // 생활권 미설정이면 빈 화면 대신 해결 경로를 준다.

@@ -67,6 +67,8 @@ export type AvatarCleanupCounts = {
   contactBlockedHashIndexOwnersDeleted: number;
   blockTargetsDeleted: number;
   reverseBlockTargetsDeleted: number;
+  recommendationExclusionTargetsDeleted: number;
+  reverseRecommendationExclusionTargetsDeleted: number;
   interactionsDeleted: number;
   asksDeleted: number;
   friendshipsDeleted: number;
@@ -89,6 +91,8 @@ export type AccountDeletionDocs = {
   contactBlockedHashIds: string[];
   blockTargetIds: string[];
   reverseBlockViewerUids: string[];
+  recommendationExclusionTargetIds: string[];
+  reverseRecommendationExclusionViewerUids: string[];
   social: AccountDeletionSocialDocs;
 };
 
@@ -143,6 +147,8 @@ export type CleanupOperation =
   | { kind: "deleteContactBlockedHashIndexOwner"; phoneHash: string }
   | { kind: "deleteBlockTarget"; targetUid: string }
   | { kind: "deleteReverseBlockTarget"; viewerUid: string }
+  | { kind: "deleteRecommendationExclusionTarget"; targetUid: string }
+  | { kind: "deleteReverseRecommendationExclusionTarget"; viewerUid: string }
   | SocialCleanupOperation;
 
 export type CleanupExecutor = {
@@ -258,14 +264,26 @@ function emptyCounts(): AvatarCleanupCounts {
     contactBlockedHashIndexOwnersDeleted: 0,
     blockTargetsDeleted: 0,
     reverseBlockTargetsDeleted: 0,
+    recommendationExclusionTargetsDeleted: 0,
+    reverseRecommendationExclusionTargetsDeleted: 0,
     ...emptySocialCounts(),
   };
 }
 
 const BLOCKS_TARGET_PATH = /^blocks\/([^/]+)\/targets\/([^/]+)$/;
+const RECOMMENDATION_EXCLUSION_TARGET_PATH =
+  /^recommendationExclusions\/([^/]+)\/targets\/([^/]+)$/;
 
 export function isBlocksTargetRefPath(path: string, targetUid: string): boolean {
   const match = path.match(BLOCKS_TARGET_PATH);
+  return match !== null && match[2] === targetUid;
+}
+
+export function isRecommendationExclusionTargetRefPath(
+  path: string,
+  targetUid: string,
+): boolean {
+  const match = path.match(RECOMMENDATION_EXCLUSION_TARGET_PATH);
   return match !== null && match[2] === targetUid;
 }
 
@@ -279,6 +297,10 @@ export function accountDeletionDocsFromParts(
     contactBlockedHashIds: parts.contactBlockedHashIds ?? [],
     blockTargetIds: parts.blockTargetIds ?? [],
     reverseBlockViewerUids: parts.reverseBlockViewerUids ?? [],
+    recommendationExclusionTargetIds:
+      parts.recommendationExclusionTargetIds ?? [],
+    reverseRecommendationExclusionViewerUids:
+      parts.reverseRecommendationExclusionViewerUids ?? [],
     social: parts.social ?? emptySocialDocs(),
   };
 }
@@ -315,6 +337,16 @@ export function planAccountDeletionPiiOperations(params: {
     if (viewerUid === uid) continue;
     operations.push({ kind: "deleteReverseBlockTarget", viewerUid });
   }
+  for (const targetUid of docs.recommendationExclusionTargetIds) {
+    operations.push({ kind: "deleteRecommendationExclusionTarget", targetUid });
+  }
+  for (const viewerUid of docs.reverseRecommendationExclusionViewerUids) {
+    if (viewerUid === uid) continue;
+    operations.push({
+      kind: "deleteReverseRecommendationExclusionTarget",
+      viewerUid,
+    });
+  }
   operations.push(
     ...planAccountDeletionSocialOperations({ uid, docs: docs.social }),
   );
@@ -337,6 +369,12 @@ function applyAccountDeletionCounts(
   counts.reverseBlockTargetsDeleted = docs.reverseBlockViewerUids.filter(
     (viewerUid) => viewerUid !== uid,
   ).length;
+  counts.recommendationExclusionTargetsDeleted =
+    docs.recommendationExclusionTargetIds.length;
+  counts.reverseRecommendationExclusionTargetsDeleted =
+    docs.reverseRecommendationExclusionViewerUids.filter(
+      (viewerUid) => viewerUid !== uid,
+    ).length;
   Object.assign(counts, socialCountsFromDocs(docs.social));
 }
 
@@ -563,6 +601,7 @@ export async function loadAccountDeletionDocs(
     notificationsSnap,
     contactBlockedHashesSnap,
     blockTargetsSnap,
+    recommendationExclusionTargetsSnap,
     reverseBlockTargetsSnap,
     social,
   ] = await Promise.all([
@@ -575,6 +614,11 @@ export async function loadAccountDeletionDocs(
       .collection("contactBlockedHashes")
       .get(),
     firestore.collection("blocks").doc(safeUid).collection("targets").get(),
+    firestore
+      .collection("recommendationExclusions")
+      .doc(safeUid)
+      .collection("targets")
+      .get(),
     firestore
       .collectionGroup("targets")
       .where(FieldPath.documentId(), "==", safeUid)
@@ -589,6 +633,15 @@ export async function loadAccountDeletionDocs(
       return match?.[1] ?? "";
     })
     .filter((viewerUid) => viewerUid.length > 0);
+  const reverseRecommendationExclusionViewerUids = reverseBlockTargetsSnap.docs
+    .filter((doc) =>
+      isRecommendationExclusionTargetRefPath(doc.ref.path, safeUid),
+    )
+    .map((doc) => {
+      const match = doc.ref.path.match(RECOMMENDATION_EXCLUSION_TARGET_PATH);
+      return match?.[1] ?? "";
+    })
+    .filter((viewerUid) => viewerUid.length > 0);
 
   return accountDeletionDocsFromParts({
     phoneHash: asString(userPrivateSnap.data()?.phoneHash) || null,
@@ -597,6 +650,9 @@ export async function loadAccountDeletionDocs(
     contactBlockedHashIds: contactBlockedHashesSnap.docs.map((doc) => doc.id),
     blockTargetIds: blockTargetsSnap.docs.map((doc) => doc.id),
     reverseBlockViewerUids,
+    recommendationExclusionTargetIds:
+      recommendationExclusionTargetsSnap.docs.map((doc) => doc.id),
+    reverseRecommendationExclusionViewerUids,
     social,
   });
 }
@@ -890,6 +946,27 @@ function firestoreExecutor(
           if (viewerUid === uid) return;
           await firestore
             .collection("blocks")
+            .doc(viewerUid)
+            .collection("targets")
+            .doc(uid)
+            .delete();
+          return;
+        }
+        case "deleteRecommendationExclusionTarget": {
+          const targetUid = requirePathSegment(operation.targetUid, "targetUid");
+          await firestore
+            .collection("recommendationExclusions")
+            .doc(uid)
+            .collection("targets")
+            .doc(targetUid)
+            .delete();
+          return;
+        }
+        case "deleteReverseRecommendationExclusionTarget": {
+          const viewerUid = requirePathSegment(operation.viewerUid, "viewerUid");
+          if (viewerUid === uid) return;
+          await firestore
+            .collection("recommendationExclusions")
             .doc(viewerUid)
             .collection("targets")
             .doc(uid)

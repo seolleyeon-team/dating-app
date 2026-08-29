@@ -5,6 +5,8 @@ and reports coverage, item counts, and health status.
 """
 from __future__ import annotations
 
+import os
+import sys
 import time
 from typing import Optional
 
@@ -98,6 +100,7 @@ def evaluate_verify_health(
     daily_stats: dict[str, int],
     compatible_pairs: int | None = None,
     policy_provenance: dict | None = None,
+    privacy_violations: int = 0,
 ) -> dict:
     """Evaluate readiness with explicit degraded-versus-fatal semantics.
 
@@ -170,6 +173,12 @@ def evaluate_verify_health(
     ):
         fatal_reasons.append("campus_life_zone_policy_provenance_mismatch")
 
+    # Generation should remove excluded candidates and pull the next ranked
+    # candidate forward. Any remaining violation means a serving artifact is
+    # unsafe, so verification must stop the workflow.
+    if int(privacy_violations) > 0:
+        fatal_reasons.append("recommendation_privacy_violation")
+
     if fatal_reasons:
         return {
             "healthy": False,
@@ -193,6 +202,19 @@ def evaluate_verify_health(
         "sourceShortageExpected": expected_shortage,
         **(policy_provenance or {}),
     }
+
+
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_AI_MODEL_DIR = os.environ.get(
+    "AI_MODEL_DIR",
+    os.path.join(_PROJECT_ROOT, "lib", "ai_recommend_model"),
+)
+if _AI_MODEL_DIR not in sys.path:
+    sys.path.insert(0, _AI_MODEL_DIR)
+
+from seolleyeon_recommendation_privacy import (  # noqa: E402
+    load_recommendation_privacy_policy,
+)
 
 
 def run_verify(
@@ -227,6 +249,7 @@ def run_verify(
 
     t0 = time.time()
     db = firestore.Client(project=project, database=database)
+    privacy_policy = load_recommendation_privacy_policy(db)
     user_docs = {
         doc.id: (doc.to_dict() or {})
         for doc in db.collection("users").stream()
@@ -281,28 +304,41 @@ def run_verify(
         if logger:
             logger.warning(f"Verify could not load recEvents actor signals: {exc}")
 
-    eligible_actor_ids = _eligible_actor_ids(
-        policy_meta,
-        display_status,
-        signal_actor_ids,
-    )
+    eligible_actor_ids = [
+        uid
+        for uid in _eligible_actor_ids(
+            policy_meta,
+            display_status,
+            signal_actor_ids,
+        )
+        if uid in privacy_policy.ready_user_ids
+    ]
     candidate_pool = sum(
         1
         for uid, status in display_status.items()
         if status.get("displayReady") is True
         and uid in policy_meta
         and uid in user_docs
+        and uid in privacy_policy.ready_user_ids
     )
     pair_candidate_ids = sorted(
         uid
         for uid, status in display_status.items()
-        if status.get("displayReady") is True and uid in policy_meta
+        if status.get("displayReady") is True
+        and uid in policy_meta
+        and uid in privacy_policy.ready_user_ids
     )
     # 지금 의도한 생활권 정책 상태. 진단 지표와 provenance 검사가 같은 값을 쓴다.
     try:
         expected_state = load_campus_life_zone_activation(db)
     except CampusLifeZoneActivationUnknown:
         expected_state = ACTIVATION_UNKNOWN
+
+    audited_blocks = {
+        uid: set(_blocks.get(uid, set()))
+        | set(privacy_policy.excluded_by_viewer.get(uid, frozenset()))
+        for uid in set(_blocks) | set(privacy_policy.excluded_by_viewer)
+    }
 
     pair_audit = audit_policy_pairs(
         eligible_actor_ids,
@@ -313,7 +349,7 @@ def run_verify(
         require_same_university=True,
         reciprocal=True,
         exclude_same_gender=True,
-        blocked_by_actor=_blocks,
+        blocked_by_actor=audited_blocks,
         nope_by_actor=_nopes,
         recent_exposure_by_actor=_exposure,
         # OFF 동안에는 실제 추천도 생활권으로 거르지 않는다.
@@ -353,6 +389,7 @@ def run_verify(
             "min_items": 0,
             "max_items": 0,
             "coverage_pct": 0.0,
+            "privacy_violations": 0,
         }
         details: dict[str, dict] = {}
         item_counts: list[int] = []
@@ -363,6 +400,16 @@ def run_verify(
             details[uid] = {"status": status, "items": count, "data": data}
             if status == "ready":
                 item_counts.append(count)
+                items = data.get("items", [])
+                if isinstance(items, list):
+                    for item in items:
+                        candidate_uid = (
+                            str(item.get("uid") or "").strip()
+                            if isinstance(item, dict)
+                            else ""
+                        )
+                        if not privacy_policy.allows(uid, candidate_uid):
+                            stats["privacy_violations"] += 1
         if item_counts:
             stats["avg_items"] = round(sum(item_counts) / len(item_counts), 1)
             stats["min_items"] = min(item_counts)
@@ -385,6 +432,10 @@ def run_verify(
     daily_stats, daily_details = collect_stats(
         f"dailyRecs/{{uid}}/days/{date_key}",
         eligible_actor_ids,
+    )
+    privacy_violations = int(daily_stats.get("privacy_violations", 0)) + sum(
+        int(stats.get("privacy_violations", 0))
+        for stats in source_stats.values()
     )
     daily_compatible_actor_count = sum(
         1
@@ -431,6 +482,7 @@ def run_verify(
         },
         compatible_pairs=compatible_pairs,
         policy_provenance=policy_provenance,
+        privacy_violations=privacy_violations,
     )
     readiness_metrics = build_policy_readiness_metrics(
         total_real_users=total_real_users,
@@ -451,6 +503,7 @@ def run_verify(
         "daily": daily_stats,
         "daily_details": daily_details,
         "dailyCompatibleActorCount": daily_compatible_actor_count,
+        "privacy_violations": privacy_violations,
         "pairAudit": pair_audit,
         **readiness_metrics,
         "elapsed_s": round(elapsed, 1),

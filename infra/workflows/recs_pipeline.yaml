@@ -6,7 +6,7 @@
 #   2. clip/svd/knn  (parallel, train + Firestore export)
 #   3. rrf           (merge all sources)
 #   4. daily         (RRF → policy-safe Top3 dailyRecs)
-#   5. verify        (1:1 health check, fatal on missing/partial output)
+#   5. verify        (1:1 health + privacy check, fatal on failure)
 #   6. meeting group-index -> recommend -> daily -> strict verify
 #
 # Trigger: Cloud Scheduler (daily 04:00 KST)
@@ -227,7 +227,7 @@ main:
           severity: "INFO"
 
     # --------------------------------------------------
-    # 5. Verify
+    # 5. Verify (privacy violations are fatal)
     # --------------------------------------------------
     - run_verify:
         try:

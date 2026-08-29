@@ -1,14 +1,23 @@
 import '../services/user_service.dart';
 import '../services/storage_service.dart';
+import '../services/contact_block_service.dart';
 
 /// 온보딩 각 화면에서 Firebase 저장을 호출하는 헬퍼.
 /// kakaoUserId를 SharedPreferences에서 가져오고, UserService로 Firestore에 저장.
 class OnboardingSaveHelper {
   static final UserService _userService = UserService();
   static final StorageService _storageService = StorageService();
+  static final ContactBlockService _contactBlockService = ContactBlockService();
 
   static Future<String?> _getUserId() async {
     return await _storageService.getKakaoUserId();
+  }
+
+  static Future<void> _reconcilePrivacyAndComplete(String uid) async {
+    // The user's own default remains OFF, but friends who already opted out
+    // are still materialized mutually before this account becomes eligible.
+    await _contactBlockService.syncKakaoTalkFriendBlocks();
+    await _userService.completeOnboarding(uid);
   }
 
   /// Step 1: 기본 정보
@@ -269,7 +278,7 @@ class OnboardingSaveHelper {
       fieldName: 'preferredPersonalities',
       value: keywords,
     );
-    await _userService.completeOnboarding(uid);
+    await _reconcilePrivacyAndComplete(uid);
   }
 
   /// Step 10: 이상형 라이프스타일
@@ -308,7 +317,7 @@ class OnboardingSaveHelper {
       exercise: exercise,
       religion: religion,
     );
-    await _userService.completeOnboarding(uid);
+    await _reconcilePrivacyAndComplete(uid);
   }
 
   /// 이상형 건너뛰기
@@ -316,7 +325,7 @@ class OnboardingSaveHelper {
     final uid = await _getUserId();
     if (uid == null) return;
     await _userService.skipIdealType(uid);
-    await _userService.completeOnboarding(uid);
+    await _reconcilePrivacyAndComplete(uid);
   }
 
   /// 이상형 단일 필드 저장 (ideal_age, ideal_height, ideal_mbti, ideal_department 등)

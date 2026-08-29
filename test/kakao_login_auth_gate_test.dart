@@ -12,6 +12,39 @@ void main() {
     final source = read('lib/features/auth/screens/kakao_auth_screen.dart');
     expect(source, contains('KakaoLoginFirestoreBootstrap'));
 
+    final continueStart = source.indexOf(
+      'Future<void> _continueAfterKakaoLogin(',
+    );
+    expect(continueStart, isNonNegative);
+    final continueEnd = source.indexOf('\n  Future<void> ', continueStart + 1);
+    final continueSection = source.substring(
+      continueStart,
+      continueEnd == -1 ? source.length : continueEnd,
+    );
+    final bootstrap = continueSection.indexOf('_loginBootstrap.bootstrap');
+    final adultVerification = continueSection.indexOf(
+      '_verifyAdultIdentityAfterKakaoLogin',
+    );
+    final localIdSave = continueSection.indexOf('saveKakaoUserId');
+
+    expect(bootstrap, isNonNegative);
+    expect(localIdSave, isNonNegative);
+    expect(adultVerification, isNonNegative);
+    expect(
+      bootstrap,
+      lessThan(adultVerification),
+      reason: 'PortOne verification requires an attached Firebase session.',
+    );
+    expect(
+      adultVerification,
+      lessThan(localIdSave),
+      reason:
+          'Identity verification must finish before local login state is persisted.',
+    );
+    expect(continueSection, isNot(contains('_attachFirebaseSession')));
+    expect(continueSection, isNot(contains('_ensureUserShellIfMissing')));
+    expect(continueSection, isNot(contains('_userService.upsertKakaoUser')));
+
     for (final methodMarker in [
       'Future<void> _login()',
       'Future<void> _loginWithWeb()',
@@ -26,25 +59,12 @@ void main() {
         start,
         nextMethod == -1 ? source.length : nextMethod,
       );
-      final bootstrap = section.indexOf('_loginBootstrap.bootstrap');
-      final adultVerification = section.indexOf(
-        '_verifyAdultIdentityAfterKakaoLogin',
-      );
-      final localIdSave = section.indexOf('saveKakaoUserId');
-
-      expect(bootstrap, isNonNegative, reason: methodMarker);
-      expect(localIdSave, isNonNegative, reason: methodMarker);
-      expect(adultVerification, isNonNegative, reason: methodMarker);
+      expect(section, contains('_pauseForMissingFriendsConsent'));
+      expect(section, contains('_continueAfterKakaoLogin'));
       expect(
-        bootstrap,
-        lessThan(adultVerification),
-        reason: 'PortOne verification requires an attached Firebase session.',
-      );
-      expect(
-        adultVerification,
-        lessThan(localIdSave),
-        reason:
-            'Identity verification must finish before local login state is persisted.',
+        section.indexOf('_pauseForMissingFriendsConsent'),
+        lessThan(section.indexOf('_continueAfterKakaoLogin')),
+        reason: 'Friends consent must be checked before Firebase onboarding.',
       );
       expect(section, isNot(contains('_attachFirebaseSession')));
       expect(section, isNot(contains('_ensureUserShellIfMissing')));

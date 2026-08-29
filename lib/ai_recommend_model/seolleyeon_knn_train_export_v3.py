@@ -53,6 +53,10 @@ from seolleyeon_rec_common_v3 import (
     require_firestore,
     resolve_mutual_block_index,
 )
+from seolleyeon_recommendation_privacy import (
+    filter_recommendations,
+    load_recommendation_privacy_policy,
+)
 
 try:
     from google.cloud import firestore
@@ -217,6 +221,13 @@ def export_to_firestore(
 ) -> None:
     require_firestore()
     db = firestore.Client(project=project_id, database=database)
+    generated_viewer_ids = set(recommendations)
+    privacy_policy = load_recommendation_privacy_policy(db)
+    recommendations, privacy_stats = filter_recommendations(
+        recommendations,
+        privacy_policy,
+    )
+    print(f"[privacy] KNN export filter: {privacy_stats}")
     bw = db.bulk_writer()
     gen_at = firestore.SERVER_TIMESTAMP
 
@@ -236,7 +247,25 @@ def export_to_firestore(
             payload["policy"] = policy_provenance
         if user_signal_meta and uid in user_signal_meta:
             payload["signal"] = user_signal_meta[uid]
-        bw.set(doc_ref, payload, merge=True)
+        bw.set(doc_ref, payload, merge=False)
+
+    existing_viewer_ids = {
+        doc.id for doc in db.collection("modelRecs").list_documents()
+    }
+    for uid in (generated_viewer_ids | existing_viewer_ids) - set(recommendations):
+        doc_ref = db.document(f"modelRecs/{uid}/daily/{date_key}/sources/knn")
+        bw.set(
+            doc_ref,
+            {
+                "status": "ineligible",
+                "algorithmVersion": algorithm_version,
+                "model": model_meta,
+                "generatedAt": gen_at,
+                "topN": 0,
+                "items": [],
+            },
+            merge=False,
+        )
 
     bw.close()
 

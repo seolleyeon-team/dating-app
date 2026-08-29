@@ -36,6 +36,10 @@ from campus_life_zone_policy import (  # noqa: E402
     CampusLifeZoneActivationUnknown,
     load_campus_life_zone_activation_with_version,
 )
+from seolleyeon_recommendation_privacy import (  # noqa: E402
+    RecommendationPrivacyPolicy,
+    load_recommendation_privacy_policy,
+)
 from recsys.jobs.daily_recommender import (  # noqa: E402
     DailySelectionConfig,
     select_daily_items,
@@ -116,6 +120,7 @@ def build_daily_documents(
     rrf_by_actor: Mapping[str, Any],
     *,
     date_key: str,
+    privacy_policy: RecommendationPrivacyPolicy,
     signal_actor_ids: set[str] | None = None,
     blocked_by_actor: Mapping[str, set[str]] | None = None,
     nope_by_actor: Mapping[str, set[str]] | None = None,
@@ -128,10 +133,19 @@ def build_daily_documents(
     nope_by_actor = nope_by_actor or {}
     recent_exposure_by_actor = recent_exposure_by_actor or {}
     cfg = config or DailySelectionConfig()
-    actor_ids = _eligible_actor_ids(policy_meta, display_status, signal_actor_ids)
+    base_actor_ids = _eligible_actor_ids(
+        policy_meta,
+        display_status,
+        signal_actor_ids,
+    )
+    actor_ids = [
+        uid for uid in base_actor_ids if uid in privacy_policy.ready_user_ids
+    ]
     candidate_pool = sum(
         1 for uid, status in display_status.items()
-        if status.get("displayReady") is True and uid in policy_meta
+        if status.get("displayReady") is True
+        and uid in policy_meta
+        and uid in privacy_policy.ready_user_ids
     )
 
     docs: dict[str, dict[str, Any]] = {}
@@ -143,7 +157,24 @@ def build_daily_documents(
         "missing": 0,
         "compatiblePairs": 0,
         "candidatePool": candidate_pool,
+        "privacyIneligibleActors": len(base_actor_ids) - len(actor_ids),
     }
+
+    # A same-date rerun must overwrite an older ready daily document after the
+    # viewer revokes consent or privacy reconciliation becomes incomplete.
+    for actor_uid in sorted(set(base_actor_ids) - set(actor_ids)):
+        docs[actor_uid] = {
+            "status": "skipped",
+            "reason": "viewer_privacy_not_ready",
+            "dateKey": date_key,
+            "actorUid": actor_uid,
+            "eligibleActor": False,
+            "items": [],
+            "topN": 0,
+            "algorithmVersion": f"daily_v1_{date_key}",
+            "policy": {"campusLifeZone": _campus_zone_policy_state(cfg)},
+            "selection": {"inputCount": 0, "eligibleCount": 0, "rejected": {}},
+        }
 
     for actor_uid in actor_ids:
         source_status, source_items, source_reason = _rrf_status_and_items(
@@ -166,8 +197,14 @@ def build_daily_documents(
             docs[actor_uid] = doc
             continue
 
-        candidate_items, display_skipped = _display_ready_candidate_items(
+        privacy_filtered_items = privacy_policy.filter_items(
+            actor_uid,
             source_items,
+        )
+        privacy_skipped = max(0, len(source_items) - len(privacy_filtered_items))
+
+        candidate_items, display_skipped = _display_ready_candidate_items(
+            privacy_filtered_items,
             display_status,
         )
         selection = select_daily_items(
@@ -185,6 +222,11 @@ def build_daily_documents(
         if display_skipped:
             rejected["missing_approved_avatar"] = (
                 int(rejected.get("missing_approved_avatar", 0)) + display_skipped
+            )
+        if privacy_skipped:
+            rejected["kakao_friend_or_privacy_not_ready"] = (
+                int(rejected.get("kakao_friend_or_privacy_not_ready", 0))
+                + privacy_skipped
             )
         selection["selection"]["rejected"] = rejected
 
@@ -301,6 +343,7 @@ def run_daily(
     if firestore is None:
         raise RuntimeError("google-cloud-firestore is not installed")
     db = firestore.Client(project=project, database=database)
+    privacy_policy = load_recommendation_privacy_policy(db)
     users = load_user_documents_from_firestore(
         project,
         users_collection=users_collection,
@@ -376,6 +419,7 @@ def run_daily(
         display_status,
         rrf_by_actor,
         date_key=date_key,
+        privacy_policy=privacy_policy,
         signal_actor_ids=signal_actors,
         blocked_by_actor=blocks,
         nope_by_actor=nopes,

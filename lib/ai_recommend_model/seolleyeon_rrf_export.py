@@ -19,7 +19,7 @@ import argparse
 import json
 import math
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 try:
     from google.cloud import firestore
@@ -29,6 +29,9 @@ except Exception:  # pragma: no cover
 from seolleyeon_rec_common_v3 import (
     canonicalize_recommendation_target_id,
     is_ai_profile,
+)
+from seolleyeon_recommendation_privacy import (
+    load_recommendation_privacy_policy,
 )
 from campus_life_zone_policy import (
     ACTIVATION_ENFORCED,
@@ -338,6 +341,7 @@ def main() -> int:
     source_weights = parse_source_weights_json(args.source_weights_json)
 
     db = firestore.Client(project=args.firestore_project, database=args.firestore_database)
+    privacy_policy = load_recommendation_privacy_policy(db)
 
     # 생활권 정책 상태. 조회 실패(UNKNOWN)면 여기서 예외가 올라와 배치가 멈춘다.
     # 활성화 여부를 모른 채 융합 피드를 새로 쓰지 않기 위해서다.
@@ -366,8 +370,14 @@ def main() -> int:
     recs_to_export: Dict[str, List[Dict[str, Any]]] = {}
     merge_meta_by_uid: Dict[str, Dict[str, Any]] = {}
     empty_status_by_uid: Dict[str, str] = {}
+    privacy_ineligible_user_ids: Set[str] = set()
 
     for uid in user_ids:
+        if uid not in privacy_policy.ready_user_ids:
+            empty_status_by_uid[uid] = "viewer_privacy_not_ready"
+            privacy_ineligible_user_ids.add(uid)
+            continue
+
         source_docs: Dict[str, Dict[str, Any]] = {}
         source_statuses: Dict[str, str] = {}
         for source_name in source_names:
@@ -401,6 +411,13 @@ def main() -> int:
                 empty_status_by_uid[uid] = "required_source_empty_or_skipped"
             continue
 
+        # Merge every candidate that can survive the per-source caps before
+        # applying privacy. Truncating to topN first could leave fewer cards
+        # even though a safe rank N+1 candidate exists.
+        privacy_prefilter_limit = max(
+            int(args.topn),
+            int(args.max_items_per_source) * max(1, len(source_names)),
+        )
         merged, merge_meta = rrf_merge(
             source_docs,
             source_names=source_names,
@@ -411,11 +428,15 @@ def main() -> int:
             use_dynamic_confidence=bool(args.use_dynamic_confidence),
             min_source_confidence=float(args.min_source_confidence),
             min_effective_weight=float(args.min_effective_weight),
-            topn=int(args.topn),
+            topn=privacy_prefilter_limit,
         )
+        merged = privacy_policy.filter_items(uid, merged)
+        merged = merged[: int(args.topn)]
+        for rank, item in enumerate(merged, start=1):
+            item["rank"] = rank
 
         if not merged:
-            empty_status_by_uid[uid] = "no_merged_items"
+            empty_status_by_uid[uid] = "no_privacy_eligible_candidates"
             continue
         if not passes_source_quality_gate(
             merge_meta, int(args.min_sources_per_user)
@@ -458,6 +479,8 @@ def main() -> int:
         }
         bw.set(doc_ref, payload, merge=True)
 
+    # A rerun for the same date must not leave an older ready RRF document
+    # behind when the viewer or every candidate became privacy-ineligible.
     for uid, reason in empty_status_by_uid.items():
         if uid in recs_to_export:
             continue
@@ -465,7 +488,9 @@ def main() -> int:
         bw.set(
             doc_ref,
             {
-                "status": "empty",
+                "status": "ineligible"
+                if uid in privacy_ineligible_user_ids
+                else "empty",
                 "algorithmVersion": algo_version,
                 "model": model_meta,
                 "generatedAt": gen_at,
@@ -474,7 +499,8 @@ def main() -> int:
                 "reason": reason,
                 "policy": policy_provenance,
             },
-            merge=True,
+            # Clear every stale ready-only field from a previous run.
+            merge=False,
         )
 
     bw.close()

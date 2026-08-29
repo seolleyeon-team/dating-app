@@ -399,7 +399,7 @@ gcloud logging read 'resource.type=cloud_run_job' --limit=50 --project=seolleyeo
 ## Idempotency
 
 - 같은 `date_key`로 재실행 시 GCS CSV는 덮어쓰기
-- Firestore modelRecs는 `merge=True`로 upsert
+- Firestore `modelRecs`는 재실행 시 이전 후보가 남지 않도록 소스 문서를 전체 교체하고, 제외 대상은 `status=ineligible`, `items=[]`로 덮어쓴다.
 - 안전하게 재실행 가능
 
 ## Smoke Test 절차

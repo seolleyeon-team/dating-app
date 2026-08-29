@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
@@ -9,12 +10,14 @@ import '../../../core/constants/app_colors.dart';
 import '../../../router/route_names.dart';
 import '../../../services/ai_recommendation_service.dart';
 import '../../../services/ask_service.dart';
+import '../../../services/contact_block_service.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/constants/photo_blur_constants.dart';
 import '../../../shared/utils/privacy_log_utils.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
+import '../../../shared/widgets/kakao_recommendation_privacy_prerequisite.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 import '../../chat/services/chat_service.dart';
 import '../../notifications/services/notification_service.dart';
@@ -290,10 +293,23 @@ class _LockerRecommendationContentState
   final _storageService = StorageService();
   final _askService = AskService();
   final _userService = UserService();
+  final _aiService = AiRecommendationService();
+  final _contactBlockService = ContactBlockService();
   List<AiRecommendedProfile> _profiles = [];
   String? _userId;
   String _userNickname = '회원';
   bool _isLoading = true;
+  bool _isReloading = false;
+  bool _reloadRequested = false;
+  bool _privacyConsentRequired = false;
+  bool _recommendationLoadFailed = false;
+  bool _isSyncingPrivacy = false;
+  String? _privacySyncError;
+  String? _privacyWatchedUid;
+  StreamSubscription<void>? _privacySubscription;
+  StreamSubscription<void>? _candidateSubscription;
+  Timer? _privacyReloadDebounce;
+  String _watchedCandidateKey = '';
 
   @override
   void initState() {
@@ -302,32 +318,188 @@ class _LockerRecommendationContentState
   }
 
   Future<void> _loadRecommendations() async {
-    final userId = await _storageService.getKakaoUserId();
-    final profiles = await AiRecommendationService().fetchMysteryFeed(
-      limit: 3,
-      userId: userId,
-    );
-    final userProfile = userId == null
-        ? null
-        : await _userService.getUserProfile(userId);
-    final onboarding = userId == null
-        ? <String, dynamic>{}
-        : await _storageService.getOnboardingDraft(userId);
-    final nickname = userProfile?['nickname']?.toString().trim();
+    if (_isReloading) {
+      _reloadRequested = true;
+      return;
+    }
+    _isReloading = true;
+    _reloadRequested = false;
+    try {
+      final userId = await _storageService.getKakaoUserId();
+      if (userId == null || userId.isEmpty) {
+        throw StateError('missing_kakao_user_id');
+      }
+      _watchRecommendationPrivacy(userId);
+      final privacyReady = await _aiService.isViewerRecommendationPrivacyReady(
+        userId,
+      );
+      if (!privacyReady) {
+        if (!mounted) return;
+        setState(() {
+          _userId = userId;
+          _profiles = [];
+          _privacyConsentRequired = true;
+          _recommendationLoadFailed = false;
+          _isLoading = false;
+        });
+        _watchCandidateEligibility(const []);
+        return;
+      }
+      final profiles = await _aiService.fetchMysteryFeed(
+        limit: 3,
+        userId: userId,
+      );
+      final userProfile = await _userService.getUserProfile(userId);
+      final onboarding = await _storageService.getOnboardingDraft(userId);
+      final nickname = userProfile?['nickname']?.toString().trim();
+      if (!mounted) return;
+      setState(() {
+        _userId = userId;
+        _profiles = profiles;
+        _userNickname = nickname?.isNotEmpty == true
+            ? nickname!
+            : (onboarding['nickname']?.toString().trim().isNotEmpty == true
+                  ? onboarding['nickname'].toString().trim()
+                  : '회원');
+        _privacyConsentRequired = false;
+        _recommendationLoadFailed = false;
+        _privacySyncError = null;
+        _isLoading = false;
+      });
+      _watchCandidateEligibility(profiles);
+      for (var index = 0; index < profiles.length; index++) {
+        _logEvent(profiles[index], index, 'impression');
+      }
+    } catch (error) {
+      debugPrint(
+        '[MysteryCard] load recommendations '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
+      if (mounted) {
+        setState(() {
+          _profiles = [];
+          _privacyConsentRequired = false;
+          _recommendationLoadFailed = true;
+          _isLoading = false;
+        });
+      }
+    } finally {
+      _isReloading = false;
+      if (_reloadRequested && mounted) {
+        _reloadRequested = false;
+        _privacyReloadDebounce?.cancel();
+        _privacyReloadDebounce = Timer(Duration.zero, _loadRecommendations);
+      }
+    }
+  }
+
+  Future<void> _requestKakaoConsentAndSync() async {
+    if (_isSyncingPrivacy) return;
+    setState(() {
+      _isSyncingPrivacy = true;
+      _privacySyncError = null;
+    });
+    try {
+      final result = await _contactBlockService.syncKakaoTalkFriendBlocks(
+        requestConsentIfNeeded: true,
+      );
+      if (!result.recommendationPrivacyReady) {
+        throw StateError('recommendation_privacy_not_ready_after_sync');
+      }
+      if (!mounted) return;
+      setState(() {
+        _privacyConsentRequired = false;
+        _isLoading = true;
+      });
+      await _loadRecommendations();
+    } catch (error) {
+      debugPrint(
+        '[MysteryCard] Kakao privacy sync '
+        '${PrivacyLogUtils.errorSummary(error)}',
+      );
+      if (!mounted) return;
+      setState(() {
+        _privacySyncError =
+            '동의를 완료하지 못했어요. 카카오 동의 화면에서 친구목록을 허용한 뒤 다시 시도해 주세요.';
+      });
+    } finally {
+      if (mounted) setState(() => _isSyncingPrivacy = false);
+    }
+  }
+
+  Future<void> _retryRecommendations() async {
     if (!mounted) return;
     setState(() {
-      _userId = userId;
-      _profiles = profiles;
-      _userNickname = nickname?.isNotEmpty == true
-          ? nickname!
-          : (onboarding['nickname']?.toString().trim().isNotEmpty == true
-                ? onboarding['nickname'].toString().trim()
-                : '회원');
+      _isLoading = true;
+      _recommendationLoadFailed = false;
+    });
+    await _loadRecommendations();
+  }
+
+  void _watchCandidateEligibility(List<AiRecommendedProfile> profiles) {
+    final ids = profiles.map((profile) => profile.candidateUid).toList()
+      ..sort();
+    final key = ids.join('|');
+    if (_watchedCandidateKey == key) return;
+    _candidateSubscription?.cancel();
+    _watchedCandidateKey = key;
+    if (ids.isEmpty) return;
+    _candidateSubscription = _aiService
+        .watchCandidateRecommendationChanges(ids)
+        .listen(
+          (_) => _invalidateAndReloadRecommendations(),
+          onError: (_) => _invalidateRecommendations(),
+        );
+  }
+
+  void _invalidateRecommendations() {
+    if (!mounted) return;
+    setState(() {
+      _profiles = [];
       _isLoading = false;
     });
-    for (var index = 0; index < profiles.length; index++) {
-      _logEvent(profiles[index], index, 'impression');
-    }
+  }
+
+  void _invalidateAndReloadRecommendations() {
+    if (!mounted) return;
+    setState(() {
+      _profiles = [];
+      _isLoading = true;
+    });
+    _privacyReloadDebounce?.cancel();
+    _privacyReloadDebounce = Timer(
+      const Duration(milliseconds: 150),
+      _loadRecommendations,
+    );
+  }
+
+  void _watchRecommendationPrivacy(String uid) {
+    if (_privacyWatchedUid == uid) return;
+    _privacySubscription?.cancel();
+    _privacyWatchedUid = uid;
+    _privacySubscription = _aiService
+        .watchRecommendationPrivacyChanges(uid)
+        .listen(
+          (_) {
+            // Remove existing cards immediately. The server-authoritative
+            // reload may take a moment, but a newly excluded friend must not
+            // remain tappable while it is in flight.
+            _invalidateAndReloadRecommendations();
+          },
+          onError: (_) {
+            // A listener error is privacy-sensitive: keep the surface empty
+            // until a later authoritative reload succeeds.
+            _invalidateRecommendations();
+          },
+        );
+  }
+
+  @override
+  void dispose() {
+    _privacyReloadDebounce?.cancel();
+    _privacySubscription?.cancel();
+    _candidateSubscription?.cancel();
+    super.dispose();
   }
 
   void _logEvent(AiRecommendedProfile profile, int index, String eventType) {
@@ -496,8 +668,16 @@ class _LockerRecommendationContentState
         ),
         const SizedBox(height: 12),
         Expanded(
-          child:
-              _temporarilyShowLockerPreview && (_isLoading || _profiles.isEmpty)
+          child: _privacyConsentRequired
+              ? KakaoRecommendationPrivacyPrerequisite(
+                  isWorking: _isSyncingPrivacy,
+                  errorMessage: _privacySyncError,
+                  onConsentAndSync: _requestKakaoConsentAndSync,
+                )
+              : _recommendationLoadFailed
+              ? RecommendationLoadFailure(onRetry: _retryRecommendations)
+              : _temporarilyShowLockerPreview &&
+                    (_isLoading || _profiles.isEmpty)
               ? _LockerBoard(
                   profiles: const [],
                   onOpen: _openNote,

@@ -244,9 +244,12 @@ class KakaoTalkFriendService {
   /// 실제 Friend API (`TalkApi.friends`)를 호출합니다.
   Future<KakaoTalkFriendLookupResult> fetchFriends({
     bool requestConsentIfNeeded = true,
+    bool requireTalkMessageConsent = true,
   }) async {
     if (requestConsentIfNeeded) {
-      await ensureRequiredConsents(requireTalkMessage: true);
+      await ensureRequiredConsents(
+        requireTalkMessage: requireTalkMessageConsent,
+      );
     }
 
     try {
@@ -261,7 +264,9 @@ class KakaoTalkFriendService {
       }
 
       // 카카오 콘솔에서 동의항목을 사용 설정한 뒤의 첫 호출에도 대응합니다.
-      await ensureRequiredConsents(requireTalkMessage: true);
+      await ensureRequiredConsents(
+        requireTalkMessage: requireTalkMessageConsent,
+      );
       final result = await _fetchFriendsOnce();
       debugPrint(
         '[KakaoFriend] friends fetch success count=${result.friends.length}',
