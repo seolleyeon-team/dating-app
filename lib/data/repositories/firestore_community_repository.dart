@@ -13,6 +13,22 @@ class FirestoreCommunityRepository implements CommunityRepository {
   CollectionReference<Map<String, dynamic>> get _posts =>
       _firestore.collection('bamboo_posts');
 
+  // SEC-04. 대나무숲 글/댓글은 익명이어야 하는데 public 문서에 raw UID 가
+  // authorId 로 들어 있고 publicProfiles/{uid} 는 로그인만 하면 읽힌다. 즉
+  // 지금은 join 한 번으로 작성자를 특정할 수 있다. 최종적으로는 public 에서
+  // authorId 를 빼야 하고, 그때 "내가 쓴 글" 을 잃지 않도록 소유권을 여기
+  // 비공개 매핑에 함께 적어 둔다. 이 단계에서는 public authorId 를 아직
+  // 지우지 않으므로 구버전 앱도 그대로 동작한다.
+  CollectionReference<Map<String, dynamic>> get _postAuthors =>
+      _firestore.collection('bamboo_post_authors');
+
+  CollectionReference<Map<String, dynamic>> get _commentAuthors =>
+      _firestore.collection('bamboo_comment_authors');
+
+  // 댓글은 글 하위에 있어 commentId 만으로는 유일하지 않다.
+  static String commentAuthorDocId(String postId, String commentId) =>
+      '${postId}__$commentId';
+
   @override
   Future<String> createPost({
     required String authorId,
@@ -41,7 +57,11 @@ class FirestoreCommunityRepository implements CommunityRepository {
     // authorId는 항상 문자열로 저장 (Firestore 숫자 vs 문자열 불일치 방지)
     final authorIdStr = authorId.trim().toString();
 
-    await docRef.set({
+    // 글과 소유권 매핑은 반드시 함께 남아야 한다. 따로 쓰면 둘 중 하나만
+    // 성공한 상태가 생기고, 그러면 나중에 public authorId 를 지울 때
+    // 주인 없는 글이 된다.
+    final batch = _firestore.batch();
+    batch.set(docRef, {
       'postId': docRef.id,
       'authorId': authorIdStr,
       'content': trimmedContent,
@@ -54,6 +74,12 @@ class FirestoreCommunityRepository implements CommunityRepository {
       'score7d': 0,
       'isDeleted': false,
     });
+    batch.set(_postAuthors.doc(docRef.id), {
+      'postId': docRef.id,
+      'ownerUid': authorIdStr,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    await batch.commit();
 
     return docRef.id;
   }
@@ -272,6 +298,15 @@ class FirestoreCommunityRepository implements CommunityRepository {
         'likeCount': 0,
         'isDeleted': false,
       });
+
+      // 글과 같은 이유로 댓글도 소유권을 같은 커밋에 남긴다.
+      transaction
+          .set(_commentAuthors.doc(commentAuthorDocId(postId, commentRef.id)), {
+            'postId': postId,
+            'commentId': commentRef.id,
+            'ownerUid': authorId.trim(),
+            'createdAt': FieldValue.serverTimestamp(),
+          });
 
       transaction.update(postRef, {
         'commentCount': FieldValue.increment(1),
