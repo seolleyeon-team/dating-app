@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/core/compatibility/app_compatibility.dart';
 
@@ -264,6 +266,67 @@ void main() {
       expect(compatibilityPolicyDocIdFor(null), isNull);
       expect(compatibilityPolicyDocIdFor(''), isNull);
       expect(compatibilityPolicyDocIdFor('someOtherFlavor'), isNull);
+    });
+  });
+
+  group('bridge 릴리스 식별', () {
+    test('상수가 pubspec 의 실제 build number 와 일치한다', () {
+      // 이 상수가 pubspec 과 어긋나면 위아래 테스트가 전부 거짓말이 된다.
+      // 릴리스 때 pubspec 만 올리고 상수를 잊는 실수를 여기서 잡는다.
+      final pubspec = File('pubspec.yaml').readAsStringSync();
+      final match = RegExp(
+        r'^version:\s*\d+\.\d+\.\d+\+(\d+)\s*$',
+        multiLine: true,
+      ).firstMatch(pubspec);
+      expect(match, isNotNull, reason: 'pubspec version could not be read');
+      expect(int.parse(match!.group(1)!), currentKnownReleaseBuild);
+    });
+
+    test('bridge 빌드는 pre-bridge 빌드보다 큰 번호를 단다', () {
+      // 두 값이 같으면 "bridge 이상만 지원" 이라는 정책을 아예 표현할 수 없다.
+      // 릴리스 때 build number 를 올리지 않으면 여기서 걸린다.
+      expect(currentKnownReleaseBuild, greaterThan(preBridgeReleaseBuild));
+    });
+
+    test('bridge 를 최소 지원 빌드로 세우면 pre-bridge 는 필수 업데이트가 된다', () {
+      // 운영자가 cutover 때 실제로 세울 정책이다. 정책이 두 빌드를 구분하지
+      // 못하면 여기서 드러난다.
+      final policy = AppCompatibilityPolicy(
+        policyVersion: 1,
+        minimumSupportedBuild: currentKnownReleaseBuild,
+        recommendedBuild: currentKnownReleaseBuild,
+        storeUrl: null,
+        requiredCapabilities: const {},
+        messageVersion: 1,
+      );
+
+      expect(
+        evaluateCompatibility(
+          buildNumber: preBridgeReleaseBuild,
+          capabilities: kAppCapabilities,
+          policy: policy,
+        ).status,
+        CompatibilityStatus.updateRequired,
+      );
+      expect(
+        evaluateCompatibility(
+          buildNumber: currentKnownReleaseBuild,
+          capabilities: kAppCapabilities,
+          policy: policy,
+        ).status,
+        CompatibilityStatus.supported,
+      );
+    });
+
+    test('이 정책은 bridge 이후 빌드끼리만 유효하다', () {
+      // 실제로 설치돼 있는 pre-bridge 빌드에는 게이트 코드가 없어서 이 정책을
+      // 읽지도 않는다. 위 테스트가 통과한다고 구버전이 차단되는 것이 아니다.
+      // 그 사실은 docs/security/sec04-bridge-cutover.md 에 적혀 있다.
+      final doc = File(
+        'docs/security/sec04-bridge-cutover.md',
+      ).readAsStringSync();
+      expect(doc.contains('OLD_CLIENTS_FORCED_TO_UPDATE = NO'), isTrue);
+      expect(doc.contains('PRE_BRIDGE_CLIENTS_DO_NOT_KNOW_THIS_GATE'), isTrue);
     });
   });
 

@@ -24,7 +24,17 @@ const Set<String> kAppCapabilities = {'bambooPrivateOwnershipV1'};
 
 /// pubspec 의 현재 build number. 기본 정책이 현재 출시본을 스스로 막지 않는지
 /// 테스트에서 확인하는 용도다. 런타임 판정은 실제 패키지 정보를 쓴다.
-const int currentKnownReleaseBuild = 14;
+const int currentKnownReleaseBuild = 15;
+
+/// bridge 게이트가 들어가기 **전** 마지막 build number.
+///
+/// 이 값과 [currentKnownReleaseBuild] 가 같으면 정책이 두 빌드를 구분할 수
+/// 없다. 그러면 "bridge 이상만 지원" 이라는 정책 자체를 쓸 수 없으므로 bridge
+/// 릴리스는 반드시 이보다 큰 build number 를 달아야 한다.
+///
+/// 주의: 실제 설치된 pre-bridge 빌드에는 게이트 코드가 없어서 이 정책을 읽지
+/// 않는다. 여기서 구분되는 것은 bridge 이후 빌드끼리다.
+const int preBridgeReleaseBuild = 14;
 
 enum CompatibilityPlatform { android, ios }
 
