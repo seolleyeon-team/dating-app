@@ -94,6 +94,13 @@ import { createReportAndBlockUserFunction } from "./reportAndBlock";
 import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
 import { createCompleteStudentEmailLinkFunction } from "./emailLinkCompletion";
 import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
+import {
+  BAMBOO_COMMENT_OWNER_COLLECTION,
+  BAMBOO_POST_OWNER_COLLECTION,
+  bambooCommentOwnerDocId,
+  ownerUidForNotification,
+  resolveBambooOwner,
+} from "./bambooOwnership";
 import { createUploadOnboardingPhotoFunction } from "./onboardingPhotoUpload";
 import {
   buildStudentVerificationEmail,
@@ -3813,6 +3820,52 @@ export const onFestivalChatMessageCreated = onDocumentCreated(
 // =============================================================================
 // 4) 대나무숲 댓글/답글 푸시 + 인앱 알림
 // =============================================================================
+// SEC-04. 소유자는 비공개 매핑을 먼저 보고, 아직 이관되지 않은 문서에 한해
+// public authorId 를 임시로 인정한다. 둘이 어긋나면 알림을 보내지 않는다 —
+// 잘못 고르면 남의 글 알림이 엉뚱한 사람에게 간다. 여기서 users /
+// publicProfiles 를 뒤져 추측하지 않는다. 그게 없애려는 join 그 자체다.
+async function resolveBambooPostOwnerUid(
+  postId: string,
+  legacyAuthorId: unknown
+): Promise<string> {
+  const mapSnap = await db
+    .collection(BAMBOO_POST_OWNER_COLLECTION)
+    .doc(postId)
+    .get();
+  const resolution = resolveBambooOwner(
+    mapSnap.data()?.ownerUid,
+    legacyAuthorId
+  );
+  if (resolution.status === "conflict") {
+    logger.error("Bamboo post ownership conflict; skipping notification", {
+      postId,
+    });
+  }
+  return ownerUidForNotification(resolution);
+}
+
+async function resolveBambooCommentOwnerUid(
+  postId: string,
+  commentId: string,
+  legacyAuthorId: unknown
+): Promise<string> {
+  const mapSnap = await db
+    .collection(BAMBOO_COMMENT_OWNER_COLLECTION)
+    .doc(bambooCommentOwnerDocId(postId, commentId))
+    .get();
+  const resolution = resolveBambooOwner(
+    mapSnap.data()?.ownerUid,
+    legacyAuthorId
+  );
+  if (resolution.status === "conflict") {
+    logger.error("Bamboo comment ownership conflict; skipping notification", {
+      postId,
+      commentId,
+    });
+  }
+  return ownerUidForNotification(resolution);
+}
+
 export const onBambooCommentCreated = onDocumentCreated(
   "bamboo_posts/{postId}/comments/{commentId}",
   async (event) => {
@@ -3823,7 +3876,11 @@ export const onBambooCommentCreated = onDocumentCreated(
     const commentId = event.params.commentId;
     const comment = snap.data();
 
-    const authorId = asString(comment.authorId ?? "");
+    const authorId = await resolveBambooCommentOwnerUid(
+      postId,
+      commentId,
+      comment.authorId
+    );
     const content = asString(comment.content ?? "").trim();
     const parentCommentId = asNonEmptyString(comment.parentCommentId) ?? "";
 
@@ -3835,7 +3892,7 @@ export const onBambooCommentCreated = onDocumentCreated(
     if (!postSnap.exists) return;
 
     const post = (postSnap.data() ?? {}) as Record<string, unknown>;
-    const postAuthorId = asString(post.authorId ?? "");
+    const postAuthorId = await resolveBambooPostOwnerUid(postId, post.authorId);
 
     // 일반 댓글: 글 작성자에게 푸시 + 인앱 알림
     if (!parentCommentId) {
@@ -3882,7 +3939,11 @@ export const onBambooCommentCreated = onDocumentCreated(
     if (!parentSnap.exists) return;
 
     const parent = (parentSnap.data() ?? {}) as Record<string, unknown>;
-    const parentAuthorId = asString(parent.authorId ?? "");
+    const parentAuthorId = await resolveBambooCommentOwnerUid(
+      postId,
+      parentCommentId,
+      parent.authorId
+    );
 
     const targets = [parentAuthorId].filter((uid) => uid && uid !== authorId);
 
@@ -3937,7 +3998,7 @@ export const onBambooPostLikeCreated = onDocumentCreated(
     if (!postSnap.exists) return;
 
     const post = (postSnap.data() ?? {}) as Record<string, unknown>;
-    const postAuthorId = asString(post.authorId ?? "");
+    const postAuthorId = await resolveBambooPostOwnerUid(postId, post.authorId);
 
     if (!postAuthorId || postAuthorId === likerUserId) {
       return;

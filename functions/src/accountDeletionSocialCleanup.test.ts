@@ -32,6 +32,8 @@ function docs(
     recEventIds: [],
     bambooPostIds: [],
     bambooComments: [],
+    bambooPostMappingIds: [],
+    bambooCommentMappingIds: [],
     friendInviteIds: [],
     eventTeamSetupIds: [],
     eventTeamInviteIds: [],
@@ -205,4 +207,73 @@ test("empty event team purge gate", () => {
     }),
     false
   );
+});
+
+test("SEC-04 소유권 매핑도 삭제 대상에 들어간다", () => {
+  // 매핑을 남기면 계정을 지운 뒤에도 uid -> 작성글 연결이 그대로 남는다.
+  const operations = planAccountDeletionSocialOperations({
+    uid: "alice",
+    docs: docs({
+      bambooPostIds: ["p1"],
+      bambooComments: [{ postId: "p1", commentId: "c1" }],
+      bambooPostMappingIds: ["p1"],
+      bambooCommentMappingIds: ["p1__c1"],
+    }),
+  });
+
+  const mappingOps = operations.filter(
+    (op) => op.kind === "deleteBambooOwnershipMapping"
+  );
+  assert.deepEqual(mappingOps, [
+    {
+      kind: "deleteBambooOwnershipMapping",
+      collection: "bamboo_post_authors",
+      id: "p1",
+    },
+    {
+      kind: "deleteBambooOwnershipMapping",
+      collection: "bamboo_comment_authors",
+      id: "p1__c1",
+    },
+  ]);
+
+  // 내용 정리가 먼저다. 매핑을 먼저 지우고 중간에 실패하면 어떤 글이 이
+  // 사용자 것이었는지 다시 찾을 방법이 없다.
+  const firstMapping = operations.findIndex(
+    (op) => op.kind === "deleteBambooOwnershipMapping"
+  );
+  const lastContent = operations.reduce(
+    (acc, op, i) =>
+      op.kind === "softDeleteBambooPost" ||
+      op.kind === "softDeleteBambooComment"
+        ? i
+        : acc,
+    -1
+  );
+  assert.ok(lastContent >= 0);
+  assert.ok(firstMapping > lastContent);
+});
+
+test("SEC-04 매핑이 없는 레거시 계정은 매핑 삭제를 계획하지 않는다", () => {
+  const operations = planAccountDeletionSocialOperations({
+    uid: "alice",
+    docs: docs({
+      bambooPostIds: ["p1"],
+      bambooComments: [{ postId: "p1", commentId: "c1" }],
+    }),
+  });
+  assert.equal(
+    operations.some((op) => op.kind === "deleteBambooOwnershipMapping"),
+    false
+  );
+});
+
+test("SEC-04 매핑 삭제 건수는 글/댓글 매핑을 합산한다", () => {
+  const counts = socialCountsFromDocs(
+    docs({
+      bambooPostMappingIds: ["p1", "p2"],
+      bambooCommentMappingIds: ["p1__c1"],
+    })
+  );
+  assert.equal(counts.bambooOwnershipMappingsDeleted, 3);
 });
