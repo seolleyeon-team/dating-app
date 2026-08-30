@@ -1413,6 +1413,63 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     }
 
     // -----------------------------------------------------------------------
+    // Bamboo private ownership mapping (SEC-04, Phase A)
+    // -----------------------------------------------------------------------
+    // public bamboo_posts / comments 는 로그인 사용자면 누구나 읽을 수 있고,
+    // publicProfiles/{uid} 도 get 이 열려 있다. 그래서 public 문서에 raw UID 가
+    // 남아 있는 한 authorId -> 프로필 join 으로 익명 글 작성자를 특정할 수 있다.
+    // 규칙은 read 응답의 필드를 가릴 수 없으므로 최종적으로는 public 문서에서
+    // authorId 를 제거해야 하고, 그때 소유권을 잃지 않도록 여기에 비공개
+    // 매핑을 둔다. Phase A 에서는 public authorId 를 아직 지우지 않는다.
+    //
+    // 매핑 생성이 ownerUid == auth.uid 만 본다면 남의 글에 자기 소유권을 붙일 수
+    // 있다. 그래서 해당 public 문서의 authorId 도 요청자와 같은지 함께 본다.
+    // getAfter 를 쓰면 새 글과 매핑을 한 배치로 쓰는 경우와 기존 글에 매핑만
+    // 채우는 경우가 모두 같은 조건으로 검사된다.
+
+    // 경로 리터럴을 한 줄에 담기 어려워 헬퍼로 뺀다.
+    function bambooCommentPath(postId, commentId) {
+      return /databases/$(database)/documents/bamboo_posts/$(postId)/comments/$(commentId);
+    }
+
+    match /bamboo_post_authors/{postId} {
+      // 자기 매핑만 읽는다. 타인이 읽을 수 있으면 익명성이 무의미해진다.
+      allow get: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      // "내가 쓴 글" 은 where(ownerUid == 본인) 쿼리로만 가능하다. 조건 없는
+      // 전체 목록이나 타인 UID 조건은 이 규칙에서 걸린다.
+      allow list: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+
+      allow create: if
+        isSignedIn() &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.postId == postId &&
+        getAfter(/databases/$(database)/documents/bamboo_posts/$(postId))
+          .data.authorId == request.auth.uid;
+
+      // 소유권은 옮겨지지 않는다. 정리는 계정삭제 서버 경로(Admin SDK)가 한다.
+      allow update, delete: if false;
+    }
+
+    match /bamboo_comment_authors/{mappingId} {
+      allow get: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+
+      allow create: if
+        isSignedIn() &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.postId is string &&
+        request.resource.data.commentId is string &&
+        mappingId ==
+          request.resource.data.postId + '__' + request.resource.data.commentId &&
+        getAfter(bambooCommentPath(request.resource.data.postId,
+                                   request.resource.data.commentId))
+          .data.authorId == request.auth.uid;
+
+      allow update, delete: if false;
+    }
+
+
+    // -----------------------------------------------------------------------
     // Recommendation exclusions
     // -----------------------------------------------------------------------
     // Assumed server-owned model:
