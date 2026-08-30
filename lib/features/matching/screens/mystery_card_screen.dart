@@ -327,7 +327,16 @@ class _LockerRecommendationContentState
     try {
       final userId = await _storageService.getKakaoUserId();
       if (userId == null || userId.isEmpty) {
-        throw StateError('missing_kakao_user_id');
+        // 아직 세션을 읽지 못한 것은 로드 실패가 아니다. 실패로 분류하면
+        // 로그인 정보가 준비되기 전 순간에 재시도 화면이 떠 버린다.
+        if (!mounted) return;
+        setState(() {
+          _profiles = [];
+          _privacyConsentRequired = false;
+          _recommendationLoadFailed = false;
+          _isLoading = false;
+        });
+        return;
       }
       _watchRecommendationPrivacy(userId);
       final privacyReady = await _aiService.isViewerRecommendationPrivacyReady(

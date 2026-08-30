@@ -8,7 +8,18 @@ void main() {
       'lib/services/ai_recommendation_service.dart',
     ).readAsStringSync();
     expect(source.contains("_fetchFallbackFromUsers"), isFalse);
-    expect(source.contains("collection('users')"), isFalse);
+    // 금지 대상은 users 컬렉션 자체가 아니라 그 위의 광범위 조회다. 본인
+    // 문서 단건 읽기(.doc(uid))는 추천 프라이버시 확인에 필요하므로, 뒤에
+    // .doc( 이 오지 않는 사용만 스캔으로 본다.
+    final broadUsersAccess = RegExp(
+      r"collection\('users'\)\s*(?!\s*\.doc\()",
+    ).allMatches(source).map((m) => m.start).toList();
+    expect(
+      broadUsersAccess,
+      isEmpty,
+      reason: 'users collection must only be read as .doc(uid), never scanned',
+    );
+    expect(source.contains('.collection("users")'), isFalse);
     expect(source.contains('_emptyFeedBecauseNoModelRecs'), isTrue);
   });
 
