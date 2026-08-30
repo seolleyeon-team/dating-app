@@ -30,7 +30,9 @@ import {
   doc,
   getDoc,
   getDocs,
+  increment,
   query,
+  runTransaction,
   setDoc,
   updateDoc,
   where,
@@ -283,5 +285,38 @@ test("Phase A: 구버전 클라처럼 매핑 없이 글만 써도 아직 허용�
       doc(owner, "bamboo_posts", "legacy-post"),
       postBody("legacy-post", OWNER)
     )
+  );
+});
+
+test("댓글 매핑은 클라이언트가 쓰는 트랜잭션 안에서도 통과한다", async () => {
+  // 클라이언트는 댓글을 배치가 아니라 트랜잭션으로 쓴다(카운터를 같이 올린다).
+  // getAfter 가 트랜잭션에서 보류 중인 쓰기를 못 보면 댓글 작성이 통째로
+  // 막히므로, 실제 쓰기 모양 그대로 확인한다.
+  await seedOwnerContent();
+  const owner = await kakaoSession(OWNER);
+  const newComment = "comment2";
+
+  await assertSucceeds(
+    runTransaction(owner, async (tx) => {
+      const postRef = doc(owner, "bamboo_posts", POST);
+      await tx.get(postRef);
+      tx.set(doc(postRef, "comments", newComment), {
+        commentId: newComment,
+        authorId: OWNER,
+        content: "익명 댓글",
+        parentCommentId: null,
+        likeCount: 0,
+        isDeleted: false,
+      });
+      tx.set(doc(owner, COMMENT_MAP, commentMapId(POST, newComment)), {
+        postId: POST,
+        commentId: newComment,
+        ownerUid: OWNER,
+      });
+      tx.update(postRef, {
+        commentCount: increment(1),
+        score7d: increment(1),
+      });
+    })
   );
 });
