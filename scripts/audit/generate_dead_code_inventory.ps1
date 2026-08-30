@@ -141,7 +141,6 @@ $rows = foreach ($rawPath in $tracked) {
     } elseif ($path -match '^(functions/|firebase\.json|.*\.rules$|infra/|scripts/|assets/)') {
         $runtimeProtection = 'operational-or-runtime-protected'
     }
-    if ($path -like 'festival_web/*') { $notes = 'Separate first-party-looking Flutter/web project; preserve pending owner audit.' }
     if ($path -like 'tmp/*' -or $path -like '.tmp/*') { $notes = 'Operational/test/report artifact area; denied or dynamic consumers are possible.' }
     if ($workflowRelation -eq 'stale-workflow-reference') { $notes = 'Diagram path is absent in current tree; see workflow replacement map.' }
 

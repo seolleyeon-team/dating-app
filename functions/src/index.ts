@@ -3775,48 +3775,6 @@ export const onChatMessageCreated = onDocumentCreated(
   }
 );
 
-export const onFestivalChatMessageCreated = onDocumentCreated(
-  "festivalChatRooms/{roomId}/messages/{messageId}",
-  async (event) => {
-    const snap = event.data;
-    if (!snap) return;
-
-    const roomId = event.params.roomId;
-    const message = snap.data();
-    const senderUid = asString(message.senderUid ?? "");
-    if (!senderUid) return;
-
-    const roomSnap = await db.collection("festivalChatRooms").doc(roomId).get();
-    if (!roomSnap.exists) return;
-
-    const room = (roomSnap.data() ?? {}) as Record<string, unknown>;
-    const participantUids = asStringArray(room.participantUids);
-    const targetUserIds = participantUids.filter((uid) => uid !== senderUid);
-    if (targetUserIds.length === 0) return;
-
-    const participantProfiles = readMap(room.participantProfiles);
-    const senderTicketId = asString(message.senderTicketId ?? "");
-    const senderProfile = readMap(participantProfiles[senderTicketId]);
-    const senderName = asString(senderProfile.name, "새 메시지");
-    const body = asString(message.text ?? "메시지가 도착했어요.").trim();
-
-    await sendPushToUsers(targetUserIds, {
-      title: senderName,
-      body: body || "메시지가 도착했어요.",
-      data: {
-        type: "festival_chat",
-        roomId,
-      },
-    });
-
-    logger.info("Festival chat push sent", {
-      roomId,
-      senderUid,
-      targets: targetUserIds,
-    });
-  }
-);
-
 // =============================================================================
 // 4) 대나무숲 댓글/답글 푸시 + 인앱 알림
 // =============================================================================
