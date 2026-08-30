@@ -8,7 +8,21 @@ void main() {
       'lib/services/ai_recommendation_service.dart',
     ).readAsStringSync();
     expect(source.contains("_fetchFallbackFromUsers"), isFalse);
-    expect(source.contains("collection('users')"), isFalse);
+    // users collection 참조는 본인 문서 접근(.doc(...))만 허용한다.
+    // roster 조회(.where/.limit/.get on collection)는 전체 사용자 노출이므로 금지.
+    final usersCollectionUses = RegExp(
+      r"collection\('users'\)\s*\.\s*(\w+)\(",
+      multiLine: true,
+    ).allMatches(source).toList();
+    expect(usersCollectionUses, isNotEmpty);
+    for (final use in usersCollectionUses) {
+      expect(
+        use.group(1),
+        'doc',
+        reason: "collection('users') must only be followed by .doc(uid); "
+            'roster-level queries are a privacy regression',
+      );
+    }
     expect(source.contains('_emptyFeedBecauseNoModelRecs'), isTrue);
   });
 
