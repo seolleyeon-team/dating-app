@@ -12,6 +12,7 @@ import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
 import 'features/community/providers/community_provider.dart';
 import 'features/event/meeting_icebreaker/services/meeting_icebreaker_deep_link_handler.dart';
+import 'shared/widgets/app_compatibility_gate.dart';
 import 'shared/widgets/app_privacy_splash_overlay.dart';
 
 /// 설레연 앱 (MaterialApp 루트 + Provider 등록)
@@ -69,10 +70,15 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
                   theme.textTheme.bodyMedium ??
                   const TextStyle(decoration: TextDecoration.none);
 
-              return AppPrivacySplashOverlay(
-                child: DefaultTextStyle(
-                  style: fallback.copyWith(decoration: TextDecoration.none),
-                  child: child ?? const SizedBox.shrink(),
+              // builder 는 Navigator 위다. 여기서 덮으면 딥링크로 push 된
+              // 라우트든 푸시 알림이 밀어넣은 라우트든 전부 아래에 깔린다.
+              return AppCompatibilityGate(
+                onSignOut: () => context.read<AuthProvider>().logout(),
+                child: AppPrivacySplashOverlay(
+                  child: DefaultTextStyle(
+                    style: fallback.copyWith(decoration: TextDecoration.none),
+                    child: child ?? const SizedBox.shrink(),
+                  ),
                 ),
               );
             },

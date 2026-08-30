@@ -1,0 +1,120 @@
+rules_version = '2';
+
+// SEC-04 Phase D 후보 규칙 — **배포되지 않는다.**
+//
+// `firebase.json` 은 `firestore.rules` 만 배포한다. 이 파일은 그 옆에 두고
+// 테스트로만 돌린다. cutover 승인 전에 "이 규칙이 실제로 원하는 것을 막고
+// 원하는 것을 통과시키는가" 를 증명해 두기 위한 것이다.
+//
+// Phase D 가 강제하는 것:
+//   - public 문서에 raw UID(`authorId`)를 쓸 수 없다. 익명 글의 작성자를
+//     join 으로 특정할 수 있는 원인이 그 필드다.
+//   - 소유권은 비공개 매핑에만 존재하고, 글/댓글과 같은 커밋에 함께 쓰인다.
+//     매핑 없이 쓴 글은 주인을 잃으므로 애초에 거부한다.
+//
+// **클라이언트 버전을 신뢰하지 않는다.** 여기에는 buildNumber 도, appVersion 도,
+// schemaVersion 도 없다. 그런 필드는 클라이언트가 마음대로 적을 수 있어서
+// 보안 근거가 되지 못한다. 규칙이 보는 것은 실제 쓰기의 모양뿐이다 — 비공개
+// 매핑을 같은 커밋에 남길 수 있는 클라이언트만 글을 쓸 수 있고, 그 능력 자체가
+// 곧 capability 증명이다.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function bambooCommentPath(postId, commentId) {
+      return /databases/$(database)/documents/bamboo_posts/$(postId)/comments/$(commentId);
+    }
+
+    match /bamboo_posts/{postId} {
+      allow get, list: if isSignedIn();
+
+      allow create: if
+        isSignedIn() &&
+        // Phase C 가 지운 필드가 다시 들어오면 익명성이 원점으로 돌아간다.
+        !('authorId' in request.resource.data) &&
+        request.resource.data.postId == postId &&
+        request.resource.data.content is string &&
+        request.resource.data.content.size() > 0 &&
+        request.resource.data.content.size() <= 500 &&
+        request.resource.data.likeCount == 0 &&
+        request.resource.data.commentCount == 0 &&
+        request.resource.data.isDeleted == false &&
+        // 소유권 매핑이 같은 커밋에 없으면 주인 없는 글이 된다.
+        getAfter(/databases/$(database)/documents/bamboo_post_authors/$(postId))
+          .data.ownerUid == request.auth.uid;
+
+      allow update: if
+        isSignedIn() &&
+        !('authorId' in request.resource.data) &&
+        get(/databases/$(database)/documents/bamboo_post_authors/$(postId))
+          .data.ownerUid == request.auth.uid;
+
+      allow delete: if false;
+
+      match /comments/{commentId} {
+        allow get, list: if isSignedIn();
+
+        allow create: if
+          isSignedIn() &&
+          !('authorId' in request.resource.data) &&
+          request.resource.data.commentId == commentId &&
+          request.resource.data.content is string &&
+          request.resource.data.content.size() > 0 &&
+          request.resource.data.isDeleted == false &&
+          getAfter(/databases/$(database)/documents/bamboo_comment_authors/$(postId + '__' + commentId))
+            .data.ownerUid == request.auth.uid;
+
+        allow update: if
+          isSignedIn() &&
+          !('authorId' in request.resource.data) &&
+          get(/databases/$(database)/documents/bamboo_comment_authors/$(postId + '__' + commentId))
+            .data.ownerUid == request.auth.uid;
+
+        allow delete: if false;
+      }
+    }
+
+    match /bamboo_post_authors/{postId} {
+      allow get: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+
+      // Phase A 와 달리 public authorId 가 없으므로 그것과 대조할 수 없다.
+      // 대신 글이 같은 커밋에 새로 만들어지는 중인지를 본다 — 이미 남이 쓴
+      // 글에 뒤늦게 매핑을 붙이는 경로가 사라진다.
+      allow create: if
+        isSignedIn() &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.postId == postId &&
+        existsAfter(/databases/$(database)/documents/bamboo_posts/$(postId)) &&
+        !exists(/databases/$(database)/documents/bamboo_posts/$(postId));
+
+      allow update, delete: if false;
+    }
+
+    match /bamboo_comment_authors/{mappingId} {
+      allow get: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+
+      allow create: if
+        isSignedIn() &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.postId is string &&
+        request.resource.data.commentId is string &&
+        mappingId ==
+          request.resource.data.postId + '__' + request.resource.data.commentId &&
+        existsAfter(bambooCommentPath(request.resource.data.postId,
+                                      request.resource.data.commentId)) &&
+        !exists(bambooCommentPath(request.resource.data.postId,
+                                  request.resource.data.commentId));
+
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
