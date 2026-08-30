@@ -299,6 +299,59 @@ export function canTransitionApplication(
   return (ALLOWED_APPLICATION_TRANSITIONS[from] ?? []).includes(to);
 }
 
+/**
+ * 미팅 lifecycle 에 아직 살아 있는(active) 신청 상태.
+ *
+ * FSM 전이표에는 초대 거절/미팅 취소 재오픈용으로 invited→applied 같은
+ * 역전이가 합법으로 남아 있지만, 신규 신청 submit 이 이 상태의 신청을
+ * applied 로 덮어쓰면 invitation/meeting 과 신청 lifecycle 이 분리된다.
+ * submit 경로의 business guard 가 이 집합을 기준으로 거부한다.
+ */
+export const ACTIVE_APPLICATION_STATUSES: ParticipantStatus[] = [
+  "applied",
+  "waitlisted",
+  "invited",
+  "accepted",
+  "deposit_pending",
+  "confirmed",
+  "cancel_requested",
+  "replacement_pending",
+];
+
+/** active 신청 중에서도 특정 미팅에 귀속되어야만 정상인 상태 */
+export const MEETING_BOUND_APPLICATION_STATUSES: ParticipantStatus[] = [
+  "invited",
+  "accepted",
+  "deposit_pending",
+  "confirmed",
+  "cancel_requested",
+  "replacement_pending",
+];
+
+/**
+ * 신청서 기준으로 '끝난' 미팅 상태.
+ *
+ * completed 이후/취소 미팅은 orchestrator 정리 루프가 신청서를 terminal
+ * (completed/cancelled/no_show)로 옮긴다. active 신청이 이런 미팅에 아직
+ * 묶여 있다면 정리 실패(corrupt link)이므로 submit 이 조용히 덮어쓰지 않고
+ * fail-closed 로 거부해야 한다.
+ */
+export const SETTLED_MEETING_STATUSES: BlindMeetingStatus[] = [
+  "completed",
+  "followup_open",
+  "read_only",
+  "archived",
+  "cancelled",
+];
+
+export function isApplicationActive(status: ParticipantStatus): boolean {
+  return ACTIVE_APPLICATION_STATUSES.includes(status);
+}
+
+export function isMeetingSettled(status: BlindMeetingStatus): boolean {
+  return SETTLED_MEETING_STATUSES.includes(status);
+}
+
 /** 참가자가 단체 채팅 멤버십을 가질 수 있는 상태 */
 export const CHAT_MEMBERSHIP_STATUSES: ParticipantStatus[] = [
   "confirmed",
