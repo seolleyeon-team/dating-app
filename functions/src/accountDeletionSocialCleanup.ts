@@ -31,6 +31,10 @@ export type AccountDeletionSocialDocs = {
   recEventIds: string[];
   bambooPostIds: string[];
   bambooComments: Array<{ postId: string; commentId: string }>;
+  // SEC-04. 비공개 소유권 매핑 문서 자체도 지운다. 남겨두면 계정을 지운 뒤에도
+  // uid -> 작성글 연결이 그대로 남는다.
+  bambooPostMappingIds: string[];
+  bambooCommentMappingIds: string[];
   friendInviteIds: string[];
   eventTeamSetupIds: string[];
   eventTeamInviteIds: string[];
@@ -46,6 +50,7 @@ export type AccountDeletionSocialCounts = {
   recEventsDeleted: number;
   bambooPostsSoftDeleted: number;
   bambooCommentsSoftDeleted: number;
+  bambooOwnershipMappingsDeleted: number;
   friendInvitesScrubbed: number;
   eventTeamMembershipsRemoved: number;
   eventTeamInvitesCancelled: number;
@@ -63,6 +68,11 @@ export type SocialCleanupOperation =
   | { kind: "deleteRecEventsParent" }
   | { kind: "softDeleteBambooPost"; id: string }
   | { kind: "softDeleteBambooComment"; postId: string; commentId: string }
+  | {
+      kind: "deleteBambooOwnershipMapping";
+      collection: "bamboo_post_authors" | "bamboo_comment_authors";
+      id: string;
+    }
   | { kind: "scrubFriendInvite"; id: string }
   | { kind: "removeEventTeamMember"; id: string }
   | { kind: "cancelEventTeamInvite"; id: string }
@@ -100,6 +110,8 @@ export function emptySocialDocs(): AccountDeletionSocialDocs {
     recEventIds: [],
     bambooPostIds: [],
     bambooComments: [],
+    bambooPostMappingIds: [],
+    bambooCommentMappingIds: [],
     friendInviteIds: [],
     eventTeamSetupIds: [],
     eventTeamInviteIds: [],
@@ -117,6 +129,7 @@ export function emptySocialCounts(): AccountDeletionSocialCounts {
     recEventsDeleted: 0,
     bambooPostsSoftDeleted: 0,
     bambooCommentsSoftDeleted: 0,
+    bambooOwnershipMappingsDeleted: 0,
     friendInvitesScrubbed: 0,
     eventTeamMembershipsRemoved: 0,
     eventTeamInvitesCancelled: 0,
@@ -137,6 +150,8 @@ export function socialCountsFromDocs(
     recEventsDeleted: docs.recEventIds.length,
     bambooPostsSoftDeleted: docs.bambooPostIds.length,
     bambooCommentsSoftDeleted: docs.bambooComments.length,
+    bambooOwnershipMappingsDeleted:
+      docs.bambooPostMappingIds.length + docs.bambooCommentMappingIds.length,
     friendInvitesScrubbed: docs.friendInviteIds.length,
     eventTeamMembershipsRemoved: docs.eventTeamSetupIds.length,
     eventTeamInvitesCancelled: docs.eventTeamInviteIds.length,
@@ -188,6 +203,22 @@ export function planAccountDeletionSocialOperations(params: {
       commentId: comment.commentId,
     });
   }
+  // 매핑은 내용 정리가 끝난 다음에 지운다. 먼저 지우면 중간에 실패했을 때
+  // 어떤 글이 이 사용자 것이었는지 다시 찾을 방법이 사라진다.
+  for (const id of docs.bambooPostMappingIds) {
+    operations.push({
+      kind: "deleteBambooOwnershipMapping",
+      collection: "bamboo_post_authors",
+      id,
+    });
+  }
+  for (const id of docs.bambooCommentMappingIds) {
+    operations.push({
+      kind: "deleteBambooOwnershipMapping",
+      collection: "bamboo_comment_authors",
+      id,
+    });
+  }
   for (const id of docs.friendInviteIds) {
     operations.push({ kind: "scrubFriendInvite", id });
   }
@@ -229,6 +260,8 @@ export async function loadAccountDeletionSocialDocs(
     recEventsSnap,
     bambooSnap,
     bambooCommentsSnap,
+    bambooPostMapSnap,
+    bambooCommentMapSnap,
     invitesSnap,
   ] = await Promise.all([
     queryIds(firestore, "interactions", "fromUserId", safeUid),
@@ -250,6 +283,18 @@ export async function loadAccountDeletionSocialDocs(
       .collectionGroup("comments")
       .where("authorId", "==", safeUid)
       .get(),
+    // SEC-04 전환기. 새 글은 비공개 매핑에도 소유자가 적히고, 이관 전 글은
+    // public authorId 에만 있다. 어느 쪽으로 들어왔든 빠뜨리면 안 되므로
+    // 두 경로를 모두 읽어 합집합으로 처리한다. public authorId 를 제거하는
+    // 단계가 끝나면 위의 legacy 스캔만 걷어내면 된다.
+    firestore
+      .collection("bamboo_post_authors")
+      .where("ownerUid", "==", safeUid)
+      .get(),
+    firestore
+      .collection("bamboo_comment_authors")
+      .where("ownerUid", "==", safeUid)
+      .get(),
     queryIds(firestore, "friendInvites", "inviterUserId", safeUid),
   ]);
 
@@ -268,6 +313,14 @@ export async function loadAccountDeletionSocialDocs(
   ];
 
   const bambooComments: Array<{ postId: string; commentId: string }> = [];
+  const seenComments = new Set<string>();
+  const pushComment = (postId: string, commentId: string) => {
+    if (!postId || !commentId) return;
+    const key = `${postId}/${commentId}`;
+    if (seenComments.has(key)) return;
+    seenComments.add(key);
+    bambooComments.push({ postId, commentId });
+  };
   for (const doc of bambooCommentsSnap.docs) {
     // Expected path: bamboo_posts/{postId}/comments/{commentId}
     const parts = doc.ref.path.split("/");
@@ -282,7 +335,25 @@ export async function loadAccountDeletionSocialDocs(
     const commentId = asString(parts[3]);
     if (!postId || !commentId) continue;
     if (doc.data()?.isDeleted === true) continue;
-    bambooComments.push({ postId, commentId });
+    pushComment(postId, commentId);
+  }
+
+  const bambooPostMappingIds: string[] = [];
+  for (const doc of bambooPostMapSnap.docs) {
+    const postId = asString(doc.data()?.postId) || asString(doc.id);
+    if (!postId) continue;
+    bambooPostMappingIds.push(doc.id);
+  }
+
+  const bambooCommentMappingIds: string[] = [];
+  for (const doc of bambooCommentMapSnap.docs) {
+    const data = doc.data() ?? {};
+    const postId = asString(data.postId);
+    const commentId = asString(data.commentId);
+    // 매핑 본문이 깨져 있으면 어느 댓글인지 알 수 없다. 그래도 매핑 문서
+    // 자체는 uid 를 담고 있으니 삭제 대상에는 넣는다.
+    pushComment(postId, commentId);
+    bambooCommentMappingIds.push(doc.id);
   }
 
   return {
@@ -293,8 +364,15 @@ export async function loadAccountDeletionSocialDocs(
     matchIds: matchesSnap.docs.map((doc) => doc.id),
     chatRoomIds: roomsSnap.docs.map((doc) => doc.id),
     recEventIds: recEventsSnap.docs.map((doc) => doc.id),
-    bambooPostIds: bambooSnap,
+    bambooPostIds: [
+      ...new Set([
+        ...bambooSnap,
+        ...bambooPostMapSnap.docs.map((doc) => doc.id),
+      ]),
+    ],
     bambooComments,
+    bambooPostMappingIds,
+    bambooCommentMappingIds,
     friendInviteIds: invitesSnap,
     eventTeamSetupIds,
     eventTeamInviteIds,
@@ -386,6 +464,12 @@ export async function applySocialCleanupOperation(
         { merge: true }
       );
       return;
+    case "deleteBambooOwnershipMapping": {
+      // 이미 없으면 delete 는 조용히 성공한다 — 재시도해도 안전하다.
+      const id = requirePathSegment(operation.id, "mappingId");
+      await firestore.collection(operation.collection).doc(id).delete();
+      return;
+    }
     case "softDeleteBambooComment": {
       const postId = requirePathSegment(operation.postId, "postId");
       const commentId = requirePathSegment(operation.commentId, "commentId");
