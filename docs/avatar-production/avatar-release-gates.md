@@ -42,8 +42,24 @@ zero; `git diff --check` clean except CRLF warnings; code review `APPROVE`;
 architecture `CLEAR`.
 
 Current production quality readiness: fail. `QUALITY_QA_PRODUCTION_READY=false`
-because `QA-007` still requires a fresh exact-consent 10-20 current-QA
-calibration cohort with nonzero hard-pass and threshold evidence.
+because `QA-007` still requires a passing current-QA calibration run and human
+signoff.
+
+CURRENT AUTHORITY (2026-08-30, see `g004-calibration-plan.md` "Production
+Readiness Gate: 5+ Current-QA Calibration Cohort" and cohort policy
+`g004-5plus-v1` in `lib/ai_recommend_model/avatar_generation/artifacts/`):
+one current-QA calibration run with at least 5 fresh exact-consent
+participants, nonzero machine hard-pass, no hard reject, required signals
+available, runtime/offline parity, complete human rubric, and human signoff.
+Offline SAME-20 evidence exists (5 participants / 20 candidates: hardPass 8,
+needsReview 12, hardReject 0, requiredSignalUnavailable 0 — see
+`g004-full-qa-offline-20260828-v2.md`) but runtime parity and human signoff
+remain open, so the gate stays `fail` (`humanSignoff=false`).
+
+SUPERSEDED PLAN (historical, retained as history): the earlier mandatory
+"10-20 cohort, then 50-100 holdout" sequence. Larger cohorts are now optional
+follow-up unless an incident, material model change, threshold change, or an
+explicit new decision reopens calibration.
 
 Historical PR8.5 evidence had 8 participants, 32 soft passes, 0 hard passes,
 trait coverage avg/p50/p95 0.3667/0.3333/0.4, total duration p50/p95

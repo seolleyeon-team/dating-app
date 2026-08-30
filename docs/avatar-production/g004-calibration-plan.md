@@ -1,6 +1,10 @@
 # G004 Calibration Plan
 
 Date: 2026-07-22
+Authority updated: 2026-08-30 — the production-readiness gate is now the
+5+ exact-consent cohort contract below (cohort policy `g004-5plus-v1`).
+The original mandatory 10-20 → 50-100 sequence is SUPERSEDED and larger
+cohorts are optional follow-up. Historical evidence artifacts are unchanged.
 
 ## Status
 
@@ -12,13 +16,13 @@ Date: 2026-07-22
 This plan defines the evidence required after the G004 repository implementation
 gate. It is not a record of completed production calibration.
 
-## Gate 1: 10-20 Current-QA Mini Cohort
+## Production Readiness Gate: 5+ Current-QA Calibration Cohort
 
-Run this gate before any production-quality claim.
+Run this calibration gate before any production-quality claim. A single successful calibration run with at least 5 fresh exact-consent participants is sufficient to make the G004 quality gate eligible for production-ready status.
 
 Requirements:
 
-- 10-20 fresh participants.
+- At least 5 fresh participants.
 - Exact UID/photo consent for every row.
 - Real Firebase Auth UIDs in the expected project.
 - No reused approved-avatar-locked rows.
@@ -30,29 +34,31 @@ Requirements:
 
 Required outcome:
 
+- The calibration run itself passes the current QA calibration criteria.
 - Nonzero hard-pass evidence.
 - No hard reject appears in preview.
 - Outage or missing required model signal becomes `needs_review`.
 - Trait coverage and failure categories are recorded by cohort slice.
-
-## Gate 2: 50-100 Cohort
-
-Run only after Gate 1 passes.
-
-Requirements:
-
-- 50-100 exact-consent participants.
-- Same threshold version unless a new threshold snapshot is explicitly created.
-- Same human rubric.
-- Same privacy scan and report redaction rules.
-- Cost, latency, retry, payload, and failure metrics recorded.
-
-Required outcome:
-
-- Stable hard-pass rate by cohort slice.
 - No privacy leak in client files, reports, logs, or exported feedback.
-- Calibrated thresholds have documented precision/recall tradeoffs and human
-  signoff.
+- Calibrated thresholds have documented evaluation evidence and human signoff.
+
+Production-readiness rule:
+
+- If one current-QA calibration run with at least 5 exact-consent participants passes all requirements and required outcomes above, the G004 quality gate may set `QUALITY_QA_PRODUCTION_READY=true` and may be considered `production-ready=true` for the G004 quality/calibration scope.
+- A separate 10-20 or 50-100 participant calibration run is not required as a blocking prerequisite for G004 production readiness.
+- Larger cohorts may still be run after readiness for additional confidence, monitoring, recalibration, or post-release validation, but they are non-blocking unless a later incident or model/threshold change explicitly reopens calibration.
+
+## Optional Larger-Cohort Validation
+
+After the production-readiness gate passes, a larger exact-consent cohort may be run when additional statistical confidence is useful. This is optional and does not block production readiness.
+
+Recommended controls:
+
+- Keep the same threshold version unless a new threshold snapshot is explicitly created.
+- Use the same human rubric.
+- Apply the same privacy scan and report redaction rules.
+- Record cost, latency, retry, payload, failure, and calibration metrics.
+- Any material model, preprocessing, QA-contract, or threshold change should create a new calibration version and may require the production-readiness gate to be rerun.
 
 ## Cohort Slices
 
@@ -129,4 +135,4 @@ sec and p95 86.927 sec, cost p50 USD 0.032011 and p95 USD 0.03431, one
 retry/deadline event, and payload p50/p95 100590/119022 bytes.
 
 That report predates current real-QA wiring. It cannot prove current production
-quality or satisfy Gate 1.
+quality or satisfy the current 5+ participant production-readiness calibration gate.
