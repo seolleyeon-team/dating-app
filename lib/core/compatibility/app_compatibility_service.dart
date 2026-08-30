@@ -58,10 +58,14 @@ class AppCompatibilityService {
   );
 
   Future<CompatibilityDecision> evaluate() async {
-    final docId = compatibilityPolicyDocIdFor(_flavor);
-    // 스토어에 나가지 않는 빌드(테스트, 웹, flavor 없는 빌드)는 게이트 대상이
-    // 아니다. 웹은 언제나 마지막 배포본이 뜨므로 낡은 클라이언트가 남지 않는다.
-    if (docId == null || _platform == null) return _pass;
+    final platform = _platform;
+    // 웹/데스크톱은 게이트 대상이 아니다. 웹은 언제나 마지막 배포본이 뜨므로
+    // 낡은 클라이언트가 남지 않는다.
+    if (platform == null) return _pass;
+
+    final docId = compatibilityPolicyDocIdFor(_flavor, platform: platform);
+    // flavor 를 모르는 Android 빌드(테스트 등)는 스토어 배포 대상이 아니다.
+    if (docId == null) return _pass;
 
     final policy = await _loadPolicy(docId);
     final buildNumber = await _loadBuildNumber();

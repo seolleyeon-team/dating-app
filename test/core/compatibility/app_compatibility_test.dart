@@ -253,19 +253,60 @@ void main() {
 
   group('flavor 분리', () {
     test('production 빌드만 production 정책을 읽는다', () {
-      expect(compatibilityPolicyDocIdFor('production'), 'production');
+      expect(
+        compatibilityPolicyDocIdFor(
+          'production',
+          platform: CompatibilityPlatform.android,
+        ),
+        'production',
+      );
     });
 
     test('staging 빌드는 staging 정책을 읽는다', () {
       // production 최소 빌드가 개발자 staging 빌드를 막으면 안 된다.
-      expect(compatibilityPolicyDocIdFor('staging'), 'staging');
+      expect(
+        compatibilityPolicyDocIdFor(
+          'staging',
+          platform: CompatibilityPlatform.android,
+        ),
+        'staging',
+      );
     });
 
-    test('flavor 를 모르면 게이트를 적용하지 않는다', () {
-      // flavor 없는 빌드(테스트, 웹)는 스토어 배포 대상이 아니다.
-      expect(compatibilityPolicyDocIdFor(null), isNull);
-      expect(compatibilityPolicyDocIdFor(''), isNull);
-      expect(compatibilityPolicyDocIdFor('someOtherFlavor'), isNull);
+    test('Android 는 flavor 를 모르면 게이트를 적용하지 않는다', () {
+      // Android 는 flavor 가 applicationId 를 정한다. 그것을 모르는 빌드는
+      // 스토어 배포 대상이 아니다.
+      for (final flavor in [null, '', 'someOtherFlavor']) {
+        expect(
+          compatibilityPolicyDocIdFor(
+            flavor,
+            platform: CompatibilityPlatform.android,
+          ),
+          isNull,
+        );
+      }
+    });
+
+    test('iOS 는 flavor 가 없어도 production 정책을 읽는다', () {
+      // iOS 프로젝트에는 flavor scheme 이 없다 — Runner 하나뿐이고 번들 id 는
+      // com.seolleyeon.app 하나다. 그래서 iOS 릴리스는 --flavor 없이 빌드되고
+      // appFlavor 가 null 이 된다. 이걸 "게이트 미적용" 으로 두면 iOS 에서는
+      // 업데이트 게이트가 영원히 동작하지 않는다.
+      expect(
+        compatibilityPolicyDocIdFor(null, platform: CompatibilityPlatform.ios),
+        'production',
+      );
+    });
+
+    test('iOS 에 flavor 가 생기면 그쪽이 우선한다', () {
+      // 나중에 Xcode scheme 이 추가되면 자동으로 flavor 경로를 탄다.
+      expect(
+        compatibilityPolicyDocIdFor(
+          'staging',
+          platform: CompatibilityPlatform.ios,
+        ),
+        'staging',
+      );
     });
   });
 

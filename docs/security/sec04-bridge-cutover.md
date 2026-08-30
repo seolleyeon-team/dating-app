@@ -128,15 +128,24 @@ push 된 라우트도, 푸시 알림이 `pushNamedAndRemoveUntil` 로 밀어넣�
 두 flavor 는 **같은 Firebase 프로젝트**(`seolleyeon-final`)를 쓴다. 그래서
 프로젝트로 나눌 수 없고 문서로 나눈다.
 
-| flavor | 패키지 | 읽는 문서 |
+| 플랫폼 / flavor | 패키지 | 읽는 문서 |
 |---|---|---|
-| production | `com.seolleyeon.app` | `appCompatibilityConfig/production` |
-| staging | `com.yonsei.dating` | `appCompatibilityConfig/staging` |
-| 없음 (테스트/웹) | — | 게이트 미적용 |
+| Android production | `com.seolleyeon.app` | `appCompatibilityConfig/production` |
+| Android staging | `com.yonsei.dating` | `appCompatibilityConfig/staging` |
+| Android flavor 없음 (테스트) | — | 게이트 미적용 |
+| **iOS (flavor 없음)** | `com.seolleyeon.app` | `appCompatibilityConfig/production` |
+| 웹 / 데스크톱 | — | 게이트 미적용 |
 
 production 최소 빌드가 개발자 staging 빌드를 잠그는 일이 없다. 웹은 언제나
 마지막으로 배포된 코드가 뜨므로 낡은 클라이언트가 남지 않아 게이트 대상이
 아니다.
+
+**iOS 는 flavor 축이 없다.** Xcode 프로젝트에 scheme 이 `Runner` 하나뿐이고
+번들 id 도 `com.seolleyeon.app` 하나여서, iOS 릴리스는 `--flavor` 없이 빌드되고
+`appFlavor` 가 null 로 들어온다. 이걸 Android 와 똑같이 "게이트 미적용" 으로
+두면 **iOS 에서는 업데이트 게이트가 영원히 동작하지 않는다.** iOS 빌드는 곧
+production 이므로 flavor 가 없으면 production 정책을 읽는다. 나중에 iOS scheme
+이 추가되면 `appFlavor` 가 채워져 자동으로 flavor 경로를 탄다.
 
 ### capability 기반 요구
 
