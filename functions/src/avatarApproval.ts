@@ -15,6 +15,7 @@ import sharp from "sharp";
 import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
 
 const DEFAULT_AVATAR_TEMP_BUCKET = "seolleyeon-final-avatar-temp";
+const DEFAULT_PHASE3_SCRATCH_BUCKET = "seolleyeon-final-avatar-phase3-scratch";
 const DEFAULT_APPROVED_AVATAR_BUCKET = "seolleyeon-final-approved-avatars";
 const DEFAULT_PREVIEW_IMAGE_SIZE = 512;
 
@@ -35,6 +36,28 @@ type GcsRef = {
   path: string;
 };
 
+type AvatarCandidateSource =
+  | (GcsRef & { kind: "legacy" })
+  | (GcsRef & { kind: "phase3"; generation: number });
+
+export type Phase3ApprovalProvenance = {
+  sourceCandidateId: string;
+  sourceJobId: string;
+  sourceGeneration: number;
+  downloadToken?: string;
+};
+
+type ApprovalStorageFile = {
+  copy: (
+    destination: unknown,
+    options: Record<string, unknown>,
+  ) => Promise<unknown>;
+  getMetadata: () => Promise<[
+    { metadata?: Record<string, unknown> },
+    unknown?,
+  ]>;
+};
+
 function envValue(name: string, fallback: string): string {
   const value = process.env[name]?.trim();
   return value && value.length > 0 ? value : fallback;
@@ -42,6 +65,10 @@ function envValue(name: string, fallback: string): string {
 
 function avatarTempBucket(): string {
   return envValue("AVATAR_TEMP_BUCKET", DEFAULT_AVATAR_TEMP_BUCKET);
+}
+
+function phase3ScratchBucket(): string {
+  return envValue("AVATAR_PHASE3_SCRATCH_BUCKET", DEFAULT_PHASE3_SCRATCH_BUCKET);
 }
 
 function approvedAvatarBucket(): string {
@@ -194,6 +221,129 @@ function assertTempCandidateRef(imageRef: string): GcsRef {
   return parsed;
 }
 
+const PHASE3_SCRATCH_CANDIDATE_PATH =
+  /^phase3\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}\/candidate-[0-9]{3}\.png$/;
+
+export function resolveAvatarCandidateSource(
+  candidate: Record<string, unknown>,
+): AvatarCandidateSource {
+  const scratchRef = asString(candidate.scratchRef);
+  if (scratchRef) {
+    const generation = numericValue(candidate.scratchObjectGeneration);
+    if (
+      !PHASE3_SCRATCH_CANDIDATE_PATH.test(scratchRef) ||
+      generation === null ||
+      generation <= 0
+    ) {
+      throw new Error("invalid scratch candidate ref or generation");
+    }
+    return {
+      kind: "phase3",
+      bucket: phase3ScratchBucket(),
+      path: scratchRef,
+      generation,
+    };
+  }
+  return { kind: "legacy", ...assertTempCandidateRef(asString(candidate.imageRef)) };
+}
+
+export function buildPhase3SourceFileOptions(sourceGeneration: number): {
+  generation: number;
+} {
+  if (!Number.isInteger(sourceGeneration) || sourceGeneration <= 0) {
+    throw new Error("invalid phase3 source generation");
+  }
+  return { generation: sourceGeneration };
+}
+
+export function buildPhase3ApprovalCopyOptions(
+  provenance: Phase3ApprovalProvenance,
+): Record<string, unknown> {
+  const metadata: Record<string, string> = {
+    sourceCandidateId: requirePathSegment(
+      provenance.sourceCandidateId,
+      "sourceCandidateId",
+    ),
+    sourceJobId: requirePathSegment(provenance.sourceJobId, "sourceJobId"),
+    purpose: "approved_avatar_display",
+    sourceGeneration: String(
+      buildPhase3SourceFileOptions(provenance.sourceGeneration).generation,
+    ),
+  };
+  if (provenance.downloadToken) {
+    metadata.firebaseStorageDownloadTokens = provenance.downloadToken;
+  }
+  return {
+    contentType: "image/png",
+    cacheControl: "public, max-age=3600",
+    metadata,
+    preconditionOpts: { ifGenerationMatch: 0 },
+  };
+}
+
+function isStoragePreconditionFailure(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  return [error.code, error.statusCode].some(
+    (value) => value === 412 || value === "412",
+  );
+}
+
+function hasMatchingPhase3ApprovalProvenance(
+  metadata: Record<string, unknown> | undefined,
+  provenance: Phase3ApprovalProvenance,
+): boolean {
+  if (!metadata) return false;
+  const expected = buildPhase3ApprovalCopyOptions(provenance).metadata as Record<
+    string,
+    string
+  >;
+  return Object.entries(expected).every(
+    ([key, value]) => metadata[key] === value,
+  );
+}
+
+export async function copyPhase3ApprovedAvatarObject(params: {
+  sourceFile: ApprovalStorageFile;
+  destinationFile: ApprovalStorageFile;
+  provenance: Phase3ApprovalProvenance;
+}): Promise<{ created: boolean; reused: boolean }> {
+  const copyOptions = buildPhase3ApprovalCopyOptions(params.provenance);
+  try {
+    await params.sourceFile.copy(params.destinationFile, copyOptions);
+    return { created: true, reused: false };
+  } catch (error) {
+    if (!isStoragePreconditionFailure(error)) throw error;
+
+    let destinationMetadata: { metadata?: Record<string, unknown> };
+    try {
+      [destinationMetadata] = await params.destinationFile.getMetadata();
+    } catch {
+      throw error;
+    }
+    if (
+      !hasMatchingPhase3ApprovalProvenance(
+        destinationMetadata.metadata,
+        params.provenance,
+      )
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "avatar_canonical_destination_conflict",
+      );
+    }
+    return { created: false, reused: true };
+  }
+}
+
+export function shouldCleanupCopiedApprovalObject(params: {
+  copiedApprovedObject: boolean;
+  finalTransactionReturnedExisting: boolean;
+}): boolean {
+  return (
+    params.copiedApprovedObject && !params.finalTransactionReturnedExisting
+  );
+}
+
 function qaPreviewAllowed(candidate: Record<string, unknown>): boolean {
   const qa = readMap(candidate.qa);
   return qa.previewAllowed === true;
@@ -208,6 +358,15 @@ export function canPreviewCandidate(
     qaPreviewAllowed(candidate) &&
     !isExpired(candidate.expiresAt, nowMs)
   );
+}
+
+export function canAdmitAvatarApproval(
+  candidate: Record<string, unknown>,
+  userData: Record<string, unknown>,
+  candidateId: string,
+): boolean {
+  const plan = planAvatarApprovalState(userData, candidateId);
+  return plan.action === "return_existing" || canPreviewCandidate(candidate);
 }
 
 type AvatarCurrentJobContractResult =
@@ -641,7 +800,13 @@ export function createApproveAvatarCandidateFunction(
       >;
       assertCandidateOwnedByUser(candidateData, uid);
 
-      if (!canPreviewCandidate(candidateData)) {
+      if (
+        !canAdmitAvatarApproval(
+          candidateData,
+          (userSnap.data() ?? {}) as Record<string, unknown>,
+          candidateId,
+        )
+      ) {
         throw new HttpsError(
           "failed-precondition",
           "Avatar candidate is not approved for user preview.",
@@ -668,9 +833,7 @@ export function createApproveAvatarCandidateFunction(
         }),
       );
 
-      const sourceImage = assertTempCandidateRef(
-        asString(candidateData.imageRef),
-      );
+      resolveAvatarCandidateSource(candidateData);
 
       const reservation = await firestore.runTransaction(async (tx) => {
         const [freshCandidate, freshUser, freshJob, freshPrivate] =
@@ -721,6 +884,8 @@ export function createApproveAvatarCandidateFunction(
           );
         }
 
+        const freshSourceImage = resolveAvatarCandidateSource(freshCandidateData);
+
         if (!canPreviewCandidate(freshCandidateData)) {
           throw new HttpsError(
             "failed-precondition",
@@ -741,7 +906,7 @@ export function createApproveAvatarCandidateFunction(
         const destinationBucket = approvedAvatarBucket();
         const downloadToken = approvedAvatarPublicBaseUrl()
           ? undefined
-          : randomUUID();
+          : plan.approvalDownloadToken ?? randomUUID();
         const approvedAvatarUrl = buildApprovedAvatarPublicUrl(
           destinationBucket,
           destinationPath,
@@ -760,6 +925,8 @@ export function createApproveAvatarCandidateFunction(
           "avatar.avatarId": avatarId,
           "avatar.selectedCandidateId": candidateId,
           "avatar.sourceJobId": jobId,
+          "avatar.approvalDownloadToken":
+            downloadToken ?? FieldValue.delete(),
           "avatar.updatedAt": FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         });
@@ -789,6 +956,7 @@ export function createApproveAvatarCandidateFunction(
           downloadToken,
           approvedAvatarUrl,
           approvedAvatarStoragePath,
+          sourceImage: freshSourceImage,
         };
       });
 
@@ -802,9 +970,16 @@ export function createApproveAvatarCandidateFunction(
         };
       }
 
-      const sourceFile = getStorage()
-        .bucket(sourceImage.bucket)
-        .file(sourceImage.path);
+      const sourceImage = reservation.sourceImage;
+      const sourceFile =
+        sourceImage.kind === "phase3"
+          ? getStorage()
+              .bucket(sourceImage.bucket)
+              .file(
+                sourceImage.path,
+                buildPhase3SourceFileOptions(sourceImage.generation),
+              )
+          : getStorage().bucket(sourceImage.bucket).file(sourceImage.path);
       const destinationFile = getStorage()
         .bucket(reservation.destinationBucket)
         .file(reservation.destinationPath);
@@ -814,23 +989,39 @@ export function createApproveAvatarCandidateFunction(
         approvedAvatarUrl: string;
         avatarId: string;
       } | null = null;
-      const objectMetadata: Record<string, string> = {
+      const legacyObjectMetadata: Record<string, string> = {
         sourceCandidateId: candidateId,
         sourceJobId: jobId,
         purpose: "approved_avatar_display",
       };
       if (reservation.downloadToken) {
-        objectMetadata.firebaseStorageDownloadTokens =
+        legacyObjectMetadata.firebaseStorageDownloadTokens =
           reservation.downloadToken;
       }
       try {
-        await sourceFile.copy(destinationFile);
-        copiedApprovedObject = true;
-        await destinationFile.setMetadata({
-          contentType: "image/png",
-          cacheControl: "public, max-age=3600",
-          metadata: objectMetadata,
-        });
+        if (sourceImage.kind === "phase3") {
+          const copyResult = await copyPhase3ApprovedAvatarObject({
+            sourceFile: sourceFile as unknown as ApprovalStorageFile,
+            destinationFile: destinationFile as unknown as ApprovalStorageFile,
+            provenance: {
+              sourceCandidateId: candidateId,
+              sourceJobId: jobId,
+              sourceGeneration: sourceImage.generation,
+              ...(reservation.downloadToken
+                ? { downloadToken: reservation.downloadToken }
+                : {}),
+            },
+          });
+          copiedApprovedObject = copyResult.created;
+        } else {
+          await sourceFile.copy(destinationFile);
+          copiedApprovedObject = true;
+          await destinationFile.setMetadata({
+            contentType: "image/png",
+            cacheControl: "public, max-age=3600",
+            metadata: legacyObjectMetadata,
+          });
+        }
 
         await firestore.runTransaction(async (tx) => {
           const [freshCandidate, freshUser, freshJob, freshPrivate] =
@@ -943,7 +1134,12 @@ export function createApproveAvatarCandidateFunction(
           );
         });
       } catch (error) {
-        if (copiedApprovedObject && !finalTransactionReturnedExisting) {
+        if (
+          shouldCleanupCopiedApprovalObject({
+            copiedApprovedObject,
+            finalTransactionReturnedExisting,
+          })
+        ) {
           try {
             await destinationFile.delete({ ignoreNotFound: true });
           } catch (deleteError) {
