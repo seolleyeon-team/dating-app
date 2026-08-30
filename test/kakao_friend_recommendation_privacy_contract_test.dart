@@ -154,9 +154,7 @@ void main() {
     expect(verify, contains('privacy_violations'));
     expect(verify, contains('privacy_policy.allows(uid, candidate_uid)'));
 
-    final rrf = _read(
-      'lib/ai_recommend_model/seolleyeon_rrf_export.py',
-    );
+    final rrf = _read('lib/ai_recommend_model/seolleyeon_rrf_export.py');
     expect(rrf, contains('privacy_prefilter_limit'));
     expect(rrf, contains('merged = privacy_policy.filter_items(uid, merged)'));
 
@@ -198,10 +196,7 @@ void main() {
     expect(section, contains('allow get, list: if isSelf(viewerUid);'));
     expect(section, contains('allow create, update, delete: if false;'));
 
-    expect(
-      rules,
-      contains('match /dailyRecs/{userId}/days/{dateKey}'),
-    );
+    expect(rules, contains('match /dailyRecs/{userId}/days/{dateKey}'));
     expect(rules, contains('allow read: if isSelf(userId);'));
   });
 }
