@@ -18,7 +18,7 @@ from avatar_generation.analysis.visual_risk import (
 )
 from avatar_generation.qa import AvatarQAResult
 from avatar_generation.trait_card import validate_trait_card_response
-from avatar_generation.worker import process_avatar_generation_payload
+from avatar_generation.worker import AvatarGenerationError, process_avatar_generation_payload
 from tests.test_avatar_generation_worker import (
     _fake_firestore,
     _fake_storage,
@@ -34,11 +34,11 @@ def _isolate_worker_environment(monkeypatch):
         "AVATAR_DATA_PROJECT",
         "FIRESTORE_PROJECT",
         "GCP_PROJECT",
-        "SOURCE_PHOTO_BUCKET",
-        "AVATAR_TEMP_BUCKET",
         "APPROVED_AVATAR_BUCKET",
     ):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("SOURCE_PHOTO_BUCKET", "seolleyeon-final-private-source-photos")
+    monkeypatch.setenv("AVATAR_TEMP_BUCKET", "seolleyeon-avatar-temp")
     worker_module._TRAIT_ADAPTER_CACHE.clear()
     worker_module._FLUX_GENERATOR_CACHE.clear()
 
@@ -146,6 +146,7 @@ def test_visual_regions_reach_preprocess_but_not_persistence(monkeypatch):
 def test_visual_outage_in_production_bridge_needs_review_without_generation(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production_bridge")
     monkeypatch.setenv("AVATAR_DATA_PROJECT", "seolleyeon-festival")
+    monkeypatch.setenv("SOURCE_PHOTO_BUCKET", "seolleyeon-festival-private-source-photos")
     monkeypatch.setenv("AVATAR_FACE_DETECTOR_ENABLED", "true")
     monkeypatch.setenv("AVATAR_TRAIT_EXTRACTION_ENABLED", "false")
     FakeGenerator.calls = []
@@ -157,23 +158,23 @@ def test_visual_outage_in_production_bridge_needs_review_without_generation(monk
     monkeypatch.setattr(worker_module, "analyze_avatar_source_image", lambda *_a, **_k: AcceptedSourceAnalysis())
     monkeypatch.setattr(worker_module, "Flux2KleinImageGenerator", FakeGenerator)
     payload = _payload(job_id="avatar_quality_visual_outage")
+    payload["sourcePhotoRefs"] = [
+        "gs://seolleyeon-festival-private-source-photos/users/u1/source/src_001.jpg"
+    ]
     fs = _fake_firestore(payload)
 
-    result = process_avatar_generation_payload(
-        payload,
-        firestore_client=fs,
-        storage_client=_fake_storage(),
-        qa_runner=_passing_qa,
-        mode="flux",
-        firestore_project="seolleyeon-festival",
-        source_visual_risk_adapter=OutageAdapter(),
-    )
+    with pytest.raises(AvatarGenerationError, match="legacy_flux_is_not_a_production_generation_backend"):
+        process_avatar_generation_payload(
+            payload,
+            firestore_client=fs,
+            storage_client=_fake_storage(),
+            qa_runner=_passing_qa,
+            mode="flux",
+            firestore_project="seolleyeon-festival",
+            source_visual_risk_adapter=OutageAdapter(),
+        )
 
-    job = fs.data["avatarJobs"][payload["jobId"]]
-    assert result.status == "needs_review"
-    assert result.candidate_ids == []
     assert not FakeGenerator.calls
-    assert job["errorCode"] == "avatar_source_visual_risk_model_unavailable"
     assert fs.data["avatarCandidates"] == {}
 
 
@@ -181,6 +182,7 @@ def test_visual_outage_in_production_bridge_needs_review_without_generation(monk
 def test_visual_adapter_exception_in_production_bridge_needs_review_without_generation(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production_bridge")
     monkeypatch.setenv("AVATAR_DATA_PROJECT", "seolleyeon-festival")
+    monkeypatch.setenv("SOURCE_PHOTO_BUCKET", "seolleyeon-festival-private-source-photos")
     monkeypatch.setenv("AVATAR_FACE_DETECTOR_ENABLED", "true")
     monkeypatch.setenv("AVATAR_TRAIT_EXTRACTION_ENABLED", "false")
     FakeGenerator.calls = []
@@ -194,28 +196,24 @@ def test_visual_adapter_exception_in_production_bridge_needs_review_without_gene
     monkeypatch.setattr(worker_module, "analyze_avatar_source_image", lambda *_a, **_k: AcceptedSourceAnalysis())
     monkeypatch.setattr(worker_module, "Flux2KleinImageGenerator", FakeGenerator)
     payload = _payload(job_id="avatar_quality_visual_exception")
+    payload["sourcePhotoRefs"] = [
+        "gs://seolleyeon-festival-private-source-photos/users/u1/source/src_001.jpg"
+    ]
     fs = _fake_firestore(payload)
 
-    result = process_avatar_generation_payload(
-        payload,
-        firestore_client=fs,
-        storage_client=_fake_storage(),
-        qa_runner=_passing_qa,
-        mode="flux",
-        firestore_project="seolleyeon-festival",
-        source_visual_risk_adapter=RaisingAdapter(),
-    )
+    with pytest.raises(AvatarGenerationError, match="legacy_flux_is_not_a_production_generation_backend"):
+        process_avatar_generation_payload(
+            payload,
+            firestore_client=fs,
+            storage_client=_fake_storage(),
+            qa_runner=_passing_qa,
+            mode="flux",
+            firestore_project="seolleyeon-festival",
+            source_visual_risk_adapter=RaisingAdapter(),
+        )
 
-    job = fs.data["avatarJobs"][payload["jobId"]]
-    visual_risk = job["sourceAnalysis"]["visualRisk"]
-    assert result.status == "needs_review"
-    assert result.candidate_ids == []
     assert not FakeGenerator.calls
     assert fs.data["avatarCandidates"] == {}
-    assert job["errorCode"] == "avatar_source_visual_risk_model_unavailable"
-    assert visual_risk["provider"] == "raising_visual"
-    assert visual_risk["errorCode"] == "source_visual_risk_adapter_unavailable"
-    assert "/sensitive/path" not in json.dumps(job, default=str)
 
 
 def test_generation_reference_for_flux_analysis_reference_for_trait_and_qa(monkeypatch):

@@ -53,12 +53,14 @@ def test_parses_florence_task_shapes_and_preserves_nonzero_origin_xyxy():
                 TASK_OCR_WITH_REGION: {
                     "quad_boxes": [[11, 13, 41, 13, 41, 29, 11, 29]],
                     "labels": ["PRIVATE CAFE"],
+                    "scores": [0.96],
                 }
             },
             TASK_OD: {
                 TASK_OD: {
                     "bboxes": [[23, 31, 87, 149], [101, 50, 129, 180]],
                     "labels": ["person", "brand logo"],
+                    "scores": [0.91, 0.88],
                 }
             },
             TASK_MORE_DETAILED_CAPTION: {
@@ -77,6 +79,11 @@ def test_parses_florence_task_shapes_and_preserves_nonzero_origin_xyxy():
     assert kinds.count("logo") == 1
     assert analysis.regions[0].bbox_xyxy == (11.0, 13.0, 41.0, 29.0)
     assert analysis.regions[0].bbox == (11.0, 13.0, 41.0, 29.0)
+    assert analysis.regions[0].confidence == 0.96
+    assert analysis.regions[0].raw_label == "PRIVATE CAFE"
+    assert analysis.regions[2].confidence == 0.88
+    assert analysis.regions[2].raw_label == "brand logo"
+    assert "PRIVATE" not in repr(analysis.to_document())
 
 
 def test_primary_person_exclusion_background_count_and_overlap_regression():

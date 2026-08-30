@@ -16,6 +16,7 @@ from avatar_generation.analysis.visual_risk import (  # noqa: E402
     ACTION_NEUTRALIZE_TEXT_LOGO,
     STATUS_CRITICAL_UNAVAILABLE,
     VisualRiskAnalysis,
+    VisualRiskRegion,
 )
 from avatar_generation.model_adapters.clip_risk import ClipRiskResult  # noqa: E402
 from avatar_generation.qa import run_avatar_candidate_qa  # noqa: E402
@@ -23,6 +24,8 @@ from avatar_generation.qa_runtime import (  # noqa: E402
     AvatarQARuntime,
     build_actual_candidate_qa_signals,
     get_default_qa_runtime,
+    get_default_clip_risk_scorer,
+    get_default_similarity_adapter,
     get_default_visual_risk_adapter,
 )
 
@@ -166,7 +169,11 @@ def test_runtime_injectable_safe_set_can_hard_pass():
     result = build_actual_candidate_qa_signals(
         source_image=_image((10, 90, 120)),
         candidate_image=_image((140, 130, 100)),
-        metadata={},
+        metadata={
+            "pipelineMode": "flux",
+            "traitQaMode": "enabled",
+            "traitQaAuthority": "server",
+        },
         source_traits=_traits(),
         candidate_traits=_traits(),
         runtime=_runtime(),
@@ -176,6 +183,166 @@ def test_runtime_injectable_safe_set_can_hard_pass():
     assert result.models_unavailable == ()
     assert result.signals["faceSimilarityReliable"] is True
     assert result.signals["faceSimilarityScore"] == 0.12
+
+
+def test_canonical_azure_runtime_propagates_trait_na_without_review():
+    result = build_actual_candidate_qa_signals(
+        source_image=_image((10, 90, 120)),
+        candidate_image=_image((140, 130, 100)),
+        metadata={
+            "provider": "azure",
+            "generationBackend": "azure_gpt_image_2",
+            "sourceInputMode": "storage_normalized_original_direct",
+            "uploadNormalization": "existing_avatar_media_ingestion",
+            "preGenerationTransform": "none",
+            "pipelineMode": "azure_gpt_image_2",
+            "legacyTraitExtraction": False,
+            "legacyReferencePreprocessing": False,
+            "legacyFlux": False,
+            "traitQaMode": "disabled_by_pipeline",
+            "traitQaAuthority": "server",
+        },
+        runtime=_runtime(),
+    )
+
+    assert result.needs_review is False
+    assert result.signals["traitQaApplicability"] == "not_applicable"
+    assert result.signals["traitQaAction"] == "allow"
+    assert result.signals["traitReviewContribution"] is False
+
+
+def test_runtime_debug_maps_local_safety_risk_to_clip_availability():
+    result = run_avatar_candidate_qa(
+        "",
+        "",
+        {
+            "_source_image": _image((10, 90, 120)),
+            "_candidate_image": _image((140, 130, 100)),
+            "_analysis_reference_image": _image((20, 100, 130)),
+            "_qa_runtime": _runtime(),
+        },
+    )
+
+    assert result.debug["modelAvailability"]["clip"] == "available"
+    assert result.debug["modelAvailability"]["localSafetyRisk"] == "available"
+    assert result.debug["modelAvailability"]["clipSafety"] == "available"
+    assert result.debug["modelAvailability"]["visualRisk"] == "available"
+    assert result.debug["signalContract"]["requiredSignalFailures"] == []
+
+
+def test_runtime_debug_preserves_visual_risk_unavailable_and_typed_failure():
+    result = run_avatar_candidate_qa(
+        "",
+        "",
+        {
+            "_source_image": _image((10, 90, 120)),
+            "_candidate_image": _image((140, 130, 100)),
+            "_analysis_reference_image": _image((20, 100, 130)),
+            "_qa_runtime": _runtime(visual_risk_adapter=FakeVisualAdapter(fail=True)),
+        },
+    )
+
+    assert result.debug["modelAvailability"]["visualRisk"] == "unavailable"
+    assert "visual_risk_unavailable" in result.debug["signalContract"]["requiredSignalFailures"]
+
+
+def test_runtime_debug_separates_visual_risk_availability_from_semantic_status():
+    result = run_avatar_candidate_qa(
+        "",
+        "",
+        {
+            "_source_image": _image((10, 90, 120)),
+            "_candidate_image": _image((140, 130, 100)),
+            "_analysis_reference_image": _image((20, 100, 130)),
+            "_qa_runtime": _runtime(
+                visual_risk_adapter=FakeVisualAdapter(
+                    VisualRiskAnalysis(
+                        provider="fake-visual",
+                        provider_available=True,
+                        status="needs_review",
+                        risk="review",
+                        background_complexity="high",
+                    )
+                )
+            ),
+        },
+    )
+
+    assert result.debug["modelAvailability"]["visualRisk"] == "available"
+    assert result.debug["visualRiskStatus"] == "needs_review"
+    assert "visual_risk_unavailable" not in result.debug["signalContract"]["requiredSignalFailures"]
+
+
+def test_calibrated_similarity_review_band_is_available_with_observed_score():
+    runtime = _runtime(
+        similarity_adapter=FakeSimilarityAdapter(
+            FakeSimilarityResult(
+                score=0.70,
+                identity_decision="review_similarity",
+                identity_reliable=False,
+                needs_review=True,
+                calibration_version="sim-cal-v1",
+            )
+        )
+    )
+
+    result = build_actual_candidate_qa_signals(
+        source_image=_image((10, 90, 120)),
+        candidate_image=_image((140, 130, 100)),
+        metadata={
+            "pipelineMode": "flux",
+            "traitQaMode": "enabled",
+            "traitQaAuthority": "server",
+        },
+        source_traits=_traits(),
+        candidate_traits=_traits(),
+        runtime=runtime,
+    )
+
+    assert result.model_availability["faceSimilarity"] == "available"
+    assert result.signals["faceSimilarityObservedScore"] == 0.70
+    assert result.signals["faceSimilarityDecision"] == "review_similarity"
+
+
+def test_runtime_compares_source_visual_risk_when_calibration_requests_it():
+    visual = VisualRiskAnalysis(
+        provider="fake-visual",
+        provider_available=True,
+        status="available",
+        regions=(
+            VisualRiskRegion(
+                "text",
+                (20, 50, 60, 62),
+                confidence=0.96,
+                raw_label="CAMPUS",
+            ),
+        ),
+    )
+
+    class RecordingVisualAdapter(FakeVisualAdapter):
+        def __init__(self):
+            super().__init__(visual)
+            self.calls = 0
+
+        def analyze(self, image, *, primary_face_bbox_xyxy=None):
+            self.calls += 1
+            return super().analyze(
+                image,
+                primary_face_bbox_xyxy=primary_face_bbox_xyxy,
+            )
+
+    adapter = RecordingVisualAdapter()
+    runtime = _runtime(visual_risk_adapter=adapter)
+    result = build_actual_candidate_qa_signals(
+        source_image=_image((10, 90, 120)),
+        candidate_image=_image((140, 130, 100)),
+        metadata={"compareSourceVisualRisk": True},
+        runtime=runtime,
+    )
+
+    assert adapter.calls == 2
+    assert result.signals["watermarkDecisionClass"] == "source_consistent_clothing_text"
+    assert result.signals["logoTextWatermarkDetected"] is False
 
 
 def test_runtime_adapter_outage_requires_review_without_raw_markers():
@@ -213,6 +380,20 @@ def test_runtime_high_actual_signals_hard_reject_through_qa():
         status="available",
         risk="review",
         actions_required=(ACTION_NEUTRALIZE_TEXT_LOGO,),
+        regions=(
+            VisualRiskRegion(
+                "logo",
+                (2, 2, 18, 18),
+                confidence=0.96,
+                raw_label="BRAND",
+            ),
+            VisualRiskRegion(
+                "logo",
+                (178, 2, 198, 18),
+                confidence=0.95,
+                raw_label="BRAND",
+            ),
+        ),
         background_complexity="low",
     )
     runtime = _runtime(visual_risk_adapter=FakeVisualAdapter(visual))
@@ -231,6 +412,11 @@ def test_runtime_high_actual_signals_hard_reject_through_qa():
     assert result.previewAllowed is False
     assert result.requiresHumanReview is False
     assert "logo_text_watermark" in result.rejectReasons
+    serialized = str(result.to_document())
+    assert result.debug["watermarkDecisionClass"] == "generated_overlay_logo"
+    assert result.watermarkQaAction == "reject"
+    assert "BRAND" not in serialized
+    assert "bbox" not in serialized.lower()
 
 
 def test_uncalibrated_similarity_needs_review_not_hard_reject_or_pass():
@@ -375,7 +561,7 @@ def test_production_bridge_ignores_pass_like_supplied_signals_when_actual_runtim
     assert result.previewAllowed is False
     assert result.requiresHumanReview is True
     assert result.softPass is False
-    assert result.qaVersion == "avatar_qa_v2"
+    assert result.qaVersion == "avatar_qa_v6_unique_mark_applicability_v1"
     assert "faceDetector_unavailable" in result.reviewReasons
 
 def test_actual_hard_signal_reason_codes_are_specific():
@@ -424,6 +610,20 @@ def test_metadata_models_unavailable_preserves_actual_hard_reject():
         status="available",
         risk="review",
         actions_required=(ACTION_NEUTRALIZE_TEXT_LOGO,),
+        regions=(
+            VisualRiskRegion(
+                "logo",
+                (2, 2, 18, 18),
+                confidence=0.96,
+                raw_label="BRAND",
+            ),
+            VisualRiskRegion(
+                "logo",
+                (178, 2, 198, 18),
+                confidence=0.95,
+                raw_label="BRAND",
+            ),
+        ),
         background_complexity="low",
     )
 
@@ -442,8 +642,8 @@ def test_metadata_models_unavailable_preserves_actual_hard_reject():
     assert result.previewAllowed is False
     assert result.requiresHumanReview is False
     assert "logo_text_watermark" in result.rejectReasons
-    assert result.qaVersion == "avatar_qa_v2"
-    assert result.debug["qaVersion"] == "avatar_qa_v2"
+    assert result.qaVersion == "avatar_qa_v6_unique_mark_applicability_v1"
+    assert result.debug["qaVersion"] == "avatar_qa_v6_unique_mark_applicability_v1"
 
 def test_default_cache_contains_adapters_only_not_user_data():
     runtime = get_default_qa_runtime()
@@ -458,3 +658,48 @@ def test_default_cache_contains_adapters_only_not_user_data():
         "similarityAdapter",
     }
     assert all(not isinstance(value, Image.Image) for value in cache.values())
+
+
+def test_default_runtime_resolves_immutable_local_qa_model_artifact_paths(monkeypatch):
+    import avatar_generation.qa_runtime as qa_runtime
+
+    calls = {}
+
+    class FakeVisual:
+        provider = "florence2"
+
+        def __init__(self, model_id, *, local_files_only):
+            calls["visual"] = (model_id, local_files_only)
+
+    class FakeClip:
+        provider = "clip"
+
+        def __init__(self, model_id, *, local_files_only):
+            calls["clip"] = (model_id, local_files_only)
+
+    class FakeEncoder:
+        provider = "clip"
+        version = "fake"
+
+        def __init__(self, model_id, *, local_files_only):
+            calls["similarity"] = (model_id, local_files_only)
+
+    monkeypatch.setenv("AVATAR_QA_VISUAL_RISK_MODEL_ID", "/app/models/qa/florence2")
+    monkeypatch.setenv("AVATAR_CLIP_RISK_MODEL_ID", "/app/models/qa/clip-large")
+    monkeypatch.setenv("AVATAR_QA_SIMILARITY_MODEL_ID", "/app/models/qa/clip-base")
+    monkeypatch.setattr(qa_runtime, "Florence2VisualRiskAdapter", FakeVisual)
+    monkeypatch.setattr(qa_runtime, "LocalClipRiskScorer", FakeClip)
+    monkeypatch.setattr(qa_runtime, "ImageSimilarityAdapter", FakeEncoder)
+    monkeypatch.setattr(qa_runtime, "_DEFAULT_VISUAL_RISK_ADAPTER", None)
+    monkeypatch.setattr(qa_runtime, "_DEFAULT_CLIP_RISK_SCORER", None)
+    monkeypatch.setattr(qa_runtime, "_DEFAULT_SIMILARITY_ADAPTER", None)
+
+    get_default_visual_risk_adapter()
+    get_default_clip_risk_scorer()
+    get_default_similarity_adapter()
+
+    assert calls == {
+        "visual": ("/app/models/qa/florence2", True),
+        "clip": ("/app/models/qa/clip-large", True),
+        "similarity": ("/app/models/qa/clip-base", True),
+    }

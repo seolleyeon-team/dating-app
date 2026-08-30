@@ -27,6 +27,9 @@ from avatar_generation.seolleyeon_avatar_prompt_builder_v4 import (
 )
 from avatar_generation.worker import (
     AvatarGenerationError,
+    AvatarWorkerDeadline,
+    DEFAULT_AVATAR_TEMP_BUCKET,
+    DEFAULT_SOURCE_PHOTO_BUCKET,
     Flux2KleinImageGenerator,
     build_flux_prompt_with_avoid,
     candidate_id_for,
@@ -44,6 +47,17 @@ from avatar_generation.worker import (
     resolve_worker_mode,
 )
 from avatar_generation.job_lease import AvatarJobLeaseConfig, ClaimDeadline
+
+
+def test_worker_deadline_exposes_absolute_provider_deadline():
+    deadline = AvatarWorkerDeadline(
+        started_at=100.0,
+        max_request_seconds=1800,
+        max_job_seconds=1500,
+        soft_stop_margin_seconds=30,
+    )
+
+    assert deadline.deadline_monotonic() == 1600.0
 
 
 class FakeSnapshot:
@@ -214,13 +228,19 @@ def _png_bytes(color=(128, 96, 80)):
     return out.getvalue()
 
 
+def _jpeg_bytes(color=(128, 96, 80)):
+    out = io.BytesIO()
+    Image.new("RGB", (32, 32), color=color).save(out, format="JPEG", quality=90)
+    return out.getvalue()
+
+
 def _payload(job_id="avatar_job_1", uid="u1"):
     return {
         "jobId": job_id,
         "uid": uid,
         "sourcePhotoIds": ["src_001"],
         "sourcePhotoRefs": [
-            "gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg"
+            f"gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_001.jpg"
         ],
         "candidateCount": 4,
         "modelId": "black-forest-labs/FLUX.2-klein-4B",
@@ -284,10 +304,10 @@ def _fake_recording_atomic_firestore(payload=None):
 def _fake_storage():
     return FakeStorage(
         {
-            "seolleyeon-private-source-photos": FakeBucket(
-                {"users/u1/source/src_001.jpg": FakeBlob(_png_bytes())}
+            DEFAULT_SOURCE_PHOTO_BUCKET: FakeBucket(
+                {"users/u1/source/src_001.jpg": FakeBlob(_jpeg_bytes())}
             ),
-            "seolleyeon-avatar-temp": FakeBucket({}),
+            DEFAULT_AVATAR_TEMP_BUCKET: FakeBucket({}),
         }
     )
 
@@ -410,7 +430,7 @@ def test_payload_rejects_non_private_source_bucket():
 def test_payload_rejects_source_ref_for_different_uid():
     payload = _payload(uid="u2")
     payload["sourcePhotoRefs"] = [
-        "gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg"
+        f"gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_001.jpg"
     ]
 
     with pytest.raises(AvatarGenerationError, match="uid"):
@@ -526,7 +546,7 @@ def test_flux_adapter_generate_candidates_uses_real_generation_path():
     assert len(generator.calls) == 4
     assert all("Preserve broad resemblance" in call["prompt"] for call in generator.calls)
     assert all("beauty upgrade" in call["avoid_prompt"] for call in generator.calls)
-    assert candidates[0].image_ref.startswith("gs://seolleyeon-avatar-temp/")
+    assert candidates[0].image_ref.startswith(f"gs://{DEFAULT_AVATAR_TEMP_BUCKET}/")
 
 
 def test_missing_flux2_klein_pipeline_fails_fast(monkeypatch):
@@ -623,7 +643,7 @@ def test_production_does_not_default_to_dry_run(monkeypatch):
     monkeypatch.delenv("AVATAR_WORKER_MODE", raising=False)
     monkeypatch.delenv("AVATAR_WORKER_DRY_RUN", raising=False)
 
-    assert resolve_worker_mode(None) == "flux"
+    assert resolve_worker_mode(None) == "azure_gpt_image_2"
 
 
 def test_production_rejects_dry_run_mode(monkeypatch):
@@ -659,7 +679,7 @@ def test_worker_dry_run_writes_four_preview_ready_candidates():
     assert fs.data["avatarJobs"][payload["jobId"]]["errorCode"] == ""
     assert fs.data["avatarJobs"][payload["jobId"]]["errorMessage"] == ""
     assert all(doc["qa"]["previewAllowed"] is True for doc in fs.data["avatarCandidates"].values())
-    assert len(st.buckets["seolleyeon-avatar-temp"].blobs) == 4
+    assert len(st.buckets[DEFAULT_AVATAR_TEMP_BUCKET].blobs) == 4
 
 
 def test_worker_direct_terminal_guard_rejects_no_preview_and_review_statuses():
@@ -918,10 +938,10 @@ def test_worker_persists_lineage_without_prompt_trait_or_image_hash_observabilit
     fs = _fake_firestore(payload)
     st = FakeStorage(
         {
-            "seolleyeon-private-source-photos": FakeBucket(
+            DEFAULT_SOURCE_PHOTO_BUCKET: FakeBucket(
                 {"users/u1/source/src_001.jpg": FakeBlob(_png_bytes((120, 64, 48)))}
             ),
-            "seolleyeon-avatar-temp": FakeBucket({}),
+            DEFAULT_AVATAR_TEMP_BUCKET: FakeBucket({}),
         }
     )
 
@@ -1053,10 +1073,10 @@ def test_worker_uses_env_avatar_temp_bucket(monkeypatch):
     fs = _fake_firestore(payload)
     st = FakeStorage(
         {
-            "seolleyeon-private-source-photos": FakeBucket(
+            DEFAULT_SOURCE_PHOTO_BUCKET: FakeBucket(
                 {"users/u1/source/src_001.jpg": FakeBlob(_png_bytes())}
             ),
-            "seolleyeon-final-avatar-temp": FakeBucket({}),
+            DEFAULT_AVATAR_TEMP_BUCKET: FakeBucket({}),
         }
     )
 
@@ -1069,9 +1089,9 @@ def test_worker_uses_env_avatar_temp_bucket(monkeypatch):
     )
 
     assert result.status == "preview_ready"
-    assert len(st.buckets["seolleyeon-final-avatar-temp"].blobs) == 4
+    assert len(st.buckets[DEFAULT_AVATAR_TEMP_BUCKET].blobs) == 4
     assert all(
-        doc["imageRef"].startswith("gs://seolleyeon-final-avatar-temp/")
+        doc["imageRef"].startswith(f"gs://{DEFAULT_AVATAR_TEMP_BUCKET}/")
         for doc in fs.data["avatarCandidates"].values()
     )
 
@@ -1251,6 +1271,7 @@ def test_worker_drain_claims_additional_jobs():
             max_idle_wait_seconds=1,
             poll_interval_seconds=1,
             concurrency_per_gpu=1,
+            source_photo_bucket=DEFAULT_SOURCE_PHOTO_BUCKET,
         ),
     )
 
@@ -1287,7 +1308,7 @@ def test_worker_drain_stops_before_deadline():
 def test_batch_partial_failure_does_not_duplicate_completed_jobs():
     first = _payload(job_id="avatar_job_partial_1")
     second = _payload(job_id="avatar_job_partial_2")
-    second["sourcePhotoRefs"] = ["gs://seolleyeon-private-source-photos/users/u1/source/missing.jpg"]
+    second["sourcePhotoRefs"] = [f"gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/missing.jpg"]
     fs = _fake_firestore(first)
     fs.data["avatarJobs"][second["jobId"]] = dict(fs.data["avatarJobs"][first["jobId"]], jobId=second["jobId"])
     fs.data["avatarJobs"][second["jobId"]]["sourcePhotoRefs"] = list(second["sourcePhotoRefs"])
@@ -1634,7 +1655,7 @@ def test_worker_failure_error_message_is_redacted(monkeypatch):
 
     def boom(*_args, **_kwargs):
         raise RuntimeError(
-            "failed reading gs://seolleyeon-final-private-source-photos/users/u1/source/src_001.jpg"
+            f"failed reading gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_001.jpg"
         )
 
     monkeypatch.setattr("avatar_generation.worker.generate_candidate_artifacts", boom)
@@ -1652,7 +1673,7 @@ def test_worker_failure_error_message_is_redacted(monkeypatch):
     assert job["status"] == "failed"
     assert job["errorCode"] == "avatar_generation_worker_error"
     assert "gs://" not in job["errorMessage"]
-    assert "seolleyeon-final-private-source-photos" not in job["errorMessage"]
+    assert DEFAULT_SOURCE_PHOTO_BUCKET not in job["errorMessage"]
     assert "src_001.jpg" not in job["errorMessage"]
 
 
@@ -1782,11 +1803,26 @@ def test_worker_service_staging_cloud_run_iam_posture_allows_request(monkeypatch
 
 def test_worker_service_readyz_reports_auth_posture(monkeypatch):
     import avatar_generation.worker_service as worker_service
+    from avatar_generation.qa_preflight import QAComponentReadiness, QARuntimeReadiness
 
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("AVATAR_WORKER_AUTH_MODE", "cloud_run_iam")
     monkeypatch.setenv("AVATAR_BATCHING_ENABLED", "true")
     monkeypatch.setenv("AVATAR_BATCH_MODE", "drain")
+    monkeypatch.setattr(
+        worker_service,
+        "get_qa_runtime_readiness",
+        lambda: QARuntimeReadiness(
+            components=(
+                QAComponentReadiness(
+                    name="qaRuntime",
+                    status="available",
+                    critical=True,
+                    reason="test_ready",
+                ),
+            )
+        ),
+    )
 
     posture = worker_service.readyz_status()
     assert posture["status"] == "ok"
@@ -1818,7 +1854,7 @@ def test_smoke_script_dry_run_writes_redacted_report(tmp_path):
             "--uid",
             "u1",
             "--source_gcs_uri",
-            "gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg",
+            f"gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_001.jpg",
             "--output_report_json",
             str(report_path),
         ],
@@ -1855,7 +1891,7 @@ def test_staging_smoke_script_dry_run_command_writes_redacted_report(tmp_path):
             "--uid",
             "u1",
             "--source_gcs_uri",
-            "gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg",
+            f"gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_001.jpg",
             "--output_report_json",
             str(report_path),
         ],
@@ -1884,7 +1920,6 @@ def test_avatar_generation_code_does_not_use_external_image_api_strings():
         "Stability",
         "Replicate",
         "DALL",
-        "gpt-image",
         "external image API",
     ]
     assert not [token for token in forbidden if token in code]
@@ -2048,19 +2083,42 @@ def test_worker_reference_profile_and_readyz_release_posture_contract(monkeypatc
 
     release = worker_service.readyz_status()["releasePosture"]
     assert release == {
-        "fluxModelArtifactRevision": "e7b7dc27f91deacad38e78976d1f2b499d76a294",
-        "promptVersion": "seolleyeon_avatar_v3_flux2_klein",
-        "referenceProfile": {
-            "name": "fidelity_balanced",
-            "version": "fidelity_balanced_v1",
+        "provider": "azure",
+        "generationBackend": "azure_gpt_image_2",
+        "modelFamily": "gpt-image-2",
+        "promptVersion": "avatar_general_prompt_v1",
+        "sourceInputMode": "storage_normalized_original_direct",
+        "uploadNormalization": "existing_avatar_media_ingestion",
+        "preGenerationTransform": "none",
+        "azureConfig": {
+            "endpointConfigured": False,
+            "deploymentConfigured": False,
+            "apiVersionConfigured": False,
+            "apiStyle": "foundry_v1",
+            "credentialConfigured": False,
+            "maxAttempts": 3,
+            "requestTimeoutSeconds": 90.0,
+            "maxConcurrency": 1,
+            "requestsPerMinute": 2,
+            "qualityConfigured": False,
+            "sizeConfigured": False,
         },
-        "fidelityCorridor": {
-            "mode": "shadow",
-            "calibrationVersion": "uncalibrated",
-            "enforced": False,
+        "legacyGenerationPrerequisites": {
+            "flux": False,
+            "referencePreprocessing": False,
+            "traitExtraction": False,
         },
-        "publicRollout": False,
-    }
+            "fidelityCorridor": {
+                "mode": "shadow",
+                "calibrationVersion": "uncalibrated",
+                "enforced": False,
+            },
+            "publicRollout": False,
+            "g004Endpoints": {
+                "paidCalibration": False,
+                "qaRecovery": False,
+            },
+        }
 
 
 def test_worker_reference_profile_unknown_value_falls_back_to_privacy_strict(monkeypatch):

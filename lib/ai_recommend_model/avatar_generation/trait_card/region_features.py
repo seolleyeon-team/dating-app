@@ -488,4 +488,3 @@ def _lab_f(value: float) -> float:
     if value > 0.008856:
         return value ** (1.0 / 3.0)
     return 7.787 * value + (16.0 / 116.0)
-

@@ -1,0 +1,46 @@
+{
+  "calibrationVersion": "g004-staging-20260823-v1",
+  "clipSafety": {
+    "evidenceSummary": "pre_live_n=3;separated=true; pre_live_n=3;separated=true; pre_live_n=3;separated=true; pre_live_n=3;separated=true; pre_live_n=3;separated=true; pre_live_n=3;separated=true; pre_live_n=4;separated=true",
+    "minimumScores": {
+      "adult_like": 0.7874,
+      "brand_fit": 0.445412
+    },
+    "model": "openai/clip-vit-large-patch14@32bd64288804d66eefd0ccbe215aa642df71cc41",
+    "thresholds": {
+      "beautification": 0.502082,
+      "brand_mismatch": 0.585567,
+      "childlike": 0.2126,
+      "severe_artifact": 0.474342,
+      "sexualized": 0.508071
+    }
+  },
+  "cohortPolicyVersion": "g004-5plus-v1",
+  "createdAt": "2026-08-23T15:08:01Z",
+  "faceSimilarity": {
+    "evidenceSummary": "pre_live_n=2;separated=true",
+    "metric": "cosine",
+    "model": "openai/clip-vit-base-patch32@3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268",
+    "reviewMargin": 0.185528,
+    "semanticRole": "identity_privacy_upper_bound",
+    "threshold": 0.799743,
+    "thresholdDirection": "gte_review"
+  },
+  "gitRevision": "b214c9306ce640fab1bdca7c13a20dc3c5fa90c9",
+  "humanReviewPolicy": {
+    "rubricVersion": "g004-v1"
+  },
+  "integrity": {
+    "sha256": "44337d64d4246b552399ca4676f925d75546ee89414035290ac07a50956017b9"
+  },
+  "modelVersions": {
+    "clipSafety": "openai/clip-vit-large-patch14@32bd64288804d66eefd0ccbe215aa642df71cc41",
+    "faceSimilarity": "openai/clip-vit-base-patch32@3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268"
+  },
+  "preprocessingVersions": {
+    "qa": "avatar_qa_v2:transformers-4.57.6:pillow-11.3.0",
+    "reference": "avatar_reference_preprocess_metadata_v1:privacy_strict_v1"
+  },
+  "qaContractVersion": "avatar_qa_v2",
+  "schemaVersion": "avatar_qa_calibration_v1"
+}

@@ -10,11 +10,20 @@ from .analysis.image_quality import analyze_image_quality
 from .analysis.schema import FaceDetection, FaceDetectorResult
 from .analysis.visual_risk import (
     ACTION_NEUTRALIZE_BACKGROUND_PERSON,
-    ACTION_NEUTRALIZE_TEXT_LOGO,
     STATUS_CRITICAL_UNAVAILABLE,
-    TEXT_LOGO_KINDS,
     VisualRiskAnalysis,
 )
+from .analysis.watermark import (
+    WATERMARK_POLICY_VERSION,
+    evaluate_watermark_risk,
+    watermark_risk_for_action,
+)
+from .trait_policy import (
+    TRAIT_QA_MODE_CANONICAL_DISABLED,
+    classify_trait_qa_pipeline,
+    resolve_trait_qa_state,
+)
+from .unique_mark_policy import resolve_unique_mark_qa_state
 
 MIN_CONFIDENCE = 0.75
 ADULT_LIKE_MINIMUM = 0.55
@@ -175,6 +184,9 @@ def build_candidate_qa_signals(
     similarity_adapter: SimilarityAdapter | Callable[..., Any] | None = None,
     similarity_policy: Any = None,
     allow_similarity: bool = True,
+    source_visual_risk: VisualRiskAnalysis | None = None,
+    source_visual_image_size: tuple[int, int] | None = None,
+    trait_qa_context: Mapping[str, Any] | None = None,
 ) -> CandidateQASignalResult:
     signals: dict[str, Any] = {}
     availability: dict[str, str] = {}
@@ -230,8 +242,9 @@ def build_candidate_qa_signals(
             primary_face_bbox_xyxy=_bbox_to_xyxy(primary_face.bbox, candidate_image.size) if primary_face else None,
         )
         cascade.append("visual_risk")
+        provider_available = bool(getattr(visual, "provider_available", False))
         availability["visualRisk"] = _availability_status(
-            getattr(visual, "provider_available", False), getattr(visual, "status", None)
+            provider_available, getattr(visual, "status", None)
         )
         availability.update(
             {
@@ -239,17 +252,32 @@ def build_candidate_qa_signals(
                 for key, value in getattr(visual, "detector_availability", {}).items()
             }
         )
-        if _critical_unavailable(visual):
+        if not provider_available or _critical_unavailable(visual):
             unavailable.append("visualRisk")
             needs_review = True
-        _add_visual_signals(signals, visual)
+        _add_visual_signals(
+            signals,
+            visual,
+            source_visual_risk=source_visual_risk,
+            source_image_size=source_visual_image_size,
+            image_size=candidate_image.size,
+        )
+        if not provider_available or _critical_unavailable(visual):
+            signals["watermarkQaAction"] = "review"
+            signals["watermarkPolicyVersion"] = WATERMARK_POLICY_VERSION
+            signals["textLogoWatermarkRisk"] = "medium"
+            signals["logoTextWatermarkRisk"] = "medium"
     except Exception as exc:
         cascade.append("visual_risk")
         availability["visualRisk"] = "unavailable"
         availability["visualRisk.error"] = _exception_code(exc)
         unavailable.append("visualRisk")
         needs_review = True
+        signals["visualRiskStatus"] = "unavailable"
+        signals["watermarkQaAction"] = "review"
+        signals["watermarkPolicyVersion"] = WATERMARK_POLICY_VERSION
         signals.setdefault("textLogoWatermarkRisk", "medium")
+        signals.setdefault("logoTextWatermarkRisk", "medium")
         signals.setdefault("backgroundLeakageRisk", "medium")
         signals.setdefault("secondaryFaceLeakageRisk", "medium")
 
@@ -278,12 +306,37 @@ def build_candidate_qa_signals(
         if local_risk.needs_review:
             needs_review = True
 
-    trait_matches = _compare_traits(source_traits or {}, candidate_traits or {})
-    if any(value == "review" for value in trait_matches.values()):
+    trait_pipeline_mode = classify_trait_qa_pipeline(trait_qa_context)
+    trait_matches = (
+        {}
+        if trait_pipeline_mode == TRAIT_QA_MODE_CANONICAL_DISABLED
+        else _compare_traits(source_traits or {}, candidate_traits or {})
+    )
+    trait_qa = resolve_trait_qa_state(
+        trait_qa_context,
+        source_traits,
+        candidate_traits,
+        trait_matches,
+    )
+    signals.update(trait_qa.to_document())
+    signals["traitComparisonStatus"] = trait_qa.comparison_status
+    if trait_qa.needs_review:
         needs_review = True
-    if any(value == "mismatch" for value in trait_matches.values()):
-        needs_review = True
+    if trait_qa.comparison_status == "mismatch":
+        # Retain the old diagnostic name for downstream observability, but it
+        # is no longer a hard-lightweight issue or an automatic hard reject.
         signals["hardTraitContradiction"] = True
+
+    unique_mark_contract = _unique_mark_contract_context(trait_qa_context)
+    unique_mark_state = (
+        resolve_unique_mark_qa_state(unique_mark_contract, signals)
+        if unique_mark_contract is not None
+        else None
+    )
+    if unique_mark_state is not None:
+        signals.update(unique_mark_state.to_document())
+        if unique_mark_state.needs_review:
+            needs_review = True
 
     hard_lightweight_issue = _has_hard_lightweight_issue(signals)
     if unavailable:
@@ -333,6 +386,18 @@ def build_candidate_qa_signals(
     )
 
 
+def _unique_mark_contract_context(
+    value: Mapping[str, Any] | None,
+) -> Mapping[str, Any] | None:
+    """Return only an explicit server pipeline contract for unique-mark QA."""
+
+    if not isinstance(value, Mapping):
+        return None
+    if "uniqueMarkQaMode" not in value and "uniqueMarkQaAuthority" not in value:
+        return None
+    return value
+
+
 def _add_quality_signals(signals: dict[str, Any], quality: Any) -> None:
     blur_band = getattr(quality, "blur_band", None)
     overexposure_band = getattr(quality, "overexposure_band", None)
@@ -344,10 +409,29 @@ def _add_quality_signals(signals: dict[str, Any], quality: Any) -> None:
         signals["artifactNeedsReview"] = True
 
 
-def _add_visual_signals(signals: dict[str, Any], visual: VisualRiskAnalysis) -> None:
+def _add_visual_signals(
+    signals: dict[str, Any],
+    visual: VisualRiskAnalysis,
+    *,
+    source_visual_risk: VisualRiskAnalysis | None = None,
+    source_image_size: tuple[int, int] | None = None,
+    image_size: tuple[int, int] = (1, 1),
+) -> None:
+    signals["visualRiskStatus"] = _safe_status(getattr(visual, "status", None))
     region_kinds = [getattr(region, "kind", "") for region in getattr(visual, "regions", ())]
     actions = tuple(getattr(visual, "actions_required", ()))
-    has_text_logo = ACTION_NEUTRALIZE_TEXT_LOGO in actions or any(kind in TEXT_LOGO_KINDS for kind in region_kinds)
+    watermark_decision = evaluate_watermark_risk(
+        getattr(visual, "regions", ()),
+        source_regions=(
+            getattr(source_visual_risk, "regions", ())
+            if source_visual_risk is not None
+            else ()
+        ),
+        source_image_size=source_image_size or image_size,
+        image_size=image_size,
+    )
+    watermark_action = watermark_decision.watermark_qa_action
+    has_text_logo = watermark_action == "reject"
     has_background_person = ACTION_NEUTRALIZE_BACKGROUND_PERSON in actions or "background-person" in region_kinds
     complexity = str(getattr(visual, "background_complexity", "unknown") or "unknown")
     counts: dict[str, int] = {}
@@ -356,14 +440,21 @@ def _add_visual_signals(signals: dict[str, Any], visual: VisualRiskAnalysis) -> 
     signals["visualRegionCounts"] = counts
     signals["visualActionsRequired"] = list(actions)
     signals["logoTextWatermarkDetected"] = bool(has_text_logo)
-    signals["textLogoWatermarkRisk"] = "high" if has_text_logo else "low"
+    signals["watermarkQaAction"] = watermark_action
+    signals["watermarkPolicyVersion"] = WATERMARK_POLICY_VERSION
+    watermark_risk = watermark_risk_for_action(watermark_action)
+    signals["textLogoWatermarkRisk"] = watermark_risk
+    signals["logoTextWatermarkRisk"] = watermark_risk
+    signals["watermarkDecisionClass"] = watermark_decision.decision_class
+    signals["watermarkEvidenceClasses"] = list(watermark_decision.evidence_classes)
+    signals["watermarkEvidence"] = watermark_decision.to_document().get("evidence", {})
     signals["secondaryPersonGenerated"] = bool(has_background_person)
+    provider_available = bool(getattr(visual, "provider_available", False))
+    if complexity == "high":
+        signals["backgroundComplexityNeedsReview"] = True
     if has_background_person:
         signals["backgroundLeakageRisk"] = "high"
-    elif complexity == "high":
-        signals["backgroundLeakageRisk"] = "medium"
-        signals["backgroundComplexityNeedsReview"] = True
-    elif complexity == "medium":
+    elif not provider_available:
         signals["backgroundLeakageRisk"] = "medium"
     else:
         signals["backgroundLeakageRisk"] = "low"
@@ -371,6 +462,7 @@ def _add_visual_signals(signals: dict[str, Any], visual: VisualRiskAnalysis) -> 
 
 
 def _add_local_risk_signals(signals: dict[str, Any], availability: dict[str, str], risk: LocalSafetyRiskResult) -> None:
+    signals["localSafetyRiskAvailability"] = availability.get("localSafetyRisk", "unavailable")
     adult_like = risk.adult_like
     if adult_like is None and risk.adult_like_score is not None:
         adult_like = float(risk.adult_like_score) >= ADULT_LIKE_MINIMUM
@@ -400,14 +492,26 @@ def _add_similarity_signals(signals: dict[str, Any], availability: dict[str, str
         availability["faceSimilarity"] = "unavailable"
         signals["faceSimilarityReliable"] = False
         return
+    observed_score = _rounded(_attr(similarity, "score", None))
+    decision = str(_attr(similarity, "identity_decision", "") or "").strip()
+    calibration_version = str(_attr(similarity, "calibration_version", "") or "").strip()
+    if observed_score is not None:
+        signals["faceSimilarityObservedScore"] = observed_score
+    if decision:
+        signals["faceSimilarityDecision"] = decision
     if not bool(_attr(similarity, "identity_reliable", False)):
-        availability["faceSimilarity"] = "uncalibrated"
+        if calibration_version and decision == "review_similarity":
+            availability["faceSimilarity"] = "available"
+            signals["faceSimilarityCalibrationState"] = "calibrated_review_band"
+        else:
+            availability["faceSimilarity"] = "uncalibrated"
         signals["faceSimilarityReliable"] = False
         signals["faceSimilarityNeedsReview"] = True
         return
     availability["faceSimilarity"] = "available"
+    signals["faceSimilarityCalibrationState"] = "calibrated"
     signals["faceSimilarityReliable"] = True
-    signals["faceSimilarityScore"] = _rounded(_attr(similarity, "score", None))
+    signals["faceSimilarityScore"] = observed_score
     signals["faceSimilarityNeedsReview"] = bool(_attr(similarity, "needs_review", False))
 
 
@@ -502,13 +606,11 @@ def _has_hard_lightweight_issue(signals: Mapping[str, Any]) -> bool:
             "noFaceDetected",
             "multipleFacesGenerated",
             "secondaryPersonGenerated",
-            "logoTextWatermarkDetected",
             "sexualizedOrNightlife",
             "childlikeOrTeenager",
             "severeArtifactDetected",
-            "hardTraitContradiction",
         )
-    )
+    ) or str(signals.get("watermarkQaAction") or "").strip().lower() == "reject"
 
 
 def _availability_from_face_detector(result: FaceDetectorResult, *, unavailable: bool) -> dict[str, str]:
@@ -646,7 +748,7 @@ def _critical_unavailable(visual: VisualRiskAnalysis) -> bool:
 
 def _availability_status(available: bool, status: Any) -> str:
     if available:
-        return "available" if status in {None, "available"} else _safe_status(status)
+        return "available"
     if status == STATUS_CRITICAL_UNAVAILABLE:
         return STATUS_CRITICAL_UNAVAILABLE
     return "unavailable"

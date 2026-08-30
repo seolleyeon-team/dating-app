@@ -2,13 +2,17 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from .unique_mark_policy import (
+    normalize_unique_mark_qa_state,
+    unique_mark_qa_satisfied,
+)
+
 
 PASS_FIELDS = ("adultQa", "privacyQa", "brandQa", "cropConsistency")
 LOW_RISK_FIELDS = (
     "childlikeRisk",
     "beautificationRisk",
     "identifiabilityRisk",
-    "uniqueMarkCopyRisk",
     "logoTextWatermarkRisk",
 )
 OPTIONAL_PASS_FIELDS = ("cropIsolationQuality",)
@@ -57,6 +61,8 @@ def passes_absolute_preview_checks(candidate: Mapping[str, Any]) -> bool:
     qa = qa_doc(candidate)
     if _qa_model_unavailable(qa):
         return False
+    if not passes_unique_mark_qa_check(candidate):
+        return False
     required_pass = all(_status_is_pass(qa.get(field)) for field in PASS_FIELDS)
     required_low = all(
         _risk_is_low(qa.get(field)) for field in LOW_RISK_FIELDS
@@ -81,6 +87,20 @@ def is_preview_eligible(candidate: Mapping[str, Any]) -> bool:
 def qa_doc(candidate: Mapping[str, Any]) -> Mapping[str, Any]:
     qa = candidate.get("qa")
     return qa if isinstance(qa, Mapping) else {}
+
+
+def passes_unique_mark_qa_check(candidate: Mapping[str, Any]) -> bool:
+    """Evaluate unique-mark preview eligibility through its applicability state."""
+
+    qa = qa_doc(candidate)
+    if _risk_is_high(qa.get("uniqueMarkCopyRisk")):
+        return False
+    state = normalize_unique_mark_qa_state(qa)
+    if state is not None:
+        return unique_mark_qa_satisfied(state.applicability, state.action)
+    # Legacy/custom QA runners may not carry the new typed state yet.  Preserve
+    # the existing low-risk gate until a server-authoritative state is present.
+    return _risk_is_low(qa.get("uniqueMarkCopyRisk"))
 
 
 
@@ -113,12 +133,17 @@ def _risk_is_low(value: Any) -> bool:
     return str(value or "").strip().lower() in {"low", "none", "pass", "passed", "ok"}
 
 
+def _risk_is_high(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"high", "critical", "fail", "failed", "reject", "rejected"}
+
+
 __all__ = [
     "is_hard_pass",
     "is_hard_reject",
     "is_needs_review",
     "is_preview_eligible",
     "is_soft_pass",
+    "passes_unique_mark_qa_check",
     "passes_absolute_preview_checks",
     "qa_doc",
 ]

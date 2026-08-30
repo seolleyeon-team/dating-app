@@ -18,6 +18,10 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
 from avatar_generation import FLUX2_KLEIN_MODEL_ID, FLUX2_KLEIN_VERSION
+from avatar_generation.avatar_prompt_contract import (
+    AVATAR_GENERAL_PROMPT_V0_TEMP,
+    AVATAR_GENERAL_PROMPT_VERSION,
+)
 from avatar_generation.adaptive_generation import (
     AdaptiveGenerationPolicy,
     GenerationBudget,
@@ -49,6 +53,18 @@ from avatar_generation.cost import (
     evaluate_cost_guard,
 )
 from avatar_generation.job_lease import AvatarJobLeaseConfig, ClaimDeadline
+from avatar_generation.model_adapters.azure_contracts import (
+    AZURE_GPT_IMAGE_2_MODEL_ID,
+    AZURE_GPT_IMAGE_2_VERSION,
+    AzureGenerationResult,
+    AzureProviderError,
+    AzureUnknownOutcomeError,
+    provider_usage,
+)
+from avatar_generation.model_adapters.azure_gpt_image_2 import (
+    AzureGptImage2Provider,
+    get_azure_gpt_image2_provider as _build_azure_gpt_image2_provider,
+)
 from avatar_generation.fidelity_corridor import CorridorCandidate
 from avatar_generation.fidelity_shadow import (
     build_shadow_corridor_evidence,
@@ -71,7 +87,15 @@ from avatar_generation.preview_policy import (
     passes_absolute_preview_checks,
 )
 from avatar_generation.quality_context import AvatarQualityContext
-from avatar_generation.qa import AvatarQAResult, run_avatar_candidate_qa
+from avatar_generation.qa import (
+    QA_INPUT_CONTRACT_VERSION,
+    AvatarQAResult,
+    run_avatar_candidate_qa,
+)
+from avatar_generation.qa_preflight import (
+    QARuntimeReadiness,
+    get_qa_runtime_readiness,
+)
 from avatar_generation.rerank import rerank_preview_candidates
 from avatar_generation.seolleyeon_avatar_prompt_builder_v4 import (
     AvatarTraitCard as PromptAvatarTraitCard,
@@ -99,6 +123,7 @@ DEFAULT_AVATAR_TEMP_BUCKET = "seolleyeon-final-avatar-temp"
 BRIDGE_ENVIRONMENT = "production_bridge"
 FESTIVAL_DATA_PROJECT = "seolleyeon-festival"
 FORBIDDEN_BRIDGE_BUCKET_PREFIX = "seolleyeon-final-"
+CANONICAL_AZURE_WORKER_MODE = AZURE_GPT_IMAGE_2_MODEL_ID
 DEFAULT_MAX_CANDIDATES = 4
 DEFAULT_CANDIDATE_TTL_HOURS = 72
 DEFAULT_WIDTH = 1024
@@ -131,10 +156,20 @@ NORMALIZED_STAGE_COST_KEYS = (
 
 logger = logging.getLogger(__name__)
 _TRAIT_ADAPTER_CACHE: Dict[Tuple[Any, ...], Florence2TraitExtractionAdapter] = {}
+_AZURE_PROVIDER_CACHE: Optional[AzureGptImage2Provider] = None
 
 
 class AvatarGenerationError(RuntimeError):
     pass
+
+
+class AvatarQAReadinessError(AvatarGenerationError):
+    """Raised when canonical Azure generation cannot safely enter QA."""
+
+    def __init__(self, readiness: QARuntimeReadiness) -> None:
+        self.readiness = readiness
+        self.error_code = readiness.failure_code or "avatar_qa_preflight_failed"
+        super().__init__("Avatar QA preflight is not ready; generation is paused.")
 
 
 @dataclass
@@ -177,6 +212,10 @@ class AvatarWorkerDeadline:
     def remaining_seconds(self) -> float:
         limit = min(self.max_request_seconds, self.max_job_seconds)
         return max(0.0, float(limit) - self.elapsed_seconds())
+
+    def deadline_monotonic(self) -> float:
+        """Return the absolute monotonic deadline shared with provider retries."""
+        return self.started_at + min(self.max_request_seconds, self.max_job_seconds)
 
     def capped_by_claim_deadline(
         self,
@@ -398,12 +437,18 @@ def resolve_worker_mode(mode: Optional[str] = None) -> str:
     elif dry_run_flag is True:
         run_mode = "dry_run"
     elif production:
-        run_mode = "flux"
+        run_mode = CANONICAL_AZURE_WORKER_MODE
     else:
         run_mode = "dry_run"
 
-    if run_mode not in {"dry_run", "flux"}:
-        raise AvatarGenerationError("AVATAR_WORKER_MODE must be dry_run or flux.")
+    if run_mode == "azure":
+        run_mode = CANONICAL_AZURE_WORKER_MODE
+    if run_mode not in {"dry_run", "flux", CANONICAL_AZURE_WORKER_MODE}:
+        raise AvatarGenerationError(
+            "AVATAR_WORKER_MODE must be dry_run, flux (local legacy only), or azure_gpt_image_2."
+        )
+    if production and run_mode == "flux":
+        raise AvatarGenerationError("legacy_flux_is_not_a_production_generation_backend")
     if production and run_mode == "dry_run":
         raise AvatarGenerationError("dry_run is not allowed when ENVIRONMENT=production.")
     if run_mode == "dry_run" and not is_local_or_dev_environment():
@@ -527,16 +572,22 @@ def _env_bool_any_default(names: Sequence[str], default: bool) -> bool:
     return False if found_explicit else default
 
 def _source_analysis_enabled(run_mode: str) -> bool:
+    if run_mode == CANONICAL_AZURE_WORKER_MODE:
+        return False
     if run_mode == "flux" and is_production_environment():
         return True
     return _bool_env_default("AVATAR_FACE_DETECTOR_ENABLED", run_mode == "flux")
 
 
 def _trait_extraction_enabled(run_mode: str) -> bool:
+    if run_mode == CANONICAL_AZURE_WORKER_MODE:
+        return False
     return _bool_env_default("AVATAR_TRAIT_EXTRACTION_ENABLED", run_mode == "flux")
 
 
 def _candidate_trait_qa_enabled(run_mode: str) -> bool:
+    if run_mode == CANONICAL_AZURE_WORKER_MODE:
+        return False
     return _bool_env_default("AVATAR_CANDIDATE_TRAIT_QA_ENABLED", run_mode == "flux")
 
 
@@ -549,6 +600,8 @@ def _trait_require_validated() -> bool:
 
 
 def _source_visual_risk_enabled(run_mode: str) -> bool:
+    if run_mode == CANONICAL_AZURE_WORKER_MODE:
+        return False
     if run_mode == "flux" and is_production_environment():
         return True
     parsed = _bool_env("AVATAR_SOURCE_VISUAL_RISK_ENABLED")
@@ -1091,8 +1144,8 @@ def parse_avatar_generation_payload(raw_payload: Mapping[str, Any]) -> AvatarGen
     if candidate_count < 1 or candidate_count > max_candidates():
         raise AvatarGenerationError("candidateCount must be between 1 and MAX_CANDIDATES.")
 
-    model_id = str(payload.get("modelId") or FLUX2_KLEIN_MODEL_ID).strip()
-    if model_id != FLUX2_KLEIN_MODEL_ID:
+    model_id = str(payload.get("modelId") or AZURE_GPT_IMAGE_2_MODEL_ID).strip()
+    if model_id not in {FLUX2_KLEIN_MODEL_ID, AZURE_GPT_IMAGE_2_MODEL_ID}:
         raise AvatarGenerationError("Unsupported avatar generation modelId.")
 
     return AvatarGenerationPayload(
@@ -1112,7 +1165,7 @@ def parse_avatar_generation_payload(raw_payload: Mapping[str, Any]) -> AvatarGen
 
 
 def deterministic_seed(job_id: str, index: int) -> int:
-    digest = hashlib.sha256(f"{job_id}:{index}:flux2_klein_avatar_v1".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{job_id}:{index}:avatar_generation_v2".encode("utf-8")).hexdigest()
     return int(digest[:8], 16)
 
 
@@ -1195,6 +1248,94 @@ def _assert_job_can_run(job_doc: Optional[Dict[str, Any]], payload: AvatarGenera
         raise AvatarGenerationError("Avatar job is already complete.")
 
 
+def _azure_generation_claim_active(job_doc: Optional[Mapping[str, Any]]) -> bool:
+    if not isinstance(job_doc, Mapping):
+        return False
+    if str(job_doc.get("generationBackend") or "").strip() != AZURE_GPT_IMAGE_2_MODEL_ID:
+        return False
+    status = str(job_doc.get("status") or "").strip()
+    if status == "failed":
+        return False
+    if status in {"provider_inflight", "generated", "persisted", "qa_pending"}:
+        return True
+    claim = job_doc.get("generationClaim")
+    return isinstance(claim, Mapping) and claim.get("state") == "active"
+
+
+def _result_for_active_azure_generation(
+    payload: AvatarGenerationPayload,
+    job_doc: Mapping[str, Any],
+) -> AvatarGenerationResult:
+    raw_ids = job_doc.get("candidateIds")
+    candidate_ids = (
+        [str(value) for value in raw_ids if str(value).strip()]
+        if isinstance(raw_ids, Sequence) and not isinstance(raw_ids, str)
+        else []
+    )
+    return AvatarGenerationResult(
+        job_id=payload.job_id,
+        uid=payload.uid,
+        status=str(job_doc.get("status") or "provider_inflight"),
+        candidate_ids=candidate_ids,
+        preview_ready_count=0,
+        rejected_count=0,
+        needs_review_count=0,
+    )
+
+
+def _claim_azure_generation_run(
+    firestore_client: Any,
+    payload: AvatarGenerationPayload,
+) -> bool:
+    ref = _doc_ref(firestore_client, "avatarJobs", payload.job_id)
+    claim = {
+        "state": "active",
+        "backend": AZURE_GPT_IMAGE_2_MODEL_ID,
+        "idempotencyKey": payload.idempotency_key,
+        "claimedAt": SERVER_TIMESTAMP,
+    }
+
+    def claim_transaction(transaction: Any) -> bool:
+        current = _doc_to_dict(ref.get(transaction=transaction)) or {}
+        if _azure_generation_claim_active(current):
+            return False
+        transaction.set(
+            ref,
+            {
+                "generationClaim": claim,
+                "generationBackend": AZURE_GPT_IMAGE_2_MODEL_ID,
+                "provenance": _azure_provenance_document(),
+            },
+            merge=True,
+        )
+        return True
+
+    transaction_factory = getattr(firestore_client, "transaction", None)
+    if not callable(transaction_factory):
+        current = _doc_to_dict(ref.get()) or {}
+        if _azure_generation_claim_active(current):
+            return False
+        _set_doc(
+            ref,
+            {
+                "generationClaim": claim,
+                "generationBackend": AZURE_GPT_IMAGE_2_MODEL_ID,
+                "provenance": _azure_provenance_document(),
+            },
+            merge=True,
+        )
+        return True
+
+    transaction = transaction_factory()
+    if (
+        firestore is not None
+        and hasattr(firestore, "transactional")
+        and not getattr(transaction, "_codex_fake_transaction", False)
+    ):
+        return bool(firestore.transactional(claim_transaction)(transaction))
+    return bool(claim_transaction(transaction))
+
+
 def _assert_avatar_generation_consent(private_doc: Optional[Dict[str, Any]]) -> None:
     if not private_doc:
         raise AvatarGenerationError("userPrivateMedia document was not found.")
@@ -1211,13 +1352,63 @@ def _blob_for(storage_client: Any, ref: GcsRef) -> Any:
     return storage_client.bucket(ref.bucket).blob(ref.path)
 
 
-def load_source_image_from_gcs(storage_client: Any, source_ref: GcsRef) -> Image.Image:
+def load_source_image_bytes_from_gcs(
+    storage_client: Any,
+    source_ref: GcsRef,
+) -> Tuple[bytes, str]:
     blob = _blob_for(storage_client, source_ref)
     if hasattr(blob, "exists") and not blob.exists():
         raise AvatarGenerationError("Private source photo does not exist.")
-    data = blob.download_as_bytes()
+    data = bytes(blob.download_as_bytes())
+    _validate_stored_source_image_bytes(data)
+    declared_content_type = str(getattr(blob, "content_type", "") or "").lower().split(";", 1)[0].strip()
+    content_type = declared_content_type if declared_content_type in {
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+    } else "image/jpeg"
+    return data, content_type
+
+
+def image_from_stored_source_bytes(data: bytes) -> Image.Image:
+    _validate_stored_source_image_bytes(data)
     with Image.open(io.BytesIO(data)) as image:
         return image.convert("RGB")
+
+
+def load_source_image_from_gcs(storage_client: Any, source_ref: GcsRef) -> Image.Image:
+    data, _content_type = load_source_image_bytes_from_gcs(storage_client, source_ref)
+    return image_from_stored_source_bytes(data)
+
+
+def _validate_stored_source_image_bytes(data: bytes) -> None:
+    if not data:
+        raise AvatarGenerationError("Private source photo is empty.")
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image.verify()
+        with Image.open(io.BytesIO(data)) as image:
+            image.load()
+            if image.width <= 0 or image.height <= 0:
+                raise ValueError("invalid dimensions")
+    except Exception as exc:
+        raise AvatarGenerationError("Private source photo is invalid or corrupt.") from exc
+
+
+def _assert_azure_source_bytes_are_normalized_jpeg(
+    data: Optional[bytes],
+    content_type: str,
+) -> None:
+    if content_type != "image/jpeg" or not data:
+        raise AvatarGenerationError("azure_source_not_normalized_jpeg")
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image_format = str(image.format or "").upper()
+            image.verify()
+    except Exception as exc:
+        raise AvatarGenerationError("azure_source_not_normalized_jpeg") from exc
+    if image_format != "JPEG":
+        raise AvatarGenerationError("azure_source_not_normalized_jpeg")
 
 
 def image_to_png_bytes(image: Image.Image) -> bytes:
@@ -1317,8 +1508,17 @@ class Flux2KleinImageGenerator:
         return images[0].convert("RGB")
 
 
+def get_azure_gpt_image2_provider() -> AzureGptImage2Provider:
+    global _AZURE_PROVIDER_CACHE
+    if _AZURE_PROVIDER_CACHE is None:
+        _AZURE_PROVIDER_CACHE = _build_azure_gpt_image2_provider()
+    return _AZURE_PROVIDER_CACHE
+
+
 def reset_model_cache_for_tests() -> None:
+    global _AZURE_PROVIDER_CACHE
     _FLUX_GENERATOR_CACHE.clear()
+    _AZURE_PROVIDER_CACHE = None
     for key in _MODEL_METRICS:
         _MODEL_METRICS[key] = 0
 
@@ -1408,9 +1608,21 @@ def generate_candidate_artifacts(
     candidate_start_index: int = 0,
     candidate_count: Optional[int] = None,
     seconds_by_stage: Optional[Dict[str, float]] = None,
+    source_image_bytes: Optional[bytes] = None,
+    source_content_type: str = "image/jpeg",
+    deadline_monotonic: Optional[float] = None,
+    azure_provider: Optional[AzureGptImage2Provider] = None,
+    provider_usage_doc: Optional[Dict[str, Any]] = None,
 ) -> List[CandidateArtifact]:
     artifacts: List[CandidateArtifact] = []
     generator = get_flux2_klein_generator(payload.model_id) if mode == "flux" else None
+    if mode == CANONICAL_AZURE_WORKER_MODE:
+        _assert_azure_source_bytes_are_normalized_jpeg(source_image_bytes, source_content_type)
+    provider = (
+        azure_provider or get_azure_gpt_image2_provider()
+        if mode == CANONICAL_AZURE_WORKER_MODE
+        else None
+    )
     model_load_seconds_before = _generator_model_load_seconds(generator)
     generation_reference = (
         privacy_reference_image
@@ -1423,47 +1635,95 @@ def generate_candidate_artifacts(
     for index in range(candidate_start_index, candidate_start_index + round_count):
         candidate_id = candidate_id_for(payload.job_id, index)
         seed = deterministic_seed(payload.job_id, index)
-        prompt = build_avatar_prompt(
-            trait_card=trait_card,
-            candidate_index=index,
-            candidate_count=total_count,
-            seed=seed,
-        )
+        prompt = None
+        generation_audit: Dict[str, Any]
         if mode == "flux":
             assert generator is not None
+            prompt = build_avatar_prompt(
+                trait_card=trait_card,
+                candidate_index=index,
+                candidate_count=total_count,
+                seed=seed,
+            )
             image = generator.generate(
                 source_image=generation_reference,
                 prompt=prompt.positive,
                 avoid_prompt=prompt.provider_negative or prompt.negative,
                 seed=seed,
             )
+            candidate_image_bytes = image_to_png_bytes(image)
+            generation_audit = {
+                **_candidate_generation_execution_audit(
+                    payload,
+                    mode=mode,
+                    seed=seed,
+                    generator=generator,
+                ),
+                "referencePrivacyPreprocess": _reference_privacy_preprocess_enabled(),
+                "referencePreprocess": dict(reference_preprocess_metadata or {}),
+                "promptVersion": str(prompt.meta.get("prompt_version") or "seolleyeon_avatar_v4"),
+                "promptBuilder": "seolleyeon_avatar_prompt_builder_v4",
+                "candidateSeed": seed,
+            }
+        elif mode == CANONICAL_AZURE_WORKER_MODE:
+            if provider is None or source_image_bytes is None:
+                raise AvatarGenerationError("Azure generation requires stored source bytes.")
+            provider_key = (
+                f"{payload.idempotency_key or payload.job_id}:candidate:{candidate_id}:"
+                f"{AZURE_GPT_IMAGE_2_MODEL_ID}"
+            )
+            try:
+                generated: AzureGenerationResult = provider.generate(
+                    source_image_bytes=source_image_bytes,
+                    source_content_type=source_content_type,
+                    prompt=AVATAR_GENERAL_PROMPT_V0_TEMP,
+                    idempotency_key=provider_key,
+                    deadline_monotonic=deadline_monotonic,
+                )
+            except AzureProviderError as exc:
+                _merge_provider_usage(
+                    provider_usage_doc,
+                    exc.provider_usage
+                    or provider_usage(
+                        attempts=exc.attempts or 1,
+                        outcome="unknown" if exc.unknown_outcome else "failure",
+                    ),
+                )
+                raise
+            _merge_provider_usage(
+                provider_usage_doc,
+                provider_usage(
+                    attempts=generated.audit.attempts,
+                    outcome=generated.audit.outcome,
+                ),
+            )
+            candidate_image_bytes = generated.image_bytes
+            generation_audit = generated.audit.to_dict()
+            generation_audit["candidateSeed"] = seed
         else:
             image = build_fixture_avatar_image(source_image, seed=seed, index=index)
+            candidate_image_bytes = image_to_png_bytes(image)
+            generation_audit = {
+                **_candidate_generation_execution_audit(
+                    payload,
+                    mode=mode,
+                    seed=seed,
+                    generator=generator,
+                ),
+                "candidateSeed": seed,
+            }
         image_ref = build_temp_candidate_ref(
             uid=payload.uid,
             job_id=payload.job_id,
             candidate_id=candidate_id,
         )
-        candidate_image_bytes = image_to_png_bytes(image)
         artifacts.append(
             CandidateArtifact(
                 candidate_id=candidate_id,
                 image_ref=image_ref,
                 image_bytes=candidate_image_bytes,
                 seed=seed,
-                generation_params={
-                    **_candidate_generation_execution_audit(
-                        payload,
-                        mode=mode,
-                        seed=seed,
-                        generator=generator,
-                    ),
-                    "referencePrivacyPreprocess": _reference_privacy_preprocess_enabled(),
-                    "referencePreprocess": dict(reference_preprocess_metadata or {}),
-                    "promptVersion": str(prompt.meta.get("prompt_version") or "seolleyeon_avatar_v4"),
-                    "promptBuilder": "seolleyeon_avatar_prompt_builder_v4",
-                    "candidateSeed": seed,
-                },
+                generation_params=generation_audit,
             )
         )
     if seconds_by_stage is not None and generator is not None:
@@ -1473,6 +1733,19 @@ def generate_candidate_artifacts(
             _generator_model_load_seconds(generator) - model_load_seconds_before,
         )
     return artifacts
+
+
+def _merge_provider_usage(
+    target: Optional[Dict[str, Any]],
+    update: Optional[Mapping[str, Any]],
+) -> None:
+    if target is None or not isinstance(update, Mapping):
+        return
+    for key, value in update.items():
+        if key in {"requestCount", "attemptCount", "successCount", "failureCount", "unknownOutcomeCount"}:
+            target[key] = int(target.get(key) or 0) + int(value or 0)
+        else:
+            target[key] = value
 
 
 def _upload_candidate(storage_client: Any, artifact: CandidateArtifact) -> None:
@@ -1529,7 +1802,11 @@ def _candidate_doc(
         "uid": payload.uid,
         "imageRef": artifact.image_ref,
         "modelId": payload.model_id,
-        "modelVersion": FLUX2_KLEIN_VERSION,
+        "modelVersion": (
+            AZURE_GPT_IMAGE_2_VERSION
+            if payload.model_id == AZURE_GPT_IMAGE_2_MODEL_ID
+            else FLUX2_KLEIN_VERSION
+        ),
         "seed": artifact.seed,
         "generationParams": artifact.generation_params,
         "status": status,
@@ -1670,10 +1947,14 @@ def _cost_document_for_job(
     duration_seconds: float,
     candidate_count: int,
     seconds_by_stage: Mapping[str, float],
+    generation_backend: str = "local_cloud_run_flux",
+    provider_usage_document: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     estimate = build_job_cost_document(
         duration_seconds=duration_seconds,
         estimated_at=datetime.now(tz=timezone.utc),
+        generation_backend=generation_backend,
+        provider_usage=provider_usage_document,
     )
     cost_estimate = _json_safe_cost_value(dict(estimate["costEstimate"]))
     seconds_document = _seconds_by_stage_document(
@@ -1698,12 +1979,15 @@ def _cost_document_for_job(
             for stage_key, cost_key in NORMALIZED_STAGE_COST_KEYS
          }
     )
-    return {
+    result = {
         "cost": cost,
         "costEstimateUsd": estimate["costEstimateUsd"],
         "costEstimate": cost_estimate,
         "durationSeconds": cost_estimate["durationSeconds"],
     }
+    if provider_usage_document:
+        result["providerUsage"] = dict(provider_usage_document)
+    return result
 
 
 def _cost_metrics_for_batch(
@@ -1974,6 +2258,10 @@ def _source_reject_error_message(analysis_doc: Mapping[str, Any]) -> str:
     return "아바타를 만들기 어려운 사진이에요. 다른 사진을 선택해주세요."
 
 def _worker_error_code(exc: Exception) -> str:
+    if isinstance(exc, AvatarQAReadinessError):
+        return exc.error_code
+    if isinstance(exc, AzureProviderError):
+        return exc.error_code
     message = str(exc).lower()
     if "deadline" in message:
         return "avatar_worker_deadline_exceeded"
@@ -1988,6 +2276,72 @@ def _worker_error_code(exc: Exception) -> str:
     if "no previewable" in message:
         return "avatar_no_previewable_candidates"
     return "avatar_generation_worker_error"
+
+
+def _run_qa_runtime_preflight_if_required(
+    firestore_client: Any,
+    payload: AvatarGenerationPayload,
+    *,
+    run_mode: str,
+    qa_runner: QARunner,
+    metrics_hook: Optional[MetricHook],
+) -> None:
+    """Gate canonical non-local Azure jobs before any provider claim/call.
+
+    Custom QA runners are intentionally exempt for local/unit fixture flows;
+    the deployed canonical worker always uses ``run_avatar_candidate_qa``.
+    """
+    if (
+        run_mode != CANONICAL_AZURE_WORKER_MODE
+        or is_local_or_dev_environment()
+        or qa_runner is not run_avatar_candidate_qa
+    ):
+        return
+
+    readiness = get_qa_runtime_readiness()
+    if readiness.ready:
+        return
+
+    error = AvatarQAReadinessError(readiness)
+    preflight_document = readiness.to_document()
+    _update_job_status(
+        firestore_client,
+        payload.job_id,
+        {
+            "status": "failed",
+            "errorCode": error.error_code,
+            "errorMessage": str(error),
+            "retryable": True,
+            "queueStatus": "qa_preflight_blocked",
+            "qaPreflight": preflight_document,
+            "generationBackend": AZURE_GPT_IMAGE_2_MODEL_ID,
+            "providerUsage": {
+                "provider": "azure",
+                "generationBackend": AZURE_GPT_IMAGE_2_MODEL_ID,
+                "requestCount": 0,
+                "attemptCount": 0,
+                "successCount": 0,
+                "failureCount": 0,
+                "unknownOutcomeCount": 0,
+            },
+            "processing": {
+                "lastErrorCode": error.error_code,
+                "lastErrorMessage": str(error),
+                "retryable": True,
+            },
+        },
+    )
+    _emit_metric(
+        metrics_hook,
+        "avatar_qa_preflight_blocked",
+        {
+            "jobId": payload.job_id,
+            "uid": payload.uid,
+            "errorCode": error.error_code,
+            "blockingComponentCount": len(readiness.blocking_components),
+        },
+    )
+    raise error
 
 
 def _resize_for_trait_extraction(image: Image.Image) -> Image.Image:
@@ -2125,12 +2479,20 @@ def _candidate_qa_metadata(
     payload: AvatarGenerationPayload,
     artifact: CandidateArtifact,
     *,
+    run_mode: Optional[str] = None,
     source_analysis_doc: Mapping[str, Any],
     reference_preprocess_doc: Mapping[str, Any],
     source_trait_card: Optional[Mapping[str, Any]] = None,
     candidate_trait_card: Optional[Mapping[str, Any]] = None,
     analysis_reference_image: Optional[Image.Image] = None,
+    source_image: Optional[Image.Image] = None,
+    candidate_image: Optional[Image.Image] = None,
 ) -> Dict[str, Any]:
+    effective_run_mode = (
+        CANONICAL_AZURE_WORKER_MODE
+        if payload.model_id == AZURE_GPT_IMAGE_2_MODEL_ID
+        else str(run_mode or "").strip().lower() or "unknown"
+    )
     metadata = {
         "jobId": payload.job_id,
         "uid": payload.uid,
@@ -2138,10 +2500,59 @@ def _candidate_qa_metadata(
         "modelId": payload.model_id,
         "seed": artifact.seed,
         "redactedSourceRef": redact_gcs_ref(payload.source_photo_refs[0]),
-        "sourceAnalysis": dict(source_analysis_doc or {}),
-        "referencePreprocess": dict(reference_preprocess_doc or {}),
-        "sourceTraitCard": dict(source_trait_card or {}),
-   }
+    }
+    if payload.model_id == AZURE_GPT_IMAGE_2_MODEL_ID:
+        metadata.update(
+            {
+                "generationBackend": AZURE_GPT_IMAGE_2_MODEL_ID,
+                "sourceInputMode": "storage_normalized_original_direct",
+                "uploadNormalization": "existing_avatar_media_ingestion",
+                "preGenerationTransform": "none",
+                "qaInputMode": "storage_source_vs_generated_candidate",
+                "compareSourceVisualRisk": True,
+                "legacyTraitExtraction": False,
+                "legacyReferencePreprocessing": False,
+                "legacyFlux": False,
+                "pipelineMode": effective_run_mode,
+                "traitQaMode": "disabled_by_pipeline",
+                "traitQaAuthority": "server",
+                "uniqueMarkQaMode": "disabled_by_pipeline",
+                "uniqueMarkQaAuthority": "server",
+                "qaContract": QA_INPUT_CONTRACT_VERSION,
+                "qaChecks": {
+                    "postGeneration": [
+                        "image_decode",
+                        "adult_safety",
+                        "privacy_identifiability",
+                        "brand_and_watermark",
+                        "crop_consistency",
+                        "secondary_face_leakage",
+                    ],
+                    "legacyReferenceChecks": [],
+                },
+            }
+        )
+        if source_image is not None:
+            metadata["_source_image"] = source_image
+        if candidate_image is not None:
+            metadata["_candidate_image"] = candidate_image
+    else:
+        metadata.update(
+            {
+                "sourceAnalysis": dict(source_analysis_doc or {}),
+                "referencePreprocess": dict(reference_preprocess_doc or {}),
+                "sourceTraitCard": dict(source_trait_card or {}),
+                "pipelineMode": effective_run_mode,
+                "traitQaMode": (
+                    "enabled"
+                    if effective_run_mode in {"flux", "dry_run"}
+                    else "unknown"
+                ),
+                "traitQaAuthority": "server",
+                "uniqueMarkQaMode": "unknown",
+                "uniqueMarkQaAuthority": "server",
+            }
+        )
     if analysis_reference_image is not None and reference_preprocess_doc:
         metadata["_source_image"] = analysis_reference_image
         metadata["_analysis_reference_image"] = analysis_reference_image
@@ -2157,6 +2568,26 @@ def _candidate_qa_metadata(
             "input": "generated_candidate",
          }
     return metadata
+
+
+def _azure_provenance_document() -> Dict[str, Any]:
+    return {
+        "provider": "azure",
+        "generationBackend": AZURE_GPT_IMAGE_2_MODEL_ID,
+        "modelFamily": AZURE_GPT_IMAGE_2_VERSION,
+        "promptVersion": AVATAR_GENERAL_PROMPT_VERSION,
+        "sourceInputMode": "storage_normalized_original_direct",
+        "uploadNormalization": "existing_avatar_media_ingestion",
+        "preGenerationTransform": "none",
+        "legacyTraitExtraction": False,
+        "legacyReferencePreprocessing": False,
+        "legacyFlux": False,
+        "pipelineMode": CANONICAL_AZURE_WORKER_MODE,
+        "traitQaMode": "disabled_by_pipeline",
+        "traitQaAuthority": "server",
+        "uniqueMarkQaMode": "disabled_by_pipeline",
+        "uniqueMarkQaAuthority": "server",
+    }
 
 
 def _prepare_reference_preprocess_for_generation(
@@ -2398,14 +2829,34 @@ def process_avatar_generation_payload(
         "total_seconds": 0.0,
         "total_worker_seconds": 0.0,
     }
+    provider_usage_doc: Dict[str, Any] = {
+        "provider": "azure",
+        "generationBackend": AZURE_GPT_IMAGE_2_MODEL_ID,
+        "requestCount": 0,
+        "attemptCount": 0,
+        "successCount": 0,
+        "failureCount": 0,
+        "unknownOutcomeCount": 0,
+    }
     payload = parse_avatar_generation_payload(raw_payload)
     run_mode = resolve_worker_mode(mode)
+    if run_mode != CANONICAL_AZURE_WORKER_MODE:
+        provider_usage_doc = {}
 
     fs = firestore_client or _default_firestore_client(resolved_firestore_project, firestore_database)
     st = storage_client or _default_storage_client(resolved_firestore_project)
 
     job_doc = _load_job_doc(fs, payload.job_id)
     _assert_job_can_run(job_doc, payload)
+    if run_mode == CANONICAL_AZURE_WORKER_MODE and _azure_generation_claim_active(job_doc):
+        return _result_for_active_azure_generation(payload, job_doc or {})
+    _run_qa_runtime_preflight_if_required(
+        fs,
+        payload,
+        run_mode=run_mode,
+        qa_runner=qa_runner,
+        metrics_hook=metrics_hook,
+    )
     initial_admission = _evaluate_worker_admission(
         fs,
         phase="initial",
@@ -2438,6 +2889,9 @@ def process_avatar_generation_payload(
     )
     if current_mismatch:
         return _mark_avatar_job_superseded(fs, payload, current_mismatch)
+    if run_mode == CANONICAL_AZURE_WORKER_MODE and not _claim_azure_generation_run(fs, payload):
+        latest_job_doc = _load_job_doc(fs, payload.job_id) or job_doc or {}
+        return _result_for_active_azure_generation(payload, latest_job_doc)
     _emit_metric(
         metrics_hook,
         "avatar_job_started",
@@ -2463,7 +2917,11 @@ def process_avatar_generation_payload(
     try:
         worker_deadline.ensure_can_continue("load_source", min_remaining_seconds=10)
         stage_started_at = time.perf_counter()
-        source_image = load_source_image_from_gcs(st, source_refs[0])
+        source_image_bytes, source_content_type = load_source_image_bytes_from_gcs(
+            st,
+            source_refs[0],
+        )
+        source_image = image_from_stored_source_bytes(source_image_bytes)
         source_selection_version = _selection_version(
             (job_doc or {}).get("avatarSourceSelectionVersion")
         )
@@ -2537,6 +2995,12 @@ def process_avatar_generation_payload(
                         duration_seconds=seconds_by_stage["total"],
                         candidate_count=0,
                         seconds_by_stage=seconds_by_stage,
+                        generation_backend=(
+                            AZURE_GPT_IMAGE_2_MODEL_ID
+                            if run_mode == CANONICAL_AZURE_WORKER_MODE
+                            else "local_cloud_run_flux"
+                        ),
+                        provider_usage_document=provider_usage_doc,
                     )
                 )
                 _update_job_status(fs, payload.job_id, final_update)
@@ -2550,33 +3014,41 @@ def process_avatar_generation_payload(
                     needs_review_count=0,
                 )
 
-        stage_started_at = time.perf_counter()
-        quality_context = _prepare_reference_preprocess_for_generation(
-            source_image,
-            source_analysis=source_analysis,
-            visual_risk_regions=getattr(source_visual_risk, "regions", ()),
-            run_mode=run_mode,
-        )
-        privacy_reference_image = quality_context.generation_image
-        analysis_reference_image = quality_context.analysis_image or source_image.convert("RGB")
-        reference_preprocess_doc = quality_context.persisted_metadata()
-        preprocess_elapsed = _elapsed_seconds(stage_started_at)
-        seconds_by_stage["preprocess_seconds"] += preprocess_elapsed
-        if (
-            isinstance(reference_preprocess_doc, Mapping)
-            and isinstance(reference_preprocess_doc.get("sam"), Mapping)
-            and reference_preprocess_doc["sam"].get("enabled") is True
-        ):
-            seconds_by_stage["sam_seconds"] += preprocess_elapsed
-        if reference_preprocess_doc:
-            _update_job_status(
-                fs,
-                payload.job_id,
-                {
-                    "referencePreprocess": reference_preprocess_doc,
-                    "sourceReferenceAudit": source_reference_audit,
-                },
+        if run_mode == CANONICAL_AZURE_WORKER_MODE:
+            # The stored normalized JPEG is the generation source. No
+            # generation-purpose image derivative is created or persisted.
+            quality_context = AvatarQualityContext()
+            privacy_reference_image = None
+            analysis_reference_image = None
+            reference_preprocess_doc: Dict[str, Any] = {}
+        else:
+            stage_started_at = time.perf_counter()
+            quality_context = _prepare_reference_preprocess_for_generation(
+                source_image,
+                source_analysis=source_analysis,
+                visual_risk_regions=getattr(source_visual_risk, "regions", ()),
+                run_mode=run_mode,
             )
+            privacy_reference_image = quality_context.generation_image
+            analysis_reference_image = quality_context.analysis_image or source_image.convert("RGB")
+            reference_preprocess_doc = quality_context.persisted_metadata()
+            preprocess_elapsed = _elapsed_seconds(stage_started_at)
+            seconds_by_stage["preprocess_seconds"] += preprocess_elapsed
+            if (
+                isinstance(reference_preprocess_doc, Mapping)
+                and isinstance(reference_preprocess_doc.get("sam"), Mapping)
+                and reference_preprocess_doc["sam"].get("enabled") is True
+            ):
+                seconds_by_stage["sam_seconds"] += preprocess_elapsed
+            if reference_preprocess_doc:
+                _update_job_status(
+                    fs,
+                    payload.job_id,
+                    {
+                        "referencePreprocess": reference_preprocess_doc,
+                        "sourceReferenceAudit": source_reference_audit,
+                    },
+                )
 
         trait_validation = None
         trait_card_doc: Optional[Dict[str, Any]] = None
@@ -2657,6 +3129,16 @@ def process_avatar_generation_payload(
             )
 
         worker_deadline.ensure_can_continue("generate_initial", min_remaining_seconds=30)
+        if run_mode == CANONICAL_AZURE_WORKER_MODE:
+            _update_job_status(
+                fs,
+                payload.job_id,
+                {
+                    "status": "provider_inflight",
+                    "generationBackend": AZURE_GPT_IMAGE_2_MODEL_ID,
+                    "provenance": _azure_provenance_document(),
+                },
+            )
         stage_started_at = time.perf_counter()
         policy = AdaptiveGenerationPolicy.from_env()
         initial_plan = plan_generation_round(
@@ -2691,12 +3173,28 @@ def process_avatar_generation_payload(
             candidate_start_index=0,
             candidate_count=initial_count,
             seconds_by_stage=seconds_by_stage,
+            source_image_bytes=source_image_bytes,
+            source_content_type=source_content_type,
+            deadline_monotonic=worker_deadline.deadline_monotonic(),
+            provider_usage_doc=provider_usage_doc,
         )
         elapsed = _elapsed_seconds(stage_started_at)
         model_load_delta = max(0.0, seconds_by_stage["model_load_seconds"] - model_load_before)
         generation_elapsed = round(max(0.0, elapsed - model_load_delta), 3)
         seconds_by_stage["generate"] += generation_elapsed
         seconds_by_stage["generation_seconds"] += generation_elapsed
+        _update_job_status(
+            fs,
+            payload.job_id,
+            {
+                "status": "generated" if run_mode == CANONICAL_AZURE_WORKER_MODE else "qa_pending",
+                "generationBackend": (
+                    AZURE_GPT_IMAGE_2_MODEL_ID
+                    if run_mode == CANONICAL_AZURE_WORKER_MODE
+                    else payload.model_id
+                ),
+            },
+        )
         _update_job_status(fs, payload.job_id, {"status": "qa_pending"})
 
         candidate_ids: List[str] = []
@@ -2738,11 +3236,18 @@ def process_avatar_generation_payload(
                 _candidate_qa_metadata(
                     payload,
                     artifact,
+                    run_mode=run_mode,
                     source_analysis_doc=source_analysis_doc,
                     reference_preprocess_doc=reference_preprocess_doc,
                     source_trait_card=source_trait_card_doc,
                     candidate_trait_card=candidate_trait_card_doc,
                     analysis_reference_image=analysis_reference_image,
+                    source_image=source_image if run_mode == CANONICAL_AZURE_WORKER_MODE else None,
+                    candidate_image=(
+                        image_from_stored_source_bytes(artifact.image_bytes)
+                        if run_mode == CANONICAL_AZURE_WORKER_MODE
+                        else None
+                    ),
                 ),
             )
             qa_doc = qa_result.to_document()
@@ -2813,6 +3318,10 @@ def process_avatar_generation_payload(
                 candidate_start_index=len(candidate_summaries),
                 candidate_count=extra_count,
                 seconds_by_stage=seconds_by_stage,
+                source_image_bytes=source_image_bytes,
+                source_content_type=source_content_type,
+                deadline_monotonic=worker_deadline.deadline_monotonic(),
+                provider_usage_doc=provider_usage_doc,
             )
             elapsed = _elapsed_seconds(stage_generate_extra_started_at)
             model_load_delta = max(0.0, seconds_by_stage["model_load_seconds"] - model_load_before)
@@ -2855,12 +3364,19 @@ def process_avatar_generation_payload(
                     _candidate_qa_metadata(
                         payload,
                         artifact,
+                        run_mode=run_mode,
                         source_analysis_doc=source_analysis_doc,
                         reference_preprocess_doc=reference_preprocess_doc,
-                        source_trait_card=source_trait_card_doc,
-                        candidate_trait_card=candidate_trait_card_doc,
-                        analysis_reference_image=analysis_reference_image,
-                    ),
+                            source_trait_card=source_trait_card_doc,
+                            candidate_trait_card=candidate_trait_card_doc,
+                            analysis_reference_image=analysis_reference_image,
+                            source_image=source_image if run_mode == CANONICAL_AZURE_WORKER_MODE else None,
+                            candidate_image=(
+                                image_from_stored_source_bytes(artifact.image_bytes)
+                                if run_mode == CANONICAL_AZURE_WORKER_MODE
+                                else None
+                            ),
+                        ),
                 )
                 qa_doc = qa_result.to_document()
                 shadow_evidence = build_shadow_corridor_evidence(
@@ -3046,6 +3562,12 @@ def process_avatar_generation_payload(
                 duration_seconds=seconds_by_stage["total"],
                 candidate_count=len(candidate_ids),
                 seconds_by_stage=seconds_by_stage,
+                generation_backend=(
+                    AZURE_GPT_IMAGE_2_MODEL_ID
+                    if run_mode == CANONICAL_AZURE_WORKER_MODE
+                    else "local_cloud_run_flux"
+                ),
+                provider_usage_document=provider_usage_doc,
             )
         )
         latest_job_doc = _load_job_doc(fs, payload.job_id)
@@ -3094,15 +3616,24 @@ def process_avatar_generation_payload(
                 "errorType": exc.__class__.__name__,
              },
         )
-        _update_job_status(
-            fs,
-            payload.job_id,
-            {
-                "status": "failed",
-                "errorCode": _worker_error_code(exc),
-                "errorMessage": redact_error_message(exc),
-             },
-        )
+        is_unknown_provider_outcome = isinstance(exc, AzureUnknownOutcomeError)
+        error_update: Dict[str, Any] = {
+            "status": "needs_review" if is_unknown_provider_outcome else "failed",
+            "errorCode": _worker_error_code(exc),
+            "errorMessage": redact_error_message(exc),
+        }
+        if isinstance(exc, AzureProviderError):
+            error_update["providerUsage"] = dict(provider_usage_doc)
+            error_update["retryable"] = bool(exc.retryable and not exc.unknown_outcome)
+            error_update["generationBackend"] = AZURE_GPT_IMAGE_2_MODEL_ID
+        if run_mode == CANONICAL_AZURE_WORKER_MODE:
+            error_update["generationClaim"] = {
+                "state": "active" if is_unknown_provider_outcome else "failed",
+                "backend": AZURE_GPT_IMAGE_2_MODEL_ID,
+                "idempotencyKey": payload.idempotency_key,
+                "lastErrorCode": _worker_error_code(exc),
+            }
+        _update_job_status(fs, payload.job_id, error_update)
         if isinstance(exc, AvatarGenerationError):
             raise
         raise AvatarGenerationError("Avatar generation worker failed.") from exc
@@ -3398,7 +3929,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         description="Process a Seolleyeon avatar_generation job payload."
     )
     parser.add_argument("--payload_json", help="Path to avatar_job_v1 JSON payload.")
-    parser.add_argument("--mode", choices=["dry_run", "flux"], default=None)
+    parser.add_argument(
+        "--mode",
+        choices=["dry_run", "flux", "azure", CANONICAL_AZURE_WORKER_MODE],
+        default=None,
+    )
     parser.add_argument("--fixture_output_dir", help="Optional local directory for generated fixture PNGs.")
     parser.add_argument("--firestore_project")
     parser.add_argument("--firestore_database")
