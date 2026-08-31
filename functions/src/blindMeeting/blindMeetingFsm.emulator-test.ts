@@ -30,7 +30,11 @@ import {
   updateParticipant,
   cancelOpenApplication,
 } from "./store";
-import { acceptInvitation, declineInvitation } from "./orchestrator";
+import {
+  acceptInvitation,
+  declineInvitation,
+  voteFivePersonException,
+} from "./orchestrator";
 import {
   MEETING_STATUS_TO_APP,
   PARTICIPANT_STATUS_TO_APP,
@@ -565,4 +569,40 @@ test("accept/decline race settles into one coherent outcome", async () => {
   } else {
     assert.equal(app?.serverStatus, "accepted");
   }
+});
+
+test("five-person vote: a finalized no_show cannot veto the remaining participants", async () => {
+  // participantIds 는 좌석 명부라 노쇼도 남는다. 그것만 확인하면 결원을 만든
+  // 당사자가 "거부" 한 표로 남은 다섯 명의 진행 결정을 뒤집고 미팅을 취소시킨다.
+  const meetingId = uniqueId("m_veto");
+  const seats = [
+    uniqueId("u"), uniqueId("u"), uniqueId("u"),
+    uniqueId("u"), uniqueId("u"), uniqueId("u"),
+  ];
+  await seedMeeting(meetingId, "checkin_open", seats);
+  for (const uid of seats.slice(0, 5)) {
+    await seedParticipant(meetingId, uid, "confirmed");
+  }
+  const noShowUid = seats[5];
+  await seedParticipant(meetingId, noShowUid, "no_show");
+
+  await assert.rejects(
+    () => voteFivePersonException({ meetingId, userId: noShowUid, agree: false }),
+    (error: unknown) => String((error as Error).message).length > 0
+  );
+
+  // 거부표가 저장되지 않았고 미팅도 취소되지 않았다.
+  const votes = await db
+    .collection("blindMeetings").doc(meetingId)
+    .collection("fivePersonVotes").get();
+  assert.equal(votes.size, 0, "노쇼의 표는 기록되지 않는다");
+  const meeting = await db.collection("blindMeetings").doc(meetingId).get();
+  assert.equal(meeting.data()?.serverStatus, "checkin_open", "미팅이 취소되면 안 된다");
+
+  // 정상 참가자는 그대로 투표할 수 있다.
+  await voteFivePersonException({ meetingId, userId: seats[0], agree: true });
+  const after = await db
+    .collection("blindMeetings").doc(meetingId)
+    .collection("fivePersonVotes").get();
+  assert.equal(after.size, 1, "정상 참가자 투표는 기록된다");
 });

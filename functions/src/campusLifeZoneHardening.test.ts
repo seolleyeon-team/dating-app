@@ -195,6 +195,8 @@ describe("canonical campus life zone values", () => {
 function candidate(userId: string, overrides: Partial<Candidate> = {}): Candidate {
   return {
     userId,
+    // 생활권 테스트 fixture. 성비는 별도 테스트에서 다룬다.
+    gender: "male",
     atmosphere: "calm",
     initiative: "adaptive",
     purpose: "both",
@@ -215,16 +217,25 @@ function candidate(userId: string, overrides: Partial<Candidate> = {}): Candidat
   };
 }
 
-function team(prefix: string, zones: string[]): Candidate[] {
+// 3:3 에서 한 팀은 동성 3명이다. 6인 pool 은 남성 팀 + 여성 팀으로 만든다.
+function team(
+  prefix: string,
+  zones: string[],
+  gender: Candidate["gender"] = "male"
+): Candidate[] {
   const roles: Candidate["initiative"][] = ["initiator", "adaptive", "listener"];
   return roles.map((initiative, index) =>
-    candidate(`${prefix}${index}`, { initiative, campusLifeZones: zones })
+    candidate(`${prefix}${index}`, {
+      gender,
+      initiative,
+      campusLifeZones: zones,
+    })
   );
 }
 
 describe("matching rejects malformed zone values", () => {
   it("손상된 값끼리도 매칭되지 않는다", () => {
-    const pool = [...team("a", ["garbage"]), ...team("b", ["garbage"])];
+    const pool = [...team("a", ["garbage"]), ...team("b", ["garbage"], "female")];
     assert.deepEqual(sharedCampusLifeZones(pool), []);
     assert.ok(
       checkGroupConstraints(pool, DATE, false, 6, true).includes(
@@ -237,13 +248,16 @@ describe("matching rejects malformed zone values", () => {
   it("canonical 값 하나라도 섞이면 그 멤버는 생활권이 없는 것으로 본다", () => {
     const pool = [
       ...team("a", ["sinchon"]),
-      ...team("b", ["sinchon", "garbage"]),
+      ...team("b", ["sinchon", "garbage"], "female"),
     ];
     assert.equal(bestGroup(pool, DATE, false), null);
   });
 
   it("정상 canonical 값은 그대로 매칭된다", () => {
-    const pool = [...team("a", ["sinchon"]), ...team("b", ["sinchon", "songdo"])];
+    const pool = [
+      ...team("a", ["sinchon"]),
+      ...team("b", ["sinchon", "songdo"], "female"),
+    ];
     assert.ok(bestGroup(pool, DATE, false) != null);
   });
 });

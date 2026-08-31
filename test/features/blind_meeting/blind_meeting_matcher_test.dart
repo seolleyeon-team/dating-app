@@ -16,9 +16,14 @@ void main() {
       ConversationInitiative.adaptive,
       ConversationInitiative.listener,
     ];
+    // 남/여를 번갈아 채운다. 3:3 은 3남 + 3녀가 성립해야 구성된다.
     return List.generate(
       size,
-      (i) => candidate('$prefix$i', initiative: roles[i % 3]),
+      (i) => candidate(
+        '$prefix$i',
+        gender: i.isEven ? BlindMeetingGender.male : BlindMeetingGender.female,
+        initiative: roles[i % 3],
+      ),
     );
   }
 
@@ -68,7 +73,7 @@ void main() {
     test('기준 날짜를 못 쓰는 참가자가 있으면 dateUnavailable로 걸러진다', () {
       final members = [
         ...balancedTeam('a'),
-        ...balancedTeam('b'),
+        ...balancedTeam('b', gender: BlindMeetingGender.female),
       ].map((c) => c.copyWith(availableDateKeys: {kDateKey})).toList();
       // 한 명만 다른 날짜만 가능하게 바꾼다.
       members[5] = members[5].copyWith(availableDateKeys: {'2026-08-09'});
@@ -87,9 +92,15 @@ void main() {
 
     test('전원이 기준 날짜를 쓸 수 있으면 공통 날짜가 항상 존재한다', () {
       // hot path에서 교집합을 다시 계산하지 않아도 되는 근거.
-      final members = [...balancedTeam('a'), ...balancedTeam('b')]
-          .map((c) => c.copyWith(availableDateKeys: {kDateKey, '2026-08-09'}))
-          .toList();
+      final members =
+          [
+                ...balancedTeam('a'),
+                ...balancedTeam('b', gender: BlindMeetingGender.female),
+              ]
+              .map(
+                (c) => c.copyWith(availableDateKeys: {kDateKey, '2026-08-09'}),
+              )
+              .toList();
       expect(
         BlindMeetingHardConstraints.checkGroup(
           members,
@@ -230,6 +241,9 @@ void main() {
         for (var i = 0; i < 6; i++)
           candidate(
             'sober$i',
+            gender: i.isEven
+                ? BlindMeetingGender.male
+                : BlindMeetingGender.female,
             alcoholPreference: AlcoholCompanionPreference.allSober,
             drinkingLevel: DrinkingLevel.none,
             initiative: ConversationInitiative.values[i % 3],
@@ -300,7 +314,15 @@ void main() {
 
     test('동점일 때 정렬된 참가자 id로 tie-break 한다', () {
       // 완전히 동일한 속성의 후보 6명 → 모든 조합 점수가 같다.
-      final identical = List.generate(6, (i) => candidate('u$i'));
+      final identical = List.generate(
+        6,
+        (i) => candidate(
+          'u$i',
+          gender: i.isEven
+              ? BlindMeetingGender.male
+              : BlindMeetingGender.female,
+        ),
+      );
       final group = matcher.bestGroup(
         pool: identical,
         dateKey: kDateKey,
@@ -314,12 +336,14 @@ void main() {
         for (var i = 0; i < 3; i++)
           candidate(
             'r$i',
+            gender: BlindMeetingGender.male,
             purpose: MeetingPurpose.romance,
             initiative: ConversationInitiative.values[i % 3],
           ),
         for (var i = 0; i < 3; i++)
           candidate(
             'f$i',
+            gender: BlindMeetingGender.female,
             purpose: MeetingPurpose.friendship,
             initiative: ConversationInitiative.values[i % 3],
           ),
@@ -348,8 +372,14 @@ void main() {
 
     test('대기 시간이 긴 후보가 동점 상황에서 우선된다', () {
       final candidates = <BlindMeetingCandidate>[
-        for (var i = 0; i < 6; i++) candidate('a$i'),
-        candidate('z0', waitedMinutes: 5000),
+        for (var i = 0; i < 6; i++)
+          candidate(
+            'a$i',
+            gender: i.isEven
+                ? BlindMeetingGender.male
+                : BlindMeetingGender.female,
+          ),
+        candidate('z0', gender: BlindMeetingGender.female, waitedMinutes: 5000),
       ];
       final group = matcher.bestGroup(
         pool: candidates,
@@ -362,7 +392,8 @@ void main() {
 
   group('대체 후보 평가', () {
     List<BlindMeetingCandidate> teamA() => balancedTeam('a');
-    List<BlindMeetingCandidate> teamB() => balancedTeam('b');
+    List<BlindMeetingCandidate> teamB() =>
+        balancedTeam('b', gender: BlindMeetingGender.female);
 
     double baseline() => groupScore(
       teamA: teamA(),
@@ -378,6 +409,7 @@ void main() {
         vacantUserId: 'b3',
         candidate: candidate(
           'new',
+          gender: BlindMeetingGender.female,
           initiative: ConversationInitiative.listener,
         ),
         baselineFinalGroupScore: baseline(),
@@ -397,6 +429,7 @@ void main() {
         vacantUserId: 'b3',
         candidate: candidate(
           'smoker',
+          gender: BlindMeetingGender.female,
           smokingStatus: SmokingStatus.smoker,
         ).copyWith(eligible: false),
         baselineFinalGroupScore: baseline(),
@@ -414,6 +447,7 @@ void main() {
     test('품질이 크게 떨어지는 후보는 일반 기준에서 거부된다', () {
       final poorCandidate = candidate(
         'poor',
+        gender: BlindMeetingGender.female,
         purpose: MeetingPurpose.friendship,
         atmosphere: ConversationAtmosphere.lively,
         initiative: ConversationInitiative.listener,
@@ -456,7 +490,11 @@ void main() {
         vacantUserId: 'b3',
         candidates: [
           candidate('a1'),
-          candidate('c1', initiative: ConversationInitiative.listener),
+          candidate(
+            'c1',
+            gender: BlindMeetingGender.female,
+            initiative: ConversationInitiative.listener,
+          ),
         ],
         baselineFinalGroupScore: baseline(),
         dateKey: kDateKey,
@@ -474,6 +512,7 @@ void main() {
           6,
           (i) => candidate(
             'cand$i',
+            gender: BlindMeetingGender.female,
             initiative: ConversationInitiative.listener,
             waitedMinutes: i * 100,
           ),
@@ -494,10 +533,14 @@ void main() {
   });
 
   group('생활권 hard constraint', () {
-    List<BlindMeetingCandidate> zonedTeam(String prefix, Set<String> zones) =>
-        balancedTeam(
-          prefix,
-        ).map((member) => member.copyWith(campusLifeZones: zones)).toList();
+    List<BlindMeetingCandidate> zonedTeam(
+      String prefix,
+      Set<String> zones, {
+      BlindMeetingGender gender = BlindMeetingGender.male,
+    }) => balancedTeam(
+      prefix,
+      gender: gender,
+    ).map((member) => member.copyWith(campusLifeZones: zones)).toList();
 
     test('그룹 공통 생활권은 교집합이며 다수결이 아니다', () {
       expect(
@@ -554,7 +597,7 @@ void main() {
     test('공통 생활권이 없는 6인은 hard constraint 위반이다', () {
       final members = [
         ...zonedTeam('a', const {'sinchon'}),
-        ...zonedTeam('b', const {'songdo'}),
+        ...zonedTeam('b', const {'songdo'}, gender: BlindMeetingGender.female),
       ];
       expect(
         BlindMeetingHardConstraints.checkGroup(
@@ -570,7 +613,9 @@ void main() {
     test('신촌 3명 + 송도 3명은 점수와 무관하게 매칭되지 않는다', () {
       final zonedPool = [
         ...zonedTeam('sin', const {'sinchon'}),
-        ...zonedTeam('song', const {'songdo'}),
+        ...zonedTeam('song', const {
+          'songdo',
+        }, gender: BlindMeetingGender.female),
       ];
       expect(
         matcher.bestGroup(
@@ -585,7 +630,7 @@ void main() {
     test('같은 생활권 6명은 정상 매칭된다', () {
       final zonedPool = [
         ...zonedTeam('a', const {'sinchon'}),
-        ...zonedTeam('b', const {'sinchon'}),
+        ...zonedTeam('b', const {'sinchon'}, gender: BlindMeetingGender.female),
       ];
       final group = matcher.bestGroup(
         pool: zonedPool,
@@ -607,7 +652,10 @@ void main() {
       for (final zone in ['sinchon', 'songdo']) {
         final zonedPool = [
           ...zonedTeam('a', {zone}),
-          ...zonedTeam('b', const {'sinchon', 'songdo'}),
+          ...zonedTeam('b', const {
+            'sinchon',
+            'songdo',
+          }, gender: BlindMeetingGender.female),
         ];
         final group = matcher.bestGroup(
           pool: zonedPool,

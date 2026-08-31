@@ -200,24 +200,11 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
 
   const mbti = asTrimmedOrNull(onboarding.mbti)?.toUpperCase() ?? null;
 
+  // 이 판정은 본인의 음주 선호/수준만 본다. 전체 Candidate 를 조립할
+  // 필요가 없다 (성별 등 나머지 필드는 매칭 단계에서 서버가 읽는다).
   const prefersAlcoholFree = requiresAlcoholFreeGroup({
-    userId: user.userId,
-    atmosphere,
-    initiative,
-    purpose,
     alcoholPreference,
-    smokingPreference,
     drinkingLevel,
-    smokingStatus,
-    interestIds,
-    mbti,
-    availableDateKeys: dateKeys,
-    campusLifeZones: asStrArray(onboarding.campusLifeZones),
-    schoolVerified: true,
-    eligible: true,
-    blockedUserIds: [],
-    recentlyMetUserIds: [],
-    waitedMinutes: 0,
   });
 
   const dnaPayload = {
@@ -527,13 +514,29 @@ const HANDLERS: Record<string, BlindMeetingHandler> = {
 /** dispatcher가 받아들이는 action 목록 (앱과 공유되는 계약) */
 export const BLIND_MEETING_ACTIONS = Object.keys(HANDLERS);
 
+/**
+ * action 이름을 handler 로 해석한다.
+ *
+ * HANDLERS 는 평범한 object literal 이라 `constructor` / `__proto__` /
+ * `toString` 같은 prototype 속성이 truthy 로 조회된다. 그대로 두면
+ * `action: "constructor"` 가 dispatcher 의 guard 를 통과해
+ * requireVerifiedUser 를 거치지 않고 반환된다. 자체 속성만 인정한다.
+ */
+export function resolveBlindMeetingHandler(
+  action: string
+): BlindMeetingHandler | null {
+  if (!Object.prototype.hasOwnProperty.call(HANDLERS, action)) return null;
+  const handler = HANDLERS[action];
+  return typeof handler === "function" ? handler : null;
+}
+
 export const blindMeetingAction = onCall(
   BLIND_MEETING_CALLABLE_OPTIONS,
   async (request) => {
     const data = getData(request);
     const action = asStr(data.action, "");
-    const handler = HANDLERS[action];
-    if (!handler) {
+    const handler = resolveBlindMeetingHandler(action);
+    if (handler == null) {
       throw new HttpsError("invalid-argument", "지원하지 않는 요청이에요.");
     }
     logger.info("blindMeetingAction", { action });

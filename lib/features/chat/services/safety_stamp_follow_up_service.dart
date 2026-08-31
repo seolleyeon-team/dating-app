@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 enum SafetyStampFollowUpReason {
   phoneOff('phone_off'),
@@ -32,6 +33,9 @@ class SafetyStampFollowUpDraft {
 
 class SafetyStampFollowUpService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
+    region: 'asia-northeast3',
+  );
 
   Future<SafetyStampFollowUpDraft> loadDraft({
     required String roomId,
@@ -76,75 +80,29 @@ class SafetyStampFollowUpService {
     );
   }
 
+  /// 헤어짐 안전도장 미완료 사유를 제출한다.
+  ///
+  /// 이 값은 safetyStamp 맵 안에 저장되고, safetyStamp 는 서버만 쓴다.
+  /// 그래서 사유 제출도 클라이언트가 Firestore 에 직접 쓰지 않고 서버에 맡긴다.
+  /// 응답 주체는 서버가 auth.uid 로 정한다 (uid 파라미터가 없다).
   Future<void> submitReason({
     required String roomId,
     required String promiseId,
-    required String userId,
     required SafetyStampFollowUpReason reason,
     required String otherText,
     String? notificationId,
   }) async {
-    if (roomId.isEmpty || promiseId.isEmpty || userId.isEmpty) {
+    if (roomId.isEmpty || promiseId.isEmpty) {
       throw Exception('필수 정보가 없어요.');
     }
-
-    final roomRef = _firestore.collection('chat_rooms').doc(roomId);
-    final promiseRef = roomRef.collection('promises').doc(promiseId);
-    final payload = <String, dynamic>{
-      'status': 'submitted',
+    await _functions.httpsCallable('submitSafetyStampFollowUp').call<dynamic>({
+      'roomId': roomId,
+      'promiseId': promiseId,
       'reasonCode': reason.code,
-      'reasonText': reason == SafetyStampFollowUpReason.other
-          ? otherText.trim()
-          : null,
-      'respondedAt': FieldValue.serverTimestamp(),
-      'notificationId': notificationId,
-    };
-
-    await _firestore.runTransaction((tx) async {
-      final roomSnap = await tx.get(roomRef);
-      final promiseSnap = await tx.get(promiseRef);
-
-      if (!promiseSnap.exists) {
-        throw Exception('약속 정보를 찾을 수 없어요.');
-      }
-
-      tx.set(promiseRef, {
-        'safetyStamp': {
-          'goodbyeFollowUpByUserId': {userId: payload},
-        },
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      final roomData = roomSnap.data() ?? const <String, dynamic>{};
-      final activePromiseRaw = roomData['activePromise'];
-      if (activePromiseRaw is Map) {
-        final activePromise = Map<String, dynamic>.from(
-          activePromiseRaw as Map<Object?, Object?>,
-        );
-        final activePromiseId = activePromise['promiseId']?.toString() ?? '';
-        if (activePromiseId == promiseId) {
-          tx.set(roomRef, {
-            'activePromise': {
-              'safetyStamp': {
-                'goodbyeFollowUpByUserId': {userId: payload},
-              },
-            },
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
-        }
-      }
-
-      if (notificationId != null && notificationId.isNotEmpty) {
-        tx.set(
-          _firestore
-              .collection('users')
-              .doc(userId)
-              .collection('notifications')
-              .doc(notificationId),
-          {'isRead': true, 'readAt': FieldValue.serverTimestamp()},
-          SetOptions(merge: true),
-        );
-      }
+      if (reason == SafetyStampFollowUpReason.other)
+        'reasonText': otherText.trim(),
+      if (notificationId != null && notificationId.isNotEmpty)
+        'notificationId': notificationId,
     });
   }
 }

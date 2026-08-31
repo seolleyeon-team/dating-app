@@ -11,6 +11,7 @@ import '../router/route_names.dart';
 import '../features/event/models/event_team_route_args.dart';
 import '../features/event/meeting_icebreaker/domain/meeting_icebreaker_prompt.dart';
 import '../features/event/meeting_icebreaker/services/meeting_icebreaker_deep_link_handler.dart';
+import '../features/blind_meeting/presentation/blind_meeting_route_args.dart';
 import '../features/chat/models/safety_stamp_follow_up_args.dart';
 import '../shared/layouts/main_scaffold_args.dart';
 import '../shared/utils/privacy_log_utils.dart';
@@ -526,6 +527,44 @@ class PushNotificationService {
       nav.pushNamed(
         RouteNames.eventTeamInviteResponse,
         arguments: EventTeamInviteResponseArgs(inviteId: inviteId),
+      );
+      return;
+    }
+
+    // 3:3 블라인드 취향 미팅.
+    //
+    // 알림 종류가 18가지라 type 이 아니라 서버가 함께 보내는 deeplinkType 으로
+    // 라우팅한다. 알림에 담긴 단계(예: "수락해주세요")가 이미 지났더라도
+    // 결과 화면이 서버 상태를 실시간으로 읽어 현재 단계를 보여준다.
+    final deeplinkType = data['deeplinkType'] ?? '';
+    // 대체 참가 제안은 예외다. 제안을 받은 사람은 아직 그 미팅의 참가자가
+    // 아니라서 미팅 문서를 읽을 수 없다 (rules 상 participantIds 기준).
+    // 전용 화면이 생기기 전까지는 알림함으로 보낸다.
+    final isReplacementOffer = type == 'blind_meeting_replacement_offer';
+    if (!isReplacementOffer &&
+        (deeplinkType == 'blind_meeting' ||
+            deeplinkType == 'blind_meeting_follow_up')) {
+      final meetingId = data['meetingId'] ?? '';
+      if (meetingId.isEmpty) {
+        // 미팅 id 가 없으면 진입 화면이 신청 상태로 알아서 복구한다.
+        nav.pushNamed(RouteNames.blindTasteMeeting);
+        return;
+      }
+      nav.pushNamed(
+        deeplinkType == 'blind_meeting_follow_up'
+            ? RouteNames.blindTasteMeetingFollowUp
+            : RouteNames.blindTasteMeetingResult,
+        arguments: BlindMeetingMeetingArgs(meetingId: meetingId),
+      );
+      return;
+    }
+
+    // 단체 채팅방으로 보내는 미팅 알림 (약속 투표, 채팅방 개설 등).
+    if (deeplinkType == 'chat' && type.startsWith('blind_meeting_')) {
+      nav.pushNamedAndRemoveUntil(
+        RouteNames.main,
+        (route) => false,
+        arguments: const MainScaffoldArgs(initialTabIndex: 1),
       );
       return;
     }

@@ -269,11 +269,14 @@ extension BlindMeetingStatusHelpers on BlindMeetingStatus {
 extension BlindMeetingParticipantStatusHelpers
     on BlindMeetingParticipantStatus {
   /// 단체 채팅 멤버십을 가질 수 있는 상태인지.
+  ///
+  /// noShow 는 포함하지 않는다. 최종 노쇼 판정을 받은 참가자는 더 이상 활성
+  /// 참가자가 아니며 서버가 방에서 제외한다 (functions/src/blindMeeting/types.ts
+  /// CHAT_MEMBERSHIP_STATUSES 와 같은 정의).
   bool get holdsChatMembership => const {
     BlindMeetingParticipantStatus.confirmed,
     BlindMeetingParticipantStatus.attended,
     BlindMeetingParticipantStatus.completed,
-    BlindMeetingParticipantStatus.noShow,
   }.contains(this);
 
   /// 미팅 자리에서 빠진 상태인지 (대체 후보 탐색 대상).

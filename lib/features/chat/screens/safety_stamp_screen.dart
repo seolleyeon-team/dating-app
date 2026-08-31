@@ -276,10 +276,10 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
         return;
       }
 
+      // uid 는 서버가 auth 컨텍스트에서 정한다 (클라이언트가 지정하지 않는다).
       await _chatService.markSafetyStamp(
         roomId: widget.roomId,
         promiseId: widget.promiseId,
-        userId: widget.currentUserId,
         phase: _phase.name,
         verification: verification.toFirestoreMap(
           phase: _phase.name,

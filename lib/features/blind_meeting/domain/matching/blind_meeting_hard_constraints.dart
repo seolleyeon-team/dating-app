@@ -49,6 +49,12 @@ enum BlindMeetingConstraintViolation {
   /// 팀/그룹 인원 수가 맞지 않음
   invalidGroupSize,
 
+  /// 한 팀(같은 편) 안에 서로 다른 성별이 섞임
+  mixedGenderTeam,
+
+  /// 여섯 명이 3남 + 3녀가 아님
+  genderImbalance,
+
   /// 여섯 명이 함께 만날 수 있는 공통 생활권이 없음
   campusLifeZoneMismatch,
 
@@ -64,11 +70,37 @@ extension BlindMeetingConstraintViolationMessage
 
 /// 필수 조건 판정.
 ///
-/// 성별·관계 지향 등 서비스 전역 매칭 대상 정책은 앱의 기존 정책을 그대로
-/// 존중해야 하므로, 후보를 만들기 전에 [BlindMeetingCandidate.eligible] 로
-/// 이미 반영해서 넘긴다. 여기서 이성애 관계를 hardcode 하지 않는다.
+/// 정지·제재·반복 노쇼 같은 서비스 전역 매칭 대상 정책은 후보를 만들기 전에
+/// [BlindMeetingCandidate.eligible] 로 이미 반영해서 넘긴다.
+///
+/// 성별은 예외다. 3:3 은 "남성 3명 + 여성 3명"이 상품 정의 자체이므로,
+/// 팀은 동성 3명이어야 하고 그룹은 정확히 3남 + 3녀여야 한다. 이것은 누가
+/// 누구를 좋아할 수 있는지에 대한 지향 정책이 아니라 좌석 구조 제약이며,
+/// 점수로 완화되지 않는 hard constraint 다.
 class BlindMeetingHardConstraints {
   const BlindMeetingHardConstraints._();
+
+  /// 한 팀(같은 편)의 인원. 3:3 이므로 3명.
+  static const int teamSize = 3;
+
+  /// 한 미팅의 총 인원. 3남 + 3녀.
+  static const int groupSize = 6;
+
+  /// 성별별 인원 수.
+  static ({int male, int female}) genderCounts(
+    Iterable<BlindMeetingCandidate> members,
+  ) {
+    var male = 0;
+    var female = 0;
+    for (final member in members) {
+      if (member.gender == BlindMeetingGender.male) {
+        male++;
+      } else {
+        female++;
+      }
+    }
+    return (male: male, female: female);
+  }
 
   /// 개인 단위 조건.
   static Set<BlindMeetingConstraintViolation> checkCandidate(
@@ -166,6 +198,21 @@ class BlindMeetingHardConstraints {
         violations.add(BlindMeetingConstraintViolation.campusLifeZoneMismatch);
       }
     }
+    // 성비는 3:3 상품 정의 자체다. 팀(3명)은 단일 성별이어야 하고
+    // 그룹(6명)은 정확히 3남 + 3녀여야 한다. 점수가 아무리 높아도
+    // 4M2F / 5M1F / 6M 구성은 만들지 않는다.
+    if (members.isNotEmpty) {
+      final counts = genderCounts(members);
+      if (expectedSize == teamSize) {
+        if (counts.male > 0 && counts.female > 0) {
+          violations.add(BlindMeetingConstraintViolation.mixedGenderTeam);
+        }
+      } else if (expectedSize == groupSize) {
+        if (counts.male != teamSize || counts.female != teamSize) {
+          violations.add(BlindMeetingConstraintViolation.genderImbalance);
+        }
+      }
+    }
     // 공통 가능 날짜 검사는 의도적으로 여기서 하지 않는다.
     // 전원이 [dateKey]를 갖고 있어야 통과하므로 교집합은 항상 dateKey를 포함한다.
     // 즉 여기서 교집합을 계산해도 판정이 달라지지 않으면서,
@@ -243,5 +290,23 @@ class BlindMeetingHardConstraints {
     Iterable<BlindMeetingCandidate> pool,
   ) {
     return pool.where((c) => !c.requiresAlcoholFreeGroup).toList();
+  }
+
+  /// 성별로 후보군을 나눈다 (점수 계산 이전 단계).
+  static ({
+    List<BlindMeetingCandidate> male,
+    List<BlindMeetingCandidate> female,
+  })
+  splitByGender(Iterable<BlindMeetingCandidate> pool) {
+    final male = <BlindMeetingCandidate>[];
+    final female = <BlindMeetingCandidate>[];
+    for (final candidate in pool) {
+      if (candidate.gender == BlindMeetingGender.male) {
+        male.add(candidate);
+      } else {
+        female.add(candidate);
+      }
+    }
+    return (male: male, female: female);
   }
 }
