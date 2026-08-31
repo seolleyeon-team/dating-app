@@ -83,6 +83,7 @@ import {
   updateParticipant,
 } from "./store";
 import {
+  holdsChatMembership,
   BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
   BLIND_MEETING_COLLECTIONS,
   BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
@@ -1775,6 +1776,19 @@ export async function voteFivePersonException(params: {
   const meeting = await loadMeeting(params.meetingId);
   if (!meeting.participantIds.includes(params.userId)) {
     throw new HttpsError("permission-denied", "참가 중인 미팅이 아니에요.");
+  }
+
+  // participantIds 는 좌석 명부라 노쇼·취소된 사람도 그대로 남는다.
+  // 그것만 확인하면 결원을 만든 당사자가 "거부"를 던져 남은 다섯 명의
+  // 진행 결정을 뒤집고 미팅을 취소시킬 수 있다 (아래 veto 로직 참고).
+  // 투표권은 지금도 자리를 지키고 있는 참가자에게만 있다.
+  const voters = await loadParticipants(params.meetingId);
+  const voter = voters.find((p) => p.userId === params.userId);
+  if (voter == null || !holdsChatMembership(voter.status)) {
+    throw new HttpsError(
+      "permission-denied",
+      "이 미팅의 참가자가 아니에요."
+    );
   }
 
   await db()

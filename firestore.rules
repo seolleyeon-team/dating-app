@@ -1151,9 +1151,19 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     function chatRoomActivePromiseHasNoStamp() {
       return !request.resource.data.diff(resource.data)
             .affectedKeys().hasAny(['activePromise']) ||
-          !(request.resource.data.activePromise is map) ||
-          request.resource.data.activePromise.get('safetyStamp', null) ==
-            resource.data.get('activePromise', {}).get('safetyStamp', null);
+          // 미러 삭제는 허용한다. 약속 수정·삭제·도착도장 시한초과 취소가
+          // 모두 activePromise 를 FieldValue.delete() 한다
+          // (chat_service.dart updatePromise / deletePromise /
+          //  cancelExpiredIncompleteSafetyStamp).
+          !request.resource.data.keys().hasAny(['activePromise']) ||
+          (
+            // map 이 아닌 값을 허용하면 그 방의 이후 activePromise 규칙 평가가
+            // 전부 에러가 되어 안전도장 경로가 영구히 잠긴다. 참가자 한 명이
+            // 나머지 다섯 명을 막을 수 있으므로 반드시 map 이어야 한다.
+            request.resource.data.activePromise is map &&
+            request.resource.data.activePromise.get('safetyStamp', null) ==
+              resource.data.get('activePromise', {}).get('safetyStamp', null)
+          );
     }
 
     function seasonMeetingRoomMutableOnly() {

@@ -11,6 +11,7 @@ import {
 
 import {
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   setDoc,
@@ -899,4 +900,37 @@ test("a participant CAN read a promise in their own room", async () => {
     getDoc(doc(a, "chat_rooms", ROOM, "promises", PROMISE))
   );
   assert.equal(snap.data().requestedBy, A);
+});
+
+// ---------------------------------------------------------------------------
+// activePromise 미러 — 정상 경로를 막지 않는지 (회귀 방지)
+//
+// chat_service.dart 는 약속 수정/삭제/도착도장 시한초과 취소에서
+// activePromise 를 FieldValue.delete() 한다. 미러에 도장을 못 싣게 막으면서
+// 이 세 경로까지 막으면 모든 채팅방에서 약속 수정·삭제가 깨진다.
+// ---------------------------------------------------------------------------
+
+test("a party CAN clear activePromise when cancelling on safety-stamp timeout", async () => {
+  await seedConfirmedPromise();
+  const a = await kakaoSession(A);
+  await assertSucceeds(
+    updateDoc(doc(a, "chat_rooms", ROOM), {
+      activePromise: deleteField(),
+      lastMessage: "약속이 삭제되었어요",
+      updatedAt: new Date(),
+    })
+  );
+});
+
+test("a participant CANNOT replace activePromise with a non-map value", async () => {
+  // 비-map 을 허용하면 그 방의 이후 모든 activePromise 규칙 평가가 에러가 되어
+  // 안전도장 경로가 영구히 잠긴다 (한 명이 나머지 다섯 명을 막을 수 있다).
+  await seedConfirmedPromise();
+  const a = await kakaoSession(A);
+  await assertFails(
+    updateDoc(doc(a, "chat_rooms", ROOM), {
+      activePromise: "x",
+      updatedAt: new Date(),
+    })
+  );
 });
