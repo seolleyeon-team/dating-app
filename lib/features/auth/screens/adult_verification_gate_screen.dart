@@ -163,16 +163,16 @@ class _AdultVerificationGateScreenState
     );
   }
 
-  void _goToKakaoLogin() {
+  void _goToEmailLogin() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed(RouteNames.kakaoAuth);
+      Navigator.of(context).pushReplacementNamed(RouteNames.login);
     });
   }
 
   Future<void> _handlePrimaryAction() async {
     if (_result.canProceedToKakao) {
-      _goToKakaoLogin();
+      _goToEmailLogin();
       return;
     }
     await _startVerification();
@@ -183,10 +183,10 @@ class _AdultVerificationGateScreenState
       return '설레연은 연 나이 20세 이상만 이용할 수 있어요.';
     }
     if (_result.canProceedToKakao) {
-      return '본인인증이 완료되었어요.\n이제 카카오 로그인을 진행해 주세요.';
+      return '본인인증이 완료되었어요.\n이제 연세 이메일 로그인을 진행해 주세요.';
     }
     if (_result.status == AdultVerificationStatus.pendingServerVerification) {
-      return '카카오 로그인 후 본인인증 결과를 서버에서 확인하고 있어요.';
+      return '로그인 후 본인인증 결과를 서버에서 확인하고 있어요.';
     }
     if (_result.status == AdultVerificationStatus.failed ||
         _result.status == AdultVerificationStatus.cancelled) {
@@ -238,7 +238,7 @@ class _AdultVerificationGateScreenState
               ),
               const SizedBox(height: 14),
               const Text(
-                '설레연은 안전한 서비스 운영과 청소년 이용 제한을 위해 본인인증을 진행합니다.\n인증된 이름과 휴대전화번호는 신고 및 분쟁 대응, 중복 가입 방지, 성인 여부 확인 목적으로만 사용되며 다른 사용자에게 공개되지 않습니다.\n본인인증을 완료해야 카카오 로그인을 진행할 수 있어요.',
+                '설레연은 안전한 서비스 운영과 청소년 이용 제한을 위해 본인인증을 진행합니다.\n인증된 이름과 휴대전화번호는 신고 및 분쟁 대응, 중복 가입 방지, 성인 여부 확인 목적으로만 사용되며 다른 사용자에게 공개되지 않습니다.\n본인인증을 완료해야 연세 이메일 로그인을 진행할 수 있어요.',
                 style: TextStyle(
                   fontSize: 15,
                   height: 1.55,
@@ -269,7 +269,7 @@ class _AdultVerificationGateScreenState
                   child: _isLoading
                       ? const CupertinoActivityIndicator(color: Colors.white)
                       : Text(
-                          canProceedToKakao ? '카카오 로그인 진행하기' : '본인인증 시작하기',
+                          canProceedToKakao ? '이메일 로그인 진행하기' : '본인인증 시작하기',
                           style: TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,

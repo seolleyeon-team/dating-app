@@ -1,16 +1,20 @@
 import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:app_links/app_links.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 
 import '../../router/route_names.dart';
+import '../../services/account_setup_flow.dart';
 import '../../services/auth_service.dart';
-import '../../services/storage_service.dart';
 import '../../shared/widgets/seolleyeon_splash_view.dart';
 import '../auth/utils/email_link_continue_url.dart';
 
-/// 스플래시 화면
-/// - 로그인된 계정(저장된 kakaoUserId 있음): 연세+초기설정 완료 시 홈(main), 아니면 약관(terms)
-/// - 재설치 등 로그아웃 상태: 약관(terms) → 카카오 로그인. 로그인 시 이미 가입+초기설정 완료면 홈으로 이동
+/// 스플래시 화면 (Yonsei-email-primary)
+/// - 이메일 액션 링크 진입: StudentVerificationScreen 이 링크를 소비한다.
+/// - Firebase 세션 없음: 약관(terms) → 성인인증 → 연세 이메일 로그인.
+/// - Firebase 세션 있음(canonical / grandfathered legacy): users/{uid} 서버
+///   진실로 설정 사다리(성인인증/카카오 친구 연결/온보딩/튜토리얼/메인)를 라우팅.
+///   카카오 기반 세션 복구는 존재하지 않는다.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -20,7 +24,7 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> {
   final _authService = AuthService();
-  final _storageService = StorageService();
+  final _setupFlow = AccountSetupFlow();
 
   bool _isEmailLink(String link) {
     if (link.trim().isEmpty) return false;
@@ -68,11 +72,10 @@ class _SplashScreenState extends State<SplashScreen> {
 
     try {
       final initialUri = await _readInitialUri();
-      final kakaoUserId = await _storageService.getKakaoUserId();
 
       // Firebase email links must be handled by StudentVerificationScreen
-      // before the normal app-session gate. The email-link Firebase UID is
-      // intentionally not treated as the Kakao-backed app UID.
+      // before the normal app-session gate: the action code is single-use
+      // and completes the PRIMARY authentication there.
       if (_isEmailLinkEntryPoint(initialUri)) {
         if (!mounted) return;
         Navigator.of(context).pushNamedAndRemoveUntil(
@@ -82,61 +85,35 @@ class _SplashScreenState extends State<SplashScreen> {
         return;
       }
 
-      if (kakaoUserId == null || kakaoUserId.isEmpty) {
-        // Kakao OAuth callback은 SDK가 처리하므로, 캐시된 사용자 ID가 없으면 약관부터 시작합니다.
+      // Only an attached Firebase session counts as a session. A cached
+      // local id or a Kakao SDK session never authenticates.
+      final firebaseUser = FirebaseAuth.instance.currentUser;
+      if (firebaseUser == null) {
         if (!mounted) return;
         Navigator.of(context).pushReplacementNamed(RouteNames.terms);
         return;
       }
 
-      // SharedPreferences의 ID만으로 기존 세션을 인정하지 않는다. Kakao
-      // 토큰으로 Firebase 세션을 복구하지 못하면 로그인 화면으로 보낸다.
-      final firebaseAttached = await _authService.ensureFirebaseSessionForKakao(
-        kakaoUserId,
-      );
-      if (!firebaseAttached) {
-        final preserveLocalIdentity =
-            _authService.lastFirebaseSessionFailure?.isTransient ?? false;
-        if (!preserveLocalIdentity) {
-          await _storageService.clearKakaoUserId();
-          await _storageService.clearUserId();
-        }
+      // 운영 제재 계정은 세션과 로컬 식별자를 정리하고 약관으로 보낸다.
+      if (await _setupFlow.handleRejoinRestriction()) {
         if (!mounted) return;
         Navigator.of(context).pushReplacementNamed(RouteNames.terms);
         return;
       }
 
-      final exists = await _authService.kakaoUserExists(kakaoUserId);
-      if (!exists) {
-        if (!mounted) return;
-        Navigator.of(context).pushReplacementNamed(RouteNames.terms);
-        return;
-      }
-
-      final isVerified = await _authService.isStudentVerified(kakaoUserId);
-      final isInitialSetupComplete = await _authService.isInitialSetupComplete(
-        kakaoUserId,
-      );
-
+      final route = await _setupFlow.resolveNextRoute();
       if (!mounted) return;
-      // 연세 인증 + 초기설정 완료 시 튜토리얼 없이 홈(설레연 탭)으로
-      if (isVerified && isInitialSetupComplete) {
+      if (route == RouteNames.main) {
         Navigator.of(
           context,
-        ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
+        ).pushNamedAndRemoveUntil(RouteNames.main, (r) => false);
         return;
       }
-
-      // 온보딩 진행 중이면 이어서 시작
-      if (isVerified && !isInitialSetupComplete) {
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          RouteNames.onboardingBasicInfo,
-          (route) => false,
-        );
+      if (route == RouteNames.terms) {
+        Navigator.of(context).pushReplacementNamed(RouteNames.terms);
         return;
       }
-
-      Navigator.of(context).pushReplacementNamed(RouteNames.terms);
+      Navigator.of(context).pushNamedAndRemoveUntil(route, (r) => false);
     } catch (e) {
       debugPrint('⚠️ Splash 네비게이션 오류: ${PrivacyLogUtils.errorSummary(e)}');
       if (!mounted) return;

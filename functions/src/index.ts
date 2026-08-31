@@ -115,6 +115,17 @@ import {
   fetchKakaoFriendServiceUserIds,
   isKakaoFriendAvoidanceEnabled,
 } from "./kakaoFriendRecommendationPrivacy";
+import {
+  createCompletePrimaryStudentEmailAuthFunction,
+  createSendPrimaryStudentEmailLinkFunction,
+} from "./primaryEmailAuth";
+import {
+  createLinkKakaoFriendIdentityFunction,
+  decideKakaoCallerIdentity,
+  kakaoIdentityHash,
+  resolveFriendExclusionAppUserIds,
+  type FriendResolutionCandidate,
+} from "./kakaoIdentityLink";
 
 // Firebase Admin 초기화
 initializeApp();
@@ -1872,6 +1883,7 @@ function readFriendName(
   return asString(snapshot.nickname ?? fallback, fallback);
 }
 
+// LEGACY_KAKAO_AUTH_BACKEND_STILL_REQUIRED_FOR_OLD_CLIENTS
 export const createFirebaseCustomToken = onCall(withAppCheck(), async (request) => {
   logger.info("createFirebaseCustomToken invoked", {
     hasAccessToken: !!asNonEmptyString(request.data?.accessToken),
@@ -1914,6 +1926,7 @@ export const createFirebaseCustomToken = onCall(withAppCheck(), async (request) 
 // Email-link completion is intentionally separate from the Kakao token bridge.
 // It accepts only a Firebase-authenticated, verified Yonsei mailbox session and
 // atomically consumes the binding document before minting the Kakao-backed UID.
+// LEGACY_KAKAO_AUTH_BACKEND_STILL_REQUIRED_FOR_OLD_CLIENTS
 export const completeStudentEmailLink = createCompleteStudentEmailLinkFunction(
   db,
   getAuth()
@@ -2006,6 +2019,7 @@ async function sendStudentVerificationEmailWithResend(params: {
  * the Yonsei address. The authenticated Kakao-backed Firebase uid is the sole
  * user identity, and all request/token documents are Admin-SDK-only writes.
  */
+// LEGACY_KAKAO_AUTH_BACKEND_STILL_REQUIRED_FOR_OLD_CLIENTS
 export const sendStudentVerificationEmail = onCall(
   withAppCheck({
     timeoutSeconds: 30,
@@ -2214,6 +2228,39 @@ export const sendStudentVerificationEmail = onCall(
     }
   }
 );
+
+// =============================================================================
+// Yonsei-email-primary auth (identity contract §4) — the new canonical flow.
+// The verified mailbox is the PRIMARY credential; Kakao is friend-exclusion
+// authorization only (linkKakaoFriendIdentity).
+// =============================================================================
+
+export const sendPrimaryStudentEmailLink = createSendPrimaryStudentEmailLinkFunction({
+  db,
+  secrets: [RESEND_API_KEY],
+  requireSender: requireResendFromEmail,
+  readApiKey: () => RESEND_API_KEY.value().trim(),
+  generateActionLink: (email, token) =>
+    getAuth().generateSignInWithEmailLink(email, {
+      url: buildStudentVerificationContinueUrl(token),
+      handleCodeInApp: true,
+      iOS: { bundleId: "com.seolleyeon.app" },
+      android: {
+        packageName: "com.seolleyeon.app",
+        installApp: true,
+        minimumVersion: "21",
+      },
+    }),
+  deliverEmail: sendStudentVerificationEmailWithResend,
+});
+
+export const completePrimaryStudentEmailAuth =
+  createCompletePrimaryStudentEmailAuthFunction(db, getAuth());
+
+export const linkKakaoFriendIdentity = createLinkKakaoFriendIdentityFunction({
+  db,
+  verifyKakaoAccessToken: (accessToken) => verifyKakaoAccessToken(accessToken),
+});
 
 async function fetchPortOneIdentityVerification(
   identityVerificationId: string,
@@ -4164,7 +4211,19 @@ export const autoCompleteExpiredGoodbyeSafetyStamps = onSchedule(
             return null;
           }
 
-          const participantIds = asStringArray(promiseData.participantIds);
+          // 약속 문서의 participantIds 는 클라이언트가 쓴다. 이 값으로
+          // 인앱 알림과 push 가 나가므로, 서버가 소유한 채팅방 참가자로
+          // 반드시 좁힌다 (dispatchPromiseReminder 와 같은 신뢰 경계).
+          const autoCompleteRoomData = (roomSnap.data() ?? {}) as Record<
+            string,
+            unknown
+          >;
+          const autoCompleteRoomParticipants = new Set(
+            asStringArray(autoCompleteRoomData.participantIds)
+          );
+          const participantIds = asStringArray(
+            promiseData.participantIds
+          ).filter((uid) => autoCompleteRoomParticipants.has(uid));
           if (participantIds.length < 2) {
             return null;
           }
@@ -4493,8 +4552,15 @@ export const dispatchPromiseReminder = onTaskDispatched(
         return null;
       }
 
-      const promiseParticipantIds = asStringArray(promiseData.participantIds);
+      // 약속 문서의 participantIds 는 클라이언트가 쓴다. 그대로 믿으면
+      // 참가자 한 명이 임의의 uid 목록을 넣어 무관한 사용자에게 (그리고
+      // 자신이 정한 place 문구로) push 를 보낼 수 있다.
+      // 수신자는 항상 서버가 소유한 채팅방 참가자로 한정한다.
       const roomParticipantIds = asStringArray(roomData.participantIds);
+      const roomParticipantSet = new Set(roomParticipantIds);
+      const promiseParticipantIds = asStringArray(
+        promiseData.participantIds
+      ).filter((uid) => roomParticipantSet.has(uid));
       const participantIds =
         promiseParticipantIds.length > 0
           ? promiseParticipantIds
@@ -5026,6 +5092,44 @@ async function reconcilePairsWithConcurrency(
 }
 
 /**
+ * Rollout-compatible caller identity OR-chain (identity contract §5): the
+ * verified Kakao user id is accepted iff authUid === kakaoUserId (legacy
+ * invariant) OR the session claim names it (legacy claim) OR the
+ * kakaoIdentities mapping binds it to the caller's appUserId (new accounts).
+ * Returns the caller's RESOLVED appUserId.
+ */
+async function resolveKakaoCallerAppUserId(params: {
+  authUid: string;
+  claimedKakaoUserId: string | null;
+  verifiedKakaoUserId: string;
+}): Promise<string> {
+  const direct = decideKakaoCallerIdentity({
+    authUid: params.authUid,
+    claimedKakaoUserId: params.claimedKakaoUserId,
+    verifiedKakaoUserId: params.verifiedKakaoUserId,
+    mappingAppUserId: null,
+  });
+  if (direct.ok) return direct.appUserId;
+  const mappingSnapshot = await db
+    .collection("kakaoIdentities")
+    .doc(kakaoIdentityHash(params.verifiedKakaoUserId))
+    .get();
+  const mapped = decideKakaoCallerIdentity({
+    authUid: params.authUid,
+    claimedKakaoUserId: params.claimedKakaoUserId,
+    verifiedKakaoUserId: params.verifiedKakaoUserId,
+    mappingAppUserId: mappingSnapshot.exists
+      ? asNonEmptyString(mappingSnapshot.data()?.appUserId)
+      : null,
+  });
+  if (mapped.ok) return mapped.appUserId;
+  throw new HttpsError(
+    "permission-denied",
+    "로그인한 계정과 카카오 계정이 일치하지 않아요.",
+  );
+}
+
+/**
  * Closes both viewer- and candidate-side gates before the client attempts to
  * read/validate a Kakao token. If that later step fails or consent was revoked,
  * the last successful `ready` state cannot remain open indefinitely.
@@ -5037,16 +5141,23 @@ export const beginKakaoFriendRecommendationPrivacySync = onCall(
     const accessToken = asNonEmptyString(data.kakaoAccessToken);
     let callerUid: string;
     if (accessToken) {
-      callerUid = (await verifyKakaoAccessToken(accessToken)).userId;
+      const verifiedKakaoUserId = (await verifyKakaoAccessToken(accessToken)).userId;
       const authUid = asNonEmptyString(request.auth?.uid);
       const claimedKakaoUid = asNonEmptyString(
         (request.auth?.token as Record<string, unknown> | undefined)?.kakaoUserId,
       );
-      if (authUid && authUid !== callerUid && claimedKakaoUid !== callerUid) {
-        throw new HttpsError(
-          "permission-denied",
-          "로그인한 계정과 카카오 계정이 일치하지 않아요.",
-        );
+      if (authUid) {
+        // Legacy sessions resolve to the Kakao-keyed doc id; new canonical
+        // sessions resolve through the kakaoIdentities mapping (contract §5).
+        callerUid = await resolveKakaoCallerAppUserId({
+          authUid,
+          claimedKakaoUserId: claimedKakaoUid,
+          verifiedKakaoUserId,
+        });
+      } else {
+        // Token-only close path for accounts registered under the legacy
+        // invariant (users/{kakaoUserId}); preserved for old binaries.
+        callerUid = verifiedKakaoUserId;
       }
     } else {
       callerUid = (await resolveAuthedAppUser(request.auth)).userId;
@@ -5092,7 +5203,7 @@ export const syncKakaoTalkFriendBlocks = onCall(
     }
 
     const kakaoUser = await verifyKakaoAccessToken(accessToken);
-    const callerUid = kakaoUser.userId;
+    const callerKakaoUserId = kakaoUser.userId;
     const authUid = asNonEmptyString(request.auth?.uid);
     const claimedKakaoUid = asNonEmptyString(
       (request.auth?.token as Record<string, unknown> | undefined)?.kakaoUserId,
@@ -5103,12 +5214,13 @@ export const syncKakaoTalkFriendBlocks = onCall(
         "Firebase 로그인 세션을 확인할 수 없어요.",
       );
     }
-    if (authUid !== callerUid && claimedKakaoUid !== callerUid) {
-      throw new HttpsError(
-        "permission-denied",
-        "로그인한 계정과 카카오 계정이 일치하지 않아요.",
-      );
-    }
+    // Contract §5 OR-chain; callerUid is the RESOLVED appUserId (for legacy
+    // invariant accounts it equals the Kakao user id).
+    const callerUid = await resolveKakaoCallerAppUserId({
+      authUid,
+      claimedKakaoUserId: claimedKakaoUid,
+      verifiedKakaoUserId: callerKakaoUserId,
+    });
 
     const callerRef = db.collection("users").doc(callerUid);
     const callerSnapshot = await callerRef.get();
@@ -5159,15 +5271,17 @@ export const syncKakaoTalkFriendBlocks = onCall(
       const fetchedFriendIds = await fetchKakaoFriendServiceUserIds(accessToken);
       let skippedSelfCount = 0;
       const friendUserIds = fetchedFriendIds.filter((id) => {
-        if (id === callerUid) {
+        if (id === callerKakaoUserId) {
           skippedSelfCount++;
           return false;
         }
         return true;
       });
 
-      let matchedUserCount = 0;
-      const matchedTargetUids = new Set<string>();
+      // Friend -> member resolution (contract §5): a friend matches iff the
+      // legacy users/{kakaoId} doc exists OR the kakaoIdentities mapping
+      // resolves it to an appUserId. Both lookups are batched per chunk.
+      const resolutionCandidates: FriendResolutionCandidate[] = [];
       for (
         let offset = 0;
         offset < friendUserIds.length;
@@ -5180,17 +5294,34 @@ export const syncKakaoTalkFriendBlocks = onCall(
         const userRefs = candidateIds.map((id) =>
           db.collection("users").doc(id),
         );
-        const userDocs = userRefs.length > 0
-          ? await db.getAll(...userRefs)
+        const identityRefs = candidateIds.map((id) =>
+          db.collection("kakaoIdentities").doc(kakaoIdentityHash(id)),
+        );
+        const lookupDocs = candidateIds.length > 0
+          ? await db.getAll(...userRefs, ...identityRefs)
           : [];
         for (let index = 0; index < candidateIds.length; index++) {
-          const friendDoc = userDocs[index];
-          if (!friendDoc?.exists) continue;
-          const friendUid = candidateIds[index];
-          matchedUserCount++;
-          matchedTargetUids.add(friendUid);
+          const friendDoc = lookupDocs[index];
+          const identityDoc = lookupDocs[candidateIds.length + index];
+          resolutionCandidates.push({
+            kakaoUserId: candidateIds[index],
+            legacyUserDocExists: friendDoc?.exists === true,
+            mappingAppUserId: identityDoc?.exists
+              ? asNonEmptyString(identityDoc.data()?.appUserId)
+              : null,
+          });
         }
       }
+      const friendResolution = resolveFriendExclusionAppUserIds({
+        callerAppUserId: callerUid,
+        callerKakaoUserId,
+        candidates: resolutionCandidates,
+      });
+      const matchedUserCount = friendResolution.matchedUserCount;
+      const matchedTargetUids = new Set<string>(
+        friendResolution.targetAppUserIds,
+      );
+      skippedSelfCount += friendResolution.skippedSelfCount;
 
       // OFF must also clear the caller's contribution from relationships that
       // were materialized by an earlier sync but are absent from today's API.
@@ -5229,6 +5360,9 @@ export const syncKakaoTalkFriendBlocks = onCall(
         // An older request must never mark a newer ON/OFF sync ready or
         // overwrite its preference. Only the latest generation may finalize.
         if (latestData.kakaoFriendReconcileId !== reconcileId) return;
+        const latestConnection = isRecord(latestData.kakaoFriendConnection)
+          ? latestData.kakaoFriendConnection
+          : {};
         const terminalData = {
           ...latestData,
           recommendationPrivacyReady: true,
@@ -5236,6 +5370,13 @@ export const syncKakaoTalkFriendBlocks = onCall(
           kakaoFriendReconciledAt: FieldValue.serverTimestamp(),
           kakaoFriendReconcileId: FieldValue.delete(),
           kakaoFriendReconcileErrorCode: FieldValue.delete(),
+          // Contract §5: the connection bookkeeping finalizes in the same
+          // generation-guarded transaction as recommendationPrivacyReady.
+          kakaoFriendConnection: {
+            ...latestConnection,
+            initialSyncComplete: true,
+            lastSuccessfulSyncAt: FieldValue.serverTimestamp(),
+          },
         };
         transaction.set(callerRef, terminalData, { merge: true });
         finalizedCallerData = terminalData;

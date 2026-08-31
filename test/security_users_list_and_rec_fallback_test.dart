@@ -31,7 +31,8 @@ void main() {
       expect(
         use.group(1),
         'doc',
-        reason: "collection('users') must only be followed by .doc(uid); "
+        reason:
+            "collection('users') must only be followed by .doc(uid); "
             'roster-level queries are a privacy regression',
       );
     }
@@ -82,13 +83,21 @@ void main() {
       source.contains('Never trust local SharedPreferences alone'),
       isTrue,
     );
-    // Missing Firestore user doc path must clear local verified flag.
+    // A Firebase session without a users doc must clear the local verified
+    // flag instead of trusting SharedPreferences.
     expect(
       RegExp(
-        r'kakaoUserExists[\s\S]*?else \{[\s\S]*?'
+        r'if \(profile == null\) \{[\s\S]*?'
         r'_isStudentVerified = false;[\s\S]*?'
-        r'setStudentVerified\(kakaoUserId, false\)',
+        r'setStudentVerified\(uid, false\)',
       ).hasMatch(source),
+      isTrue,
+    );
+    // Student verification state always hydrates from the server doc.
+    expect(
+      source.contains(
+        "_isStudentVerified = profile['isStudentVerified'] == true",
+      ),
       isTrue,
     );
   });

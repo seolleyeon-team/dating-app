@@ -146,11 +146,11 @@ test("matching and recommendation rules are participant or owner scoped", () => 
   );
   assertContains(
     "asks must be participant-readable and recipient can only mark read",
-    "match /asks/{askId} { allow read: if isAskParticipant(resource.data); allow create: if isSignedIn() && request.resource.data.fromUserId is string && request.resource.data.fromUserId == request.auth.uid"
+    "match /asks/{askId} { allow read: if isAskParticipant(resource.data); allow create: if isCanonicalAppSession() && request.resource.data.fromUserId is string && request.resource.data.fromUserId == request.auth.uid"
   );
   assertContains(
     "interactions must be participant-readable and from-user-bound create only",
-    "match /interactions/{interactionId} { allow read: if isInteractionParticipant(resource.data); allow create: if isSignedIn() && request.resource.data.fromUserId is string && request.resource.data.fromUserId == request.auth.uid"
+    "match /interactions/{interactionId} { allow read: if isInteractionParticipant(resource.data); allow create: if isCanonicalAppSession() && request.resource.data.fromUserId is string && request.resource.data.fromUserId == request.auth.uid"
   );
   assertContains(
     "matches must be participant-readable and backend-created",
@@ -159,6 +159,44 @@ test("matching and recommendation rules are participant or owner scoped", () => 
   assertContains(
     "matches can only be unmatched by a participant",
     "allow update: if isMatchParticipant(resource.data) && matchStatusOnlyMovesToUnmatched(); allow delete: if false;"
+  );
+});
+
+test("canonical app session gates the interactive surfaces (auth re-architecture)", () => {
+  assertContains(
+    "isCanonicalAppSession helper must accept appSession or legacy kakaoUserId claims only",
+    "function isCanonicalAppSession() { return request.auth != null && (request.auth.token.appSession == true || request.auth.token.kakaoUserId != null); }"
+  );
+  assertContains(
+    "publicProfiles get must require a canonical app session",
+    "match /publicProfiles/{uid} { allow get: if isCanonicalAppSession(); allow list: if false; allow create, update, delete: if false; }"
+  );
+  assertContains(
+    "interactions create must require a canonical app session",
+    "match /interactions/{interactionId} { allow read: if isInteractionParticipant(resource.data); allow create: if isCanonicalAppSession() &&"
+  );
+  assertContains(
+    "asks create must require a canonical app session",
+    "match /asks/{askId} { allow read: if isAskParticipant(resource.data); allow create: if isCanonicalAppSession() &&"
+  );
+  assertContains(
+    "chat room create must require a canonical app session",
+    "allow create: if isCanonicalAppSession() && isChatRoomParticipantAfter() && !isBlindMeetingRoomData(request.resource.data)"
+  );
+  assertContains(
+    "bamboo post create must require a canonical app session",
+    "allow create: if isCanonicalAppSession() && request.resource.data.authorId == request.auth.uid && request.resource.data.postId is string"
+  );
+});
+
+test("server-owned identity indexes deny every client operation", () => {
+  assertContains(
+    "student email bindings must deny every client operation",
+    "match /studentEmailBindings/{emailHash} { allow read, write: if false; }"
+  );
+  assertContains(
+    "kakao identity mappings must deny every client operation",
+    "match /kakaoIdentities/{kakaoIdentityHash} { allow read, write: if false; }"
   );
 });
 

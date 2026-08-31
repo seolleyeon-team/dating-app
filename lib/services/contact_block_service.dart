@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,7 +9,6 @@ import '../shared/utils/privacy_log_utils.dart';
 import '../utils/phone_hash_utils.dart';
 import 'auth_service.dart';
 import 'kakao_talk_friend_service.dart';
-import 'storage_service.dart';
 
 /// 연락처 차단 결과
 class ContactBlockSyncResult {
@@ -73,7 +73,6 @@ class ContactBlockService {
     region: 'asia-northeast3',
   );
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final StorageService _storageService = StorageService();
   final AuthService _authService = AuthService();
   final KakaoTalkFriendService _kakaoTalkFriendService =
       KakaoTalkFriendService();
@@ -176,21 +175,16 @@ class ContactBlockService {
     bool? avoidanceEnabled,
     bool requestConsentIfNeeded = true,
   }) async {
-    final kakaoUserId = await _storageService.getKakaoUserId();
-    if (kakaoUserId == null || kakaoUserId.isEmpty) {
-      throw Exception('카카오 로그인 정보를 찾을 수 없어요. 다시 로그인해주세요.');
-    }
-
     if (requestConsentIfNeeded) {
       await _kakaoTalkFriendService.ensureRequiredConsents(
         requireTalkMessage: false,
       );
     }
 
-    final firebaseAttached = await _authService.ensureFirebaseSessionForKakao(
-      kakaoUserId,
-    );
-    if (!firebaseAttached) {
+    // Callable 은 request.auth (canonical uid == appUserId) 로 사용자를
+    // 결정한다. Kakao 토큰은 친구 조회 권한 검증에만 쓰인다.
+    final hasCanonicalSession = await _authService.ensureCanonicalAppSession();
+    if (!hasCanonicalSession) {
       throw Exception('안전한 로그인 세션을 확인하지 못했어요. 다시 로그인해주세요.');
     }
     // Close recommendation eligibility before token inspection. If the Kakao
@@ -242,8 +236,8 @@ class ContactBlockService {
   }
 
   Future<KakaoFriendAvoidanceStatus> getKakaoFriendAvoidanceStatus() async {
-    final kakaoUserId = await _storageService.getKakaoUserId();
-    if (kakaoUserId == null || kakaoUserId.isEmpty) {
+    final appUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (appUserId == null || appUserId.isEmpty) {
       return const KakaoFriendAvoidanceStatus(
         enabled: false,
         recommendationPrivacyReady: false,
@@ -252,7 +246,7 @@ class ContactBlockService {
     }
     final snapshot = await _firestore
         .collection('users')
-        .doc(kakaoUserId)
+        .doc(appUserId)
         .get(const GetOptions(source: Source.server));
     final data = snapshot.data() ?? const <String, dynamic>{};
     return KakaoFriendAvoidanceStatus(
@@ -266,13 +260,13 @@ class ContactBlockService {
   /// 현재 사용자가 차단한(blocks) 상대 UID 세트를 가져온다.
   /// 추천 필터링의 client-side defensive filter 용.
   Future<Set<String>> getBlockedUserIds() async {
-    final kakaoUserId = await _storageService.getKakaoUserId();
-    if (kakaoUserId == null || kakaoUserId.isEmpty) return {};
+    final appUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (appUserId == null || appUserId.isEmpty) return {};
 
     try {
       final snap = await _firestore
           .collection('blocks')
-          .doc(kakaoUserId)
+          .doc(appUserId)
           .collection('targets')
           .get();
 

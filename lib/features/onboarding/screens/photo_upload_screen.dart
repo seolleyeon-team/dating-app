@@ -269,8 +269,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         throw Exception('사용자 정보를 찾을 수 없습니다. 다시 로그인해주세요.');
       }
 
-      final hasFirebaseSession = await _auth
-          .ensureFirebaseSessionForVerifiedUser(kakaoUserId);
+      final hasFirebaseSession = await _auth.ensureCanonicalAppSession();
       if (!hasFirebaseSession) {
         throw Exception(
           'Firebase login session is required for private upload.',

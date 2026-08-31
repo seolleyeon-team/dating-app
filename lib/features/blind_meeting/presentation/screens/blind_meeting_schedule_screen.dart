@@ -252,8 +252,9 @@ class _BlindMeetingScheduleScreenState
       if (!mounted) return;
       // 서버 guard(예: 진행 중 미팅 재신청 차단)가 준 안내 문구는 그대로
       // 보여준다. 그 외 기술적 예외는 일반 안내로 대체한다.
-      final rawServerMessage =
-          error is FirebaseFunctionsException ? (error.message ?? '').trim() : '';
+      final rawServerMessage = error is FirebaseFunctionsException
+          ? (error.message ?? '').trim()
+          : '';
       final serverMessage = rawServerMessage.isNotEmpty
           ? blindMeetingUserErrorMessage(rawServerMessage)
           : '';

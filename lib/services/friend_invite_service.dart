@@ -162,8 +162,7 @@ class FriendInviteService {
         throw Exception('\uB85C\uADF8\uC778\uC774 \uD544\uC694\uD574\uC694.');
       }
 
-      final hasFirebaseSession = await _authService
-          .ensureFirebaseSessionForVerifiedUser(kakaoUserId);
+      final hasFirebaseSession = await _authService.ensureCanonicalAppSession();
 
       final kakaoAccessToken = FirebaseAuth.instance.currentUser == null
           ? await _authService.getKakaoAccessTokenForFunctions()
@@ -442,7 +441,7 @@ class FriendInviteService {
       );
     }
 
-    await _authService.ensureFirebaseSessionForVerifiedUser(kakaoUserId);
+    await _authService.ensureCanonicalAppSession();
 
     final result = await acceptFriendInvite(token);
     debugPrint(
@@ -462,7 +461,7 @@ class FriendInviteService {
 
       final kakaoUserId = await _storageService.getKakaoUserId();
       if (kakaoUserId != null && kakaoUserId.isNotEmpty) {
-        await _authService.ensureFirebaseSessionForVerifiedUser(kakaoUserId);
+        await _authService.ensureCanonicalAppSession();
       }
 
       final kakaoAccessToken = FirebaseAuth.instance.currentUser == null

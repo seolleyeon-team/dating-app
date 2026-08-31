@@ -79,45 +79,62 @@ void main() {
     expect(completeIndex, greaterThan(syncIndex));
   });
 
-  test(
-    'Kakao login blocks Yonsei email routing until friends consent succeeds',
-    () {
-      final source = _read('lib/features/auth/screens/kakao_auth_screen.dart');
+  test('friend connection screen blocks progression until consent and the '
+      'initial sync succeed (fail-closed, no skip path)', () {
+    final screen = _read(
+      'lib/features/auth/screens/kakao_friend_connection_screen.dart',
+    );
+    final service = _read('lib/services/kakao_friend_connection_service.dart');
 
-      expect(source, contains('_pauseForMissingFriendsConsent(userInfo)'));
-      expect(
-        source,
-        contains('markRecommendationPrivacyPendingAfterConsentRefusal()'),
-      );
-      expect(source, contains('if (status.friendsAgreed)'));
-      expect(source, contains('_friendsConsentRequired = true'));
-      expect(
-        source,
-        contains('ensureRequiredConsents(\n        requireTalkMessage: false'),
-      );
-      expect(
-        source,
-        contains("pushReplacementNamed(RouteNames.studentVerification)"),
-      );
-      expect(source, contains('다시 동의하기'));
-      expect(source, contains('동의하고 카카오로 로그인'));
-      expect(
-        source,
-        contains('_reconcileReturningUserRecommendationPrivacy()'),
-      );
-      expect(source, contains('requestConsentIfNeeded: false'));
+    // The chain is ordered: OAuth → consent → Friends API verification →
+    // identity link → initial exclusion sync → server readiness check.
+    final chainStart = service.indexOf('Future<void> runFullConnectionFlow()');
+    expect(chainStart, greaterThanOrEqualTo(0));
+    final chain = service.substring(chainStart);
+    final oauth = chain.indexOf('ensureKakaoOAuthSession()');
+    final consent = chain.indexOf('requestFriendsConsent()');
+    final verify = chain.indexOf('verifyFriendsApiAccess()');
+    final link = chain.indexOf('linkCurrentKakaoIdentity()');
+    final sync = chain.indexOf('syncInitialFriendExclusions()');
+    final ready = chain.indexOf('verifyFriendConnectionReady()');
+    expect(oauth, greaterThanOrEqualTo(0));
+    expect(consent, greaterThan(oauth));
+    expect(verify, greaterThan(consent));
+    expect(link, greaterThan(verify));
+    expect(sync, greaterThan(link));
+    expect(ready, greaterThan(sync));
 
-      final nativeGate = source.indexOf(
-        'if (await _pauseForMissingFriendsConsent(userInfo)) return;',
-      );
-      final nativeContinue = source.indexOf(
-        'await _continueAfterKakaoLogin(userInfo);',
-        nativeGate,
-      );
-      expect(nativeGate, greaterThanOrEqualTo(0));
-      expect(nativeContinue, greaterThan(nativeGate));
-    },
-  );
+    // The sync path reuses the fail-closed begin+sync callables without an
+    // extra consent dialog, and consent refusal marks the pending state.
+    expect(service, contains('requestConsentIfNeeded: false'));
+    expect(
+      service,
+      contains('markRecommendationPrivacyPendingAfterConsentRefusal()'),
+    );
+    expect(
+      service,
+      contains('ensureRequiredConsents(\n        requireTalkMessage: false'),
+    );
+
+    // The screen has no "later" escape and keeps the user here on refusal.
+    expect(screen, isNot(contains('나중에 하기')));
+    expect(screen, contains('markPendingAfterConsentRefusal'));
+    expect(screen, contains('consentRefused'));
+    expect(screen, contains('다시 동의하고 친구 연결하기'));
+
+    // Success re-enters the setup ladder instead of jumping to /main.
+    expect(screen, contains('resolveNextRoute'));
+    expect(screen, isNot(contains('RouteNames.main')));
+  });
+
+  test('setup ladder gates recommendations behind the friend connection', () {
+    final resolver = _read('lib/models/account_setup_state.dart');
+    expect(resolver, contains("userDoc['recommendationPrivacyReady'] == true"));
+    expect(resolver, contains('kakaoConnectionRequired'));
+    expect(resolver, contains('initialFriendSyncRequired'));
+    // Grandfather rule is scoped to legacy docs WITHOUT the field.
+    expect(resolver, contains('GRANDFATHER'));
+  });
 
   test(
     'legacy completed accounts reconcile on the next authenticated start',

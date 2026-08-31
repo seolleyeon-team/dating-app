@@ -1,15 +1,18 @@
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:kakao_flutter_sdk_common/kakao_flutter_sdk_common.dart';
 import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
+import '../models/account_setup_state.dart';
+import '../models/primary_student_email_auth_completion.dart';
 import '../models/user_model.dart';
+import '../services/adult_verification_service.dart';
 import '../services/auth_service.dart';
 import '../services/contact_block_service.dart';
-import '../services/firebase_session_failure.dart';
 import '../services/friend_invite_service.dart';
 import '../services/navigation_service.dart';
 import '../services/storage_service.dart';
@@ -18,6 +21,11 @@ import '../features/auth/utils/email_link_continue_url.dart';
 import '../router/route_names.dart';
 import '../shared/layouts/main_scaffold_args.dart';
 
+/// App-wide auth state for the Yonsei-email-primary architecture.
+///
+/// AUTH INVARIANT: `_isAuthenticated` is derived ONLY from an attached
+/// Firebase session (canonical email custom token, or a grandfathered legacy
+/// session). A cached local id or a Kakao SDK session NEVER authenticates.
 class AuthProvider with ChangeNotifier {
   final AuthService _authService = AuthService();
   final ContactBlockService _contactBlockService = ContactBlockService();
@@ -38,22 +46,31 @@ class AuthProvider with ChangeNotifier {
   UserModel? _currentUser;
   bool _isLoading = false;
   bool _isAuthenticated = false;
-  String? _kakaoUserId;
-  Map<String, dynamic>? _kakaoUserInfo;
+  String? _appUserId;
+  String? _firebaseUid;
   bool _isInitialSetupComplete = false;
   bool _hasSeenTutorial = false;
   bool _isStudentVerified = false;
   String? _studentEmail;
+  AccountSetupState _setupState = AccountSetupState.unauthenticated;
 
   UserModel? get currentUser => _currentUser;
   bool get isLoading => _isLoading;
   bool get isAuthenticated => _isAuthenticated;
-  String? get kakaoUserId => _kakaoUserId;
-  Map<String, dynamic>? get kakaoUserInfo => _kakaoUserInfo;
+  String? get appUserId => _appUserId;
+  String? get firebaseUid => _firebaseUid;
+
+  /// Legacy name: existing accounts' appUserId IS the old Kakao numeric id.
+  String? get kakaoUserId => _appUserId;
+
+  /// Legacy surface for dead stub screens; the new flow never collects Kakao
+  /// profile data.
+  Map<String, dynamic>? get kakaoUserInfo => null;
   bool get isInitialSetupComplete => _isInitialSetupComplete;
   bool get hasSeenTutorial => _hasSeenTutorial;
   bool get isStudentVerified => _isStudentVerified;
   String? get studentEmail => _studentEmail;
+  AccountSetupState get setupState => _setupState;
 
   AuthProvider() {
     debugPrint('[Auth] ctor');
@@ -76,6 +93,17 @@ class AuthProvider with ChangeNotifier {
     debugPrint('[Auth] deep link listeners started');
   }
 
+  void _resetSessionState() {
+    _appUserId = null;
+    _firebaseUid = null;
+    _isAuthenticated = false;
+    _isInitialSetupComplete = false;
+    _hasSeenTutorial = false;
+    _isStudentVerified = false;
+    _studentEmail = null;
+    _setupState = AccountSetupState.unauthenticated;
+  }
+
   Future<void> _checkAuthStatus() async {
     _isLoading = true;
     await Future.delayed(const Duration(milliseconds: 1200));
@@ -83,99 +111,74 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final kakaoUserId = await _storageService.getKakaoUserId();
-      if (kakaoUserId == null || kakaoUserId.isEmpty) {
-        _kakaoUserId = null;
-        _isAuthenticated = false;
+      // Do not consume any session state while a Firebase email action link
+      // is pending: Splash/StudentVerification own that single-use code.
+      if (await _hasPendingEmailLink()) {
+        _emailLinkPendingAtBootstrap = true;
+        _resetSessionState();
+        _setupState = AccountSetupState.emailVerificationPending;
+        _studentEmail = (await _storageService.getPendingStudentEmail())
+            ?.trim()
+            .toLowerCase();
+        return;
+      }
+
+      // Canonical rule: only an attached Firebase session authenticates.
+      // There is NO Kakao-based session restore in this client.
+      final firebaseUser = FirebaseAuth.instance.currentUser;
+      if (firebaseUser == null) {
+        _resetSessionState();
+        return;
+      }
+
+      final uid = firebaseUser.uid;
+      _firebaseUid = uid;
+
+      final profile = await _authService.getUserProfile(uid);
+
+      if (profile != null && await _authService.isRejoinRestricted(uid)) {
+        await _storageService.savePendingRejoinRestrictionNotice();
+        await _authService.signOutAll();
+        await _storageService.clearUserId();
+        await _storageService.clearAppUserId();
+        await _storageService.clearStudentVerification(uid);
+        _resetSessionState();
+        return;
+      }
+
+      _appUserId = uid;
+      _isAuthenticated = true;
+      await _storageService.saveAppUserId(uid);
+
+      if (profile == null) {
+        // Session without a users doc: primary email auth did not finish.
+        // Never trust local SharedPreferences alone for student verification.
         _isInitialSetupComplete = false;
         _hasSeenTutorial = false;
         _isStudentVerified = false;
         _studentEmail = null;
-      } else {
-        // Do not delete the local Kakao identity while the Firebase email
-        // action link is being handled by StudentVerificationScreen.
-        if (await _hasPendingEmailLink()) {
-          _emailLinkPendingAtBootstrap = true;
-          _kakaoUserId = kakaoUserId;
-          _isAuthenticated = false;
-          _isInitialSetupComplete = false;
-          _hasSeenTutorial = false;
-          _isStudentVerified = false;
-          _studentEmail = await _storageService.getStudentEmail(kakaoUserId);
-          return;
-        }
+        await _storageService.setStudentVerified(uid, false);
+        _setupState = AccountSetupState.emailVerificationPending;
+        return;
+      }
 
-        // 로컬 kakaoUserId만으로 인증 상태를 만들지 않는다. 먼저 서버가
-        // 검증한 Kakao 토큰으로 Firebase 세션을 복구해야 Firestore 조회와
-        // 이후 라우팅을 수행할 수 있다.
-        final restoredBeforeBootstrap = await _authService
-            .ensureFirebaseSessionForKakao(kakaoUserId);
-        debugPrint(
-          '[Auth] bootstrap Firebase session restored=$restoredBeforeBootstrap',
-        );
-        if (!restoredBeforeBootstrap) {
-          final preserveLocalIdentity =
-              _authService.lastFirebaseSessionFailure?.isTransient ?? false;
-          if (preserveLocalIdentity) {
-            _kakaoUserId = kakaoUserId;
-          } else {
-            await _storageService.clearKakaoUserId();
-            await _storageService.clearUserId();
-            _kakaoUserId = null;
-          }
-          _isAuthenticated = false;
-          _isInitialSetupComplete = false;
-          _hasSeenTutorial = false;
-          _isStudentVerified = false;
-          _studentEmail = null;
-          return;
-        }
-
-        _kakaoUserId = kakaoUserId;
-        _isAuthenticated = true;
-
-        final exists = await _authService.kakaoUserExists(kakaoUserId);
-        if (exists) {
-          final isRejoinRestricted = await _authService.isRejoinRestricted(
-            kakaoUserId,
-          );
-          if (isRejoinRestricted) {
-            await _storageService.savePendingRejoinRestrictionNotice();
-            await _authService.signOutAll();
-            await _storageService.clearUserId();
-            await _storageService.clearKakaoUserId();
-            await _storageService.clearStudentVerification(kakaoUserId);
-            _kakaoUserId = null;
-            _isAuthenticated = false;
-            _isInitialSetupComplete = false;
-            _hasSeenTutorial = false;
-            _isStudentVerified = false;
-            _studentEmail = null;
-            return;
-          }
-          _isInitialSetupComplete = await _authService.isInitialSetupComplete(
-            kakaoUserId,
-          );
-          _hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
-          _isStudentVerified = await _authService.isStudentVerified(
-            kakaoUserId,
-          );
-          _isStudentVerified = await _authService.isStudentVerified(
-            kakaoUserId,
-          );
-          _studentEmail = await _authService.getStudentEmail(kakaoUserId);
-          if (_isInitialSetupComplete) {
-            await _reconcileRecommendationPrivacyIfNeeded();
-          }
-        } else {
-          // Never trust local SharedPreferences alone for student verification -
-          // a modified device could skip the Yonsei email gate.
-          _isInitialSetupComplete = false;
-          _hasSeenTutorial = false;
-          _isStudentVerified = false;
-          _studentEmail = null;
-          await _storageService.setStudentVerified(kakaoUserId, false);
-        }
+      _isStudentVerified = profile['isStudentVerified'] == true;
+      final rawEmail = profile['studentEmail'];
+      _studentEmail = rawEmail is String && rawEmail.trim().isNotEmpty
+          ? rawEmail.trim().toLowerCase()
+          : null;
+      _isInitialSetupComplete = _isTruthyMarker(
+        profile['initialSetupComplete'],
+      );
+      _hasSeenTutorial = profile['hasSeenTutorial'] == true;
+      _setupState = resolveAccountSetupState(
+        hasFirebaseSession: true,
+        userDoc: profile,
+        adultVerificationDisabled:
+            AdultVerificationService.isTemporarilyDisabled,
+      );
+      if (_isInitialSetupComplete) {
+        await _reconcileRecommendationPrivacyIfNeeded();
       }
     } catch (e) {
       debugPrint(
@@ -186,6 +189,10 @@ class AuthProvider with ChangeNotifier {
       _isInitialized = true;
       notifyListeners();
     }
+  }
+
+  static bool _isTruthyMarker(Object? v) {
+    return v == true || v == 'true' || (v is num && v != 0);
   }
 
   // ---------------------------------------------------------------------------
@@ -240,6 +247,8 @@ class AuthProvider with ChangeNotifier {
     );
   }
 
+  /// The Kakao scheme listener stays: the friend-connection OAuth callback
+  /// arrives through it. It never authenticates the account.
   void _startKakaoSchemeListener() {
     _kakaoSchemeSub = kakaoSchemeStream.listen(
       (link) async {
@@ -297,8 +306,6 @@ class AuthProvider with ChangeNotifier {
     _emailLinkHandling = true;
 
     try {
-      final localKakaoUserId =
-          (_kakaoUserId ?? await _storageService.getKakaoUserId())?.trim();
       final verificationToken = extractStudentEmailLinkToken(link);
       if (verificationToken == null || verificationToken.isEmpty) {
         debugPrint('No email-link binding token. Cannot complete sign-in.');
@@ -308,13 +315,12 @@ class AuthProvider with ChangeNotifier {
       final tokenEmail = await _authService.getEmailForStudentEmailLinkToken(
         verificationToken,
       );
-      final savedEmail = localKakaoUserId == null
-          ? ''
-          : (await _storageService.getStudentEmail(localKakaoUserId) ?? '')
-                .trim()
-                .toLowerCase();
-      final email = (tokenEmail ?? savedEmail).isNotEmpty
-          ? (tokenEmail ?? savedEmail)
+      final pendingEmail =
+          (await _storageService.getPendingStudentEmail() ?? '')
+              .trim()
+              .toLowerCase();
+      final email = (tokenEmail ?? pendingEmail).isNotEmpty
+          ? (tokenEmail ?? pendingEmail)
           : (_studentEmail ?? '').trim().toLowerCase();
 
       if (email.isEmpty) {
@@ -325,26 +331,27 @@ class AuthProvider with ChangeNotifier {
       _isLoading = true;
       notifyListeners();
 
+      // 1) One-time action code proves mailbox ownership (temp session).
       await _authService.signInWithEmailLink(email: email, emailLink: link);
-      final completion = await _authService.completeStudentEmailLink(
+      // 2) Server resolves appUserId, consumes the token and mints the
+      //    canonical custom token (uid == appUserId asserted client-side).
+      final completion = await _authService.completePrimaryStudentEmailAuth(
         token: verificationToken,
-        expectedKakaoUserId: localKakaoUserId,
       );
-      final kakaoUserId = completion.kakaoUserId;
-      await _storageService.saveKakaoUserId(kakaoUserId);
-      await _storageService.saveStudentEmail(kakaoUserId, completion.email);
-      await _storageService.saveStudentVerificationToken(
-        kakaoUserId,
-        verificationToken,
+      final appUserId = completion.appUserId;
+      await _storageService.saveAppUserId(appUserId);
+      await _storageService.saveStudentEmail(
+        appUserId,
+        completion.normalizedEmail,
       );
-      await _storageService.setStudentVerified(kakaoUserId, true);
-      await applyEmailLinkCompletion(
-        kakaoUserId: kakaoUserId,
-        email: completion.email,
-      );
+      await _storageService.setStudentVerified(appUserId, true);
+      await _storageService.clearPendingStudentEmail();
+      await _storageService.clearPendingStudentEmailRequestId();
+      await applyPrimaryEmailAuthCompletion(completion);
 
       debugPrint(
-        'Email link verification complete ${PrivacyLogUtils.idFingerprint(completion.email)}',
+        'Email link verification complete '
+        '${PrivacyLogUtils.idFingerprint(completion.normalizedEmail)}',
       );
     } catch (e) {
       debugPrint(
@@ -423,12 +430,9 @@ class AuthProvider with ChangeNotifier {
       final title = result.status == FriendInviteAcceptStatus.pendingLogin
           ? '로그인이 필요해요'
           : '학생 인증이 필요해요';
-      final actionLabel = result.status == FriendInviteAcceptStatus.pendingLogin
-          ? '카카오 로그인'
-          : '학생 인증하기';
-      final route = result.status == FriendInviteAcceptStatus.pendingLogin
-          ? RouteNames.kakaoAuth
-          : RouteNames.studentVerification;
+      const actionLabel = '연세 메일 로그인';
+      // Both states resolve on the same primary email login screen.
+      const route = RouteNames.studentVerification;
 
       await showCupertinoDialog<void>(
         context: context,
@@ -442,7 +446,7 @@ class AuthProvider with ChangeNotifier {
                 Navigator.of(dialogContext, rootNavigator: true).pop();
                 navigator.pushNamed(route);
               },
-              child: Text(actionLabel),
+              child: const Text(actionLabel),
             ),
             CupertinoDialogAction(
               onPressed: () =>
@@ -456,7 +460,10 @@ class AuthProvider with ChangeNotifier {
     }
 
     final shouldNavigateToFriends =
-        result.isSuccessLike && _isStudentVerified && _isInitialSetupComplete;
+        result.isSuccessLike &&
+        _isStudentVerified &&
+        _isInitialSetupComplete &&
+        _setupState == AccountSetupState.complete;
 
     final title = switch (result.status) {
       FriendInviteAcceptStatus.accepted => '친구 추가 완료',
@@ -502,54 +509,8 @@ class AuthProvider with ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ Kakao Login / State setters
+  // ✅ Primary email auth completion / State setters
   // ---------------------------------------------------------------------------
-
-  Future<void> setKakaoLogin(
-    String kakaoUserId, {
-    Map<String, dynamic>? userInfo,
-  }) async {
-    _isLoading = true;
-    notifyListeners();
-
-    try {
-      final firebaseAttached = await _authService.ensureFirebaseSessionForKakao(
-        kakaoUserId,
-      );
-      if (!firebaseAttached) {
-        throw _authService.lastFirebaseSessionFailure ??
-            const FirebaseSessionFailure(
-              reason: FirebaseSessionFailureReason.callableFailed,
-            );
-      }
-
-      await _storageService.saveKakaoUserId(kakaoUserId);
-      await PushNotificationService.instance.syncFcmToken();
-      await _authService.syncPendingLegalConsents(kakaoUserId);
-
-      _kakaoUserId = kakaoUserId;
-      _isAuthenticated = true;
-      _kakaoUserInfo = userInfo;
-
-      _isInitialSetupComplete = await _authService.isInitialSetupComplete(
-        kakaoUserId,
-      );
-      _hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
-      _isStudentVerified = await _authService.isStudentVerified(kakaoUserId);
-      _studentEmail = await _authService.getStudentEmail(kakaoUserId);
-      if (_isInitialSetupComplete) {
-        await _reconcileRecommendationPrivacyIfNeeded();
-      }
-    } catch (e) {
-      debugPrint(
-        'Error saving kakao user id: ${PrivacyLogUtils.errorSummary(e)}',
-      );
-      rethrow;
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
 
   Future<void> _reconcileRecommendationPrivacyIfNeeded() async {
     try {
@@ -574,8 +535,8 @@ class AuthProvider with ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   Future<void> setStudentVerified(String email) async {
-    final kakaoUserId = _kakaoUserId;
-    if (kakaoUserId == null) return;
+    final appUserId = _appUserId;
+    if (appUserId == null) return;
 
     // 안전장치: 연세 메일만 허용
     final normalized = email.trim().toLowerCase();
@@ -587,50 +548,69 @@ class AuthProvider with ChangeNotifier {
     }
 
     await _authService.setStudentVerified(
-      kakaoUserId: kakaoUserId,
+      kakaoUserId: appUserId,
       studentEmail: normalized,
     );
 
     _isStudentVerified = true;
     _studentEmail = normalized;
 
-    await _storageService.saveKakaoUserId(kakaoUserId);
-    await _storageService.saveStudentEmail(kakaoUserId, normalized);
-    await _storageService.setStudentVerified(kakaoUserId, true);
+    await _storageService.saveAppUserId(appUserId);
+    await _storageService.saveStudentEmail(appUserId, normalized);
+    await _storageService.setStudentVerified(appUserId, true);
 
     notifyListeners();
   }
 
-  /// Applies the server-confirmed email-link completion to the in-memory
-  /// provider. This is needed when the link opens in a new browser tab where
-  /// bootstrap had no local Kakao identity to restore.
-  Future<void> applyEmailLinkCompletion({
-    required String kakaoUserId,
-    required String email,
-  }) async {
-    final normalizedEmail = email.trim().toLowerCase();
-    if (kakaoUserId.trim().isEmpty ||
-        !normalizedEmail.endsWith('@yonsei.ac.kr')) {
-      throw ArgumentError('invalid_email_link_completion');
+  /// Applies the server-confirmed primary email auth completion to the
+  /// in-memory provider. Called after `completePrimaryStudentEmailAuth`
+  /// signed in with the canonical custom token (uid == appUserId).
+  Future<void> applyPrimaryEmailAuthCompletion(
+    PrimaryStudentEmailAuthCompletion completion,
+  ) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid != completion.appUserId) {
+      throw StateError('primary_email_auth_uid_mismatch');
     }
 
-    _kakaoUserId = kakaoUserId;
+    _appUserId = completion.appUserId;
+    _firebaseUid = uid;
     _isAuthenticated = true;
     _isStudentVerified = true;
-    _studentEmail = normalizedEmail;
+    _studentEmail = completion.normalizedEmail;
     _emailLinkPendingAtBootstrap = false;
-    _isInitialSetupComplete = await _authService.isInitialSetupComplete(
-      kakaoUserId,
-    );
-    _hasSeenTutorial = await _authService.hasSeenTutorial(kakaoUserId);
+    _isInitialSetupComplete = completion.initialSetupComplete;
+
+    await _storageService.saveAppUserId(uid);
+    try {
+      await PushNotificationService.instance.syncFcmToken();
+    } catch (e) {
+      debugPrint('[Auth] FCM sync skipped: ${PrivacyLogUtils.errorSummary(e)}');
+    }
+
+    try {
+      final profile = await _authService.getUserProfile(uid);
+      _hasSeenTutorial = profile?['hasSeenTutorial'] == true;
+      _setupState = resolveAccountSetupState(
+        hasFirebaseSession: true,
+        userDoc: profile,
+        adultVerificationDisabled:
+            AdultVerificationService.isTemporarilyDisabled,
+      );
+    } catch (e) {
+      debugPrint(
+        '[Auth] post-completion hydrate failed: '
+        '${PrivacyLogUtils.errorSummary(e)}',
+      );
+    }
     notifyListeners();
   }
 
   Future<void> markTutorialSeen() async {
-    final kakaoUserId = _kakaoUserId;
-    if (kakaoUserId == null) return;
+    final appUserId = _appUserId;
+    if (appUserId == null) return;
 
-    await _authService.setTutorialSeen(kakaoUserId);
+    await _authService.setTutorialSeen(appUserId);
     _hasSeenTutorial = true;
     notifyListeners();
   }
@@ -677,24 +657,22 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final kakaoUserId = _kakaoUserId;
+      final appUserId = _appUserId;
+      // Firebase sign-out + Kakao SDK logout: the next user on this device
+      // must not inherit a stale Kakao friend-connection session.
       await _authService.signOutAll();
       await _friendInviteService.clearPendingInviteToken();
-      if (kakaoUserId != null && kakaoUserId.isNotEmpty) {
-        await _storageService.clearUserScopedSession(kakaoUserId);
+      if (appUserId != null && appUserId.isNotEmpty) {
+        await _storageService.clearUserScopedSession(appUserId);
       } else {
         await _storageService.clearUserId();
-        await _storageService.clearKakaoUserId();
+        await _storageService.clearAppUserId();
+        await _storageService.clearPendingStudentEmail();
+        await _storageService.clearPendingStudentEmailRequestId();
       }
 
       _currentUser = null;
-      _isAuthenticated = false;
-      _kakaoUserId = null;
-      _kakaoUserInfo = null;
-      _hasSeenTutorial = false;
-      _isInitialSetupComplete = false;
-      _isStudentVerified = false;
-      _studentEmail = null;
+      _resetSessionState();
     } catch (e) {
       debugPrint('Error during logout: ${PrivacyLogUtils.errorSummary(e)}');
     } finally {
@@ -707,69 +685,21 @@ class AuthProvider with ChangeNotifier {
   // ⚠️ Legacy (Phone / Portal) - 지금 정책상 미사용이지만 당장 삭제는 보류
   // ---------------------------------------------------------------------------
 
-  @Deprecated('Phone signup is deprecated. Use Kakao + Yonsei email link.')
+  @Deprecated('Phone signup is deprecated. Use Yonsei email link.')
   Future<bool> signUp({
     required String phoneNumber,
     required String verificationCode,
     String? kakaoToken,
   }) async {
-    _isLoading = true;
-    notifyListeners();
-
-    try {
-      final user = await _authService.signUp(
-        phoneNumber: phoneNumber,
-        verificationCode: verificationCode,
-        kakaoToken: kakaoToken,
-      );
-
-      if (user != null) {
-        _currentUser = user;
-        _isAuthenticated = true;
-        await _storageService.saveUserId(user.id);
-        notifyListeners();
-        return true;
-      }
-      return false;
-    } catch (e) {
-      debugPrint('Error during signup: ${PrivacyLogUtils.errorSummary(e)}');
-      return false;
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
+    // Authentication state may only come from a verified Firebase session
+    // (contract §1). This legacy path must never fabricate one.
+    return false;
   }
 
   @Deprecated('Portal ID/PW collection is not allowed. Do not use.')
   Future<bool> verifyStudent(String portalId, String portalPassword) async {
-    if (_currentUser == null) return false;
-
-    _isLoading = true;
-    notifyListeners();
-
-    try {
-      final verified = await _authService.verifyStudent(
-        userId: _currentUser!.id,
-        portalId: portalId,
-        portalPassword: portalPassword,
-      );
-
-      if (verified) {
-        _currentUser = _currentUser!.copyWith(isStudentVerified: true);
-        await _authService.updateUser(_currentUser!);
-        notifyListeners();
-        return true;
-      }
-      return false;
-    } catch (e) {
-      debugPrint(
-        'Error during student verification: ${PrivacyLogUtils.errorSummary(e)}',
-      );
-      return false;
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
+    // Student verification may only come from the server-verified email flow.
+    return false;
   }
 }
 

@@ -7,55 +7,24 @@ import '../../core/constants/app_typography.dart';
 import '../../providers/auth_provider.dart';
 import '../../router/route_names.dart';
 import '../../services/adult_verification_service.dart';
-import '../../services/auth_service.dart';
 
+/// Legacy stub. Kakao NEVER authenticates the Seolleyeon account anymore:
+/// the PRIMARY credential is the verified Yonsei email link. This stub only
+/// forwards to the adult-verification gate / email login screen.
 class KakaoLoginScreen extends StatelessWidget {
   const KakaoLoginScreen({super.key});
 
-  Future<void> _handleKakaoLogin(BuildContext context) async {
-    final authService = AuthService();
-    final authProvider = context.read<AuthProvider>();
+  Future<void> _handleContinue(BuildContext context) async {
     final adultVerificationService = AdultVerificationService();
 
-    try {
-      if (!await adultVerificationService.hasPendingKakaoLoginSession()) {
-        if (!context.mounted) return;
-        Navigator.of(
-          context,
-        ).pushReplacementNamed(RouteNames.adultVerification);
-        return;
-      }
-
-      final userInfo = await authService.loginWithKakao();
-
-      final kakaoUserId = userInfo['id']?.toString();
-      if (kakaoUserId != null) {
-        await authProvider.setKakaoLogin(kakaoUserId, userInfo: userInfo);
-        final verificationResult = await adultVerificationService
-            .verifyPendingSessionAfterLogin();
-        if (!verificationResult.isVerified) {
-          if (!context.mounted) return;
-          Navigator.of(
-            context,
-          ).pushReplacementNamed(RouteNames.adultVerification);
-          return;
-        }
-      }
-
+    if (!await adultVerificationService.hasPendingKakaoLoginSession()) {
       if (!context.mounted) return;
-      if (!authProvider.isStudentVerified) {
-        context.go('/student-verification');
-      } else if (!authProvider.isInitialSetupComplete) {
-        context.go('/initial-setup');
-      } else {
-        context.go('/home');
-      }
-    } catch (e) {
-      final message = e.toString().replaceFirst('Exception: ', '');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: AppColors.error),
-      );
+      Navigator.of(context).pushReplacementNamed(RouteNames.adultVerification);
+      return;
     }
+
+    if (!context.mounted) return;
+    context.go('/student-verification');
   }
 
   @override
@@ -65,7 +34,7 @@ class KakaoLoginScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('카카오 로그인'),
+        title: const Text('로그인'),
         backgroundColor: AppColors.background,
         elevation: 0,
       ),
@@ -79,7 +48,7 @@ class KakaoLoginScreen extends StatelessWidget {
               const Text('설레연 시작하기', style: AppTypography.h2),
               const SizedBox(height: 8),
               const Text(
-                '약관 동의가 완료됐어요.\n카카오 계정으로 로그인해 주세요.',
+                '약관 동의가 완료됐어요.\n연세 이메일로 로그인해 주세요.',
                 style: AppTypography.bodyLarge,
               ),
               const SizedBox(height: 24),
@@ -115,10 +84,10 @@ class KakaoLoginScreen extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 14),
-                        const Text('카카오로 계속하기', style: AppTypography.h3),
+                        const Text('연세 메일로 계속하기', style: AppTypography.h3),
                         const SizedBox(height: 6),
                         const Text(
-                          '로그인 후 연세 메일 인증과 기본 정보를 입력하게 됩니다.',
+                          '연세 메일 인증으로 로그인한 뒤 기본 정보를 입력하게 됩니다.',
                           style: AppTypography.bodyMedium,
                         ),
                         const Spacer(),
@@ -128,7 +97,7 @@ class KakaoLoginScreen extends StatelessWidget {
                           child: ElevatedButton(
                             onPressed: isLoading
                                 ? null
-                                : () => _handleKakaoLogin(context),
+                                : () => _handleContinue(context),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.primary,
                               foregroundColor: Colors.white,
@@ -145,7 +114,7 @@ class KakaoLoginScreen extends StatelessWidget {
                                       color: Colors.white,
                                     ),
                                   )
-                                : const Text('카카오로 로그인'),
+                                : const Text('연세 메일로 로그인'),
                           ),
                         ),
                         const SizedBox(height: 10),

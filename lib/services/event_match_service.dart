@@ -32,7 +32,7 @@ class EventMatchService {
       throw StateError('로그인이 필요해요.');
     }
 
-    await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
+    await _authService.ensureCanonicalAppSession();
     final token = await _authService.getKakaoAccessTokenForFunctions();
     final payload = Map<String, dynamic>.from(extra);
     if (token != null && token.isNotEmpty) {

@@ -5,10 +5,16 @@ class RouteNames {
   // Auth
   static const String splash = '/';
   static const String login = '/login';
+
+  /// Legacy alias. Old deep links/pushes may still target it; it now resolves
+  /// to the primary email login screen (Kakao never authenticates).
   static const String kakaoAuth = '/kakao-auth';
   static const String terms = '/terms';
   static const String adultVerification = '/adult-verification';
   static const String studentVerification = '/student-verification';
+
+  /// Post-auth Kakao friend connection (아는 사람 추천 차단). Not a login.
+  static const String kakaoFriendConnect = '/kakao-friend-connect';
 
   // Onboarding
   static const String onboardingBasicInfo = '/onboarding/basic-info';

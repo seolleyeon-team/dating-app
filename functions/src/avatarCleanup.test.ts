@@ -26,6 +26,8 @@ const zeroAccountDeletionCounts = {
   reverseBlockTargetsDeleted: 0,
   recommendationExclusionTargetsDeleted: 0,
   reverseRecommendationExclusionTargetsDeleted: 0,
+  studentEmailBindingsDeleted: 0,
+  kakaoIdentitiesDeleted: 0,
   interactionsDeleted: 0,
   asksDeleted: 0,
   friendshipsDeleted: 0,
@@ -363,6 +365,8 @@ test("account deletion plans scoped PII cleanup operations", () => {
     reverseBlockViewerUids: ["blocker_u3", "u1"],
     recommendationExclusionTargetIds: ["friend_u4"],
     reverseRecommendationExclusionViewerUids: ["friend_u5", "u1"],
+    studentEmailBindingIds: ["email_hash_1"],
+    kakaoIdentityHashIds: ["identity_hash_1", "identity_hash_2"],
   });
 
   const operations = planAccountDeletionPiiOperations({ uid: "u1", docs });
@@ -382,6 +386,9 @@ test("account deletion plans scoped PII cleanup operations", () => {
       kind: "deleteReverseRecommendationExclusionTarget",
       viewerUid: "friend_u5",
     },
+    { kind: "deleteStudentEmailBinding", emailHash: "email_hash_1" },
+    { kind: "deleteKakaoIdentity", kakaoIdentityHash: "identity_hash_1" },
+    { kind: "deleteKakaoIdentity", kakaoIdentityHash: "identity_hash_2" },
   ]);
 });
 
@@ -428,6 +435,8 @@ test("account deletion includes PII cleanup counts and skips PII for consent wit
           reverseBlockViewerUids: ["viewer_1"],
           recommendationExclusionTargetIds: ["target_2"],
           reverseRecommendationExclusionViewerUids: ["viewer_2"],
+          studentEmailBindingIds: ["email_hash_1"],
+          kakaoIdentityHashIds: ["identity_hash_1"],
         }),
       };
     },
@@ -462,6 +471,8 @@ test("account deletion includes PII cleanup counts and skips PII for consent wit
     reverseBlockTargetsDeleted: 1,
     recommendationExclusionTargetsDeleted: 1,
     reverseRecommendationExclusionTargetsDeleted: 1,
+    studentEmailBindingsDeleted: 1,
+    kakaoIdentitiesDeleted: 1,
     interactionsDeleted: 0,
     asksDeleted: 0,
     friendshipsDeleted: 0,

@@ -8,10 +8,16 @@ import 'adult_verification_result.dart';
 class StorageService {
   static const String _userIdKey = 'user_id';
 
-  /// 카카오 로그인 시 받은 숫자 ID (Kakao User API `id`).
-  /// Firestore 프로필·친구·팀 등은 모두 `users/{kakaoUserId}` 문서를 가리킨다.
-  /// 이 값은 SharedPreferences에만 저장되며, "컬렉션"이 아니다.
-  static const String _kakaoUserIdKey = 'kakao_user_id';
+  /// Canonical appUserId cache (= `users/{docId}` document id).
+  ///
+  /// Historically this held the Kakao numeric ID; existing accounts keep that
+  /// value as their appUserId forever, so the SAME pref key is reused for
+  /// install compatibility. The value is a UX cache only — never proof of
+  /// authentication (the Firebase session is the authority).
+  static const String _appUserIdKey = 'kakao_user_id';
+  static const String _pendingStudentEmailKey = 'pending_student_email';
+  static const String _pendingStudentEmailRequestIdKey =
+      'pending_student_email_request_id';
   static const String _isFirstLaunchKey = 'is_first_launch';
   static const String _hasSeenTutorialKey = 'has_seen_tutorial';
   static const String _studentEmailKeyPrefix = 'student_email_';
@@ -44,19 +50,64 @@ class StorageService {
     await prefs.remove(_userIdKey);
   }
 
-  Future<void> saveKakaoUserId(String kakaoUserId) async {
+  Future<void> saveAppUserId(String appUserId) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kakaoUserIdKey, kakaoUserId);
+    await prefs.setString(_appUserIdKey, appUserId);
   }
 
-  Future<String?> getKakaoUserId() async {
+  Future<String?> getAppUserId() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_kakaoUserIdKey);
+    return prefs.getString(_appUserIdKey);
   }
 
-  Future<void> clearKakaoUserId() async {
+  Future<void> clearAppUserId() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_kakaoUserIdKey);
+    await prefs.remove(_appUserIdKey);
+  }
+
+  /// Legacy name. Delegates to [saveAppUserId] (same pref key).
+  Future<void> saveKakaoUserId(String kakaoUserId) =>
+      saveAppUserId(kakaoUserId);
+
+  /// Legacy name. Delegates to [getAppUserId] (same pref key).
+  Future<String?> getKakaoUserId() => getAppUserId();
+
+  /// Legacy name. Delegates to [clearAppUserId] (same pref key).
+  Future<void> clearKakaoUserId() => clearAppUserId();
+
+  // ---------------------------------------------------------------------------
+  // Pre-auth pending Yonsei email (global keys — NO user namespace; primary
+  // email login runs before any identity exists on the device).
+  // ---------------------------------------------------------------------------
+
+  Future<void> savePendingStudentEmail(String email) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_pendingStudentEmailKey, email);
+  }
+
+  Future<String?> getPendingStudentEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_pendingStudentEmailKey);
+  }
+
+  Future<void> clearPendingStudentEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_pendingStudentEmailKey);
+  }
+
+  Future<void> savePendingStudentEmailRequestId(String requestId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_pendingStudentEmailRequestIdKey, requestId);
+  }
+
+  Future<String?> getPendingStudentEmailRequestId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_pendingStudentEmailRequestIdKey);
+  }
+
+  Future<void> clearPendingStudentEmailRequestId() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_pendingStudentEmailRequestIdKey);
   }
 
   Future<void> saveEventTeamSetupDraftId(
@@ -316,14 +367,16 @@ class StorageService {
     await prefs.clear();
   }
 
-  /// Clears local preferences scoped to a Kakao user on logout.
+  /// Clears local preferences scoped to an app user on logout.
   /// Keeps device-level flags such as first-launch / tutorial if desired by caller.
-  Future<void> clearUserScopedSession(String kakaoUserId) async {
-    await clearStudentVerification(kakaoUserId);
-    await clearEventTeamSetupDraftId(kakaoUserId);
-    await clearOnboardingDraft(kakaoUserId);
-    await clearKakaoUserId();
+  Future<void> clearUserScopedSession(String appUserId) async {
+    await clearStudentVerification(appUserId);
+    await clearEventTeamSetupDraftId(appUserId);
+    await clearOnboardingDraft(appUserId);
+    await clearAppUserId();
     await clearUserId();
     await clearPendingFriendInviteToken();
+    await clearPendingStudentEmail();
+    await clearPendingStudentEmailRequestId();
   }
 }

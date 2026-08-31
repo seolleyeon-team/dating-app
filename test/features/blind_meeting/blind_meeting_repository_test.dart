@@ -25,7 +25,7 @@ class _FakeAuthService extends AuthService {
   int kakaoTokenCalls = 0;
 
   @override
-  Future<bool> ensureFirebaseSessionForKakao(String kakaoUserId) async {
+  Future<bool> ensureCanonicalAppSession() async {
     ensureCalls++;
     return sessionAttached;
   }

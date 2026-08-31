@@ -77,9 +77,9 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
       });
       return;
     }
-    // Firebase 커스텀 토큰 실패해도 ensureTeamSetup 내부에서 다시 시도하며,
+    // 세션 확인이 실패해도 ensureTeamSetup 내부에서 다시 시도하며,
     // 팀 문서 조회는 rules상 공개 read라 화면은 teamSetupId만 있으면 표시한다.
-    final ok = await _auth.ensureFirebaseSessionForKakao(uid);
+    final ok = await _auth.ensureCanonicalAppSession();
     if (!mounted) return;
     setState(() {
       _kakaoUserId = uid;
@@ -208,7 +208,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
     final uid = _kakaoUserId;
     if (uid == null || uid.isEmpty) return;
     if (!_sessionOk) {
-      final ok = await _auth.ensureFirebaseSessionForVerifiedUser(uid);
+      final ok = await _auth.ensureCanonicalAppSession();
       if (!mounted) return;
       setState(() => _sessionOk = ok);
       if (!ok) {
@@ -228,11 +228,11 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
       return;
     }
     if (!_sessionOk) {
-      final ok = await _auth.ensureFirebaseSessionForKakao(uid);
+      final ok = await _auth.ensureCanonicalAppSession();
       if (!mounted) return;
       setState(() => _sessionOk = ok);
       if (!ok) {
-        _briefAlert('카카오·네트워크 연결을 확인한 뒤 다시 시도해주세요.');
+        _briefAlert('로그인·네트워크 연결을 확인한 뒤 다시 시도해주세요.');
         return;
       }
     }

@@ -47,14 +47,14 @@ class FirebaseMeetingIcebreakerRepository
   final AuthService _authService;
   final StorageService _storageService;
 
-  /// 카카오 로그인 상태를 Firebase Auth 세션으로 승격한다.
+  /// canonical Firebase Auth 세션(uid == appUserId)이 붙어 있는지 확인한다.
   ///
   /// callable은 request.auth.uid만 신뢰하므로 세션이 없으면 호출하지 않는다.
   Future<bool> _ensureSession() async {
     try {
-      final userId = await _storageService.getKakaoUserId();
+      final userId = await _storageService.getAppUserId();
       if (userId == null || userId.isEmpty) return false;
-      return await _authService.ensureFirebaseSessionForKakao(userId);
+      return await _authService.ensureCanonicalAppSession();
     } catch (error) {
       debugPrint(
         '[ICEBREAKER] session attach failed: '

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
+import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuth;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,16 +10,19 @@ import 'package:uuid/uuid.dart';
 
 import '../../../providers/auth_provider.dart';
 import '../../../router/route_names.dart';
+import '../../../services/account_setup_flow.dart';
 import '../../../services/auth_service.dart';
-import '../../../services/contact_block_service.dart';
 import '../../../services/firebase_diagnostics.dart';
 import '../../../services/friend_invite_service.dart';
 import '../../../services/storage_service.dart';
-import '../../../shared/layouts/main_scaffold_args.dart';
 import '../../../utils/open_mail_app.dart';
 import '../utils/email_link_continue_url.dart';
-import '../utils/post_student_verification_route.dart';
 
+/// 연세 이메일 인증 = 설레연 PRIMARY 로그인 화면.
+///
+/// 카카오 계정/세션과 무관하게 동작한다: 메일 발송에도, 링크 완료에도 카카오
+/// 전제조건이 없다. 링크 완료 → `completePrimaryStudentEmailAuth` → canonical
+/// Firebase 세션(uid == appUserId) → 성인인증 확인 → 설정 사다리 라우팅.
 class StudentVerificationScreen extends StatefulWidget {
   const StudentVerificationScreen({super.key});
 
@@ -32,15 +36,13 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _authService = AuthService();
-  final _contactBlockService = ContactBlockService();
   final _storageService = StorageService();
   final _friendInviteService = FriendInviteService();
+  final _setupFlow = AccountSetupFlow();
 
   bool _isSending = false;
   bool _isVerifying = false;
   String? _statusMessage;
-  String? _pendingEmailRequestId;
-  String? _pendingEmailRequestEmail;
   StreamSubscription<Uri>? _linkSubscription;
   int _resumeKey = 0; // 앱 복귀 시 위젯 강제 재생성용
 
@@ -67,32 +69,6 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     );
   }
 
-  Future<bool> _ensureFirebaseSessionAfterVerification(
-    String kakaoUserId, {
-    bool showDialogOnFailure = true,
-  }) async {
-    final hasFirebaseSession = await _authService
-        .ensureFirebaseSessionForVerifiedUser(kakaoUserId);
-    if (hasFirebaseSession) {
-      return true;
-    }
-
-    if (!mounted) return false;
-
-    const detailMessage =
-        '학생 인증은 확인됐지만 현재 브라우저의 로그인 세션을 복구하지 못했어요.\n\n'
-        '가장 최근에 받은 인증 메일 링크를 이 브라우저에서 다시 열어주세요.';
-
-    setState(() {
-      _statusMessage = '학생 인증은 확인됐지만 현재 브라우저 로그인 세션을 복구하지 못했어요.';
-    });
-
-    if (showDialogOnFailure) {
-      await _showDialogMessage('인증 세션 확인 필요', detailMessage);
-    }
-    return false;
-  }
-
   Future<bool> _handlePendingInviteAfterVerification() async {
     final pendingToken = await _friendInviteService.getPendingInviteToken();
     debugPrint(
@@ -115,72 +91,39 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         actions: [
           CupertinoDialogAction(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(result.isSuccessLike ? '친구 목록 보기' : '확인'),
+            child: const Text('확인'),
           ),
         ],
       ),
     );
 
-    if (!mounted || !result.isSuccessLike) {
-      return false;
-    }
-
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      RouteNames.main,
-      (route) => false,
-      arguments: const MainScaffoldArgs(
-        initialTabIndex: 4,
-        pendingRouteName: RouteNames.friendsList,
-      ),
-    );
-    return true;
+    // 초대 수락 후에도 반드시 설정 사다리를 다시 통과한다. (친구 연결,
+    // 온보딩 등이 남아 있으면 main 으로 직행할 수 없다.)
+    return false;
   }
 
-  /// Reads the server-owned onboarding marker after Yonsei verification.
-  /// A returning user who has already completed every required profile step
-  /// should never be sent back through onboarding merely to verify email.
-  Future<void> _navigateAfterStudentVerification(String kakaoUserId) async {
-    final initialSetupComplete = await _authService.isInitialSetupComplete(
-      kakaoUserId,
-    );
-    final nextOnboardingRoute = initialSetupComplete
-        ? null
-        : await _authService.getOnboardingNextRoute(kakaoUserId);
-    if (!mounted) return;
+  /// 이메일 인증 확정 이후의 공통 체인: 성인인증 확인 → 약관 동의 서버 반영 →
+  /// 대기 중 친구초대 처리 → 설정 사다리 라우팅.
+  Future<void> _continueAfterPrimaryAuth(String appUserId) async {
+    final adultConfirmed = await _setupFlow
+        .confirmPendingAdultVerificationIfNeeded();
+    await _setupFlow.flushPendingLegalConsents();
 
-    // Some existing users completed every required profile field before this
-    // explicit marker was introduced. Persist the marker before entering main
-    // so the rest of the app observes the same server-confirmed state.
-    final inferredComplete =
-        !initialSetupComplete && nextOnboardingRoute == null;
-    if (inferredComplete) {
-      await _contactBlockService.syncKakaoTalkFriendBlocks();
-      await _authService.completeOnboarding(kakaoUserId);
-      if (!mounted) return;
-      context.read<AuthProvider>().markInitialSetupComplete();
-    }
-
-    final route = resolvePostStudentVerificationRoute(
-      initialSetupComplete: initialSetupComplete,
-      nextOnboardingRoute: nextOnboardingRoute,
-    );
-    if (route != RouteNames.main) {
-      await _storageService.saveStudentVerificationWelcome(kakaoUserId);
-    }
     if (!mounted) return;
-    if (route == RouteNames.main) {
-      final privacyStatus = await _contactBlockService
-          .getKakaoFriendAvoidanceStatus();
-      if (!privacyStatus.recommendationPrivacyReady) {
-        await _contactBlockService.syncKakaoTalkFriendBlocks();
-      }
-      if (!mounted) return;
-      Navigator.of(
-        context,
-      ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
+    if (!adultConfirmed) {
+      Navigator.of(context).pushReplacementNamed(RouteNames.adultVerification);
       return;
     }
-    Navigator.of(context).pushReplacementNamed(route);
+
+    await _handlePendingInviteAfterVerification();
+    if (!mounted) return;
+
+    final route = await _setupFlow.resolveNextRoute();
+    if (route != RouteNames.main) {
+      await _storageService.saveStudentVerificationWelcome(appUserId);
+    }
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil(route, (r) => false);
   }
 
   @override
@@ -191,6 +134,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       _prefillSavedEmail();
       _checkForEmailLink();
       _listenForEmailLink();
+      _resumeExistingSessionIfComplete();
     });
   }
 
@@ -223,10 +167,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
   }
 
   Future<void> _prefillSavedEmail() async {
-    final kakaoUserId = await _storageService.getKakaoUserId();
-    if (kakaoUserId == null) return;
-
-    final saved = await _storageService.getStudentEmail(kakaoUserId);
+    final saved = await _storageService.getPendingStudentEmail();
     if (saved == null || saved.trim().isEmpty) return;
 
     final localPart = saved.trim().toLowerCase().split('@').first;
@@ -244,26 +185,24 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     super.dispose();
   }
 
-  /// 앱 복귀 시 인증 완료 여부 확인 (웹에서 인증 후 돌아온 경우)
-  Future<void> _checkVerificationOnResume() async {
+  /// 이미 canonical 세션이 붙어 있고 학생 인증이 끝난 계정이 이 화면에
+  /// 들어온 경우(성인인증 게이트에서 되돌아온 재개 등) 사다리로 복귀시킨다.
+  Future<void> _resumeExistingSessionIfComplete() async {
     if (_isVerifying || _isSending) return;
-    final kakaoUserId = await _storageService.getKakaoUserId();
-    if (kakaoUserId == null) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) return;
 
     try {
-      final isVerified = await _authService.isStudentVerified(kakaoUserId);
+      final isVerified = await _authService.isStudentVerified(uid);
       if (isVerified && mounted) {
-        final hasFirebaseSession =
-            await _ensureFirebaseSessionAfterVerification(
-              kakaoUserId,
-              showDialogOnFailure: false,
-            );
-        if (!hasFirebaseSession || !mounted) return;
-        final handledInvite = await _handlePendingInviteAfterVerification();
-        if (handledInvite || !mounted) return;
-        await _navigateAfterStudentVerification(kakaoUserId);
+        await _continueAfterPrimaryAuth(uid);
       }
     } catch (_) {}
+  }
+
+  /// 앱 복귀 시 인증 완료 여부 확인 (링크가 다른 곳에서 완료된 경우 등)
+  Future<void> _checkVerificationOnResume() async {
+    await _resumeExistingSessionIfComplete();
   }
 
   // Web에서 이메일 링크로 들어온 경우에만 동작 (native는 app_links로 처리)
@@ -283,7 +222,6 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     });
 
     try {
-      final localKakaoUserId = (await _storageService.getKakaoUserId())?.trim();
       final verificationToken = extractStudentEmailLinkToken(link);
       if (verificationToken == null || verificationToken.isEmpty) {
         throw Exception('Firebase 인증 정보가 포함된 링크를 찾을 수 없습니다. 메일의 링크를 다시 눌러주세요.');
@@ -294,13 +232,12 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       final tokenEmail = await _authService.getEmailForStudentEmailLinkToken(
         verificationToken,
       );
-      final savedEmail = localKakaoUserId == null
-          ? ''
-          : (await _storageService.getStudentEmail(localKakaoUserId) ?? '')
-                .trim()
-                .toLowerCase();
-      final email = (tokenEmail ?? savedEmail).isNotEmpty
-          ? (tokenEmail ?? savedEmail)
+      final pendingEmail =
+          (await _storageService.getPendingStudentEmail() ?? '')
+              .trim()
+              .toLowerCase();
+      final email = (tokenEmail ?? pendingEmail).isNotEmpty
+          ? (tokenEmail ?? pendingEmail)
           : _buildYonseiEmail(_emailController.text);
 
       if (email.isEmpty) {
@@ -308,34 +245,33 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       }
 
       // 1) Firebase가 원본 action URL의 일회성 oobCode로 메일 소유권을 확인한다.
+      //    이 시점의 세션은 임시 email-link 세션이다.
       await _authService.signInWithEmailLink(email: email, emailLink: link);
 
       // 2) 서버가 인증된 메일 세션과 token 문서를 대조하고, 같은 트랜잭션에서
-      //    users 문서를 갱신·토큰 소모 후 카카오 UID custom token을 발급한다.
-      final completion = await _authService.completeStudentEmailLink(
+      //    appUserId 를 확정·토큰 소모 후 canonical custom token 을 발급한다.
+      //    signInWithCustomToken 후 uid == appUserId 가 검증된다.
+      final completion = await _authService.completePrimaryStudentEmailAuth(
         token: verificationToken,
-        expectedKakaoUserId: localKakaoUserId,
       );
-      final kakaoUserId = completion.kakaoUserId;
-      await _storageService.saveKakaoUserId(kakaoUserId);
-      await _storageService.saveStudentEmail(kakaoUserId, completion.email);
-      await _storageService.saveStudentVerificationToken(
-        kakaoUserId,
-        verificationToken,
+      final appUserId = completion.appUserId;
+      await _storageService.saveAppUserId(appUserId);
+      await _storageService.saveStudentEmail(
+        appUserId,
+        completion.normalizedEmail,
       );
-      await _storageService.setStudentVerified(kakaoUserId, true);
+      await _storageService.setStudentVerified(appUserId, true);
+      await _storageService.clearPendingStudentEmail();
+      await _storageService.clearPendingStudentEmailRequestId();
 
       if (!mounted) return;
-      await context.read<AuthProvider>().applyEmailLinkCompletion(
-        kakaoUserId: kakaoUserId,
-        email: completion.email,
+      await context.read<AuthProvider>().applyPrimaryEmailAuthCompletion(
+        completion,
       );
 
       if (!mounted) return;
       setState(() => _statusMessage = '학생 인증 완료!');
-      final handledInvite = await _handlePendingInviteAfterVerification();
-      if (handledInvite || !mounted) return;
-      await _navigateAfterStudentVerification(kakaoUserId);
+      await _continueAfterPrimaryAuth(appUserId);
     } catch (e) {
       if (!mounted) return;
       setState(() => _statusMessage = '인증 실패: ${e.toString()}');
@@ -348,21 +284,20 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
   Future<void> _sendEmailLink() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final kakaoUserId = await _storageService.getKakaoUserId();
-    if (kakaoUserId == null) {
-      if (!mounted) return;
-      await _showDialogMessage('전송 불가', '카카오 로그인 정보가 없습니다.');
-      return;
-    }
-
     final email = _buildYonseiEmail(_emailController.text);
+    final savedEmail = (await _storageService.getPendingStudentEmail() ?? '')
+        .trim()
+        .toLowerCase();
+    final savedRequestId = await _storageService
+        .getPendingStudentEmailRequestId();
     final requestId =
-        _pendingEmailRequestEmail == email && _pendingEmailRequestId != null
-        ? _pendingEmailRequestId!
+        savedEmail == email &&
+            savedRequestId != null &&
+            savedRequestId.isNotEmpty
+        ? savedRequestId
         : const Uuid().v4();
-    _pendingEmailRequestEmail = email;
-    _pendingEmailRequestId = requestId;
 
+    if (!mounted) return;
     setState(() {
       _isSending = true;
       _statusMessage = '인증 링크를 전송하는 중...';
@@ -371,9 +306,12 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     try {
       // The server owns the token, Firebase action-link generation, rate
       // limits, and mail delivery. The client never receives a bearer link.
+      // Kakao 관련 전제조건은 일절 없다 (primary 이메일 인증).
       debugPrint('📧 학생 인증 메일 서버 발송 요청 시작');
       try {
-        await _authService.sendStudentEmailLink(
+        await _storageService.savePendingStudentEmail(email);
+        await _storageService.savePendingStudentEmailRequestId(requestId);
+        await _authService.sendPrimaryStudentEmailLink(
           email: email,
           requestId: requestId,
         );
@@ -385,12 +323,6 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         );
         rethrow;
       }
-
-      // 로컬에 이메일 저장 (웹 인증 후 앱에서 확인용)
-      await _storageService.saveStudentEmail(kakaoUserId, email);
-      await _storageService.setStudentVerified(kakaoUserId, false);
-      _pendingEmailRequestId = null;
-      _pendingEmailRequestEmail = null;
 
       if (!mounted) return;
       setState(() => _statusMessage = '연세 메일로 인증 링크를 보냈습니다');
@@ -417,55 +349,30 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     });
 
     try {
-      final kakaoUserId = await _storageService.getKakaoUserId();
-      if (kakaoUserId == null) {
-        throw Exception('카카오 로그인 정보가 없습니다.');
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null || uid.isEmpty) {
+        // Primary 인증은 이 기기에서 메일 링크를 열어야만 완료된다.
+        if (!mounted) return;
+        setState(
+          () => _statusMessage = '❗ 아직 인증이 완료되지 않았어요. 메일의 인증 링크를 이 기기에서 열어주세요.',
+        );
+        return;
       }
 
-      // ✅ 사용자가 이 기기에서 인증 링크를 보낸 적이 없으면 통과 불가
-      final savedEmail =
-          (await _storageService.getStudentEmail(kakaoUserId) ?? '')
-              .trim()
-              .toLowerCase();
-      if (savedEmail.isEmpty) {
+      final isVerified = await _authService.isStudentVerified(uid);
+      if (!isVerified) {
         if (!mounted) return;
         setState(() => _statusMessage = '❗ 아직 이메일 인증이 완료되지 않았습니다');
         return;
       }
 
-      // Firestore에서 최신 학생 인증 상태 다시 조회
-      final isVerified = await _authService.isStudentVerified(kakaoUserId);
-
-      if (isVerified) {
-        // ✅ Firestore에 저장된 이메일이 저장된 이메일과 일치할 때만 통과
-        final firestoreEmail =
-            (await _authService.getStudentEmail(kakaoUserId) ?? '')
-                .trim()
-                .toLowerCase();
-        if (firestoreEmail.isEmpty || firestoreEmail != savedEmail) {
-          if (!mounted) return;
-          setState(() => _statusMessage = '❗ 아직 이메일 인증이 완료되지 않았습니다');
-          return;
-        }
-
-        // 로컬에도 verified 기록 (다음 실행에서 UX 개선)
-        await _storageService.saveKakaoUserId(kakaoUserId);
-        await _storageService.setStudentVerified(kakaoUserId, true);
-        final hasFirebaseSession =
-            await _ensureFirebaseSessionAfterVerification(kakaoUserId);
-        if (!hasFirebaseSession || !mounted) return;
-
-        if (!mounted) return;
-        setState(() => _statusMessage = '학생 인증이 확인되었습니다!');
-        HapticFeedback.mediumImpact();
-        final handledInvite = await _handlePendingInviteAfterVerification();
-        if (handledInvite || !mounted) return;
-        await _navigateAfterStudentVerification(kakaoUserId);
-        return;
-      }
+      await _storageService.saveAppUserId(uid);
+      await _storageService.setStudentVerified(uid, true);
 
       if (!mounted) return;
-      setState(() => _statusMessage = '❗ 아직 이메일 인증이 완료되지 않았습니다');
+      setState(() => _statusMessage = '학생 인증이 확인되었습니다!');
+      HapticFeedback.mediumImpact();
+      await _continueAfterPrimaryAuth(uid);
     } catch (e) {
       if (!mounted) return;
       setState(() => _statusMessage = '확인 실패: ${e.toString()}');
@@ -482,7 +389,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     return CupertinoPageScaffold(
       key: ValueKey('student_verification_$_resumeKey'),
       backgroundColor: _AppColors.backgroundLight,
-      navigationBar: const CupertinoNavigationBar(middle: Text('연세 이메일 인증')),
+      navigationBar: const CupertinoNavigationBar(middle: Text('연세 이메일 로그인')),
       child: SafeArea(
         child: Column(
           children: [
@@ -496,7 +403,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
                   children: [
                     const SizedBox(height: 8),
                     const Text(
-                      '연세대학교 이메일\n인증이 필요해요',
+                      '연세대학교 이메일로\n로그인해 주세요',
                       style: TextStyle(
                         fontFamily: 'Pretendard',
                         fontSize: 26,
@@ -508,7 +415,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      '@yonsei.ac.kr 메일로 인증 링크를 보내드릴게요.\n메일에서 인증을 완료한 뒤, 아래에서 확인을 눌러주세요.',
+                      '@yonsei.ac.kr 메일로 로그인 링크를 보내드릴게요.\n메일의 링크를 이 기기에서 열면 로그인이 완료돼요.',
                       style: TextStyle(
                         fontFamily: 'Pretendard',
                         fontSize: 15,
@@ -615,7 +522,7 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
                               color: Colors.white,
                             )
                           : const Text(
-                              '인증 링크 보내기',
+                              '로그인 링크 보내기',
                               style: TextStyle(
                                 fontFamily: 'Pretendard',
                                 fontSize: 17,

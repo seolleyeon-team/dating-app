@@ -12,24 +12,39 @@ void main() {
   String read(String relativePath) =>
       File('$root/$relativePath').readAsStringSync();
 
-  test('auth → school verify → onboarding entrypoints exist', () {
-    expect(File('$root/lib/providers/auth_provider.dart').existsSync(), isTrue);
-    expect(
-      File(
-        '$root/lib/features/auth/screens/kakao_auth_screen.dart',
-      ).existsSync(),
-      isTrue,
-    );
-    expect(
-      File(
-        '$root/lib/features/onboarding/screens/basic_info_screen.dart',
-      ).existsSync(),
-      isTrue,
-    );
-    final router = read('lib/router/app_router.dart');
-    expect(router, contains('KakaoAuthScreen'));
-    expect(router, contains('BasicInfoScreen'));
-  });
+  test(
+    'auth → email login → friend connect → onboarding entrypoints exist',
+    () {
+      expect(
+        File('$root/lib/providers/auth_provider.dart').existsSync(),
+        isTrue,
+      );
+      expect(
+        File(
+          '$root/lib/features/auth/screens/student_verification_screen.dart',
+        ).existsSync(),
+        isTrue,
+      );
+      expect(
+        File(
+          '$root/lib/features/auth/screens/kakao_friend_connection_screen.dart',
+        ).existsSync(),
+        isTrue,
+      );
+      expect(
+        File(
+          '$root/lib/features/onboarding/screens/basic_info_screen.dart',
+        ).existsSync(),
+        isTrue,
+      );
+      final router = read('lib/router/app_router.dart');
+      expect(router, contains('StudentVerificationScreen'));
+      expect(router, contains('KakaoFriendConnectionScreen'));
+      expect(router, contains('BasicInfoScreen'));
+      // The Kakao login screen no longer exists in the journey.
+      expect(router, isNot(contains('KakaoAuthScreen')));
+    },
+  );
 
   test('recommendation → like → chat → report/block services exist', () {
     expect(

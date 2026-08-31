@@ -23,6 +23,8 @@ import '../../chat/services/chat_service.dart';
 import '../../notifications/services/notification_service.dart';
 import '../models/profile_card_args.dart';
 import '../services/ai_preference_performance_trace.dart';
+import '../services/recommendation_refresh_service.dart';
+import '../widgets/recommendation_refresh_dialog.dart';
 
 Color _postItColor(int index) =>
     const [Color(0xFFFFF1A8), Color(0xFFF7CDD9), Color(0xFFCDE9F3)][index % 3];
@@ -295,7 +297,14 @@ class _LockerRecommendationContentState
   final _userService = UserService();
   final _aiService = AiRecommendationService();
   final _contactBlockService = ContactBlockService();
+  final _refreshService = RecommendationRefreshService();
+
+  /// 필터 통과한 후보 rank 순 (최대 window 2개 분량 = 6명).
+  List<AiRecommendedProfile> _eligibleProfiles = [];
   List<AiRecommendedProfile> _profiles = [];
+  bool _isRefreshedWindow = false;
+  bool _isPurchasingRefresh = false;
+  String? _feedDateKey;
   String? _userId;
   String _userNickname = '회원';
   bool _isLoading = true;
@@ -347,6 +356,8 @@ class _LockerRecommendationContentState
         setState(() {
           _userId = userId;
           _profiles = [];
+          _eligibleProfiles = [];
+          _feedDateKey = null;
           _privacyConsentRequired = true;
           _recommendationLoadFailed = false;
           _isLoading = false;
@@ -354,17 +365,39 @@ class _LockerRecommendationContentState
         _watchCandidateEligibility(const []);
         return;
       }
-      final profiles = await _aiService.fetchMysteryFeed(
-        limit: 3,
+      // initial(1~3위)과 refreshed(4~6위) window 를 한 번에 hydrate 한다.
+      final eligibleProfiles = await _aiService.fetchMysteryFeed(
+        limit: RecommendationRefreshService.windowSize * 2,
         userId: userId,
       );
+      // 유료 새로고침 자격은 서버(entitlement 문서)가 source of truth 다.
+      // 앱을 껐다 켜도 같은 dateKey 면 결제 시점에 확정된 3명이 복원된다.
+      final dateKey = eligibleProfiles.isNotEmpty
+          ? eligibleProfiles.first.dateKey
+          : null;
+      final entitlement = dateKey != null
+          ? await _refreshService.fetchEntitlement(userId, dateKey)
+          : null;
+      final refreshed = entitlement?.completed == true;
+      final purchasedUids = refreshed
+          ? entitlement!.displayCandidateUids
+          : const <String>[];
+      final profiles =
+          RecommendationRefreshService.selectDisplayedRecommendations(
+            eligibleProfiles,
+            refreshed: refreshed,
+            purchasedCandidateUids: purchasedUids,
+          );
       final userProfile = await _userService.getUserProfile(userId);
       final onboarding = await _storageService.getOnboardingDraft(userId);
       final nickname = userProfile?['nickname']?.toString().trim();
       if (!mounted) return;
       setState(() {
         _userId = userId;
+        _eligibleProfiles = eligibleProfiles;
         _profiles = profiles;
+        _isRefreshedWindow = refreshed;
+        _feedDateKey = dateKey;
         _userNickname = nickname?.isNotEmpty == true
             ? nickname!
             : (onboarding['nickname']?.toString().trim().isNotEmpty == true
@@ -387,6 +420,8 @@ class _LockerRecommendationContentState
       if (mounted) {
         setState(() {
           _profiles = [];
+          _eligibleProfiles = [];
+          _feedDateKey = null;
           _privacyConsentRequired = false;
           _recommendationLoadFailed = true;
           _isLoading = false;
@@ -465,6 +500,8 @@ class _LockerRecommendationContentState
     if (!mounted) return;
     setState(() {
       _profiles = [];
+      _eligibleProfiles = [];
+      _feedDateKey = null;
       _isLoading = false;
     });
   }
@@ -473,6 +510,8 @@ class _LockerRecommendationContentState
     if (!mounted) return;
     setState(() {
       _profiles = [];
+      _eligibleProfiles = [];
+      _feedDateKey = null;
       _isLoading = true;
     });
     _privacyReloadDebounce?.cancel();
@@ -514,9 +553,25 @@ class _LockerRecommendationContentState
   void _logEvent(AiRecommendedProfile profile, int index, String eventType) {
     final userId = _userId;
     if (userId == null) return;
+    // 새로고침 구매 자체는 취향 신호가 아니므로 recEvents 에 남기지 않는다.
+    // 노출된 카드의 impression/open 은 기존 흐름 그대로 기록한다.
+    //
+    // position semantics (기존 계약 유지 + 명시 필드 추가):
+    //  - position:     0-based 화면 슬롯. 이 화면의 기존 의미 그대로다
+    //                  (recsys/훈련 export 는 context 를 읽지 않는 것을 확인함).
+    //  - displaySlot:  position 과 같은 값. 이름으로 의미를 못박는다.
+    //  - eligibleIndex: 필터 통과 후보 순서에서의 위치 (initial 0~2,
+    //                  refreshed 는 보통 3~5).
+    //  - rank:         아래에서 추가되는 원본 model rank (재번호 없음).
+    final eligibleIndex = _eligibleProfiles.indexWhere(
+      (candidate) => candidate.candidateUid == profile.candidateUid,
+    );
     final contextData = <String, dynamic>{
       'screen': 'mystery_card_screen',
       'position': index,
+      'displaySlot': index,
+      if (eligibleIndex >= 0) 'eligibleIndex': eligibleIndex,
+      'recommendationWindow': _isRefreshedWindow ? 'refreshed' : 'initial',
       'interaction': 'locker_post_it',
       'algorithmVersion': profile.primaryAlgo,
     };
@@ -544,6 +599,156 @@ class _LockerRecommendationContentState
             '[RecEvent] locker event failed: ${PrivacyLogUtils.errorSummary(error)}',
           ),
         );
+  }
+
+  Future<void> _onRefreshPressed() async {
+    if (_isPurchasingRefresh) return;
+    HapticFeedback.selectionClick();
+    if (_isRefreshedWindow) {
+      // v1: 하루 추천 세트당 1회. 두 번째 결제 CTA 는 노출하지 않는다.
+      await _showRefreshNotice(
+        '오늘의 추천을 이미 새로고침했어요.',
+        '다음 추천이 준비되면 다시 이용할 수 있어요.',
+      );
+      return;
+    }
+    final dateKey = _feedDateKey;
+    if (dateKey == null ||
+        _eligibleProfiles.length <
+            RecommendationRefreshService.windowSize * 2) {
+      // UX precheck: 표시 가능한 후보가 6명(1~3위 + 4~6위) 미만이면 결제 UI
+      // 자체를 열지 않는다. 단 이 검사는 authoritative 하지 않다 — 실제 결제
+      // 가부는 서버가 결제 commit 트랜잭션 안에서 3명의 eligibility 를
+      // 재검증해 최종 결정한다.
+      await _showRefreshNotice(
+        '새로고침 안내',
+        '새로고침할 추천을 준비하지 못했어요. 잠시 후 다시 시도해주세요.',
+      );
+      return;
+    }
+    final result =
+        await showCupertinoDialog<RecommendationRefreshPurchaseResult>(
+          context: context,
+          builder: (_) => RecommendationRefreshDialog(
+            onPurchase: () => _purchaseRefresh(dateKey),
+          ),
+        );
+    if (!mounted || result == null) return;
+    await _handleRefreshPurchaseResult(result);
+  }
+
+  Future<RecommendationRefreshPurchaseResult> _purchaseRefresh(
+    String dateKey,
+  ) async {
+    setState(() => _isPurchasingRefresh = true);
+    try {
+      // Heart 차감/자격 발급은 전부 서버 트랜잭션. optimistic UI 금지 —
+      // 화면 전환은 서버 성공 응답 이후에만 일어난다.
+      return await _refreshService.purchaseRefresh(
+        expectedDateKey: dateKey,
+        expectedAlgo: _eligibleProfiles.isNotEmpty
+            ? _eligibleProfiles.first.primaryAlgo
+            : null,
+      );
+    } finally {
+      if (mounted) setState(() => _isPurchasingRefresh = false);
+    }
+  }
+
+  Future<void> _handleRefreshPurchaseResult(
+    RecommendationRefreshPurchaseResult result,
+  ) async {
+    switch (result.status) {
+      case RecommendationRefreshStatus.purchased:
+      case RecommendationRefreshStatus.alreadyPurchased:
+        _applyRefreshedWindow(result.displayCandidateUids);
+      case RecommendationRefreshStatus.insufficientHearts:
+        await _showInsufficientHeartsDialog();
+      case RecommendationRefreshStatus.staleFeed:
+        // 결제 시점에 추천 세트가 교체됐다(차감 없음). 새 세트를 다시 불러온다.
+        await _showRefreshNotice('새로고침 안내', '추천이 새로 준비되어 화면을 다시 불러왔어요.');
+        if (mounted) _invalidateAndReloadRecommendations();
+      case RecommendationRefreshStatus.staleEligibility:
+        // 결제 commit 직전 서버 재검증에서 유료 노출 후보의 상태 변경이
+        // 감지됐다(차감 없음). 피드를 다시 불러와 구매 가능 여부를 재계산한다.
+        await _showRefreshNotice(
+          '새로고침 안내',
+          '추천 상태가 방금 바뀌어 결제를 진행하지 않았어요. 최신 추천을 다시 불러올게요.',
+        );
+        if (mounted) _invalidateAndReloadRecommendations();
+      case RecommendationRefreshStatus.unavailable:
+        await _showRefreshNotice(
+          '새로고침 안내',
+          '새로고침할 추천을 준비하지 못했어요. 잠시 후 다시 시도해주세요.',
+        );
+    }
+  }
+
+  void _applyRefreshedWindow(List<String> purchasedCandidateUids) {
+    final profiles =
+        RecommendationRefreshService.selectDisplayedRecommendations(
+          _eligibleProfiles,
+          refreshed: true,
+          purchasedCandidateUids: purchasedCandidateUids,
+        );
+    setState(() {
+      _isRefreshedWindow = true;
+      _profiles = profiles;
+    });
+    _watchCandidateEligibility(profiles);
+    for (var index = 0; index < profiles.length; index++) {
+      _logEvent(profiles[index], index, 'impression');
+    }
+  }
+
+  Future<void> _showInsufficientHeartsDialog() async {
+    if (!mounted) return;
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('하트가 부족해요'),
+        content: Text(
+          '추천 새로고침에는 하트 '
+          '${RecommendationRefreshService.costHearts}개가 필요해요.',
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('취소'),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              // 기존 하트 충전 flow 재사용. 충전 후 다시 새로고침을 시도할 수
+              // 있다.
+              Navigator.of(
+                context,
+                rootNavigator: true,
+              ).pushNamed(RouteNames.heartCharge);
+            },
+            child: const Text('하트 충전하기'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showRefreshNotice(String title, String message) async {
+    if (!mounted) return;
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _openNote(AiRecommendedProfile profile, int index) {
@@ -656,6 +861,24 @@ class _LockerRecommendationContentState
                 ),
               ),
               const SizedBox(width: 10),
+              CupertinoButton(
+                key: const Key('one_to_one_refresh_button'),
+                padding: EdgeInsets.zero,
+                onPressed: _onRefreshPressed,
+                child: Semantics(
+                  label: '오늘의 추천 새로고침',
+                  button: true,
+                  child: Icon(
+                    CupertinoIcons.arrow_clockwise,
+                    // 이미 새로고침한 날은 비활성 톤으로 표시하고, tap 시
+                    // 안내만 보여준다 (두 번째 결제 CTA 없음).
+                    color: _isRefreshedWindow
+                        ? mutedColor.withValues(alpha: 0.35)
+                        : mutedColor,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 2),
               StreamBuilder<int>(
                 stream: _userId == null
                     ? null

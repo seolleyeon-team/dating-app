@@ -99,6 +99,27 @@ jobs:
       - run: flutter build apk --debug --flavor production
       - run: flutter build apk --debug --flavor staging
 
+  android-production-release:
+    name: Android production AAB compile smoke (unsigned)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # 목적: 스토어에 실제로 나가는 산출물(release AAB)의 컴파일/R8/리소스/
+      # 패키징 검증. CI 에는 key.properties 가 없으므로 산출물은 의도적으로
+      # UNSIGNED 다 (build.gradle.kts fail-closed — debug 키 대체 서명 없음).
+      # 서명 검증이 아니며, 서명은 로컬 릴리스 절차에서 수행한다.
+      - run: flutter build appbundle --flavor production --release
+
   web-build:
     name: Web build smoke
     runs-on: ubuntu-latest

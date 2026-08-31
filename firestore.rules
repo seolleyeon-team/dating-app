@@ -38,6 +38,16 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Canonical app session gate (auth re-architecture, identity-contract §2).
+    // Temporary email-link sessions (pre-exchange) carry neither claim;
+    // legacy Kakao custom tokens carry kakaoUserId; new canonical tokens
+    // minted by completePrimaryStudentEmailAuth carry appSession.
+    function isCanonicalAppSession() {
+      return request.auth != null &&
+          (request.auth.token.appSession == true ||
+            request.auth.token.kakaoUserId != null);
+    }
+
     function isSelf(uid) {
       return isSignedIn() && request.auth.uid == uid;
     }
@@ -1014,6 +1024,17 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     }
 
     // -----------------------------------------------------------------------
+    // Server-owned identity indexes (auth re-architecture, identity-contract §3)
+    // -----------------------------------------------------------------------
+    match /studentEmailBindings/{emailHash} {
+      allow read, write: if false;
+    }
+
+    match /kakaoIdentities/{kakaoIdentityHash} {
+      allow read, write: if false;
+    }
+
+    // -----------------------------------------------------------------------
     // Friend invites / friendships
     // -----------------------------------------------------------------------
     match /friendInvites/{inviteId} {
@@ -1211,7 +1232,8 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     // 손대지 않았다. 회귀는 blind_meeting_rules.test.js 로 확인해야 한다.
     match /chat_rooms/{roomId} {
       allow read: if isChatRoomParticipant();
-      allow create: if isChatRoomParticipantAfter() &&
+      allow create: if isCanonicalAppSession() &&
+        isChatRoomParticipantAfter() &&
         !isBlindMeetingRoomData(request.resource.data) &&
         !isSeasonMeetingRoomData(request.resource.data) &&
         chatRoomCreateHasNoMeetingLinkage(request.resource.data) &&
@@ -1528,7 +1550,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       allow get, list: if isSignedIn();
 
       allow create: if
-        isSignedIn() &&
+        isCanonicalAppSession() &&
         request.resource.data.authorId == request.auth.uid &&
         request.resource.data.postId is string &&
         request.resource.data.authorId is string &&
@@ -1859,7 +1881,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       allow read: if isAskParticipant(resource.data);
 
       allow create: if
-        isSignedIn() &&
+        isCanonicalAppSession() &&
         request.resource.data.fromUserId is string &&
         request.resource.data.fromUserId == request.auth.uid &&
         request.resource.data.toUserId is string &&
@@ -1890,7 +1912,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     match /interactions/{interactionId} {
       allow read: if isInteractionParticipant(resource.data);
       allow create: if
-        isSignedIn() &&
+        isCanonicalAppSession() &&
         request.resource.data.fromUserId is string &&
         request.resource.data.fromUserId == request.auth.uid &&
         request.resource.data.toUserId is string &&
@@ -1956,7 +1978,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     // Never store email, studentEmail, preferenceVector, tokens, or
     // moderation internals here.
     match /publicProfiles/{uid} {
-      allow get: if isSignedIn();
+      allow get: if isCanonicalAppSession();
       allow list: if false;
       allow create, update, delete: if false;
     }

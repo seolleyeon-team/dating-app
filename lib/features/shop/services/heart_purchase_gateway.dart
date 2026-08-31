@@ -112,9 +112,7 @@ class HeartPurchaseGateway {
 
     // Callable은 request.auth를 기준으로 사용자 문서를 결정한다. SharedPreferences
     // user id를 서버에 보내거나 권한 판단에 사용하지 않는다.
-    final isSessionReady = await _authService.ensureFirebaseSessionForKakao(
-      kakaoUserId,
-    );
+    final isSessionReady = await _authService.ensureCanonicalAppSession();
     if (!isSessionReady) {
       throw StateError('구매 정보를 저장할 로그인 세션을 준비하지 못했어요.');
     }
