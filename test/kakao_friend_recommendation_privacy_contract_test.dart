@@ -154,9 +154,7 @@ void main() {
     expect(verify, contains('privacy_violations'));
     expect(verify, contains('privacy_policy.allows(uid, candidate_uid)'));
 
-    final rrf = _read(
-      'lib/ai_recommend_model/seolleyeon_rrf_export.py',
-    );
+    final rrf = _read('lib/ai_recommend_model/seolleyeon_rrf_export.py');
     expect(rrf, contains('privacy_prefilter_limit'));
     expect(rrf, contains('merged = privacy_policy.filter_items(uid, merged)'));
 
@@ -178,15 +176,32 @@ void main() {
     expect(prerequisite, contains('추천 정보를 불러오지 못했어요.'));
     expect(prerequisite, contains('인터넷 연결을 확인하고 다시 시도해 주세요.'));
 
-    for (final path in [
-      'lib/features/matching/screens/profile_card_screen.dart',
+    final screen = _read(
       'lib/features/matching/screens/mystery_card_screen.dart',
-    ]) {
-      final screen = _read(path);
-      expect(screen, contains('KakaoRecommendationPrivacyPrerequisite'));
-      expect(screen, contains('RecommendationLoadFailure'));
-      expect(screen, contains('syncKakaoTalkFriendBlocks'));
-    }
+    );
+    expect(screen, contains('KakaoRecommendationPrivacyPrerequisite'));
+    expect(screen, contains('RecommendationLoadFailure'));
+    expect(screen, contains('syncKakaoTalkFriendBlocks'));
+  });
+
+  test('legacy general profile-card system is removed from the app graph', () {
+    expect(
+      File(
+        'lib/features/matching/screens/profile_card_screen.dart',
+      ).existsSync(),
+      isFalse,
+    );
+
+    final router = _read('lib/router/app_router.dart');
+    final routes = _read('lib/router/route_names.dart');
+    final recommendationService = _read(
+      'lib/services/ai_recommendation_service.dart',
+    );
+
+    expect(router, isNot(contains('ProfileCardScreen')));
+    expect(router, isNot(contains("profile_card_screen.dart")));
+    expect(routes, isNot(contains("profileCard = '/matching/profile-card'")));
+    expect(recommendationService, isNot(contains('fetchProfileFeed')));
   });
 
   test('clients cannot write recommendation exclusion pairs', () {
@@ -198,10 +213,7 @@ void main() {
     expect(section, contains('allow get, list: if isSelf(viewerUid);'));
     expect(section, contains('allow create, update, delete: if false;'));
 
-    expect(
-      rules,
-      contains('match /dailyRecs/{userId}/days/{dateKey}'),
-    );
+    expect(rules, contains('match /dailyRecs/{userId}/days/{dateKey}'));
     expect(rules, contains('allow read: if isSelf(userId);'));
   });
 }

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Android production identity 검증.
 
-Google Play 에 등록된 실제 앱은 `com.seolleyeon.app` 이다. `com.yonsei.dating`
-번들을 Play 에 올리면 기존 앱의 업데이트가 아니라 **별개의 새 앱**이 되고,
-기존 사용자는 업데이트를 받지 못한다. 그래서 production 산출물의 패키지는
-빌드가 성공했는지와 별개로 반드시 확인해야 한다.
+Google Play 에 등록된 실제 앱은 `com.seolleyeon.app` 이다. production과
+staging flavor 모두 이 운영 패키지를 사용하며, 별도의 staging 패키지는
+사용하지 않는다. 그래서 산출물의 패키지는 빌드가 성공했는지와 별개로
+반드시 확인해야 한다.
 
 확인하는 것:
 
-    1. Gradle 의 production / staging flavor applicationId
-    2. google-services.json 이 두 패키지를 모두 담고 있는지
+    1. Gradle 의 production / staging flavor applicationId가 운영 패키지인지
+    2. google-services.json 이 운영 패키지만 담고 있는지
        (Google Services 플러그인은 applicationId 로 client 를 고른다)
-    3. firebase_options.dart 가 flavor 별로 다른 Firebase 앱을 쓰는지
+    3. firebase_options.dart 가 운영 Firebase 앱을 쓰는지
     4. assetlinks.json 의 대상 패키지
     5. (AAB 를 주면) 산출물의 실제 applicationId
 
@@ -32,7 +32,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_PACKAGE = "com.seolleyeon.app"
-STAGING_PACKAGE = "com.yonsei.dating"
 
 GRADLE = REPO_ROOT / "android" / "app" / "build.gradle.kts"
 GOOGLE_SERVICES = REPO_ROOT / "android" / "app" / "google-services.json"
@@ -99,13 +98,13 @@ def main() -> int:
         str(flavors),
     )
     check(
-        f"staging applicationId = {STAGING_PACKAGE}",
-        flavors.get("staging") == STAGING_PACKAGE,
+        f"staging applicationId = {PRODUCTION_PACKAGE}",
+        flavors.get("staging") == PRODUCTION_PACKAGE,
         str(flavors),
     )
     check(
-        "두 flavor 의 패키지가 서로 다르다",
-        flavors.get("production") != flavors.get("staging"),
+        "production/staging flavor가 같은 운영 패키지를 쓴다",
+        flavors.get("production") == flavors.get("staging") == PRODUCTION_PACKAGE,
     )
     # defaultConfig 에 applicationId 가 남아 있으면 flavor 를 빼먹은 빌드가
     # 조용히 그 값으로 나간다.
@@ -123,7 +122,11 @@ def main() -> int:
         for client in config.get("client", [])
     }
     check(f"{PRODUCTION_PACKAGE} client 포함", PRODUCTION_PACKAGE in packages, str(packages))
-    check(f"{STAGING_PACKAGE} client 포함", STAGING_PACKAGE in packages, str(packages))
+    check(
+        "운영 패키지 외 client가 없다",
+        packages == {PRODUCTION_PACKAGE},
+        str(packages),
+    )
 
     print("[3] firebase_options.dart")
     options = FIREBASE_OPTIONS.read_text(encoding="utf-8")
@@ -136,12 +139,12 @@ def main() -> int:
         ),
         "",
     )
-    check("flavor 별 Android 옵션이 분리돼 있다", "androidProduction" in options)
+    check("운영 Android 옵션이 있다", "androidProduction" in options)
     check(
         "production Firebase 앱 id 가 들어 있다",
         production_app_id != "" and production_app_id in options,
     )
-    check("flavor 로 선택한다", "FLUTTER_APP_FLAVOR" in options)
+    check("제거된 별도 Android 앱 옵션이 없다", "androidStaging" not in options)
 
     print("[4] assetlinks.json")
     if ASSETLINKS.is_file():
@@ -188,9 +191,8 @@ def main() -> int:
             # manifest 의 `package` 속성 값만 본다.
             #
             # 패키지 문자열이 산출물 어딘가에 등장하는 것 자체는 정상이다.
-            # namespace 는 applicationId 와 별개라서 액티비티 클래스명은
-            # `com.yonsei.dating.MainActivity` 로 남고, MethodChannel 이름에도
-            # 같은 접두어가 쓰인다. 그것들을 실패로 보면 오탐이 된다.
+            # namespace는 applicationId와 별개일 수 있으므로, 패키지 문자열이
+            # 산출물 어딘가에 등장하는 것 자체가 manifest 오류를 뜻하지 않는다.
             def declared_as_package(token: str) -> bool:
                 """`package` 속성 값으로 선언됐는지.
 
@@ -209,14 +211,6 @@ def main() -> int:
                 "package 속성에서 production 패키지를 찾지 못했다",
             )
 
-            # staging 이 "패키지로" 선언돼 있으면 실패다.
-            # 클래스명(com.yonsei.dating.MainActivity)이나 MethodChannel 이름으로
-            # 등장하는 것은 정상이므로 실패로 보지 않는다.
-            check(
-                "staging 패키지로 선언되지 않았다",
-                not declared_as_package(STAGING_PACKAGE),
-                "manifest 의 package 속성이 staging 이다",
-            )
 
     print("")
     if failures:

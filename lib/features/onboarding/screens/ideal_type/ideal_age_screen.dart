@@ -13,6 +13,7 @@ import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart'; // RangeSlider 사용을 위해 필요
 import 'package:flutter/services.dart';
+import '../../../../constants/profile_options.dart';
 import '../../../../services/storage_service.dart';
 
 // =============================================================================
@@ -53,8 +54,8 @@ class IdealAgeScreen extends StatefulWidget {
 
 class _IdealAgeScreenState extends State<IdealAgeScreen> {
   RangeValues _currentRangeValues = const RangeValues(23, 28);
-  static const double _minAge = 18;
-  static const double _maxAge = 30;
+  static const double _minAge = profileAgeSliderMin;
+  static const double _maxAge = profileAgeSliderMax;
 
   @override
   Widget build(BuildContext context) {

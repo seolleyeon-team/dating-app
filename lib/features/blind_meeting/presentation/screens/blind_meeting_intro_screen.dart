@@ -7,6 +7,7 @@
 // =============================================================================
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../router/route_names.dart';
@@ -14,7 +15,10 @@ import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_profile_snapshot.dart';
 import '../../data/blind_meeting_repository.dart';
 import '../../domain/blind_meeting_application.dart';
+import '../../domain/blind_meeting_dna_progress.dart';
 import '../../../onboarding/onboarding_route_args.dart';
+import '../../../shop/services/heart_economy.dart';
+import '../../../shop/widgets/heart_spend_confirmation.dart';
 import '../blind_meeting_route_args.dart';
 import '../theme/blind_meeting_palette.dart';
 import '../widgets/blind_meeting_common.dart';
@@ -23,7 +27,16 @@ class BlindMeetingIntroScreen extends StatefulWidget {
   final BlindMeetingRepository? repository;
   final BlindMeetingAnalytics? analytics;
 
-  const BlindMeetingIntroScreen({super.key, this.repository, this.analytics});
+  /// AppRouter가 실제 앱에 사용할 때만 유료 DNA 진입 흐름을 켠다.
+  /// 위젯 테스트·legacy 호출부는 기존 무료 진입 seam을 유지할 수 있다.
+  final bool enablePaidDnaStart;
+
+  const BlindMeetingIntroScreen({
+    super.key,
+    this.repository,
+    this.analytics,
+    this.enablePaidDnaStart = false,
+  });
 
   @override
   State<BlindMeetingIntroScreen> createState() =>
@@ -39,9 +52,11 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
   bool _loading = true;
   bool _openingInterestRegistration = false;
   bool _openingCampusLifeZoneRepair = false;
+  bool _startingDna = false;
   String? _error;
   BlindMeetingProfileSnapshot? _profile;
   BlindMeetingApplication? _application;
+  BlindMeetingDnaProgress? _dnaProgress;
   bool _campusLifeZoneEnforced = false;
 
   @override
@@ -76,10 +91,22 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
         application = null;
       }
 
+      // 결제 후 DNA 작성을 중단한 상태는 신청 문서와 별도로 저장된다.
+      // 읽기 실패는 소개 화면 전체를 막지 않고 신규 작성으로 안내한다.
+      BlindMeetingDnaProgress? dnaProgress;
+      if (widget.enablePaidDnaStart) {
+        try {
+          dnaProgress = await _repository.loadMyDnaProgress();
+        } catch (error) {
+          debugPrint('[BlindMeeting] DNA 작성 진행 상태를 읽을 수 없어요: $error');
+        }
+      }
+
       if (!mounted) return;
       setState(() {
         _profile = profile;
         _application = application;
+        _dnaProgress = dnaProgress;
         _campusLifeZoneEnforced = campusLifeZoneEnforced;
         _loading = false;
       });
@@ -120,16 +147,101 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
     }
   }
 
-  void _startApplication() {
+  Future<void> _startApplication({bool resume = false}) async {
     final profile = _profile;
-    if (profile == null) return;
-    _analytics.log(
-      BlindMeetingAnalyticsEvent.dnaStarted,
-      userId: profile.userId,
-    );
-    Navigator.of(
+    if (profile == null || _startingDna) return;
+
+    // 유료 DNA 진입 흐름을 사용하지 않는 legacy/위젯 호출부는 기존
+    // profile 인자 route를 유지한다. 실제 AppRouter에서는 서버 결제 경로만
+    // 사용한다.
+    if (!widget.enablePaidDnaStart) {
+      _analytics.log(
+        BlindMeetingAnalyticsEvent.dnaStarted,
+        userId: profile.userId,
+      );
+      await Navigator.of(
+        context,
+      ).pushNamed(RouteNames.blindTasteMeetingDna, arguments: profile);
+      if (mounted) await _load();
+      return;
+    }
+
+    if (resume) {
+      setState(() {
+        _startingDna = true;
+        _error = null;
+      });
+      _analytics.log(
+        BlindMeetingAnalyticsEvent.dnaStarted,
+        userId: profile.userId,
+        params: {'resumed': true},
+      );
+      try {
+        await Navigator.of(context).pushNamed(
+          RouteNames.blindTasteMeetingDna,
+          arguments: BlindMeetingDnaRouteArgs(
+            profile: profile,
+            mode: BlindMeetingDnaMode.resumePaidDraft,
+            heartCharged: true,
+            persistProgress: true,
+          ),
+        );
+        if (mounted) await _load();
+      } finally {
+        if (mounted) setState(() => _startingDna = false);
+      }
+      return;
+    }
+
+    final confirmed = await confirmHeartSpend(
       context,
-    ).pushNamed(RouteNames.blindTasteMeetingDna, arguments: profile);
+      action: '정말로 미팅 DNA 작성을 시작하시겠습니까?',
+      amount: HeartFeatureCosts.blindMeeting,
+      chargeMessage:
+          '${HeartFeatureCosts.label(HeartFeatureCosts.blindMeeting)} 하트가 먼저 차감됩니다.',
+      detail: '작성을 끝내고 참가 신청하면 추가 차감 없이 이어서 처리돼요.',
+    );
+    if (!confirmed || !mounted) return;
+
+    setState(() {
+      _startingDna = true;
+      _error = null;
+    });
+    try {
+      final startResult = await _repository.startBlindMeetingDna();
+      if (!mounted) return;
+      _analytics.log(
+        BlindMeetingAnalyticsEvent.dnaStarted,
+        userId: profile.userId,
+        params: {if (!startResult.charged) 'resumed': true},
+      );
+      await Navigator.of(context).pushNamed(
+        RouteNames.blindTasteMeetingDna,
+        arguments: BlindMeetingDnaRouteArgs(
+          profile: profile,
+          // 서버가 이미 진행 문서를 발견한 경우에도 답변을 잃지 않도록
+          // 신규 wizard가 아니라 복구 wizard로 연다.
+          mode: startResult.charged
+              ? BlindMeetingDnaMode.create
+              : BlindMeetingDnaMode.resumePaidDraft,
+          heartCharged: true,
+          persistProgress: true,
+        ),
+      );
+      if (mounted) await _load();
+    } on FirebaseFunctionsException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.code == 'resource-exhausted'
+            ? '하트가 부족해요. ${HeartFeatureCosts.label(HeartFeatureCosts.blindMeeting)}가 필요해요.'
+            : (error.message ?? '미팅 DNA 작성을 시작하지 못했어요.');
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = '미팅 DNA 작성을 시작하지 못했어요. 잠시 후 다시 시도해주세요.');
+    } finally {
+      if (mounted) setState(() => _startingDna = false);
+    }
   }
 
   void _resume() {
@@ -181,6 +293,7 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
 
     final profile = _profile;
     final application = _application;
+    final dnaProgress = _dnaProgress;
     final needsInterestRepair = profile != null && profile.needsInterests;
     // 생활권이 비어 있어도 정책 적용 전이면 신청을 막지 않는다.
     final missingCampusLifeZone =
@@ -384,10 +497,39 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
                   ),
                 ],
               )
+            else if (dnaProgress?.isInProgress == true)
+              Column(
+                children: [
+                  BlindMeetingCard(
+                    background: palette.surfaceMuted,
+                    child: Text(
+                      '이미 결제한 미팅 DNA 작성이 있어요.\n작성한 내용은 그대로 보관되어 있어요.',
+                      style: BlindMeetingText.caption(palette.inkSoft),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  BlindMeetingPrimaryButton(
+                    label: '이어서 작성하기',
+                    loading: _startingDna,
+                    onPressed: () => _startApplication(resume: true),
+                  ),
+                ],
+              )
             else
-              BlindMeetingPrimaryButton(
-                label: '미팅 DNA 작성하기',
-                onPressed: _startApplication,
+              Column(
+                children: [
+                  BlindMeetingPrimaryButton(
+                    label: '미팅 DNA 작성하기',
+                    loading: _startingDna,
+                    onPressed: _startApplication,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '처음 시작할 때 ${HeartFeatureCosts.label(HeartFeatureCosts.blindMeeting)} 하트가 차감돼요.',
+                    style: BlindMeetingText.caption(palette.inkSoft),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ),
             const SizedBox(height: 24),
           ],

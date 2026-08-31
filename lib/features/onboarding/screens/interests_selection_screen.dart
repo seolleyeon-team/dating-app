@@ -13,6 +13,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../onboarding_route_args.dart';
+import '../../../constants/profile_options.dart';
 import '../../../router/route_names.dart';
 import '../../../services/onboarding_save_helper.dart';
 import '../../../services/storage_service.dart';
@@ -61,7 +62,7 @@ class InterestsSelectionScreen extends StatefulWidget {
     this.mode = InterestsSelectionMode.onboarding,
     this.loadInterests,
     this.saveInterests,
-    this.maxSelection = 10,
+    this.maxSelection = maxProfileInterests,
     this.currentStep = 2,
     this.totalSteps = 9,
   });

@@ -10,11 +10,11 @@
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../../constants/legal_texts.dart';
 import '../../../router/route_names.dart';
 import 'terms_detail_sheet.dart';
 import '../../../services/storage_service.dart';
-import '../../../services/user_service.dart';
 import '../../../shared/utils/dev_entry_policy.dart';
 
 // =============================================================================
@@ -61,6 +61,12 @@ class TermsScreen extends StatefulWidget {
 }
 
 class _TermsScreenState extends State<TermsScreen> {
+  static const _stagingTestAccountUid = 'fake_user_1';
+  static const _stagingTestAccountEmail = String.fromEnvironment(
+    'STAGING_TEST_ACCOUNT_EMAIL',
+    defaultValue: 'staging-safety-fake-1@seolleyeon-final.local',
+  );
+
   final List<TermsItem> _requiredTerms = [
     TermsItem(
       id: LegalTexts.serviceTerms.id,
@@ -92,6 +98,7 @@ class _TermsScreenState extends State<TermsScreen> {
   bool _marketingChecked = false;
   bool _pushEnabled = false;
   bool _emailEnabled = false;
+  bool _isTestLoginLoading = false;
 
   bool get _allRequiredChecked =>
       _requiredTerms.every((item) => item.isChecked);
@@ -101,25 +108,126 @@ class _TermsScreenState extends State<TermsScreen> {
   Future<void> _enterWithTestAccount() async {
     // Belt-and-suspenders: the button is already hidden in release, but the
     // handler must refuse even if something else invokes it.
-    if (!DevEntryPolicy.allowTestAccountEntry) return;
+    if (!DevEntryPolicy.allowTestAccountEntry || _isTestLoginLoading) return;
 
-    final storage = StorageService();
-    final userService = UserService();
-    await storage.saveKakaoUserId("fake_user_1");
-    final existingProfile = await userService.getUserProfile('fake_user_1');
-    if (existingProfile != null) {
-      await userService.setLastActivePlatform(
-        kakaoUserId: 'fake_user_1',
-        platform: 'web',
+    final password = await _requestTestAccountPassword();
+    if (!mounted || password == null || password.isEmpty) return;
+
+    setState(() => _isTestLoginLoading = true);
+    try {
+      final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _stagingTestAccountEmail,
+        password: password,
       );
-      await userService.saveLegalConsents(kakaoUserId: 'fake_user_1');
+      final user = credential.user;
+      if (user == null || user.uid != _stagingTestAccountUid) {
+        await FirebaseAuth.instance.signOut();
+        throw StateError('테스트 계정 UID를 확인하지 못했습니다.');
+      }
+
+      final storage = StorageService();
+      await Future.wait([
+        storage.saveKakaoUserId(_stagingTestAccountUid),
+        storage.saveUserId(_stagingTestAccountUid),
+        storage.saveStudentEmail(
+          _stagingTestAccountUid,
+          'staging-safety-fake-1@yonsei.ac.kr',
+        ),
+        storage.setStudentVerified(_stagingTestAccountUid, true),
+      ]);
+
+      if (!mounted) return;
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
+    } on FirebaseAuthException catch (error) {
+      if (mounted) {
+        await _showTestAccountError(_testAccountErrorMessage(error));
+      }
+    } catch (error) {
+      if (mounted) {
+        await _showTestAccountError(
+          error is StateError
+              ? error.message
+              : '테스트 계정 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isTestLoginLoading = false);
+      }
     }
+  }
 
-    if (!mounted) return;
+  Future<String?> _requestTestAccountPassword() async {
+    final controller = TextEditingController();
+    try {
+      return await showCupertinoDialog<String>(
+        context: context,
+        builder: (dialogContext) {
+          return CupertinoAlertDialog(
+            title: const Text('테스트 계정 로그인'),
+            content: Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: CupertinoTextField(
+                controller: controller,
+                obscureText: true,
+                autocorrect: false,
+                enableSuggestions: false,
+                placeholder: '비밀번호',
+              ),
+            ),
+            actions: [
+              CupertinoDialogAction(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('취소'),
+              ),
+              CupertinoDialogAction(
+                isDefaultAction: true,
+                onPressed: () =>
+                    Navigator.of(dialogContext).pop(controller.text),
+                child: const Text('로그인'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
 
-    Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
+  String _testAccountErrorMessage(FirebaseAuthException error) {
+    switch (error.code) {
+      case 'invalid-credential':
+      case 'wrong-password':
+      case 'user-not-found':
+        return '테스트 계정 비밀번호가 올바르지 않습니다.';
+      case 'network-request-failed':
+        return '네트워크 연결을 확인한 뒤 다시 시도해주세요.';
+      case 'too-many-requests':
+        return '로그인 시도가 잠시 제한되었습니다. 잠시 후 다시 시도해주세요.';
+      default:
+        return '테스트 계정 로그인에 실패했습니다. (${error.code})';
+    }
+  }
+
+  Future<void> _showTestAccountError(String message) {
+    return showCupertinoDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return CupertinoAlertDialog(
+          title: const Text('로그인 실패'),
+          content: Text(message),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _toggleAll(bool value) {
@@ -272,7 +380,12 @@ class _TermsScreenState extends State<TermsScreen> {
                   isLoading: _isSubmitting,
                 ),
                 if (DevEntryPolicy.allowTestAccountEntry)
-                  _TestAccountButton(onPressed: _enterWithTestAccount),
+                  _TestAccountButton(
+                    onPressed: _isTestLoginLoading
+                        ? null
+                        : _enterWithTestAccount,
+                    isLoading: _isTestLoginLoading,
+                  ),
               ],
             ),
           ),
@@ -807,9 +920,10 @@ class _BottomCTA extends StatelessWidget {
 }
 
 class _TestAccountButton extends StatelessWidget {
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
+  final bool isLoading;
 
-  const _TestAccountButton({required this.onPressed});
+  const _TestAccountButton({required this.onPressed, required this.isLoading});
 
   @override
   Widget build(BuildContext context) {
@@ -828,10 +942,10 @@ class _TestAccountButton extends StatelessWidget {
             border: Border.all(color: _AppColors.primary, width: 1.5),
             color: CupertinoColors.white,
           ),
-          child: const Center(
+          child: Center(
             child: Text(
-              '테스트 계정으로 둘러보기',
-              style: TextStyle(
+              isLoading ? '로그인 중...' : '테스트 계정으로 둘러보기',
+              style: const TextStyle(
                 fontFamily: 'NanumSquareRound',
                 fontSize: 15,
                 fontWeight: FontWeight.w700,

@@ -37,6 +37,8 @@ import {
   FieldValue,
   Timestamp,
   DocumentReference,
+  DocumentSnapshot,
+  Transaction,
 } from "firebase-admin/firestore";
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { GoogleAuth } from "google-auth-library";
@@ -85,6 +87,10 @@ import {
 } from "./avatarSourceRetention";
 import { createAvatarGenerationStateSyncTrigger } from "./avatarGenerationStateSync";
 import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
+import {
+  appleAppAccountTokenForUserId,
+  verifyApplePurchase,
+} from "./applePurchaseVerification";
 export { isSafePublicAvatarUrl as isSafePublicMediaUrl } from "./publicMediaUrlPolicy";
 import {
   createRespondTeamMeetingRequestFunction,
@@ -120,6 +126,16 @@ const PORTONE_API_SECRET = defineSecret("PORTONE_API_SECRET");
 const RESEND_API_KEY = defineSecret("RESEND_API_KEY");
 const RESEND_FROM_EMAIL = defineString("RESEND_FROM_EMAIL", { default: "" });
 const RESEND_REPLY_TO = defineString("RESEND_REPLY_TO", { default: "" });
+// App Store signed transaction verification uses Apple's public certificate
+// chain. The app ID and bundle ID are non-secret deployment parameters.
+const APPLE_IAP_BUNDLE_ID = defineString("APPLE_IAP_BUNDLE_ID", {
+  default: "com.seolleyeon.app",
+});
+const APPLE_IAP_APPLE_ID = defineString("APPLE_IAP_APPLE_ID", {
+  // App Store Connect shows this app's Apple ID as 94727223. Override the
+  // parameter if a different App Store Connect app is deployed.
+  default: "94727223",
+});
 
 // 전역 옵션
 setGlobalOptions({
@@ -1285,14 +1301,61 @@ function getCallableData(request: {
 // 가격/하트 수량은 앱 요청에서 받지 않는다. 새 상품을 추가할 때는 StoreKit
 // Configuration과 이 신뢰 mapping을 함께 변경해야 한다.
 const APPLE_HEART_PRODUCT_AMOUNTS: Readonly<Record<string, number>> = {
-  "seolleyeon.heart.10": 10,
-  "seolleyeon.heart.30": 30,
+  "seolleyeon.heart.20": 20,
+  "seolleyeon.heart.40": 40,
   "seolleyeon.heart.100": 100,
+  "seolleyeon.heart.220": 220,
+  "seolleyeon.heart.first.50": 50,
 };
 const GOOGLE_PLAY_HEART_PRODUCT_AMOUNTS: Readonly<Record<string, number>> = {
-  "seolleyeon.heart.10": 10,
+  "seolleyeon.heart.20": 20,
+  "seolleyeon.heart.40": 40,
+  "seolleyeon.heart.100": 100,
+  "seolleyeon.heart.220": 220,
+  "seolleyeon.heart.first.50": 50,
 };
+const FIRST_PURCHASE_HEART_PRODUCT_ID = "seolleyeon.heart.first.50";
+const HEART_FEATURE_COSTS = Object.freeze({
+  directChat: 10,
+  blindMeeting: 30,
+  seasonRoulette: 20,
+  recommendationRefresh: 5,
+});
 const GOOGLE_PLAY_PACKAGE_NAME = "com.seolleyeon.app";
+
+function heartBalanceFromSnapshot(snapshot: DocumentSnapshot): number {
+  const raw = snapshot.get("heartBalance");
+  return typeof raw === "number" && Number.isFinite(raw) && raw >= 0
+    ? Math.floor(raw)
+    : 0;
+}
+
+function debitHeartsInTransaction(params: {
+  transaction: Transaction;
+  userRef: DocumentReference;
+  userSnap: DocumentSnapshot;
+  amount: number;
+  feature: string;
+}): number {
+  const currentBalance = heartBalanceFromSnapshot(params.userSnap);
+  if (currentBalance < params.amount) {
+    throw new HttpsError(
+      "resource-exhausted",
+      `하트가 부족해요. ${params.feature} 이용에는 ${params.amount}H가 필요해요.`
+    );
+  }
+  const heartBalance = currentBalance - params.amount;
+  params.transaction.set(
+    params.userRef,
+    {
+      heartBalance,
+      heartBalanceUpdatedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  return heartBalance;
+}
 
 type IapVerificationMode = "storekit_local" | "production";
 type IapPlatform = "ios" | "android";
@@ -1308,7 +1371,7 @@ type PurchaseVerificationInput = {
 
 type VerifiedPurchase = {
   receiptFingerprint: string;
-  environment: "storekit_local" | "production" | "google_play";
+  environment: "storekit_local" | "production" | "sandbox" | "google_play";
   provider: IapProvider;
   needsGooglePlayConsumption: boolean;
 };
@@ -1356,20 +1419,44 @@ class LocalStoreKitPurchaseVerifier implements PurchaseVerifier {
   async complete(): Promise<void> {}
 }
 
-/**
- * 운영 전환 지점. App Store Server API 또는 App Store Server Library 기반의
- * JWS 검증을 이 클래스에만 구현한다. 미구현 상태에서는 절대로 하트를 지급하지
- * 않아 StoreKit local verifier가 실수로 운영에서 사용되지 않는다.
- */
 class ProductionApplePurchaseVerifier implements PurchaseVerifier {
   async verify(
-    _input: PurchaseVerificationInput,
-    _expectedAccountId: string
+    input: PurchaseVerificationInput,
+    expectedAccountToken: string
   ): Promise<VerifiedPurchase> {
-    throw new HttpsError(
-      "failed-precondition",
-      "Apple 운영 transaction 검증이 아직 설정되지 않았어요."
+    const appAppleIdRaw = APPLE_IAP_APPLE_ID.value().trim();
+    if (!/^\d+$/.test(appAppleIdRaw)) {
+      throw new HttpsError(
+        "failed-precondition",
+        "APPLE_IAP_APPLE_ID 설정이 올바르지 않아요."
+      );
+    }
+    const appAppleId = Number(appAppleIdRaw);
+    if (!Number.isSafeInteger(appAppleId) || appAppleId <= 0) {
+      throw new HttpsError(
+        "failed-precondition",
+        "APPLE_IAP_APPLE_ID 설정이 올바르지 않아요."
+      );
+    }
+
+    const verified = await verifyApplePurchase(
+      {
+        productId: input.productId,
+        transactionId: input.transactionId,
+        signedTransaction: input.verificationData,
+      },
+      expectedAccountToken,
+      {
+        bundleId: APPLE_IAP_BUNDLE_ID.value().trim(),
+        appAppleId,
+      }
     );
+    return {
+      receiptFingerprint: verified.receiptFingerprint,
+      environment: verified.environment,
+      provider: "app_store",
+      needsGooglePlayConsumption: false,
+    };
   }
 
   async complete(): Promise<void> {}
@@ -1551,9 +1638,10 @@ export const grantPurchasedHearts = onCall(withAppCheck(), async (request) => {
   const user = await resolveAuthedAppUser(request.auth);
   const purchase = readIapRequest(request);
   const verifier = createPurchaseVerifier(purchase);
-  const expectedAccountId = createHash("sha256")
-    .update(user.userId)
-    .digest("hex");
+  const expectedAccountId =
+    purchase.platform === "ios"
+      ? appleAppAccountTokenForUserId(user.userId)
+      : sha256Hex(user.userId);
   const verified = await verifier.verify(purchase, expectedAccountId);
   const productAmounts =
     purchase.platform === "android"
@@ -1572,10 +1660,17 @@ export const grantPurchasedHearts = onCall(withAppCheck(), async (request) => {
     .digest("hex");
   const transactionRef = db.collection("iapTransactions").doc(transactionKey);
   const userRef = db.collection("users").doc(user.userId);
+  const priorPurchasesQuery = db
+    .collection("iapTransactions")
+    .where("uid", "==", user.userId)
+    .limit(1);
 
   const result = await db.runTransaction(async (transaction) => {
-    const existing = await transaction.get(transactionRef);
-    const userSnap = await transaction.get(userRef);
+    const [existing, userSnap, priorPurchases] = await Promise.all([
+      transaction.get(transactionRef),
+      transaction.get(userRef),
+      transaction.get(priorPurchasesQuery),
+    ]);
 
     if (existing.exists) {
       const existingData = (existing.data() ?? {}) as Record<string, unknown>;
@@ -1600,19 +1695,36 @@ export const grantPurchasedHearts = onCall(withAppCheck(), async (request) => {
       throw new HttpsError("not-found", "사용자 정보를 찾을 수 없어요.");
     }
 
-    const currentRaw = userSnap.get("heartBalance");
-    const currentBalance =
-      typeof currentRaw === "number" &&
-      Number.isFinite(currentRaw) &&
-      currentRaw >= 0
-        ? Math.floor(currentRaw)
+    const purchaseCountRaw = userSnap.get("iapPurchaseCount");
+    const purchaseCount =
+      typeof purchaseCountRaw === "number" &&
+      Number.isFinite(purchaseCountRaw) &&
+      purchaseCountRaw >= 0
+        ? Math.floor(purchaseCountRaw)
         : 0;
+    const isFirstPurchaseOffer =
+      purchase.productId === FIRST_PURCHASE_HEART_PRODUCT_ID;
+    if (
+      isFirstPurchaseOffer &&
+      (purchaseCount > 0 ||
+        userSnap.get("firstPurchaseOfferUsed") === true ||
+        !priorPurchases.empty)
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "첫 결제 특별 상품은 계정의 첫 결제에만 구매할 수 있어요."
+      );
+    }
+
+    const currentBalance = heartBalanceFromSnapshot(userSnap);
     const heartBalance = currentBalance + heartAmount;
 
     transaction.set(
       userRef,
       {
         heartBalance,
+        iapPurchaseCount: purchaseCount + 1,
+        ...(isFirstPurchaseOffer ? { firstPurchaseOfferUsed: true } : {}),
         heartBalanceUpdatedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       },
@@ -1673,6 +1785,165 @@ export const grantPurchasedHearts = onCall(withAppCheck(), async (request) => {
     environment: verified.environment,
   });
   return result;
+});
+
+/**
+ * 독립 리소스가 없는 기능의 멱등적 하트 차감.
+ * 현재는 추천 피드 새로고침만 허용한다. 채팅·미팅·룰렛은 각 서버
+ * 트랜잭션에서 리소스 생성과 차감을 함께 처리한다.
+ */
+export const spendHearts = onCall(withAppCheck(), async (request) => {
+  const user = await resolveAuthedAppUser(request.auth);
+  const data = getCallableData(request);
+  const feature = asNonEmptyString(data.feature);
+  const operationId = asNonEmptyString(data.operationId);
+  if (feature !== "recommendation_refresh") {
+    throw new HttpsError("invalid-argument", "지원하지 않는 하트 사용 기능이에요.");
+  }
+  if (!operationId || operationId.length > 128) {
+    throw new HttpsError("invalid-argument", "사용 요청 ID가 올바르지 않아요.");
+  }
+
+  const operationKey = createHash("sha256")
+    .update(`${user.userId}:${feature}:${operationId}`)
+    .digest("hex");
+  const spendRef = db.collection("heartTransactions").doc(operationKey);
+  const userRef = db.collection("users").doc(user.userId);
+  return db.runTransaction(async (transaction) => {
+    const [existing, userSnap] = await Promise.all([
+      transaction.get(spendRef),
+      transaction.get(userRef),
+    ]);
+    if (existing.exists) {
+      if (existing.get("uid") !== user.userId || existing.get("feature") !== feature) {
+        throw new HttpsError("already-exists", "이미 사용된 요청 ID예요.");
+      }
+      return {
+        spent: false,
+        alreadySpent: true,
+        heartBalance: Number(existing.get("heartBalanceAfter") ?? 0),
+      };
+    }
+    if (!userSnap.exists) {
+      throw new HttpsError("not-found", "사용자 정보를 찾을 수 없어요.");
+    }
+    const amount = HEART_FEATURE_COSTS.recommendationRefresh;
+    const heartBalance = debitHeartsInTransaction({
+      transaction,
+      userRef,
+      userSnap,
+      amount,
+      feature: "새로고침",
+    });
+    transaction.create(spendRef, {
+      uid: user.userId,
+      feature,
+      amount,
+      operationKey,
+      heartBalanceAfter: heartBalance,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    return { spent: true, alreadySpent: false, heartBalance };
+  });
+});
+
+/** 첫 1:1 채팅방을 열 때만 10H를 차감한다. 기존 방 재진입은 무료다. */
+export const unlockDirectChat = onCall(withAppCheck(), async (request) => {
+  const user = await resolveAuthedAppUser(request.auth);
+  const data = getCallableData(request);
+  const partnerId = asNonEmptyString(data.partnerId);
+  if (!partnerId || partnerId === user.userId || partnerId.length > 128) {
+    throw new HttpsError("invalid-argument", "채팅 상대 정보가 올바르지 않아요.");
+  }
+
+  const [partnerSnap, forwardBlock, reverseBlock] = await Promise.all([
+    db.collection("users").doc(partnerId).get(),
+    db.collection("blocks").doc(user.userId).collection("targets").doc(partnerId).get(),
+    db.collection("blocks").doc(partnerId).collection("targets").doc(user.userId).get(),
+  ]);
+  if (!partnerSnap.exists) {
+    throw new HttpsError("not-found", "채팅 상대를 찾을 수 없어요.");
+  }
+  const partnerData = (partnerSnap.data() ?? {}) as Record<string, unknown>;
+  if (
+    partnerData.isWithdrawn === true ||
+    partnerData.loginDisabled === true ||
+    forwardBlock.exists ||
+    reverseBlock.exists
+  ) {
+    throw new HttpsError("permission-denied", "현재 이 상대와 채팅을 시작할 수 없어요.");
+  }
+
+  const roomId = buildDirectRoomId(user.userId, partnerId);
+  const roomRef = db.collection("chat_rooms").doc(roomId);
+  const userRef = db.collection("users").doc(user.userId);
+  const spendRef = db
+    .collection("heartTransactions")
+    .doc(createHash("sha256").update(`direct_chat:${roomId}`).digest("hex"));
+  const currentProfile = user.profileSnapshot;
+  const partnerProfile = buildFriendProfileSnapshot(partnerId, partnerData);
+
+  return db.runTransaction(async (transaction) => {
+    const [roomSnap, userSnap] = await Promise.all([
+      transaction.get(roomRef),
+      transaction.get(userRef),
+    ]);
+    if (roomSnap.exists) {
+      const participantIds = normalizeStringList(roomSnap.get("participantIds"));
+      if (!participantIds.includes(user.userId)) {
+        throw new HttpsError("permission-denied", "채팅방에 입장할 수 없어요.");
+      }
+      return {
+        roomId,
+        charged: false,
+        heartBalance: heartBalanceFromSnapshot(userSnap),
+      };
+    }
+    if (!userSnap.exists) {
+      throw new HttpsError("not-found", "사용자 정보를 찾을 수 없어요.");
+    }
+
+    const amount = HEART_FEATURE_COSTS.directChat;
+    const heartBalance = debitHeartsInTransaction({
+      transaction,
+      userRef,
+      userSnap,
+      amount,
+      feature: "채팅",
+    });
+    const participantIds = [user.userId, partnerId].sort();
+    transaction.create(roomRef, {
+      roomId,
+      type: "one_to_one",
+      status: "active",
+      participantIds,
+      participantInfo: {
+        [user.userId]: {
+          nickname: asString(currentProfile.nickname, ""),
+          avatarUrl: asString(currentProfile.profileImageUrl, ""),
+        },
+        [partnerId]: {
+          nickname: asString(partnerProfile.nickname, ""),
+          avatarUrl: asString(partnerProfile.profileImageUrl, ""),
+        },
+      },
+      unlockedBy: user.userId,
+      heartCost: amount,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      lastMessage: "",
+      lastMessageAt: null,
+    });
+    transaction.create(spendRef, {
+      uid: user.userId,
+      feature: "direct_chat",
+      resourceId: roomId,
+      amount,
+      heartBalanceAfter: heartBalance,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    return { roomId, charged: true, heartBalance };
+  });
 });
 
 /** Firebase Auth 없이 호출될 때: 클라이언트가 검증된 카카오 액세스 토큰을 넘김 */
@@ -3353,6 +3624,8 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
     // 후보 선정이 끝난 write 단계에서 일괄 처리한다.
     const staleLockRefs: DocumentReference[] = [];
     const requesterLockSnap = await tx.get(requesterLockRef);
+    const payerRef = db.collection("users").doc(user.userId);
+    const payerSnap = await tx.get(payerRef);
     if (requesterLockSnap.exists) {
       const requesterLockData =
         (requesterLockSnap.data() ?? {}) as Record<string, unknown>;
@@ -3466,6 +3739,21 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
       createdAtIso,
     });
 
+    if (!payerSnap.exists) {
+      throw new HttpsError("not-found", "사용자 정보를 찾을 수 없어요.");
+    }
+    const heartAmount = HEART_FEATURE_COSTS.seasonRoulette;
+    const heartBalance = debitHeartsInTransaction({
+      transaction: tx,
+      userRef: payerRef,
+      userSnap: payerSnap,
+      amount: heartAmount,
+      feature: "3:3 가챠 룰렛",
+    });
+    const heartSpendRef = db
+      .collection("heartTransactions")
+      .doc(createHash("sha256").update(`season_roulette:${resultRef.id}`).digest("hex"));
+
     for (const staleLockRef of staleLockRefs) {
       if (
         staleLockRef.path === requesterLockRef.path ||
@@ -3477,8 +3765,18 @@ export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) 
     }
     tx.set(resultRef, {
       ...resultPreview,
+      heartCost: heartAmount,
+      heartPaidBy: user.userId,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.create(heartSpendRef, {
+      uid: user.userId,
+      feature: "season_roulette",
+      resourceId: resultRef.id,
+      amount: heartAmount,
+      heartBalanceAfter: heartBalance,
+      createdAt: FieldValue.serverTimestamp(),
     });
     tx.set(requesterLockRef, {
       dateKey,

@@ -12,6 +12,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../constants/profile_options.dart';
 import '../../../router/route_names.dart';
 import '../../../services/onboarding_save_helper.dart';
 import '../../../services/storage_service.dart';
@@ -68,11 +69,8 @@ class ProfileQaScreen extends StatefulWidget {
 class _ProfileQaScreenState extends State<ProfileQaScreen> {
   // 초기 질문 데이터
   final List<ProfileQuestion> _questions = [
-    ProfileQuestion(id: 1, question: '주말에 보통 뭐 해요?'),
-    ProfileQuestion(id: 2, question: '가장 좋아하는 음식은?'),
-    ProfileQuestion(id: 3, question: '나의 힐링 포인트는?'),
-    ProfileQuestion(id: 4, question: '기억에 남는 여행지는?'),
-    ProfileQuestion(id: 5, question: '내 이상형에 가까운 사람은?'),
+    for (final entry in profileQuestionPrompts.asMap().entries)
+      ProfileQuestion(id: entry.key + 1, question: entry.value),
   ];
 
   int? _expandedIndex = 0; // 초기에 첫 번째 질문 펼침
@@ -208,6 +206,7 @@ class _ProfileQaScreenState extends State<ProfileQaScreen> {
                                   const SizedBox(height: 12),
                               itemBuilder: (context, index) {
                                 return _QuestionCard(
+                                  key: ValueKey(_questions[index].id),
                                   question: _questions[index],
                                   index: index,
                                   isExpanded: _expandedIndex == index,
@@ -470,20 +469,66 @@ class _Headline extends StatelessWidget {
 // =============================================================================
 // 질문 카드
 // =============================================================================
-class _QuestionCard extends StatelessWidget {
+class _QuestionCard extends StatefulWidget {
   final ProfileQuestion question;
   final int index;
   final bool isExpanded;
   final VoidCallback onTap;
-  final Function(String) onAnswerChanged;
+  final ValueChanged<String> onAnswerChanged;
 
   const _QuestionCard({
+    super.key,
     required this.question,
     required this.index,
     required this.isExpanded,
     required this.onTap,
     required this.onAnswerChanged,
   });
+
+  @override
+  State<_QuestionCard> createState() => _QuestionCardState();
+}
+
+class _QuestionCardState extends State<_QuestionCard> {
+  late final TextEditingController _answerController;
+  late final FocusNode _answerFocusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    final answer = widget.question.answer ?? '';
+    _answerController = TextEditingController.fromValue(
+      TextEditingValue(
+        text: answer,
+        selection: TextSelection.collapsed(offset: answer.length),
+      ),
+    );
+    _answerFocusNode = FocusNode();
+  }
+
+  @override
+  void didUpdateWidget(covariant _QuestionCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // The parent rebuilds on every keystroke to update the character count and
+    // button label. Keep the controller untouched while the field is focused;
+    // replacing its value during Korean IME composition splits syllables into
+    // separate consonants and vowels on Android and iOS.
+    final answer = widget.question.answer ?? '';
+    if (_answerController.text == answer || _answerFocusNode.hasFocus) return;
+
+    _answerController.value = TextEditingValue(
+      text: answer,
+      selection: TextSelection.collapsed(offset: answer.length),
+    );
+  }
+
+  @override
+  void dispose() {
+    _answerController.dispose();
+    _answerFocusNode.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -493,7 +538,7 @@ class _QuestionCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: _AppColors.surfaceLight,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: isExpanded
+        boxShadow: widget.isExpanded
             ? [
                 BoxShadow(
                   color: _AppColors.primary.withValues(alpha: 0.08),
@@ -509,7 +554,7 @@ class _QuestionCard extends StatelessWidget {
                 ),
               ],
         border: Border.all(
-          color: isExpanded
+          color: widget.isExpanded
               ? _AppColors.primary.withValues(alpha: 0.2)
               : Colors.transparent,
           width: 2,
@@ -519,7 +564,7 @@ class _QuestionCard extends StatelessWidget {
         children: [
           // 카드 헤더 (클릭 시 토글)
           GestureDetector(
-            onTap: onTap,
+            onTap: widget.onTap,
             behavior: HitTestBehavior.opaque,
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -531,12 +576,12 @@ class _QuestionCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'QUESTION ${(index + 1).toString().padLeft(2, '0')}',
+                          'QUESTION ${(widget.index + 1).toString().padLeft(2, '0')}',
                           style: TextStyle(
                             fontFamily: 'NanumSquareRound',
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
-                            color: isExpanded
+                            color: widget.isExpanded
                                 ? _AppColors.primary
                                 : _AppColors.textGray,
                             letterSpacing: 1.2,
@@ -544,7 +589,7 @@ class _QuestionCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          question.question,
+                          widget.question.question,
                           style: const TextStyle(
                             fontFamily: 'NanumSquareRound',
                             fontSize: 16,
@@ -560,13 +605,15 @@ class _QuestionCard extends StatelessWidget {
                     width: 32,
                     height: 32,
                     decoration: BoxDecoration(
-                      color: isExpanded
+                      color: widget.isExpanded
                           ? Colors.transparent
                           : _AppColors.backgroundLight,
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
-                      isExpanded ? Icons.edit_note_rounded : Icons.add_rounded,
+                      widget.isExpanded
+                          ? Icons.edit_note_rounded
+                          : Icons.add_rounded,
                       color: _AppColors.primary,
                       size: 22,
                     ),
@@ -579,21 +626,16 @@ class _QuestionCard extends StatelessWidget {
           AnimatedSize(
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeInOut,
-            child: isExpanded
+            child: widget.isExpanded
                 ? Padding(
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                     child: Stack(
                       children: [
                         TextField(
-                          controller:
-                              TextEditingController(text: question.answer)
-                                ..selection = TextSelection.fromPosition(
-                                  TextPosition(
-                                    offset: question.answer?.length ?? 0,
-                                  ),
-                                ),
-                          onChanged: onAnswerChanged,
-                          maxLength: 100,
+                          controller: _answerController,
+                          focusNode: _answerFocusNode,
+                          onChanged: widget.onAnswerChanged,
+                          maxLength: maxProfileQaAnswerLength,
                           maxLines: 4,
                           style: const TextStyle(
                             fontFamily: 'NanumSquareRound',
@@ -636,7 +678,7 @@ class _QuestionCard extends StatelessWidget {
                           bottom: 12,
                           right: 12,
                           child: Text(
-                            '${question.answer?.length ?? 0}/100',
+                            '${widget.question.answer?.length ?? 0}/100',
                             style: const TextStyle(
                               fontFamily: 'NanumSquareRound',
                               fontSize: 11,

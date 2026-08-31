@@ -10,6 +10,7 @@
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import '../../../constants/profile_options.dart';
 import '../../../router/route_names.dart';
 import '../../../services/onboarding_save_helper.dart';
 import '../../../services/storage_service.dart';
@@ -28,33 +29,6 @@ class _AppColors {
 }
 
 // =============================================================================
-// 키워드 데이터
-// =============================================================================
-class _KeywordData {
-  static const List<String> keywords = [
-    '자신감 있는',
-    '아담한',
-    '듬직한',
-    '잘 웃는',
-    '자유분방한',
-    '욕 안하는',
-    '목소리 좋은',
-    '또라이 같은',
-    '먼저 말걸어주는',
-    '옷 잘입는',
-    '활발한',
-    '조용한',
-    '애교가 많은',
-    '어른스러운',
-    '열정적인',
-    '차분한',
-    '예의 바른',
-    '재치있는',
-    '진지한',
-  ];
-}
-
-// =============================================================================
 // 메인 화면
 // =============================================================================
 class KeywordScreen extends StatefulWidget {
@@ -66,7 +40,7 @@ class KeywordScreen extends StatefulWidget {
 
 class _KeywordScreenState extends State<KeywordScreen> {
   final Set<String> _selectedKeywords = {};
-  static const int _maxSelection = 8;
+  static const int _maxSelection = maxProfileKeywords;
   final StorageService _storageService = StorageService();
   final UserService _userService = UserService();
   bool _isSavingOnExit = false;
@@ -162,7 +136,7 @@ class _KeywordScreenState extends State<KeywordScreen> {
                       child: Wrap(
                         spacing: 10,
                         runSpacing: 10,
-                        children: _KeywordData.keywords.map((keyword) {
+                        children: profileKeywordOptions.map((keyword) {
                           final isSelected = _selectedKeywords.contains(
                             keyword,
                           );

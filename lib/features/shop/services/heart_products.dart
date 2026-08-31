@@ -6,11 +6,15 @@ class HeartProduct {
   final String iosProductId;
   final String androidProductId;
   final int hearts;
+  final String displayName;
+  final bool isFirstPurchaseOffer;
 
   const HeartProduct({
     required this.iosProductId,
     required this.androidProductId,
     required this.hearts,
+    required this.displayName,
+    this.isFirstPurchaseOffer = false,
   });
 
   String productIdFor(HeartPurchasePlatform platform) => switch (platform) {
@@ -20,39 +24,55 @@ class HeartProduct {
 }
 
 abstract final class HeartProducts {
-  static const heart10ProductId = 'seolleyeon.heart.10';
-  static const heart30ProductId = 'seolleyeon.heart.30';
+  static const heart20ProductId = 'seolleyeon.heart.20';
+  static const heart40ProductId = 'seolleyeon.heart.40';
   static const heart100ProductId = 'seolleyeon.heart.100';
+  static const heart220ProductId = 'seolleyeon.heart.220';
+  static const firstHeart50ProductId = 'seolleyeon.heart.first.50';
 
   // Google Play product ID도 현재는 iOS ID와 동일하다. Play Console 규칙상
   // 달라져야 할 경우 이 mapping만 변경하면 UI/지급 로직은 그대로 유지된다.
-  static const heart10 = HeartProduct(
-    iosProductId: heart10ProductId,
-    androidProductId: heart10ProductId,
-    hearts: 10,
+  static const heart20 = HeartProduct(
+    iosProductId: heart20ProductId,
+    androidProductId: heart20ProductId,
+    hearts: 20,
+    displayName: '가볍게',
   );
-  static const heart30 = HeartProduct(
-    iosProductId: heart30ProductId,
-    androidProductId: heart30ProductId,
-    hearts: 30,
+  static const heart40 = HeartProduct(
+    iosProductId: heart40ProductId,
+    androidProductId: heart40ProductId,
+    hearts: 40,
+    displayName: '핵심',
   );
   static const heart100 = HeartProduct(
     iosProductId: heart100ProductId,
     androidProductId: heart100ProductId,
     hearts: 100,
+    displayName: '활동',
+  );
+  static const heart220 = HeartProduct(
+    iosProductId: heart220ProductId,
+    androidProductId: heart220ProductId,
+    hearts: 220,
+    displayName: '학기',
+  );
+  static const firstHeart50 = HeartProduct(
+    iosProductId: firstHeart50ProductId,
+    androidProductId: firstHeart50ProductId,
+    hearts: 50,
+    displayName: '첫 결제 특별 상품',
+    isFirstPurchaseOffer: true,
   );
 
-  static const all = <HeartProduct>[heart10, heart30, heart100];
+  static const all = <HeartProduct>[
+    firstHeart50,
+    heart20,
+    heart40,
+    heart100,
+    heart220,
+  ];
 
-  // Google Play first launch exposes only the 10-heart consumable. The iOS
-  // catalog is kept intact for StoreKit local testing, but production iOS
-  // purchases remain gated by InAppPurchasePolicy.
-  static const googlePlayLaunchProducts = <HeartProduct>[heart10];
-
-  static List<HeartProduct> productsFor(HeartPurchasePlatform platform) =>
-      platform == HeartPurchasePlatform.android
-      ? googlePlayLaunchProducts
-      : all;
+  static List<HeartProduct> productsFor(HeartPurchasePlatform platform) => all;
 
   static Set<String> productIdsFor(HeartPurchasePlatform platform) =>
       productsFor(

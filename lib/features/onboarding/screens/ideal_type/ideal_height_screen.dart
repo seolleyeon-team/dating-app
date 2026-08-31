@@ -10,6 +10,7 @@
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import '../../../../constants/profile_options.dart';
 import '../../../../services/storage_service.dart';
 
 // =============================================================================
@@ -37,8 +38,8 @@ class IdealHeightScreen extends StatefulWidget {
 
 class _IdealHeightScreenState extends State<IdealHeightScreen> {
   // 키 범위: 140cm ~ 200cm
-  static const int _minHeight = 140;
-  static const int _maxHeight = 200;
+  static const int _minHeight = profileHeightMin;
+  static const int _maxHeight = profileHeightMax;
 
   int? _selectedMinHeight;
   int? _selectedMaxHeight;

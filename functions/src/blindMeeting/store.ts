@@ -8,10 +8,16 @@
 
 import { readPersistedCampusLifeZones } from "../campusLifeZones";
 import { createHash } from "crypto";
-import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
+import {
+  DocumentSnapshot,
+  FieldValue,
+  getFirestore,
+  Timestamp,
+} from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
+import { readFreeBlindMeetingTestBuildConfig } from "./compatibility";
 import { isStrictStudentVerification } from "./eligibility";
 import {
   buildBlindMeetingApplicationEditPatch,
@@ -878,6 +884,456 @@ export async function setApplication(
       );
     }
     tx.set(ref, buildApplicationPatchPayload(patch), { merge: true });
+  });
+}
+
+/**
+ * 서버 allowlist에 등록된 테스트 UID의 무료 호환 신청 저장 경로.
+ *
+ * 이 함수는 App Check 앱 ID나 클라이언트가 보낸 테스트 플래그를 신뢰하지
+ * 않는다. callables.ts가 서버 환경변수의 명시적인 Firebase Auth UID allowlist를
+ * 확인한 경우에만 이 경로를 선택한다.
+ */
+export async function createFreeBlindMeetingApplication(params: {
+  userId: string;
+  dnaPayload: Record<string, unknown>;
+  requestedDateKeys: string[];
+  prefersAlcoholFree: boolean;
+  waitlistOptIn: boolean;
+}): Promise<void> {
+  await db()
+    .collection(BLIND_MEETING_COLLECTIONS.dna)
+    .doc(params.userId)
+    .set(
+      {
+        ...params.dnaPayload,
+        updatedAt: FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+  await setApplication(params.userId, {
+    status: "applied",
+    stage: "searchingCandidates",
+    open: true,
+    meetingId: null,
+    extra: {
+      userId: params.userId,
+      requestedDateKeys: params.requestedDateKeys,
+      availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
+      scheduleSelectionVersion: BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
+      prefersAlcoholFree: params.prefersAlcoholFree,
+      waitlistOptIn: params.waitlistOptIn,
+      appliedAt: FieldValue.serverTimestamp(),
+    },
+  });
+}
+
+const FREE_BLIND_MEETING_TEST_CLAIMS_COLLECTION =
+  "blindMeetingFreeTestClaims";
+const FREE_BLIND_MEETING_TEST_COUNTER_DOC = "_meta";
+
+/**
+ * 미리 UID를 수집할 수 없는 폐쇄 TestFlight 테스트를 위한 무료 슬롯 claim.
+ *
+ * claim 문서는 Firebase Auth UID를 키로 삼고 counter 문서와 함께 하나의
+ * Firestore transaction에서 갱신한다. 따라서 같은 UID의 재시도는 무료
+ * 슬롯을 다시 차지하지 않고, 동시 가입자는 설정된 최대 인원을 넘을 수 없다.
+ */
+export async function claimFreeBlindMeetingTestSlot(params: {
+  userId: string;
+  clientBuild: string;
+}): Promise<void> {
+  const config = readFreeBlindMeetingTestBuildConfig();
+  const normalizedClientBuild = params.clientBuild.trim();
+  const acceptsLegacyClient = normalizedClientBuild.length === 0;
+  if (
+    config.builds.length === 0 ||
+    config.expiresAtMs == null ||
+    config.maxAccounts == null ||
+    (!acceptsLegacyClient && !config.builds.includes(normalizedClientBuild)) ||
+    config.expiresAtMs <= Date.now()
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "무료 테스트 빌드가 현재 활성화되어 있지 않아요."
+    );
+  }
+
+  const firestore = db();
+  const claimRef = firestore
+    .collection(FREE_BLIND_MEETING_TEST_CLAIMS_COLLECTION)
+    .doc(params.userId);
+  const counterRef = firestore
+    .collection(FREE_BLIND_MEETING_TEST_CLAIMS_COLLECTION)
+    .doc(FREE_BLIND_MEETING_TEST_COUNTER_DOC);
+
+  await firestore.runTransaction(async (tx) => {
+    const claimSnap = await tx.get(claimRef);
+    if (claimSnap.exists) return;
+
+    const counterSnap = await tx.get(counterRef);
+    const claimedCount = Math.max(
+      0,
+      Math.floor(asNum(counterSnap.data()?.claimedCount, 0))
+    );
+    if (claimedCount >= config.maxAccounts!) {
+      throw new HttpsError(
+        "resource-exhausted",
+        "이번 무료 테스트 참가 인원이 모두 찼어요."
+      );
+    }
+
+    const claimBuild =
+      normalizedClientBuild.length > 0
+        ? normalizedClientBuild
+        : config.builds[0] ?? config.build;
+    tx.create(claimRef, {
+      build: claimBuild,
+      claimedAt: FieldValue.serverTimestamp(),
+      expiresAt: Timestamp.fromMillis(config.expiresAtMs!),
+    });
+    tx.set(
+      counterRef,
+      {
+        build: claimBuild,
+        claimedCount: claimedCount + 1,
+        maxAccounts: config.maxAccounts,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  });
+}
+
+const BLIND_MEETING_HEART_COST = 30;
+
+function heartBalanceFromSnapshot(snapshot: DocumentSnapshot): number {
+  const raw = snapshot.get("heartBalance");
+  return typeof raw === "number" && Number.isFinite(raw) && raw >= 0
+    ? Math.floor(raw)
+    : 0;
+}
+
+type BlindMeetingDnaDraftFields = {
+  conversationAtmosphere?: string;
+  conversationInitiative?: string;
+  meetingPurpose?: string;
+  alcoholCompanionPreference?: string;
+  smokingCompanionPreference?: string;
+};
+
+/**
+ * DNA 작성 시작 시 30H를 한 번만 차감하고, 작성 진행 문서를 만든다.
+ *
+ * 이 상태는 실제 신청(open 후보군)과 분리되어 있어 작성 중인 사용자가
+ * 매칭에 노출되지 않는다. 같은 진행 문서로 재시도하면 잔액을 다시
+ * 차감하지 않고 기존 상태를 반환한다.
+ */
+export async function startPaidBlindMeetingDna(userId: string): Promise<{
+  charged: boolean;
+  heartBalance: number;
+  heartChargeCount: number;
+}> {
+  const firestore = db();
+  const draftRef = firestore
+    .collection(BLIND_MEETING_COLLECTIONS.dnaDrafts)
+    .doc(userId);
+  const applicationRef = firestore
+    .collection(BLIND_MEETING_COLLECTIONS.applications)
+    .doc(userId);
+  const userRef = firestore.collection("users").doc(userId);
+
+  return firestore.runTransaction(async (tx) => {
+    const [draftSnap, applicationSnap, userSnap] = await Promise.all([
+      tx.get(draftRef),
+      tx.get(applicationRef),
+      tx.get(userRef),
+    ]);
+    if (!userSnap.exists) {
+      throw new HttpsError("not-found", "사용자 정보를 찾을 수 없어요.");
+    }
+
+    const existingApplication =
+      (applicationSnap.data() ?? {}) as Record<string, unknown>;
+    const applicationMeetingId = asTrimmedOrNull(
+      existingApplication.meetingId
+    );
+    if (applicationSnap.exists && existingApplication.open === true && !applicationMeetingId) {
+      throw new HttpsError(
+        "failed-precondition",
+        "이미 진행 중인 블라인드 미팅 신청이 있어요."
+      );
+    }
+
+    const existingDraft = (draftSnap.data() ?? {}) as Record<string, unknown>;
+    const existingDraftStatus = asStr(existingDraft.status, "");
+    const existingDraftChargeCount = Math.max(
+      0,
+      Math.floor(asNum(existingDraft.heartChargeCount, 0))
+    );
+    const applicationCompleted = existingApplication.dnaApplicationCompleted === true;
+    if (
+      draftSnap.exists &&
+      existingDraftStatus === "in_progress" &&
+      existingDraftChargeCount > 0 &&
+      !applicationCompleted
+    ) {
+      return {
+        charged: false,
+        heartBalance: heartBalanceFromSnapshot(userSnap),
+        heartChargeCount: existingDraftChargeCount,
+      };
+    }
+
+    // 최종 신청과 초안 삭제가 분리된 legacy/복구 데이터가 남아 있어도
+    // 완료된 신청의 초안을 이어쓰기 상태로 노출하지 않는다.
+    if (applicationCompleted && draftSnap.exists) {
+      tx.delete(draftRef);
+    }
+
+    const previousApplicationChargeCount = Math.max(
+      0,
+      Math.floor(asNum(existingApplication.heartChargeCount, 0))
+    );
+    const chargeCount = Math.max(
+      previousApplicationChargeCount,
+      existingDraftChargeCount
+    ) + 1;
+    const spendRef = firestore
+      .collection("heartTransactions")
+      .doc(
+        createHash("sha256")
+          .update(`blind_meeting:${userId}:${chargeCount}`)
+          .digest("hex")
+      );
+    const spendSnap = await tx.get(spendRef);
+    if (spendSnap.exists) {
+      throw new HttpsError(
+        "already-exists",
+        "이미 처리된 블라인드 미팅 결제가 있어요. 잠시 후 다시 시도해주세요."
+      );
+    }
+
+    let heartBalance = Math.max(0, Math.floor(heartBalanceFromSnapshot(userSnap)));
+    if (heartBalance < BLIND_MEETING_HEART_COST) {
+      throw new HttpsError(
+        "resource-exhausted",
+        `하트가 부족해요. 3:3 블라인드 신청에는 ${BLIND_MEETING_HEART_COST}H가 필요해요.`
+      );
+    }
+    heartBalance -= BLIND_MEETING_HEART_COST;
+    tx.set(
+      userRef,
+      {
+        heartBalance,
+        heartBalanceUpdatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    tx.create(spendRef, {
+      uid: userId,
+      feature: "blind_meeting",
+      resourceId: userId,
+      amount: BLIND_MEETING_HEART_COST,
+      heartBalanceAfter: heartBalance,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(
+      draftRef,
+      {
+        userId,
+        status: "in_progress",
+        heartCost: BLIND_MEETING_HEART_COST,
+        heartChargeCount: chargeCount,
+        updatedAt: FieldValue.serverTimestamp(),
+        ...(!draftSnap.exists
+          ? { createdAt: FieldValue.serverTimestamp() }
+          : {}),
+      },
+      { merge: true }
+    );
+    return {
+      charged: true,
+      heartBalance,
+      heartChargeCount: chargeCount,
+    };
+  });
+}
+
+/** 작성 중인 DNA 답변을 저장한다. 결제·신청 상태는 이 함수에서 변경하지 않는다. */
+export async function saveBlindMeetingDnaDraft(
+  userId: string,
+  fields: BlindMeetingDnaDraftFields
+): Promise<void> {
+  const draftRef = db()
+    .collection(BLIND_MEETING_COLLECTIONS.dnaDrafts)
+    .doc(userId);
+  await db().runTransaction(async (tx) => {
+    const draftSnap = await tx.get(draftRef);
+    const raw = (draftSnap.data() ?? {}) as Record<string, unknown>;
+    if (
+      !draftSnap.exists ||
+      asStr(raw.status, "") !== "in_progress" ||
+      asNum(raw.heartChargeCount, 0) <= 0
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "진행 중인 미팅 DNA 작성을 찾을 수 없어요."
+      );
+    }
+    tx.set(
+      draftRef,
+      {
+        ...fields,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  });
+}
+
+/**
+ * 신규 블라인드 미팅 신청·DNA 저장·30H 차감을 하나의 트랜잭션으로
+ * 처리한다. 네트워크 재시도로 이미 열린 신청을 다시 제출하면 재차감하지
+ * 않고, 취소/완료 후 새 신청은 새로 차감한다.
+ */
+export async function createPaidBlindMeetingApplication(params: {
+  userId: string;
+  dnaPayload: Record<string, unknown>;
+  requestedDateKeys: string[];
+  prefersAlcoholFree: boolean;
+  waitlistOptIn: boolean;
+}): Promise<void> {
+  const heartCost = BLIND_MEETING_HEART_COST;
+  const firestore = db();
+  const applicationRef = firestore
+    .collection(BLIND_MEETING_COLLECTIONS.applications)
+    .doc(params.userId);
+  const dnaRef = firestore
+    .collection(BLIND_MEETING_COLLECTIONS.dna)
+    .doc(params.userId);
+  const draftRef = firestore
+    .collection(BLIND_MEETING_COLLECTIONS.dnaDrafts)
+    .doc(params.userId);
+  const userRef = firestore.collection("users").doc(params.userId);
+
+  await firestore.runTransaction(async (tx) => {
+    const [applicationSnap, userSnap, draftSnap] = await Promise.all([
+      tx.get(applicationRef),
+      tx.get(userRef),
+      tx.get(draftRef),
+    ]);
+    if (!userSnap.exists) {
+      throw new HttpsError("not-found", "사용자 정보를 찾을 수 없어요.");
+    }
+
+    const existing = (applicationSnap.data() ?? {}) as Record<string, unknown>;
+    const existingMeetingId = asTrimmedOrNull(existing.meetingId);
+    const isOpenRetry =
+      applicationSnap.exists && existing.open === true && !existingMeetingId;
+    if (applicationSnap.exists && !isOpenRetry) {
+      const rawStatus = asStr(existing.serverStatus ?? existing.status, "");
+      const previous = APP_STATUS_TO_SERVER[rawStatus];
+      if (previous == null || !canTransitionApplication(previous, "applied")) {
+        throw new HttpsError(
+          "failed-precondition",
+          "현재 신청 상태에서는 새로 신청할 수 없어요."
+        );
+      }
+    }
+
+    let heartBalance = asNum(userSnap.get("heartBalance"), 0);
+    let chargeCount = Math.max(
+      0,
+      Math.floor(asNum(existing.heartChargeCount, 0))
+    );
+    const draft = (draftSnap.data() ?? {}) as Record<string, unknown>;
+    const draftChargeCount = Math.max(
+      0,
+      Math.floor(asNum(draft.heartChargeCount, 0))
+    );
+    const hasPaidDraft =
+      draftSnap.exists &&
+      asStr(draft.status, "") === "in_progress" &&
+      draftChargeCount > 0;
+    chargeCount = Math.max(chargeCount, draftChargeCount);
+    if (!isOpenRetry && !hasPaidDraft) {
+      heartBalance = Math.max(0, Math.floor(heartBalance));
+      if (heartBalance < heartCost) {
+        throw new HttpsError(
+          "resource-exhausted",
+          `하트가 부족해요. 3:3 블라인드 신청에는 ${heartCost}H가 필요해요.`
+        );
+      }
+      heartBalance -= heartCost;
+      chargeCount += 1;
+      tx.set(
+        userRef,
+        {
+          heartBalance,
+          heartBalanceUpdatedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      const spendRef = firestore
+        .collection("heartTransactions")
+        .doc(
+          createHash("sha256")
+            .update(`blind_meeting:${params.userId}:${chargeCount}`)
+            .digest("hex")
+        );
+      tx.create(spendRef, {
+        uid: params.userId,
+        feature: "blind_meeting",
+        resourceId: params.userId,
+        amount: heartCost,
+        heartBalanceAfter: heartBalance,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    tx.set(
+      dnaRef,
+      {
+        ...params.dnaPayload,
+        updatedAt: FieldValue.serverTimestamp(),
+        ...(!applicationSnap.exists
+          ? { createdAt: FieldValue.serverTimestamp() }
+          : {}),
+      },
+      { merge: true }
+    );
+    tx.set(
+      applicationRef,
+      buildApplicationPatchPayload({
+        status: "applied",
+        stage: "searchingCandidates",
+        open: true,
+        meetingId: null,
+        extra: {
+          userId: params.userId,
+          requestedDateKeys: params.requestedDateKeys,
+          availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
+          scheduleSelectionVersion: BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
+          prefersAlcoholFree: params.prefersAlcoholFree,
+          waitlistOptIn: params.waitlistOptIn,
+          appliedAt: FieldValue.serverTimestamp(),
+          heartCost,
+          heartChargeCount: chargeCount,
+          dnaApplicationCompleted: true,
+        },
+      }),
+      { merge: true }
+    );
+    if (draftSnap.exists) {
+      // 최종 신청이 완료되면 작성 중 상태를 제거해 다음 신청은 새 결제로
+      // 시작하도록 한다. 트랜잭션 안에서 신청 저장과 함께 처리된다.
+      tx.delete(draftRef);
+    }
   });
 }
 

@@ -1,5 +1,6 @@
 import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart'
     show showModalBottomSheet, RoundedRectangleBorder;
 import 'package:flutter/services.dart';
@@ -15,6 +16,8 @@ import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
 import '../../chat/models/chat_room_data.dart';
 import '../../chat/services/chat_service.dart';
+import '../../shop/services/heart_economy.dart';
+import '../../shop/widgets/heart_spend_confirmation.dart';
 import '../../../router/route_names.dart';
 import '../models/profile_card_args.dart';
 import '../services/profile_photo_access_service.dart';
@@ -663,7 +666,11 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
         },
         onError: (e) {
           if (!mounted) return;
-          _showToast('메시지를 보내지 못했어요', isError: true);
+          final message =
+              e is FirebaseFunctionsException && e.code == 'resource-exhausted'
+              ? '하트가 부족해요. 채팅에는 ${HeartFeatureCosts.label(HeartFeatureCosts.directChat)}가 필요해요.'
+              : '메시지를 보내지 못했어요';
+          _showToast(message, isError: true);
         },
       ),
     );
@@ -2328,6 +2335,17 @@ class _MessageBottomSheetState extends State<_MessageBottomSheet> {
   Future<void> _submit() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _isSending) return;
+
+    final confirmed = await confirmHeartSpend(
+      context,
+      action: '정말로 메시지를 보내시겠습니까?',
+      amount: HeartFeatureCosts.directChat,
+      chargeMessage:
+          '첫 채팅방을 열면 ${HeartFeatureCosts.label(HeartFeatureCosts.directChat)} 하트가 차감됩니다.',
+      detail: '첫 채팅방을 열 때만 차감되며, 이미 열린 채팅방은 무료입니다.',
+    );
+    if (!confirmed || !mounted) return;
+
     setState(() => _isSending = true);
 
     try {
@@ -2365,8 +2383,8 @@ class _MessageBottomSheetState extends State<_MessageBottomSheet> {
               ),
             ),
             const SizedBox(height: 20),
-            const Text(
-              '메시지 보내기',
+            Text(
+              '메시지 보내기 · ${HeartFeatureCosts.label(HeartFeatureCosts.directChat)}',
               style: TextStyle(
                 fontFamily: _kFontFamily,
                 fontSize: 20,
@@ -2439,8 +2457,8 @@ class _MessageBottomSheetState extends State<_MessageBottomSheet> {
                         ? const CupertinoActivityIndicator(
                             color: CupertinoColors.white,
                           )
-                        : const Text(
-                            '보내기',
+                        : Text(
+                            '${HeartFeatureCosts.label(HeartFeatureCosts.directChat)}로 보내기',
                             style: TextStyle(
                               fontFamily: _kFontFamily,
                               fontSize: 15,

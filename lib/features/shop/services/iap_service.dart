@@ -208,7 +208,11 @@ class IapService extends ChangeNotifier {
               applicationUserName: await _purchaseGateway
                   .prepareGooglePlayAccountId(),
             )
-          : PurchaseParam(productDetails: product);
+          : PurchaseParam(
+              productDetails: product,
+              applicationUserName: await _purchaseGateway
+                  .prepareAppleAppAccountToken(),
+            );
       final started = await _inAppPurchase.buyConsumable(
         purchaseParam: purchaseParam,
         // Android는 서버 지급이 성공한 뒤 명시적으로 consume한다. 기본값 true는

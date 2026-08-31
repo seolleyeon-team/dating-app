@@ -97,6 +97,13 @@ class BlindMeetingApplication {
   final DateTime? appliedAt;
   final DateTime? updatedAt;
 
+  /// DNA 작성 시작/신청에 사용한 하트 이력 (서버가 기록).
+  final int heartCost;
+  final int heartChargeCount;
+
+  /// 날짜까지 포함한 최종 신청이 저장됐는지 여부.
+  final bool dnaApplicationCompleted;
+
   /// 서버가 계산한 대기 시간(분).
   final int waitedMinutes;
 
@@ -110,6 +117,9 @@ class BlindMeetingApplication {
     this.meetingId,
     this.appliedAt,
     this.updatedAt,
+    this.heartCost = 0,
+    this.heartChargeCount = 0,
+    this.dnaApplicationCompleted = false,
     this.waitedMinutes = 0,
   }) : requestedDateKeys = BlindMeetingAvailability.normalizeDateKeys(
          requestedDateKeys,
@@ -157,6 +167,9 @@ class BlindMeetingApplication {
       meetingId: _nullableString(data['meetingId']),
       appliedAt: _dateTime(data['appliedAt']),
       updatedAt: _dateTime(data['updatedAt']),
+      heartCost: _nonNegativeInt(data['heartCost']),
+      heartChargeCount: _nonNegativeInt(data['heartChargeCount']),
+      dnaApplicationCompleted: data['dnaApplicationCompleted'] == true,
       waitedMinutes: _intOr(data['waitedMinutes'], 0),
     );
   }
@@ -171,6 +184,11 @@ int _intOr(Object? raw, int fallback) {
   if (raw is int) return raw;
   if (raw is num) return raw.toInt();
   return int.tryParse(raw?.toString() ?? '') ?? fallback;
+}
+
+int _nonNegativeInt(Object? raw) {
+  final value = raw is num ? raw.toInt() : int.tryParse(raw?.toString() ?? '');
+  return value == null || value < 0 ? 0 : value;
 }
 
 DateTime? _dateTime(Object? raw) {

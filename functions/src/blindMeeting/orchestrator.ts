@@ -34,7 +34,7 @@ import {
   resolveCancellation,
   resolveNoShowSanction,
 } from "./policy";
-import { refundDeposit, startDeposit } from "./payments";
+import { refundDeposit } from "./payments";
 import {
   onBlindMeetingCheckIn,
   onBlindMeetingCheckOut,
@@ -409,7 +409,7 @@ export async function createMeetingFromProposal(
 }
 
 // -----------------------------------------------------------------------------
-// 수락 / 보증금 / 확정
+// 수락 / 확정 (블라인드 미팅은 보증금 없음)
 // -----------------------------------------------------------------------------
 
 export async function acceptInvitation(
@@ -482,45 +482,33 @@ async function advanceAfterAcceptance(meetingId: string): Promise<void> {
   );
   if (accepted.length < seatCount) return;
 
-  const policy = await loadPolicy();
-  const moved = await transitionMeetingStatus(meetingId, "awaiting_deposits");
-  if (!moved) return;
-
-  for (const participant of participants) {
-    // awaiting_acceptance 단계에서 미리 결제한 참가자의 paid/confirmed
-    // 상태를 pending으로 되돌리지 않는다.
-    if (
-      participant.status === "confirmed" ||
-      participant.depositStatus === "paid" ||
-      participant.depositStatus === "authorized"
-    ) {
-      continue;
-    }
-    await updateParticipant(meetingId, participant.userId, {
-      status: "deposit_pending",
-      depositStatus: policy.depositAmount > 0 ? "pending" : "not_required",
-    });
-  }
-
-  if (policy.depositAmount <= 0) {
-    await advanceAfterDeposit(meetingId);
-    return;
-  }
-
-  // 전원이 이미 결제를 마친 상태로 수락이 완료됐을 수 있으므로 재확인한다.
-  // advanceAfterDeposit은 awaiting_deposits 상태를 스스로 검증한다.
-  const advanced = await advanceAfterDeposit(meetingId);
-  if (advanced) return;
-
-  await notifyBlindMeeting({
-    userIds: meeting.participantIds,
-    meetingId,
-    kind: "deposit_request",
-    bodyOverride: `보증금 ${policy.depositAmount}원을 결제하면 미팅이 확정돼요. 정상 참석 후 종료 안전도장까지 완료하면 전액 환급돼요.`,
-  });
+  // 전원 수락이 끝나면 결제 단계를 만들지 않고 바로 단체 채팅을 연다.
+  await advanceWithoutDeposit(meetingId);
 }
 
-/** 개인별 보증금 결제 시도 */
+/** 사용자가 화면에서 재시도할 수 있는 결제 없는 채팅방 복구 진입점. */
+export async function openChatWithoutDeposit(
+  meetingId: string,
+  userId: string
+): Promise<void> {
+  const meeting = await loadMeeting(meetingId);
+  if (!meeting.participantIds.includes(userId)) {
+    throw new HttpsError("permission-denied", "참가 중인 미팅이 아니에요.");
+  }
+  const opened = await advanceWithoutDeposit(meetingId);
+  if (!opened) {
+    throw new HttpsError(
+      "failed-precondition",
+      "여섯 명의 참가 수락이 끝난 뒤 단체 채팅방을 열 수 있어요."
+    );
+  }
+}
+
+/**
+ * 과거 클라이언트의 startBlindMeetingDeposit 호출과 이미 생성된
+ * awaiting_deposits 문서를 안전하게 수습하기 위한 호환 경로.
+ * 신규 블라인드 미팅에서는 이 함수가 결제 provider를 호출하지 않는다.
+ */
 export async function beginDeposit(
   meetingId: string,
   userId: string
@@ -536,87 +524,109 @@ export async function beginDeposit(
   if (!meeting.participantIds.includes(userId)) {
     throw new HttpsError("permission-denied", "참가 중인 미팅이 아니에요.");
   }
-  if (
-    meeting.status !== "awaiting_deposits" &&
-    meeting.status !== "awaiting_acceptance"
-  ) {
+  if (meeting.status === "awaiting_deposits") {
+    const opened = await advanceWithoutDeposit(meetingId);
+    if (!opened) {
+      throw new HttpsError(
+        "failed-precondition",
+        "참가자 수락 상태를 확인한 뒤 단체 채팅방을 열 수 있어요."
+      );
+    }
+    return {
+      status: DEPOSIT_STATUS_TO_APP.not_required,
+      provider: "none",
+      amount: 0,
+      sandbox: true,
+      message: "블라인드 미팅은 보증금 없이 단체 채팅방이 열려요.",
+    };
+  }
+  if (meeting.status === "awaiting_acceptance") {
     throw new HttpsError(
       "failed-precondition",
-      "지금은 보증금을 결제할 단계가 아니에요."
+      "여섯 명의 참가 수락이 끝나면 보증금 없이 단체 채팅방이 열려요."
     );
   }
 
-  const policy = await loadPolicy();
-  const intent = await startDeposit({
-    meetingId,
-    userId,
-    amount: policy.depositAmount,
-  });
-
-  await updateParticipant(meetingId, userId, {
-    depositStatus: intent.status,
-    extra: {
-      depositProvider: intent.provider,
-      depositSandbox: intent.sandbox,
-      depositMessage: intent.message ?? null,
-    },
-  });
-
-  if (intent.status === "paid") {
-    await updateParticipant(meetingId, userId, { status: "confirmed" });
-    await advanceAfterDeposit(meetingId);
-  }
-
-  return {
-    status: DEPOSIT_STATUS_TO_APP[intent.status],
-    provider: intent.provider,
-    amount: intent.amount,
-    checkoutUrl: intent.checkoutUrl,
-    sandbox: intent.sandbox,
-    message: intent.message,
-  };
+  throw new HttpsError(
+    "failed-precondition",
+    "이 블라인드 미팅은 이미 참가 확인 또는 채팅 단계예요."
+  );
 }
 
-async function advanceAfterDeposit(meetingId: string): Promise<boolean> {
+async function advanceWithoutDeposit(meetingId: string): Promise<boolean> {
   const meeting = await loadMeeting(meetingId);
-  // awaiting_acceptance 단계의 조기 결제 등으로 호출되어도
-  // 미팅이 실제 awaiting_deposits일 때만 확정 로직을 진행한다.
-  // (참가자 6명이 deposit_pending으로 전환되기 전에는 not_required
-  //  기본값 때문에 settled 계산이 과대평가되는 문제가 있었다.)
-  if (meeting.status !== "awaiting_deposits") return false;
+  // 이전 버전의 awaiting_deposits 문서를 결제 없이 복구한다.
+  if (
+    meeting.status !== "awaiting_acceptance" &&
+    meeting.status !== "awaiting_deposits" &&
+    meeting.status !== "confirmed" &&
+    meeting.status !== "chat_open"
+  ) {
+    return false;
+  }
   const policy = await loadPolicy();
   const participants = await loadParticipants(meetingId);
   const seatCount = meeting.participantIds.length;
-  const settled = participants.filter(
-    (p) =>
-      p.depositStatus === "paid" ||
-      p.depositStatus === "not_required" ||
-      p.status === "confirmed"
+  const participantsById = new Map(
+    participants.map((participant) => [participant.userId, participant])
   );
-  if (settled.length < seatCount) return false;
+  const readyStatuses = new Set([
+    "accepted",
+    "deposit_pending",
+    "confirmed",
+  ]);
+  const allParticipantsReady =
+    seatCount > 0 &&
+    meeting.participantIds.every((userId) => {
+      const participant = participantsById.get(userId);
+      return participant != null && readyStatuses.has(participant.status);
+    });
+  if (!allParticipantsReady) return false;
 
-  // FSM 전이를 먼저 통과시킨다. 전이가 거부되면 (동시 실행, 이미 확정,
-  // 취소됨 등) 참가자/신청서 문서를 confirmed로 오염시키지 않는다.
-  const confirmed = await transitionMeetingStatus(meetingId, "confirmed", {
-    confirmedAt: FieldValue.serverTimestamp(),
-  });
-  if (!confirmed) return false;
+  const wasWaitingForConfirmation =
+    meeting.status === "awaiting_acceptance" ||
+    meeting.status === "awaiting_deposits";
+  if (wasWaitingForConfirmation) {
+    // FSM 전이를 먼저 통과시킨다. 동시 실행이면 최신 상태를 재확인한다.
+    const confirmed = await transitionMeetingStatus(meetingId, "confirmed", {
+      confirmedAt: FieldValue.serverTimestamp(),
+    });
+    if (!confirmed) {
+      const latest = await loadMeeting(meetingId);
+      if (latest.status !== "confirmed" && latest.status !== "chat_open") {
+        return false;
+      }
+    }
+  }
 
   for (const participant of participants) {
-    if (participant.status !== "confirmed") {
-      await updateParticipant(meetingId, participant.userId, {
-        status: "confirmed",
-        extra: { confirmedAt: FieldValue.serverTimestamp() },
-      });
+    const patch: {
+      status: "confirmed";
+      depositStatus?: "not_required";
+      extra: Record<string, unknown>;
+    } = {
+      status: "confirmed",
+      extra: { confirmedAt: FieldValue.serverTimestamp() },
+    };
+    // 미결제 pending/failed 상태만 not_required로 정리한다. 이미 결제된
+    // 과거 참가자의 paid/refund 상태는 환불 정산을 위해 보존한다.
+    if (
+      participant.depositStatus === "pending" ||
+      participant.depositStatus === "failed"
+    ) {
+      patch.depositStatus = "not_required";
     }
+    await updateParticipant(meetingId, participant.userId, patch);
     await setApplication(participant.userId, { status: "confirmed" });
   }
 
-  await notifyBlindMeeting({
-    userIds: meeting.participantIds,
-    meetingId,
-    kind: "confirmed",
-  });
+  if (wasWaitingForConfirmation) {
+    await notifyBlindMeeting({
+      userIds: meeting.participantIds,
+      meetingId,
+      kind: "confirmed",
+    });
+  }
 
   const roomId = await ensureGroupChat({
     meetingId,
@@ -639,23 +649,28 @@ async function advanceAfterDeposit(meetingId: string): Promise<boolean> {
       },
       { merge: true }
     );
-  await transitionMeetingStatus(meetingId, "chat_open");
+  const current = await loadMeeting(meetingId);
+  if (current.status === "confirmed") {
+    await transitionMeetingStatus(meetingId, "chat_open");
+  }
   await recordMetUsers(meetingId, meeting.participantIds);
 
-  await notifyBlindMeeting({
-    userIds: meeting.participantIds,
-    meetingId,
-    kind: "chat_created",
-    deeplinkId: roomId,
-    data: { roomId },
-  });
-  await notifyBlindMeeting({
-    userIds: meeting.participantIds,
-    meetingId,
-    kind: "schedule_vote",
-    deeplinkId: roomId,
-    data: { roomId },
-  });
+  if (wasWaitingForConfirmation) {
+    await notifyBlindMeeting({
+      userIds: meeting.participantIds,
+      meetingId,
+      kind: "chat_created",
+      deeplinkId: roomId,
+      data: { roomId },
+    });
+    await notifyBlindMeeting({
+      userIds: meeting.participantIds,
+      meetingId,
+      kind: "schedule_vote",
+      deeplinkId: roomId,
+      data: { roomId },
+    });
+  }
   return true;
 }
 

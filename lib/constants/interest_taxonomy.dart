@@ -160,6 +160,7 @@ const List<InterestCategory> interestCategories = [
     items: [
       'K-드라마',
       '애니메이션',
+      '일본 애니메이션',
       '액션 영화',
       '드라마',
       '판타지 영화',

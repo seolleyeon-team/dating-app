@@ -2,24 +2,26 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/features/shop/services/heart_products.dart';
 
 void main() {
-  test('Google Play launch catalog exposes only the 10-heart product', () {
-    expect(HeartProducts.productIdsFor(HeartPurchasePlatform.android), <String>{
-      'seolleyeon.heart.10',
-    });
+  test('iOS and Android expose the same five heart products', () {
     expect(
-      HeartProducts.fromProductId(
-        'seolleyeon.heart.30',
-        platform: HeartPurchasePlatform.android,
-      ),
-      isNull,
+      HeartProducts.productIdsFor(HeartPurchasePlatform.android),
+      HeartProducts.productIdsFor(HeartPurchasePlatform.ios),
     );
+    expect(HeartProducts.all.map((product) => product.hearts), <int>[
+      50,
+      20,
+      40,
+      100,
+      220,
+    ]);
   });
 
-  test('StoreKit local catalog remains available for existing iOS testing', () {
-    expect(HeartProducts.all.map((product) => product.hearts), <int>[
-      10,
-      30,
-      100,
-    ]);
+  test('first purchase product is marked as an account-limited offer', () {
+    expect(HeartProducts.firstHeart50.isFirstPurchaseOffer, isTrue);
+    expect(HeartProducts.firstHeart50.hearts, 50);
+    expect(
+      HeartProducts.all.where((product) => product.isFirstPurchaseOffer),
+      hasLength(1),
+    );
   });
 }

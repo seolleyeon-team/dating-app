@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import '../../../data/models/event/event_team_match_model.dart';
 import '../../../router/route_names.dart';
 import '../../../services/event_match_service.dart';
+import '../../shop/services/heart_economy.dart';
+import '../../shop/widgets/heart_spend_confirmation.dart';
 import '../models/event_team_route_args.dart';
 import '../widgets/event_slot_machine.dart';
 import '../widgets/slot_reel_controller.dart';
@@ -69,6 +71,16 @@ class _SeasonMeetingRouletteScreenState
 
   Future<void> _spin() async {
     if (_resolvingSpin || _spinning) return;
+
+    final confirmed = await confirmHeartSpend(
+      context,
+      action: '정말로 추천 룰렛을 돌리시겠습니까?',
+      amount: HeartFeatureCosts.seasonRoulette,
+      chargeMessage:
+          '새 결과를 만들면 ${HeartFeatureCosts.label(HeartFeatureCosts.seasonRoulette)} 하트가 차감됩니다.',
+      detail: '이미 확정된 결과를 다시 여는 경우에는 하트가 차감되지 않습니다.',
+    );
+    if (!confirmed || !mounted) return;
 
     setState(() {
       _resolvingSpin = true;
@@ -194,6 +206,9 @@ class _SeasonMeetingRouletteScreenState
     }
     if (message.contains('추천 가능한 상대 팀이 없어요')) {
       return '오늘은 아직 연결 가능한 팀이 보이지 않아요.';
+    }
+    if (message.contains('하트가 부족해요')) {
+      return '하트가 부족해요. 충전한 뒤 다시 시도해 주세요.';
     }
     return '지금은 룰렛을 시작할 수 없어요. 잠시 후 다시 시도해 주세요.';
   }

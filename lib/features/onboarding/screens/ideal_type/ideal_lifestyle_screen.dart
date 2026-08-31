@@ -12,6 +12,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../../constants/profile_options.dart';
 import '../../../../router/route_names.dart';
 import '../../../../services/onboarding_save_helper.dart';
 import '../../../../services/storage_service.dart';
@@ -212,14 +213,14 @@ class _IdealLifestyleScreenState extends State<IdealLifestyleScreen> {
                               runSpacing: 12,
                               children: [
                                 _SelectionChip(
-                                  label: '전혀 안 함',
+                                  label: profileDrinkingOptions[0].label,
                                   isSelected:
                                       _drinking == DrinkingFrequency.none,
                                   onTap: () =>
                                       _updateDrinking(DrinkingFrequency.none),
                                 ),
                                 _SelectionChip(
-                                  label: '가끔',
+                                  label: profileDrinkingOptions[1].label,
                                   isSelected:
                                       _drinking == DrinkingFrequency.sometimes,
                                   onTap: () => _updateDrinking(
@@ -227,7 +228,7 @@ class _IdealLifestyleScreenState extends State<IdealLifestyleScreen> {
                                   ),
                                 ),
                                 _SelectionChip(
-                                  label: '주 1-2회',
+                                  label: profileDrinkingOptions[2].label,
                                   isSelected:
                                       _drinking == DrinkingFrequency.weekly1_2,
                                   onTap: () => _updateDrinking(
@@ -235,7 +236,7 @@ class _IdealLifestyleScreenState extends State<IdealLifestyleScreen> {
                                   ),
                                 ),
                                 _SelectionChip(
-                                  label: '자주 즐김',
+                                  label: profileDrinkingOptions[3].label,
                                   isSelected:
                                       _drinking == DrinkingFrequency.often,
                                   onTap: () =>
@@ -253,20 +254,20 @@ class _IdealLifestyleScreenState extends State<IdealLifestyleScreen> {
                               runSpacing: 12,
                               children: [
                                 _SelectionChip(
-                                  label: '비흡연',
+                                  label: profileSmokingOptions[0].label,
                                   isSelected:
                                       _smoking == SmokingStatus.nonSmoker,
                                   onTap: () =>
                                       _updateSmoking(SmokingStatus.nonSmoker),
                                 ),
                                 _SelectionChip(
-                                  label: '흡연',
+                                  label: profileSmokingOptions[1].label,
                                   isSelected: _smoking == SmokingStatus.smoker,
                                   onTap: () =>
                                       _updateSmoking(SmokingStatus.smoker),
                                 ),
                                 _SelectionChip(
-                                  label: '금연 중',
+                                  label: profileSmokingOptions[2].label,
                                   isSelected:
                                       _smoking == SmokingStatus.quitting,
                                   onTap: () =>
@@ -284,21 +285,21 @@ class _IdealLifestyleScreenState extends State<IdealLifestyleScreen> {
                               runSpacing: 12,
                               children: [
                                 _SelectionChip(
-                                  label: '운동 매니아',
+                                  label: profileExerciseOptions[0].label,
                                   isSelected:
                                       _exercise == ExerciseFrequency.mania,
                                   onTap: () =>
                                       _updateExercise(ExerciseFrequency.mania),
                                 ),
                                 _SelectionChip(
-                                  label: '매일 함',
+                                  label: profileExerciseOptions[1].label,
                                   isSelected:
                                       _exercise == ExerciseFrequency.daily,
                                   onTap: () =>
                                       _updateExercise(ExerciseFrequency.daily),
                                 ),
                                 _SelectionChip(
-                                  label: '가끔 함',
+                                  label: profileExerciseOptions[2].label,
                                   isSelected:
                                       _exercise == ExerciseFrequency.sometimes,
                                   onTap: () => _updateExercise(
@@ -306,7 +307,7 @@ class _IdealLifestyleScreenState extends State<IdealLifestyleScreen> {
                                   ),
                                 ),
                                 _SelectionChip(
-                                  label: '숨쉬기만 함',
+                                  label: profileExerciseOptions[3].label,
                                   isSelected:
                                       _exercise ==
                                       ExerciseFrequency.breathingOnly,
@@ -327,31 +328,31 @@ class _IdealLifestyleScreenState extends State<IdealLifestyleScreen> {
                               runSpacing: 12,
                               children: [
                                 _SelectionChip(
-                                  label: '무교',
+                                  label: profileReligionOptions[0].label,
                                   isSelected: _religion == Religion.none,
                                   onTap: () => _updateReligion(Religion.none),
                                 ),
                                 _SelectionChip(
-                                  label: '기독교',
+                                  label: profileReligionOptions[1].label,
                                   isSelected:
                                       _religion == Religion.christianity,
                                   onTap: () =>
                                       _updateReligion(Religion.christianity),
                                 ),
                                 _SelectionChip(
-                                  label: '천주교',
+                                  label: profileReligionOptions[2].label,
                                   isSelected: _religion == Religion.catholic,
                                   onTap: () =>
                                       _updateReligion(Religion.catholic),
                                 ),
                                 _SelectionChip(
-                                  label: '불교',
+                                  label: profileReligionOptions[3].label,
                                   isSelected: _religion == Religion.buddhism,
                                   onTap: () =>
                                       _updateReligion(Religion.buddhism),
                                 ),
                                 _SelectionChip(
-                                  label: '기타',
+                                  label: profileReligionOptions[4].label,
                                   isSelected: _religion == Religion.other,
                                   onTap: () => _updateReligion(Religion.other),
                                 ),

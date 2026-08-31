@@ -34,7 +34,6 @@ class _AppColors {
   static const double promiseFillAlpha = 0.29;
   static const double promiseFillAlphaLight = 0.25;
   static const double promiseBorderAlpha = 0.39;
-  static const double promiseBorderAlphaStrong = 0.43;
   static const Color backgroundLight = Color(0xFFFAFAFC);
   static const Color bubbleUser = Color(0xFFF5F2EE);
   static const Color bubblePartner = Color(0xFFF0F3F5);
@@ -614,7 +613,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Future<void> _deletePromise(_ChatMessage message) async {
-    if (message.promiseId == null) return;
+    if (message.promiseId == null || _currentUserId == null) return;
 
     final shouldDelete = await showCupertinoDialog<bool>(
       context: context,
@@ -640,6 +639,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     await _chatService.cancelPromise(
       roomId: _roomId,
       promiseId: message.promiseId!,
+      cancelledBy: _currentUserId!,
     );
   }
 
@@ -1659,7 +1659,6 @@ class _PromiseRequestMessage extends StatelessWidget {
     if (message.shouldHideAsExpired) return const SizedBox.shrink();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? AppColorsDark.surface : CupertinoColors.white;
-    final cardBorder = isDark ? AppColorsDark.border : _AppColors.stone200;
     final textMainColor = isDark
         ? AppColorsDark.textPrimary
         : _AppColors.textMain;
@@ -1679,7 +1678,16 @@ class _PromiseRequestMessage extends StatelessWidget {
           decoration: BoxDecoration(
             color: cardBg,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: cardBorder),
+            boxShadow: [
+              BoxShadow(
+                color: CupertinoColors.black.withValues(
+                  alpha: isDark ? 0.18 : 0.08,
+                ),
+                blurRadius: 18,
+                spreadRadius: 1,
+                offset: const Offset(0, 6),
+              ),
+            ],
           ),
           child: Column(
             children: [
@@ -1741,50 +1749,68 @@ class _PromiseRequestMessage extends StatelessWidget {
                   ),
                 )
               else if (!message.isMineRequest)
-                Row(
+                Column(
                   children: [
-                    Expanded(
-                      child: CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: onReject,
-                        child: Container(
-                          height: 42,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: rejectBg,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Text(
-                            '거절',
-                            style: TextStyle(
-                              fontFamily: 'Pretendard',
-                              fontWeight: FontWeight.w700,
-                              color: textMainColor,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: onReject,
+                            child: Container(
+                              height: 42,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: rejectBg,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Text(
+                                '거절',
+                                style: TextStyle(
+                                  fontFamily: 'Pretendard',
+                                  fontWeight: FontWeight.w700,
+                                  color: textMainColor,
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: onApprove,
-                        child: Container(
-                          height: 42,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: _AppColors.primary,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: const Text(
-                            '승인',
-                            style: TextStyle(
-                              fontFamily: 'Pretendard',
-                              fontWeight: FontWeight.w700,
-                              color: CupertinoColors.white,
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: onApprove,
+                            child: Container(
+                              height: 42,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: _AppColors.primary,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Text(
+                                '승인',
+                                style: TextStyle(
+                                  fontFamily: 'Pretendard',
+                                  fontWeight: FontWeight.w700,
+                                  color: CupertinoColors.white,
+                                ),
+                              ),
                             ),
                           ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: onDelete,
+                      child: const Text(
+                        '약속 삭제',
+                        style: TextStyle(
+                          fontFamily: 'Pretendard',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: CupertinoColors.systemRed,
                         ),
                       ),
                     ),
@@ -1880,11 +1906,16 @@ class _PromiseConfirmedBanner extends StatelessWidget {
               alpha: _AppColors.promiseFillAlpha,
             ),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: _AppColors.primarySoft.withValues(
-                alpha: _AppColors.promiseBorderAlphaStrong,
+            boxShadow: [
+              BoxShadow(
+                color: CupertinoColors.black.withValues(
+                  alpha: isDark ? 0.18 : 0.08,
+                ),
+                blurRadius: 18,
+                spreadRadius: 1,
+                offset: const Offset(0, 6),
               ),
-            ),
+            ],
           ),
           child: Column(
             children: [
