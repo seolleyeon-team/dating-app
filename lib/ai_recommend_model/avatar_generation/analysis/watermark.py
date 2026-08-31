@@ -20,7 +20,11 @@ HIGH_CONFIDENCE = 0.85
 MEDIUM_CONFIDENCE = 0.65
 SMALL_REGION_AREA = 0.08
 TINY_REGION_AREA = 0.03
-WATERMARK_POLICY_VERSION = "watermark_policy_v3_generated_artifact_only_v1"
+WATERMARK_POLICY_VERSION = "watermark_policy_v4_runtime_evidence_parity_v1"
+# Typed evidence now carries the token-quality semantic (derived once from
+# process-local raw OCR) so offline/recovery consumers classify identically
+# to runtime without ever seeing raw text.
+WATERMARK_EVIDENCE_SCHEMA_VERSION = "watermark_evidence_v2_token_quality_derived_v1"
 
 WATERMARK_QA_ACTION_ALLOW = "allow"
 WATERMARK_QA_ACTION_REVIEW = "review"
@@ -74,6 +78,16 @@ class _RegionEvidence:
     token_quality: str
     source_consistent: Optional[bool]
     repeated: bool
+    # Derived from raw OCR before redaction; policy never re-reads token_key.
+    artifact_hint: bool = False
+
+    @property
+    def confidence_band(self) -> str:
+        return _confidence_band(self.confidence)
+
+    @property
+    def area_band(self) -> str:
+        return _area_band(self.area_ratio)
 
 
 def evaluate_watermark_risk(
@@ -114,19 +128,61 @@ def evaluate_watermark_risk(
         for item in candidates
     ]
 
+    return _decide(candidates, _evidence_document(candidates, source_count=len(sources)))
+
+
+def classify_watermark_evidence_document(
+    evidence: Mapping[str, Any] | None,
+) -> Optional[WatermarkDecision]:
+    """Re-classify from serialized privacy-safe typed evidence.
+
+    Returns None for legacy evidence that predates the typed region schema —
+    a missing derived field must never be inferred as implausible or become a
+    stronger rejection (offline consumers keep the stored legacy decision).
+    """
+
+    if not isinstance(evidence, Mapping):
+        return None
+    regions_value = evidence.get("regionEvidence")
+    if not isinstance(regions_value, Sequence) or isinstance(regions_value, (str, bytes)):
+        return None
+    candidates: list[_RegionEvidence] = []
+    for entry in regions_value:
+        item = _region_from_typed_document(entry)
+        if item is None:
+            return None
+        candidates.append(item)
+    if not candidates:
+        return None
+    return _decide(candidates, dict(evidence))
+
+
+def _decide(
+    candidates: Sequence[_RegionEvidence],
+    evidence: Mapping[str, Any],
+) -> WatermarkDecision:
+    """Policy core. Consumes ONLY typed, privacy-safe evidence fields.
+
+    Raw OCR text never reaches this function: token_quality and artifact_hint
+    are derived once in _region_evidence and the raw token is discarded.
+    """
+
     if not candidates:
         return WatermarkDecision(
             hard_reject=False,
             needs_review=False,
             decision_class="no_text_detected",
             evidence={
+                "schemaVersion": WATERMARK_EVIDENCE_SCHEMA_VERSION,
                 "ocrDetectionCount": 0,
                 "recognizedTokenCount": 0,
                 "confidenceBands": {},
                 "areaBands": {},
                 "locationBands": {},
+                "tokenQualityBands": {},
                 "repeatedTokenCount": 0,
                 "sourceConsistency": "not_applicable",
+                "regionEvidence": [],
             },
             watermark_qa_action=WATERMARK_QA_ACTION_ALLOW,
         )
@@ -135,18 +191,19 @@ def evaluate_watermark_risk(
     generated_artifact = False
     benign_count = 0
     for item in candidates:
+        # REVIEW_WITH_REDACTED_EVIDENCE_PARITY (2026-08-31): a single,
+        # non-repeated token with unknown/low/medium confidence no longer
+        # hard-rejects on token_quality alone — that evidence is suspicion,
+        # not a clear generated watermark, and it drops to the
+        # generated_text_artifact review branch below. Hard reject keeps
+        # requiring strong corroboration: repetition, or high-confidence
+        # implausible/artifact-hint overlay evidence.
         strong_overlay = item.overlay_like and (
             item.repeated
             or (
                 item.source_consistent is not True
-                and (
-                    item.token_quality == "implausible"
-                    or (
-                        item.confidence is not None
-                        and item.confidence >= HIGH_CONFIDENCE
-                        and _token_has_artifact_hint(item.token_key)
-                    )
-                )
+                and item.confidence_band == "high"
+                and (item.token_quality == "implausible" or item.artifact_hint)
             )
         )
         if item.source_consistent is True and not strong_overlay:
@@ -176,7 +233,7 @@ def evaluate_watermark_risk(
             needs_review=False,
             decision_class=decision_class,
             evidence_classes=tuple(sorted(hard_classes)),
-            evidence=_evidence_document(candidates, source_count=len(sources)),
+            evidence=evidence,
             watermark_qa_action=WATERMARK_QA_ACTION_REJECT,
         )
 
@@ -186,7 +243,7 @@ def evaluate_watermark_risk(
             needs_review=True,
             decision_class="generated_text_artifact",
             evidence_classes=("generated_text_artifact",),
-            evidence=_evidence_document(candidates, source_count=len(sources)),
+            evidence=evidence,
             watermark_qa_action=WATERMARK_QA_ACTION_REVIEW,
         )
 
@@ -206,7 +263,7 @@ def evaluate_watermark_risk(
         needs_review=False,
         decision_class=decision_class,
         evidence_classes=(decision_class,),
-        evidence=_evidence_document(candidates, source_count=len(sources)),
+        evidence=evidence,
         watermark_qa_action=WATERMARK_QA_ACTION_ALLOW,
     )
 
@@ -301,6 +358,77 @@ def _region_evidence(
         token_quality=_token_quality(token_key),
         source_consistent=None,
         repeated=False,
+        # Derive every raw-text-dependent semantic here, before redaction.
+        artifact_hint=_token_has_artifact_hint(token_key),
+    )
+
+
+_TYPED_REGION_KINDS = {KIND_TEXT, KIND_LOGO, KIND_SIGN}
+_TYPED_CONFIDENCE_BANDS = {"high", "medium", "low", "unknown"}
+_TYPED_AREA_BANDS = {"small", "medium", "large"}
+_TYPED_LOCATIONS = {"corner", "edge", "central", "clothing_zone"}
+_TYPED_TOKEN_QUALITIES = {"plausible", "implausible", "unknown"}
+# Representative confidences reproduce the exact same band boundaries used
+# during derivation; this is a serialization round-trip, not a new threshold.
+_CONFIDENCE_FOR_BAND = {
+    "high": HIGH_CONFIDENCE,
+    "medium": MEDIUM_CONFIDENCE,
+    "low": 0.0,
+    "unknown": None,
+}
+_AREA_FOR_BAND = {"small": TINY_REGION_AREA, "medium": SMALL_REGION_AREA, "large": 1.0}
+
+
+def _typed_region_document(item: _RegionEvidence) -> dict[str, Any]:
+    return {
+        "kind": item.kind if item.kind in _TYPED_REGION_KINDS else "text",
+        "confidenceBand": item.confidence_band,
+        "areaBand": item.area_band,
+        "location": item.location,
+        "overlayLike": bool(item.overlay_like),
+        "tokenQuality": (
+            item.token_quality
+            if item.token_quality in _TYPED_TOKEN_QUALITIES
+            else "unknown"
+        ),
+        "sourceConsistent": item.source_consistent,
+        "repeated": bool(item.repeated),
+        "artifactHint": bool(item.artifact_hint),
+    }
+
+
+def _region_from_typed_document(value: Any) -> Optional[_RegionEvidence]:
+    if not isinstance(value, Mapping):
+        return None
+    kind = str(value.get("kind") or "").strip().lower()
+    confidence_band = str(value.get("confidenceBand") or "").strip().lower()
+    area_band = str(value.get("areaBand") or "").strip().lower()
+    location = str(value.get("location") or "").strip().lower()
+    token_quality = str(value.get("tokenQuality") or "").strip().lower()
+    source_consistent = value.get("sourceConsistent")
+    if (
+        kind not in _TYPED_REGION_KINDS
+        or confidence_band not in _TYPED_CONFIDENCE_BANDS
+        or area_band not in _TYPED_AREA_BANDS
+        or location not in _TYPED_LOCATIONS
+        or token_quality not in _TYPED_TOKEN_QUALITIES
+        or not isinstance(value.get("overlayLike"), bool)
+        or not isinstance(value.get("repeated"), bool)
+        or not isinstance(value.get("artifactHint"), bool)
+        or not (source_consistent is None or isinstance(source_consistent, bool))
+    ):
+        return None
+    return _RegionEvidence(
+        kind=kind,
+        confidence=_CONFIDENCE_FOR_BAND[confidence_band],
+        area_ratio=_AREA_FOR_BAND[area_band],
+        location=location,
+        overlay_like=bool(value["overlayLike"]),
+        token_key="",
+        token_quality=token_quality,
+        source_consistent=source_consistent,
+        repeated=bool(value["repeated"]),
+        artifact_hint=bool(value["artifactHint"]),
     )
 
 
@@ -363,14 +491,23 @@ def _evidence_document(
         source_consistency = "unknown"
     else:
         source_consistency = "not_available"
+    token_quality_bands = Counter(
+        region.token_quality
+        if region.token_quality in _TYPED_TOKEN_QUALITIES
+        else "unknown"
+        for region in regions
+    )
     return {
+        "schemaVersion": WATERMARK_EVIDENCE_SCHEMA_VERSION,
         "ocrDetectionCount": len(regions),
         "recognizedTokenCount": sum(1 for region in regions if region.token_key),
         "confidenceBands": dict(sorted(confidence_bands.items())),
         "areaBands": dict(sorted(area_bands.items())),
         "locationBands": dict(sorted(location_bands.items())),
+        "tokenQualityBands": dict(sorted(token_quality_bands.items())),
         "repeatedTokenCount": repeated_count,
         "sourceConsistency": source_consistency,
+        "regionEvidence": [_typed_region_document(region) for region in regions],
     }
 
 
@@ -383,8 +520,15 @@ def _redact_evidence(value: Mapping[str, Any]) -> dict[str, Any]:
         "confidenceBands",
         "areaBands",
         "locationBands",
+        "tokenQualityBands",
         "repeatedTokenCount",
         "sourceConsistency",
+    }
+    band_labels = {
+        "low", "medium", "high", "unknown",
+        "small", "large",
+        "corner", "edge", "central", "clothing_zone",
+        "plausible", "implausible",
     }
     result: dict[str, Any] = {}
     for key in allowed:
@@ -393,7 +537,7 @@ def _redact_evidence(value: Mapping[str, Any]) -> dict[str, Any]:
             result[key] = {
                 str(label): int(count)
                 for label, count in child.items()
-                if str(label) in {"low", "medium", "high", "unknown", "small", "medium", "large", "corner", "edge", "central", "clothing_zone"}
+                if str(label) in band_labels
                 and isinstance(count, int)
                 and not isinstance(count, bool)
             }
@@ -408,6 +552,20 @@ def _redact_evidence(value: Mapping[str, Any]) -> dict[str, Any]:
             "not_applicable",
         }:
             result[key] = child
+    schema = value.get("schemaVersion")
+    if schema == WATERMARK_EVIDENCE_SCHEMA_VERSION:
+        result["schemaVersion"] = schema
+    regions_value = value.get("regionEvidence")
+    if isinstance(regions_value, Sequence) and not isinstance(regions_value, (str, bytes)):
+        typed_regions: list[dict[str, Any]] = []
+        for entry in regions_value:
+            parsed = _region_from_typed_document(entry)
+            if parsed is None:
+                typed_regions = []
+                break
+            typed_regions.append(_typed_region_document(parsed))
+        if typed_regions:
+            result["regionEvidence"] = typed_regions
     return result
 
 
@@ -495,7 +653,9 @@ __all__ = [
     "WATERMARK_QA_ACTION_REVIEW",
     "WATERMARK_QA_ACTIONS",
     "WATERMARK_POLICY_VERSION",
+    "WATERMARK_EVIDENCE_SCHEMA_VERSION",
     "WatermarkDecision",
+    "classify_watermark_evidence_document",
     "evaluate_watermark_risk",
     "resolve_watermark_qa_action",
     "watermark_risk_for_action",

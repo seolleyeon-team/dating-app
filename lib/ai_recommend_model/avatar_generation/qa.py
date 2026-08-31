@@ -146,7 +146,7 @@ BLANK_STDDEV_THRESHOLD = 4.0
 BLANK_CHANNEL_RANGE_THRESHOLD = 8
 COMPARE_SIZE = 64
 HASH_SIZE = 16
-QA_CONTRACT_VERSION = "avatar_qa_v6_unique_mark_applicability_v1"
+QA_CONTRACT_VERSION = "avatar_qa_v7_watermark_evidence_parity_v1"
 QA_INPUT_CONTRACT_VERSION = "azure_post_generation_direct_source_v2_watermark_evidence"
 
 

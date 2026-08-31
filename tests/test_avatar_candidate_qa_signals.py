@@ -660,13 +660,28 @@ def test_text_only_visual_region_does_not_count_as_background_leakage():
     assert result.signals["watermarkDecisionClass"] == "ambiguous_text_evidence"
     assert result.signals["watermarkEvidenceClasses"] == ["ambiguous_text_evidence"]
     assert result.signals["watermarkEvidence"] == {
+        "schemaVersion": "watermark_evidence_v2_token_quality_derived_v1",
         "areaBands": {"medium": 1},
         "sourceConsistency": "not_available",
         "confidenceBands": {"low": 1},
         "locationBands": {"clothing_zone": 1},
+        "tokenQualityBands": {"plausible": 1},
         "recognizedTokenCount": 1,
         "repeatedTokenCount": 0,
         "ocrDetectionCount": 1,
+        "regionEvidence": [
+            {
+                "kind": "text",
+                "confidenceBand": "low",
+                "areaBand": "medium",
+                "location": "clothing_zone",
+                "overlayLike": False,
+                "tokenQuality": "plausible",
+                "sourceConsistent": None,
+                "repeated": False,
+                "artifactHint": False,
+            }
+        ],
     }
 
 

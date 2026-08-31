@@ -2,13 +2,23 @@
 
 ## Watermark policy
 
-Contract version: `watermark_policy_v3_generated_artifact_only_v1`
+Contract version: `watermark_policy_v4_runtime_evidence_parity_v1`
+Evidence schema: `watermark_evidence_v2_token_quality_derived_v1`
+(2026-08-31 REVIEW_WITH_REDACTED_EVIDENCE_PARITY — supersedes
+`watermark_policy_v3_generated_artifact_only_v1`; see
+`g004-watermark-runtime-evidence-authority-20260831-v1.md`.)
 
 The watermark classifier separates three layers:
 
 1. Observed evidence: typed text/logo/sign regions and redacted counts,
-   confidence bands, area bands, location bands, repetition, and source
-   consistency.
+   confidence bands, area bands, location bands, token-quality bands,
+   repetition, source consistency, and the typed per-region evidence list.
+   Raw OCR text is process-local only: every raw-text-dependent semantic
+   (`tokenQuality`, `artifactHint`) is derived once before redaction, and
+   classification — runtime, recovery, and offline — consumes only the
+   serialized categorical evidence (`classify_watermark_evidence_document`).
+   Legacy evidence without the typed schema is never re-classified and never
+   gains a stronger rejection from field absence.
 2. Artifact classification: whether the evidence is ordinary/integrated
    content, an unresolved artifact, or a corroborated generated overlay.
 3. QA action: the only layer allowed to change preview or rejection state.
@@ -35,11 +45,15 @@ corner/edge placement, small area, or unknown confidence is also evidence only.
 
 - probable generated or broken text artifact without strong overlay
   corroboration;
+- a SINGLE, non-repeated `implausible` token below high confidence — even
+  with `sourceConsistency` `inconsistent` or `not_available` (v4: this was
+  wrongly a hard reject at runtime under v3);
 - unresolved artifact evidence when the visual provider is available.
 
 ### Reject
 
-- clear overlay watermark;
+- clear overlay watermark (strong corroboration required: repetition, or
+  high-confidence implausible/artifact-hint overlay evidence);
 - repeated generated overlay;
 - strong generated text artifact with overlay corroboration;
 - generated overlay logo/sign with corroboration.
@@ -56,7 +70,7 @@ An outage is recorded separately from available-provider ambiguity.
 ## Trait applicability policy
 
 Policy version: `trait_policy_v2_applicability_v1`
-QA contract version: `avatar_qa_v6_unique_mark_applicability_v1`
+QA contract version: `avatar_qa_v7_watermark_evidence_parity_v1`
 
 Trait applicability is resolved from server-authoritative pipeline provenance.
 The client cannot declare a trait result, and an empty `{}` trait object never
@@ -78,7 +92,7 @@ QA; meaningful mismatch and unknown values remain review decisions.
 ## Unique-mark applicability policy
 
 Policy version: `unique_mark_policy_v2_applicability_v1`
-QA contract version: `avatar_qa_v6_unique_mark_applicability_v1`
+QA contract version: `avatar_qa_v7_watermark_evidence_parity_v1`
 
 The server resolves unique-mark applicability from the pipeline provenance
 before interpreting `uniqueMarkCopyRisk`. The client cannot declare the state.
@@ -109,7 +123,8 @@ coordinates, image paths/URLs, participant identifiers, and embeddings are not
 persisted.
 
 The QA contract version for new runtime evidence is
-`avatar_qa_v6_unique_mark_applicability_v1`. Existing v9 evidence retains its
+`avatar_qa_v7_watermark_evidence_parity_v1`. Earlier evidence (v9 and the
+v6-era artifacts) retains its
 original contract and is never overwritten. Offline recomputation may consume
 that evidence and writes only a separate report.
 

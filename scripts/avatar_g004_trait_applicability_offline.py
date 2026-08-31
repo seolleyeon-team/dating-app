@@ -1249,11 +1249,35 @@ def _safe_watermark_evidence(value: Any) -> dict[str, Any]:
             result[key] = child
         elif isinstance(child, str) and _SAFE_ENUM_PATTERN.fullmatch(child.lower()):
             result[key] = child.lower()
-    for key in ("areaBands", "confidenceBands", "locationBands"):
+    for key in ("areaBands", "confidenceBands", "locationBands", "tokenQualityBands"):
         child = _mapping(source.get(key))
         values = _safe_count_mapping(child)
         if values:
             result[key] = values
+    # watermark_evidence_v2: typed region evidence is privacy-safe categorical
+    # data; revalidate it through the canonical watermark parser so only the
+    # fixed schema survives into offline artifacts.
+    try:
+        from avatar_generation.analysis.watermark import (
+            WATERMARK_EVIDENCE_SCHEMA_VERSION,
+            _region_from_typed_document,
+            _typed_region_document,
+        )
+    except Exception:
+        return result
+    if source.get("schemaVersion") == WATERMARK_EVIDENCE_SCHEMA_VERSION:
+        result["schemaVersion"] = WATERMARK_EVIDENCE_SCHEMA_VERSION
+    regions_value = source.get("regionEvidence")
+    if isinstance(regions_value, list):
+        typed = []
+        for entry in regions_value:
+            parsed = _region_from_typed_document(entry)
+            if parsed is None:
+                typed = []
+                break
+            typed.append(_typed_region_document(parsed))
+        if typed:
+            result["regionEvidence"] = typed
     return result
 
 

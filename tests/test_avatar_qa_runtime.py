@@ -561,7 +561,7 @@ def test_production_bridge_ignores_pass_like_supplied_signals_when_actual_runtim
     assert result.previewAllowed is False
     assert result.requiresHumanReview is True
     assert result.softPass is False
-    assert result.qaVersion == "avatar_qa_v6_unique_mark_applicability_v1"
+    assert result.qaVersion == "avatar_qa_v7_watermark_evidence_parity_v1"
     assert "faceDetector_unavailable" in result.reviewReasons
 
 def test_actual_hard_signal_reason_codes_are_specific():
@@ -642,8 +642,8 @@ def test_metadata_models_unavailable_preserves_actual_hard_reject():
     assert result.previewAllowed is False
     assert result.requiresHumanReview is False
     assert "logo_text_watermark" in result.rejectReasons
-    assert result.qaVersion == "avatar_qa_v6_unique_mark_applicability_v1"
-    assert result.debug["qaVersion"] == "avatar_qa_v6_unique_mark_applicability_v1"
+    assert result.qaVersion == "avatar_qa_v7_watermark_evidence_parity_v1"
+    assert result.debug["qaVersion"] == "avatar_qa_v7_watermark_evidence_parity_v1"
 
 def test_default_cache_contains_adapters_only_not_user_data():
     runtime = get_default_qa_runtime()

@@ -281,8 +281,8 @@ def test_recovery_recomputes_twenty_candidates_without_generation_or_private_out
     assert report["azureCallCount"] == 20
     assert report["retryCount"] == 0
     assert report["generationCallsPerformedByRecovery"] == 0
-    assert report["qaEvaluationVersion"] == "avatar_qa_v6_unique_mark_applicability_v1"
-    assert report["watermarkPolicyVersion"] == "watermark_policy_v3_generated_artifact_only_v1"
+    assert report["qaEvaluationVersion"] == "avatar_qa_v7_watermark_evidence_parity_v1"
+    assert report["watermarkPolicyVersion"] == "watermark_policy_v4_runtime_evidence_parity_v1"
     assert report["calibrationEvaluationVersion"] == "g004_calibration_evaluation_v3_watermark_artifact_only"
     assert report["thresholdSnapshot"] == {
         "calibrationVersion": "g004-live-calibration-v1",

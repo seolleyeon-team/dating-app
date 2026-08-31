@@ -200,7 +200,7 @@ def test_explicit_watermark_action_is_single_source_for_risk_and_hard_pass():
     assert result.textLogoWatermarkRisk == "low"
     assert result.debug["watermarkDecisionClass"] == "ambiguous_text_evidence"
     assert result.debug["watermarkQaAction"] == "allow"
-    assert result.debug["watermarkPolicyVersion"] == "watermark_policy_v3_generated_artifact_only_v1"
+    assert result.debug["watermarkPolicyVersion"] == "watermark_policy_v4_runtime_evidence_parity_v1"
     assert result.previewAllowed is True
     assert result.requiresHumanReview is False
 
