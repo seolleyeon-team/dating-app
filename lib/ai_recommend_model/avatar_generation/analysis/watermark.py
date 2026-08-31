@@ -179,7 +179,7 @@ def _decide(
                 "confidenceBands": {},
                 "areaBands": {},
                 "locationBands": {},
-                "tokenQualityBands": {},
+                "textQualityBands": {},
                 "repeatedTokenCount": 0,
                 "sourceConsistency": "not_applicable",
                 "regionEvidence": [],
@@ -386,7 +386,7 @@ def _typed_region_document(item: _RegionEvidence) -> dict[str, Any]:
         "areaBand": item.area_band,
         "location": item.location,
         "overlayLike": bool(item.overlay_like),
-        "tokenQuality": (
+        "textQuality": (
             item.token_quality
             if item.token_quality in _TYPED_TOKEN_QUALITIES
             else "unknown"
@@ -404,7 +404,10 @@ def _region_from_typed_document(value: Any) -> Optional[_RegionEvidence]:
     confidence_band = str(value.get("confidenceBand") or "").strip().lower()
     area_band = str(value.get("areaBand") or "").strip().lower()
     location = str(value.get("location") or "").strip().lower()
-    token_quality = str(value.get("tokenQuality") or "").strip().lower()
+    # Serialized as textQuality: the calibration redactor strips any key
+    # containing the fragment "token" (raw-OCR defense), which silently
+    # dropped the original tokenQuality spelling from shared reports.
+    token_quality = str(value.get("textQuality") or "").strip().lower()
     source_consistent = value.get("sourceConsistent")
     if (
         kind not in _TYPED_REGION_KINDS
@@ -504,7 +507,7 @@ def _evidence_document(
         "confidenceBands": dict(sorted(confidence_bands.items())),
         "areaBands": dict(sorted(area_bands.items())),
         "locationBands": dict(sorted(location_bands.items())),
-        "tokenQualityBands": dict(sorted(token_quality_bands.items())),
+        "textQualityBands": dict(sorted(token_quality_bands.items())),
         "repeatedTokenCount": repeated_count,
         "sourceConsistency": source_consistency,
         "regionEvidence": [_typed_region_document(region) for region in regions],
@@ -520,7 +523,7 @@ def _redact_evidence(value: Mapping[str, Any]) -> dict[str, Any]:
         "confidenceBands",
         "areaBands",
         "locationBands",
-        "tokenQualityBands",
+        "textQualityBands",
         "repeatedTokenCount",
         "sourceConsistency",
     }

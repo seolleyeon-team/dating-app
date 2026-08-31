@@ -1249,7 +1249,7 @@ def _safe_watermark_evidence(value: Any) -> dict[str, Any]:
             result[key] = child
         elif isinstance(child, str) and _SAFE_ENUM_PATTERN.fullmatch(child.lower()):
             result[key] = child.lower()
-    for key in ("areaBands", "confidenceBands", "locationBands", "tokenQualityBands"):
+    for key in ("areaBands", "confidenceBands", "locationBands", "textQualityBands"):
         child = _mapping(source.get(key))
         values = _safe_count_mapping(child)
         if values:

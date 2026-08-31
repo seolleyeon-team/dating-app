@@ -153,7 +153,7 @@ def test_serialized_evidence_is_privacy_safe_and_classifies_identically():
         assert forbidden not in serialized, forbidden
 
     evidence = document["evidence"]
-    assert evidence["tokenQualityBands"] == {"implausible": 1}
+    assert evidence["textQualityBands"] == {"implausible": 1}
     assert evidence["regionEvidence"], "typed region evidence must be serialized"
     for region in evidence["regionEvidence"]:
         assert set(region) <= {
@@ -162,7 +162,7 @@ def test_serialized_evidence_is_privacy_safe_and_classifies_identically():
             "areaBand",
             "location",
             "overlayLike",
-            "tokenQuality",
+            "textQuality",
             "sourceConsistent",
             "repeated",
             "artifactHint",
