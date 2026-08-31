@@ -79,8 +79,7 @@ class AccountSetupFlow {
         return RouteNames.adultVerification;
       case AccountSetupState.kakaoConnectionRequired:
       case AccountSetupState.kakaoFriendsConsentRequired:
-      case AccountSetupState.kakaoFriendsVerificationRequired:
-      case AccountSetupState.initialFriendSyncRequired:
+      case AccountSetupState.kakaoFriendSnapshotRequired:
         return RouteNames.kakaoFriendConnect;
       case AccountSetupState.onboardingRequired:
         final uid = currentAppUserId;

@@ -27,7 +27,6 @@ function displayableProfile(
 ): Record<string, unknown> {
   return {
     schemaVersion: 2,
-    recommendationPrivacyReady: true,
     status: "active",
     isStudentVerified: true,
     isProfileComplete: true,
@@ -124,16 +123,9 @@ test("candidate parsing keeps raw ranks and rank ordering", () => {
 // Eligibility mirror of the Flutter _hydrateProfiles filter
 // ---------------------------------------------------------------------------
 
-test("candidates without a public profile, privacy readiness, verification, a "
-  + "complete profile, or a display image are not eligible", () => {
+test("candidates without a public profile, verification, a complete profile, "
+  + "or a display image are not eligible", () => {
   assert.equal(isRefreshCandidateDisplayable(null, NO_ZONES), false);
-  assert.equal(
-    isRefreshCandidateDisplayable(
-      displayableProfile({ recommendationPrivacyReady: false }),
-      NO_ZONES
-    ),
-    false
-  );
   assert.equal(
     isRefreshCandidateDisplayable(
       displayableProfile({ isStudentVerified: false }),
@@ -163,6 +155,49 @@ test("candidates without a public profile, privacy readiness, verification, a "
     false
   );
   assert.equal(isRefreshCandidateDisplayable(displayableProfile(), NO_ZONES), true);
+});
+
+test("the recommendationPrivacyReady pending gate is GONE; pair-exclusion "
+  + "filtering is the only Kakao privacy mechanism", () => {
+  // kakao-friend-pairs contract §7: a candidate is displayable regardless of
+  // the legacy pending flag in either direction.
+  assert.equal(
+    isRefreshCandidateDisplayable(
+      displayableProfile({ recommendationPrivacyReady: false }),
+      NO_ZONES
+    ),
+    true
+  );
+  assert.equal(
+    isRefreshCandidateDisplayable(
+      displayableProfile({ recommendationPrivacyReady: true }),
+      NO_ZONES
+    ),
+    true
+  );
+
+  // The pair filter STAYS: an active exclusion doc (new §6 shape) still
+  // removes the candidate through blockedUids / isExclusionActive.
+  assert.equal(
+    isExclusionActive({
+      pairId: "a_b",
+      userIds: ["a", "b"],
+      source: "kakao_friend_pair",
+      reason: "kakao_friend_avoidance",
+      active: true,
+      enabledBy: { a: true, b: false },
+    }),
+    true
+  );
+  const candidates = candidatesOfRanks([1, 2, 3]);
+  const eligible = selectEligibleRefreshCandidates({
+    candidates,
+    viewerUid: "viewer",
+    blockedUids: new Set(["cand_2"]), // union of blocks + active exclusions
+    profileByUid: profilesFor(candidates),
+    ...NO_ZONES,
+  });
+  assert.deepEqual(eligible.map((c) => c.uid), ["cand_1", "cand_3"]);
 });
 
 test("display image check accepts an approved avatar and rejects unsafe urls", () => {

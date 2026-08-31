@@ -38,7 +38,13 @@ and the externally-blocked items discovered during the forensic audit.
 
 ## C. Blockers / findings requiring user decision (not fixed unilaterally)
 
-### RECOMMENDATION_KAKAO_REFRESH_BLOCKER
+### RECOMMENDATION_KAKAO_REFRESH_BLOCKER — RESOLVED BY DESIGN (2026-09-01)
+Superseded by the one-time-snapshot architecture (`kakao-friend-pairs-contract.md`,
+`kakao-friend-pairs-rollout.md`): the product contract now fetches the friend list exactly once per
+account at onboarding and never refreshes it (daily/app-open resync intentionally abolished; new
+friendships after both snapshots are a documented trade-off). FRESHNESS_MARKERS below is likewise
+moot. Historical record kept below.
+
 The stated policy "re-check Kakao friends every day before recommendations" is not implementable
 server-side today: no Kakao refresh token is stored anywhere, there is no server-side token refresh,
 and the server can call the Kakao API only with an access token the client passes per request.

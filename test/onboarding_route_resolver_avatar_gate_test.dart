@@ -33,10 +33,7 @@ void main() {
     test('업로드 카운터만으로는 사진 단계를 통과할 수 없다', () {
       final profile = _baseProfile();
 
-      expect(
-        resolveOnboardingNextRoute(profile),
-        RouteNames.onboardingPhoto,
-      );
+      expect(resolveOnboardingNextRoute(profile), RouteNames.onboardingPhoto);
     });
 
     test('승인된 아바타 상태가 있으면 사진 단계를 통과한다', () {
@@ -62,10 +59,7 @@ void main() {
         'gs://seolleyeon-final-avatar-temp/users/u1/jobs/j/candidates/c.png',
       ];
 
-      expect(
-        resolveOnboardingNextRoute(profile),
-        RouteNames.onboardingPhoto,
-      );
+      expect(resolveOnboardingNextRoute(profile), RouteNames.onboardingPhoto);
     });
 
     test('진행 중(미승인) 생성 상태는 사진 단계로 되돌린다', () {
@@ -73,10 +67,7 @@ void main() {
         avatar: <String, dynamic>{'status': 'preview_ready'},
       );
 
-      expect(
-        resolveOnboardingNextRoute(profile),
-        RouteNames.onboardingPhoto,
-      );
+      expect(resolveOnboardingNextRoute(profile), RouteNames.onboardingPhoto);
     });
   });
 }

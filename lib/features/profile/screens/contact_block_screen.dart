@@ -3,7 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 
 import '../../../services/contact_block_service.dart';
-import '../../../services/kakao_talk_friend_service.dart';
+import '../../../services/kakao_friend_connection_service.dart';
+import '../../../shared/utils/privacy_log_utils.dart';
 import '../../../utils/helpers.dart';
 
 class _AppColors {
@@ -27,14 +28,14 @@ class ContactBlockScreen extends StatefulWidget {
 
 class _ContactBlockScreenState extends State<ContactBlockScreen> {
   final _service = ContactBlockService();
+  final _connectionService = KakaoFriendConnectionService();
 
   bool _isSyncing = false;
-  bool _isLoadingKakaoFriends = false;
+  bool _isUpdatingKakaoAvoidance = false;
   bool _isKakaoAvoidanceEnabled = false;
   bool _isLoadingKakaoPreference = true;
+  String _kakaoSnapshotStatus = 'not_started';
   ContactBlockSyncResult? _result;
-  KakaoConsentStatus? _kakaoConsentStatus;
-  KakaoFriendBlockSyncResult? _kakaoFriendSyncResult;
   String? _error;
   String? _kakaoFriendError;
   DateTime? _lastSyncTime;
@@ -51,7 +52,8 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
       final status = await _service.getKakaoFriendAvoidanceStatus();
       if (!mounted) return;
       setState(() {
-        _isKakaoAvoidanceEnabled = status.enabled;
+        _isKakaoAvoidanceEnabled = status.avoidanceEnabled;
+        _kakaoSnapshotStatus = status.snapshotStatus;
         _isLoadingKakaoPreference = false;
       });
     } catch (_) {
@@ -112,56 +114,33 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
     }
   }
 
-  Future<void> _loadKakaoTalkFriends({bool? avoidanceEnabled}) async {
-    HapticFeedback.mediumImpact();
-    setState(() {
-      _isLoadingKakaoFriends = true;
-      _kakaoFriendError = null;
-      _kakaoFriendSyncResult = null;
-    });
-
-    try {
-      final kakaoFriendService = KakaoTalkFriendService();
-      final consentStatus = await kakaoFriendService.ensureRequiredConsents(
-        requireTalkMessage: false,
-      );
-      final syncResult = await _service.syncKakaoTalkFriendBlocks(
-        avoidanceEnabled: avoidanceEnabled,
-        requestConsentIfNeeded: false,
-      );
-      if (!mounted) return;
-      setState(() {
-        _kakaoConsentStatus = consentStatus;
-        _kakaoFriendSyncResult = syncResult;
-        _isKakaoAvoidanceEnabled = syncResult.avoidanceEnabled;
-        _isLoadingKakaoFriends = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _kakaoFriendError = _formatKakaoFriendError(e);
-        _isLoadingKakaoFriends = false;
-      });
-      await _loadKakaoAvoidanceStatus();
-    }
-  }
-
+  /// One-time-snapshot architecture: the toggle only flips the server-side
+  /// preference over the already-stored `kakaoFriendPairs`. It never opens a
+  /// consent flow and never fetches the Kakao friend list again.
   Future<void> _setKakaoAvoidanceEnabled(bool enabled) async {
-    setState(() => _isKakaoAvoidanceEnabled = enabled);
-    await _loadKakaoTalkFriends(avoidanceEnabled: enabled);
-  }
-
-  String _formatKakaoFriendError(Object error) {
-    final message = error.toString().replaceFirst('Exception: ', '');
-    if (message.contains('insufficient scopes') ||
-        message.contains('required_scopes') ||
-        message.contains('-402')) {
-      return '카카오 서비스 내 친구목록 동의가 필요해요. 카카오 개발자 콘솔에서 해당 동의항목을 사용 설정한 뒤 다시 시도해주세요.';
+    if (_isUpdatingKakaoAvoidance) return;
+    HapticFeedback.mediumImpact();
+    final previous = _isKakaoAvoidanceEnabled;
+    setState(() {
+      _isUpdatingKakaoAvoidance = true;
+      _isKakaoAvoidanceEnabled = enabled;
+      _kakaoFriendError = null;
+    });
+    try {
+      await _connectionService.setFriendAvoidanceEnabled(enabled);
+      await _loadKakaoAvoidanceStatus();
+    } catch (e) {
+      debugPrint(
+        '[ContactBlock] avoidance toggle ${PrivacyLogUtils.errorSummary(e)}',
+      );
+      if (!mounted) return;
+      setState(() {
+        _isKakaoAvoidanceEnabled = previous;
+        _kakaoFriendError = '설정을 저장하지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.';
+      });
+    } finally {
+      if (mounted) setState(() => _isUpdatingKakaoAvoidance = false);
     }
-    if (message.toLowerCase().contains('cancel')) {
-      return '카카오 추가 동의가 취소되었어요. 친구 목록을 불러오려면 동의가 필요해요.';
-    }
-    return message;
   }
 
   Future<void> _openAppSettings() async {
@@ -370,7 +349,6 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
   }
 
   Widget _buildKakaoFriendLookupCard() {
-    final syncResult = _kakaoFriendSyncResult;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -398,7 +376,7 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
               SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  '카카오톡 친구 조회',
+                  '카카오톡 친구 피하기',
                   style: TextStyle(
                     fontFamily: 'NanumSquareRound',
                     fontSize: 16,
@@ -411,7 +389,8 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
           ),
           const SizedBox(height: 10),
           const Text(
-            '한 명이라도 이 설정을 켜면 두 사람 모두 서로의 1:1 추천에서 제외돼요.',
+            '한 명이라도 이 설정을 켜면 두 사람 모두 서로의 1:1 추천에서 제외돼요. '
+            '친구 관계는 가입할 때 한 번만 확인하며, 이후 다시 조회하지 않아요.',
             style: TextStyle(
               fontFamily: 'NanumSquareRound',
               fontSize: 13,
@@ -443,7 +422,7 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
                       ),
                       SizedBox(height: 4),
                       Text(
-                        '켜면 카카오 친구와 서로 추천되지 않아요.',
+                        '켜면, 가입 시 확인된 카카오 친구 중 설레연 이용자와 서로 추천되지 않아요.',
                         style: TextStyle(
                           fontFamily: 'NanumSquareRound',
                           fontSize: 12,
@@ -453,7 +432,7 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
                     ],
                   ),
                 ),
-                if (_isLoadingKakaoPreference || _isLoadingKakaoFriends)
+                if (_isLoadingKakaoPreference || _isUpdatingKakaoAvoidance)
                   const CupertinoActivityIndicator()
                 else
                   CupertinoSwitch(
@@ -464,51 +443,22 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: CupertinoButton(
-              padding: const EdgeInsets.symmetric(vertical: 13),
-              borderRadius: BorderRadius.circular(14),
-              color: const Color(0xFFFEE500),
-              onPressed: _isLoadingKakaoFriends
-                  ? null
-                  : () => _loadKakaoTalkFriends(),
-              child: _isLoadingKakaoFriends
-                  ? const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CupertinoActivityIndicator(),
-                        SizedBox(width: 10),
-                        Text(
-                          '카카오톡 친구 조회 중...',
-                          style: TextStyle(
-                            fontFamily: 'NanumSquareRound',
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: _AppColors.textMain,
-                          ),
-                        ),
-                      ],
-                    )
-                  : const Text(
-                      '친구 관계 다시 확인',
-                      style: TextStyle(
-                        fontFamily: 'NanumSquareRound',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: _AppColors.textMain,
-                      ),
-                    ),
+          if (!_isLoadingKakaoPreference &&
+              _kakaoSnapshotStatus != 'completed') ...[
+            const SizedBox(height: 12),
+            const Text(
+              '가입 시 진행하는 카카오 친구 확인이 아직 완료되지 않았어요. 친구 연결을 완료하면 이 설정이 적용돼요.',
+              style: TextStyle(
+                fontFamily: 'NanumSquareRound',
+                fontSize: 12,
+                height: 1.45,
+                color: _AppColors.textSecondary,
+              ),
             ),
-          ),
+          ],
           if (_kakaoFriendError != null) ...[
             const SizedBox(height: 14),
             _buildKakaoFriendError(_kakaoFriendError!),
-          ],
-          if (syncResult != null) ...[
-            const SizedBox(height: 16),
-            _buildKakaoFriendSummary(syncResult),
           ],
         ],
       ),
@@ -532,64 +482,6 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
           height: 1.45,
           color: Color(0xFFC2410C),
         ),
-      ),
-    );
-  }
-
-  Widget _buildKakaoFriendSummary(KakaoFriendBlockSyncResult result) {
-    final friendCount = result.submittedFriendCount;
-    final matchedCount = result.matchedUserCount;
-    final storedCount = result.activeExcludedPairCount;
-    final isEmpty = matchedCount == 0;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: (isEmpty ? _AppColors.gray100 : _AppColors.emerald500)
-            .withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: (isEmpty ? _AppColors.gray400 : _AppColors.emerald500)
-              .withValues(alpha: 0.25),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            isEmpty
-                ? '현재 설레연에 가입하고 친구목록 제공에 동의한 카카오톡 친구가 확인되지 않았어요.'
-                : '친구 관계 확인 완료 · 현재 서로 추천 제외 $storedCount명',
-            style: TextStyle(
-              fontFamily: 'NanumSquareRound',
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              height: 1.45,
-              color: isEmpty ? _AppColors.gray800 : _AppColors.emerald500,
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (_kakaoConsentStatus != null) ...[
-            Text(
-              '친구목록 동의 ${_kakaoConsentStatus!.friendsAgreed ? '완료' : '미완료'} · '
-              '메시지 동의는 이 기능에 사용하지 않음',
-              style: const TextStyle(
-                fontFamily: 'NanumSquareRound',
-                fontSize: 12,
-                color: _AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-          Text(
-            '서버 확인 친구 $friendCount명 · 설레연 가입 친구 $matchedCount명 · 추천 제외 $storedCount명',
-            style: const TextStyle(
-              fontFamily: 'NanumSquareRound',
-              fontSize: 13,
-              height: 1.45,
-              color: _AppColors.textSecondary,
-            ),
-          ),
-        ],
       ),
     );
   }

@@ -26,14 +26,10 @@ enum AccountSetupState {
   /// returns [kakaoConnectionRequired] and the connection screen drives this.)
   kakaoFriendsConsentRequired,
 
-  /// Friends consent given but the Friends API access has not been verified.
-  /// (Screen-internal sub-state, see [kakaoFriendsConsentRequired].)
-  kakaoFriendsVerificationRequired,
-
-  /// Kakao identity is linked but the initial friend-exclusion sync has not
-  /// completed, or the fail-closed `recommendationPrivacyReady` flag is not
-  /// true yet.
-  initialFriendSyncRequired,
+  /// Kakao identity is linked but the ONE-TIME server friend snapshot
+  /// (`users/{uid}.kakaoFriendSnapshot.status == "completed"`) has not
+  /// completed yet (kakao-friend-pairs contract §3/§8).
+  kakaoFriendSnapshotRequired,
 
   /// Profile onboarding has remaining required steps.
   onboardingRequired,
@@ -51,13 +47,18 @@ bool _isTruthy(Object? value) {
 
 /// Pure resolver over server-truth fields of `users/{appUserId}`.
 ///
-/// Gate order (contract §7): session → student email → adult verification →
-/// Kakao friend connection → initial friend sync → onboarding → tutorial.
+/// Gate order (kakao-friend-pairs contract §8): session → student email →
+/// adult verification → Kakao friend connection → one-time friend snapshot →
+/// onboarding → tutorial.
 ///
-/// Grandfather rule: legacy documents WITHOUT a `kakaoFriendConnection` field
-/// whose `recommendationPrivacyReady == true` are treated as connected (no
-/// forced re-link). Legacy documents that are not privacy-ready must go
-/// through `/kakao-friend-connect`.
+/// GRANDFATHER / MIGRATION GATE (spec §30): legacy documents without a
+/// `kakaoFriendConnection` map and/or without a `kakaoFriendSnapshot` field
+/// resolve to the connection/snapshot gate ONCE, regardless of the legacy
+/// `recommendationPrivacyReady` flag — that flag is no longer consulted
+/// anywhere in this resolver. The connection screen runs consent-check →
+/// link (idempotent) → snapshot-once, and after `status == "completed"` the
+/// gate never re-triggers (a completed snapshot is immutable; no re-fetch).
+/// Migration never re-requests profile onboarding.
 AccountSetupState resolveAccountSetupState({
   required bool hasFirebaseSession,
   required Map<String, dynamic>? userDoc,
@@ -85,24 +86,21 @@ AccountSetupState resolveAccountSetupState({
     return AccountSetupState.adultVerificationRequired;
   }
 
-  final recommendationPrivacyReady =
-      userDoc['recommendationPrivacyReady'] == true;
   final rawConnection = userDoc['kakaoFriendConnection'];
-  if (rawConnection is Map) {
-    if (rawConnection['connected'] != true) {
-      return AccountSetupState.kakaoConnectionRequired;
-    }
-    if (rawConnection['initialSyncComplete'] != true ||
-        !recommendationPrivacyReady) {
-      return AccountSetupState.initialFriendSyncRequired;
-    }
-  } else {
-    // GRANDFATHER: legacy accounts have no kakaoFriendConnection field. Only
-    // the fail-closed recommendationPrivacyReady flag proves an effective
-    // friend connection; otherwise they must link via /kakao-friend-connect.
-    if (!recommendationPrivacyReady) {
-      return AccountSetupState.kakaoConnectionRequired;
-    }
+  final connected = rawConnection is Map && rawConnection['connected'] == true;
+  if (!connected) {
+    // Covers both new accounts and legacy docs without the field (migration
+    // gate) — fail closed toward /kakao-friend-connect.
+    return AccountSetupState.kakaoConnectionRequired;
+  }
+
+  final rawSnapshot = userDoc['kakaoFriendSnapshot'];
+  final snapshotCompleted =
+      rawSnapshot is Map && rawSnapshot['status'] == 'completed';
+  if (!snapshotCompleted) {
+    // Missing field == not_started (legacy migration) and in_progress/failed
+    // both stay gated until the server records the one-time completion.
+    return AccountSetupState.kakaoFriendSnapshotRequired;
   }
 
   final initialSetupComplete = _isTruthy(userDoc['initialSetupComplete']);

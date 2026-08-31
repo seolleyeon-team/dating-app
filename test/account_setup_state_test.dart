@@ -4,22 +4,29 @@ import 'package:seolleyeon/router/route_names.dart';
 
 /// The setup-state resolver is the single routing authority of the
 /// Yonsei-email-primary architecture. Restarting the app at any state must
-/// resolve to the SAME gate (restart-at-each-state semantics), driven purely
-/// by server-truth fields.
+/// resolve to the SAME gate (restart-at-each-state semantics, spec §29),
+/// driven purely by server-truth fields.
+///
+/// One-time-snapshot ladder (kakao-friend-pairs contract §8):
+/// session → studentVerified → adult → kakaoFriendConnection.connected →
+/// kakaoFriendSnapshot.status == "completed" → onboarding → tutorial.
 void main() {
   Map<String, dynamic> completeDoc({
     Map<String, dynamic>? overrides,
     bool withConnection = true,
+    bool withSnapshot = true,
   }) {
     final doc = <String, dynamic>{
       'isStudentVerified': true,
       'adultVerified': true,
       'realNameVerified': true,
-      'recommendationPrivacyReady': true,
       if (withConnection)
-        'kakaoFriendConnection': <String, dynamic>{
-          'connected': true,
-          'initialSyncComplete': true,
+        'kakaoFriendConnection': <String, dynamic>{'connected': true},
+      if (withSnapshot)
+        'kakaoFriendSnapshot': <String, dynamic>{
+          'status': 'completed',
+          'pairCount': 3,
+          'schemaVersion': 1,
         },
       'initialSetupComplete': true,
       'hasSeenTutorial': true,
@@ -104,27 +111,13 @@ void main() {
   });
 
   group('kakao friend connection gate', () {
-    test('missing connection and not privacy-ready requires connection', () {
-      expect(
-        resolveAccountSetupState(
-          hasFirebaseSession: true,
-          userDoc: completeDoc(
-            withConnection: false,
-            overrides: {'recommendationPrivacyReady': false},
-          ),
-        ),
-        AccountSetupState.kakaoConnectionRequired,
-      );
-    });
-
-    test('GRANDFATHER: legacy doc without connection field but privacy-ready '
-        'passes the connection gate without a forced re-link', () {
+    test('missing connection map requires connection', () {
       expect(
         resolveAccountSetupState(
           hasFirebaseSession: true,
           userDoc: completeDoc(withConnection: false),
         ),
-        AccountSetupState.complete,
+        AccountSetupState.kakaoConnectionRequired,
       );
     });
 
@@ -142,25 +135,77 @@ void main() {
       );
     });
 
-    test('connected but initial sync incomplete requires the sync gate', () {
+    test('MIGRATION (spec §30): legacy doc without connection or snapshot '
+        'goes through the connection gate ONCE even when the legacy '
+        'recommendationPrivacyReady flag is true', () {
+      // recommendationPrivacyReady is no longer consulted: the one-time
+      // snapshot is the only Kakao readiness authority.
       expect(
         resolveAccountSetupState(
           hasFirebaseSession: true,
           userDoc: completeDoc(
-            overrides: {
-              'kakaoFriendConnection': {
-                'connected': true,
-                'initialSyncComplete': false,
-              },
-            },
+            withConnection: false,
+            withSnapshot: false,
+            overrides: {'recommendationPrivacyReady': true},
           ),
         ),
-        AccountSetupState.initialFriendSyncRequired,
+        AccountSetupState.kakaoConnectionRequired,
       );
     });
 
-    test('connected + synced but recommendationPrivacyReady false stays gated '
-        '(fail-closed readiness flag is the authority)', () {
+    test('MIGRATION: connected legacy doc without a snapshot field resolves '
+        'to the snapshot gate regardless of recommendationPrivacyReady', () {
+      expect(
+        resolveAccountSetupState(
+          hasFirebaseSession: true,
+          userDoc: completeDoc(
+            withSnapshot: false,
+            overrides: {'recommendationPrivacyReady': true},
+          ),
+        ),
+        AccountSetupState.kakaoFriendSnapshotRequired,
+      );
+    });
+  });
+
+  group('kakao friend snapshot gate (one-time)', () {
+    for (final status in ['not_started', 'in_progress', 'failed']) {
+      test('snapshot status "$status" stays gated at the snapshot step', () {
+        expect(
+          resolveAccountSetupState(
+            hasFirebaseSession: true,
+            userDoc: completeDoc(
+              overrides: {
+                'kakaoFriendSnapshot': {'status': status},
+              },
+            ),
+          ),
+          AccountSetupState.kakaoFriendSnapshotRequired,
+        );
+      });
+    }
+
+    test('restart case (spec §29 E): completed snapshot never resolves to any '
+        'kakao gate again', () {
+      final state = resolveAccountSetupState(
+        hasFirebaseSession: true,
+        userDoc: completeDoc(),
+      );
+      expect(state, AccountSetupState.complete);
+      expect(
+        state,
+        isNot(
+          anyOf(
+            AccountSetupState.kakaoConnectionRequired,
+            AccountSetupState.kakaoFriendsConsentRequired,
+            AccountSetupState.kakaoFriendSnapshotRequired,
+          ),
+        ),
+      );
+    });
+
+    test('completed snapshot passes even when the legacy readiness flag is '
+        'absent or false (flag removed from the ladder)', () {
       expect(
         resolveAccountSetupState(
           hasFirebaseSession: true,
@@ -168,13 +213,14 @@ void main() {
             overrides: {'recommendationPrivacyReady': false},
           ),
         ),
-        AccountSetupState.initialFriendSyncRequired,
+        AccountSetupState.complete,
       );
     });
   });
 
   group('onboarding and tutorial gates', () {
-    test('connected account with empty profile resumes onboarding', () {
+    test('snapshot-complete account with empty profile resumes onboarding '
+        '(snapshot precedes onboarding, never re-requests it)', () {
       expect(
         resolveAccountSetupState(
           hasFirebaseSession: true,
@@ -236,14 +282,13 @@ void main() {
   });
 
   group('gate ordering (restart at each state)', () {
-    test('email gate outranks adult, connection, onboarding and tutorial', () {
+    test('email gate outranks adult, connection, snapshot and tutorial', () {
       expect(
         resolveAccountSetupState(
           hasFirebaseSession: true,
           userDoc: {
             'isStudentVerified': false,
             'adultVerified': false,
-            'recommendationPrivacyReady': false,
             'hasSeenTutorial': false,
           },
         ),
@@ -251,14 +296,13 @@ void main() {
       );
     });
 
-    test('adult gate outranks connection, onboarding and tutorial', () {
+    test('adult gate outranks connection, snapshot and tutorial', () {
       expect(
         resolveAccountSetupState(
           hasFirebaseSession: true,
           userDoc: {
             'isStudentVerified': true,
             'adultVerified': false,
-            'recommendationPrivacyReady': false,
             'hasSeenTutorial': false,
           },
         ),
@@ -266,7 +310,7 @@ void main() {
       );
     });
 
-    test('connection gate outranks onboarding and tutorial', () {
+    test('connection gate outranks snapshot, onboarding and tutorial', () {
       expect(
         resolveAccountSetupState(
           hasFirebaseSession: true,
@@ -274,7 +318,7 @@ void main() {
             'isStudentVerified': true,
             'adultVerified': true,
             'realNameVerified': true,
-            'recommendationPrivacyReady': false,
+            'kakaoFriendSnapshot': {'status': 'not_started'},
             'onboarding': {},
             'hasSeenTutorial': false,
           },
@@ -283,16 +327,33 @@ void main() {
       );
     });
 
-    test('new-user shell doc (fail-closed defaults) routes to adult gate', () {
-      // Shell created by completePrimaryStudentEmailAuth for a NEW user:
-      // isStudentVerified true, recommendationPrivacyReady false, no adult
-      // verification yet (contract §4.2 step 2).
+    test('snapshot gate outranks onboarding and tutorial', () {
       expect(
         resolveAccountSetupState(
           hasFirebaseSession: true,
           userDoc: {
             'isStudentVerified': true,
-            'recommendationPrivacyReady': false,
+            'adultVerified': true,
+            'realNameVerified': true,
+            'kakaoFriendConnection': {'connected': true},
+            'onboarding': {},
+            'hasSeenTutorial': false,
+          },
+        ),
+        AccountSetupState.kakaoFriendSnapshotRequired,
+      );
+    });
+
+    test('new-user shell doc (fail-closed defaults) routes to adult gate', () {
+      // Shell created by completePrimaryStudentEmailAuth for a NEW user:
+      // isStudentVerified true, kakaoFriendSnapshot not_started (contract
+      // §7), no adult verification yet.
+      expect(
+        resolveAccountSetupState(
+          hasFirebaseSession: true,
+          userDoc: {
+            'isStudentVerified': true,
+            'kakaoFriendSnapshot': {'status': 'not_started'},
             'kakaoFriendAvoidanceEnabled': false,
           },
         ),
@@ -302,16 +363,19 @@ void main() {
   });
 
   group('enum surface', () {
-    test('screen-internal consent/verify sub-states remain declared', () {
-      // The resolver collapses them into the connection gate, but the enum
-      // values stay part of the public state machine.
+    test('screen-internal consent sub-state remains declared and the legacy '
+        'repeated-sync states are gone', () {
       expect(
         AccountSetupState.values,
-        containsAll(<AccountSetupState>[
-          AccountSetupState.kakaoFriendsConsentRequired,
-          AccountSetupState.kakaoFriendsVerificationRequired,
-        ]),
+        contains(AccountSetupState.kakaoFriendsConsentRequired),
       );
+      expect(
+        AccountSetupState.values,
+        contains(AccountSetupState.kakaoFriendSnapshotRequired),
+      );
+      final names = AccountSetupState.values.map((v) => v.name).toList();
+      expect(names, isNot(contains('initialFriendSyncRequired')));
+      expect(names, isNot(contains('kakaoFriendsVerificationRequired')));
     });
 
     test('route constant for the connection screen exists', () {

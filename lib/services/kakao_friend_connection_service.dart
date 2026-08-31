@@ -6,7 +6,6 @@ import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 
 import '../shared/utils/privacy_log_utils.dart';
 import 'auth_service.dart';
-import 'contact_block_service.dart';
 import 'firebase_runtime.dart';
 import 'kakao_login_coordinator.dart';
 import 'kakao_talk_friend_service.dart';
@@ -15,15 +14,14 @@ import 'kakao_talk_friend_service.dart';
 enum KakaoFriendConnectionStep {
   oauth,
   friendsConsent,
-  friendsApiVerification,
   identityLink,
-  initialSync,
+  friendSnapshot,
   readiness,
 }
 
 /// Typed failure surfaced by [KakaoFriendConnectionService]. `consentRefused`
-/// marks a user-cancelled consent so the screen can keep the fail-closed
-/// pending state and offer a retry.
+/// marks a user-cancelled consent so the screen can stay put and offer a
+/// retry (no server pending write is needed anymore).
 class KakaoFriendConnectionException implements Exception {
   const KakaoFriendConnectionException({
     required this.step,
@@ -41,25 +39,41 @@ class KakaoFriendConnectionException implements Exception {
   String toString() => userMessage;
 }
 
-/// Kakao friend connection service (identity contract §7).
+/// Result of the one-time friend snapshot callable.
+class KakaoFriendSnapshotResult {
+  const KakaoFriendSnapshotResult({
+    required this.completed,
+    required this.pairCount,
+    this.alreadyCompleted = false,
+  });
+
+  final bool completed;
+  final int pairCount;
+  final bool alreadyCompleted;
+}
+
+/// Kakao friend connection service (kakao-friend-pairs contract §8).
 ///
 /// AUTH INVARIANT: Kakao OAuth here authorizes FRIEND EXCLUSION only. This
 /// service never mints or restores a Firebase session and never assigns any
 /// authenticated state — the canonical Yonsei-email session is a strict
 /// PRECONDITION for every step. No nickname/profile/email/phone data is
 /// collected or persisted from Kakao.
+///
+/// SNAPSHOT INVARIANT: the Kakao Friends API is consumed EXACTLY ONCE per
+/// account, server-side, by the `createKakaoFriendPairsOnce` callable. The
+/// client never fetches the friend list itself and never re-fetches after
+/// the server snapshot status is `completed`. There is no per-launch sync.
 class KakaoFriendConnectionService {
   KakaoFriendConnectionService({
     AuthService? authService,
     KakaoTalkFriendService? kakaoTalkFriendService,
-    ContactBlockService? contactBlockService,
     FirebaseAuth? firebaseAuth,
     FirebaseFirestore? firestore,
     FirebaseFunctions? functions,
   }) : _authService = authService ?? AuthService(),
        _kakaoTalkFriendService =
            kakaoTalkFriendService ?? KakaoTalkFriendService(),
-       _contactBlockService = contactBlockService ?? ContactBlockService(),
        _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance,
        _firestore = firestore ?? FirebaseFirestore.instance,
        _functions =
@@ -68,7 +82,6 @@ class KakaoFriendConnectionService {
 
   final AuthService _authService;
   final KakaoTalkFriendService _kakaoTalkFriendService;
-  final ContactBlockService _contactBlockService;
   final FirebaseAuth _firebaseAuth;
   final FirebaseFirestore _firestore;
   final FirebaseFunctions _functions;
@@ -188,7 +201,8 @@ class KakaoFriendConnectionService {
 
   /// Requests the friends-scope consent (loginWithNewScopes) and re-verifies.
   /// Cancellation surfaces as a [KakaoFriendConnectionException] with
-  /// `consentRefused == true`.
+  /// `consentRefused == true`; the caller keeps the user on the connection
+  /// screen — there is no server-side pending write on refusal anymore.
   Future<void> requestFriendsConsent() async {
     _requireCanonicalSession();
     try {
@@ -201,37 +215,6 @@ class KakaoFriendConnectionService {
         code: e.code,
         userMessage: e.userMessage,
         consentRefused: e.code == 'consent_cancelled',
-      );
-    }
-  }
-
-  /// Verifies real Friends API access. An empty friend list IS success; only
-  /// API/scope/session errors fail this step.
-  Future<void> verifyFriendsApiAccess() async {
-    _requireCanonicalSession();
-    try {
-      final lookup = await _kakaoTalkFriendService.fetchFriends(
-        requestConsentIfNeeded: false,
-      );
-      debugPrint(
-        '[KakaoConnect] friends api verified count=${lookup.friends.length}',
-      );
-    } on KakaoTalkReviewException catch (e) {
-      throw KakaoFriendConnectionException(
-        step: KakaoFriendConnectionStep.friendsApiVerification,
-        code: e.code,
-        userMessage: e.userMessage,
-        consentRefused: e.code == 'consent_cancelled',
-      );
-    } catch (e) {
-      debugPrint(
-        '[KakaoConnect] friends api verify failed '
-        '${PrivacyLogUtils.errorSummary(e)}',
-      );
-      throw const KakaoFriendConnectionException(
-        step: KakaoFriendConnectionStep.friendsApiVerification,
-        code: 'friends_api_failed',
-        userMessage: '카카오 친구 목록 확인에 실패했어요. 잠시 후 다시 시도해 주세요.',
       );
     }
   }
@@ -287,70 +270,129 @@ class KakaoFriendConnectionService {
     }
   }
 
-  /// Runs the initial friend-exclusion sync using the existing fail-closed
-  /// begin + sync callables (no extra consent dialog from this path).
-  Future<void> syncInitialFriendExclusions() async {
+  /// Runs the ONE-TIME server friend snapshot via the
+  /// `createKakaoFriendPairsOnce` callable. This IS the Friends-API access
+  /// verification — there is no separate client-side friends fetch. The
+  /// server verifies the token, reads the friend list once, and materializes
+  /// `kakaoFriendPairs` + bilateral `recommendationExclusions`.
+  Future<KakaoFriendSnapshotResult> createFriendSnapshotOnce() async {
     _requireCanonicalSession();
-    try {
-      await _contactBlockService.syncKakaoTalkFriendBlocks(
-        requestConsentIfNeeded: false,
-      );
-    } catch (e) {
-      debugPrint(
-        '[KakaoConnect] initial sync failed ${PrivacyLogUtils.errorSummary(e)}',
-      );
+    final accessToken = await _authService.getKakaoAccessTokenForFunctions();
+    if (accessToken == null || accessToken.isEmpty) {
       throw const KakaoFriendConnectionException(
-        step: KakaoFriendConnectionStep.initialSync,
-        code: 'initial_sync_failed',
-        userMessage: '아는 사람 추천 차단 동기화에 실패했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.',
+        step: KakaoFriendConnectionStep.friendSnapshot,
+        code: 'kakao_access_token_missing',
+        userMessage: '카카오 연결 세션이 만료되었어요. 카카오 연결을 다시 진행해 주세요.',
+      );
+    }
+
+    try {
+      final result = await _functions
+          .httpsCallable('createKakaoFriendPairsOnce')
+          .call<dynamic>({'kakaoAccessToken': accessToken});
+      final data = Map<String, dynamic>.from(
+        (result.data as Map?)?.cast<String, dynamic>() ?? {},
+      );
+      // alreadyCompleted is success: the snapshot ran before and is immutable.
+      return KakaoFriendSnapshotResult(
+        completed:
+            data['completed'] == true || data['alreadyCompleted'] == true,
+        pairCount: (data['pairCount'] as num?)?.toInt() ?? 0,
+        alreadyCompleted: data['alreadyCompleted'] == true,
+      );
+    } on FirebaseFunctionsException catch (e) {
+      final detail = '${e.message ?? ''} ${e.details ?? ''}';
+      debugPrint('[KakaoConnect] friend snapshot failed code=${e.code}');
+      if (detail.contains('snapshot_in_progress')) {
+        throw const KakaoFriendConnectionException(
+          step: KakaoFriendConnectionStep.friendSnapshot,
+          code: 'snapshot_in_progress',
+          userMessage: '친구 확인이 이미 진행 중이에요. 잠시 후 다시 시도해 주세요.',
+        );
+      }
+      if (detail.contains('identity_conflict')) {
+        throw const KakaoFriendConnectionException(
+          step: KakaoFriendConnectionStep.friendSnapshot,
+          code: 'identity_conflict',
+          userMessage:
+              '이 카카오 계정은 이미 다른 설레연 계정에 연결되어 있어요. 본인 계정이 맞다면 고객센터에 문의해 주세요.',
+        );
+      }
+      if (detail.contains('kakao_identity_not_linked')) {
+        throw const KakaoFriendConnectionException(
+          step: KakaoFriendConnectionStep.friendSnapshot,
+          code: 'kakao_identity_not_linked',
+          userMessage: '카카오 연결 정보가 확인되지 않았어요. 카카오 연결을 다시 진행해 주세요.',
+        );
+      }
+      if (detail.contains('primary_email_auth_required')) {
+        throw const KakaoFriendConnectionException(
+          step: KakaoFriendConnectionStep.friendSnapshot,
+          code: 'primary_email_auth_required',
+          userMessage: '연세 이메일 인증을 먼저 완료해 주세요.',
+        );
+      }
+      throw const KakaoFriendConnectionException(
+        step: KakaoFriendConnectionStep.friendSnapshot,
+        code: 'friend_snapshot_failed',
+        userMessage: '카카오 친구 확인에 실패했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.',
       );
     }
   }
 
-  /// Server truth check: the account is ready only when the fail-closed
-  /// `recommendationPrivacyReady` flag AND the connection marker are both set.
-  Future<bool> verifyFriendConnectionReady() async {
+  /// Server truth read of `users/{uid}.kakaoFriendSnapshot.status`.
+  /// Fail-closed: a missing field means the snapshot never ran
+  /// (`not_started`), which keeps legacy accounts gated at the migration
+  /// step. This performs NO Kakao API call.
+  Future<String> loadFriendSnapshotStatus() async {
     final uid = _requireCanonicalSession();
     final snapshot = await _firestore
         .collection('users')
         .doc(uid)
         .get(const GetOptions(source: Source.server));
     final data = snapshot.data() ?? const <String, dynamic>{};
-    final connection = data['kakaoFriendConnection'];
-    final connected = connection is Map && connection['connected'] == true;
-    return data['recommendationPrivacyReady'] == true && connected;
-  }
-
-  /// Marks the fail-closed pending state after a consent refusal (same server
-  /// behavior the legacy Kakao login screen used).
-  Future<void> markPendingAfterConsentRefusal() async {
-    try {
-      await _contactBlockService
-          .markRecommendationPrivacyPendingAfterConsentRefusal();
-    } catch (e) {
-      debugPrint(
-        '[KakaoConnect] pending mark failed ${PrivacyLogUtils.errorSummary(e)}',
-      );
+    final rawSnapshot = data['kakaoFriendSnapshot'];
+    if (rawSnapshot is Map) {
+      final status = rawSnapshot['status'];
+      if (status is String && status.isNotEmpty) return status;
     }
+    return 'not_started';
   }
 
-  /// Full chain: OAuth → consent → Friends API verification → identity link →
-  /// initial sync → server readiness. Throws a step-typed
-  /// [KakaoFriendConnectionException] on the first failure.
+  /// Toggles the avoidance preference via the `setKakaoFriendAvoidanceEnabled`
+  /// callable. Pair reconciliation is entirely server-side over the stored
+  /// `kakaoFriendPairs` — no consent flow, no friends fetch, ever.
+  Future<void> setFriendAvoidanceEnabled(bool enabled) async {
+    _requireCanonicalSession();
+    await _functions.httpsCallable('setKakaoFriendAvoidanceEnabled').call<void>(
+      {'enabled': enabled},
+    );
+  }
+
+  /// Full chain: OAuth → friends consent → identity link → one-time snapshot
+  /// (skipped when the server already recorded `completed`) → server status
+  /// check. Throws a step-typed [KakaoFriendConnectionException] on the first
+  /// failure. Consent refusal throws with `consentRefused == true` and makes
+  /// NO server call — the screen simply keeps the user here with retry copy.
   Future<void> runFullConnectionFlow() async {
     await ensureKakaoOAuthSession();
     if (!await hasFriendsConsent()) {
       await requestFriendsConsent();
     }
-    await verifyFriendsApiAccess();
     await linkCurrentKakaoIdentity();
-    await syncInitialFriendExclusions();
-    final ready = await verifyFriendConnectionReady();
-    if (!ready) {
+
+    // ONE-TIME guard: a completed snapshot is immutable and must never
+    // trigger another Kakao Friends read (contract §3, spec §7/§42).
+    var status = await loadFriendSnapshotStatus();
+    if (status != 'completed') {
+      await createFriendSnapshotOnce();
+      status = await loadFriendSnapshotStatus();
+    }
+    if (status != 'completed') {
       throw const KakaoFriendConnectionException(
         step: KakaoFriendConnectionStep.readiness,
-        code: 'friend_connection_not_ready',
-        userMessage: '친구 연결 상태를 서버에서 확인하지 못했어요. 잠시 후 다시 시도해 주세요.',
+        code: 'friend_snapshot_not_completed',
+        userMessage: '친구 확인 상태를 서버에서 확인하지 못했어요. 잠시 후 다시 시도해 주세요.',
       );
     }
   }

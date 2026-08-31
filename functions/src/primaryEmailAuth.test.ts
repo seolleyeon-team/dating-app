@@ -367,6 +367,7 @@ test("new user shell carries exactly the contract fields with fail-closed defaul
     "isStudentVerified",
     "kakaoFriendAvoidanceEnabled",
     "kakaoFriendReconcileStatus",
+    "kakaoFriendSnapshot",
     "lastLoginAt",
     "profileImageMode",
     "profileImageUrl",
@@ -383,4 +384,9 @@ test("new user shell carries exactly the contract fields with fail-closed defaul
   assert.equal(shell.kakaoFriendAvoidanceEnabled, false);
   assert.equal(shell.recommendationPrivacyReady, false);
   assert.equal(shell.kakaoFriendReconcileStatus, "pending");
+  // kakao-friend-pairs contract §3/§7: the one-time snapshot starts pending.
+  assert.deepEqual(shell.kakaoFriendSnapshot, {
+    status: "not_started",
+    schemaVersion: 1,
+  });
 });

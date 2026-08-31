@@ -10,14 +10,13 @@ import '../../../core/constants/app_colors.dart';
 import '../../../router/route_names.dart';
 import '../../../services/ai_recommendation_service.dart';
 import '../../../services/ask_service.dart';
-import '../../../services/contact_block_service.dart';
 import '../../../services/rec_event_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/constants/photo_blur_constants.dart';
 import '../../../shared/utils/privacy_log_utils.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
-import '../../../shared/widgets/kakao_recommendation_privacy_prerequisite.dart';
+import '../../../shared/widgets/recommendation_load_failure.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 import '../../chat/services/chat_service.dart';
 import '../../notifications/services/notification_service.dart';
@@ -296,7 +295,6 @@ class _LockerRecommendationContentState
   final _askService = AskService();
   final _userService = UserService();
   final _aiService = AiRecommendationService();
-  final _contactBlockService = ContactBlockService();
   final _refreshService = RecommendationRefreshService();
 
   /// 필터 통과한 후보 rank 순 (최대 window 2개 분량 = 6명).
@@ -310,10 +308,7 @@ class _LockerRecommendationContentState
   bool _isLoading = true;
   bool _isReloading = false;
   bool _reloadRequested = false;
-  bool _privacyConsentRequired = false;
   bool _recommendationLoadFailed = false;
-  bool _isSyncingPrivacy = false;
-  String? _privacySyncError;
   String? _privacyWatchedUid;
   StreamSubscription<void>? _privacySubscription;
   StreamSubscription<void>? _candidateSubscription;
@@ -341,30 +336,12 @@ class _LockerRecommendationContentState
         if (!mounted) return;
         setState(() {
           _profiles = [];
-          _privacyConsentRequired = false;
           _recommendationLoadFailed = false;
           _isLoading = false;
         });
         return;
       }
       _watchRecommendationPrivacy(userId);
-      final privacyReady = await _aiService.isViewerRecommendationPrivacyReady(
-        userId,
-      );
-      if (!privacyReady) {
-        if (!mounted) return;
-        setState(() {
-          _userId = userId;
-          _profiles = [];
-          _eligibleProfiles = [];
-          _feedDateKey = null;
-          _privacyConsentRequired = true;
-          _recommendationLoadFailed = false;
-          _isLoading = false;
-        });
-        _watchCandidateEligibility(const []);
-        return;
-      }
       // initial(1~3위)과 refreshed(4~6위) window 를 한 번에 hydrate 한다.
       final eligibleProfiles = await _aiService.fetchMysteryFeed(
         limit: RecommendationRefreshService.windowSize * 2,
@@ -403,9 +380,7 @@ class _LockerRecommendationContentState
             : (onboarding['nickname']?.toString().trim().isNotEmpty == true
                   ? onboarding['nickname'].toString().trim()
                   : '회원');
-        _privacyConsentRequired = false;
         _recommendationLoadFailed = false;
-        _privacySyncError = null;
         _isLoading = false;
       });
       _watchCandidateEligibility(profiles);
@@ -422,7 +397,6 @@ class _LockerRecommendationContentState
           _profiles = [];
           _eligibleProfiles = [];
           _feedDateKey = null;
-          _privacyConsentRequired = false;
           _recommendationLoadFailed = true;
           _isLoading = false;
         });
@@ -434,40 +408,6 @@ class _LockerRecommendationContentState
         _privacyReloadDebounce?.cancel();
         _privacyReloadDebounce = Timer(Duration.zero, _loadRecommendations);
       }
-    }
-  }
-
-  Future<void> _requestKakaoConsentAndSync() async {
-    if (_isSyncingPrivacy) return;
-    setState(() {
-      _isSyncingPrivacy = true;
-      _privacySyncError = null;
-    });
-    try {
-      final result = await _contactBlockService.syncKakaoTalkFriendBlocks(
-        requestConsentIfNeeded: true,
-      );
-      if (!result.recommendationPrivacyReady) {
-        throw StateError('recommendation_privacy_not_ready_after_sync');
-      }
-      if (!mounted) return;
-      setState(() {
-        _privacyConsentRequired = false;
-        _isLoading = true;
-      });
-      await _loadRecommendations();
-    } catch (error) {
-      debugPrint(
-        '[MysteryCard] Kakao privacy sync '
-        '${PrivacyLogUtils.errorSummary(error)}',
-      );
-      if (!mounted) return;
-      setState(() {
-        _privacySyncError =
-            '동의를 완료하지 못했어요. 카카오 동의 화면에서 친구목록을 허용한 뒤 다시 시도해 주세요.';
-      });
-    } finally {
-      if (mounted) setState(() => _isSyncingPrivacy = false);
     }
   }
 
@@ -900,13 +840,7 @@ class _LockerRecommendationContentState
         ),
         const SizedBox(height: 12),
         Expanded(
-          child: _privacyConsentRequired
-              ? KakaoRecommendationPrivacyPrerequisite(
-                  isWorking: _isSyncingPrivacy,
-                  errorMessage: _privacySyncError,
-                  onConsentAndSync: _requestKakaoConsentAndSync,
-                )
-              : _recommendationLoadFailed
+          child: _recommendationLoadFailed
               ? RecommendationLoadFailure(onRetry: _retryRecommendations)
               : _temporarilyShowLockerPreview &&
                     (_isLoading || _profiles.isEmpty)

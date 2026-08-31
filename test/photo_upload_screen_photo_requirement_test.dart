@@ -207,10 +207,7 @@ void main() {
       await tester.pump();
       _drainExpectedImageLoadException(tester);
 
-      expect(
-        tester.widget<ElevatedButton>(_nextButton()).onPressed,
-        isNotNull,
-      );
+      expect(tester.widget<ElevatedButton>(_nextButton()).onPressed, isNotNull);
 
       await tester.tap(find.byIcon(Icons.close_rounded).first);
       await tester.pump();

@@ -6,8 +6,7 @@ const avatarSourceFaceTooSmallMessage =
 const avatarBackgroundTextLogoRiskMessage = '배경의 글자나 로고가 크게 보여요. 다른 사진을 권장해요.';
 
 const avatarMinimumPhotosMessage = '사진을 2장 이상 등록해주세요.';
-const avatarGenerationPausedMessage =
-    '아바타 생성이 잠시 중단되어 있어요. 잠시 후 다시 시도해주세요.';
+const avatarGenerationPausedMessage = '아바타 생성이 잠시 중단되어 있어요. 잠시 후 다시 시도해주세요.';
 const avatarPrimaryPhotoMissingMessage = '대표 사진을 다시 선택해주세요.';
 
 const avatarGenericNoPreviewMessage =

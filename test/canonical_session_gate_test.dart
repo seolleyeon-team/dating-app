@@ -138,39 +138,66 @@ void main() {
     );
   });
 
-  test('canonical-session ordering in the contact block sync (replaces the '
-      'deleted KakaoLoginFirestoreBootstrap ordering test)', () {
-    final source = read('lib/services/contact_block_service.dart');
-    final start = source.indexOf(
-      'Future<KakaoFriendBlockSyncResult> syncKakaoTalkFriendBlocks(',
-    );
-    expect(start, isNonNegative);
-    final end = source.indexOf('markRecommendationPrivacyPendingAfter', start);
-    final section = source.substring(start, end);
+  test('canonical-session gating of the one-time snapshot and avoidance '
+      'toggle (replaces the deleted legacy-sync ordering test)', () {
+    final service = read('lib/services/kakao_friend_connection_service.dart');
 
-    final sessionCheck = section.indexOf('ensureCanonicalAppSession()');
-    final failGuard = section.indexOf('if (!hasCanonicalSession)');
-    final beginCallable = section.indexOf(
-      "httpsCallable('beginKakaoFriendRecommendationPrivacySync')",
+    // Every server-touching step requires the canonical Firebase session as
+    // a strict precondition before any token or callable use.
+    for (final method in [
+      'Future<KakaoFriendSnapshotResult> createFriendSnapshotOnce()',
+      'Future<String> loadFriendSnapshotStatus()',
+      'Future<void> setFriendAvoidanceEnabled(bool enabled)',
+    ]) {
+      final start = service.indexOf(method);
+      expect(start, isNonNegative, reason: method);
+      final body = service.substring(start, service.indexOf('\n  }', start));
+      expect(
+        body,
+        contains('_requireCanonicalSession()'),
+        reason: '$method must be unreachable without primary email auth.',
+      );
+    }
+
+    // The snapshot precondition precedes the callable invocation.
+    final snapshotStart = service.indexOf(
+      'Future<KakaoFriendSnapshotResult> createFriendSnapshotOnce()',
     );
-    final syncCallable = section.indexOf(
-      "httpsCallable('syncKakaoTalkFriendBlocks')",
+    final snapshotBody = service.substring(
+      snapshotStart,
+      service.indexOf('\n  }', snapshotStart),
+    );
+    expect(
+      snapshotBody.indexOf('_requireCanonicalSession()'),
+      lessThan(
+        snapshotBody.indexOf("httpsCallable('createKakaoFriendPairsOnce')"),
+      ),
     );
 
-    expect(sessionCheck, isNonNegative);
-    expect(failGuard, isNonNegative);
-    expect(beginCallable, isNonNegative);
-    expect(syncCallable, isNonNegative);
-    expect(
-      sessionCheck,
-      lessThan(failGuard),
-      reason: 'A missing canonical session must be handled explicitly.',
+    // The toggle path opens NO consent flow and fetches NO friends — it is
+    // a pure preference write over server-stored pairs.
+    final toggleStart = service.indexOf(
+      'Future<void> setFriendAvoidanceEnabled(bool enabled)',
     );
-    expect(
-      failGuard,
-      lessThan(beginCallable),
-      reason: 'Callables run only behind the canonical session.',
+    final toggleBody = service.substring(
+      toggleStart,
+      service.indexOf('\n  }', toggleStart),
     );
-    expect(section, isNot(contains('ensureFirebaseSessionForKakao')));
+    expect(toggleBody, isNot(contains('ensureRequiredConsents')));
+    expect(toggleBody, isNot(contains('fetchFriends')));
+    expect(toggleBody, isNot(contains('loginWith')));
+    expect(
+      toggleBody,
+      contains("httpsCallable('setKakaoFriendAvoidanceEnabled')"),
+    );
+
+    // The legacy repeated-sync client methods are gone entirely.
+    final contactBlock = read('lib/services/contact_block_service.dart');
+    expect(contactBlock, isNot(contains('syncKakaoTalkFriendBlocks')));
+    expect(
+      contactBlock,
+      isNot(contains('beginKakaoFriendRecommendationPrivacySync')),
+    );
+    expect(contactBlock, isNot(contains('ensureFirebaseSessionForKakao')));
   });
 }

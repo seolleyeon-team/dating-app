@@ -12,7 +12,6 @@ import '../models/primary_student_email_auth_completion.dart';
 import '../models/user_model.dart';
 import '../services/adult_verification_service.dart';
 import '../services/auth_service.dart';
-import '../services/contact_block_service.dart';
 import '../services/friend_invite_service.dart';
 import '../services/navigation_service.dart';
 import '../services/storage_service.dart';
@@ -28,7 +27,6 @@ import '../shared/layouts/main_scaffold_args.dart';
 /// session). A cached local id or a Kakao SDK session NEVER authenticates.
 class AuthProvider with ChangeNotifier {
   final AuthService _authService = AuthService();
-  final ContactBlockService _contactBlockService = ContactBlockService();
   final StorageService _storageService = StorageService();
   final FriendInviteService _friendInviteService = FriendInviteService();
 
@@ -177,9 +175,9 @@ class AuthProvider with ChangeNotifier {
         adultVerificationDisabled:
             AdultVerificationService.isTemporarilyDisabled,
       );
-      if (_isInitialSetupComplete) {
-        await _reconcileRecommendationPrivacyIfNeeded();
-      }
+      // One-time-snapshot architecture: bootstrap never touches Kakao
+      // friends. Pair-based recommendationExclusions are server-maintained
+      // and applied at serving time only.
     } catch (e) {
       debugPrint(
         'Error checking auth status: ${PrivacyLogUtils.errorSummary(e)}',
@@ -511,24 +509,6 @@ class AuthProvider with ChangeNotifier {
   // ---------------------------------------------------------------------------
   // ✅ Primary email auth completion / State setters
   // ---------------------------------------------------------------------------
-
-  Future<void> _reconcileRecommendationPrivacyIfNeeded() async {
-    try {
-      // Re-check on every authenticated app start. This catches Kakao consent
-      // revoked outside the app and friends who joined after the last sync.
-      // No consent dialog is opened from this background path.
-      await _contactBlockService.syncKakaoTalkFriendBlocks(
-        requestConsentIfNeeded: false,
-      );
-    } catch (error) {
-      // Recommendation loading stays fail-closed. The user can retry from the
-      // contact/privacy settings screen after cancelling or a network error.
-      debugPrint(
-        '[Auth] recommendation privacy reconciliation pending: '
-        '${PrivacyLogUtils.errorSummary(error)}',
-      );
-    }
-  }
 
   // ---------------------------------------------------------------------------
   // ✅ Student Verification / Initial Setup / Tutorial

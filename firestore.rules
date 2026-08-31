@@ -1034,6 +1034,13 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       allow read, write: if false;
     }
 
+    // Server-owned Kakao friend pair materialization (one-time snapshot,
+    // kakao-friend-pairs-contract §2). Social-graph-sensitive: never
+    // client-readable, even for a pair's own members.
+    match /kakaoFriendPairs/{pairId} {
+      allow read, write: if false;
+    }
+
     // -----------------------------------------------------------------------
     // Friend invites / friendships
     // -----------------------------------------------------------------------

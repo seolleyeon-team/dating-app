@@ -175,7 +175,10 @@ export function isRefreshCandidateDisplayable(
   },
 ): boolean {
   if (!profile) return false; // 삭제/탈퇴로 public 문서가 없는 후보
-  if (profile.recommendationPrivacyReady !== true) return false;
+  // NOTE(kakao-friend-pairs contract §7): the legacy per-candidate Kakao-sync
+  // pending gate is intentionally GONE. Kakao-friend privacy is enforced only
+  // through recommendationExclusions pair filtering (fetchExcludedCandidateUids
+  // + the TOCTOU exclusionActive re-check), never through a candidate gate.
 
   const schemaVersionRaw = profile.schemaVersion;
   const schemaVersion =

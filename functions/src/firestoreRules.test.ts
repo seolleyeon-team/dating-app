@@ -200,6 +200,30 @@ test("server-owned identity indexes deny every client operation", () => {
   );
 });
 
+test("kakao friend pairs are server-only and snapshot fields stay off the users allowlists", () => {
+  // kakao-friend-pairs-contract §2 / §10: the pair materialization is
+  // social-graph-sensitive and must never be client-readable, even for a
+  // pair's own members.
+  assertContains(
+    "kakao friend pairs must deny every client operation",
+    "match /kakaoFriendPairs/{pairId} { allow read, write: if false; }"
+  );
+  // §10.2: the server-written snapshot/preference fields must not appear in
+  // any users create/update allowlist (they are absent from the whole file).
+  for (const serverOnlyField of [
+    "kakaoFriendSnapshot",
+    "kakaoFriendAvoidanceEnabled",
+    "kakaoFriendConnection",
+    "recommendationPrivacyReady",
+  ]) {
+    assert.doesNotMatch(
+      compactRules,
+      new RegExp(serverOnlyField),
+      `${serverOnlyField} must not be mentioned by any firestore rule allowlist`
+    );
+  }
+});
+
 test("event team setup and invite reads are participant scoped", () => {
   assertContains(
     "event team setups must be visible only to accepted or pending participants",

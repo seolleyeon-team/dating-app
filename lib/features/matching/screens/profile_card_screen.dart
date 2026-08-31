@@ -12,9 +12,8 @@
 import 'dart:async';
 import 'dart:ui';
 import '../../../services/campus_life_zone_repair_service.dart';
-import '../../../services/contact_block_service.dart';
 import '../../../shared/widgets/campus_life_zone_prerequisite.dart';
-import '../../../shared/widgets/kakao_recommendation_privacy_prerequisite.dart';
+import '../../../shared/widgets/recommendation_load_failure.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import '../../../services/storage_service.dart';
@@ -59,7 +58,6 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
   final _deckController = SeolSwipeDeckController();
   final _storageService = StorageService();
   final _aiService = AiRecommendationService();
-  final _contactBlockService = ContactBlockService();
 
   List<AiRecommendedProfile> _profiles = [];
   bool _isLoading = true;
@@ -67,10 +65,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
   bool _reloadRequested = false;
   bool _needsCampusLifeZone = false;
   bool _campusLifeZoneEnforced = false;
-  bool _privacyConsentRequired = false;
   bool _recommendationLoadFailed = false;
-  bool _isSyncingPrivacy = false;
-  String? _privacySyncError;
   String? _kakaoUserId;
   String? _privacyWatchedUid;
   StreamSubscription<void>? _privacySubscription;
@@ -105,21 +100,6 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
       }
       _watchRecommendationPrivacy(kakaoUserId);
 
-      final privacyReady = await _aiService.isViewerRecommendationPrivacyReady(
-        kakaoUserId,
-      );
-      if (!privacyReady) {
-        if (!mounted) return;
-        setState(() {
-          _profiles = [];
-          _privacyConsentRequired = true;
-          _recommendationLoadFailed = false;
-          _isLoading = false;
-        });
-        _watchCandidateEligibility(const []);
-        return;
-      }
-
       final feed = await _aiService.fetchProfileFeed(
         limit: 10,
         userId: kakaoUserId,
@@ -148,9 +128,7 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
         _profiles = feed;
         _needsCampusLifeZone = needsZone;
         _campusLifeZoneEnforced = enforced;
-        _privacyConsentRequired = false;
         _recommendationLoadFailed = false;
-        _privacySyncError = null;
         _isLoading = false;
       });
       _watchCandidateEligibility(feed);
@@ -168,7 +146,6 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
         setState(() {
           _profiles = [];
           _recommendationLoadFailed = true;
-          _privacyConsentRequired = false;
           _isLoading = false;
         });
       }
@@ -179,40 +156,6 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
         _privacyReloadDebounce?.cancel();
         _privacyReloadDebounce = Timer(Duration.zero, _loadRecommendations);
       }
-    }
-  }
-
-  Future<void> _requestKakaoConsentAndSync() async {
-    if (_isSyncingPrivacy) return;
-    setState(() {
-      _isSyncingPrivacy = true;
-      _privacySyncError = null;
-    });
-    try {
-      final result = await _contactBlockService.syncKakaoTalkFriendBlocks(
-        requestConsentIfNeeded: true,
-      );
-      if (!result.recommendationPrivacyReady) {
-        throw StateError('recommendation_privacy_not_ready_after_sync');
-      }
-      if (!mounted) return;
-      setState(() {
-        _privacyConsentRequired = false;
-        _isLoading = true;
-      });
-      await _loadRecommendations();
-    } catch (error) {
-      debugPrint(
-        '[ProfileCard] Kakao privacy sync '
-        '${PrivacyLogUtils.errorSummary(error)}',
-      );
-      if (!mounted) return;
-      setState(() {
-        _privacySyncError =
-            '동의를 완료하지 못했어요. 카카오 동의 화면에서 친구목록을 허용한 뒤 다시 시도해 주세요.';
-      });
-    } finally {
-      if (mounted) setState(() => _isSyncingPrivacy = false);
     }
   }
 
@@ -435,12 +378,6 @@ class _ProfileCardScreenState extends State<ProfileCardScreen>
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                   child: _isLoading
                       ? const Center(child: CupertinoActivityIndicator())
-                      : _privacyConsentRequired
-                      ? KakaoRecommendationPrivacyPrerequisite(
-                          isWorking: _isSyncingPrivacy,
-                          errorMessage: _privacySyncError,
-                          onConsentAndSync: _requestKakaoConsentAndSync,
-                        )
                       : _recommendationLoadFailed
                       ? RecommendationLoadFailure(
                           onRetry: _retryRecommendations,

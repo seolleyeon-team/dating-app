@@ -126,6 +126,11 @@ import {
   resolveFriendExclusionAppUserIds,
   type FriendResolutionCandidate,
 } from "./kakaoIdentityLink";
+import {
+  buildLegacyKakaoSyncFailureRevert,
+  createCreateKakaoFriendPairsOnceFunction,
+  createSetKakaoFriendAvoidanceEnabledFunction,
+} from "./kakaoFriendPairs";
 
 // Firebase Admin 초기화
 initializeApp();
@@ -5133,6 +5138,10 @@ async function resolveKakaoCallerAppUserId(params: {
  * Closes both viewer- and candidate-side gates before the client attempts to
  * read/validate a Kakao token. If that later step fails or consent was revoked,
  * the last successful `ready` state cannot remain open indefinitely.
+ *
+ * @deprecated LEGACY_KAKAO_SYNC_BACKEND_STILL_REQUIRED_FOR_OLD_CLIENTS —
+ * replaced by createKakaoFriendPairsOnce / setKakaoFriendAvoidanceEnabled;
+ * remove after force-update.
  */
 export const beginKakaoFriendRecommendationPrivacySync = onCall(
   withAppCheck(),
@@ -5190,6 +5199,11 @@ export const beginKakaoFriendRecommendationPrivacySync = onCall(
   },
 );
 
+/**
+ * @deprecated LEGACY_KAKAO_SYNC_BACKEND_STILL_REQUIRED_FOR_OLD_CLIENTS —
+ * replaced by createKakaoFriendPairsOnce / setKakaoFriendAvoidanceEnabled;
+ * remove after force-update.
+ */
 export const syncKakaoTalkFriendBlocks = onCall(
   withAppCheck({ timeoutSeconds: 180, memory: "512MiB" }),
   async (request) => {
@@ -5243,6 +5257,11 @@ export const syncKakaoTalkFriendBlocks = onCall(
       typeof requestedPreference === "boolean"
         ? requestedPreference
         : isKakaoFriendAvoidanceEnabled(currentCallerData);
+    // GATE E (mixed old/new client): captured BEFORE the preference write so
+    // a failed enabling sync can revert instead of leaving preference=true
+    // with missing exclusions (the new pipeline ignores the pending gate).
+    const preRequestAvoidanceEnabled =
+      isKakaoFriendAvoidanceEnabled(currentCallerData);
     const reconcileId = randomUUID();
 
     await callerRef.set(
@@ -5426,6 +5445,16 @@ export const syncKakaoTalkFriendBlocks = onCall(
         const terminalData = {
           ...latestData,
           recommendationPrivacyReady: false,
+          // GATE E: an ENABLING request that failed mid-reconcile must not
+          // leave kakaoFriendAvoidanceEnabled=true with missing exclusions
+          // (under-exclusion for new clients that ignore the pending gate).
+          // The revert runs inside this reconcileId-guarded transaction, so a
+          // stale failure never clobbers a newer sync's preference. OFF-mode
+          // failure (preference=false + stale exclusions) stays unchanged.
+          ...buildLegacyKakaoSyncFailureRevert({
+            requestedEnabled: callerEnabled,
+            preRequestAvoidanceEnabled,
+          }),
           kakaoFriendReconcileStatus: "failed",
           kakaoFriendReconcileErrorCode: code,
           kakaoFriendReconcileFailedAt: FieldValue.serverTimestamp(),
@@ -5465,6 +5494,22 @@ export const syncKakaoTalkFriendBlocks = onCall(
     }
   },
 );
+
+// =============================================================================
+// One-time Kakao friend snapshot (kakao-friend-pairs contract v2)
+// =============================================================================
+
+export const createKakaoFriendPairsOnce =
+  createCreateKakaoFriendPairsOnceFunction({
+    db,
+    verifyKakaoAccessToken: (accessToken) =>
+      verifyKakaoAccessToken(accessToken),
+    fetchFriends: (accessToken) =>
+      fetchKakaoFriendServiceUserIds(accessToken),
+  });
+
+export const setKakaoFriendAvoidanceEnabled =
+  createSetKakaoFriendAvoidanceEnabledFunction({ db });
 
 /**
  * A↔B 상호 block을 blocks/{uid}/targets/{targetUid}에 생성.

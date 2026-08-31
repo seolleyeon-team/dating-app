@@ -13,18 +13,23 @@ Yonsei University email address (`@yonsei.ac.kr`), via a Firebase email sign-in 
 
 After primary authentication is complete, Kakao authorization is used solely for a
 privacy and safety exclusion feature that prevents users who are already Kakao friends
-from being recommended to each other. The server fetches the user's Kakao friend list
-(with the user's explicit `friends` scope consent), matches it against registered
-members, and stores only bilateral "do not recommend" pairs.
+from being recommended to each other. The friend list is accessed during the required
+onboarding authorization, exactly once per account (with the user's explicit `friends`
+scope consent): the server fetches it a single time, matches it against registered
+members, and stores only internal acquaintance-exclusion relationships between
+Seolleyeon accounts. The friend list is NOT re-checked on app launch, daily, or at
+recommendation time.
 
 Kakao friend data is not used for ranking, advertising, profile display, or social
-graph exposure. The raw friend list is never shown in the app and is never written to
-any user-readable or public document. Kakao profile data (nickname, profile image,
-email, phone number) is not collected for account creation or profile population.
+graph exposure. The raw friend list is never shown in the app and is never persisted —
+only pair relationships between registered members are stored, in a server-only
+collection. Kakao profile data (nickname, profile image, email, phone number) is not
+collected for account creation or profile population.
 
-Disconnecting Kakao does not delete or disable the user's Seolleyeon account; it only
-suspends recommendation delivery until the friend-exclusion connection is restored
-(fail-closed safety behavior).
+Users control the feature with an "avoid Kakao friends" preference: when either member
+of a pair enables it, the two users are excluded from each other's 1:1 recommendations;
+when both disable it, the exclusion is lifted. Disconnecting Kakao does not delete or
+disable the user's Seolleyeon account.
 
 ## Guideline 4.8 alignment checklist (must be proven by static audit before submission)
 

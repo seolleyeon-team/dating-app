@@ -46,8 +46,11 @@ class _KakaoFriendConnectionScreenState
       return;
     }
     try {
-      final ready = await _connectionService.verifyFriendConnectionReady();
-      if (ready && mounted) {
+      // Restart-resume (spec §29 case E): a SERVER READ ONLY. If the
+      // one-time snapshot already completed, route on without any Kakao
+      // OAuth/consent/API call — completed snapshots are immutable.
+      final status = await _connectionService.loadFriendSnapshotStatus();
+      if (status == 'completed' && mounted) {
         await _navigateAfterConnection();
       }
     } catch (e) {
@@ -77,10 +80,9 @@ class _KakaoFriendConnectionScreenState
       if (!mounted) return;
       await _navigateAfterConnection();
     } on KakaoFriendConnectionException catch (e) {
-      if (e.consentRefused) {
-        // 동의 거절 시에도 서버는 fail-closed pending 상태로 남긴다.
-        await _connectionService.markPendingAfterConsentRefusal();
-      }
+      // 동의 거절/스냅샷 실패 모두 이 화면에 머무르며 재시도한다. 서버에
+      // pending 상태를 쓰는 legacy 호출은 더 이상 존재하지 않는다 (one-time
+      // snapshot 구조에서는 완료 전까지 추천 대상이 아예 아니기 때문).
       if (!mounted) return;
       setState(() {
         _errorMessage = e.userMessage;

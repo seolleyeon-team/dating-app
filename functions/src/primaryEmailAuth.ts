@@ -295,6 +295,9 @@ export function buildPrimaryAuthNewUserShell(params: {
     kakaoFriendAvoidanceEnabled: false,
     recommendationPrivacyReady: false,
     kakaoFriendReconcileStatus: "pending",
+    // One-time snapshot state (kakao-friend-pairs contract §3): new accounts
+    // start before their exactly-once Kakao friend snapshot.
+    kakaoFriendSnapshot: { status: "not_started", schemaVersion: 1 },
   };
 }
 

@@ -108,6 +108,8 @@ void main() {
     expect(source, contains("StateError('primary_email_auth_required')"));
     expect(source, contains('_requireCanonicalSession'));
     expect(source, contains("httpsCallable('linkKakaoFriendIdentity')"));
+    expect(source, contains("httpsCallable('createKakaoFriendPairsOnce')"));
+    expect(source, contains("httpsCallable('setKakaoFriendAvoidanceEnabled')"));
     // No profile/phone collection from Kakao.
     expect(source, isNot(contains('phoneNumber')));
     expect(source, isNot(contains('phoneHash')));

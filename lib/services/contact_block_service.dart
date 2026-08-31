@@ -7,8 +7,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../shared/utils/privacy_log_utils.dart';
 import '../utils/phone_hash_utils.dart';
-import 'auth_service.dart';
-import 'kakao_talk_friend_service.dart';
 
 /// 연락처 차단 결과
 class ContactBlockSyncResult {
@@ -33,36 +31,17 @@ class ContactBlockSyncResult {
   });
 }
 
-/// 카카오톡 친구를 추천에서 제외한 결과입니다.
-class KakaoFriendBlockSyncResult {
-  final int submittedFriendCount;
-  final int matchedUserCount;
-  final int activeExcludedPairCount;
-  final int clearedExistingPairCount;
-  final int skippedSelfCount;
-  final bool avoidanceEnabled;
-  final bool recommendationPrivacyReady;
-
-  const KakaoFriendBlockSyncResult({
-    required this.submittedFriendCount,
-    required this.matchedUserCount,
-    required this.activeExcludedPairCount,
-    required this.clearedExistingPairCount,
-    required this.skippedSelfCount,
-    required this.avoidanceEnabled,
-    required this.recommendationPrivacyReady,
-  });
-}
-
+/// Server truth for the Kakao friend avoidance surface: the user's own
+/// preference plus the one-time snapshot state (kakao-friend-pairs contract
+/// §3/§8). There is no reconcile/pending state anymore — the snapshot either
+/// completed once or it did not.
 class KakaoFriendAvoidanceStatus {
-  final bool enabled;
-  final bool recommendationPrivacyReady;
-  final String reconcileStatus;
+  final bool avoidanceEnabled;
+  final String snapshotStatus;
 
   const KakaoFriendAvoidanceStatus({
-    required this.enabled,
-    required this.recommendationPrivacyReady,
-    required this.reconcileStatus,
+    required this.avoidanceEnabled,
+    required this.snapshotStatus,
   });
 }
 
@@ -73,9 +52,6 @@ class ContactBlockService {
     region: 'asia-northeast3',
   );
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final AuthService _authService = AuthService();
-  final KakaoTalkFriendService _kakaoTalkFriendService =
-      KakaoTalkFriendService();
 
   /// 연락처 권한 요청 및 상태 확인
   Future<ContactPermissionStatus> checkPermission() async {
@@ -169,79 +145,17 @@ class ContactBlockService {
     );
   }
 
-  /// 카카오 액세스 토큰을 서버에서 검증한 뒤 서버가 공식 Friend API를 직접
-  /// 조회한다. 클라이언트가 제출한 임의 UID로 상대방 피드에 영향을 줄 수 없다.
-  Future<KakaoFriendBlockSyncResult> syncKakaoTalkFriendBlocks({
-    bool? avoidanceEnabled,
-    bool requestConsentIfNeeded = true,
-  }) async {
-    if (requestConsentIfNeeded) {
-      await _kakaoTalkFriendService.ensureRequiredConsents(
-        requireTalkMessage: false,
-      );
-    }
-
-    // Callable 은 request.auth (canonical uid == appUserId) 로 사용자를
-    // 결정한다. Kakao 토큰은 친구 조회 권한 검증에만 쓰인다.
-    final hasCanonicalSession = await _authService.ensureCanonicalAppSession();
-    if (!hasCanonicalSession) {
-      throw Exception('안전한 로그인 세션을 확인하지 못했어요. 다시 로그인해주세요.');
-    }
-    // Close recommendation eligibility before token inspection. If the Kakao
-    // token is missing/expired or friends consent was revoked, the account
-    // remains fail-closed instead of retaining an older ready state.
-    await _functions
-        .httpsCallable('beginKakaoFriendRecommendationPrivacySync')
-        .call<void>();
-    final accessToken = await _authService.getKakaoAccessTokenForFunctions();
-    if (accessToken == null || accessToken.isEmpty) {
-      throw Exception('카카오 로그인 세션을 확인할 수 없어요. 다시 로그인해주세요.');
-    }
-    final payload = <String, dynamic>{
-      'kakaoAccessToken': accessToken,
-      if (avoidanceEnabled != null) 'avoidanceEnabled': avoidanceEnabled,
-    };
-
-    final callable = _functions.httpsCallable('syncKakaoTalkFriendBlocks');
-    final result = await callable.call<dynamic>(payload);
-    final data = Map<String, dynamic>.from(
-      (result.data as Map?)?.cast<String, dynamic>() ?? {},
-    );
-
-    return KakaoFriendBlockSyncResult(
-      submittedFriendCount:
-          (data['submittedFriendCount'] as num?)?.toInt() ?? 0,
-      matchedUserCount: (data['matchedUserCount'] as num?)?.toInt() ?? 0,
-      activeExcludedPairCount:
-          (data['activeExcludedPairCount'] as num?)?.toInt() ?? 0,
-      clearedExistingPairCount:
-          (data['clearedExistingPairCount'] as num?)?.toInt() ?? 0,
-      skippedSelfCount: (data['skippedSelfCount'] as num?)?.toInt() ?? 0,
-      avoidanceEnabled: data['avoidanceEnabled'] == true,
-      recommendationPrivacyReady: data['recommendationPrivacyReady'] == true,
-    );
-  }
-
-  /// Called directly after a Kakao login reports missing friends consent.
-  /// The token identifies an existing account even before the Firebase bridge
-  /// is attached, allowing its candidate-side recommendation gate to close.
-  Future<void> markRecommendationPrivacyPendingAfterConsentRefusal() async {
-    final accessToken = await _authService.getKakaoAccessTokenForFunctions();
-    if (accessToken == null || accessToken.isEmpty) {
-      throw Exception('카카오 로그인 세션을 확인할 수 없어요.');
-    }
-    await _functions
-        .httpsCallable('beginKakaoFriendRecommendationPrivacySync')
-        .call<void>({'kakaoAccessToken': accessToken});
-  }
-
+  /// Server truth for the avoidance toggle surface. Reads the user's own
+  /// preference and the one-time snapshot state from `users/{uid}` with a
+  /// forced server fetch (fail-closed: a missing snapshot field means
+  /// `not_started`). This never triggers any Kakao API call or friend fetch —
+  /// the legacy repeated sync callables have no client call sites anymore.
   Future<KakaoFriendAvoidanceStatus> getKakaoFriendAvoidanceStatus() async {
     final appUserId = FirebaseAuth.instance.currentUser?.uid;
     if (appUserId == null || appUserId.isEmpty) {
       return const KakaoFriendAvoidanceStatus(
-        enabled: false,
-        recommendationPrivacyReady: false,
-        reconcileStatus: 'missing_user',
+        avoidanceEnabled: false,
+        snapshotStatus: 'not_started',
       );
     }
     final snapshot = await _firestore
@@ -249,11 +163,15 @@ class ContactBlockService {
         .doc(appUserId)
         .get(const GetOptions(source: Source.server));
     final data = snapshot.data() ?? const <String, dynamic>{};
+    final rawSnapshot = data['kakaoFriendSnapshot'];
+    var snapshotStatus = 'not_started';
+    if (rawSnapshot is Map) {
+      final status = rawSnapshot['status'];
+      if (status is String && status.isNotEmpty) snapshotStatus = status;
+    }
     return KakaoFriendAvoidanceStatus(
-      enabled: data['kakaoFriendAvoidanceEnabled'] == true,
-      recommendationPrivacyReady: data['recommendationPrivacyReady'] == true,
-      reconcileStatus:
-          data['kakaoFriendReconcileStatus']?.toString() ?? 'pending',
+      avoidanceEnabled: data['kakaoFriendAvoidanceEnabled'] == true,
+      snapshotStatus: snapshotStatus,
     );
   }
 

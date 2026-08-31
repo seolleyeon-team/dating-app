@@ -95,24 +95,6 @@ class AiRecommendationService {
     return excluded;
   }
 
-  Future<bool> _isViewerRecommendationPrivacyReady(String uid) async {
-    final snapshot = await _firestore
-        .collection('users')
-        .doc(uid)
-        .get(const GetOptions(source: Source.server));
-    final profile = snapshot.data();
-    if (profile == null) return false;
-    // Missing is not ready: legacy accounts must also reconcile before they
-    // can receive recommendations.
-    return profile['recommendationPrivacyReady'] == true;
-  }
-
-  /// Server-authoritative state used by recommendation screens to distinguish
-  /// missing Kakao consent from a genuinely empty recommendation day.
-  Future<bool> isViewerRecommendationPrivacyReady(String uid) {
-    return _isViewerRecommendationPrivacyReady(uid);
-  }
-
   /// Keeps already-rendered cards from surviving an ON/OFF change made in a
   /// different tab or on the other member's device.
   Stream<void> watchRecommendationPrivacyChanges(String uid) {
@@ -166,7 +148,6 @@ class AiRecommendationService {
                 final data = snapshot.data();
                 final eligible =
                     data != null &&
-                    data['recommendationPrivacyReady'] == true &&
                     data['status'] != 'withdrawn' &&
                     data['isWithdrawn'] != true &&
                     data['profileVisible'] != false;
@@ -356,8 +337,9 @@ class AiRecommendationService {
           .get(const GetOptions(source: Source.server));
       final userProfile = publicSnapshot.data();
       if (userProfile == null) continue; // 삭제/탈퇴된 유저 패스
-      // Missing is not ready so legacy candidates cannot bypass the gate.
-      if (userProfile['recommendationPrivacyReady'] != true) continue;
+      // Kakao friend privacy is pair-based: the recommendationExclusions
+      // union in blockedUids is the only Kakao gate (no whole-user
+      // pending flag on either side).
       final schemaVersion =
           (userProfile['schemaVersion'] as num?)?.toInt() ?? 1;
       final isDisplayable = schemaVersion >= 2
@@ -468,7 +450,6 @@ class AiRecommendationService {
     if (uid == null || uid.isEmpty) return [];
 
     try {
-      if (!await _isViewerRecommendationPrivacyReady(uid)) return [];
       final blockedUids = <String>{
         ...await _fetchBlockedUids(uid),
         ...await _fetchRecommendationExcludedUids(uid),
@@ -505,7 +486,6 @@ class AiRecommendationService {
     if (uid == null || uid.isEmpty) return [];
 
     try {
-      if (!await _isViewerRecommendationPrivacyReady(uid)) return [];
       final blockedUids = <String>{
         ...await _fetchBlockedUids(uid),
         ...await _fetchRecommendationExcludedUids(uid),

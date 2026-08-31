@@ -57,7 +57,11 @@ test("removed email-link custom-token bridge stays absent", () => {
 });
 
 test("primary auth and kakao identity factories enforce App Check", () => {
-  for (const file of ["../src/primaryEmailAuth.ts", "../src/kakaoIdentityLink.ts"]) {
+  for (const file of [
+    "../src/primaryEmailAuth.ts",
+    "../src/kakaoIdentityLink.ts",
+    "../src/kakaoFriendPairs.ts",
+  ]) {
     const src = readFileSync(resolve(__dirname, file), "utf8");
     assert.doesNotMatch(src, /onCall\(\s*async\b/, file);
     assert.match(src, /onCall\(\s*withAppCheck\(/, file);
@@ -75,6 +79,25 @@ test("primary auth and kakao identity factories enforce App Check", () => {
   assert.match(
     indexSrc,
     /export const linkKakaoFriendIdentity = createLinkKakaoFriendIdentityFunction\(/
+  );
+  assert.match(
+    indexSrc,
+    /export const createKakaoFriendPairsOnce =\s*\n?\s*createCreateKakaoFriendPairsOnceFunction\(/
+  );
+  assert.match(
+    indexSrc,
+    /export const setKakaoFriendAvoidanceEnabled =\s*\n?\s*createSetKakaoFriendAvoidanceEnabledFunction\(/
+  );
+});
+
+test("snapshot callable carries the contract §4 timeout and memory options", () => {
+  const pairsSrc = readFileSync(
+    resolve(__dirname, "../src/kakaoFriendPairs.ts"),
+    "utf8"
+  );
+  assert.match(
+    pairsSrc,
+    /withAppCheck\(\{ timeoutSeconds: 180, memory: "512MiB" \}\)/
   );
 });
 
