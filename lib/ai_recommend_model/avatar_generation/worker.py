@@ -82,6 +82,9 @@ from avatar_generation.preprocessing import (
     validate_reference_preprocess_enabled_for_environment,
 )
 from avatar_generation.preprocessing.reference import REFERENCE_PREPROCESS_PROFILES
+from avatar_generation.qa_pipeline_contract import (
+    canonical_azure_qa_pipeline_contract,
+)
 from avatar_generation.preview_policy import (
     is_preview_eligible,
     passes_absolute_preview_checks,
@@ -2504,20 +2507,9 @@ def _candidate_qa_metadata(
     if payload.model_id == AZURE_GPT_IMAGE_2_MODEL_ID:
         metadata.update(
             {
-                "generationBackend": AZURE_GPT_IMAGE_2_MODEL_ID,
-                "sourceInputMode": "storage_normalized_original_direct",
-                "uploadNormalization": "existing_avatar_media_ingestion",
-                "preGenerationTransform": "none",
+                **canonical_azure_qa_pipeline_contract(),
                 "qaInputMode": "storage_source_vs_generated_candidate",
                 "compareSourceVisualRisk": True,
-                "legacyTraitExtraction": False,
-                "legacyReferencePreprocessing": False,
-                "legacyFlux": False,
-                "pipelineMode": effective_run_mode,
-                "traitQaMode": "disabled_by_pipeline",
-                "traitQaAuthority": "server",
-                "uniqueMarkQaMode": "disabled_by_pipeline",
-                "uniqueMarkQaAuthority": "server",
                 "qaContract": QA_INPUT_CONTRACT_VERSION,
                 "qaChecks": {
                     "postGeneration": [
@@ -2572,21 +2564,9 @@ def _candidate_qa_metadata(
 
 def _azure_provenance_document() -> Dict[str, Any]:
     return {
-        "provider": "azure",
-        "generationBackend": AZURE_GPT_IMAGE_2_MODEL_ID,
+        **canonical_azure_qa_pipeline_contract(),
         "modelFamily": AZURE_GPT_IMAGE_2_VERSION,
         "promptVersion": AVATAR_GENERAL_PROMPT_VERSION,
-        "sourceInputMode": "storage_normalized_original_direct",
-        "uploadNormalization": "existing_avatar_media_ingestion",
-        "preGenerationTransform": "none",
-        "legacyTraitExtraction": False,
-        "legacyReferencePreprocessing": False,
-        "legacyFlux": False,
-        "pipelineMode": CANONICAL_AZURE_WORKER_MODE,
-        "traitQaMode": "disabled_by_pipeline",
-        "traitQaAuthority": "server",
-        "uniqueMarkQaMode": "disabled_by_pipeline",
-        "uniqueMarkQaAuthority": "server",
     }
 
 

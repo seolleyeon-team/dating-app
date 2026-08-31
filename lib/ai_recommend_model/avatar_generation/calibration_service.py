@@ -37,6 +37,7 @@ from .model_adapters.azure_gpt_image_2 import (
     get_azure_gpt_image2_provider,
 )
 from .qa import QA_INPUT_CONTRACT_VERSION, run_avatar_candidate_qa
+from .qa_pipeline_contract import canonical_azure_qa_pipeline_contract
 from .qa_preflight import get_qa_runtime_readiness
 
 
@@ -656,17 +657,15 @@ def _decode_generated_png(data: bytes) -> Image.Image:
 
 
 def _qa_metadata(source_image: Image.Image, candidate_image: Image.Image) -> dict[str, Any]:
+    # The applicability policies (trait/unique-mark v6) read the canonical
+    # server provenance keys; build them from the single shared contract so
+    # the recovery route can never drift from the worker path again
+    # (G004 PIPELINE_PROVENANCE_DRIFT, 2026-08-31).
     return {
-        "generationBackend": AZURE_GPT_IMAGE_2_MODEL_ID,
-        "sourceInputMode": "storage_normalized_original_direct",
-        "uploadNormalization": "existing_avatar_media_ingestion",
-        "preGenerationTransform": "none",
+        **canonical_azure_qa_pipeline_contract(),
         "qaInputMode": "process_local_source_vs_generated_candidate",
         "compareSourceVisualRisk": True,
         "qaContract": QA_INPUT_CONTRACT_VERSION,
-        "legacyTraitExtraction": False,
-        "legacyReferencePreprocessing": False,
-        "legacyFlux": False,
         "_source_image": source_image,
         "_candidate_image": candidate_image,
     }
