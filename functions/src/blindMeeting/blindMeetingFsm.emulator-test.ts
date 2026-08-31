@@ -24,9 +24,9 @@ if (!process.env.FIRESTORE_EMULATOR_HOST) {
 initializeApp({ projectId: "demo-blind-fsm" });
 
 import {
+  createPaidBlindMeetingApplication,
   reopenApplicationIfBoundTo,
   setApplication,
-  submitNewApplication,
   updateParticipant,
   cancelOpenApplication,
 } from "./store";
@@ -295,13 +295,24 @@ function submitParams(uid: string) {
   return {
     userId: uid,
     dnaPayload: { userId: uid, schemaVersion: 1 },
-    applicationExtra: {
-      userId: uid,
-      requestedDateKeys: ["2026-09-01"],
-      prefersAlcoholFree: false,
-      waitlistOptIn: true,
-    },
+    requestedDateKeys: ["2026-09-01"],
+    prefersAlcoholFree: false,
+    waitlistOptIn: true,
   };
+}
+
+// 프로덕션 신규 신청 entrypoint 는 하트 차감형
+// createPaidBlindMeetingApplication 으로 교체됐다. 재신청 invariant 는 같은
+// 경로에서 검증하되, 하트 잔액을 먼저 시드해 결제 가드가 invariant 검증을
+// 가리지 않게 한다.
+async function submitNewApplication(
+  params: ReturnType<typeof submitParams>
+): Promise<void> {
+  await db
+    .collection("users")
+    .doc(params.userId)
+    .set({ heartBalance: 100000 }, { merge: true });
+  await createPaidBlindMeetingApplication(params);
 }
 
 async function dnaDoc(userId: string) {
@@ -500,6 +511,35 @@ test("acceptInvitation is idempotent under double call", async () => {
   // 미팅은 아직 awaiting_acceptance (6명 중 1명만 수락)
   const meetingSnap = await db.collection("blindMeetings").doc(meetingId).get();
   assert.equal(meetingSnap.data()?.serverStatus, "awaiting_acceptance");
+});
+
+test("all six accept without a deposit and open one group chat", async () => {
+  const { meetingId, uids } = await seedInvitedMeeting();
+
+  for (const uid of uids) {
+    await acceptInvitation(meetingId, uid);
+  }
+
+  const meetingSnap = await db.collection("blindMeetings").doc(meetingId).get();
+  assert.equal(meetingSnap.data()?.serverStatus, "chat_open");
+  assert.equal(meetingSnap.data()?.groupChatId, `blind_${meetingId}`);
+
+  for (const uid of uids) {
+    assert.equal(await participantStatus(meetingId, uid), "confirmed");
+    const participantSnap = await db
+      .collection("blindMeetings")
+      .doc(meetingId)
+      .collection("participants")
+      .doc(uid)
+      .get();
+    assert.equal(participantSnap.data()?.serverDepositStatus, "not_required");
+  }
+
+  const roomSnap = await db
+    .collection("chat_rooms")
+    .doc(`blind_${meetingId}`)
+    .get();
+  assert.deepEqual(roomSnap.data()?.participantIds, uids);
 });
 
 test("declineInvitation twice stays terminal and never resurrects the seat", async () => {

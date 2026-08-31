@@ -8,10 +8,13 @@
  *  - PII 없는 structured logging만 남긴다.
  */
 
-import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
+import {
+  isFreeBlindMeetingTestClient,
+  isFreeBlindMeetingTestUser,
+} from "./compatibility";
 import { hasRequiredInterests } from "./eligibility";
 import { requiresAlcoholFreeGroup } from "./matching";
 import {
@@ -23,6 +26,7 @@ import {
   loadMyMutualMatches,
   loadSelectableTargets,
   markSafetyStamp,
+  openChatWithoutDeposit,
   requestCancellation,
   respondReplacementOffer,
   runMatchingForDate,
@@ -36,9 +40,13 @@ import {
   db,
   loadPolicy,
   requireVerifiedUser,
-  submitNewApplication,
   cancelOpenApplication,
+  claimFreeBlindMeetingTestSlot,
   updateApplicationForDnaEdit,
+  createFreeBlindMeetingApplication,
+  createPaidBlindMeetingApplication,
+  startPaidBlindMeetingDna,
+  saveBlindMeetingDnaDraft,
 } from "./store";
 import {
   ALCOHOL_PREFERENCES,
@@ -66,6 +74,7 @@ import {
 /** dispatcher가 내부 handler에 넘기는 최소 요청 형태 */
 export type BlindMeetingRequest = {
   auth?: { uid?: string; token?: Record<string, unknown> } | null;
+  app?: { appId?: string; token?: Record<string, unknown> } | null;
   data?: unknown;
 };
 
@@ -87,6 +96,10 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
   const data = getData(request);
   const dnaRaw = data.dna;
   const editExistingApplication = data.editExistingApplication === true;
+  const clientBuild = asStr(data.clientBuild, "").trim();
+  const isFreeTestUser = isFreeBlindMeetingTestUser(user.userId);
+  const isFreeTestBuild =
+    !editExistingApplication && isFreeBlindMeetingTestClient(clientBuild);
   if (!isRecord(dnaRaw)) {
     throw new HttpsError("invalid-argument", "dna가 필요해요.");
   }
@@ -234,21 +247,37 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
       prefersAlcoholFree,
       waitlistOptIn: dnaRaw.waitlistOptIn !== false,
     });
-  } else {
-    // active invitation/meeting 재신청 invariant 는 store 의 단일 트랜잭션이
-    // 신청서·연결 미팅을 함께 읽어 검증한다.
-    await submitNewApplication({
+  } else if (isFreeTestUser) {
+    // 수동 UID 예외는 build 슬롯과 무관하게 계속 허용한다.
+    await createFreeBlindMeetingApplication({
       userId: user.userId,
       dnaPayload,
-      applicationExtra: {
-        userId: user.userId,
-        requestedDateKeys: dateKeys,
-        availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
-        scheduleSelectionVersion: BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
-        prefersAlcoholFree,
-        waitlistOptIn: dnaRaw.waitlistOptIn !== false,
-        appliedAt: FieldValue.serverTimestamp(),
-      },
+      requestedDateKeys: dateKeys,
+      prefersAlcoholFree,
+      waitlistOptIn: dnaRaw.waitlistOptIn !== false,
+    });
+  } else if (isFreeTestBuild) {
+    // build 번호는 클라이언트 입력이므로 단독 보안 경계로 쓰지 않는다.
+    // App Check가 통과한 요청만 여기까지 오며, 서버 트랜잭션이 동일 UID의
+    // 재시도를 멱등 처리하고 전체 무료 슬롯을 서버 설정 한도 안에서 제한한다.
+    await claimFreeBlindMeetingTestSlot({
+      userId: user.userId,
+      clientBuild,
+    });
+    await createFreeBlindMeetingApplication({
+      userId: user.userId,
+      dnaPayload,
+      requestedDateKeys: dateKeys,
+      prefersAlcoholFree,
+      waitlistOptIn: dnaRaw.waitlistOptIn !== false,
+    });
+  } else {
+    await createPaidBlindMeetingApplication({
+      userId: user.userId,
+      dnaPayload,
+      requestedDateKeys: dateKeys,
+      prefersAlcoholFree,
+      waitlistOptIn: dnaRaw.waitlistOptIn !== false,
     });
   }
 
@@ -282,9 +311,54 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
     availabilityWindowDays: BLIND_MEETING_AVAILABILITY_WINDOW_DAYS,
     prefersAlcoholFree,
     createdMeetings: createdMeetingIds.length,
+    billingMode: isFreeTestBuild
+      ? "free_test_build"
+      : isFreeTestUser
+        ? "free_test_user"
+        : "paid",
   });
 
   return { accepted: true, stage, meetingId };
+}
+
+/** DNA 작성 진입 시 30H를 멱등적으로 차감하고 진행 상태를 만든다. */
+async function startBlindMeetingDnaHandler(request: BlindMeetingRequest) {
+  const user = await requireVerifiedUser(request);
+  return startPaidBlindMeetingDna(user.userId);
+}
+
+/** DNA wizard가 선택한 답변 일부를 저장한다. 결제는 이 경로에서 하지 않는다. */
+async function saveBlindMeetingDnaDraftHandler(request: BlindMeetingRequest) {
+  const user = await requireVerifiedUser(request);
+  const data = getData(request);
+  const rawFields = data.fields;
+  if (!isRecord(rawFields)) {
+    throw new HttpsError("invalid-argument", "저장할 DNA 답변이 필요해요.");
+  }
+
+  const fields: Record<string, string> = {};
+  const readEnumField = <T extends string>(
+    key: string,
+    values: readonly T[]
+  ): void => {
+    if (!Object.prototype.hasOwnProperty.call(rawFields, key)) return;
+    const value = oneOfOrNull(values, rawFields[key]);
+    if (value == null) {
+      throw new HttpsError("invalid-argument", "미팅 DNA 답변이 올바르지 않아요.");
+    }
+    fields[key] = value;
+  };
+  readEnumField("conversationAtmosphere", CONVERSATION_ATMOSPHERES);
+  readEnumField("conversationInitiative", CONVERSATION_INITIATIVES);
+  readEnumField("meetingPurpose", MEETING_PURPOSES);
+  readEnumField("alcoholCompanionPreference", ALCOHOL_PREFERENCES);
+  readEnumField("smokingCompanionPreference", SMOKING_PREFERENCES);
+  if (Object.keys(fields).length === 0) {
+    throw new HttpsError("invalid-argument", "저장할 DNA 답변이 필요해요.");
+  }
+
+  await saveBlindMeetingDnaDraft(user.userId, fields);
+  return { ok: true };
 }
 
 async function cancelBlindMeetingApplicationHandler(request: BlindMeetingRequest) {
@@ -325,6 +399,13 @@ async function startBlindMeetingDepositHandler(request: BlindMeetingRequest) {
   const meetingId = requireMeetingId(getData(request));
   const intent = await beginDeposit(meetingId, user.userId);
   return intent;
+}
+
+async function openBlindMeetingChatHandler(request: BlindMeetingRequest) {
+  const user = await requireVerifiedUser(request);
+  const meetingId = requireMeetingId(getData(request));
+  await openChatWithoutDeposit(meetingId, user.userId);
+  return { ok: true };
 }
 
 async function voteBlindMeetingScheduleHandler(request: BlindMeetingRequest) {
@@ -492,11 +573,14 @@ type BlindMeetingHandler = (
 
 const HANDLERS: Record<string, BlindMeetingHandler> = {
   submitBlindMeetingApplication: submitBlindMeetingApplicationHandler,
+  startBlindMeetingDna: startBlindMeetingDnaHandler,
+  saveBlindMeetingDnaDraft: saveBlindMeetingDnaDraftHandler,
   cancelBlindMeetingApplication: cancelBlindMeetingApplicationHandler,
   relaxBlindMeetingConditions: relaxBlindMeetingConditionsHandler,
   acceptBlindMeetingInvitation: acceptBlindMeetingInvitationHandler,
   declineBlindMeetingInvitation: declineBlindMeetingInvitationHandler,
   startBlindMeetingDeposit: startBlindMeetingDepositHandler,
+  openBlindMeetingChat: openBlindMeetingChatHandler,
   voteBlindMeetingSchedule: voteBlindMeetingScheduleHandler,
   confirmBlindMeetingAttendance: confirmBlindMeetingAttendanceHandler,
   respondBlindMeetingReplacementOffer:

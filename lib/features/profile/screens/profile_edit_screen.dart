@@ -1,6 +1,10 @@
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show Colors, Icons;
+import 'package:flutter/material.dart';
 
+import '../../../constants/academic_grade_options.dart';
+import '../../../constants/interest_taxonomy.dart';
+import '../../../constants/profile_options.dart';
+import '../../../constants/yonsei_departments.dart';
 import '../../../services/avatar_source_photo_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
@@ -18,244 +22,9 @@ class _AppColors {
   static const Color placeholderBg = Color(0xFFF9FAFB);
 }
 
-class _Option {
-  final String value;
-  final String label;
-  const _Option(this.value, this.label);
-}
-
-class _InterestCategory {
-  final String emoji;
-  final String title;
-  final List<String> items;
-
-  const _InterestCategory({
-    required this.emoji,
-    required this.title,
-    required this.items,
-  });
-}
-
-const List<_InterestCategory> _interestCategories = [
-  _InterestCategory(
-    emoji: '🏠',
-    title: 'Inside Activity',
-    items: [
-      '넷플릭스',
-      '홈트',
-      '드라마 정주행',
-      '온라인 쇼핑',
-      '식물 가꾸기',
-      '보드게임',
-      '명상',
-      '요가',
-      '사우나',
-      '유튜브',
-      '먹방',
-      '도서관',
-      '노래',
-      '시',
-      '문학',
-      '댄스',
-      '독서',
-      '카공',
-      '공부',
-    ],
-  ),
-  _InterestCategory(
-    emoji: '⛺',
-    title: 'Outside Activity',
-    items: [
-      '한강에서 치맥',
-      '빈티지 쇼핑',
-      '동네 산책',
-      '만화 카페',
-      '방탈출',
-      '카페 탐방',
-      '맛집 투어',
-      '브런치',
-      '수제 맥주',
-      '바',
-      '자동차 극장',
-      '콘서트',
-      '아쿠아리움',
-      '쇼핑',
-      '전시회',
-      '연극',
-      '롤러 스케이트',
-      '노래방',
-      '야경 보기',
-      '캠핑',
-      '서핑',
-      '낚시',
-      '피크닉',
-      '다이빙',
-      '여행',
-      '오락실',
-      '노상',
-      '새벽 라면',
-      '바다 보기',
-      '사진',
-      '스케이트',
-    ],
-  ),
-  _InterestCategory(
-    emoji: '🍷',
-    title: 'Eat & Drink',
-    items: [
-      '칵테일',
-      '맥주',
-      '빵',
-      '양식',
-      '중식',
-      '일식',
-      '분식',
-      '디저트',
-      '마라탕',
-      '초밥',
-      '회',
-      '떡볶이',
-      '피자',
-      '햄버거',
-      '치킨',
-      '삼겹살',
-      '카페',
-      '와인',
-      '위스키',
-    ],
-  ),
-  _InterestCategory(
-    emoji: '🎮',
-    title: 'Game',
-    items: [
-      '리그 오브 레전드',
-      '발로란트',
-      '오버워치',
-      '피파',
-      '배그',
-      '카트라이더',
-      '메이플스토리',
-      'FC온라인',
-      '모바일 게임',
-      '콘솔 게임',
-      '보드게임',
-    ],
-  ),
-  _InterestCategory(
-    emoji: '🎵',
-    title: 'Music',
-    items: [
-      '발라드',
-      '힙합',
-      'R&B',
-      '인디',
-      'K-POP',
-      '클래식',
-      'OST',
-      '재즈',
-      '락',
-      '댄스',
-      '밴드',
-    ],
-  ),
-  _InterestCategory(
-    emoji: '⚽',
-    title: 'Sports',
-    items: [
-      '축구',
-      '야구',
-      '농구',
-      '배구',
-      '테니스',
-      '배드민턴',
-      '탁구',
-      '골프',
-      '헬스',
-      '클라이밍',
-      '러닝',
-      '요가',
-      '필라테스',
-      '수영',
-      '자전거',
-    ],
-  ),
-  _InterestCategory(
-    emoji: '🎬',
-    title: 'Movie/Drama',
-    items: ['영화', '드라마', '로맨스', '액션', '스릴러', '공포', '코미디', '다큐', '애니메이션'],
-  ),
-  _InterestCategory(
-    emoji: '🧑‍🎨',
-    title: 'Creative',
-    items: ['그림', '사진', '영상', '글쓰기', '악기', '작곡', '공예', '캘리그래피'],
-  ),
-];
-
-const List<String> _keywordOptions = [
-  '친절한',
-  '자신감 있는',
-  '아담한',
-  '듬직한',
-  '잘 웃는',
-  '자유분방한',
-  '욕 안하는',
-  '목소리 좋은',
-  '또라이 같은',
-  '먼저 말걸어주는',
-  '옷 잘입는',
-  '활발한',
-  '조용한',
-  '애교가 많은',
-  '어른스러운',
-  '열정적인',
-  '차분한',
-  '예의 바른',
-  '재치있는',
-  '진지한',
-];
-
-const List<String> _idealPersonalityOptions = _keywordOptions;
-
-const List<_Option> _relationshipOptions = [
-  _Option('serious', '진지한 연애를 원해요'),
-  _Option('friend', '가볍게 알아가고 싶어요'),
-  _Option('open', '열린 만남도 괜찮아요'),
-];
-
-const List<_Option> _majorOptions = [
-  _Option('liberalArts', '문과 계열'),
-  _Option('science', '이과 계열'),
-  _Option('medical', '메디컬 계열'),
-  _Option('artsSports', '예체능 계열'),
-];
-
-const List<_Option> _drinkingOptions = [
-  _Option('none', '전혀 안 함'),
-  _Option('sometimes', '가끔'),
-  _Option('weekly1_2', '주 1-2회'),
-  _Option('often', '자주'),
-];
-
-const List<_Option> _smokingOptions = [
-  _Option('nonSmoker', '비흡연'),
-  _Option('smoker', '흡연'),
-  _Option('quitting', '금연 중'),
-];
-
-const List<_Option> _exerciseOptions = [
-  _Option('daily', '매일 함'),
-  _Option('sometimes', '가끔 함'),
-  _Option('breathingOnly', '숨쉬기만 함'),
-  _Option('mania', '운동 매니아'),
-];
-
-const List<_Option> _religionOptions = [
-  _Option('none', '무교'),
-  _Option('christianity', '기독교'),
-  _Option('catholic', '천주교'),
-  _Option('buddhism', '불교'),
-  _Option('other', '기타'),
-];
+// 온보딩·블라인드 미팅과 같은 taxonomy를 사용한다. 프로필 편집만 별도 목록을
+// 유지하면 새 태그가 화면에서 누락되거나 저장된 라벨의 카테고리가 달라진다.
+const List<InterestCategory> _interestCategories = interestCategories;
 
 class ProfileEditScreen extends StatefulWidget {
   const ProfileEditScreen({super.key});
@@ -272,7 +41,6 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   bool _isSaving = false;
 
   String? _currentUserId;
-  int? _birthYear;
 
   final List<String?> _photoSlots = List<String?>.filled(6, null);
   bool _avatarLocked = false;
@@ -286,14 +54,46 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   List<String> _idealPersonalityKeywords = [];
 
   int? _height;
+  int? _age; // Identity-linked onboarding value; intentionally read-only here.
+  String _gender = '';
+  String _grade = '';
+  bool _isRa = false;
   String _relationship = '';
   String _mbti = '';
   String _major = '';
+  String _department = '';
   String _nickname = '';
   String _drinking = '';
   String _smoking = '';
   String _exercise = '';
   String _religion = '';
+
+  int? _idealMinAge;
+  int? _idealMaxAge;
+  int? _idealMinHeight;
+  int? _idealMaxHeight;
+  List<String> _idealMbti = [];
+  List<String> _idealDepartments = [];
+  String _idealDrinking = '';
+  String _idealSmoking = '';
+  String _idealExercise = '';
+  String _idealReligion = '';
+  bool _hasIdealTypeData = false;
+  bool _idealTypeDirty = false;
+
+  int? _parseInt(dynamic value) {
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString().trim() ?? '');
+  }
+
+  List<String> _asStringList(dynamic value) {
+    return value is List ? value.map((e) => e.toString()).toList() : [];
+  }
+
+  String? _nullableValue(String value) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
 
   Future<void> _openPreview() async {
     final kakaoUserId =
@@ -303,10 +103,14 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     final previewOnboarding = <String, dynamic>{
       'nickname': _nickname.trim(),
       'selfIntroduction': _selfIntroduction.trim(),
-      'birthYear': _birthYear,
+      'age': _age,
+      'gender': _gender,
       'height': _height,
+      'grade': _grade,
+      'isRa': _isRa,
       'mbti': _mbti,
       'major': _major,
+      'department': _department,
       'relationship': _relationship,
       'interests': List<String>.from(_interests),
       'keywords': List<String>.from(_keywords),
@@ -347,31 +151,20 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     _loadProfile();
   }
 
-  String _labelize(String value) {
-    switch (value) {
-      case 'serious':
-        return '진지한 연애를 원해요';
-      case 'friend':
-        return '가볍게 알아가고 싶어요';
-      case 'open':
-        return '열린 만남도 괜찮아요';
-      case 'liberalArts':
-        return '문과 계열';
-      case 'science':
-        return '이과 계열';
-      case 'medical':
-        return '메디컬 계열';
-      case 'artsSports':
-        return '예체능 계열';
-      case 'male':
-        return '남성';
-      case 'female':
-        return '여성';
-      case 'other':
-        return '기타';
-      default:
-        return value;
+  String _normalizeMajor(dynamic value) {
+    final raw = value?.toString() ?? '';
+    if (YonseiDepartments.majorLabels.containsKey(raw)) return raw;
+    for (final entry in YonseiDepartments.majorLabels.entries) {
+      if (entry.value == raw) return entry.key;
     }
+    return raw;
+  }
+
+  String _labelize(String value) {
+    for (final option in profileRelationshipOptions) {
+      if (option.value == value) return option.label;
+    }
+    return YonseiDepartments.majorLabels[value] ?? value;
   }
 
   Future<void> _loadProfile() async {
@@ -395,7 +188,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       data == null ? null : Map<String, dynamic>.from(data),
     );
 
-    final photoUrlsRaw = onboarding['avatarUrls'];
+    final avatarUrlsRaw = onboarding['avatarUrls'];
+    final photoUrlsRaw = avatarUrlsRaw is List && avatarUrlsRaw.isNotEmpty
+        ? avatarUrlsRaw
+        : onboarding['photoUrls'];
     final interestsRaw = onboarding['interests'];
     final profileQaRaw = onboarding['profileQa'];
     final keywordsRaw = onboarding['keywords'];
@@ -427,14 +223,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       _selfIntroduction = onboarding['selfIntroduction']?.toString() ?? '';
       _nickname = onboarding['nickname']?.toString() ?? '';
 
-      final birthYearRaw = onboarding['birthYear'] ?? data?['birthYear'];
-      if (birthYearRaw is num) {
-        _birthYear = birthYearRaw.toInt();
-      } else if (birthYearRaw != null) {
-        _birthYear = int.tryParse(birthYearRaw.toString());
-      } else {
-        _birthYear = null;
-      }
+      _age = _parseInt(onboarding['age'] ?? data?['age']);
+      _gender =
+          onboarding['gender']?.toString() ?? data?['gender']?.toString() ?? '';
 
       _interests = interestsRaw is List
           ? interestsRaw.map((e) => e.toString()).toList()
@@ -456,12 +247,14 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                 .toList()
           : [];
 
-      final heightRaw = onboarding['height'];
-      _height = heightRaw is num ? heightRaw.toInt() : null;
+      _height = _parseInt(onboarding['height']);
 
+      _grade = onboarding['grade']?.toString() ?? '';
+      _isRa = onboarding['isRa'] == true;
       _relationship = onboarding['relationship']?.toString() ?? '';
-      _mbti = onboarding['mbti']?.toString() ?? '';
-      _major = onboarding['major']?.toString() ?? '';
+      _mbti = onboarding['mbti']?.toString().toUpperCase() ?? '';
+      _major = _normalizeMajor(onboarding['major']);
+      _department = onboarding['department']?.toString() ?? '';
 
       if (lifestyleRaw is Map) {
         _drinking = lifestyleRaw['drinking']?.toString() ?? '';
@@ -470,11 +263,30 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         _religion = lifestyleRaw['religion']?.toString() ?? '';
       }
 
-      final idealRaw = idealType ?? {};
+      final idealRaw = idealType ?? <String, dynamic>{};
+      _hasIdealTypeData = idealType != null && idealType.isNotEmpty;
+      _idealMinAge = _parseInt(idealRaw['minAge']);
+      _idealMaxAge = _parseInt(idealRaw['maxAge']);
+      _idealMinHeight = _parseInt(idealRaw['minHeight']);
+      _idealMaxHeight = _parseInt(idealRaw['maxHeight']);
+      _idealMbti = _asStringList(
+        idealRaw['preferredMbti'],
+      ).map((value) => value.toUpperCase()).toList();
+      _idealDepartments = _asStringList(
+        idealRaw['preferredDepartments'],
+      ).map(_normalizeMajor).toList();
       final preferredPersonalities = idealRaw['preferredPersonalities'];
       _idealPersonalityKeywords = preferredPersonalities is List
           ? preferredPersonalities.map((e) => e.toString()).toList()
           : [];
+      final idealLifestyleRaw = idealRaw['preferredLifestyles'];
+      if (idealLifestyleRaw is Map) {
+        _idealDrinking = idealLifestyleRaw['drinking']?.toString() ?? '';
+        _idealSmoking = idealLifestyleRaw['smoking']?.toString() ?? '';
+        _idealExercise = idealLifestyleRaw['exercise']?.toString() ?? '';
+        _idealReligion = idealLifestyleRaw['religion']?.toString() ?? '';
+      }
+      _idealTypeDirty = false;
 
       _isLoading = false;
     });
@@ -482,6 +294,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   Future<void> _saveProfile() async {
     if (_isSaving) return;
+    if (!_validateBeforeSave()) return;
     setState(() => _isSaving = true);
 
     try {
@@ -496,33 +309,61 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         basicInfo: {
           'nickname': _nickname.trim(),
           'selfIntroduction': _selfIntroduction.trim(),
-          'interests': _interests.map((e) => e.toString()).toList(),
           'height': _height,
-          'relationship': _relationship,
-          'mbti': _mbti.trim(),
+          'grade': _nullableValue(_grade),
+          'isRa': _isRa,
+          'relationship': _nullableValue(_relationship),
+          'mbti': _nullableValue(_mbti),
           'major': _major,
+          'department': _nullableValue(_department),
           'lifestyle': {
-            'drinking': _drinking,
-            'smoking': _smoking,
-            'exercise': _exercise,
-            'religion': _religion,
+            'drinking': _nullableValue(_drinking),
+            'smoking': _nullableValue(_smoking),
+            'exercise': _nullableValue(_exercise),
+            'religion': _nullableValue(_religion),
           },
-          'keywords': _keywords.map((e) => e.toString()).toList(),
         },
       );
 
-      if (_profileQa.isNotEmpty) {
-        await _userService.saveOnboardingProfileQa(
-          kakaoUserId: kakaoUserId,
-          profileQa: _profileQa,
-        );
-      }
+      // Interest and keyword lists are independent onboarding leaves. Keep
+      // them on their dedicated write paths so editing one list cannot be
+      // lost when another profile field is saved at the same time.
+      await _userService.saveOnboardingInterests(
+        kakaoUserId: kakaoUserId,
+        interests: List<String>.unmodifiable(_interests),
+      );
+      await _userService.saveOnboardingKeywords(
+        kakaoUserId: kakaoUserId,
+        keywords: List<String>.unmodifiable(_keywords),
+      );
 
-      if (_idealPersonalityKeywords.isNotEmpty) {
-        await _userService.updateIdealTypeField(
+      await _userService.saveOnboardingProfileQa(
+        kakaoUserId: kakaoUserId,
+        profileQa: _profileQa,
+      );
+
+      if (_hasIdealTypeData || _idealTypeDirty) {
+        await _userService.saveIdealType(
           kakaoUserId: kakaoUserId,
-          fieldName: 'preferredPersonalities',
-          value: _idealPersonalityKeywords,
+          idealType: {
+            'minAge': _idealMinAge,
+            'maxAge': _idealMaxAge,
+            'minHeight': _idealMinHeight,
+            'maxHeight': _idealMaxHeight,
+            'preferredMbti': List<String>.unmodifiable(_idealMbti),
+            'preferredDepartments': List<String>.unmodifiable(
+              _idealDepartments,
+            ),
+            'preferredPersonalities': List<String>.unmodifiable(
+              _idealPersonalityKeywords,
+            ),
+            'preferredLifestyles': {
+              'drinking': _nullableValue(_idealDrinking),
+              'smoking': _nullableValue(_idealSmoking),
+              'exercise': _nullableValue(_idealExercise),
+              'religion': _nullableValue(_idealReligion),
+            },
+          },
         );
       }
 
@@ -548,6 +389,60 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     }
   }
 
+  bool _validateBeforeSave() {
+    String? message;
+    final nickname = _nickname.trim();
+    if (nickname.isEmpty) {
+      message = '닉네임을 입력해주세요.';
+    } else if (_height == null ||
+        _height! < profileHeightMin ||
+        _height! > profileHeightMax) {
+      message = '키를 온보딩과 같은 범위로 선택해주세요.';
+    } else if (_keywords.isEmpty) {
+      message = '나를 표현하는 키워드를 1개 이상 선택해주세요.';
+    } else if (!academicGradeOptions.contains(_grade)) {
+      message = '학년을 선택해주세요.';
+    } else if (!YonseiDepartments.majorLabels.containsKey(_major)) {
+      message = '계열을 선택해주세요.';
+    } else if (!YonseiDepartments.departmentsFor(
+      _major,
+    ).contains(_department)) {
+      message = '계열에 맞는 학과를 선택해주세요.';
+    } else if (!profileRelationshipOptions.any(
+      (option) => option.value == _relationship,
+    )) {
+      message = '내가 찾는 관계를 선택해주세요.';
+    } else if (!_isValidMbti(_mbti)) {
+      message = 'MBTI를 선택해주세요.';
+    }
+
+    if (message == null) return true;
+    showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        content: Text(message!),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
+    return false;
+  }
+
+  bool _isValidMbti(String value) {
+    if (value.length != profileMbtiDimensions.length) return false;
+    for (var i = 0; i < profileMbtiDimensions.length; i++) {
+      final dimension = profileMbtiDimensions[i];
+      if (value[i] != dimension.first && value[i] != dimension.second) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> _editSingleText({
     required String title,
     required String initial,
@@ -555,6 +450,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     String placeholder = '',
     bool multiline = false,
     TextInputType? keyboardType,
+    int? maxLength,
+    int? maxLines,
   }) async {
     final controller = TextEditingController(text: initial);
     await showCupertinoDialog(
@@ -566,7 +463,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           child: CupertinoTextField(
             controller: controller,
             placeholder: placeholder,
-            maxLines: multiline ? 4 : 1,
+            maxLines: maxLines ?? (multiline ? 4 : 1),
+            maxLength: maxLength,
             keyboardType: keyboardType,
             style: const TextStyle(fontFamily: 'Pretendard'),
             placeholderStyle: TextStyle(
@@ -599,6 +497,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     required List<String> selected,
     required int maxSelection,
     required ValueChanged<List<String>> onSaved,
+    String Function(String value)? optionLabel,
   }) async {
     final selectedSet = selected.toSet();
     await _showCenteredSheet(
@@ -614,7 +513,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
               children: options.map((opt) {
                 final isSelected = selectedSet.contains(opt);
                 return _SelectChip(
-                  label: opt,
+                  label: optionLabel?.call(opt) ?? opt,
                   isSelected: isSelected,
                   onTap: () {
                     setSheetState(() {
@@ -674,7 +573,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                                 if (isSelected) {
                                   selectedSet.remove(opt);
                                 } else {
-                                  if (selectedSet.length >= 10) return;
+                                  if (selectedSet.length >=
+                                      maxProfileInterests) {
+                                    return;
+                                  }
                                   selectedSet.add(opt);
                                 }
                               });
@@ -695,7 +597,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   Future<void> _showSingleSelectSheet({
     required String title,
-    required List<_Option> options,
+    required List<ProfileOption> options,
     required String current,
     required ValueChanged<String> onSaved,
   }) async {
@@ -747,26 +649,26 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   _MbtiColumn(
-                    top: 'E',
-                    bottom: 'I',
+                    top: profileMbtiDimensions[0].first,
+                    bottom: profileMbtiDimensions[0].second,
                     selected: e,
                     onSelect: (v) => setSheetState(() => e = v),
                   ),
                   _MbtiColumn(
-                    top: 'N',
-                    bottom: 'S',
+                    top: profileMbtiDimensions[1].first,
+                    bottom: profileMbtiDimensions[1].second,
                     selected: n,
                     onSelect: (v) => setSheetState(() => n = v),
                   ),
                   _MbtiColumn(
-                    top: 'F',
-                    bottom: 'T',
+                    top: profileMbtiDimensions[2].first,
+                    bottom: profileMbtiDimensions[2].second,
                     selected: f,
                     onSelect: (v) => setSheetState(() => f = v),
                   ),
                   _MbtiColumn(
-                    top: 'J',
-                    bottom: 'P',
+                    top: profileMbtiDimensions[3].first,
+                    bottom: profileMbtiDimensions[3].second,
                     selected: j,
                     onSelect: (v) => setSheetState(() => j = v),
                   ),
@@ -801,28 +703,28 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
               children: [
                 _OptionSection(
                   title: '음주',
-                  options: _drinkingOptions,
+                  options: profileDrinkingOptions,
                   selected: drinking,
                   onSelect: (v) => setSheetState(() => drinking = v),
                 ),
                 const SizedBox(height: 12),
                 _OptionSection(
                   title: '흡연',
-                  options: _smokingOptions,
+                  options: profileSmokingOptions,
                   selected: smoking,
                   onSelect: (v) => setSheetState(() => smoking = v),
                 ),
                 const SizedBox(height: 12),
                 _OptionSection(
                   title: '운동',
-                  options: _exerciseOptions,
+                  options: profileExerciseOptions,
                   selected: exercise,
                   onSelect: (v) => setSheetState(() => exercise = v),
                 ),
                 const SizedBox(height: 12),
                 _OptionSection(
                   title: '종교',
-                  options: _religionOptions,
+                  options: profileReligionOptions,
                   selected: religion,
                   onSelect: (v) => setSheetState(() => religion = v),
                 ),
@@ -835,13 +737,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Future<void> _showProfileQaSheet() async {
-    final questions = [
-      '주말에 보통 뭐 해요?',
-      '가장 좋아하는 음식은?',
-      '나의 힐링 포인트는?',
-      '기억에 남는 여행지는?',
-      '내 이상형에 가까운 사람은?',
-    ];
+    final questions = profileQuestionPrompts;
+    final knownQuestions = questions.toSet();
     final Map<String, TextEditingController> controllers = {
       for (final q in questions)
         q: TextEditingController(
@@ -858,6 +755,15 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       title: '프로필 문답',
       onDone: () {
         final next = <Map<String, String>>[];
+        // Keep answers from older app versions whose prompt is no longer in
+        // the active onboarding list. Known prompts are rebuilt below.
+        next.addAll(
+          _profileQa.where(
+            (entry) =>
+                !knownQuestions.contains(entry['question']) &&
+                (entry['answer'] ?? '').trim().isNotEmpty,
+          ),
+        );
         for (final q in questions) {
           final ans = controllers[q]?.text.trim() ?? '';
           if (ans.isNotEmpty) {
@@ -887,8 +793,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                   CupertinoTextField(
                     controller: controllers[q],
                     placeholder: '답변을 입력하세요 (최대 100자)',
-                    maxLength: 100,
-                    maxLines: 2,
+                    maxLength: maxProfileQaAnswerLength,
+                    maxLines: 4,
                     style: const TextStyle(fontFamily: 'Pretendard'),
                     placeholderStyle: TextStyle(
                       fontFamily: 'Pretendard',
@@ -902,11 +808,20 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         ),
       ),
     );
+    for (final controller in controllers.values) {
+      controller.dispose();
+    }
   }
 
   Future<void> _showHeightPicker() async {
-    final values = List<int>.generate(56, (i) => 145 + i);
-    int selected = _height != null && _height! >= 145 && _height! <= 200
+    final values = List<int>.generate(
+      profileHeightMax - profileHeightMin + 1,
+      (i) => profileHeightMin + i,
+    );
+    int selected =
+        _height != null &&
+            _height! >= profileHeightMin &&
+            _height! <= profileHeightMax
         ? _height!
         : 170;
     final controller = FixedExtentScrollController(
@@ -925,6 +840,354 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           children: values.map((v) => Center(child: Text('$v cm'))).toList(),
         ),
       ),
+    );
+    controller.dispose();
+  }
+
+  Future<void> _showIdealHeightPicker() async {
+    final values = List<int>.generate(
+      profileHeightMax - profileHeightMin + 1,
+      (i) => profileHeightMin + i,
+    );
+    var mode = _idealMinHeight != null && _idealMaxHeight == null
+        ? 'max'
+        : 'min';
+    int? minHeight = _idealMinHeight;
+    int? maxHeight = _idealMaxHeight;
+    var current = mode == 'max'
+        ? (maxHeight ?? minHeight ?? 170)
+        : (minHeight ?? 170);
+    final controller = FixedExtentScrollController(
+      initialItem:
+          current.clamp(profileHeightMin, profileHeightMax) - profileHeightMin,
+    );
+
+    await _showCenteredSheet(
+      title: '이상형 키',
+      useFlexible: false,
+      onDone: () {
+        if (minHeight != null && maxHeight == null) {
+          maxHeight = minHeight;
+        } else if (minHeight == null && maxHeight != null) {
+          minHeight = maxHeight;
+        }
+        setState(() {
+          _idealMinHeight = minHeight;
+          _idealMaxHeight = maxHeight;
+          _idealTypeDirty = true;
+        });
+      },
+      child: StatefulBuilder(
+        builder: (context, setSheetState) {
+          void changeMode(String nextMode) {
+            setSheetState(() {
+              mode = nextMode;
+              current = mode == 'min'
+                  ? (minHeight ?? current)
+                  : (maxHeight ?? minHeight ?? current);
+            });
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!controller.hasClients) return;
+              controller.jumpToItem(
+                current.clamp(profileHeightMin, profileHeightMax) -
+                    profileHeightMin,
+              );
+            });
+          }
+
+          return SizedBox(
+            width: double.infinity,
+            height: 292,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _SelectChip(
+                        label: minHeight == null ? '최소 키' : '최소 ${minHeight}cm',
+                        isSelected: mode == 'min',
+                        onTap: () => changeMode('min'),
+                      ),
+                      const SizedBox(width: 8),
+                      _SelectChip(
+                        label: maxHeight == null ? '최대 키' : '최대 ${maxHeight}cm',
+                        isSelected: mode == 'max',
+                        onTap: () => changeMode('max'),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: CupertinoPicker(
+                    scrollController: controller,
+                    itemExtent: 36,
+                    onSelectedItemChanged: (index) {
+                      setSheetState(() {
+                        current = values[index];
+                        if (mode == 'min') {
+                          minHeight = current;
+                          if (maxHeight != null && maxHeight! < current) {
+                            maxHeight = current;
+                          }
+                        } else {
+                          maxHeight = current < (minHeight ?? current)
+                              ? minHeight
+                              : current;
+                        }
+                      });
+                    },
+                    children: values
+                        .map((value) => Center(child: Text('$value cm')))
+                        .toList(),
+                  ),
+                ),
+                CupertinoButton(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  onPressed: () {
+                    setSheetState(() {
+                      minHeight = null;
+                      maxHeight = null;
+                      mode = 'min';
+                      current = 170;
+                    });
+                    controller.jumpToItem(170 - profileHeightMin);
+                  },
+                  child: const Text('상관없어요'),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+    controller.dispose();
+  }
+
+  Future<void> _showIdealAgeSheet() async {
+    var values = RangeValues(
+      (_idealMinAge ?? 23).toDouble(),
+      (_idealMaxAge ?? 28).toDouble(),
+    );
+    var cleared = _idealMinAge == null && _idealMaxAge == null;
+
+    await _showCenteredSheet(
+      title: '이상형 나이대',
+      useFlexible: false,
+      onDone: () {
+        setState(() {
+          _idealMinAge = cleared ? null : values.start.round();
+          _idealMaxAge = cleared ? null : values.end.round();
+          _idealTypeDirty = true;
+        });
+      },
+      child: StatefulBuilder(
+        builder: (context, setSheetState) {
+          final theme = Theme.of(context).copyWith(
+            sliderTheme: SliderThemeData(
+              activeTrackColor: _AppColors.primary,
+              inactiveTrackColor: const Color(0xFFE5E7EB),
+              thumbColor: _AppColors.primary,
+              overlayColor: _AppColors.primary.withValues(alpha: 0.1),
+              trackHeight: 4,
+              rangeThumbShape: const RoundRangeSliderThumbShape(
+                enabledThumbRadius: 12,
+                elevation: 4,
+                pressedElevation: 6,
+              ),
+            ),
+          );
+          return SizedBox(
+            width: double.infinity,
+            height: 176,
+            child: Column(
+              children: [
+                Material(
+                  color: Colors.transparent,
+                  child: Theme(
+                    data: theme,
+                    child: RangeSlider(
+                      values: values,
+                      min: profileAgeSliderMin,
+                      max: profileAgeSliderMax,
+                      divisions: profileAgeMax - profileAgeMin,
+                      labels: RangeLabels(
+                        '${values.start.round()}',
+                        '${values.end.round()}',
+                      ),
+                      onChanged: (next) {
+                        setSheetState(() {
+                          values = next;
+                          cleared = false;
+                        });
+                      },
+                    ),
+                  ),
+                ),
+                Text(
+                  '${values.start.round()}세 - ${values.end.round()}세',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: _AppColors.textMain,
+                  ),
+                ),
+                CupertinoButton(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  onPressed: () => setSheetState(() => cleared = true),
+                  child: const Text('상관없어요'),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _showIdealMbtiSheet() async {
+    final selected = <String?>[
+      for (final dimension in profileMbtiDimensions)
+        _idealMbti.contains(dimension.first)
+            ? dimension.first
+            : _idealMbti.contains(dimension.second)
+            ? dimension.second
+            : null,
+    ];
+
+    await _showCenteredSheet(
+      title: '이상형 MBTI',
+      onDone: () => setState(() {
+        _idealMbti = selected.whereType<String>().toList();
+        _idealTypeDirty = true;
+      }),
+      useFlexible: false,
+      child: StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: SizedBox(
+            height: 136,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                for (var i = 0; i < profileMbtiDimensions.length; i++)
+                  _OptionalMbtiColumn(
+                    top: profileMbtiDimensions[i].first,
+                    bottom: profileMbtiDimensions[i].second,
+                    selected: selected[i],
+                    onSelect: (value) =>
+                        setSheetState(() => selected[i] = value),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showIdealDepartmentsSheet() async {
+    await _showMultiSelectSheet(
+      title: '이상형 계열',
+      options: YonseiDepartments.majorLabels.keys.toList(),
+      optionLabel: YonseiDepartments.labelFor,
+      selected: _idealDepartments,
+      maxSelection: YonseiDepartments.majorLabels.length,
+      onSaved: (values) => setState(() {
+        _idealDepartments = values;
+        _idealTypeDirty = true;
+      }),
+    );
+  }
+
+  Future<void> _showIdealLifestyleSheet() async {
+    var drinking = _idealDrinking;
+    var smoking = _idealSmoking;
+    var exercise = _idealExercise;
+    var religion = _idealReligion;
+    await _showCenteredSheet(
+      title: '이상형 라이프스타일',
+      onDone: () => setState(() {
+        _idealDrinking = drinking;
+        _idealSmoking = smoking;
+        _idealExercise = exercise;
+        _idealReligion = religion;
+        _idealTypeDirty = true;
+      }),
+      child: StatefulBuilder(
+        builder: (context, setSheetState) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _OptionSection(
+                  title: '음주',
+                  options: profileDrinkingOptions,
+                  selected: drinking,
+                  allowDeselect: true,
+                  onSelect: (value) => setSheetState(() => drinking = value),
+                ),
+                const SizedBox(height: 12),
+                _OptionSection(
+                  title: '흡연',
+                  options: profileSmokingOptions,
+                  selected: smoking,
+                  allowDeselect: true,
+                  onSelect: (value) => setSheetState(() => smoking = value),
+                ),
+                const SizedBox(height: 12),
+                _OptionSection(
+                  title: '운동',
+                  options: profileExerciseOptions,
+                  selected: exercise,
+                  allowDeselect: true,
+                  onSelect: (value) => setSheetState(() => exercise = value),
+                ),
+                const SizedBox(height: 12),
+                _OptionSection(
+                  title: '종교',
+                  options: profileReligionOptions,
+                  selected: religion,
+                  allowDeselect: true,
+                  onSelect: (value) => setSheetState(() => religion = value),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _showDepartmentPicker() async {
+    if (_major.isEmpty) {
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: const Text('계열을 먼저 선택해주세요'),
+          content: const Text('계열을 선택하면 해당 계열의 학과를 고를 수 있어요.'),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    await _showSingleSelectSheet(
+      title: '학과',
+      options: YonseiDepartments.departmentsFor(
+        _major,
+      ).map((department) => ProfileOption(department, department)).toList(),
+      current: _department,
+      onSaved: (value) => setState(() {
+        _department = value;
+      }),
     );
   }
 
@@ -1155,6 +1418,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                               initial: _selfIntroduction,
                               placeholder: '자기소개를 입력하세요',
                               multiline: true,
+                              maxLength: maxSelfIntroductionLength,
+                              maxLines: 8,
                               onSaved: (v) =>
                                   setState(() => _selfIntroduction = v),
                             ),
@@ -1166,14 +1431,21 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                           ),
                           const SizedBox(height: 16),
                           _DetailInfoSection(
+                            nickname: _nickname,
                             interests: _interests,
                             height: _height,
                             relationship: _labelize(_relationship),
+                            onNicknameTap: () => _editSingleText(
+                              title: '닉네임',
+                              initial: _nickname,
+                              placeholder: '닉네임을 입력하세요',
+                              onSaved: (v) => setState(() => _nickname = v),
+                            ),
                             onInterestsTap: _showInterestSheet,
                             onHeightTap: _showHeightPicker,
                             onRelationshipTap: () => _showSingleSelectSheet(
                               title: '내가 찾는 관계',
-                              options: _relationshipOptions,
+                              options: profileRelationshipOptions,
                               current: _relationship,
                               onSaved: (v) => setState(() => _relationship = v),
                             ),
@@ -1182,13 +1454,38 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                           _BasicInfoSection(
                             mbti: _mbti,
                             major: _labelize(_major),
+                            grade: _grade,
+                            department: _department,
+                            isRa: _isRa,
                             onMbtiTap: _showMbtiSheet,
                             onMajorTap: () => _showSingleSelectSheet(
-                              title: '전공',
-                              options: _majorOptions,
+                              title: '계열',
+                              options: YonseiDepartments.majorLabels.entries
+                                  .map(
+                                    (entry) =>
+                                        ProfileOption(entry.key, entry.value),
+                                  )
+                                  .toList(),
                               current: _major,
-                              onSaved: (v) => setState(() => _major = v),
+                              onSaved: (v) => setState(() {
+                                _major = v;
+                                if (!YonseiDepartments.departmentsFor(
+                                  v,
+                                ).contains(_department)) {
+                                  _department = '';
+                                }
+                              }),
                             ),
+                            onDepartmentTap: _showDepartmentPicker,
+                            onGradeTap: () => _showSingleSelectSheet(
+                              title: '학년',
+                              options: academicGradeOptions
+                                  .map((grade) => ProfileOption(grade, grade))
+                                  .toList(),
+                              current: _grade,
+                              onSaved: (v) => setState(() => _grade = v),
+                            ),
+                            onRaTap: () => setState(() => _isRa = !_isRa),
                           ),
                           const SizedBox(height: 16),
                           _SimpleListSection(
@@ -1196,9 +1493,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                             items: _keywords,
                             onTap: () => _showMultiSelectSheet(
                               title: '키워드',
-                              options: _keywordOptions,
+                              options: profileKeywordOptions,
                               selected: _keywords,
-                              maxSelection: 8,
+                              maxSelection: maxProfileKeywords,
                               onSaved: (v) => setState(() => _keywords = v),
                             ),
                           ),
@@ -1208,11 +1505,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                             items: _idealPersonalityKeywords,
                             onTap: () => _showMultiSelectSheet(
                               title: '이상형 키워드',
-                              options: _idealPersonalityOptions,
+                              options: profileKeywordOptions,
                               selected: _idealPersonalityKeywords,
-                              maxSelection: 8,
-                              onSaved: (v) =>
-                                  setState(() => _idealPersonalityKeywords = v),
+                              maxSelection: maxProfileKeywords,
+                              onSaved: (v) => setState(() {
+                                _idealPersonalityKeywords = v;
+                                _idealTypeDirty = true;
+                              }),
                             ),
                           ),
                           const SizedBox(height: 16),
@@ -1222,6 +1521,53 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                             exercise: _exercise,
                             religion: _religion,
                             onEdit: _showLifestyleSheet,
+                          ),
+                          const SizedBox(height: 16),
+                          _SimpleListSection(
+                            title: '이상형 키',
+                            items:
+                                _idealMinHeight == null &&
+                                    _idealMaxHeight == null
+                                ? const []
+                                : [
+                                    '${_idealMinHeight ?? _idealMaxHeight} - '
+                                        '${_idealMaxHeight ?? _idealMinHeight} cm',
+                                  ],
+                            onTap: _showIdealHeightPicker,
+                          ),
+                          const SizedBox(height: 16),
+                          _SimpleListSection(
+                            title: '이상형 나이대',
+                            items: _idealMinAge == null && _idealMaxAge == null
+                                ? const []
+                                : [
+                                    '${_idealMinAge ?? _idealMaxAge} - '
+                                        '${_idealMaxAge ?? _idealMinAge}세',
+                                  ],
+                            onTap: _showIdealAgeSheet,
+                          ),
+                          const SizedBox(height: 16),
+                          _SimpleListSection(
+                            title: '이상형 MBTI',
+                            items: _idealMbti,
+                            onTap: _showIdealMbtiSheet,
+                          ),
+                          const SizedBox(height: 16),
+                          _SimpleListSection(
+                            title: '이상형 계열',
+                            items: _idealDepartments
+                                .map(YonseiDepartments.labelFor)
+                                .toList(),
+                            onTap: _showIdealDepartmentsSheet,
+                          ),
+                          const SizedBox(height: 16),
+                          _LifestyleSection(
+                            title: '이상형 라이프스타일',
+                            drinking: _idealDrinking,
+                            smoking: _idealSmoking,
+                            exercise: _idealExercise,
+                            religion: _idealReligion,
+                            onEdit: _showIdealLifestyleSheet,
                           ),
                           const SizedBox(height: 100),
                         ],
@@ -1291,7 +1637,7 @@ class _PhotoSection extends StatelessWidget {
                   ),
                   SizedBox(height: 4),
                   Text(
-                    '얼굴이 나온 사진 3장은 필수에요',
+                    '얼굴이 나온 사진 2장은 필수에요',
                     style: TextStyle(fontSize: 14, color: _AppColors.textSub),
                   ),
                 ],
@@ -1663,16 +2009,51 @@ class _MbtiColumn extends StatelessWidget {
   }
 }
 
+class _OptionalMbtiColumn extends StatelessWidget {
+  final String top;
+  final String bottom;
+  final String? selected;
+  final ValueChanged<String?> onSelect;
+
+  const _OptionalMbtiColumn({
+    required this.top,
+    required this.bottom,
+    required this.selected,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _SelectChip(
+          label: top,
+          isSelected: selected == top,
+          onTap: () => onSelect(selected == top ? null : top),
+        ),
+        const SizedBox(height: 8),
+        _SelectChip(
+          label: bottom,
+          isSelected: selected == bottom,
+          onTap: () => onSelect(selected == bottom ? null : bottom),
+        ),
+      ],
+    );
+  }
+}
+
 class _OptionSection extends StatelessWidget {
   final String title;
-  final List<_Option> options;
+  final List<ProfileOption> options;
   final String selected;
+  final bool allowDeselect;
   final ValueChanged<String> onSelect;
 
   const _OptionSection({
     required this.title,
     required this.options,
     required this.selected,
+    this.allowDeselect = false,
     required this.onSelect,
   });
 
@@ -1697,7 +2078,9 @@ class _OptionSection extends StatelessWidget {
             return _SelectChip(
               label: opt.label,
               isSelected: selected == opt.value,
-              onTap: () => onSelect(opt.value),
+              onTap: () => onSelect(
+                allowDeselect && selected == opt.value ? '' : opt.value,
+              ),
             );
           }).toList(),
         ),
@@ -1916,17 +2299,21 @@ class _ProfileQuestionsSection extends StatelessWidget {
 }
 
 class _DetailInfoSection extends StatelessWidget {
+  final String nickname;
   final List<String> interests;
   final int? height;
   final String relationship;
+  final VoidCallback? onNicknameTap;
   final VoidCallback? onInterestsTap;
   final VoidCallback? onHeightTap;
   final VoidCallback? onRelationshipTap;
 
   const _DetailInfoSection({
+    required this.nickname,
     required this.interests,
     required this.height,
     required this.relationship,
+    this.onNicknameTap,
     this.onInterestsTap,
     this.onHeightTap,
     this.onRelationshipTap,
@@ -1936,6 +2323,13 @@ class _DetailInfoSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
+        _DetailTile(
+          title: '닉네임',
+          content: nickname.isEmpty ? '아직 설정되지 않음' : nickname,
+          icon: Icons.person_outline,
+          onTap: onNicknameTap,
+        ),
+        const SizedBox(height: 16),
         _DetailTile(
           title: '관심사',
           content: interests.isEmpty ? '아직 설정되지 않음' : interests.join(', '),
@@ -2066,14 +2460,26 @@ class _DetailTile extends StatelessWidget {
 class _BasicInfoSection extends StatelessWidget {
   final String mbti;
   final String major;
+  final String grade;
+  final String department;
+  final bool isRa;
   final VoidCallback? onMbtiTap;
   final VoidCallback? onMajorTap;
+  final VoidCallback? onGradeTap;
+  final VoidCallback? onDepartmentTap;
+  final VoidCallback? onRaTap;
 
   const _BasicInfoSection({
     required this.mbti,
     required this.major,
+    required this.grade,
+    required this.department,
+    required this.isRa,
     this.onMbtiTap,
     this.onMajorTap,
+    this.onGradeTap,
+    this.onDepartmentTap,
+    this.onRaTap,
   });
 
   @override
@@ -2103,10 +2509,11 @@ class _BasicInfoSection extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          const _BasicInfoItem(
-            icon: Icons.nightlight_round,
-            label: '별자리',
-            value: '준비 중',
+          _BasicInfoItem(
+            icon: Icons.school_outlined,
+            label: '학년',
+            value: grade.isEmpty ? '아직 설정되지 않음' : grade,
+            onTap: onGradeTap,
           ),
           const SizedBox(height: 8),
           _BasicInfoItem(
@@ -2118,9 +2525,23 @@ class _BasicInfoSection extends StatelessWidget {
           const SizedBox(height: 8),
           _BasicInfoItem(
             icon: Icons.school,
-            label: '전공',
+            label: '계열',
             value: major.isEmpty ? '아직 설정되지 않음' : major,
             onTap: onMajorTap,
+          ),
+          const SizedBox(height: 8),
+          _BasicInfoItem(
+            icon: Icons.menu_book_outlined,
+            label: '학과',
+            value: department.isEmpty ? '아직 설정되지 않음' : department,
+            onTap: onDepartmentTap,
+          ),
+          const SizedBox(height: 8),
+          _BasicInfoItem(
+            icon: Icons.badge_outlined,
+            label: 'RA 여부',
+            value: isRa ? '예' : '아니요',
+            onTap: onRaTap,
           ),
         ],
       ),
@@ -2267,6 +2688,7 @@ class _SimpleListSection extends StatelessWidget {
 }
 
 class _LifestyleSection extends StatelessWidget {
+  final String title;
   final String drinking;
   final String smoking;
   final String exercise;
@@ -2274,6 +2696,7 @@ class _LifestyleSection extends StatelessWidget {
   final VoidCallback? onEdit;
 
   const _LifestyleSection({
+    this.title = '라이프스타일',
     required this.drinking,
     required this.smoking,
     required this.exercise,
@@ -2283,16 +2706,19 @@ class _LifestyleSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    String labelFor(String value, List<_Option> options) {
+    String labelFor(String value, List<ProfileOption> options) {
       final match = options.where((o) => o.value == value).map((o) => o.label);
       return match.isNotEmpty ? match.first : value;
     }
 
     final text = [
-      if (drinking.isNotEmpty) '음주: ${labelFor(drinking, _drinkingOptions)}',
-      if (smoking.isNotEmpty) '흡연: ${labelFor(smoking, _smokingOptions)}',
-      if (exercise.isNotEmpty) '운동: ${labelFor(exercise, _exerciseOptions)}',
-      if (religion.isNotEmpty) '종교: ${labelFor(religion, _religionOptions)}',
+      if (drinking.isNotEmpty)
+        '음주: ${labelFor(drinking, profileDrinkingOptions)}',
+      if (smoking.isNotEmpty) '흡연: ${labelFor(smoking, profileSmokingOptions)}',
+      if (exercise.isNotEmpty)
+        '운동: ${labelFor(exercise, profileExerciseOptions)}',
+      if (religion.isNotEmpty)
+        '종교: ${labelFor(religion, profileReligionOptions)}',
     ].join(', ');
 
     return GestureDetector(
@@ -2313,8 +2739,8 @@ class _LifestyleSection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '라이프스타일',
+            Text(
+              title,
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,

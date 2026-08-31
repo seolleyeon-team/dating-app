@@ -7,6 +7,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../constants/profile_options.dart';
 import '../../../router/route_names.dart';
 import '../../../services/onboarding_save_helper.dart';
 import '../../../services/storage_service.dart';
@@ -55,7 +56,7 @@ class _SelfIntroductionScreenState extends State<SelfIntroductionScreen> {
   int _charCount = 0;
   bool _isSavingOnExit = false;
 
-  static const int _maxLength = 300;
+  static const int _maxLength = maxSelfIntroductionLength;
   bool get _hasIntroduction => _controller.text.trim().isNotEmpty;
 
   @override

@@ -1,0 +1,8 @@
+# Copy this file to android/key.properties on the build computer.
+# Replace only the two password placeholders below.
+# Never commit or send the completed android/key.properties file.
+
+storePassword=REPLACE_WITH_NEW_STORE_PASSWORD
+keyPassword=REPLACE_WITH_NEW_KEY_PASSWORD
+keyAlias=seolleyeon-upload-2026-08-29
+storeFile=seolleyeon-upload-2026-08-29.jks

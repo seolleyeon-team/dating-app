@@ -8,10 +8,16 @@
 
 import { readPersistedCampusLifeZones } from "../campusLifeZones";
 import { createHash } from "crypto";
-import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
+import {
+  DocumentSnapshot,
+  FieldValue,
+  getFirestore,
+  Timestamp,
+} from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
+import { readFreeBlindMeetingTestBuildConfig } from "./compatibility";
 import { isStrictStudentVerification } from "./eligibility";
 import {
   readBlindMeetingGender,
@@ -977,79 +983,393 @@ export async function setApplication(
 }
 
 /**
- * 신규 신청 submit 전용 entrypoint.
+ * 서버 allowlist에 등록된 테스트 UID의 무료 호환 신청 저장 경로.
  *
- * FSM 전이표만 보면 invited/accepted/confirmed→applied 는 합법이다
- * (초대 거절·미팅 취소 재오픈 경로가 이 edge 를 쓴다). 그러나 신규 submit 이
- * 이 edge 를 타면 active invitation/meeting 에 귀속된 신청이 applied 로
- * 덮어써져 미팅과 신청 lifecycle 이 분리된다. 그래서 여기서는 신청서와
- * 연결 미팅을 같은 트랜잭션에서 읽어 business invariant 를 먼저 검증하고,
- * DNA 문서와 신청서를 원자적으로 쓴다.
- *
- * 서로 모순된 canonical state(미팅 문서 없음, settled 미팅에 active 신청,
- * meetingId 없는 meeting-bound 상태)는 덮어써서 숨기지 않고 fail-closed 로
- * 거부한다.
+ * 이 함수는 App Check 앱 ID나 클라이언트가 보낸 테스트 플래그를 신뢰하지
+ * 않는다. callables.ts가 서버 환경변수의 명시적인 Firebase Auth UID allowlist를
+ * 확인한 경우에만 이 경로를 선택한다.
  */
-export async function submitNewApplication(params: {
+export async function createFreeBlindMeetingApplication(params: {
   userId: string;
   dnaPayload: Record<string, unknown>;
-  applicationExtra: Record<string, unknown>;
+  requestedDateKeys: string[];
+  prefersAlcoholFree: boolean;
+  waitlistOptIn: boolean;
 }): Promise<void> {
-  const applicationRef = db()
+  await db()
+    .collection(BLIND_MEETING_COLLECTIONS.dna)
+    .doc(params.userId)
+    .set(
+      {
+        ...params.dnaPayload,
+        updatedAt: FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+  await setApplication(params.userId, {
+    status: "applied",
+    stage: "searchingCandidates",
+    open: true,
+    meetingId: null,
+    extra: {
+      userId: params.userId,
+      requestedDateKeys: params.requestedDateKeys,
+      availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
+      scheduleSelectionVersion: BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
+      prefersAlcoholFree: params.prefersAlcoholFree,
+      waitlistOptIn: params.waitlistOptIn,
+      appliedAt: FieldValue.serverTimestamp(),
+    },
+  });
+}
+
+const FREE_BLIND_MEETING_TEST_CLAIMS_COLLECTION =
+  "blindMeetingFreeTestClaims";
+const FREE_BLIND_MEETING_TEST_COUNTER_DOC = "_meta";
+
+/**
+ * 미리 UID를 수집할 수 없는 폐쇄 TestFlight 테스트를 위한 무료 슬롯 claim.
+ *
+ * claim 문서는 Firebase Auth UID를 키로 삼고 counter 문서와 함께 하나의
+ * Firestore transaction에서 갱신한다. 따라서 같은 UID의 재시도는 무료
+ * 슬롯을 다시 차지하지 않고, 동시 가입자는 설정된 최대 인원을 넘을 수 없다.
+ */
+export async function claimFreeBlindMeetingTestSlot(params: {
+  userId: string;
+  clientBuild: string;
+}): Promise<void> {
+  const config = readFreeBlindMeetingTestBuildConfig();
+  const normalizedClientBuild = params.clientBuild.trim();
+  const acceptsLegacyClient = normalizedClientBuild.length === 0;
+  if (
+    config.builds.length === 0 ||
+    config.expiresAtMs == null ||
+    config.maxAccounts == null ||
+    (!acceptsLegacyClient && !config.builds.includes(normalizedClientBuild)) ||
+    config.expiresAtMs <= Date.now()
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "무료 테스트 빌드가 현재 활성화되어 있지 않아요."
+    );
+  }
+
+  const firestore = db();
+  const claimRef = firestore
+    .collection(FREE_BLIND_MEETING_TEST_CLAIMS_COLLECTION)
+    .doc(params.userId);
+  const counterRef = firestore
+    .collection(FREE_BLIND_MEETING_TEST_CLAIMS_COLLECTION)
+    .doc(FREE_BLIND_MEETING_TEST_COUNTER_DOC);
+
+  await firestore.runTransaction(async (tx) => {
+    const claimSnap = await tx.get(claimRef);
+    if (claimSnap.exists) return;
+
+    const counterSnap = await tx.get(counterRef);
+    const claimedCount = Math.max(
+      0,
+      Math.floor(asNum(counterSnap.data()?.claimedCount, 0))
+    );
+    if (claimedCount >= config.maxAccounts!) {
+      throw new HttpsError(
+        "resource-exhausted",
+        "이번 무료 테스트 참가 인원이 모두 찼어요."
+      );
+    }
+
+    const claimBuild =
+      normalizedClientBuild.length > 0
+        ? normalizedClientBuild
+        : config.builds[0] ?? config.build;
+    tx.create(claimRef, {
+      build: claimBuild,
+      claimedAt: FieldValue.serverTimestamp(),
+      expiresAt: Timestamp.fromMillis(config.expiresAtMs!),
+    });
+    tx.set(
+      counterRef,
+      {
+        build: claimBuild,
+        claimedCount: claimedCount + 1,
+        maxAccounts: config.maxAccounts,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  });
+}
+
+const BLIND_MEETING_HEART_COST = 30;
+
+function heartBalanceFromSnapshot(snapshot: DocumentSnapshot): number {
+  const raw = snapshot.get("heartBalance");
+  return typeof raw === "number" && Number.isFinite(raw) && raw >= 0
+    ? Math.floor(raw)
+    : 0;
+}
+
+type BlindMeetingDnaDraftFields = {
+  conversationAtmosphere?: string;
+  conversationInitiative?: string;
+  meetingPurpose?: string;
+  alcoholCompanionPreference?: string;
+  smokingCompanionPreference?: string;
+};
+
+/**
+ * DNA 작성 시작 시 30H를 한 번만 차감하고, 작성 진행 문서를 만든다.
+ *
+ * 이 상태는 실제 신청(open 후보군)과 분리되어 있어 작성 중인 사용자가
+ * 매칭에 노출되지 않는다. 같은 진행 문서로 재시도하면 잔액을 다시
+ * 차감하지 않고 기존 상태를 반환한다.
+ */
+export async function startPaidBlindMeetingDna(userId: string): Promise<{
+  charged: boolean;
+  heartBalance: number;
+  heartChargeCount: number;
+}> {
+  const firestore = db();
+  const draftRef = firestore
+    .collection(BLIND_MEETING_COLLECTIONS.dnaDrafts)
+    .doc(userId);
+  const applicationRef = firestore
+    .collection(BLIND_MEETING_COLLECTIONS.applications)
+    .doc(userId);
+  const userRef = firestore.collection("users").doc(userId);
+
+  return firestore.runTransaction(async (tx) => {
+    const [draftSnap, applicationSnap, userSnap] = await Promise.all([
+      tx.get(draftRef),
+      tx.get(applicationRef),
+      tx.get(userRef),
+    ]);
+    if (!userSnap.exists) {
+      throw new HttpsError("not-found", "사용자 정보를 찾을 수 없어요.");
+    }
+
+    const existingApplication =
+      (applicationSnap.data() ?? {}) as Record<string, unknown>;
+    const applicationMeetingId = asTrimmedOrNull(
+      existingApplication.meetingId
+    );
+    if (applicationSnap.exists && existingApplication.open === true && !applicationMeetingId) {
+      throw new HttpsError(
+        "failed-precondition",
+        "이미 진행 중인 블라인드 미팅 신청이 있어요."
+      );
+    }
+
+    const existingDraft = (draftSnap.data() ?? {}) as Record<string, unknown>;
+    const existingDraftStatus = asStr(existingDraft.status, "");
+    const existingDraftChargeCount = Math.max(
+      0,
+      Math.floor(asNum(existingDraft.heartChargeCount, 0))
+    );
+    const applicationCompleted = existingApplication.dnaApplicationCompleted === true;
+    if (
+      draftSnap.exists &&
+      existingDraftStatus === "in_progress" &&
+      existingDraftChargeCount > 0 &&
+      !applicationCompleted
+    ) {
+      return {
+        charged: false,
+        heartBalance: heartBalanceFromSnapshot(userSnap),
+        heartChargeCount: existingDraftChargeCount,
+      };
+    }
+
+    // 최종 신청과 초안 삭제가 분리된 legacy/복구 데이터가 남아 있어도
+    // 완료된 신청의 초안을 이어쓰기 상태로 노출하지 않는다.
+    if (applicationCompleted && draftSnap.exists) {
+      tx.delete(draftRef);
+    }
+
+    const previousApplicationChargeCount = Math.max(
+      0,
+      Math.floor(asNum(existingApplication.heartChargeCount, 0))
+    );
+    const chargeCount = Math.max(
+      previousApplicationChargeCount,
+      existingDraftChargeCount
+    ) + 1;
+    const spendRef = firestore
+      .collection("heartTransactions")
+      .doc(
+        createHash("sha256")
+          .update(`blind_meeting:${userId}:${chargeCount}`)
+          .digest("hex")
+      );
+    const spendSnap = await tx.get(spendRef);
+    if (spendSnap.exists) {
+      throw new HttpsError(
+        "already-exists",
+        "이미 처리된 블라인드 미팅 결제가 있어요. 잠시 후 다시 시도해주세요."
+      );
+    }
+
+    let heartBalance = Math.max(0, Math.floor(heartBalanceFromSnapshot(userSnap)));
+    if (heartBalance < BLIND_MEETING_HEART_COST) {
+      throw new HttpsError(
+        "resource-exhausted",
+        `하트가 부족해요. 3:3 블라인드 신청에는 ${BLIND_MEETING_HEART_COST}H가 필요해요.`
+      );
+    }
+    heartBalance -= BLIND_MEETING_HEART_COST;
+    tx.set(
+      userRef,
+      {
+        heartBalance,
+        heartBalanceUpdatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    tx.create(spendRef, {
+      uid: userId,
+      feature: "blind_meeting",
+      resourceId: userId,
+      amount: BLIND_MEETING_HEART_COST,
+      heartBalanceAfter: heartBalance,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(
+      draftRef,
+      {
+        userId,
+        status: "in_progress",
+        heartCost: BLIND_MEETING_HEART_COST,
+        heartChargeCount: chargeCount,
+        updatedAt: FieldValue.serverTimestamp(),
+        ...(!draftSnap.exists
+          ? { createdAt: FieldValue.serverTimestamp() }
+          : {}),
+      },
+      { merge: true }
+    );
+    return {
+      charged: true,
+      heartBalance,
+      heartChargeCount: chargeCount,
+    };
+  });
+}
+
+/** 작성 중인 DNA 답변을 저장한다. 결제·신청 상태는 이 함수에서 변경하지 않는다. */
+export async function saveBlindMeetingDnaDraft(
+  userId: string,
+  fields: BlindMeetingDnaDraftFields
+): Promise<void> {
+  const draftRef = db()
+    .collection(BLIND_MEETING_COLLECTIONS.dnaDrafts)
+    .doc(userId);
+  await db().runTransaction(async (tx) => {
+    const draftSnap = await tx.get(draftRef);
+    const raw = (draftSnap.data() ?? {}) as Record<string, unknown>;
+    if (
+      !draftSnap.exists ||
+      asStr(raw.status, "") !== "in_progress" ||
+      asNum(raw.heartChargeCount, 0) <= 0
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "진행 중인 미팅 DNA 작성을 찾을 수 없어요."
+      );
+    }
+    tx.set(
+      draftRef,
+      {
+        ...fields,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  });
+}
+
+/**
+ * 신규 블라인드 미팅 신청·DNA 저장·30H 차감을 하나의 트랜잭션으로
+ * 처리한다. 네트워크 재시도로 이미 열린 신청을 다시 제출하면 재차감하지
+ * 않고, 취소/완료 후 새 신청은 새로 차감한다.
+ */
+export async function createPaidBlindMeetingApplication(params: {
+  userId: string;
+  dnaPayload: Record<string, unknown>;
+  requestedDateKeys: string[];
+  prefersAlcoholFree: boolean;
+  waitlistOptIn: boolean;
+}): Promise<void> {
+  const heartCost = BLIND_MEETING_HEART_COST;
+  const firestore = db();
+  const applicationRef = firestore
     .collection(BLIND_MEETING_COLLECTIONS.applications)
     .doc(params.userId);
-  const dnaRef = db()
+  const dnaRef = firestore
     .collection(BLIND_MEETING_COLLECTIONS.dna)
     .doc(params.userId);
+  const draftRef = firestore
+    .collection(BLIND_MEETING_COLLECTIONS.dnaDrafts)
+    .doc(params.userId);
+  const userRef = firestore.collection("users").doc(params.userId);
 
-  await db().runTransaction(async (tx) => {
-    const applicationSnap = await tx.get(applicationRef);
+  await firestore.runTransaction(async (tx) => {
+    const [applicationSnap, userSnap, draftSnap] = await Promise.all([
+      tx.get(applicationRef),
+      tx.get(userRef),
+      tx.get(draftRef),
+    ]);
+    if (!userSnap.exists) {
+      throw new HttpsError("not-found", "사용자 정보를 찾을 수 없어요.");
+    }
 
-    if (applicationSnap.exists) {
-      const raw = (applicationSnap.data() ?? {}) as Record<string, unknown>;
-      const rawStatus = String(raw.serverStatus ?? raw.status ?? "");
-      const from = APP_STATUS_TO_SERVER[rawStatus];
-      if (from == null) {
-        logger.error("blindMeeting submit blocked: application status unknown", {
-          rawStatusLength: rawStatus.length,
-        });
+    const existing = (applicationSnap.data() ?? {}) as Record<string, unknown>;
+    const existingMeetingId = asTrimmedOrNull(existing.meetingId);
+    const isOpenRetry =
+      applicationSnap.exists && existing.open === true && !existingMeetingId;
+    if (applicationSnap.exists && !isOpenRetry) {
+      const rawStatus = asStr(existing.serverStatus ?? existing.status, "");
+      const previous = APP_STATUS_TO_SERVER[rawStatus];
+      if (previous == null) {
         throw new HttpsError(
           "failed-precondition",
-          `blind_application_status_unknown:${rawStatus}`
+          "현재 신청 상태에서는 새로 신청할 수 없어요."
         );
       }
-
-      const meetingId =
-        typeof raw.meetingId === "string" ? raw.meetingId.trim() : "";
-
-      if (ACTIVE_APPLICATION_STATUSES.includes(from)) {
-        if (meetingId.length === 0) {
-          if (MEETING_BOUND_APPLICATION_STATUSES.includes(from)) {
-            // invited 이후 상태인데 미팅 link 가 없다 — 정상 flow 에서는
-            // 나올 수 없는 상태이므로 신규 신청으로 덮어써 숨기지 않는다.
+      // 재신청 invariant: FSM 전이표만 보면 invited/accepted/confirmed→applied
+      // 가 합법이지만(초대 거절·미팅 취소 재오픈 경로), 신규 유료 신청이 이
+      // edge 를 타면 active invitation/meeting 에 귀속된 신청이 덮어써져
+      // 미팅과 신청 lifecycle 이 분리된다. 신청서와 연결 미팅을 같은
+      // 트랜잭션에서 읽어 business invariant 를 먼저 fail-closed 로 검증한다.
+      if (ACTIVE_APPLICATION_STATUSES.includes(previous)) {
+        if (existingMeetingId == null) {
+          if (MEETING_BOUND_APPLICATION_STATUSES.includes(previous)) {
             logger.error(
               "blindMeeting submit blocked: active application without meeting link",
-              { status: from }
+              { status: previous }
             );
             throw new HttpsError(
               "failed-precondition",
-              `blind_application_active_without_meeting:${from}`
+              `blind_application_active_without_meeting:${previous}`
             );
           }
-          // applied/waitlisted open pool — 재제출은 아래 FSM 검증으로 진행.
+          // applied/waitlisted open pool — 아래 FSM 검증으로 진행.
         } else {
           const meetingSnap = await tx.get(
-            db().collection(BLIND_MEETING_COLLECTIONS.meetings).doc(meetingId)
+            firestore
+              .collection(BLIND_MEETING_COLLECTIONS.meetings)
+              .doc(existingMeetingId)
           );
-          const meeting = readMeetingDoc(meetingId, meetingSnap.data());
+          const meeting = readMeetingDoc(existingMeetingId, meetingSnap.data());
           if (meeting == null) {
-            logger.error(
-              "blindMeeting submit blocked: linked meeting missing",
-              { status: from }
-            );
+            logger.error("blindMeeting submit blocked: linked meeting missing", {
+              status: previous,
+            });
             throw new HttpsError(
               "failed-precondition",
-              `blind_application_meeting_link_missing:${from}`
+              `blind_application_meeting_link_missing:${previous}`
             );
           }
           if (!isMeetingSettled(meeting.status)) {
@@ -1057,30 +1377,76 @@ export async function submitNewApplication(params: {
               "failed-precondition",
               "이미 진행 중인 미팅이 있어 새로 신청할 수 없어요. " +
                 "미팅 화면에서 거절 또는 취소 요청을 이용해주세요. " +
-                `(blind_reapplication_blocked_active_meeting:${from})`
+                `(blind_reapplication_blocked_active_meeting:${previous})`
             );
           }
-          // settled 미팅인데 신청이 여전히 active 로 남아 있다 — 정리 루프
-          // 실패다. 자동 repair 하지 않고 fail-closed 로 남긴다.
           logger.error(
             "blindMeeting submit blocked: active application on settled meeting",
-            { applicationStatus: from, meetingStatus: meeting.status }
+            { applicationStatus: previous, meetingStatus: meeting.status }
           );
           throw new HttpsError(
             "failed-precondition",
-            `blind_application_stale_meeting_link:${from}->${meeting.status}`
+            `blind_application_stale_meeting_link:${previous}->${meeting.status}`
           );
         }
       }
-
-      // terminal(cancelled/completed/no_show/restricted) 재신청과
-      // waitlisted→applied 되돌림은 신청서 FSM 이 최종 판정한다.
-      if (from !== "applied" && !canTransitionApplication(from, "applied")) {
+      if (!canTransitionApplication(previous, "applied")) {
         throw new HttpsError(
           "failed-precondition",
-          `blind_application_transition_rejected:${from}->applied`
+          "현재 신청 상태에서는 새로 신청할 수 없어요."
         );
       }
+    }
+
+    let heartBalance = asNum(userSnap.get("heartBalance"), 0);
+    let chargeCount = Math.max(
+      0,
+      Math.floor(asNum(existing.heartChargeCount, 0))
+    );
+    const draft = (draftSnap.data() ?? {}) as Record<string, unknown>;
+    const draftChargeCount = Math.max(
+      0,
+      Math.floor(asNum(draft.heartChargeCount, 0))
+    );
+    const hasPaidDraft =
+      draftSnap.exists &&
+      asStr(draft.status, "") === "in_progress" &&
+      draftChargeCount > 0;
+    chargeCount = Math.max(chargeCount, draftChargeCount);
+    if (!isOpenRetry && !hasPaidDraft) {
+      heartBalance = Math.max(0, Math.floor(heartBalance));
+      if (heartBalance < heartCost) {
+        throw new HttpsError(
+          "resource-exhausted",
+          `하트가 부족해요. 3:3 블라인드 신청에는 ${heartCost}H가 필요해요.`
+        );
+      }
+      heartBalance -= heartCost;
+      chargeCount += 1;
+      tx.set(
+        userRef,
+        {
+          heartBalance,
+          heartBalanceUpdatedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      const spendRef = firestore
+        .collection("heartTransactions")
+        .doc(
+          createHash("sha256")
+            .update(`blind_meeting:${params.userId}:${chargeCount}`)
+            .digest("hex")
+        );
+      tx.create(spendRef, {
+        uid: params.userId,
+        feature: "blind_meeting",
+        resourceId: params.userId,
+        amount: heartCost,
+        heartBalanceAfter: heartBalance,
+        createdAt: FieldValue.serverTimestamp(),
+      });
     }
 
     tx.set(
@@ -1088,7 +1454,9 @@ export async function submitNewApplication(params: {
       {
         ...params.dnaPayload,
         updatedAt: FieldValue.serverTimestamp(),
-        createdAt: FieldValue.serverTimestamp(),
+        ...(!applicationSnap.exists
+          ? { createdAt: FieldValue.serverTimestamp() }
+          : {}),
       },
       { merge: true }
     );
@@ -1099,22 +1467,33 @@ export async function submitNewApplication(params: {
         stage: "searchingCandidates",
         open: true,
         meetingId: null,
-        extra: params.applicationExtra,
+        extra: {
+          userId: params.userId,
+          requestedDateKeys: params.requestedDateKeys,
+          availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
+          scheduleSelectionVersion: BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
+          prefersAlcoholFree: params.prefersAlcoholFree,
+          waitlistOptIn: params.waitlistOptIn,
+          appliedAt: FieldValue.serverTimestamp(),
+          heartCost,
+          heartChargeCount: chargeCount,
+          dnaApplicationCompleted: true,
+        },
       }),
       { merge: true }
     );
+    if (draftSnap.exists) {
+      // 최종 신청이 완료되면 작성 중 상태를 제거해 다음 신청은 새 결제로
+      // 시작하도록 한다. 트랜잭션 안에서 신청 저장과 함께 처리된다.
+      tx.delete(draftRef);
+    }
   });
 }
 
 /**
- * 신청서가 아직 이 미팅에 귀속돼 있을 때만 open pool 로 되돌린다.
- *
- * 초대 거절·미팅 취소의 재오픈 경로 전용 (재신청 invariant 의 대칭).
- * 중복 거절이나 뒤늦은 취소 정리가 도착했을 때 신청이 이미 재오픈되어
- * 다른 미팅에 재클레임된 상태라면, invited→applied 가 FSM 상 합법이어도
- * 새 미팅의 link 를 덮어쓰지 않고 건너뛴다.
- *
- * @returns 재오픈을 실제로 수행했으면 true.
+ * 미팅에 귀속된 신청서를 시스템이 open pool 로 재오픈한다 (초대 거절·미팅
+ * 취소 경로). 이미 재오픈됐거나 다른 미팅에 귀속됐으면 덮어쓰지 않고,
+ * terminal 상태는 사용자가 직접 재신청해야 하며 시스템이 되살리지 않는다.
  */
 export async function reopenApplicationIfBoundTo(
   userId: string,
@@ -1132,7 +1511,6 @@ export async function reopenApplicationIfBoundTo(
     const boundMeetingId =
       typeof raw.meetingId === "string" ? raw.meetingId.trim() : "";
     if (boundMeetingId !== meetingId) {
-      // 이미 재오픈됐거나 다른 미팅에 귀속됨 — 덮어쓰지 않는다.
       logger.info("blindMeeting application reopen skipped: not bound", {
         stillBound: boundMeetingId.length > 0,
       });
@@ -1150,9 +1528,6 @@ export async function reopenApplicationIfBoundTo(
         `blind_application_status_unknown:${rawStatus}`
       );
     }
-    // 시스템 재오픈은 미팅에 귀속된 active 상태에서만 수행한다.
-    // cancelled 등 terminal 은 사용자가 직접 재신청(FSM cancelled→applied)
-    // 해야 하며, 시스템이 되살리지 않는다.
     if (
       !MEETING_BOUND_APPLICATION_STATUSES.includes(from) ||
       !canTransitionApplication(from, "applied")

@@ -6,8 +6,7 @@
 // 각 AI identity(face_card · vibe_card · silhouette_card)를 full-screen으로
 // 보여주고, side-tap navigation / swipe or button decision으로 취향 학습.
 //
-// • SeolSwipeDeck은 ai_match_card_screen·profile_card_screen이 사용하므로
-//   이 화면에서는 동일 animation parameter를 inline으로 사용.
+// • 이 화면은 공용 SeolSwipeDeck과 동일한 애니메이션 규격을 유지한다.
 // • DecisionTracker / recEvent / Storage 서비스는 기존 그대로 보존.
 // =============================================================================
 

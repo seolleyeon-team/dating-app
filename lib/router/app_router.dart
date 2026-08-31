@@ -53,7 +53,6 @@ import '../shared/layouts/main_scaffold.dart';
 // Matching
 import '../features/matching/screens/mystery_card_screen.dart';
 import '../features/matching/screens/profile_discovery_screen.dart';
-import '../features/matching/screens/profile_card_screen.dart';
 import '../features/matching/screens/ai_preference_screen.dart';
 import '../features/matching/screens/ai_match_card_screen.dart';
 import '../features/matching/screens/profile_specific_detail_screen.dart';
@@ -244,8 +243,6 @@ class AppRouter {
         return _cupertino(const MysteryCardScreen());
       case RouteNames.profileDiscovery:
         return _cupertino(const ProfileDiscoveryScreen());
-      case RouteNames.profileCard:
-        return _cupertino(const ProfileCardScreen());
       case RouteNames.aiPreference:
         return _cupertino(const AiPreferenceScreen());
       case RouteNames.aiMatchCard:
@@ -430,7 +427,10 @@ class AppRouter {
       case RouteNames.legacyRandomMatching:
       case RouteNames.legacyRandomMeeting:
       case RouteNames.legacyMeetingApplication:
-        return _cupertino(const BlindMeetingIntroScreen(), settings: settings);
+        return _cupertino(
+          const BlindMeetingIntroScreen(enablePaidDnaStart: true),
+          settings: settings,
+        );
       case RouteNames.blindTasteMeetingDna:
         {
           final rawArgs = settings.arguments;
@@ -442,14 +442,25 @@ class AppRouter {
           final mode = rawArgs is BlindMeetingDnaRouteArgs
               ? rawArgs.mode
               : BlindMeetingDnaMode.create;
+          final heartCharged = rawArgs is BlindMeetingDnaRouteArgs
+              ? rawArgs.heartCharged
+              : false;
+          final persistProgress = rawArgs is BlindMeetingDnaRouteArgs
+              ? rawArgs.persistProgress
+              : false;
           if (profile is! BlindMeetingProfileSnapshot) {
             return _cupertino(
-              const BlindMeetingIntroScreen(),
+              const BlindMeetingIntroScreen(enablePaidDnaStart: true),
               settings: RouteSettings(name: RouteNames.blindTasteMeeting),
             );
           }
           return _cupertino(
-            BlindMeetingDnaWizardScreen(profile: profile, mode: mode),
+            BlindMeetingDnaWizardScreen(
+              profile: profile,
+              mode: mode,
+              heartCharged: heartCharged,
+              persistProgress: persistProgress,
+            ),
             settings: settings,
           );
         }
@@ -458,7 +469,7 @@ class AppRouter {
           final draft = settings.arguments;
           if (draft is! BlindMeetingDnaDraft) {
             return _cupertino(
-              const BlindMeetingIntroScreen(),
+              const BlindMeetingIntroScreen(enablePaidDnaStart: true),
               settings: RouteSettings(name: RouteNames.blindTasteMeeting),
             );
           }
@@ -476,7 +487,9 @@ class AppRouter {
         {
           final args = settings.arguments;
           if (args is! BlindMeetingMeetingArgs) {
-            return _cupertino(const BlindMeetingIntroScreen());
+            return _cupertino(
+              const BlindMeetingIntroScreen(enablePaidDnaStart: true),
+            );
           }
           return _cupertino(BlindMeetingResultScreen(args: args));
         }
@@ -484,7 +497,9 @@ class AppRouter {
         {
           final args = settings.arguments;
           if (args is! BlindMeetingMeetingArgs) {
-            return _cupertino(const BlindMeetingIntroScreen());
+            return _cupertino(
+              const BlindMeetingIntroScreen(enablePaidDnaStart: true),
+            );
           }
           return _cupertino(BlindMeetingFollowUpScreen(args: args));
         }
@@ -492,7 +507,9 @@ class AppRouter {
         {
           final args = settings.arguments;
           if (args is! BlindMeetingMeetingArgs) {
-            return _cupertino(const BlindMeetingIntroScreen());
+            return _cupertino(
+              const BlindMeetingIntroScreen(enablePaidDnaStart: true),
+            );
           }
           return _cupertino(BlindMeetingFeedbackScreen(args: args));
         }

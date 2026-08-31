@@ -35,8 +35,4 @@ class AppDimensions {
 
   // Bottom Navigation
   static const double bottomNavHeight = 60.0;
-
-  // Profile Card
-  static const double profileCardHeight = 480.0;
-  static const double profileImageSize = 120.0;
 }

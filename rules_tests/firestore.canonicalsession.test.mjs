@@ -141,7 +141,9 @@ test("a legacy kakao session keeps every canonical-session surface", async () =>
   await assertSucceeds(ops.getPublicProfile());
   await assertSucceeds(ops.createInteraction());
   await assertSucceeds(ops.createAsk());
-  await assertSucceeds(ops.createChatRoom());
+  // 1:1 방 생성은 unlockDirectChat callable(하트 차감) 전용 — canonical
+  // 세션이어도 클라이언트 직접 생성은 거부된다.
+  await assertFails(ops.createChatRoom());
   await assertSucceeds(ops.createBambooPost());
 });
 
@@ -157,7 +159,9 @@ test("a canonical appSession token can use every canonical-session surface", asy
   await assertSucceeds(ops.getPublicProfile());
   await assertSucceeds(ops.createInteraction());
   await assertSucceeds(ops.createAsk());
-  await assertSucceeds(ops.createChatRoom());
+  // 1:1 방 생성은 unlockDirectChat callable(하트 차감) 전용 — canonical
+  // 세션이어도 클라이언트 직접 생성은 거부된다.
+  await assertFails(ops.createChatRoom());
   await assertSucceeds(ops.createBambooPost());
 });
 

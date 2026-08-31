@@ -19,53 +19,87 @@
   "products" : [
     {
       "currency" : "KRW",
-      "displayPrice" : "₩3,000",
+      "displayPrice" : "₩3,900",
       "familyShareable" : false,
       "internalID" : "4EDB7B59-C1D4-4B35-9F12-BD6A7A1BBA10",
       "localizations" : [
         {
-          "description" : "설레연 하트 10개를 충전합니다.",
-          "displayName" : "하트 10개",
+          "description" : "설레연 하트 20개를 충전합니다.",
+          "displayName" : "가볍게 · 20H",
           "locale" : "ko"
         }
       ],
-      "price" : 3000,
-      "productID" : "seolleyeon.heart.10",
-      "referenceName" : "Heart 10",
+      "price" : 3900,
+      "productID" : "seolleyeon.heart.20",
+      "referenceName" : "Light 20H",
       "type" : "Consumable"
     },
     {
       "currency" : "KRW",
-      "displayPrice" : "₩7,000",
+      "displayPrice" : "₩6,900",
       "familyShareable" : false,
       "internalID" : "037B4A49-A08B-46CF-9E7F-CFD9F5B0C530",
       "localizations" : [
         {
-          "description" : "설레연 하트 30개를 충전합니다.",
-          "displayName" : "하트 30개",
+          "description" : "설레연 하트 40개를 충전합니다.",
+          "displayName" : "핵심 · 40H",
           "locale" : "ko"
         }
       ],
-      "price" : 7000,
-      "productID" : "seolleyeon.heart.30",
-      "referenceName" : "Heart 30",
+      "price" : 6900,
+      "productID" : "seolleyeon.heart.40",
+      "referenceName" : "Core 40H",
       "type" : "Consumable"
     },
     {
       "currency" : "KRW",
-      "displayPrice" : "₩18,000",
+      "displayPrice" : "₩14,900",
       "familyShareable" : false,
       "internalID" : "E933C142-2FBC-4C8A-AACA-059759A67B87",
       "localizations" : [
         {
           "description" : "설레연 하트 100개를 충전합니다.",
-          "displayName" : "하트 100개",
+          "displayName" : "활동 · 100H",
           "locale" : "ko"
         }
       ],
-      "price" : 18000,
+      "price" : 14900,
       "productID" : "seolleyeon.heart.100",
-      "referenceName" : "Heart 100",
+      "referenceName" : "Active 100H",
+      "type" : "Consumable"
+    },
+    {
+      "currency" : "KRW",
+      "displayPrice" : "₩29,900",
+      "familyShareable" : false,
+      "internalID" : "A491194B-3D94-4E34-9197-C181C42C0220",
+      "localizations" : [
+        {
+          "description" : "설레연 하트 220개를 충전합니다.",
+          "displayName" : "학기 · 220H",
+          "locale" : "ko"
+        }
+      ],
+      "price" : 29900,
+      "productID" : "seolleyeon.heart.220",
+      "referenceName" : "Semester 220H",
+      "type" : "Consumable"
+    },
+    {
+      "currency" : "KRW",
+      "displayPrice" : "₩6,900",
+      "familyShareable" : false,
+      "internalID" : "48C3DA9E-AEC8-4815-B099-C3C09FCD7E50",
+      "localizations" : [
+        {
+          "description" : "계정의 첫 결제에만 설레연 하트 50개를 충전합니다.",
+          "displayName" : "첫 결제 특별 · 50H",
+          "locale" : "ko"
+        }
+      ],
+      "price" : 6900,
+      "productID" : "seolleyeon.heart.first.50",
+      "referenceName" : "First Purchase 50H",
       "type" : "Consumable"
     }
   ],

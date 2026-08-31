@@ -74,7 +74,6 @@ class RouteNames {
   // Matching (1:1)
   static const String mysteryCard = '/matching/mystery-card';
   static const String profileDiscovery = '/matching/profile-discovery';
-  static const String profileCard = '/matching/profile-card';
   static const String aiMatchCard = '/matching/ai-match-card';
   static const String profileSpecificDetail =
       '/matching/profile-specific-detail';

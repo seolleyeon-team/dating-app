@@ -185,10 +185,10 @@ test("blind: participants read meeting doc, outsiders cannot", async () => {
 // chat_rooms create — 일반 DM 은 허용, 미팅 방/연결 필드 위조는 차단
 // ---------------------------------------------------------------------------
 
-test("chat_rooms: a participant can still create a plain DM room", async () => {
+test("chat_rooms: plain DM creation is server-only (unlockDirectChat paywall)", async () => {
   await withClearedDb();
   const alice = await kakaoSession(ALICE);
-  await assertSucceeds(
+  await assertFails(
     setDoc(doc(alice, "chat_rooms", "dm_alice_bob"), {
       roomId: "dm_alice_bob",
       participantIds: [ALICE, BOB],

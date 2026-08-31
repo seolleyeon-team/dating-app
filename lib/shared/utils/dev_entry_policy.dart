@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show appFlavor;
 
 /// Controls entry points that skip Kakao login and Yonsei student verification.
 ///
@@ -12,8 +13,12 @@ class DevEntryPolicy {
 
   static bool? _testOverride;
 
-  /// True only in debug builds, unless a test says otherwise.
-  static bool get allowTestAccountEntry => _testOverride ?? kDebugMode;
+  /// Enabled for debug builds and the isolated staging flavor only.
+  ///
+  /// Never enable this in production: it bypasses Kakao login and student
+  /// verification by entering as `fake_user_1`.
+  static bool get allowTestAccountEntry =>
+      _testOverride ?? (kDebugMode || appFlavor == 'staging');
 
   @visibleForTesting
   static void debugSetTestAccountEntry(bool? value) {

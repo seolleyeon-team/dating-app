@@ -149,13 +149,13 @@ describe("관심사 taxonomy 사본", () => {
   it("Dart 원본과 같은 fingerprint를 가진다", () => {
     const fingerprint = interestTaxonomyFingerprint();
     assert.equal(fingerprint.categories, 9);
-    assert.equal(fingerprint.labels, 150);
+    assert.equal(fingerprint.labels, 151);
     assert.deepEqual(fingerprint.perCategory, {
       indoor: 19,
       outdoor: 31,
       food: 21,
       sports: 29,
-      screen: 13,
+      screen: 14,
       music: 11,
       game: 6,
       creative: 13,

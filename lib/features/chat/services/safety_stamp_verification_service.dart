@@ -14,12 +14,20 @@ class SafetyStampVerificationService {
 
   final FlutterBlePeripheral _peripheral;
 
-  static const String _serviceUuid = '9c836097-1f17-4ef8-9f0c-6b8d3f2f61a2';
+  // Kept for devices that still run the previous fixed-UUID protocol.
+  static const String _legacyServiceUuid =
+      '9c836097-1f17-4ef8-9f0c-6b8d3f2f61a2';
   static const Duration _scanTimeout = Duration(seconds: 8);
   static const Duration _advertisingReadyTimeout = Duration(seconds: 3);
   static const Duration _peripheralReadyTimeout = Duration(seconds: 5);
   static const int _nearbyRssiThreshold = -78;
-  static const int _maxAdvertisedNameLength = 26;
+  // flutter_ble_peripheral forwards this value to
+  // CBAdvertisementDataLocalNameKey on iOS, where the plugin supports up to
+  // 10 bytes. Keep the optional legacy name inside that limit for iOS; the
+  // primary cross-platform identifier is the per-user service UUID below.
+  static const int _advertisedNameLength = 10;
+  // Accept the old Android identifier while users are upgrading the app.
+  static const int _legacyAdvertisedNameLength = 26;
 
   Future<SafetyStampVerificationResult> verifyNearbyAndCaptureLocation({
     required String promiseId,
@@ -47,19 +55,36 @@ class SafetyStampVerificationService {
       return bluetoothReady;
     }
 
+    final localServiceUuid = _buildAdvertisedServiceUuid(
+      promiseId: promiseId,
+      userId: currentUserId,
+    );
+    final partnerServiceUuid = _buildAdvertisedServiceUuid(
+      promiseId: promiseId,
+      userId: partnerUserId,
+    );
     final localAlias = _buildAdvertisedAlias(
       promiseId: promiseId,
       userId: currentUserId,
     );
-    final partnerAlias = _buildAdvertisedAlias(
-      promiseId: promiseId,
-      userId: partnerUserId,
-    );
+    final partnerAliases = <String>{
+      _buildAdvertisedAlias(promiseId: promiseId, userId: partnerUserId),
+      // A recently built iOS app can still be paired with an older Android
+      // build that is broadcasting the previous 26-byte identifier.
+      _buildAdvertisedAlias(
+        promiseId: promiseId,
+        userId: partnerUserId,
+        maxLength: _legacyAdvertisedNameLength,
+      ),
+    };
 
     StreamSubscription<List<ScanResult>>? scanSubscription;
 
     try {
-      final isAdvertising = await _startAdvertising(localAlias);
+      final isAdvertising = await _startAdvertising(
+        serviceUuid: localServiceUuid,
+        localAlias: localAlias,
+      );
       if (!isAdvertising) {
         return SafetyStampVerificationResult.failure(
           failure: SafetyStampVerificationFailure.bluetoothOff,
@@ -68,10 +93,20 @@ class SafetyStampVerificationService {
       }
 
       final resultCompleter = Completer<int?>();
+      final partnerServiceGuid = Guid(partnerServiceUuid);
       scanSubscription = FlutterBluePlus.onScanResults.listen((results) {
         for (final result in results) {
-          final advertisedName = result.advertisementData.advName.trim();
-          if (advertisedName != partnerAlias) continue;
+          final advertisement = result.advertisementData;
+          final hasPartnerService = advertisement.serviceUuids.any(
+            (service) => service == partnerServiceGuid,
+          );
+
+          if (!hasPartnerService) {
+            // Legacy devices advertised the fixed UUID and relied on the
+            // device name as the second half of the handshake.
+            final advertisedName = advertisement.advName.trim();
+            if (!partnerAliases.contains(advertisedName)) continue;
+          }
 
           if (!resultCompleter.isCompleted) {
             resultCompleter.complete(result.rssi);
@@ -82,8 +117,10 @@ class SafetyStampVerificationService {
       FlutterBluePlus.cancelWhenScanComplete(scanSubscription);
 
       await FlutterBluePlus.startScan(
-        withServices: [Guid(_serviceUuid)],
-        withNames: [partnerAlias],
+        // The new per-user UUID is the primary identity and works on both
+        // platforms. The fixed UUID remains in the filter for old builds.
+        // Do not use withNames: iOS may omit or normalize local names.
+        withServices: [partnerServiceGuid, Guid(_legacyServiceUuid)],
         timeout: _scanTimeout,
         androidUsesFineLocation: true,
       );
@@ -185,9 +222,12 @@ class SafetyStampVerificationService {
     return false;
   }
 
-  Future<bool> _startAdvertising(String localAlias) async {
+  Future<bool> _startAdvertising({
+    required String serviceUuid,
+    required String localAlias,
+  }) async {
     final advertiseData = AdvertiseData(
-      serviceUuid: _serviceUuid,
+      serviceUuid: serviceUuid,
       localName: localAlias,
     );
 
@@ -212,9 +252,25 @@ class SafetyStampVerificationService {
   String _buildAdvertisedAlias({
     required String promiseId,
     required String userId,
+    int maxLength = _advertisedNameLength,
   }) {
     final digest = sha1.convert('$promiseId::$userId'.codeUnits).toString();
-    return 'SYN${digest.substring(0, _maxAdvertisedNameLength - 3)}';
+    return 'SYN${digest.substring(0, maxLength - 3)}';
+  }
+
+  String _buildAdvertisedServiceUuid({
+    required String promiseId,
+    required String userId,
+  }) {
+    final digest = sha1.convert('$promiseId::$userId'.codeUnits).toString();
+    final variantNibble =
+        ((int.parse(digest.substring(16, 17), radix: 16) & 0x3) | 0x8)
+            .toRadixString(16);
+
+    // Turn the first 128 bits of the digest into a valid UUID. The version and
+    // variant bits make the value acceptable to CoreBluetooth and Android's
+    // UUID parser while retaining deterministic, promise-scoped identity.
+    return '${digest.substring(0, 8)}-${digest.substring(8, 12)}-4${digest.substring(13, 16)}-$variantNibble${digest.substring(17, 20)}-${digest.substring(20, 32)}';
   }
 
   Future<SafetyStampVerificationResult> _captureLocation() async {

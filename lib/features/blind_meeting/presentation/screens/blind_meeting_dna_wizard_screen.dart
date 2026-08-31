@@ -10,6 +10,8 @@
 // 관심사·음주 정도·흡연 여부·MBTI는 온보딩 데이터를 불러오고 다시 묻지 않는다.
 // =============================================================================
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../../router/route_names.dart';
@@ -20,10 +22,13 @@ import '../../domain/blind_meeting_enums.dart';
 import '../blind_meeting_route_args.dart';
 import '../theme/blind_meeting_palette.dart';
 import '../widgets/blind_meeting_common.dart';
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
 class BlindMeetingDnaWizardScreen extends StatefulWidget {
   final BlindMeetingProfileSnapshot profile;
   final BlindMeetingDnaMode mode;
+  final bool heartCharged;
+  final bool persistProgress;
   final BlindMeetingRepository? repository;
   final BlindMeetingAnalytics? analytics;
 
@@ -31,6 +36,8 @@ class BlindMeetingDnaWizardScreen extends StatefulWidget {
     super.key,
     required this.profile,
     this.mode = BlindMeetingDnaMode.create,
+    this.heartCharged = false,
+    this.persistProgress = false,
     this.repository,
     this.analytics,
   });
@@ -61,8 +68,15 @@ class _BlindMeetingDnaWizardScreenState
     super.initState();
     if (widget.mode == BlindMeetingDnaMode.editExistingApplication) {
       _restoreExistingDna();
+    } else if (widget.mode == BlindMeetingDnaMode.resumePaidDraft) {
+      _restorePaidDraft();
     }
   }
+
+  bool get _shouldPersistProgress =>
+      widget.persistProgress &&
+      widget.heartCharged &&
+      widget.mode != BlindMeetingDnaMode.editExistingApplication;
 
   bool get _canGoNext => switch (_step) {
     1 =>
@@ -110,6 +124,48 @@ class _BlindMeetingDnaWizardScreenState
     }
   }
 
+  Future<void> _restorePaidDraft() async {
+    if (_loadingExistingDna) return;
+    setState(() {
+      _loadingExistingDna = true;
+      _existingDnaError = null;
+    });
+    try {
+      final progress = await _repository.loadMyDnaProgress();
+      if (!mounted) return;
+      if (progress == null || !progress.isInProgress) {
+        throw StateError('진행 중인 미팅 DNA를 찾을 수 없어요.');
+      }
+      setState(() {
+        _atmosphere = progress.atmosphere;
+        _initiative = progress.initiative;
+        _purpose = progress.purpose;
+        _alcohol = progress.alcoholPreference;
+        _smoking = progress.smokingPreference;
+        _loadingExistingDna = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadingExistingDna = false;
+        _existingDnaError = '작성 중인 미팅 DNA를 불러오지 못했어요. 다시 시도해주세요.';
+      });
+    }
+  }
+
+  void _persistProgressField(String key, String value) {
+    if (!_shouldPersistProgress) return;
+    unawaited(
+      _repository.saveBlindMeetingDnaDraft({key: value}).catchError((error) {
+        // 최종 제출은 전체 답변을 다시 보내므로 일시적인 진행 저장
+        // 실패가 작성 화면을 막지는 않는다.
+        debugPrint(
+          '[BlindMeeting] DNA 진행 저장 실패: ${PrivacyLogUtils.errorSummary(error)}',
+        );
+      }),
+    );
+  }
+
   void _next() {
     if (!_canGoNext) return;
     if (_step < _totalSteps) {
@@ -128,6 +184,7 @@ class _BlindMeetingDnaWizardScreenState
       purpose: _purpose!,
       alcoholPreference: _alcohol!,
       smokingPreference: _smoking!,
+      heartCharged: widget.heartCharged,
     );
     Navigator.of(
       context,
@@ -169,7 +226,10 @@ class _BlindMeetingDnaWizardScreenState
                     else if (_existingDnaError != null)
                       BlindMeetingErrorState(
                         message: _existingDnaError!,
-                        onRetry: _restoreExistingDna,
+                        onRetry:
+                            widget.mode == BlindMeetingDnaMode.resumePaidDraft
+                            ? _restorePaidDraft
+                            : _restoreExistingDna,
                       )
                     else
                       ..._buildStep(palette),
@@ -202,7 +262,10 @@ class _BlindMeetingDnaWizardScreenState
             BlindMeetingOptionTile(
               label: option.label,
               selected: _atmosphere == option,
-              onTap: () => setState(() => _atmosphere = option),
+              onTap: () {
+                setState(() => _atmosphere = option);
+                _persistProgressField('conversationAtmosphere', option.name);
+              },
             ),
         ];
       case 2:
@@ -212,7 +275,10 @@ class _BlindMeetingDnaWizardScreenState
             BlindMeetingOptionTile(
               label: option.label,
               selected: _initiative == option,
-              onTap: () => setState(() => _initiative = option),
+              onTap: () {
+                setState(() => _initiative = option);
+                _persistProgressField('conversationInitiative', option.name);
+              },
             ),
         ];
       case 3:
@@ -222,7 +288,10 @@ class _BlindMeetingDnaWizardScreenState
             BlindMeetingOptionTile(
               label: option.label,
               selected: _purpose == option,
-              onTap: () => setState(() => _purpose = option),
+              onTap: () {
+                setState(() => _purpose = option);
+                _persistProgressField('meetingPurpose', option.name);
+              },
             ),
           const SizedBox(height: 8),
           Text(
@@ -247,7 +316,13 @@ class _BlindMeetingDnaWizardScreenState
               enabled:
                   option != AlcoholCompanionPreference.allSober ||
                   _canChooseAllSober,
-              onTap: () => setState(() => _alcohol = option),
+              onTap: () {
+                setState(() => _alcohol = option);
+                _persistProgressField(
+                  'alcoholCompanionPreference',
+                  option.name,
+                );
+              },
             ),
           const SizedBox(height: 20),
           _question('흡연자와 같은 미팅에 배정되어도 괜찮나요?', palette),
@@ -255,7 +330,13 @@ class _BlindMeetingDnaWizardScreenState
             BlindMeetingOptionTile(
               label: option.label,
               selected: _smoking == option,
-              onTap: () => setState(() => _smoking = option),
+              onTap: () {
+                setState(() => _smoking = option);
+                _persistProgressField(
+                  'smokingCompanionPreference',
+                  option.name,
+                );
+              },
             ),
         ];
     }

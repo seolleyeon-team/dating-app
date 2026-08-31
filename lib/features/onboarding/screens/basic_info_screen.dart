@@ -11,6 +11,7 @@
 
 import 'package:flutter/cupertino.dart';
 import '../../../constants/academic_grade_options.dart';
+import '../../../constants/profile_options.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../router/route_names.dart';
@@ -268,7 +269,10 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
     final nickname = _nicknameController.text.trim();
     final height = int.tryParse(_heightController.text.trim());
     final hasNickname = nickname.isNotEmpty;
-    final hasHeight = height != null && height > 0;
+    final hasHeight =
+        height != null &&
+        height >= profileHeightMin &&
+        height <= profileHeightMax;
 
     if (hasNickname && hasHeight) {
       return true;
@@ -276,7 +280,9 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
 
     HapticFeedback.lightImpact();
 
-    final message = !hasNickname ? '닉네임을 입력해주세요.' : '키를 입력해주세요.';
+    final message = !hasNickname
+        ? '닉네임을 입력해주세요.'
+        : '키를 $profileHeightMin-${profileHeightMax}cm로 입력해주세요.';
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.red),
@@ -595,8 +601,8 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                     ),
                                     child: Slider(
                                       value: _age,
-                                      min: 18,
-                                      max: 30,
+                                      min: profileAgeSliderMin,
+                                      max: profileAgeSliderMax,
                                       onChanged: (v) =>
                                           setState(() => _age = v),
                                     ),
@@ -776,7 +782,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                               child: Column(
                                 children: [
                                   _RelationshipOption(
-                                    label: '진지한 연애를 원해요',
+                                    label: profileRelationshipOptions[0].label,
                                     value: RelationshipPreference.serious,
                                     groupValue: _relationship,
                                     onChanged: (v) =>
@@ -784,7 +790,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                   ),
                                   const SizedBox(height: 8),
                                   _RelationshipOption(
-                                    label: '편안한 친구 같은 관계',
+                                    label: profileRelationshipOptions[1].label,
                                     value: RelationshipPreference.friend,
                                     groupValue: _relationship,
                                     onChanged: (v) =>
@@ -792,7 +798,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                   ),
                                   const SizedBox(height: 8),
                                   _RelationshipOption(
-                                    label: '상관없어요',
+                                    label: profileRelationshipOptions[2].label,
                                     value: RelationshipPreference.open,
                                     groupValue: _relationship,
                                     onChanged: (v) =>

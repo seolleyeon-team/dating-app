@@ -14,6 +14,7 @@ import '../../../services/campus_life_zone_repair_service.dart';
 import '../../../services/storage_service.dart';
 import '../domain/blind_meeting_application.dart';
 import '../domain/blind_meeting_dna.dart';
+import '../domain/blind_meeting_dna_progress.dart';
 import '../domain/blind_meeting_enums.dart';
 import '../domain/blind_meeting_feedback.dart';
 import '../domain/blind_meeting_followup.dart';
@@ -28,6 +29,7 @@ class BlindMeetingCollections {
   static const String meetings = 'blindMeetings';
   static const String applications = 'blindMeetingApplications';
   static const String dna = 'blindMeetingDna';
+  static const String dnaDrafts = 'blindMeetingDnaDrafts';
   static const String participants = 'participants';
   static const String publicProfiles = 'publicProfiles';
   static const String followUpChoices = 'followUpChoices';
@@ -120,6 +122,29 @@ class BlindMeetingApplicationResult {
       ),
       meetingId: _nullableString(data['meetingId']),
       message: _nullableString(data['message']),
+    );
+  }
+}
+
+/// DNA 작성 진입 결제 결과.
+class BlindMeetingDnaStartResult {
+  final bool charged;
+  final int heartBalance;
+  final int heartChargeCount;
+
+  const BlindMeetingDnaStartResult({
+    required this.charged,
+    required this.heartBalance,
+    required this.heartChargeCount,
+  });
+
+  static BlindMeetingDnaStartResult fromMap(Map<String, dynamic> data) {
+    final balance = data['heartBalance'];
+    final chargeCount = data['heartChargeCount'];
+    return BlindMeetingDnaStartResult(
+      charged: data['charged'] == true,
+      heartBalance: balance is num ? balance.toInt() : 0,
+      heartChargeCount: chargeCount is num ? chargeCount.toInt() : 0,
     );
   }
 }
@@ -268,6 +293,29 @@ class BlindMeetingRepository {
     final data = snapshot.data();
     if (data == null) return null;
     return BlindMeetingDna.fromMap(userId, normalizeFirestoreMap(data));
+  }
+
+  /// 30H를 차감한 DNA 작성 진행 상태를 읽는다.
+  Future<BlindMeetingDnaProgress?> loadMyDnaProgress() async {
+    final userId = await _requireSession();
+    final snapshot = await _firestore
+        .collection(BlindMeetingCollections.dnaDrafts)
+        .doc(userId)
+        .get();
+    final data = snapshot.data();
+    if (data == null) return null;
+    return BlindMeetingDnaProgress.fromMap(userId, normalizeFirestoreMap(data));
+  }
+
+  /// DNA 화면 첫 진입. 서버 트랜잭션이 동일 진행 상태의 재호출을 멱등 처리한다.
+  Future<BlindMeetingDnaStartResult> startBlindMeetingDna() async {
+    final result = await _call('startBlindMeetingDna', const {});
+    return BlindMeetingDnaStartResult.fromMap(result);
+  }
+
+  /// DNA wizard에서 선택한 답변을 진행 문서에 저장한다.
+  Future<void> saveBlindMeetingDnaDraft(Map<String, dynamic> fields) async {
+    await _call('saveBlindMeetingDnaDraft', {'fields': fields});
   }
 
   /// 내 신청 상태 구독 (대기 화면의 단일 소스).

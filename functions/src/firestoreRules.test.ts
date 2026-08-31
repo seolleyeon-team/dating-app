@@ -179,9 +179,11 @@ test("canonical app session gates the interactive surfaces (auth re-architecture
     "asks create must require a canonical app session",
     "match /asks/{askId} { allow read: if isAskParticipant(resource.data); allow create: if isCanonicalAppSession() &&"
   );
+  // 1:1 채팅방 생성은 unlockDirectChat callable(하트 차감) 전용으로
+  // 서버에서만 이뤄진다 — 클라이언트 생성은 세션 종류와 무관하게 전면 거부.
   assertContains(
-    "chat room create must require a canonical app session",
-    "allow create: if isCanonicalAppSession() && isChatRoomParticipantAfter() && !isBlindMeetingRoomData(request.resource.data)"
+    "chat room create is server-only (heart paywall cannot be bypassed)",
+    "// 1:1 방은 unlockDirectChat callable이 하트 차감과 함께 생성한다. // 시즌/블라인드 미팅 방도 각 서버 트랜잭션의 소유다. allow create: if false;"
   );
   assertContains(
     "bamboo post create must require a canonical app session",

@@ -14,6 +14,8 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
+import '../../../shop/services/heart_economy.dart';
+import '../../../shop/widgets/heart_spend_confirmation.dart';
 import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_repository.dart';
 import '../../domain/blind_meeting_application.dart';
@@ -191,11 +193,6 @@ class _BlindMeetingScheduleScreenState
       return;
     }
 
-    setState(() {
-      _submitting = true;
-      _error = null;
-    });
-
     final dna = widget.draft.toDna(
       dateKeys: valid,
       waitlistOptIn: _waitlistOptIn,
@@ -209,6 +206,27 @@ class _BlindMeetingScheduleScreenState
       });
       return;
     }
+
+    if (widget.draft.mode != BlindMeetingDnaMode.editExistingApplication &&
+        !widget.draft.heartCharged &&
+        // Repository injection is the widget-test seam. 실제 앱은 기본
+        // repository를 사용하므로 항상 이 확인창을 거친다.
+        widget.repository == null) {
+      final confirmed = await confirmHeartSpend(
+        context,
+        action: '정말로 3:3 블라인드 미팅에 참여하시겠습니까?',
+        amount: HeartFeatureCosts.blindMeeting,
+        chargeMessage:
+            '새 신청이면 ${HeartFeatureCosts.label(HeartFeatureCosts.blindMeeting)} 하트가 차감됩니다.',
+        detail: '새 참가 신청일 때만 차감되며, 진행 중인 신청 수정은 무료입니다.',
+      );
+      if (!confirmed || !mounted) return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
 
     try {
       final result =
@@ -260,7 +278,13 @@ class _BlindMeetingScheduleScreenState
           : '';
       setState(() {
         _submitting = false;
-        _error = serverMessage.isNotEmpty
+        // 우선순위: 하트 부족 안내 → 서버 guard 문구(예: 진행 중 미팅
+        // 재신청 차단) → 일반 안내.
+        _error =
+            error is FirebaseFunctionsException &&
+                error.code == 'resource-exhausted'
+            ? '하트가 부족해요. 3:3 블라인드 신청에는 ${HeartFeatureCosts.label(HeartFeatureCosts.blindMeeting)}가 필요해요.'
+            : serverMessage.isNotEmpty
             ? serverMessage
             : '참가 신청을 저장하지 못했어요. 선택한 날짜는 그대로 유지돼요.';
       });
@@ -417,13 +441,43 @@ class _BlindMeetingScheduleScreenState
                 kEventHorizontalPadding,
                 12,
               ),
-              child: BlindMeetingPrimaryButton(
-                label: selection.isEmpty
-                    ? '가능한 날짜를 선택해주세요'
-                    : '선택한 ${selection.length}개 날짜로 신청하기',
-                icon: Icons.event_available_outlined,
-                loading: _submitting,
-                onPressed: selection.isEmpty ? null : _submit,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (selection.isNotEmpty &&
+                      widget.draft.mode !=
+                          BlindMeetingDnaMode.editExistingApplication &&
+                      !widget.draft.heartCharged)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        '신규 신청 시 ${HeartFeatureCosts.label(HeartFeatureCosts.blindMeeting)} 하트가 차감돼요.',
+                        style: BlindMeetingText.caption(
+                          BlindMeetingPalette.of(context).inkSoft,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  if (selection.isNotEmpty && widget.draft.heartCharged)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        '${HeartFeatureCosts.label(HeartFeatureCosts.blindMeeting)} 하트는 이미 차감됐어요.',
+                        style: BlindMeetingText.caption(
+                          BlindMeetingPalette.of(context).inkSoft,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  BlindMeetingPrimaryButton(
+                    label: selection.isEmpty
+                        ? '가능한 날짜를 선택해주세요'
+                        : '선택한 ${selection.length}개 날짜로 신청하기',
+                    icon: Icons.event_available_outlined,
+                    loading: _submitting,
+                    onPressed: selection.isEmpty ? null : _submit,
+                  ),
+                ],
               ),
             ),
           ),

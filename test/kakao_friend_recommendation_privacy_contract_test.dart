@@ -239,8 +239,8 @@ void main() {
       isFalse,
     );
 
+    // profile_card_screen 은 main 에서 제거됐다 (부재는 별도 테스트가 고정).
     for (final path in [
-      'lib/features/matching/screens/profile_card_screen.dart',
       'lib/features/matching/screens/mystery_card_screen.dart',
     ]) {
       final screen = _read(path);
@@ -321,6 +321,26 @@ void main() {
     expect(predicate, contains('isStudentVerified'));
     expect(predicate, contains('initialSetupComplete'));
     expect(predicate, contains('profileVisible'));
+  });
+
+  test('legacy general profile-card system is removed from the app graph', () {
+    expect(
+      File(
+        'lib/features/matching/screens/profile_card_screen.dart',
+      ).existsSync(),
+      isFalse,
+    );
+
+    final router = _read('lib/router/app_router.dart');
+    final routes = _read('lib/router/route_names.dart');
+    final recommendationService = _read(
+      'lib/services/ai_recommendation_service.dart',
+    );
+
+    expect(router, isNot(contains('ProfileCardScreen')));
+    expect(router, isNot(contains("profile_card_screen.dart")));
+    expect(routes, isNot(contains("profileCard = '/matching/profile-card'")));
+    expect(recommendationService, isNot(contains('fetchProfileFeed')));
   });
 
   test('clients cannot write recommendation exclusion pairs and the pair '

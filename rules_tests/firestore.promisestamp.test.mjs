@@ -737,10 +737,12 @@ test("the requester CAN cancel their own pending promise", async () => {
   );
 });
 
-test("the recipient CANNOT cancel someone else's promise", async () => {
+test("the recipient CAN also cancel the promise (both parties may cancel)", async () => {
+  // main 의 cancelPromise 제품 계약: 취소는 양 당사자 모두 가능하다.
+  // 제3자(동석 참가자·비참가자) 차단은 아래 두 테스트가 계속 보장한다.
   await withClearedDb(seedRooms);
   const b = await kakaoSession(B);
-  await assertFails(
+  await assertSucceeds(
     updateDoc(doc(b, "chat_rooms", ROOM, "promises", PROMISE), {
       status: "cancelled",
       cancelledAt: new Date(),

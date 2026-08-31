@@ -127,7 +127,9 @@ def check_key_properties() -> tuple[bool, list[str]]:
     store_file = values["storeFile"]
     store_path = Path(store_file)
     if not store_path.is_absolute():
-        store_path = (KEY_PROPERTIES.parent / store_file).resolve()
+        # android/app/build.gradle.kts uses Gradle's file(...), whose base is
+        # the app module directory rather than android/key.properties' folder.
+        store_path = (KEY_PROPERTIES.parent / "app" / store_file).resolve()
     if store_path.is_file():
         notes.append("keystore 파일: 존재함")
     else:

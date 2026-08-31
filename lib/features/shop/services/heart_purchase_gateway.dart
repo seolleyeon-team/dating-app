@@ -45,6 +45,14 @@ class HeartPurchaseGateway {
     return sha256.convert(utf8.encode(kakaoUserId)).toString();
   }
 
+  /// Prepares the authenticated app account before opening Apple's purchase
+  /// sheet. StoreKit echoes this UUID back as appAccountToken in the signed
+  /// transaction, so the backend can bind the purchase to this account.
+  Future<String> prepareAppleAppAccountToken() async {
+    final kakaoUserId = await _prepareAuthenticatedUserId();
+    return appleAppAccountTokenForUserId(kakaoUserId);
+  }
+
   Future<HeartGrantResult> grantPurchasedHearts({
     required String productId,
     required HeartPurchasePlatform platform,
@@ -122,4 +130,23 @@ class HeartPurchaseGateway {
   void _debugLog(String message) {
     if (kDebugMode) debugPrint('[IAP] $message');
   }
+}
+
+/// Must stay byte-for-byte compatible with the Firebase Functions helper.
+/// StoreKit requires applicationUserName/appAccountToken to be a UUID.
+String appleAppAccountTokenForUserId(String userId) {
+  final digest = sha256.convert(
+    utf8.encode('seolleyeon:apple-app-account:v1:$userId'),
+  );
+  final bytes = List<int>.from(digest.bytes.take(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  final hex = bytes
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join();
+  return '${hex.substring(0, 8)}-'
+      '${hex.substring(8, 12)}-'
+      '${hex.substring(12, 16)}-'
+      '${hex.substring(16, 20)}-'
+      '${hex.substring(20, 32)}';
 }

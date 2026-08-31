@@ -482,7 +482,11 @@ service cloud.firestore {
     }
 
     function isChatRoomParticipant() {
-      return isSignedIn() && request.auth.uid in chatRoomParticipantIds(resource.data);
+      // Keep the array membership expression direct. Firestore's query
+      // analyzer can prove a `where('participantIds', 'array-contains', uid)`
+      // query is safe with this form, but not when the field is wrapped in a
+      // helper/ternary expression.
+      return isSignedIn() && request.auth.uid in resource.data.participantIds;
     }
 
     function isChatRoomParticipantAfter() {
@@ -544,6 +548,57 @@ service cloud.firestore {
           request.resource.data.senderId == resource.data.senderId &&
           request.resource.data.type is string &&
           request.resource.data.type.matches('promise_.*');
+    }
+
+    // 약속 취소는 채팅방 참가자 전체가 아니라 해당 약속의 양 당사자만
+    // 수행할 수 있다. 요청자/수신자 모두 같은 취소 경로를 사용한다.
+    function isPromiseParty(data) {
+      return isSignedIn() &&
+          (
+            (
+              data.keys().hasAny(['requestedBy']) &&
+              data.requestedBy is string &&
+              data.requestedBy == request.auth.uid
+            ) ||
+            (
+              data.keys().hasAny(['requestedTo']) &&
+              data.requestedTo is string &&
+              data.requestedTo == request.auth.uid
+            )
+          );
+    }
+
+    function isPromiseCancellationUpdate() {
+      return request.resource.data.keys().hasAny(['status']) &&
+          request.resource.data.status == 'cancelled' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'cancelledAt',
+            'cancelledReason',
+            'updatedAt'
+          ]);
+    }
+
+    function canCreatePromiseDeletionMessage(roomId) {
+      return request.resource.data.keys().hasAll([
+            'type',
+            'promiseId',
+            'status'
+          ]) &&
+          request.resource.data.type == 'promise_deleted' &&
+          request.resource.data.promiseId is string &&
+          request.resource.data.status == 'cancelled' &&
+          exists(/databases/$(database)/documents/chat_rooms/$(roomId)/promises/$(request.resource.data.promiseId)) &&
+          isPromiseParty(
+            get(/databases/$(database)/documents/chat_rooms/$(roomId)/promises/$(request.resource.data.promiseId)).data
+          );
+    }
+
+    function canUpdatePromise(roomId) {
+      return isExistingChatRoomParticipant(roomId) &&
+          (!isPromiseCancellationUpdate() || isPromiseParty(resource.data)) &&
+          (!isBlindMeetingRoomData(blindRoomData(roomId)) ||
+            blindRoomData(roomId).writable == true);
     }
 
     function canUpdateChatMessage(roomId) {
@@ -660,11 +715,12 @@ service cloud.firestore {
         promiseAuthorPairUnchanged() &&
         request.auth.uid == resource.data.requestedTo
       ) || (
-        // 취소(삭제): 제안한 사람만, 아직 끝나지 않은 약속만.
+        // 취소(삭제): 약속 당사자 누구나, 아직 끝나지 않은 약속만.
+        // (main 의 cancelPromise 제품 계약 — 제3자는 여전히 불가.)
         request.resource.data.status == 'cancelled' &&
         resource.data.status in ['requested', 'confirmed'] &&
         promiseAuthorPairUnchanged() &&
-        request.auth.uid == resource.data.requestedBy
+        promiseIsParty()
       ) || (
         // 도착 안전도장 시한이 지나 자동 취소되는 경로는 당사자 누구나
         // 트리거할 수 있다 (chat_service.cancelExpiredIncompleteSafetyStamp).
@@ -1239,12 +1295,9 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     // 손대지 않았다. 회귀는 blind_meeting_rules.test.js 로 확인해야 한다.
     match /chat_rooms/{roomId} {
       allow read: if isChatRoomParticipant();
-      allow create: if isCanonicalAppSession() &&
-        isChatRoomParticipantAfter() &&
-        !isBlindMeetingRoomData(request.resource.data) &&
-        !isSeasonMeetingRoomData(request.resource.data) &&
-        chatRoomCreateHasNoMeetingLinkage(request.resource.data) &&
-        chatRoomDoesNotPersistPrivateMedia(request.resource.data);
+      // 1:1 방은 unlockDirectChat callable이 하트 차감과 함께 생성한다.
+      // 시즌/블라인드 미팅 방도 각 서버 트랜잭션의 소유다.
+      allow create: if false;
       // participantIds is immutable after create — changing it would let a
       // participant add a third party who can then read the full history.
       allow update: if isChatRoomParticipant() &&
@@ -1269,6 +1322,11 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       match /messages/{messageId} {
         allow read: if isExistingChatRoomParticipant(roomId);
         allow create: if isParticipantMessageAuthor(roomId) &&
+          (
+            !request.resource.data.keys().hasAny(['type']) ||
+            request.resource.data.type != 'promise_deleted' ||
+            canCreatePromiseDeletionMessage(roomId)
+          ) &&
           (!isBlindMeetingRoomData(blindRoomData(roomId)) || (
             blindRoomData(roomId).writable == true &&
             request.resource.data.text is string &&
@@ -1330,6 +1388,14 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
 
     // 비공개 미팅 DNA: 본인 읽기만, 쓰기는 callable(submitBlindMeetingApplication)만
     match /blindMeetingDna/{userId} {
+      allow get: if isBlindOwner(userId);
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    // 30H를 차감했지만 아직 최종 신청하지 않은 DNA 작성 진행 상태.
+    // 답변·결제 상태는 callable만 쓰고, 본인 화면에서만 읽는다.
+    match /blindMeetingDnaDrafts/{userId} {
       allow get: if isBlindOwner(userId);
       allow list: if false;
       allow create, update, delete: if false;
