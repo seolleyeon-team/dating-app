@@ -12,6 +12,14 @@
  */
 
 import { normalizeCampusLifeZones } from "../campusLifeZones";
+import {
+  BLIND_MEETING_GENDERS,
+  BLIND_MEETING_GROUP_SIZE,
+  BLIND_MEETING_TEAM_SIZE,
+  BlindMeetingGender,
+  classifyGenderShortage,
+  GenderSelectionFailure,
+} from "./genderBalance";
 import { interestCategoryIdOf } from "./interestTaxonomy";
 import {
   CURRENT_MATCHING_CONFIG,
@@ -35,6 +43,14 @@ import {
 
 export type Candidate = {
   userId: string;
+  /**
+   * canonical 성별 (`male` / `female`).
+   *
+   * 3:3 은 3남 + 3녀가 상품 정의 자체이므로 성별은 optional 이 아니다.
+   * canonical 값을 확인할 수 없는 사용자는 후보 hydration 단계
+   * (store.ts loadCandidate) 에서 제외되므로 여기까지 오지 않는다.
+   */
+  gender: BlindMeetingGender;
   atmosphere: ConversationAtmosphere;
   initiative: ConversationInitiative;
   purpose: MeetingPurpose;
@@ -72,6 +88,10 @@ export type ConstraintViolation =
   | "purposeConflict"
   | "duplicateParticipant"
   | "invalidGroupSize"
+  /** 한 팀(같은 편) 안에 서로 다른 성별이 섞였다 */
+  | "mixedGenderTeam"
+  /** 여섯 명이 3남 + 3녀가 아니다 */
+  | "genderImbalance"
   /** 여섯 명이 함께 만날 수 있는 공통 생활권이 없다 */
   | "campusLifeZoneMismatch"
   /** 생활권 정보가 없어 판정할 수 없다 (fail-closed) */
@@ -92,14 +112,18 @@ function isSmoker(status: SmokingStatus): boolean {
   return status === "smoker";
 }
 
-export function requiresAlcoholFreeGroup(candidate: Candidate): boolean {
+export function requiresAlcoholFreeGroup(
+  candidate: Pick<Candidate, "alcoholPreference" | "drinkingLevel">
+): boolean {
   return (
     candidate.alcoholPreference === "allSober" &&
     isSober(candidate.drinkingLevel)
   );
 }
 
-export function requiresNonSmokersOnly(candidate: Candidate): boolean {
+export function requiresNonSmokersOnly(
+  candidate: Pick<Candidate, "smokingPreference">
+): boolean {
   return candidate.smokingPreference === "nonSmokersOnly";
 }
 
@@ -552,6 +576,34 @@ export function sharedCampusLifeZones(members: Candidate[]): string[] {
   return [...(shared ?? new Set<string>())].sort();
 }
 
+/** 성별별 인원 수. 관측 지표와 불변식 검사에 함께 쓴다. */
+export function candidateGenderCounts(members: readonly Candidate[]): {
+  male: number;
+  female: number;
+} {
+  let male = 0;
+  let female = 0;
+  for (const member of members) {
+    if (member.gender === "male") male++;
+    else if (member.gender === "female") female++;
+  }
+  return { male, female };
+}
+
+/** 성별로 후보군을 나눈다. 점수 계산 이전 단계다 (filter-before-rank). */
+export function splitByGender(pool: readonly Candidate[]): {
+  male: Candidate[];
+  female: Candidate[];
+} {
+  const male: Candidate[] = [];
+  const female: Candidate[] = [];
+  for (const candidate of pool) {
+    if (candidate.gender === "male") male.push(candidate);
+    else if (candidate.gender === "female") female.push(candidate);
+  }
+  return { male, female };
+}
+
 /** 생활권 정보가 비어 있는 참가자가 하나라도 있는지. */
 function hasMissingCampusLifeZone(members: Candidate[]): boolean {
   return members.some(
@@ -669,6 +721,24 @@ export function checkGroupConstraints(
       violations.add("campusLifeZoneMismatch");
     }
   }
+  // 성비는 3:3 상품 정의 자체다. 팀(3명)은 단일 성별이어야 하고
+  // 그룹(6명)은 정확히 3남 + 3녀여야 한다. 점수가 아무리 높아도
+  // 4M2F / 5M1F / 6M 구성은 만들지 않는다.
+  if (members.length > 0) {
+    const counts = candidateGenderCounts(members);
+    if (expectedSize === BLIND_MEETING_TEAM_SIZE) {
+      if (counts.male > 0 && counts.female > 0) {
+        violations.add("mixedGenderTeam");
+      }
+    } else if (expectedSize === BLIND_MEETING_GROUP_SIZE) {
+      if (
+        counts.male !== BLIND_MEETING_TEAM_SIZE ||
+        counts.female !== BLIND_MEETING_TEAM_SIZE
+      ) {
+        violations.add("genderImbalance");
+      }
+    }
+  }
   // 공통 가능 날짜 검사는 의도적으로 여기서 하지 않는다.
   // 전원이 dateKey를 갖고 있어야 통과하므로 교집합은 항상 dateKey를 포함한다.
   // 최종 6인 구성 검사는 createMeetingFromProposal 에서 한 번만 수행한다.
@@ -709,6 +779,8 @@ export function standardPool(pool: Candidate[]): Candidate[] {
 
 export type TeamProposal = {
   members: Candidate[];
+  /** 팀은 단일 성별이다 (3:3 에서 "같은 편"은 동성 3명). */
+  gender: BlindMeetingGender;
   score: InternalTeamScore;
   key: string;
   userIds: Set<string>;
@@ -770,6 +842,39 @@ function eligiblePool(
   return result;
 }
 
+/**
+ * 성별 후보 수와 부족 사유. 관측(observability)과 조기 종료에 쓴다.
+ *
+ * 여기서 세는 것은 hard constraint 를 통과한 후보뿐이다.
+ * (자격 미달·날짜 불가·차단 정책 위반은 점수 계산 이전에 이미 빠진다.)
+ */
+export function describeGenderAvailability(
+  pool: Candidate[],
+  dateKey: string,
+  alcoholFree: boolean
+): {
+  eligibleMaleCount: number;
+  eligibleFemaleCount: number;
+  failure: GenderSelectionFailure | null;
+} {
+  const { male, female } = splitByGender(
+    eligiblePool(pool, dateKey, alcoholFree)
+  );
+  return {
+    eligibleMaleCount: male.length,
+    eligibleFemaleCount: female.length,
+    failure: classifyGenderShortage(male.length, female.length),
+  };
+}
+
+/**
+ * 팀(같은 편) 후보를 만든다.
+ *
+ * 3:3 에서 한 팀은 동성 3명이므로 성별로 후보군을 먼저 나눈 뒤
+ * 각 성별 안에서만 조합을 만든다. 전체 상위 6명을 뽑아놓고 나중에
+ * 성비를 맞추는 ad-hoc post-processing 이 아니라, 제약을 탐색 공간
+ * 자체에 넣는 constrained selection 이다.
+ */
 export function buildTeamProposals(
   pool: Candidate[],
   dateKey: string,
@@ -778,15 +883,26 @@ export function buildTeamProposals(
   campusLifeZoneEnforced: boolean = true
 ): TeamProposal[] {
   const eligible = eligiblePool(pool, dateKey, alcoholFree);
-  if (eligible.length < 3) return [];
+  if (eligible.length < BLIND_MEETING_TEAM_SIZE) return [];
 
   const byKey = new Map<string, TeamProposal>();
 
-  const tryTeam = (trio: Candidate[]) => {
-    if (!isGroupAllowed(trio, dateKey, alcoholFree, 3, campusLifeZoneEnforced)) return;
+  const tryTeam = (trio: Candidate[], gender: BlindMeetingGender) => {
+    if (
+      !isGroupAllowed(
+        trio,
+        dateKey,
+        alcoholFree,
+        BLIND_MEETING_TEAM_SIZE,
+        campusLifeZoneEnforced
+      )
+    ) {
+      return;
+    }
     const ordered = orderTeamMembers(trio);
     const proposal: TeamProposal = {
       members: ordered,
+      gender,
       score: internalTeamScore(ordered, config, alcoholFree),
       key: teamKey(ordered),
       userIds: new Set(ordered.map((m) => m.userId)),
@@ -794,18 +910,26 @@ export function buildTeamProposals(
     byKey.set(proposal.key, proposal);
   };
 
-  if (eligible.length <= config.exhaustiveTeamPoolLimit) {
-    for (let i = 0; i < eligible.length; i++) {
-      for (let j = i + 1; j < eligible.length; j++) {
-        for (let k = j + 1; k < eligible.length; k++) {
-          tryTeam([eligible[i], eligible[j], eligible[k]]);
+  const crossWeights = crossWeightsFor(config, alcoholFree);
+  const byGender = splitByGender(eligible);
+
+  for (const gender of BLIND_MEETING_GENDERS) {
+    const sameGender = byGender[gender];
+    if (sameGender.length < BLIND_MEETING_TEAM_SIZE) continue;
+
+    if (sameGender.length <= config.exhaustiveTeamPoolLimit) {
+      for (let i = 0; i < sameGender.length; i++) {
+        for (let j = i + 1; j < sameGender.length; j++) {
+          for (let k = j + 1; k < sameGender.length; k++) {
+            tryTeam([sameGender[i], sameGender[j], sameGender[k]], gender);
+          }
         }
       }
+      continue;
     }
-  } else {
-    const crossWeights = crossWeightsFor(config, alcoholFree);
-    for (const seed of eligible) {
-      const neighbors = eligible
+
+    for (const seed of sameGender) {
+      const neighbors = sameGender
         .filter((c) => c.userId !== seed.userId)
         .sort((a, b) => {
           const diff =
@@ -817,7 +941,7 @@ export function buildTeamProposals(
         .slice(0, config.neighborhoodSize);
       for (let j = 0; j < neighbors.length; j++) {
         for (let k = j + 1; k < neighbors.length; k++) {
-          tryTeam([seed, neighbors[j], neighbors[k]]);
+          tryTeam([seed, neighbors[j], neighbors[k]], gender);
         }
       }
     }
@@ -846,13 +970,21 @@ export function bestGroup(
   );
   if (teams.length < 2) return null;
 
-  const shortlist = teams.slice(0, config.teamShortlistSize);
+  // 두 팀은 반드시 서로 다른 성별이다. 성별별로 상위 팀을 따로 추려서
+  // 짝지으므로, 한쪽 성별이 점수 상위권을 독점해도 shortlist 가 한 성별로
+  // 채워져 3:3 이 사라지는 일이 없다.
+  const maleTeams = teams
+    .filter((t) => t.gender === "male")
+    .slice(0, config.teamShortlistSize);
+  const femaleTeams = teams
+    .filter((t) => t.gender === "female")
+    .slice(0, config.teamShortlistSize);
+  if (maleTeams.length === 0 || femaleTeams.length === 0) return null;
+
   const groups: GroupProposal[] = [];
 
-  for (let i = 0; i < shortlist.length; i++) {
-    for (let j = i + 1; j < shortlist.length; j++) {
-      const left = shortlist[i];
-      const right = shortlist[j];
+  for (const left of maleTeams) {
+    for (const right of femaleTeams) {
       let overlaps = false;
       for (const id of left.userIds) {
         if (right.userIds.has(id)) {
@@ -860,6 +992,7 @@ export function bestGroup(
           break;
         }
       }
+      // 같은 uid 가 남/여 양쪽 문서에 존재하는 손상 데이터 방어.
       if (overlaps) continue;
 
       const members = [...left.members, ...right.members];
@@ -876,7 +1009,7 @@ export function bestGroup(
           members,
           dateKey,
           alcoholFree,
-          6,
+          BLIND_MEETING_GROUP_SIZE,
           campusLifeZoneEnforced
         )
       ) {

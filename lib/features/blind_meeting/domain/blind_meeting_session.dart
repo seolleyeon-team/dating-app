@@ -107,9 +107,9 @@ allowedParticipantTransitions = {
   },
   BlindMeetingParticipantStatus.replaced: <BlindMeetingParticipantStatus>{},
   BlindMeetingParticipantStatus.cancelled: <BlindMeetingParticipantStatus>{},
+  // 노쇼는 본인이 되돌릴 수 없다 (attended edge 제거).
   BlindMeetingParticipantStatus.noShow: {
     BlindMeetingParticipantStatus.restricted,
-    BlindMeetingParticipantStatus.attended,
   },
   BlindMeetingParticipantStatus.attended: {
     BlindMeetingParticipantStatus.completed,

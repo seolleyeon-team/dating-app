@@ -14,6 +14,10 @@ import * as logger from "firebase-functions/logger";
 
 import { isStrictStudentVerification } from "./eligibility";
 import {
+  readBlindMeetingGender,
+  validateBlindThreeVsThreeParticipants,
+} from "./genderBalance";
+import {
   buildBlindMeetingApplicationEditPatch,
   BlindMeetingApplicationEditState,
 } from "./editPolicy";
@@ -262,9 +266,57 @@ export async function loadCandidate(
       isRestricted(userId),
     ]);
 
-  const dna = dnaSnap.data();
-  const user = userSnap.data();
+  return buildCandidate({
+    userId,
+    dna: dnaSnap.data(),
+    user: userSnap.data(),
+    blockedUserIds: blocked,
+    recentlyMetUserIds: recentlyMet,
+    restricted,
+    nowMs,
+    appliedAtMs,
+  });
+}
+
+/**
+ * 읽어온 문서들로 매칭 후보를 만든다 (순수 함수, I/O 없음).
+ *
+ * 여기가 후보 hydration 의 fail-closed 관문이다. 성별·안전 조건을 확인할 수
+ * 없는 사용자는 점수 계산과 상위 랭킹 이전에 여기서 제외된다
+ * (filter-before-rank).
+ */
+export function buildCandidate(params: {
+  userId: string;
+  dna: unknown;
+  user: unknown;
+  blockedUserIds: string[];
+  recentlyMetUserIds: string[];
+  restricted: boolean;
+  nowMs: number;
+  appliedAtMs: number;
+}): Candidate | null {
+  const {
+    userId,
+    blockedUserIds: blocked,
+    recentlyMetUserIds: recentlyMet,
+    restricted,
+    nowMs,
+    appliedAtMs,
+  } = params;
+  const dna = params.dna;
+  const user = params.user;
   if (!isRecord(dna) || !isRecord(user)) return null;
+
+  // 3:3 은 3남 + 3녀가 상품 정의다. canonical 성별을 확인할 수 없으면
+  // 어느 팀에도 임의로 배정하지 않고 후보에서 제외한다 (fail-closed).
+  // 여기서 걸러야 점수 계산과 상위 랭킹 이전에 부적격자가 사라진다.
+  const gender = readBlindMeetingGender(user);
+  if (gender == null) {
+    logger.info("blindMeeting candidate skipped: gender not canonical", {
+      code: "blindMeetingGenderNotCanonical",
+    });
+    return null;
+  }
 
   const atmosphere = oneOfOrNull(
     CONVERSATION_ATMOSPHERES,
@@ -283,41 +335,79 @@ export async function loadCandidate(
     user.loginDisabled !== true &&
     !restricted;
 
+  // 음주·흡연 관련 네 필드는 안전 조건이다. 값이 없거나 손상됐을 때
+  // 가장 관대한 기본값으로 보정하면 (실제 흡연자 → nonSmoker,
+  // allSober 사용자 → noPreference) 잘못된 자리에 앉힐 수 있다.
+  // 하나라도 canonical 이 아니면 후보에서 제외한다 (fail-closed).
+  const onboarding = isRecord(user.onboarding)
+    ? (user.onboarding as Record<string, unknown>)
+    : {};
+  const lifestyle = isRecord(onboarding.lifestyle)
+    ? (onboarding.lifestyle as Record<string, unknown>)
+    : {};
+
+  const alcoholPreference = oneOfOrNull(
+    ALCOHOL_PREFERENCES,
+    dna.alcoholCompanionPreference
+  );
+  const smokingPreference = oneOfOrNull(
+    SMOKING_PREFERENCES,
+    dna.smokingCompanionPreference
+  );
+  // 음주 정도·흡연 여부는 프로필이 원본이고 DNA 문서는 신청 시점 사본이다.
+  // 신청 이후 프로필을 바꿔도 사본은 갱신되지 않으므로 live 값을 먼저 본다
+  // (users 문서는 위에서 이미 읽었으므로 추가 read 비용이 없다).
+  const drinkingLevel =
+    oneOfOrNull(DRINKING_LEVELS, lifestyle.drinking) ??
+    oneOfOrNull(DRINKING_LEVELS, dna.drinkingLevelSnapshot);
+  const smokingStatus =
+    oneOfOrNull(SMOKING_STATUSES, lifestyle.smoking) ??
+    oneOfOrNull(SMOKING_STATUSES, dna.smokingStatusSnapshot);
+
+  if (
+    alcoholPreference == null ||
+    smokingPreference == null ||
+    drinkingLevel == null ||
+    smokingStatus == null
+  ) {
+    logger.info("blindMeeting candidate skipped: safety fields not canonical", {
+      code: "blindMeetingSafetyFieldNotCanonical",
+      hasAlcoholPreference: alcoholPreference != null,
+      hasSmokingPreference: smokingPreference != null,
+      hasDrinkingLevel: drinkingLevel != null,
+      hasSmokingStatus: smokingStatus != null,
+    });
+    return null;
+  }
+
+  // 신청 시점에는 "전원 비음주"를 고를 수 있는 조건(본인도 비음주)이었지만
+  // 그 뒤 프로필을 음주로 바꾼 경우. 여기서 그냥 넘기면 requiresAlcoholFreeGroup
+  // 이 false 가 되어 일반(음주) 미팅에 배정되는데, 신청서와 앱 화면은 여전히
+  // 무알코올 미팅을 약속하고 있다. 조용히 등급을 낮추지 않고 제외한다.
+  // (사용자가 DNA 를 다시 제출하면 정상 후보로 돌아온다.)
+  if (alcoholPreference === "allSober" && drinkingLevel !== "none") {
+    logger.info("blindMeeting candidate skipped: alcohol-free promise broken", {
+      code: "blindMeetingAlcoholFreePromiseBroken",
+    });
+    return null;
+  }
+
   return {
     userId,
+    gender,
     atmosphere,
     initiative,
     purpose,
-    alcoholPreference: oneOf(
-      ALCOHOL_PREFERENCES,
-      dna.alcoholCompanionPreference,
-      "noPreference"
-    ),
-    smokingPreference: oneOf(
-      SMOKING_PREFERENCES,
-      dna.smokingCompanionPreference,
-      "noPreference"
-    ),
-    drinkingLevel: oneOf(
-      DRINKING_LEVELS,
-      dna.drinkingLevelSnapshot,
-      "sometimes"
-    ),
-    smokingStatus: oneOf(
-      SMOKING_STATUSES,
-      dna.smokingStatusSnapshot,
-      "nonSmoker"
-    ),
+    alcoholPreference,
+    smokingPreference,
+    drinkingLevel,
+    smokingStatus,
     interestIds: asStrArray(dna.interestIds),
     mbti: asTrimmedOrNull(dna.mbtiSnapshot),
     // 생활권은 온보딩에서 계산되어 users/{uid}.onboarding 에 저장된 값을
     // 그대로 읽는다 (grade/department 로 재계산하지 않는다).
     // users 문서는 위에서 이미 읽었으므로 추가 read 비용이 없다.
-    campusLifeZones: readPersistedCampusLifeZones(
-      isRecord(user.onboarding)
-        ? (user.onboarding as Record<string, unknown>).campusLifeZones
-        : null
-    ),
+    campusLifeZones: readPersistedCampusLifeZones(onboarding.campusLifeZones),
     // 날짜 전용 필드를 우선 읽고, 없으면 legacy 슬롯에서 날짜만 복원한다.
     availableDateKeys: readDateKeys(
       dna.availableDateKeys,
@@ -1262,6 +1352,36 @@ export async function ensureGroupChat(params: {
   const roomId = groupChatIdFor(params.meetingId);
   const roomRef = db().collection("chat_rooms").doc(roomId);
 
+  // 최상위 불변식 3차 그물: 채팅방도 canonical 6인(3남 + 3녀)에서만 만든다.
+  // 미팅 문서가 손상됐거나 수동으로 편집됐다면 여기서 멈춘다.
+  // (채팅방이 열리면 참가자들이 서로를 보게 되므로 되돌리기 어렵다.)
+  const userSnaps = await db().getAll(
+    ...params.memberIds.map((userId) =>
+      db().collection("users").doc(userId)
+    )
+  );
+  const balance = validateBlindThreeVsThreeParticipants(
+    params.memberIds.map((userId, index) => ({
+      userId,
+      gender: readBlindMeetingGender(userSnaps[index]?.data()),
+    }))
+  );
+  if (!balance.ok) {
+    logger.error("blindMeeting group chat rejected: roster is not 3M+3F", {
+      code: "blindMeetingGenderInvariantViolated",
+      meetingId: params.meetingId,
+      violations: balance.violations,
+      maleCount: balance.counts.male,
+      femaleCount: balance.counts.female,
+      unknownGenderCount: balance.counts.unknown,
+      uniqueParticipantCount: balance.uniqueUserCount,
+    });
+    throw new HttpsError(
+      "failed-precondition",
+      "미팅 구성이 올바르지 않아 채팅방을 만들 수 없어요."
+    );
+  }
+
   const participantInfo: Record<string, unknown> = {};
   for (const userId of params.memberIds) {
     const profile = await buildPublicProfile(userId);
@@ -1276,6 +1396,18 @@ export async function ensureGroupChat(params: {
   const created = await db().runTransaction(async (tx) => {
     const snap = await tx.get(roomRef);
     if (snap.exists) {
+      // 방 id 는 meetingId 에서 결정되므로 불일치는 손상 신호다.
+      const existingMeetingId = snap.data()?.meetingId;
+      if (
+        typeof existingMeetingId === "string" &&
+        existingMeetingId.length > 0 &&
+        existingMeetingId !== params.meetingId
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "채팅방 정보가 올바르지 않아요."
+        );
+      }
       tx.set(
         roomRef,
         {

@@ -22,6 +22,13 @@ Map<String, dynamic> loadFixture() {
 BlindMeetingCandidate hydrate(Map<String, dynamic> raw, String dateKey) {
   return BlindMeetingCandidate(
     userId: raw['userId'] as String,
+    // golden vector 는 점수 parity 를 검증하고, 점수는 성별과 무관하다.
+    // vector 가 성별을 담고 있으면 그대로 쓰고 없으면 남성으로 본다.
+    gender: enumFromName(
+      BlindMeetingGender.values,
+      raw['gender'],
+      fallback: BlindMeetingGender.male,
+    ),
     atmosphere: enumFromName(
       ConversationAtmosphere.values,
       raw['atmosphere'],

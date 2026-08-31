@@ -55,6 +55,9 @@ export * from "./blindMeeting";
 
 // 3:3 미팅 아이스브레이킹 룰렛 (조용한 15분 알림 + 진입 검증)
 export * from "./meetingIcebreaker";
+
+// 안전도장 (서버 권위 write). 클라이언트는 더 이상 도장 배열을 직접 쓰지 않는다.
+export { submitSafetyStamp, submitSafetyStampFollowUp } from "./safetyStamp";
 import {
   createGetCurrentAvatarGenerationStatusFunction,
   createRetryCurrentAvatarGenerationFunction,

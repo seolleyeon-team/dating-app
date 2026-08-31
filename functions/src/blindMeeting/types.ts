@@ -247,7 +247,10 @@ export const ALLOWED_PARTICIPANT_TRANSITIONS: Record<
   replacement_pending: ["replaced", "confirmed", "cancelled"],
   replaced: [],
   cancelled: [],
-  no_show: ["restricted", "attended"],
+  // 노쇼는 본인이 되돌릴 수 없다. 예전에는 attended 로 가는 edge 가 있어서
+  // 노쇼 처리된 참가자가 도착 안전도장을 눌러 스스로 attended 로 복귀하고
+  // (공개 신뢰 카운터까지 올린 채) 룰렛 알림도 되살릴 수 있었다.
+  no_show: ["restricted"],
   attended: ["completed", "no_show"],
   completed: [],
   restricted: [],
@@ -352,12 +355,18 @@ export function isMeetingSettled(status: BlindMeetingStatus): boolean {
   return SETTLED_MEETING_STATUSES.includes(status);
 }
 
-/** 참가자가 단체 채팅 멤버십을 가질 수 있는 상태 */
+/**
+ * 참가자가 단체 채팅 멤버십을 가질 수 있는 상태.
+ *
+ * `no_show` 는 여기 없다. 이 상태는 검토 중이 아니라 최종 판정이다
+ * (스케줄러가 미체크인 상태로 창을 넘긴 참가자에게 한 번 쓰고, 그 즉시 보증금
+ * 몰수·제재·노쇼 카운트가 함께 적용된다). 나타나지 않은 사람이 나머지 다섯 명의
+ * 대화를 계속 읽고 쓸 수 있으면 안 되므로 확정과 동시에 방에서 제외한다.
+ */
 export const CHAT_MEMBERSHIP_STATUSES: ParticipantStatus[] = [
   "confirmed",
   "attended",
   "completed",
-  "no_show",
 ];
 
 export function holdsChatMembership(status: ParticipantStatus): boolean {

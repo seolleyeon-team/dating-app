@@ -16,6 +16,9 @@ class AppNotification {
   final String? deeplinkType;
   final String? deeplinkId;
 
+  /// 3:3 블라인드 취향 미팅 알림이 가리키는 미팅 id.
+  final String? meetingId;
+
   const AppNotification({
     required this.id,
     required this.type,
@@ -30,6 +33,7 @@ class AppNotification {
     this.roomId,
     this.deeplinkType,
     this.deeplinkId,
+    this.meetingId,
   });
 
   factory AppNotification.fromDoc(
@@ -56,6 +60,7 @@ class AppNotification {
       roomId: data['roomId']?.toString(),
       deeplinkType: data['deeplinkType']?.toString(),
       deeplinkId: data['deeplinkId']?.toString(),
+      meetingId: data['meetingId']?.toString(),
     );
   }
 
@@ -73,6 +78,7 @@ class AppNotification {
       'roomId': roomId,
       'deeplinkType': deeplinkType,
       'deeplinkId': deeplinkId,
+      'meetingId': meetingId,
     };
   }
 }
