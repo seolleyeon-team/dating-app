@@ -26,6 +26,23 @@ import * as logger from "firebase-functions/logger";
 
 import { withAppCheck } from "./appCheckPolicy";
 
+/**
+ * 안전도장 callable 실행 옵션.
+ *
+ * region 을 함수마다 명시한다. index.ts 의 setGlobalOptions 는 이 모듈보다
+ * 늦게 실행되므로(ES re-export 는 hoisting 되어 먼저 평가된다) 여기에
+ * 적지 않으면 기본 region 으로 배포되고, 클라이언트가 부르는
+ * asia-northeast3 와 어긋나 callable 을 찾지 못한다.
+ * blindMeeting/runtime.ts, meetingIcebreaker/runtime.ts 와 같은 이유다.
+ */
+const SAFETY_STAMP_CALLABLE_OPTIONS = {
+  region: "asia-northeast3",
+  cpu: "gcf_gen1" as const,
+  concurrency: 1,
+  memory: "256MiB" as const,
+  maxInstances: 5,
+};
+
 export type SafetyStampPhase = "meetup" | "goodbye";
 
 export const SAFETY_STAMP_PHASES: SafetyStampPhase[] = ["meetup", "goodbye"];
@@ -134,7 +151,7 @@ export type SafetyStampResult = {
  * 전체를 보낼 수 없다.
  */
 export const submitSafetyStamp = onCall(
-  withAppCheck(),
+  withAppCheck(SAFETY_STAMP_CALLABLE_OPTIONS),
   async (request): Promise<SafetyStampResult> => {
     const uid = asTrimmed(request.auth?.uid);
     if (uid.length === 0) {
@@ -396,7 +413,7 @@ export function normalizeFollowUpReason(value: unknown): string | null {
  * 따라서 사유 제출도 서버가 받아 본인 키에만 기록한다.
  */
 export const submitSafetyStampFollowUp = onCall(
-  withAppCheck(),
+  withAppCheck(SAFETY_STAMP_CALLABLE_OPTIONS),
   async (request): Promise<{ ok: true }> => {
     const uid = asTrimmed(request.auth?.uid);
     if (uid.length === 0) {
