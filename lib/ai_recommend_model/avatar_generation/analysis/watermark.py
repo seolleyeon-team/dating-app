@@ -21,10 +21,14 @@ MEDIUM_CONFIDENCE = 0.65
 SMALL_REGION_AREA = 0.08
 TINY_REGION_AREA = 0.03
 WATERMARK_POLICY_VERSION = "watermark_policy_v4_runtime_evidence_parity_v1"
-# Typed evidence now carries the token-quality semantic (derived once from
+# Typed evidence carries the text-quality semantic (derived once from
 # process-local raw OCR) so offline/recovery consumers classify identically
-# to runtime without ever seeing raw text.
-WATERMARK_EVIDENCE_SCHEMA_VERSION = "watermark_evidence_v2_token_quality_derived_v1"
+# to runtime without ever seeing raw text. v3 renames the serialized keys
+# to redactor-safe spellings (textQuality/textQualityBands): the v2 spelling
+# collided with the calibration redactor's "token" fragment guard and was
+# stripped from shared reports. Non-v3 evidence is treated as legacy and is
+# never re-classified (and never escalates from field absence).
+WATERMARK_EVIDENCE_SCHEMA_VERSION = "watermark_evidence_v3_text_quality_field_v1"
 
 WATERMARK_QA_ACTION_ALLOW = "allow"
 WATERMARK_QA_ACTION_REVIEW = "review"

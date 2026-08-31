@@ -220,3 +220,46 @@ def test_same_typed_evidence_always_yields_the_same_decision():
     first = run()
     for _ in range(24):
         assert run() == first
+
+
+# --- redactor round-trip: producer -> serializer -> calibration redactor ----
+
+def test_calibration_redactor_preserves_text_quality_evidence():
+    from avatar_generation.calibration_evaluator import redact_calibration_report
+
+    decision = evaluate_watermark_risk(
+        [_region(IMPLAUSIBLE_LABEL, confidence=None)],
+        source_regions=[_source_region(PLAUSIBLE_LABEL)],
+        image_size=SIZE,
+        source_image_size=SIZE,
+    )
+    report = {
+        "qaEvaluation": {
+            "rows": [
+                {
+                    "participantOrdinal": "P01",
+                    "candidates": [
+                        {
+                            "candidateOrdinal": 1,
+                            "qa": {"debug": {"watermarkEvidence": decision.to_document()["evidence"]}},
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+    redacted = redact_calibration_report(report)
+    evidence = redacted["qaEvaluation"]["rows"][0]["candidates"][0]["qa"]["debug"][
+        "watermarkEvidence"
+    ]
+    assert evidence.get("textQualityBands") == {"implausible": 1}
+    regions = evidence.get("regionEvidence")
+    assert regions and regions[0].get("textQuality") == "implausible"
+    serialized = json.dumps(redacted, ensure_ascii=False)
+    for forbidden in ("zq", "xv", "k9", "festival", "bbox", "tokenQuality"):
+        assert forbidden not in serialized, forbidden
+
+    replayed = classify_watermark_evidence_document(evidence)
+    assert replayed is not None
+    assert replayed.watermark_qa_action == decision.watermark_qa_action
+    assert replayed.decision_class == decision.decision_class

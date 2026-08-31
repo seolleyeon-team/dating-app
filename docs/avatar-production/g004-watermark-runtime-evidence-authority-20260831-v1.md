@@ -24,7 +24,7 @@ offline allow.
    `_region_evidence` now derives every raw-text-dependent semantic
    (`token_quality`, `artifact_hint`) before redaction; the policy core
    (`_decide`) consumes ONLY typed fields. Typed per-region evidence is
-   serialized (`watermark_evidence_v2_token_quality_derived_v1`:
+   serialized (`watermark_evidence_v3_text_quality_field_v1`:
    kind / confidenceBand / areaBand / location / overlayLike /
    tokenQuality / sourceConsistent / repeated / artifactHint — all
    categorical, no text, no bbox, no coordinates), and
@@ -49,7 +49,7 @@ offline allow.
 | --- | --- | --- |
 | Watermark policy | `watermark_policy_v3_generated_artifact_only_v1` | `watermark_policy_v4_runtime_evidence_parity_v1` |
 | QA contract | `avatar_qa_v6_unique_mark_applicability_v1` | `avatar_qa_v7_watermark_evidence_parity_v1` |
-| Watermark evidence schema | (unversioned bands) | `watermark_evidence_v2_token_quality_derived_v1` |
+| Watermark evidence schema | (unversioned bands) | `watermark_evidence_v3_text_quality_field_v1` |
 
 Calibration evaluation version unchanged
 (`g004_calibration_evaluation_v3_watermark_artifact_only` — aggregation
@@ -79,6 +79,19 @@ local extraction would introduce a different model-stack authority; the
 captured exact-runtime evidence is the higher-fidelity local source. The
 one authorized fixed-source SAME-20 runtime run re-derives all evidence on
 the exact deployed stack and is the final arbiter.
+
+## Serialization addendum (2026-09-01, schema v3)
+
+The first fixed-source runtime run (report SHA `683f5e72…`) proved exact
+DECISION parity but exposed EVIDENCE_SERIALIZATION_DRIFT: the calibration
+redactor strips any key containing the fragment `token`
+(`calibration_evaluator._FORBIDDEN_KEY_FRAGMENTS`, a raw-OCR defense that is
+deliberately preserved), so `tokenQuality`/`tokenQualityBands` were dropped
+from shared reports even though the in-process decision consumed them. The
+serialized keys are renamed to `textQuality`/`textQualityBands` and the
+evidence schema is bumped to `watermark_evidence_v3_text_quality_field_v1`.
+Readers treat non-v3 evidence (including that one v2-spelled runtime report)
+as legacy: never re-classified, never escalated from field absence.
 
 Historical artifacts (v9 evidence, offline v1/v2 goldens, watermark contract
 offline reports) remain immutable history; none were rewritten.

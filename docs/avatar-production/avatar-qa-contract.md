@@ -3,7 +3,7 @@
 ## Watermark policy
 
 Contract version: `watermark_policy_v4_runtime_evidence_parity_v1`
-Evidence schema: `watermark_evidence_v2_token_quality_derived_v1`
+Evidence schema: `watermark_evidence_v3_text_quality_field_v1`
 (2026-08-31 REVIEW_WITH_REDACTED_EVIDENCE_PARITY — supersedes
 `watermark_policy_v3_generated_artifact_only_v1`; see
 `g004-watermark-runtime-evidence-authority-20260831-v1.md`.)
