@@ -24,7 +24,17 @@ const Set<String> kAppCapabilities = {'bambooPrivateOwnershipV1'};
 
 /// pubspec 의 현재 build number. 기본 정책이 현재 출시본을 스스로 막지 않는지
 /// 테스트에서 확인하는 용도다. 런타임 판정은 실제 패키지 정보를 쓴다.
-const int currentKnownReleaseBuild = 14;
+const int currentKnownReleaseBuild = 15;
+
+/// bridge 게이트가 들어가기 **전** 마지막 build number.
+///
+/// 이 값과 [currentKnownReleaseBuild] 가 같으면 정책이 두 빌드를 구분할 수
+/// 없다. 그러면 "bridge 이상만 지원" 이라는 정책 자체를 쓸 수 없으므로 bridge
+/// 릴리스는 반드시 이보다 큰 build number 를 달아야 한다.
+///
+/// 주의: 실제 설치된 pre-bridge 빌드에는 게이트 코드가 없어서 이 정책을 읽지
+/// 않는다. 여기서 구분되는 것은 bridge 이후 빌드끼리다.
+const int preBridgeReleaseBuild = 14;
 
 enum CompatibilityPlatform { android, ios }
 
@@ -38,24 +48,37 @@ enum CompatibilityStatus {
   updateRequired,
 }
 
-/// 스토어에 나가는 flavor 별로 정책 문서를 나눈다.
+/// 스토어에 나가는 빌드별로 정책 문서를 나눈다.
 ///
 /// production 과 staging 이 같은 Firebase 프로젝트를 쓰기 때문에 프로젝트로
 /// 분리할 수 없다. production 최소 빌드가 개발자 staging 빌드를 잠그면 개발이
 /// 멈추므로 문서 자체를 분리한다.
 ///
-/// flavor 를 모르는 빌드(테스트, 웹)는 스토어 배포 대상이 아니라서 게이트를
-/// 적용하지 않는다. 웹은 언제나 마지막으로 배포된 코드가 뜨므로 애초에 낡은
-/// 클라이언트가 남지 않는다.
-String? compatibilityPolicyDocIdFor(String? flavor) {
+/// Android 는 flavor 가 applicationId 를 정하므로 flavor 가 곧 정체성이다.
+/// flavor 를 모르는 Android 빌드는 스토어 배포 대상이 아니라서 게이트를
+/// 적용하지 않는다.
+///
+/// iOS 는 사정이 다르다. Xcode 프로젝트에 flavor scheme 이 없어서 — Runner
+/// 하나뿐이고 번들 id 도 `com.seolleyeon.app` 하나다 — 릴리스가 `--flavor`
+/// 없이 빌드되고 `appFlavor` 가 null 로 들어온다. 그것을 Android 와 똑같이
+/// "게이트 미적용" 으로 처리하면 iOS 에서는 업데이트 게이트가 영원히 동작하지
+/// 않는다. iOS 빌드는 곧 production 이므로 flavor 가 없으면 production 으로
+/// 본다. 나중에 scheme 이 추가되면 flavor 가 채워져 자동으로 그쪽을 탄다.
+///
+/// 웹은 언제나 마지막으로 배포된 코드가 뜨므로 낡은 클라이언트가 남지 않는다.
+/// 그래서 [platform] 이 null 인 호출부(웹/데스크톱)는 애초에 여기까지 오지
+/// 않는다.
+String? compatibilityPolicyDocIdFor(
+  String? flavor, {
+  required CompatibilityPlatform platform,
+}) {
   switch (flavor) {
     case 'production':
       return 'production';
     case 'staging':
       return 'staging';
-    default:
-      return null;
   }
+  return platform == CompatibilityPlatform.ios ? 'production' : null;
 }
 
 class AppCompatibilityPolicy {

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/core/compatibility/app_compatibility.dart';
 
@@ -251,19 +253,121 @@ void main() {
 
   group('flavor 분리', () {
     test('production 빌드만 production 정책을 읽는다', () {
-      expect(compatibilityPolicyDocIdFor('production'), 'production');
+      expect(
+        compatibilityPolicyDocIdFor(
+          'production',
+          platform: CompatibilityPlatform.android,
+        ),
+        'production',
+      );
     });
 
     test('staging 빌드는 staging 정책을 읽는다', () {
       // production 최소 빌드가 개발자 staging 빌드를 막으면 안 된다.
-      expect(compatibilityPolicyDocIdFor('staging'), 'staging');
+      expect(
+        compatibilityPolicyDocIdFor(
+          'staging',
+          platform: CompatibilityPlatform.android,
+        ),
+        'staging',
+      );
     });
 
-    test('flavor 를 모르면 게이트를 적용하지 않는다', () {
-      // flavor 없는 빌드(테스트, 웹)는 스토어 배포 대상이 아니다.
-      expect(compatibilityPolicyDocIdFor(null), isNull);
-      expect(compatibilityPolicyDocIdFor(''), isNull);
-      expect(compatibilityPolicyDocIdFor('someOtherFlavor'), isNull);
+    test('Android 는 flavor 를 모르면 게이트를 적용하지 않는다', () {
+      // Android 는 flavor 가 applicationId 를 정한다. 그것을 모르는 빌드는
+      // 스토어 배포 대상이 아니다.
+      for (final flavor in [null, '', 'someOtherFlavor']) {
+        expect(
+          compatibilityPolicyDocIdFor(
+            flavor,
+            platform: CompatibilityPlatform.android,
+          ),
+          isNull,
+        );
+      }
+    });
+
+    test('iOS 는 flavor 가 없어도 production 정책을 읽는다', () {
+      // iOS 프로젝트에는 flavor scheme 이 없다 — Runner 하나뿐이고 번들 id 는
+      // com.seolleyeon.app 하나다. 그래서 iOS 릴리스는 --flavor 없이 빌드되고
+      // appFlavor 가 null 이 된다. 이걸 "게이트 미적용" 으로 두면 iOS 에서는
+      // 업데이트 게이트가 영원히 동작하지 않는다.
+      expect(
+        compatibilityPolicyDocIdFor(null, platform: CompatibilityPlatform.ios),
+        'production',
+      );
+    });
+
+    test('iOS 에 flavor 가 생기면 그쪽이 우선한다', () {
+      // 나중에 Xcode scheme 이 추가되면 자동으로 flavor 경로를 탄다.
+      expect(
+        compatibilityPolicyDocIdFor(
+          'staging',
+          platform: CompatibilityPlatform.ios,
+        ),
+        'staging',
+      );
+    });
+  });
+
+  group('bridge 릴리스 식별', () {
+    test('상수가 pubspec 의 실제 build number 와 일치한다', () {
+      // 이 상수가 pubspec 과 어긋나면 위아래 테스트가 전부 거짓말이 된다.
+      // 릴리스 때 pubspec 만 올리고 상수를 잊는 실수를 여기서 잡는다.
+      final pubspec = File('pubspec.yaml').readAsStringSync();
+      final match = RegExp(
+        r'^version:\s*\d+\.\d+\.\d+\+(\d+)\s*$',
+        multiLine: true,
+      ).firstMatch(pubspec);
+      expect(match, isNotNull, reason: 'pubspec version could not be read');
+      expect(int.parse(match!.group(1)!), currentKnownReleaseBuild);
+    });
+
+    test('bridge 빌드는 pre-bridge 빌드보다 큰 번호를 단다', () {
+      // 두 값이 같으면 "bridge 이상만 지원" 이라는 정책을 아예 표현할 수 없다.
+      // 릴리스 때 build number 를 올리지 않으면 여기서 걸린다.
+      expect(currentKnownReleaseBuild, greaterThan(preBridgeReleaseBuild));
+    });
+
+    test('bridge 를 최소 지원 빌드로 세우면 pre-bridge 는 필수 업데이트가 된다', () {
+      // 운영자가 cutover 때 실제로 세울 정책이다. 정책이 두 빌드를 구분하지
+      // 못하면 여기서 드러난다.
+      final policy = AppCompatibilityPolicy(
+        policyVersion: 1,
+        minimumSupportedBuild: currentKnownReleaseBuild,
+        recommendedBuild: currentKnownReleaseBuild,
+        storeUrl: null,
+        requiredCapabilities: const {},
+        messageVersion: 1,
+      );
+
+      expect(
+        evaluateCompatibility(
+          buildNumber: preBridgeReleaseBuild,
+          capabilities: kAppCapabilities,
+          policy: policy,
+        ).status,
+        CompatibilityStatus.updateRequired,
+      );
+      expect(
+        evaluateCompatibility(
+          buildNumber: currentKnownReleaseBuild,
+          capabilities: kAppCapabilities,
+          policy: policy,
+        ).status,
+        CompatibilityStatus.supported,
+      );
+    });
+
+    test('이 정책은 bridge 이후 빌드끼리만 유효하다', () {
+      // 실제로 설치돼 있는 pre-bridge 빌드에는 게이트 코드가 없어서 이 정책을
+      // 읽지도 않는다. 위 테스트가 통과한다고 구버전이 차단되는 것이 아니다.
+      // 그 사실은 docs/security/sec04-bridge-cutover.md 에 적혀 있다.
+      final doc = File(
+        'docs/security/sec04-bridge-cutover.md',
+      ).readAsStringSync();
+      expect(doc.contains('OLD_CLIENTS_FORCED_TO_UPDATE = NO'), isTrue);
+      expect(doc.contains('PRE_BRIDGE_CLIENTS_DO_NOT_KNOW_THIS_GATE'), isTrue);
     });
   });
 
