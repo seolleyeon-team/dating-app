@@ -11,6 +11,7 @@
 // 색·형태는 설레연 이벤트 테마(BlindMeetingPalette / kEvent*)를 그대로 쓴다.
 // =============================================================================
 
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/blind_meeting_analytics.dart';
@@ -19,6 +20,7 @@ import '../../domain/blind_meeting_application.dart';
 import '../../domain/blind_meeting_availability.dart';
 import '../../domain/blind_meeting_dna.dart';
 import '../../domain/blind_meeting_enums.dart';
+import '../blind_meeting_error_message.dart';
 import '../blind_meeting_route_args.dart';
 import '../blind_meeting_navigation.dart';
 import '../theme/blind_meeting_palette.dart';
@@ -248,9 +250,18 @@ class _BlindMeetingScheduleScreenState
       pushBlindMeetingWaitingAndClearTransientStack(context);
     } catch (error) {
       if (!mounted) return;
+      // 서버 guard(예: 진행 중 미팅 재신청 차단)가 준 안내 문구는 그대로
+      // 보여준다. 그 외 기술적 예외는 일반 안내로 대체한다.
+      final rawServerMessage =
+          error is FirebaseFunctionsException ? (error.message ?? '').trim() : '';
+      final serverMessage = rawServerMessage.isNotEmpty
+          ? blindMeetingUserErrorMessage(rawServerMessage)
+          : '';
       setState(() {
         _submitting = false;
-        _error = '참가 신청을 저장하지 못했어요. 선택한 날짜는 그대로 유지돼요.';
+        _error = serverMessage.isNotEmpty
+            ? serverMessage
+            : '참가 신청을 저장하지 못했어요. 선택한 날짜는 그대로 유지돼요.';
       });
     }
   }

@@ -152,15 +152,8 @@ class OnboardingSaveHelper {
     );
   }
 
-  /// Step 6: 사진
-  static Future<void> savePhotos(List<String> photoUrls) async {
-    final uid = await _getUserId();
-    if (uid == null) return;
-    await _userService.saveOnboardingPhotos(
-      kakaoUserId: uid,
-      photoUrls: photoUrls,
-    );
-  }
+  // Step 6(사진): 원본 사진 URL은 클라이언트가 사용자 문서에 기록하지 않는다.
+  // 승인된 아바타 URL(onboarding.avatarUrls)은 서버 승인 흐름만 쓴다.
 
   /// Step 7: 자기소개
   static Future<void> saveSelfIntroduction(String introduction) async {

@@ -24,7 +24,9 @@ if (!process.env.FIRESTORE_EMULATOR_HOST) {
 initializeApp({ projectId: "demo-blind-fsm" });
 
 import {
+  reopenApplicationIfBoundTo,
   setApplication,
+  submitNewApplication,
   updateParticipant,
   cancelOpenApplication,
 } from "./store";
@@ -277,6 +279,196 @@ test("application: cancelOpenApplication still gates matched applications", asyn
 });
 
 // -----------------------------------------------------------------------------
+// submitNewApplication — 재신청 business invariant
+//
+// FSM 전이(invited→applied 등)는 초대 거절 재오픈용으로 합법이지만,
+// active invitation/meeting 에 귀속된 신청을 신규 submit 이 applied 로
+// 덮어쓰면 안 된다. 이 guard 는 신청서와 연결 미팅을 같은 트랜잭션에서
+// 읽어 판단한다.
+// -----------------------------------------------------------------------------
+
+function submitParams(uid: string) {
+  return {
+    userId: uid,
+    dnaPayload: { userId: uid, schemaVersion: 1 },
+    applicationExtra: {
+      userId: uid,
+      requestedDateKeys: ["2026-09-01"],
+      prefersAlcoholFree: false,
+      waitlistOptIn: true,
+    },
+  };
+}
+
+async function dnaDoc(userId: string) {
+  const snap = await db.collection("blindMeetingDna").doc(userId).get();
+  return snap.exists ? snap.data() : null;
+}
+
+test("submit guard: no prior application creates applied + dna atomically", async () => {
+  const uid = uniqueId("u");
+  await submitNewApplication(submitParams(uid));
+  const app = await applicationStatus(uid);
+  assert.equal(app?.serverStatus, "applied");
+  assert.equal(app?.open, true);
+  assert.equal(app?.meetingId, null);
+  assert.notEqual(await dnaDoc(uid), null);
+});
+
+test("submit guard: active invitation rejects new submission untouched", async () => {
+  const meetingId = uniqueId("m");
+  const uid = uniqueId("u");
+  await seedMeeting(meetingId, "awaiting_acceptance", [uid]);
+  await seedApplication(uid, "invited", { meetingId, open: false });
+
+  await assert.rejects(
+    submitNewApplication(submitParams(uid)),
+    /blind_reapplication_blocked_active_meeting/
+  );
+  const app = await applicationStatus(uid);
+  assert.equal(app?.serverStatus, "invited");
+  assert.equal(app?.meetingId, meetingId);
+  // 거부된 submit 이 DNA 를 미리 덮어써서도 안 된다 (원자성).
+  assert.equal(await dnaDoc(uid), null);
+});
+
+test("submit guard: accepted invitation rejects new submission", async () => {
+  const meetingId = uniqueId("m");
+  const uid = uniqueId("u");
+  await seedMeeting(meetingId, "awaiting_deposits", [uid]);
+  await seedApplication(uid, "accepted", { meetingId, open: false });
+
+  await assert.rejects(
+    submitNewApplication(submitParams(uid)),
+    /blind_reapplication_blocked_active_meeting/
+  );
+  assert.equal((await applicationStatus(uid))?.serverStatus, "accepted");
+});
+
+test("submit guard: confirmed active meeting rejects new submission", async () => {
+  const meetingId = uniqueId("m");
+  const uid = uniqueId("u");
+  await seedMeeting(meetingId, "chat_open", [uid]);
+  await seedApplication(uid, "confirmed", { meetingId, open: false });
+
+  await assert.rejects(
+    submitNewApplication(submitParams(uid)),
+    /blind_reapplication_blocked_active_meeting/
+  );
+  const app = await applicationStatus(uid);
+  assert.equal(app?.serverStatus, "confirmed");
+  assert.equal(app?.meetingId, meetingId);
+});
+
+test("submit guard: active application with missing meeting fails closed", async () => {
+  const uid = uniqueId("u");
+  await seedApplication(uid, "invited", {
+    meetingId: uniqueId("m_missing"),
+    open: false,
+  });
+
+  await assert.rejects(
+    submitNewApplication(submitParams(uid)),
+    /blind_application_meeting_link_missing/
+  );
+  assert.equal((await applicationStatus(uid))?.serverStatus, "invited");
+});
+
+test("submit guard: active application on settled meeting fails closed without repair", async () => {
+  const meetingId = uniqueId("m");
+  const uid = uniqueId("u");
+  await seedMeeting(meetingId, "cancelled", [uid]);
+  await seedApplication(uid, "confirmed", { meetingId, open: false });
+
+  await assert.rejects(
+    submitNewApplication(submitParams(uid)),
+    /blind_application_stale_meeting_link/
+  );
+  const app = await applicationStatus(uid);
+  assert.equal(app?.serverStatus, "confirmed");
+  assert.equal(app?.meetingId, meetingId);
+});
+
+test("submit guard: meeting-bound status without meetingId fails closed", async () => {
+  const uid = uniqueId("u");
+  await seedApplication(uid, "invited", { meetingId: null, open: false });
+
+  await assert.rejects(
+    submitNewApplication(submitParams(uid)),
+    /blind_application_active_without_meeting/
+  );
+  assert.equal((await applicationStatus(uid))?.serverStatus, "invited");
+});
+
+test("submit guard: cancelled application may reapply", async () => {
+  const uid = uniqueId("u");
+  await seedApplication(uid, "cancelled", { meetingId: null, open: false });
+
+  await submitNewApplication(submitParams(uid));
+  const app = await applicationStatus(uid);
+  assert.equal(app?.serverStatus, "applied");
+  assert.equal(app?.open, true);
+});
+
+test("submit guard: completed application may reapply even with stale meetingId", async () => {
+  const meetingId = uniqueId("m");
+  const uid = uniqueId("u");
+  await seedMeeting(meetingId, "read_only", [uid]);
+  // 완료 정리 루프는 meetingId 를 지우지 않는다 — terminal 신청은 그래도 재신청 가능.
+  await seedApplication(uid, "completed", { meetingId, open: false });
+
+  await submitNewApplication(submitParams(uid));
+  const app = await applicationStatus(uid);
+  assert.equal(app?.serverStatus, "applied");
+  assert.equal(app?.meetingId, null);
+});
+
+test("submit guard: open applied resubmission is idempotent", async () => {
+  const uid = uniqueId("u");
+  await submitNewApplication(submitParams(uid));
+  await submitNewApplication(submitParams(uid));
+  const app = await applicationStatus(uid);
+  assert.equal(app?.serverStatus, "applied");
+  assert.equal(app?.open, true);
+});
+
+// -----------------------------------------------------------------------------
+// reopenApplicationIfBoundTo — 재오픈 쪽 대칭 guard
+// -----------------------------------------------------------------------------
+
+test("reopen guard: bound application reopens to applied", async () => {
+  const meetingId = uniqueId("m");
+  const uid = uniqueId("u");
+  await seedApplication(uid, "invited", { meetingId, open: false });
+
+  assert.equal(await reopenApplicationIfBoundTo(uid, meetingId), true);
+  const app = await applicationStatus(uid);
+  assert.equal(app?.serverStatus, "applied");
+  assert.equal(app?.open, true);
+  assert.equal(app?.meetingId, null);
+});
+
+test("reopen guard: application re-claimed by another meeting is untouched", async () => {
+  const otherMeetingId = uniqueId("m");
+  const uid = uniqueId("u");
+  await seedApplication(uid, "invited", { meetingId: otherMeetingId, open: false });
+
+  assert.equal(await reopenApplicationIfBoundTo(uid, uniqueId("m_old")), false);
+  const app = await applicationStatus(uid);
+  assert.equal(app?.serverStatus, "invited");
+  assert.equal(app?.meetingId, otherMeetingId);
+});
+
+test("reopen guard: terminal application is not resurrected", async () => {
+  const meetingId = uniqueId("m");
+  const uid = uniqueId("u");
+  await seedApplication(uid, "cancelled", { meetingId, open: false });
+
+  assert.equal(await reopenApplicationIfBoundTo(uid, meetingId), false);
+  assert.equal((await applicationStatus(uid))?.serverStatus, "cancelled");
+});
+
+// -----------------------------------------------------------------------------
 // orchestrator 진입점: accept / decline
 // -----------------------------------------------------------------------------
 
@@ -321,6 +513,28 @@ test("declineInvitation twice stays terminal and never resurrects the seat", asy
   const after = await applicationStatus(uids[1]);
   assert.equal(after?.serverStatus, "applied");
   assert.equal(after?.open, true);
+});
+
+test("duplicate decline after matcher re-claim keeps the new meeting link", async () => {
+  const { meetingId, uids } = await seedInvitedMeeting();
+  const uid = uids[3];
+
+  // 1차 거절 — 신청 재오픈
+  await declineInvitation(meetingId, uid, "일정 변경");
+  assert.equal((await applicationStatus(uid))?.serverStatus, "applied");
+
+  // 매처가 새 미팅 M2 로 재클레임했다고 가정
+  const newMeetingId = uniqueId("m");
+  await seedMeeting(newMeetingId, "awaiting_acceptance", [uid]);
+  await seedParticipant(newMeetingId, uid, "invited");
+  await seedApplication(uid, "invited", { meetingId: newMeetingId, open: false });
+
+  // 뒤늦은 2차 거절(M1) — M2 link 를 끊으면 안 된다
+  await declineInvitation(meetingId, uid, "중복 클릭");
+  const app = await applicationStatus(uid);
+  assert.equal(app?.serverStatus, "invited");
+  assert.equal(app?.meetingId, newMeetingId);
+  assert.equal(app?.open, false);
 });
 
 test("accept/decline race settles into one coherent outcome", async () => {

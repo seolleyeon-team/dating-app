@@ -67,6 +67,7 @@ import {
   pairKey,
   recordMetUsers,
   recordNoShow,
+  reopenApplicationIfBoundTo,
   setApplication,
   setGroupChatWritable,
   syncGroupChatMembership,
@@ -463,13 +464,9 @@ export async function declineInvitation(
       cancelReason: reason,
     },
   });
-  // 신청은 다시 열어 다음 미팅 후보로 둔다.
-  await setApplication(userId, {
-    status: "applied",
-    stage: "searchingCandidates",
-    open: true,
-    meetingId: null,
-  });
+  // 신청은 다시 열어 다음 미팅 후보로 둔다. 중복 거절이 도착했을 때
+  // 이미 재오픈되어 다른 미팅에 재클레임된 신청은 덮어쓰지 않는다.
+  await reopenApplicationIfBoundTo(userId, meetingId);
   await handleVacancy({ meetingId, vacantUserId: userId, urgent: false });
 }
 
@@ -1573,12 +1570,10 @@ export async function cancelMeeting(
       status: "cancelled",
       depositStatus: refund.status,
     });
-    await setApplication(participant.userId, {
-      status: "applied",
-      stage: "searchingCandidates",
-      open: true,
-      meetingId: null,
-      extra: { priorityRematch: true },
+    // 이 미팅에 아직 귀속된 신청만 재오픈한다 (먼저 거절해 다른 미팅에
+    // 재클레임된 참가자의 새 link 를 취소 정리가 덮어쓰지 않도록).
+    await reopenApplicationIfBoundTo(participant.userId, meetingId, {
+      priorityRematch: true,
     });
   }
 

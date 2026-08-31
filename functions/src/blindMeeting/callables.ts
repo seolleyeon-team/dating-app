@@ -36,7 +36,7 @@ import {
   db,
   loadPolicy,
   requireVerifiedUser,
-  setApplication,
+  submitNewApplication,
   cancelOpenApplication,
   updateApplicationForDnaEdit,
 } from "./store";
@@ -248,24 +248,12 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
       waitlistOptIn: dnaRaw.waitlistOptIn !== false,
     });
   } else {
-    await db()
-      .collection(BLIND_MEETING_COLLECTIONS.dna)
-      .doc(user.userId)
-      .set(
-        {
-          ...dnaPayload,
-          updatedAt: FieldValue.serverTimestamp(),
-          createdAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-
-    await setApplication(user.userId, {
-      status: "applied",
-      stage: "searchingCandidates",
-      open: true,
-      meetingId: null,
-      extra: {
+    // active invitation/meeting 재신청 invariant 는 store 의 단일 트랜잭션이
+    // 신청서·연결 미팅을 함께 읽어 검증한다.
+    await submitNewApplication({
+      userId: user.userId,
+      dnaPayload,
+      applicationExtra: {
         userId: user.userId,
         requestedDateKeys: dateKeys,
         availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,

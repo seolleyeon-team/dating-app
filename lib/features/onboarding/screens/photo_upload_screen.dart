@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -8,14 +9,12 @@ import '../../../router/route_names.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/avatar_generation_client.dart';
 import '../../../services/avatar_source_photo_service.dart';
-import '../../../services/onboarding_save_helper.dart';
 import '../../../services/onboarding_photo_upload_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/utils/avatar_lock_policy.dart';
 import '../../../shared/utils/privacy_log_utils.dart';
 import '../../../shared/widgets/profile_photo_mosaic.dart';
-import '../config/onboarding_feature_flags.dart';
 import '../services/avatar_upload_submission_guard.dart';
 import '../widgets/avatar_candidate_selection_dialog.dart';
 import '../widgets/avatar_generation_error_banner.dart';
@@ -50,6 +49,14 @@ class PhotoUploadScreen extends StatefulWidget {
   /// approval flow without invoking the image picker or Firebase upload.
   final List<String?>? initialPhotosForTesting;
 
+  /// Test-only picked-file seeds matching [initialPhotosForTesting] slots,
+  /// used to exercise the fresh generation path without the image picker.
+  final List<XFile?>? initialPickedFilesForTesting;
+
+  /// Test-only approved-avatar lock seed. Production lock state always comes
+  /// from the server profile via [avatarLockStateFromUserProfile].
+  final String? lockedApprovedAvatarUrlForTesting;
+
   const PhotoUploadScreen({
     super.key,
     this.currentStep = 6,
@@ -59,6 +66,8 @@ class PhotoUploadScreen extends StatefulWidget {
     this.avatarGenerationClient,
     this.onboardingPhotoUploadService,
     this.initialPhotosForTesting,
+    this.initialPickedFilesForTesting,
+    this.lockedApprovedAvatarUrlForTesting,
   });
 
   @override
@@ -73,17 +82,17 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   final ImagePicker _imagePicker = ImagePicker();
 
   final List<String?> _photos = List<String?>.filled(6, null);
+  final List<XFile?> _pickedFiles = List<XFile?>.filled(6, null);
   final List<bool> _isUploading = List<bool>.filled(6, false);
   final AvatarUploadSubmissionGuard _uploadSubmissionGuard =
       AvatarUploadSubmissionGuard();
-  final Map<int, String> _pendingUploadRequestIds = <int, String>{};
+  String? _sourceUploadRequestId;
+  bool _isHandlingNext = false;
 
   AuthService? _authService;
-  AvatarSourcePhotoService? _avatarSourcePhotoService;
   OnboardingPhotoUploadService? _onboardingPhotoUploadService;
   StorageService? _storageService;
   UserService? _userService;
-  bool _isSavingOnExit = false;
 
   late final AvatarGenerationClient _avatarClient;
   AvatarOnboardingFlowState _avatarFlowState = AvatarOnboardingFlowState.idle;
@@ -102,21 +111,12 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
   int get _photoCount => _photos.where((p) => p != null).length;
 
-  int get _minRequiredPhotos =>
-      kRequireOnboardingPhotos ? _requiredPhotoCount : 0;
+  // 사진 최소 장수는 production 계약이며 빌드 플래그로 완화할 수 없다.
+  int get _minRequiredPhotos => _requiredPhotoCount;
 
-  bool get _isAvatarGenerationEnabled =>
-      kEnableOnboardingAvatarGeneration ||
-      widget.avatarGenerationClient != null;
-
-  bool get _hasApprovedAvatarForProceed =>
-      _avatarLocked ||
-      _photos.any(
-        (value) =>
-            value != null &&
-            value.isNotEmpty &&
-            AvatarSourcePhotoService.queuedJobId(value) == null,
-      );
+  // 승인된 아바타 보유 여부는 서버 프로필에서 파생된 잠금 상태만 신뢰한다.
+  // 슬롯 문자열 검사로 판정하면 일반 사진 URL이 승인으로 오인된다.
+  bool get _hasApprovedAvatarForProceed => _avatarLocked;
 
   bool get _isAvatarFlowActive =>
       _avatarFlowState != AvatarOnboardingFlowState.idle &&
@@ -140,9 +140,6 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
   AuthService get _auth => _authService ??= AuthService();
 
-  AvatarSourcePhotoService get _sourcePhotoService =>
-      _avatarSourcePhotoService ??= AvatarSourcePhotoService();
-
   OnboardingPhotoUploadService get _onboardingPhotoService =>
       _onboardingPhotoUploadService ??=
           widget.onboardingPhotoUploadService ?? OnboardingPhotoUploadService();
@@ -161,14 +158,20 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       for (int i = 0; i < initialPhotos.length && i < _photos.length; i++) {
         _photos[i] = initialPhotos[i];
       }
-      final firstSafeApproved = initialPhotos.whereType<String>().firstWhere(
-        (value) =>
-            AvatarSourcePhotoService.queuedJobId(value) == null &&
-            isSafePublicApprovedAvatarUrl(value),
-        orElse: () => '',
-      );
-      _avatarLocked = firstSafeApproved.isNotEmpty;
-      _lockedApprovedAvatarUrl = firstSafeApproved;
+      final initialPickedFiles = widget.initialPickedFilesForTesting;
+      if (initialPickedFiles != null) {
+        for (
+          int i = 0;
+          i < initialPickedFiles.length && i < _pickedFiles.length;
+          i++
+        ) {
+          _pickedFiles[i] = initialPickedFiles[i];
+        }
+      }
+      final lockedUrl = widget.lockedApprovedAvatarUrlForTesting?.trim() ?? '';
+      _avatarLocked =
+          lockedUrl.isNotEmpty && isSafePublicApprovedAvatarUrl(lockedUrl);
+      _lockedApprovedAvatarUrl = _avatarLocked ? lockedUrl : '';
       for (final value in initialPhotos.whereType<String>()) {
         final queuedJobId = AvatarSourcePhotoService.queuedJobId(value);
         if (queuedJobId != null && queuedJobId.isNotEmpty) {
@@ -202,10 +205,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       profile,
     );
     final onboarding = data['onboarding'];
-    final photoUrlsKey = _isAvatarGenerationEnabled
-        ? 'avatarUrls'
-        : 'photoUrls';
-    final avatarUrlsRaw = onboarding is Map ? onboarding[photoUrlsKey] : null;
+    final avatarUrlsRaw = onboarding is Map ? onboarding['avatarUrls'] : null;
     final avatarUrls =
         lockState.isLocked && lockState.approvedAvatarUrl.isNotEmpty
         ? <String>[lockState.approvedAvatarUrl]
@@ -215,8 +215,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
     setState(() {
       _avatarLocked = lockState.isLocked;
-      _avatarSourceLocked =
-          _isAvatarGenerationEnabled && !lockState.isLocked && sourceLocked;
+      _avatarSourceLocked = !lockState.isLocked && sourceLocked;
       _lockedApprovedAvatarUrl = lockState.approvedAvatarUrl;
       if (_avatarSourceLocked && sourceJobId != null) {
         _activeAvatarJobId = sourceJobId;
@@ -262,21 +261,8 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       );
 
       if (pickedFile == null) {
-        _pendingUploadRequestIds.remove(index);
         return;
       }
-
-      if (!mounted) return;
-      setState(() {
-        final replacedJobId = AvatarSourcePhotoService.queuedJobId(
-          _photos[index],
-        );
-        if (replacedJobId != null && replacedJobId == _activeAvatarJobId) {
-          _activeAvatarJobId = null;
-          _activeAvatarSourcePhotoId = null;
-          _activeSourceSelectionVersion = null;
-        }
-      });
 
       final String? kakaoUserId = await _storage.getKakaoUserId();
       if (kakaoUserId == null || kakaoUserId.isEmpty) {
@@ -291,87 +277,25 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         );
       }
 
-      if (!_isAvatarGenerationEnabled) {
-        final result = await _onboardingPhotoService.uploadPickedImage(
-          file: pickedFile,
-          slotIndex: index,
-          uid: kakaoUserId,
-        );
-        if (!mounted) return;
-
-        setState(() {
-          _photos[index] = result.photoUrl;
-          _avatarFlowCancelled = false;
-        });
-        _pendingUploadRequestIds.remove(index);
-        return;
-      }
-
-      final clientRequestId = _pendingUploadRequestIds.putIfAbsent(
-        index,
-        AvatarSourcePhotoService.createClientRequestId,
-      );
-      _logAvatarFlow('avatar_upload_start', slotIndex: index);
-      final result = await _sourcePhotoService.uploadPickedImage(
+      // 사진은 슬롯마다 서버 검증 업로드로 먼저 확보하고, 아바타 생성 소스
+      // 업로드(잠금 시작)는 "다음" 시점으로 미룬다. 그래야 2장 요구사항을
+      // 채우기 전에 소스 잠금이 걸리는 교착이 생기지 않는다.
+      final result = await _onboardingPhotoService.uploadPickedImage(
         file: pickedFile,
         slotIndex: index,
         uid: kakaoUserId,
-        clientRequestId: clientRequestId,
-        chatPartnerRealPhotoDisclosure: _chatPartnerRealPhotoDisclosure,
       );
-      _logAvatarFlow(
-        'avatar_upload_success',
-        jobId: result.jobId,
-        photoId: result.photoId,
-        rawStatus: result.avatarStatus,
-        sourceSelectionVersion: result.sourceSelectionVersion,
-      );
-
       if (!mounted) return;
 
       setState(() {
-        _photos[index] = AvatarSourcePhotoService.queuedSlotToken(result.jobId);
-        _activeAvatarJobId = result.jobId;
-        _activeAvatarSourcePhotoId = result.photoId;
-        _activeSourceSelectionVersion = result.sourceSelectionVersion;
-        _avatarSourceLocked = true;
+        _photos[index] = result.photoUrl;
+        _pickedFiles[index] = pickedFile;
         _avatarFlowCancelled = false;
         _avatarGenerationError = null;
       });
-      _pendingUploadRequestIds.remove(index);
     } catch (e) {
       _logAvatarFlow('avatar_upload_failed', slotIndex: index, error: e);
       if (!mounted) return;
-
-      setState(() {
-        if (e is AvatarSourceLockedException) {
-          _avatarSourceLocked = true;
-          _avatarFlowCancelled = false;
-        }
-      });
-      if (e is AvatarAlreadyApprovedException ||
-          e is AvatarSourceLockedException) {
-        _pendingUploadRequestIds.remove(index);
-      }
-      if (e is! AvatarSourceLockedException) {
-        await _loadExistingPhotos();
-        if (!mounted) return;
-      }
-
-      final lockMessage = e is AvatarAlreadyApprovedException
-          ? AvatarAlreadyApprovedException.message
-          : e is AvatarSourceLockedException
-          ? AvatarSourceLockedException.message
-          : null;
-      if (lockMessage != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(lockMessage),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -406,6 +330,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         _avatarFlowCancelled = true;
       }
       _photos[index] = null;
+      _pickedFiles[index] = null;
       _isUploading[index] = false;
       _avatarGenerationError = null;
     });
@@ -430,38 +355,33 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   }
 
   Future<void> _handleNext() async {
-    if (_isAvatarFlowActive) {
+    if (_isAvatarFlowActive || _isHandlingNext) {
       return;
     }
+    _isHandlingNext = true;
+    try {
+      if (!_hasApprovedAvatarForProceed && _photoCount < _minRequiredPhotos) {
+        HapticFeedback.heavyImpact();
+        _showErrorSnack('사진을 최소 2장 이상 등록해주세요.');
+        return;
+      }
 
-    if (_photoCount < _minRequiredPhotos && !_hasApprovedAvatarForProceed) {
-      HapticFeedback.heavyImpact();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('사진을 최소 2장 이상 등록해주세요.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
+      if (_isUploading.any((e) => e)) {
+        HapticFeedback.heavyImpact();
+        _showErrorSnack('사진 업로드가 끝난 뒤 다음으로 넘어가주세요.');
+        return;
+      }
 
-    if (_isUploading.any((e) => e)) {
-      HapticFeedback.heavyImpact();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('사진 업로드가 끝난 뒤 다음으로 넘어가주세요.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
+      HapticFeedback.mediumImpact();
+      if (_avatarLocked) {
+        // 이미 승인된 아바타가 있는 재방문 사용자만 생성 없이 진행한다.
+        await _goToSelfIntroduction();
+        return;
+      }
+      await _startAvatarGeneration();
+    } finally {
+      _isHandlingNext = false;
     }
-
-    HapticFeedback.mediumImpact();
-    if (!_isAvatarGenerationEnabled) {
-      await _goToSelfIntroduction();
-      return;
-    }
-    await _startAvatarGeneration();
   }
 
   String? _findPrimaryAvatarJobId() {
@@ -470,11 +390,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   }
 
   Future<void> _startAvatarGeneration() async {
-    if (!_isAvatarGenerationEnabled) {
-      await _goToSelfIntroduction();
-      return;
-    }
-    final jobId = _findPrimaryAvatarJobId();
+    String? jobId = _findPrimaryAvatarJobId();
     if (jobId == null) {
       if (_hasStartedAvatarSourceLock) {
         _failAvatarGeneration(
@@ -483,11 +399,10 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         );
         return;
       }
-      // 큐잉된 새 아바타 작업이 없으면 이미 승인된 아바타가 있다고 보고
-      // 다음 단계로 이동한다. 백엔드가 onboarding.avatarUrls에 승인된 URL만
-      // 기록하므로 이 경로는 재방문(이미 승인 완료) 시나리오에 해당한다.
-      await _goToSelfIntroduction();
-      return;
+      jobId = await _uploadPrimarySourcePhoto();
+      if (jobId == null) {
+        return;
+      }
     }
 
     if (!mounted) return;
@@ -605,6 +520,121 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     }
   }
 
+  /// 대표(첫 번째) 사진을 아바타 생성 소스로 업로드하고 jobId를 돌려준다.
+  ///
+  /// 실패 시 재시도 가능한 오류 UI를 남기고 null을 반환한다. 어떤 실패도
+  /// 온보딩을 사진 없이 통과시키지 않는다(fail-closed).
+  Future<String?> _uploadPrimarySourcePhoto() async {
+    final primaryIndex = _photos.indexWhere(
+      (value) => value != null && value.isNotEmpty,
+    );
+    final XFile? pickedFile =
+        primaryIndex >= 0 && primaryIndex < _pickedFiles.length
+        ? _pickedFiles[primaryIndex]
+        : null;
+    if (pickedFile == null) {
+      _failAvatarGeneration(
+        avatarPrimaryPhotoMissingMessage,
+        phase: 'avatar_primary_photo_missing',
+      );
+      return null;
+    }
+
+    final kakaoUserId = (await _storage.getKakaoUserId()) ?? '';
+    final clientRequestId = _sourceUploadRequestId ??=
+        AvatarSourcePhotoService.createClientRequestId();
+
+    if (!mounted) return null;
+    setState(() {
+      _avatarFlowState = AvatarOnboardingFlowState.uploadingSourcePhoto;
+      _avatarFlowCancelled = false;
+      _avatarGenerationError = null;
+    });
+    _logAvatarFlow('avatar_source_upload_start', slotIndex: primaryIndex);
+
+    try {
+      final result = await _avatarClient.uploadSourcePhoto(
+        file: pickedFile,
+        uid: kakaoUserId,
+        slotIndex: primaryIndex,
+        clientRequestId: clientRequestId,
+        chatPartnerRealPhotoDisclosure: _chatPartnerRealPhotoDisclosure,
+      );
+      _logAvatarFlow(
+        'avatar_source_upload_success',
+        jobId: result.jobId,
+        photoId: result.photoId,
+        rawStatus: result.avatarStatus,
+        sourceSelectionVersion: result.sourceSelectionVersion,
+      );
+
+      if (!mounted) return null;
+      setState(() {
+        _activeAvatarJobId = result.jobId;
+        _activeAvatarSourcePhotoId = result.photoId;
+        _activeSourceSelectionVersion = result.sourceSelectionVersion;
+        _avatarSourceLocked = true;
+      });
+      return result.jobId;
+    } on AvatarAlreadyApprovedException {
+      await _loadExistingPhotos();
+      if (!mounted) return null;
+      if (_avatarLocked) {
+        setState(() {
+          _avatarFlowState = AvatarOnboardingFlowState.approved;
+        });
+        await _goToSelfIntroduction();
+      } else {
+        _failAvatarGeneration(
+          AvatarAlreadyApprovedException.message,
+          phase: 'avatar_source_upload_already_approved',
+        );
+      }
+      return null;
+    } on AvatarSourceLockedException {
+      // 서버에는 이미 진행 중인 소스/작업이 있다. 서버 상태를 다시 읽어
+      // 기존 작업으로 폴링을 잇는다(중복 유료 생성 방지).
+      await _loadExistingPhotos();
+      if (!mounted) return null;
+      final resumedJobId = _findPrimaryAvatarJobId();
+      if (resumedJobId != null) {
+        return resumedJobId;
+      }
+      _failAvatarGeneration(
+        sourceLockedAvatarFailureMessage,
+        phase: 'avatar_source_upload_locked_missing_job',
+      );
+      return null;
+    } on FirebaseFunctionsException catch (error) {
+      _failAvatarGeneration(
+        _sourceUploadFailureMessage(error),
+        phase: 'avatar_source_upload_rejected',
+        error: error,
+      );
+      return null;
+    } catch (error) {
+      _failAvatarGeneration(
+        avatarGenerationFailedMessage,
+        phase: 'avatar_source_upload_failed',
+        error: error,
+      );
+      return null;
+    }
+  }
+
+  String _sourceUploadFailureMessage(FirebaseFunctionsException error) {
+    final detail = '${error.message ?? ''} ${error.details ?? ''}';
+    if (detail.contains('avatar_minimum_photos_required')) {
+      return avatarMinimumPhotosMessage;
+    }
+    if (detail.contains('avatar_generation_paused') ||
+        detail.contains('avatar_budget_exceeded') ||
+        detail.contains('avatar_generation_not_open')) {
+      return avatarGenerationPausedMessage;
+    }
+    return avatarGenerationFailedMessage;
+  }
+
   Future<void> _openCandidateDialog() async {
     if (!mounted) return;
     if (_isCandidateDialogOpen) return;
@@ -703,16 +733,9 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   }
 
   Future<void> _goToSelfIntroduction() async {
+    // 원본 사진 URL은 클라이언트가 사용자 문서에 기록하지 않는다.
+    // 공개 노출 가능한 값은 승인 시 서버가 쓰는 onboarding.avatarUrls뿐이다.
     final validPhotos = _photos.whereType<String>().toList();
-    if (!_avatarLocked) {
-      try {
-        await OnboardingSaveHelper.savePhotos(validPhotos);
-      } catch (e) {
-        debugPrint(
-          'avatar onboarding savePhotos failed: ${PrivacyLogUtils.errorSummary(e)}',
-        );
-      }
-    }
 
     if (!mounted) return;
     debugPrint(
@@ -786,20 +809,6 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
   /// 로그에 임시 프리뷰 URL이나 사용자 식별 정보가 새는 것을 방지한다.
 
-  Future<void> _saveCurrentPhotos() async {
-    if (_isSavingOnExit) return;
-    _isSavingOnExit = true;
-
-    try {
-      final validPhotos = _photos.whereType<String>().toList();
-      if (!_avatarLocked) {
-        await OnboardingSaveHelper.savePhotos(validPhotos);
-      }
-    } finally {
-      _isSavingOnExit = false;
-    }
-  }
-
   Future<void> _handleBack() async {
     if (_isAvatarFlowActive) {
       final confirmed = await _confirmExitDuringGeneration();
@@ -815,7 +824,6 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       });
     }
 
-    await _saveCurrentPhotos();
     if (!mounted) return;
 
     if (widget.onBack != null) {
@@ -951,25 +959,23 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
                             ),
                           ],
                           const SizedBox(height: 24),
-                          if (_isAvatarGenerationEnabled)
-                            _ChatRealPhotoConsentNotice(
-                              value: _chatPartnerRealPhotoDisclosure,
-                              onChanged: (value) {
-                                if (_avatarLocked) {
-                                  _showLockedAvatarMessage();
-                                  return;
-                                }
-                                if (_isSourceMutationBlocked) {
-                                  _showSourceLockedAvatarMessage();
-                                  return;
-                                }
-                                setState(() {
-                                  _chatPartnerRealPhotoDisclosure = value;
-                                });
-                              },
-                            ),
-                          if (_isAvatarGenerationEnabled &&
-                              _avatarGenerationError != null) ...[
+                          _ChatRealPhotoConsentNotice(
+                            value: _chatPartnerRealPhotoDisclosure,
+                            onChanged: (value) {
+                              if (_avatarLocked) {
+                                _showLockedAvatarMessage();
+                                return;
+                              }
+                              if (_isSourceMutationBlocked) {
+                                _showSourceLockedAvatarMessage();
+                                return;
+                              }
+                              setState(() {
+                                _chatPartnerRealPhotoDisclosure = value;
+                              });
+                            },
+                          ),
+                          if (_avatarGenerationError != null) ...[
                             const SizedBox(height: 16),
                             AvatarGenerationErrorBanner(
                               message: _avatarGenerationError!,
@@ -1545,9 +1551,7 @@ class _BottomActionBar extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  minRequired == 0
-                      ? '사진은 나중에 추가할 수 있어요'
-                      : '최소 $minRequired장 필요',
+                  '최소 $minRequired장 필요',
                   style: const TextStyle(
                     fontFamily: 'Pretendard',
                     fontSize: 12,

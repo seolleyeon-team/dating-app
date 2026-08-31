@@ -24,6 +24,7 @@ import {
   policyFromConfigDoc,
 } from "./policy";
 import {
+  ACTIVE_APPLICATION_STATUSES,
   ALCOHOL_PREFERENCES,
   BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
   BLIND_MEETING_COLLECTIONS,
@@ -36,6 +37,7 @@ import {
   DEPOSIT_STATUS_TO_APP,
   DRINKING_LEVELS,
   DepositStatus,
+  MEETING_BOUND_APPLICATION_STATUSES,
   MEETING_PURPOSES,
   MEETING_STATUS_TO_APP,
   MatchingStage,
@@ -51,6 +53,7 @@ import {
   canTransitionMeeting,
   canTransitionParticipant,
   holdsChatMembership,
+  isMeetingSettled,
   isRecord,
   isValidDateKey,
   legacySlotIdsForDate,
@@ -814,10 +817,12 @@ function buildApplicationPatchPayload(patch: {
  * 를 수행한다. 문서가 없으면 최초 신청(`applied`)만 생성을 허용한다.
  * status가 없는 patch(stage/open/extra)는 기존처럼 merge.
  *
- * FSM을 통과하지 않는 예외는 자체 트랜잭션에서 검증을 마친 두 곳뿐:
+ * FSM을 통과하지 않는 예외는 자체 트랜잭션에서 검증을 마친 곳뿐:
  * - createMeetingFromProposal (open 신청 6개의 원자적 invited 클레임)
  * - respondReplacementOffer (open 신청의 confirmed 직접 합류)
  * - cancelOpenApplication (아래 전용 helper — applied/waitlisted→cancelled)
+ * - submitNewApplication (아래 전용 helper — 신규 submit 의 재신청
+ *   invariant + FSM 검증을 연결 미팅 read 와 같은 트랜잭션에서 수행)
  */
 export async function setApplication(
   userId: string,
@@ -878,6 +883,206 @@ export async function setApplication(
       );
     }
     tx.set(ref, buildApplicationPatchPayload(patch), { merge: true });
+  });
+}
+
+/**
+ * 신규 신청 submit 전용 entrypoint.
+ *
+ * FSM 전이표만 보면 invited/accepted/confirmed→applied 는 합법이다
+ * (초대 거절·미팅 취소 재오픈 경로가 이 edge 를 쓴다). 그러나 신규 submit 이
+ * 이 edge 를 타면 active invitation/meeting 에 귀속된 신청이 applied 로
+ * 덮어써져 미팅과 신청 lifecycle 이 분리된다. 그래서 여기서는 신청서와
+ * 연결 미팅을 같은 트랜잭션에서 읽어 business invariant 를 먼저 검증하고,
+ * DNA 문서와 신청서를 원자적으로 쓴다.
+ *
+ * 서로 모순된 canonical state(미팅 문서 없음, settled 미팅에 active 신청,
+ * meetingId 없는 meeting-bound 상태)는 덮어써서 숨기지 않고 fail-closed 로
+ * 거부한다.
+ */
+export async function submitNewApplication(params: {
+  userId: string;
+  dnaPayload: Record<string, unknown>;
+  applicationExtra: Record<string, unknown>;
+}): Promise<void> {
+  const applicationRef = db()
+    .collection(BLIND_MEETING_COLLECTIONS.applications)
+    .doc(params.userId);
+  const dnaRef = db()
+    .collection(BLIND_MEETING_COLLECTIONS.dna)
+    .doc(params.userId);
+
+  await db().runTransaction(async (tx) => {
+    const applicationSnap = await tx.get(applicationRef);
+
+    if (applicationSnap.exists) {
+      const raw = (applicationSnap.data() ?? {}) as Record<string, unknown>;
+      const rawStatus = String(raw.serverStatus ?? raw.status ?? "");
+      const from = APP_STATUS_TO_SERVER[rawStatus];
+      if (from == null) {
+        logger.error("blindMeeting submit blocked: application status unknown", {
+          rawStatusLength: rawStatus.length,
+        });
+        throw new HttpsError(
+          "failed-precondition",
+          `blind_application_status_unknown:${rawStatus}`
+        );
+      }
+
+      const meetingId =
+        typeof raw.meetingId === "string" ? raw.meetingId.trim() : "";
+
+      if (ACTIVE_APPLICATION_STATUSES.includes(from)) {
+        if (meetingId.length === 0) {
+          if (MEETING_BOUND_APPLICATION_STATUSES.includes(from)) {
+            // invited 이후 상태인데 미팅 link 가 없다 — 정상 flow 에서는
+            // 나올 수 없는 상태이므로 신규 신청으로 덮어써 숨기지 않는다.
+            logger.error(
+              "blindMeeting submit blocked: active application without meeting link",
+              { status: from }
+            );
+            throw new HttpsError(
+              "failed-precondition",
+              `blind_application_active_without_meeting:${from}`
+            );
+          }
+          // applied/waitlisted open pool — 재제출은 아래 FSM 검증으로 진행.
+        } else {
+          const meetingSnap = await tx.get(
+            db().collection(BLIND_MEETING_COLLECTIONS.meetings).doc(meetingId)
+          );
+          const meeting = readMeetingDoc(meetingId, meetingSnap.data());
+          if (meeting == null) {
+            logger.error(
+              "blindMeeting submit blocked: linked meeting missing",
+              { status: from }
+            );
+            throw new HttpsError(
+              "failed-precondition",
+              `blind_application_meeting_link_missing:${from}`
+            );
+          }
+          if (!isMeetingSettled(meeting.status)) {
+            throw new HttpsError(
+              "failed-precondition",
+              "이미 진행 중인 미팅이 있어 새로 신청할 수 없어요. " +
+                "미팅 화면에서 거절 또는 취소 요청을 이용해주세요. " +
+                `(blind_reapplication_blocked_active_meeting:${from})`
+            );
+          }
+          // settled 미팅인데 신청이 여전히 active 로 남아 있다 — 정리 루프
+          // 실패다. 자동 repair 하지 않고 fail-closed 로 남긴다.
+          logger.error(
+            "blindMeeting submit blocked: active application on settled meeting",
+            { applicationStatus: from, meetingStatus: meeting.status }
+          );
+          throw new HttpsError(
+            "failed-precondition",
+            `blind_application_stale_meeting_link:${from}->${meeting.status}`
+          );
+        }
+      }
+
+      // terminal(cancelled/completed/no_show/restricted) 재신청과
+      // waitlisted→applied 되돌림은 신청서 FSM 이 최종 판정한다.
+      if (from !== "applied" && !canTransitionApplication(from, "applied")) {
+        throw new HttpsError(
+          "failed-precondition",
+          `blind_application_transition_rejected:${from}->applied`
+        );
+      }
+    }
+
+    tx.set(
+      dnaRef,
+      {
+        ...params.dnaPayload,
+        updatedAt: FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    tx.set(
+      applicationRef,
+      buildApplicationPatchPayload({
+        status: "applied",
+        stage: "searchingCandidates",
+        open: true,
+        meetingId: null,
+        extra: params.applicationExtra,
+      }),
+      { merge: true }
+    );
+  });
+}
+
+/**
+ * 신청서가 아직 이 미팅에 귀속돼 있을 때만 open pool 로 되돌린다.
+ *
+ * 초대 거절·미팅 취소의 재오픈 경로 전용 (재신청 invariant 의 대칭).
+ * 중복 거절이나 뒤늦은 취소 정리가 도착했을 때 신청이 이미 재오픈되어
+ * 다른 미팅에 재클레임된 상태라면, invited→applied 가 FSM 상 합법이어도
+ * 새 미팅의 link 를 덮어쓰지 않고 건너뛴다.
+ *
+ * @returns 재오픈을 실제로 수행했으면 true.
+ */
+export async function reopenApplicationIfBoundTo(
+  userId: string,
+  meetingId: string,
+  extra: Record<string, unknown> = {}
+): Promise<boolean> {
+  const ref = db()
+    .collection(BLIND_MEETING_COLLECTIONS.applications)
+    .doc(userId);
+  return db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return false;
+    const raw = (snap.data() ?? {}) as Record<string, unknown>;
+
+    const boundMeetingId =
+      typeof raw.meetingId === "string" ? raw.meetingId.trim() : "";
+    if (boundMeetingId !== meetingId) {
+      // 이미 재오픈됐거나 다른 미팅에 귀속됨 — 덮어쓰지 않는다.
+      logger.info("blindMeeting application reopen skipped: not bound", {
+        stillBound: boundMeetingId.length > 0,
+      });
+      return false;
+    }
+
+    const rawStatus = String(raw.serverStatus ?? raw.status ?? "");
+    const from = APP_STATUS_TO_SERVER[rawStatus];
+    if (from == null) {
+      logger.error("blindMeeting application status unknown", {
+        rawStatusLength: rawStatus.length,
+      });
+      throw new HttpsError(
+        "failed-precondition",
+        `blind_application_status_unknown:${rawStatus}`
+      );
+    }
+    // 시스템 재오픈은 미팅에 귀속된 active 상태에서만 수행한다.
+    // cancelled 등 terminal 은 사용자가 직접 재신청(FSM cancelled→applied)
+    // 해야 하며, 시스템이 되살리지 않는다.
+    if (
+      !MEETING_BOUND_APPLICATION_STATUSES.includes(from) ||
+      !canTransitionApplication(from, "applied")
+    ) {
+      logger.info("blindMeeting application reopen skipped", { from });
+      return false;
+    }
+
+    tx.set(
+      ref,
+      buildApplicationPatchPayload({
+        status: "applied",
+        stage: "searchingCandidates",
+        open: true,
+        meetingId: null,
+        extra,
+      }),
+      { merge: true }
+    );
+    return true;
   });
 }
 

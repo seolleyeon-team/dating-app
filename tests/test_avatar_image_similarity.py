@@ -195,4 +195,3 @@ def test_default_adapter_construction_does_not_load_model():
     assert adapter.provider == "clip"
     assert adapter._model is None
     assert adapter._processor is None
-
