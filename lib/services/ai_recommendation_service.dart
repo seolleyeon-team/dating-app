@@ -459,43 +459,6 @@ class AiRecommendationService {
     return const <AiRecommendedProfile>[];
   }
 
-  /// Profile Card 피드. modelRecs 없으면 빈 목록 (users 스캔 폴백 없음).
-  Future<List<AiRecommendedProfile>> fetchProfileFeed({
-    int limit = 10,
-    String? userId,
-  }) async {
-    final uid = userId ?? await _resolveUid();
-    if (uid == null || uid.isEmpty) return [];
-
-    try {
-      if (!await _isViewerRecommendationPrivacyReady(uid)) return [];
-      final blockedUids = <String>{
-        ...await _fetchBlockedUids(uid),
-        ...await _fetchRecommendationExcludedUids(uid),
-      };
-
-      final result = await _fetchRawRecs(uid, 'svd');
-      if (result != null) {
-        final data = result['data'] as Map<String, dynamic>;
-        final dateKey = result['dateKey'] as String;
-        final items = data['items'] as List<dynamic>? ?? [];
-        return await _hydrateProfiles(
-          rawItems: items,
-          algo: 'svd',
-          dateKey: dateKey,
-          limit: limit,
-          viewerUid: uid,
-          blockedUids: blockedUids,
-          documentPolicyState: policyStateOf(data),
-        );
-      }
-      return await _emptyFeedBecauseNoModelRecs('profile_feed_no_modelRecs');
-    } catch (e) {
-      debugPrint('fetchProfileFeed Error: ${PrivacyLogUtils.errorSummary(e)}');
-      rethrow;
-    }
-  }
-
   /// Mystery Card 피드. modelRecs 없으면 빈 목록 (users 스캔 폴백 없음).
   Future<List<AiRecommendedProfile>> fetchMysteryFeed({
     int limit = 3,

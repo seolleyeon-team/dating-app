@@ -10,16 +10,22 @@ import {
 } from "./helpers.mjs";
 
 import {
+  collection,
   doc,
   getDoc,
+  getDocs,
+  orderBy,
+  query,
   setDoc,
   updateDoc,
+  where,
 } from "firebase/firestore";
 
 const ALICE = "kakao_alice";
 const BOB = "kakao_bob";
 const MALLORY = "kakao_mallory";
 const ROOM = "dm_alice_bob";
+const PROMISE = "promise_alice_bob";
 
 async function seedChatRoom(db) {
   await setDoc(doc(db, "chat_rooms", ROOM), {
@@ -30,6 +36,7 @@ async function seedChatRoom(db) {
       [ALICE]: { nickname: "Alice", avatarUrl: "" },
       [BOB]: { nickname: "Bob", avatarUrl: "" },
     },
+    updatedAt: new Date(),
   });
   await setDoc(doc(db, "chat_rooms", ROOM, "messages", "m_text"), {
     senderId: ALICE,
@@ -46,7 +53,35 @@ async function seedChatRoom(db) {
     placeCategory: "cafe",
     readBy: [ALICE],
   });
+  await setDoc(doc(db, "chat_rooms", ROOM, "promises", PROMISE), {
+    promiseId: PROMISE,
+    messageId: "m_promise",
+    requestedBy: ALICE,
+    requestedTo: BOB,
+    status: "requested",
+    dateTime: new Date(),
+    place: "신촌",
+    placeCategory: "cafe",
+  });
 }
+
+test("a participant can list rooms with an array-contains participant query", async () => {
+  await withClearedDb(seedChatRoom);
+  const alice = await kakaoSession(ALICE);
+
+  const snap = await assertSucceeds(
+    getDocs(
+      query(
+        collection(alice, "chat_rooms"),
+        where("participantIds", "array-contains", ALICE),
+        orderBy("updatedAt", "desc")
+      )
+    )
+  );
+
+  assert.equal(snap.size, 1);
+  assert.equal(snap.docs[0].id, ROOM);
+});
 
 test.after(async () => {
   const env = await getTestEnv();
@@ -109,6 +144,60 @@ test("an existing promise message can move through its lifecycle", async () => {
       type: "promise_confirmed",
       text: "약속이 확정되었어요",
       status: "confirmed",
+      updatedAt: new Date(),
+    })
+  );
+});
+
+test("both promise parties can cancel and record the cancellation", async () => {
+  await withClearedDb(seedChatRoom);
+  const bob = await kakaoSession(BOB);
+
+  await assertSucceeds(
+    updateDoc(doc(bob, "chat_rooms", ROOM, "promises", PROMISE), {
+      status: "cancelled",
+      updatedAt: new Date(),
+    })
+  );
+  await assertSucceeds(
+    setDoc(doc(bob, "chat_rooms", ROOM, "messages", "m_deleted_by_bob"), {
+      senderId: BOB,
+      type: "promise_deleted",
+      text: "약속이 삭제되었어요",
+      promiseId: PROMISE,
+      status: "cancelled",
+    })
+  );
+
+  await withClearedDb(seedChatRoom);
+  const alice = await kakaoSession(ALICE);
+  await assertSucceeds(
+    updateDoc(doc(alice, "chat_rooms", ROOM, "promises", PROMISE), {
+      status: "cancelled",
+      updatedAt: new Date(),
+    })
+  );
+});
+
+test("a room participant who is not a promise party cannot cancel it", async () => {
+  await withClearedDb(async (db) => {
+    await setDoc(doc(db, "chat_rooms", ROOM), {
+      roomId: ROOM,
+      participantIds: [ALICE, BOB, MALLORY],
+      updatedAt: new Date(),
+    });
+    await setDoc(doc(db, "chat_rooms", ROOM, "promises", PROMISE), {
+      promiseId: PROMISE,
+      requestedBy: ALICE,
+      requestedTo: BOB,
+      status: "confirmed",
+    });
+  });
+  const mallory = await kakaoSession(MALLORY);
+
+  await assertFails(
+    updateDoc(doc(mallory, "chat_rooms", ROOM, "promises", PROMISE), {
+      status: "cancelled",
       updatedAt: new Date(),
     })
   );

@@ -306,6 +306,35 @@ test("acceptInvitation is idempotent under double call", async () => {
   assert.equal(meetingSnap.data()?.serverStatus, "awaiting_acceptance");
 });
 
+test("all six accept without a deposit and open one group chat", async () => {
+  const { meetingId, uids } = await seedInvitedMeeting();
+
+  for (const uid of uids) {
+    await acceptInvitation(meetingId, uid);
+  }
+
+  const meetingSnap = await db.collection("blindMeetings").doc(meetingId).get();
+  assert.equal(meetingSnap.data()?.serverStatus, "chat_open");
+  assert.equal(meetingSnap.data()?.groupChatId, `blind_${meetingId}`);
+
+  for (const uid of uids) {
+    assert.equal(await participantStatus(meetingId, uid), "confirmed");
+    const participantSnap = await db
+      .collection("blindMeetings")
+      .doc(meetingId)
+      .collection("participants")
+      .doc(uid)
+      .get();
+    assert.equal(participantSnap.data()?.serverDepositStatus, "not_required");
+  }
+
+  const roomSnap = await db
+    .collection("chat_rooms")
+    .doc(`blind_${meetingId}`)
+    .get();
+  assert.deepEqual(roomSnap.data()?.participantIds, uids);
+});
+
 test("declineInvitation twice stays terminal and never resurrects the seat", async () => {
   const { meetingId, uids } = await seedInvitedMeeting();
   await declineInvitation(meetingId, uids[1], "일정 변경");

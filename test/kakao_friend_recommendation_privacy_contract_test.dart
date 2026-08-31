@@ -176,15 +176,32 @@ void main() {
     expect(prerequisite, contains('추천 정보를 불러오지 못했어요.'));
     expect(prerequisite, contains('인터넷 연결을 확인하고 다시 시도해 주세요.'));
 
-    for (final path in [
-      'lib/features/matching/screens/profile_card_screen.dart',
+    final screen = _read(
       'lib/features/matching/screens/mystery_card_screen.dart',
-    ]) {
-      final screen = _read(path);
-      expect(screen, contains('KakaoRecommendationPrivacyPrerequisite'));
-      expect(screen, contains('RecommendationLoadFailure'));
-      expect(screen, contains('syncKakaoTalkFriendBlocks'));
-    }
+    );
+    expect(screen, contains('KakaoRecommendationPrivacyPrerequisite'));
+    expect(screen, contains('RecommendationLoadFailure'));
+    expect(screen, contains('syncKakaoTalkFriendBlocks'));
+  });
+
+  test('legacy general profile-card system is removed from the app graph', () {
+    expect(
+      File(
+        'lib/features/matching/screens/profile_card_screen.dart',
+      ).existsSync(),
+      isFalse,
+    );
+
+    final router = _read('lib/router/app_router.dart');
+    final routes = _read('lib/router/route_names.dart');
+    final recommendationService = _read(
+      'lib/services/ai_recommendation_service.dart',
+    );
+
+    expect(router, isNot(contains('ProfileCardScreen')));
+    expect(router, isNot(contains("profile_card_screen.dart")));
+    expect(routes, isNot(contains("profileCard = '/matching/profile-card'")));
+    expect(recommendationService, isNot(contains('fetchProfileFeed')));
   });
 
   test('clients cannot write recommendation exclusion pairs', () {

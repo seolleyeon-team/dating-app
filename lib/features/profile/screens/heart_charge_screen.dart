@@ -88,7 +88,7 @@ class _HeartChargeScreenState extends State<HeartChargeScreen> {
                   message: '하트가 성공적으로 충전됐어요.',
                   isError: false,
                 ),
-              Expanded(child: _buildProductBody()),
+              Expanded(child: _buildProductBodyWithEligibility()),
             ],
           ),
         ),
@@ -96,7 +96,27 @@ class _HeartChargeScreenState extends State<HeartChargeScreen> {
     );
   }
 
-  Widget _buildProductBody() {
+  Widget _buildProductBodyWithEligibility() {
+    final userId = _kakaoUserId;
+    if (userId == null || userId.isEmpty) {
+      return _buildProductBody(firstPurchaseEligible: false);
+    }
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data();
+        final purchaseCount = (data?['iapPurchaseCount'] as num?)?.toInt() ?? 0;
+        final firstPurchaseEligible =
+            purchaseCount == 0 && data?['firstPurchaseOfferUsed'] != true;
+        return _buildProductBody(firstPurchaseEligible: firstPurchaseEligible);
+      },
+    );
+  }
+
+  Widget _buildProductBody({required bool firstPurchaseEligible}) {
     if (!_iapService.supportsIap) {
       return const _CenteredMessage(
         '하트 구매는 iPhone, iPad 또는 Android에서 이용할 수 있어요.',
@@ -117,13 +137,24 @@ class _HeartChargeScreenState extends State<HeartChargeScreen> {
       );
     }
 
+    final products = _iapService.products
+        .where((details) {
+          final package = HeartProducts.fromProductId(
+            details.id,
+            platform: _iapService.platform!,
+          );
+          return package != null &&
+              (!package.isFirstPurchaseOffer || firstPurchaseEligible);
+        })
+        .toList(growable: false);
+
     return ListView.separated(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 48),
-      itemCount: _iapService.products.length + 1,
+      itemCount: products.length + 1,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
-        if (index == _iapService.products.length) {
+        if (index == products.length) {
           return Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Center(
@@ -137,7 +168,7 @@ class _HeartChargeScreenState extends State<HeartChargeScreen> {
             ),
           );
         }
-        final details = _iapService.products[index];
+        final details = products[index];
         final package = HeartProducts.fromProductId(
           details.id,
           platform: _iapService.platform!,
@@ -286,7 +317,7 @@ class _PromoBanner extends StatelessWidget {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  '하트는 좋아요를 보내는 데 사용할 수 있어요.',
+                  '채팅, 3:3 미팅, 추천 새로고침에 사용할 수 있어요.',
                   style: TextStyle(fontSize: 12, color: Color(0xFF616161)),
                 ),
               ],
@@ -376,7 +407,7 @@ class _ProductCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  details.title,
+                  heartPackage.displayName,
                   style: const TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w700,
@@ -385,9 +416,9 @@ class _ProductCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  details.description.isEmpty
-                      ? '${heartPackage.hearts}하트'
-                      : details.description,
+                  heartPackage.isFirstPurchaseOffer
+                      ? '${heartPackage.hearts}하트 · 계정당 1회'
+                      : '${heartPackage.hearts}하트',
                   style: const TextStyle(
                     fontSize: 12,
                     color: _AppColors.textSecondary,

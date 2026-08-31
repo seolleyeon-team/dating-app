@@ -11,6 +11,9 @@ export const BLIND_MEETING_COLLECTIONS = {
   meetings: "blindMeetings",
   applications: "blindMeetingApplications",
   dna: "blindMeetingDna",
+  // 30H를 차감했지만 아직 최종 신청하지 않은 DNA 작성 진행 상태.
+  // 신청 문서와 분리해 매칭 후보군에 노출되지 않도록 한다.
+  dnaDrafts: "blindMeetingDnaDrafts",
   participants: "participants",
   publicProfiles: "publicProfiles",
   followUpChoices: "followUpChoices",
@@ -195,7 +198,9 @@ export const ALLOWED_MEETING_TRANSITIONS: Record<
 > = {
   application_open: ["forming"],
   forming: ["awaiting_acceptance", "application_open"],
-  awaiting_acceptance: ["awaiting_deposits", "forming"],
+  // 블라인드 미팅은 전원 수락 직후 보증금 없이 확정한다.
+  // awaiting_deposits는 과거 문서 호환/복구용으로만 남긴다.
+  awaiting_acceptance: ["confirmed", "awaiting_deposits", "forming"],
   awaiting_deposits: ["confirmed", "forming"],
   confirmed: ["chat_open"],
   chat_open: ["schedule_confirmed"],

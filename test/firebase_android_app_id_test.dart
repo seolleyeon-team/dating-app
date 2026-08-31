@@ -3,15 +3,13 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-/// Android 는 flavor 마다 applicationId 가 다르고, 패키지마다 별도의 Firebase
-/// 앱이 등록돼 있다.
+/// Android production/staging flavor는 같은 운영 패키지와 Firebase 앱을 사용한다.
 ///
-///   production : com.seolleyeon.app  — Google Play 에 등록된 실제 앱
-///   staging    : com.yonsei.dating   — 개발/검증용
+///   production : com.seolleyeon.app  — Google Play/TestFlight 운영 앱
+///   staging    : com.seolleyeon.app  — 기존 개발 명령 호환용 flavor
 ///
-/// 두 축이 어긋나면 production 번들이 staging Firebase 앱으로 초기화되고,
-/// 로그인·FCM·App Check 가 잘못된 앱 신원으로 동작한다. 빌드는 그대로
-/// 성공하기 때문에 배포 전에는 드러나지 않는다.
+/// 두 flavor를 서로 다른 Firebase 앱으로 연결하면 로그인·FCM·App Check가
+/// 잘못된 앱 신원으로 동작한다. 이 테스트는 운영 앱 하나만 쓰는지 확인한다.
 void main() {
   final buildGradle = File('android/app/build.gradle.kts').readAsStringSync();
   final googleServices =
@@ -44,12 +42,9 @@ void main() {
     expect(flavorApplicationId('production'), 'com.seolleyeon.app');
   });
 
-  test('staging flavor keeps its own package', () {
-    expect(flavorApplicationId('staging'), 'com.yonsei.dating');
-    expect(
-      flavorApplicationId('staging'),
-      isNot(flavorApplicationId('production')),
-    );
+  test('staging flavor shares the production package', () {
+    expect(flavorApplicationId('staging'), 'com.seolleyeon.app');
+    expect(flavorApplicationId('staging'), flavorApplicationId('production'));
   });
 
   test('a build without a flavor cannot inherit a package', () {
@@ -64,25 +59,31 @@ void main() {
     expect(withoutComments, isNot(contains('applicationId')));
   });
 
-  test('google-services.json carries both packages', () {
+  test('google-services.json carries only the production package', () {
     expect(appIdFor('com.seolleyeon.app'), isNotNull);
-    expect(appIdFor('com.yonsei.dating'), isNotNull);
+    expect(
+      clients
+          .map(
+            (client) =>
+                (client['client_info']
+                        as Map<String, dynamic>)['android_client_info']
+                    as Map<String, dynamic>,
+          )
+          .map((info) => info['package_name'])
+          .toSet(),
+      {'com.seolleyeon.app'},
+    );
   });
 
-  test('FlutterFire options map each flavor to its own Firebase app', () {
+  test('FlutterFire options use the shared production Firebase app', () {
     final firebaseOptions = File(
       'lib/firebase_options.dart',
     ).readAsStringSync();
 
     final productionAppId = appIdFor('com.seolleyeon.app')!;
-    final stagingAppId = appIdFor('com.yonsei.dating')!;
-
     expect(firebaseOptions, contains("appId: '$productionAppId'"));
-    expect(firebaseOptions, contains("appId: '$stagingAppId'"));
-    // flavor 를 실제로 읽어서 고르는지 (상수 하나로 고정돼 있으면 안 된다).
-    expect(firebaseOptions, contains('FLUTTER_APP_FLAVOR'));
     expect(firebaseOptions, contains('androidProduction'));
-    expect(firebaseOptions, contains('androidStaging'));
+    expect(firebaseOptions, isNot(contains('androidStaging')));
   });
 
   test('FlutterFire config defaults to the production Android app', () {

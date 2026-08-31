@@ -12,6 +12,7 @@
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import '../../../constants/profile_options.dart';
 import '../../../services/onboarding_save_helper.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
@@ -41,8 +42,8 @@ class HeightSelectionScreen extends StatefulWidget {
   const HeightSelectionScreen({
     super.key,
     this.initialHeight = 175,
-    this.minHeight = 140,
-    this.maxHeight = 200,
+    this.minHeight = profileHeightMin,
+    this.maxHeight = profileHeightMax,
     this.onBack,
     this.onComplete,
   });

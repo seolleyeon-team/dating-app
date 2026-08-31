@@ -81,17 +81,18 @@ void main() {
         'outdoor': 31,
         'food': 21,
         'sports': 29,
-        'screen': 13,
+        'screen': 14,
         'music': 11,
         'game': 6,
         'creative': 13,
         'social': 7,
       });
-      expect(perCategory.values.reduce((a, b) => a + b), 150);
+      expect(perCategory.values.reduce((a, b) => a + b), 151);
     });
 
     test('알 수 없는 관심사는 other 카테고리', () {
       expect(interestCategoryIdOf('커피'), 'food');
+      expect(interestCategoryIdOf('일본 애니메이션'), 'screen');
       expect(interestCategoryIdOf('존재하지-않는-관심사'), 'other');
       expect(interestCategoryIdOf(''), 'other');
     });

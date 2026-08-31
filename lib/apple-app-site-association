@@ -3,7 +3,7 @@
     "apps": [],
     "details": [
       {
-        "appID": "9A59VHDQDV.com.seolleyeon.app",
+        "appID": "2LN4253AT6.com.seolleyeon.app",
         "paths": [ "/auth/email-link/*", "/auth/email-link", "/*" ]
       }
     ]

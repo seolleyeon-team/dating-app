@@ -4,12 +4,16 @@
 // =============================================================================
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../router/route_names.dart';
+import '../../../services/firebase_diagnostics.dart';
 import '../../../services/storage_service.dart';
 import '../../../shared/widgets/chat_profile_photo_avatar.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
@@ -141,6 +145,72 @@ class _ChatListScreenState extends State<ChatListScreen> {
       _currentKakaoUserId = kakaoUserId;
       _isLoading = false;
     });
+  }
+
+  String _firebaseProjectId() {
+    try {
+      final projectId = Firebase.app().options.projectId;
+      return projectId.isEmpty ? '없음' : projectId;
+    } catch (_) {
+      return 'Firebase 초기화 안 됨';
+    }
+  }
+
+  String _chatListErrorReason(
+    String code,
+    String currentUserId,
+    String? firebaseUid,
+  ) {
+    switch (code) {
+      case 'permission-denied':
+        if (firebaseUid == null) {
+          return 'Firebase Auth 세션이 없습니다. 로그인은 끝났지만 현재 앱에 Firebase 사용자가 없습니다.';
+        }
+        if (firebaseUid != currentUserId) {
+          return 'Firebase UID와 앱에 저장된 사용자 ID가 다릅니다. 잘못된 계정으로 채팅을 조회하고 있습니다.';
+        }
+        return '로그인 세션은 일치하지만 Firestore 보안 규칙이 이 사용자의 채팅방 조회를 거부했습니다.';
+      case 'unauthenticated':
+        return 'Firebase Auth 세션이 없거나 만료되었습니다. 테스트 계정으로 다시 로그인해 주세요.';
+      case 'failed-precondition':
+        return 'Firestore 인덱스 또는 쿼리 사전 조건 오류입니다. 아래 상세 메시지에 인덱스 안내가 있는지 확인해 주세요.';
+      case 'unavailable':
+        return 'Firebase 서버에 연결할 수 없습니다. 네트워크 또는 Firebase 장애를 확인해 주세요.';
+      case 'deadline-exceeded':
+        return 'Firebase 요청 시간이 초과되었습니다. 네트워크 상태를 확인해 주세요.';
+      case 'not-found':
+        return '요청한 Firestore 리소스를 찾지 못했습니다.';
+      default:
+        return 'Firebase가 채팅방 조회를 거부했거나 알 수 없는 오류가 발생했습니다.';
+    }
+  }
+
+  String _chatListErrorDetails(Object error, String currentUserId) {
+    final exception = error is FirebaseException ? error : null;
+    final code = exception?.code.trim().isNotEmpty == true
+        ? exception!.code
+        : 'unknown';
+    final firebaseUid = FirebaseAuth.instance.currentUser?.uid;
+    final safeMessage = FirebaseDiagnostics.safeErrorForLog(
+      error,
+    ).replaceAll(RegExp(r'\s+'), ' ').trim();
+    final shortenedMessage = safeMessage.length <= 280
+        ? safeMessage
+        : '${safeMessage.substring(0, 280)}…';
+
+    return [
+      '원인: ${_chatListErrorReason(code, currentUserId, firebaseUid)}',
+      '오류 코드: ${exception?.plugin ?? 'unknown'}/$code',
+      '앱 사용자 ID: ${PrivacyLogUtils.idFingerprint(currentUserId)}',
+      'Firebase Auth UID: ${PrivacyLogUtils.idFingerprint(firebaseUid)}',
+      'UID 일치: ${firebaseUid == null
+          ? '확인 불가(세션 없음)'
+          : firebaseUid == currentUserId
+          ? '예'
+          : '아니오'}',
+      'Firebase 프로젝트: ${_firebaseProjectId()}',
+      if (shortenedMessage.isNotEmpty) '상세 메시지: $shortenedMessage',
+    ].join('\n');
   }
 
   String _formatLastMessageTime(dynamic ts) {
@@ -334,17 +404,49 @@ class _ChatListScreenState extends State<ChatListScreen> {
                       final seol = Theme.of(
                         context,
                       ).extension<SeolThemeColors>()!;
+                      final errorDetails = kDebugMode
+                          ? _chatListErrorDetails(
+                              snapshot.error!,
+                              currentUserId,
+                            )
+                          : null;
                       return SliverToBoxAdapter(
                         child: Padding(
-                          padding: const EdgeInsets.only(top: 80),
+                          padding: const EdgeInsets.fromLTRB(16, 80, 16, 24),
                           child: Center(
-                            child: Text(
-                              '채팅 목록을 불러오지 못했어요',
-                              style: TextStyle(
-                                fontFamily: 'NanumSquareRound',
-                                fontSize: 15,
-                                color: seol.gray400,
-                              ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '채팅 목록을 불러오지 못했어요',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontFamily: 'NanumSquareRound',
+                                    fontSize: 15,
+                                    color: seol.gray400,
+                                  ),
+                                ),
+                                if (errorDetails != null) ...[
+                                  const SizedBox(height: 14),
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: seol.gray100,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: SelectableText(
+                                      errorDetails,
+                                      style: TextStyle(
+                                        fontFamily: 'NanumSquareRound',
+                                        fontSize: 11,
+                                        height: 1.45,
+                                        color: seol.bodyText,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
                         ),

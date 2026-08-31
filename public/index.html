@@ -380,10 +380,54 @@
 
     .footer {
       margin-top: 28px;
-      padding-top: 18px;
+      padding-top: 22px;
       border-top: 1px solid var(--line);
       color: var(--muted);
       font-size: 0.92rem;
+    }
+
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      margin: 0 0 14px;
+    }
+
+    .footer-links a {
+      color: var(--text);
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .footer-links a:hover,
+    .footer-business a:hover {
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    .footer-business {
+      margin: 0;
+      line-height: 1.8;
+    }
+
+    .footer-business-line {
+      margin: 3px 0;
+    }
+
+    .footer-business-item + .footer-business-item::before {
+      content: "|";
+      margin: 0 10px;
+      color: var(--line);
+    }
+
+    .footer-business a {
+      color: inherit;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    .footer-copyright {
+      margin: 14px 0 0;
     }
 
     @media (max-width: 860px) {
@@ -448,6 +492,14 @@
 
       .data-table th {
         border-bottom: 0;
+      }
+
+      .footer-business-item {
+        display: block;
+      }
+
+      .footer-business-item + .footer-business-item::before {
+        display: none;
       }
     }
   </style>
@@ -587,7 +639,26 @@
     </div>
 
     <footer class="footer">
-      <p>설레연은 안전한 대학생 매칭 커뮤니티 운영을 위해 본인인증, 성인인증, 학교 이메일 인증 절차를 제공합니다.</p>
+      <nav class="footer-links" aria-label="법적 문서">
+        <a href="/terms">이용약관</a>
+        <a href="/privacy">개인정보처리방침</a>
+      </nav>
+      <div class="footer-business" aria-label="사업자 정보 및 고객 문의">
+        <p class="footer-business-line">
+          <span class="footer-business-item">상호명: 설레연</span>
+          <span class="footer-business-item">대표자명: 임채홍</span>
+          <span class="footer-business-item">사업자등록번호: 120-35-01737 (간이과세자)</span>
+          <span class="footer-business-item">통신판매업 신고번호: 2026-제주애월-0146</span>
+        </p>
+        <p class="footer-business-line">
+          <span class="footer-business-item">연락처: <a href="tel:01074351916">010-7435-1916</a></span>
+          <span class="footer-business-item">사업장 주소: 제주특별자치도 제주시 애월읍 납읍로2길 68 1층</span>
+        </p>
+        <p class="footer-business-line">
+          <span class="footer-business-item">고객 문의 이메일: <a href="mailto:support@seolleyeon.com">support@seolleyeon.com</a></span>
+        </p>
+      </div>
+      <p class="footer-copyright">© 설레연, All rights reserved.</p>
     </footer>
   </main>
 </body>

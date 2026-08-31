@@ -1,9 +1,16 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
+import '../../../services/auth_service.dart';
+import '../../../services/firebase_runtime.dart';
 import '../utils/safety_stamp_availability.dart';
 
 class ChatService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
+    region: firebaseFunctionsRegion,
+  );
+  final AuthService _authService = AuthService();
 
   static Map<String, dynamic> _coerceStringMap(dynamic raw) {
     if (raw is Map) {
@@ -401,42 +408,13 @@ class ChatService {
     String? currentUserAvatarUrl,
     String? partnerAvatarUrl,
   }) async {
-    final resolvedRoomId = roomId?.isNotEmpty == true
-        ? roomId!
-        : buildDirectRoomId(currentUserId, partnerId);
-
-    final roomRef = _firestore.collection('chat_rooms').doc(resolvedRoomId);
-    final participantIds = [currentUserId, partnerId]..sort();
-
-    final payload = {
-      'roomId': resolvedRoomId,
-      'participantIds': participantIds,
-      'updatedAt': FieldValue.serverTimestamp(),
-      'participantInfo': {
-        currentUserId: {
-          'nickname': currentUserName,
-          'avatarUrl': currentUserAvatarUrl ?? '',
-        },
-        partnerId: {
-          'nickname': partnerName,
-          'avatarUrl': partnerAvatarUrl ?? '',
-        },
-      },
-    };
-
-    final snap = await roomRef.get();
-
-    if (!snap.exists) {
-      await roomRef.set({
-        ...payload,
-        'createdAt': FieldValue.serverTimestamp(),
-        'lastMessage': '',
-        'lastMessageAt': null,
-      });
-      return;
-    }
-
-    await roomRef.set(payload, SetOptions(merge: true));
+    final ready = await _authService.ensureFirebaseSessionForKakao(
+      currentUserId,
+    );
+    if (!ready) throw StateError('로그인 세션을 준비하지 못했어요.');
+    await _functions.httpsCallable('unlockDirectChat').call<dynamic>({
+      'partnerId': partnerId,
+    });
   }
 
   Future<void> sendTextMessage({
@@ -744,6 +722,7 @@ class ChatService {
   Future<void> cancelPromise({
     required String roomId,
     required String promiseId,
+    required String cancelledBy,
   }) async {
     final roomRef = _firestore.collection('chat_rooms').doc(roomId);
     final promiseRef = roomRef.collection('promises').doc(promiseId);
@@ -762,6 +741,11 @@ class ChatService {
           : null;
 
       final requestedBy = data['requestedBy']?.toString() ?? '';
+      final requestedTo = data['requestedTo']?.toString() ?? '';
+      if (cancelledBy.isEmpty ||
+          (cancelledBy != requestedBy && cancelledBy != requestedTo)) {
+        throw Exception('약속 당사자만 삭제할 수 있어요.');
+      }
       final promiseDateTime = data['dateTime'];
       final promisePlace = data['place'];
       final promiseCategory = data['placeCategory'];
@@ -786,7 +770,7 @@ class ChatService {
       }, SetOptions(merge: true));
 
       tx.set(deleteMessageRef, {
-        'senderId': requestedBy,
+        'senderId': cancelledBy,
         'type': 'promise_deleted',
         'text': '약속이 삭제되었어요',
         'promiseId': promiseId,
@@ -794,7 +778,7 @@ class ChatService {
         'place': promisePlace,
         'placeCategory': promiseCategory,
         'status': 'cancelled',
-        'readBy': [requestedBy],
+        'readBy': [cancelledBy],
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });

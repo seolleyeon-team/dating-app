@@ -10,17 +10,5 @@
         "EC:75:E0:1B:47:44:77:31:22:CF:FC:22:B3:A4:6F:AC:D3:1E:0E:7C:EE:51:3C:E0:8A:9C:C4:2C:50:36:51:CF"
       ]
     }
-  },
-  {
-    "relation": [
-      "delegate_permission/common.handle_all_urls"
-    ],
-    "target": {
-      "namespace": "android_app",
-      "package_name": "com.yonsei.dating",
-      "sha256_cert_fingerprints": [
-        "E1:2D:BC:62:DA:0D:B9:E8:54:DC:82:EC:53:51:91:8A:0E:D6:A6:BB:23:D8:21:7F:43:76:1D:B9:CD:B4:92:04"
-      ]
-    }
   }
 ]

@@ -18,6 +18,8 @@ import '../../../shared/constants/photo_blur_constants.dart';
 import '../../../shared/utils/privacy_log_utils.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
 import '../../../shared/widgets/kakao_recommendation_privacy_prerequisite.dart';
+import '../../shop/services/heart_economy.dart';
+import '../../shop/widgets/heart_spend_confirmation.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 import '../../chat/services/chat_service.dart';
 import '../../notifications/services/notification_service.dart';
@@ -295,6 +297,7 @@ class _LockerRecommendationContentState
   final _userService = UserService();
   final _aiService = AiRecommendationService();
   final _contactBlockService = ContactBlockService();
+  final _heartEconomyService = HeartEconomyService();
   List<AiRecommendedProfile> _profiles = [];
   String? _userId;
   String _userNickname = '회원';
@@ -303,6 +306,8 @@ class _LockerRecommendationContentState
   bool _reloadRequested = false;
   bool _privacyConsentRequired = false;
   bool _recommendationLoadFailed = false;
+  bool _isPaidRefreshing = false;
+  String? _paidRefreshError;
   bool _isSyncingPrivacy = false;
   String? _privacySyncError;
   String? _privacyWatchedUid;
@@ -443,6 +448,37 @@ class _LockerRecommendationContentState
       _recommendationLoadFailed = false;
     });
     await _loadRecommendations();
+  }
+
+  Future<void> _paidRefreshRecommendations() async {
+    if (_isPaidRefreshing) return;
+
+    final confirmed = await confirmHeartSpend(
+      context,
+      action: '정말로 추천을 새로고침하시겠습니까?',
+      amount: HeartFeatureCosts.recommendationRefresh,
+    );
+    if (!confirmed || !mounted) return;
+
+    setState(() {
+      _isPaidRefreshing = true;
+      _paidRefreshError = null;
+    });
+    try {
+      await _heartEconomyService.spendForRecommendationRefresh();
+      if (!mounted) return;
+      setState(() => _isLoading = true);
+      await _loadRecommendations();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _paidRefreshError = error.toString().contains('하트가 부족')
+            ? '하트가 부족해요. 충전 후 다시 시도해주세요.'
+            : '새로고침을 완료하지 못했어요.';
+      });
+    } finally {
+      if (mounted) setState(() => _isPaidRefreshing = false);
+    }
   }
 
   void _watchCandidateEligibility(List<AiRecommendedProfile> profiles) {
@@ -696,9 +732,38 @@ class _LockerRecommendationContentState
               ? const Center(child: CupertinoActivityIndicator())
               : _profiles.isEmpty
               ? Center(
-                  child: Text(
-                    '오늘의 추천이 모두 소진되었습니다.',
-                    style: TextStyle(color: mutedColor),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '오늘의 추천을 모두 확인했어요.',
+                        style: TextStyle(color: mutedColor),
+                      ),
+                      const SizedBox(height: 14),
+                      CupertinoButton.filled(
+                        onPressed: _isPaidRefreshing
+                            ? null
+                            : _paidRefreshRecommendations,
+                        child: _isPaidRefreshing
+                            ? const CupertinoActivityIndicator(
+                                color: CupertinoColors.white,
+                              )
+                            : Text(
+                                '새로고침 · ${HeartFeatureCosts.label(HeartFeatureCosts.recommendationRefresh)}',
+                              ),
+                      ),
+                      if (_paidRefreshError != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          _paidRefreshError!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: CupertinoColors.systemRed,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 )
               : _LockerBoard(profiles: _profiles, onOpen: _openNote),
