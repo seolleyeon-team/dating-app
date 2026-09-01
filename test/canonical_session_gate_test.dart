@@ -50,12 +50,16 @@ void main() {
     expect(service, contains('KakaoLoginCoordinator.run'));
   });
 
-  test('terms require identity verification before the email login screen', () {
+  test('terms hand off to the email login screen, and identity verification '
+      'stays reachable as a post-auth gate', () {
     final terms = read('lib/features/onboarding/screens/terms_screen.dart');
     final router = read('lib/router/app_router.dart');
     final verification = read('lib/services/adult_verification_service.dart');
 
-    expect(terms, contains('RouteNames.adultVerification'));
+    // verifyAdultIdentityAfterLogin requires request.auth.uid, so PortOne can
+    // only run once the canonical appUserId exists.
+    expect(terms, contains('RouteNames.studentVerification'));
+    expect(terms, isNot(contains('RouteNames.adultVerification')));
     expect(router, contains('AdultVerificationGateScreen'));
     expect(router, contains('case RouteNames.adultVerification'));
     expect(verification, contains("'ADULT_VERIFICATION_BYPASS'"));

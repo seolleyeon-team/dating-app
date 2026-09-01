@@ -175,12 +175,15 @@ void main() {
     expect(source, contains('resolveNextRoute'));
   });
 
-  test('adult verification gate exits to the email login screen', () {
+  test('adult verification gate hands the next step back to the resolver', () {
     final source = read(
       'lib/features/auth/screens/adult_verification_gate_screen.dart',
     );
     expect(source, isNot(contains('RouteNames.kakaoAuth')));
-    expect(source, contains('pushReplacementNamed(RouteNames.login)'));
+    // Post-auth gate: the single resolver decides what follows (Kakao friend
+    // connection for a fresh account), never the screen itself.
+    expect(source, contains('resolveNextRoute'));
+    expect(source, isNot(contains('pushReplacementNamed(RouteNames.login)')));
   });
 
   test('terms CTA no longer promises a Kakao login', () {

@@ -35,9 +35,18 @@ void main() {
     expect(find.text(_testAccountLabel), findsOneWidget);
   });
 
-  test('the shortcut is off unless the build is a debug build', () {
-    DevEntryPolicy.debugSetTestAccountEntry(null);
+  test(
+    'a debug build alone is not enough — QA entry needs an explicit opt-in',
+    () {
+      DevEntryPolicy.debugSetTestAccountEntry(null);
 
-    expect(DevEntryPolicy.allowTestAccountEntry, kDebugMode);
-  });
+      expect(
+        DevEntryPolicy.allowTestAccountEntry,
+        kDebugMode && DevEntryPolicy.explicitQaEntryEnabled,
+      );
+      // The define defaults to false, so no ordinary build carries the bypass.
+      expect(DevEntryPolicy.explicitQaEntryEnabled, isFalse);
+      expect(DevEntryPolicy.allowTestAccountEntry, isFalse);
+    },
+  );
 }
