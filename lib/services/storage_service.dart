@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../constants/legal_texts.dart';
+import '../models/terms_acceptance.dart';
 import 'adult_verification_result.dart';
 
 class StorageService {
@@ -270,19 +270,32 @@ class StorageService {
     await prefs.remove('$_onboardingDraftKeyPrefix$kakaoUserId');
   }
 
-  Future<void> savePendingLegalConsents() async {
+  /// Persists the terms-screen selections made BEFORE any account exists
+  /// (terms-gate contract §7).
+  ///
+  /// This blob is the pre-auth carrier that `sendPrimaryStudentEmailLink`
+  /// turns into the server-verified `termsAcceptance` proof, so it MUST hold
+  /// the user's real checkbox state. Nothing here is fabricated: the caller
+  /// passes the ids it actually collected, and `ageOver18` — which no UI item
+  /// ever offers — is gone (contract §2, finding F2).
+  Future<void> savePendingLegalConsents({
+    required List<String> acceptedDocumentIds,
+    required Map<String, bool> optionalConsents,
+    required String version,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
+    final acceptance = PendingTermsAcceptance(
+      version: version,
+      acceptedDocumentIds: acceptedDocumentIds
+          .map((id) => id.trim())
+          .where((id) => id.isNotEmpty)
+          .toSet()
+          .toList(growable: false),
+      optionalConsents: optionalConsents,
+    );
     await prefs.setString(
       _pendingLegalConsentsKey,
-      jsonEncode({
-        'termsOfService': true,
-        'privacyPolicy': true,
-        'kakaoNamePhone': true,
-        'ageOver20': true,
-        'ageOver18': true,
-        'agreedAtClientIso': DateTime.now().toUtc().toIso8601String(),
-        'version': LegalTexts.version,
-      }),
+      jsonEncode(acceptance.toStorageMap()),
     );
   }
 
@@ -296,6 +309,14 @@ class StorageService {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Typed view of the stored acceptance. Fails closed: a malformed or
+  /// partial blob resolves to `null` (contract §4 validation is fail-closed).
+  Future<PendingTermsAcceptance?> getPendingTermsAcceptance() async {
+    return PendingTermsAcceptance.fromStorageMap(
+      await getPendingLegalConsents(),
+    );
   }
 
   Future<void> clearPendingLegalConsents() async {
@@ -378,5 +399,9 @@ class StorageService {
     await clearPendingFriendInviteToken();
     await clearPendingStudentEmail();
     await clearPendingStudentEmailRequestId();
+    // Contract §7: a pending acceptance belongs to the sign-up attempt that
+    // collected it. Leaving it behind would let a NEXT account be created on
+    // this device from someone else's consent.
+    await clearPendingLegalConsents();
   }
 }

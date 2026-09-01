@@ -840,25 +840,20 @@ service cloud.firestore {
       allow get: if isSelf(kakaoUserId);
       allow list: if false;
 
-      // Initial creation through Yonsei email student verification
+      // Account creation is SERVER-OWNED (terms-gate-contract §8, F8).
+      // The email-verified create branch was REMOVED: it was gated only on a
+      // verified Yonsei email claim with NO doc-id<->uid binding, so any
+      // temporary email-link session could mint users/{ARBITRARY_ID} with
+      // isStudentVerified:true — a second account-creation path that bypasses
+      // completePrimaryStudentEmailAuth and the terms gate entirely.
+      // Both real flows create the document with the Admin SDK before any
+      // client write: createFirebaseCustomToken builds the legacy Kakao shell
+      // (and legacy sendStudentVerificationEmail refuses to send unless
+      // users/{uid}.kakaoUserId == uid already exists), and
+      // buildPrimaryAuthNewUserShell writes the new-flow shell. The email-link
+      // session only ever needs the UPDATE branch below.
       allow create: if onboardingAvatarPhotoFieldsAbsent(request.resource.data) &&
           (
-            (
-              hasVerifiedYonseiEmail() &&
-              writesOwnStudentEmail(request.resource.data) &&
-              request.resource.data.keys().hasOnly([
-                'kakaoUserId',
-                'isStudentVerified',
-                'studentEmail',
-                'studentVerifiedAt',
-                'verifiedAt'
-              ]) &&
-              (request.resource.data.kakaoUserId == null ||
-                request.resource.data.kakaoUserId == kakaoUserId) &&
-              request.resource.data.studentEmail is string &&
-              isYonseiEmail(request.resource.data.studentEmail) &&
-              request.resource.data.isStudentVerified == true
-            ) ||
             (
               // Kakao-bridged app session creating its own shell document.
               // It may not assert student verification for itself.

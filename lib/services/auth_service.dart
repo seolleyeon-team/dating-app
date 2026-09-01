@@ -6,6 +6,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/primary_student_email_auth_completion.dart';
+import '../models/terms_acceptance.dart';
+import '../models/terms_gate_failure.dart';
 import '../models/user_model.dart';
 import 'firebase_diagnostics.dart';
 import 'app_check_readiness.dart';
@@ -68,6 +70,18 @@ class AuthService {
         ? requestId.trim()
         : _uuid.v4();
 
+    // Terms gate (contract §4): the acceptance travels with the link request
+    // so the server binds it to the `emailLinkTokens` document in the same
+    // transaction that later creates the account. Sending without one would
+    // create an account carrying no terms record at all (finding F7), so this
+    // fails closed and the caller routes the user back to /terms.
+    final acceptance = PendingTermsAcceptance.fromStorageMap(
+      await _storageService.getPendingLegalConsents(),
+    );
+    if (acceptance == null || !acceptance.coversRequiredDocuments) {
+      throw const TermsGateException(TermsGateFailure.acceptanceRequired);
+    }
+
     FirebaseDiagnostics.logAuthBridgePhase(
       'primary_email_link_send_start',
       functionName: 'sendPrimaryStudentEmailLink',
@@ -88,6 +102,7 @@ class AuthService {
       await _functions.httpsCallable('sendPrimaryStudentEmailLink').call<void>({
         'email': normalizedEmail,
         'requestId': normalizedRequestId,
+        'termsAcceptance': acceptance.toCallablePayload(),
       });
       FirebaseDiagnostics.logAuthBridgePhase(
         'primary_email_link_send_success',
@@ -100,6 +115,8 @@ class AuthService {
         error: e,
         stackTrace: st,
       );
+      final termsFailure = TermsGateException.fromFunctionsException(e);
+      if (termsFailure != null) throw termsFailure;
       rethrow;
     }
   }
@@ -173,6 +190,11 @@ class AuthService {
         error: e,
         stackTrace: st,
       );
+      // Contract §5/§9: the account-creating branch rejects a token with no
+      // valid terms proof. Surface it as the typed failure so the caller
+      // sends the user back to the terms screen (finding F7).
+      final termsFailure = TermsGateException.fromFunctionsException(e);
+      if (termsFailure != null) throw termsFailure;
       rethrow;
     } on FirebaseAuthException catch (e, st) {
       FirebaseDiagnostics.logAuthBridgePhase(
@@ -194,6 +216,47 @@ class AuthService {
     required String emailLink,
   }) async {
     await _firebaseAuth.signInWithEmailLink(email: email, emailLink: emailLink);
+  }
+
+  /// Records a re-consent for an already signed-in user (contract §6).
+  ///
+  /// `users/{appUserId}.termsAcceptance` is server-written only, so a
+  /// canonical session cannot record its own acceptance — this callable is
+  /// the ONLY post-auth path. Idempotent: re-recording the same version
+  /// reaches the same terminal state.
+  Future<void> recordTermsAcceptance({
+    required String version,
+    required List<String> acceptedDocumentIds,
+    Map<String, bool> optionalConsents = const <String, bool>{},
+  }) async {
+    if (_firebaseAuth.currentUser == null) {
+      throw StateError('primary_email_auth_required');
+    }
+
+    final acceptance = PendingTermsAcceptance(
+      version: version,
+      acceptedDocumentIds: acceptedDocumentIds,
+      optionalConsents: optionalConsents,
+    );
+    if (!acceptance.coversRequiredDocuments) {
+      throw const TermsGateException(TermsGateFailure.acceptanceRequired);
+    }
+
+    try {
+      await _functions
+          .httpsCallable('recordTermsAcceptance')
+          .call<void>(acceptance.toCallablePayload());
+    } on FirebaseFunctionsException catch (e, st) {
+      FirebaseDiagnostics.logAuthBridgePhase(
+        'terms_acceptance_record_failed',
+        functionName: 'recordTermsAcceptance',
+        error: e,
+        stackTrace: st,
+      );
+      final termsFailure = TermsGateException.fromFunctionsException(e);
+      if (termsFailure != null) throw termsFailure;
+      rethrow;
+    }
   }
 
   /// Reads the email bound to the opaque token in the continue URL. The token
@@ -321,13 +384,16 @@ class AuthService {
     return await _userService.isRejoinRestricted(appUserId);
   }
 
+  /// Flushes the pre-auth acceptance into the legacy `legalConsents` UX
+  /// receipt (contract §3). The authoritative record is written server-side
+  /// by `completePrimaryStudentEmailAuth`; this write is a receipt only.
   Future<void> syncPendingLegalConsents(String appUserId) async {
-    final pendingConsents = await _storageService.getPendingLegalConsents();
-    if (pendingConsents == null) return;
+    final acceptance = await _storageService.getPendingTermsAcceptance();
+    if (acceptance == null) return;
 
     await _userService.saveLegalConsents(
       kakaoUserId: appUserId,
-      consentData: pendingConsents,
+      acceptance: acceptance,
     );
     await _storageService.clearPendingLegalConsents();
   }

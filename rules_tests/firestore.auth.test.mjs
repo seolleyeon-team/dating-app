@@ -201,13 +201,35 @@ test("legit: a Kakao session can create its own unverified shell doc", async () 
   );
 });
 
-test("legit: an email-link session can verify a brand-new users doc with its own email", async () => {
+// F8 (terms-gate-contract §0/§8): users CREATE is server-owned. An email-link
+// session may only stamp verification onto a document the server already
+// created — creating one would be a second account-creation path that never
+// touches completePrimaryStudentEmailAuth (and therefore never records terms).
+test("F8: an email-link session cannot create a brand-new users doc", async () => {
   await withClearedDb();
   const db = await emailLinkSession("emaillink_new", "newbie@yonsei.ac.kr");
 
-  await assertSucceeds(
+  await assertFails(
     setDoc(doc(db, "users", "kakao_newbie_4000"), {
       kakaoUserId: "kakao_newbie_4000",
+      isStudentVerified: true,
+      studentEmail: "newbie@yonsei.ac.kr",
+      verifiedAt: Timestamp.now(),
+    })
+  );
+});
+
+test("legit: an email-link session can verify a server-created users doc with its own email", async () => {
+  await withClearedDb(async (db) => {
+    await setDoc(doc(db, "users", "kakao_newbie_4000"), {
+      kakaoUserId: "kakao_newbie_4000",
+      nickname: "새 사용자",
+    });
+  });
+  const db = await emailLinkSession("emaillink_new", "newbie@yonsei.ac.kr");
+
+  await assertSucceeds(
+    updateDoc(doc(db, "users", "kakao_newbie_4000"), {
       isStudentVerified: true,
       studentEmail: "newbie@yonsei.ac.kr",
       verifiedAt: Timestamp.now(),

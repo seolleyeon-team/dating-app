@@ -202,6 +202,30 @@ test("server-owned identity indexes deny every client operation", () => {
   );
 });
 
+test("F8: users create has no email-verified branch (account creation is server-owned)", () => {
+  // terms-gate-contract §0 F8 / §8. The removed branch let ANY session with a
+  // {email, email_verified:true} Yonsei claim create users/{ARBITRARY_ID} with
+  // isStudentVerified:true — no doc-id<->uid binding, no callable, no terms.
+  // The single surviving create branch is the Kakao-bridged self shell, which
+  // may NOT self-assert student verification.
+  assertContains(
+    "the only users create branch must be the self-owned, non-self-verifying shell",
+    "allow create: if onboardingAvatarPhotoFieldsAbsent(request.resource.data) && ( ( // Kakao-bridged app session creating its own shell document. // It may not assert student verification for itself. isSelf(kakaoUserId) && doesNotSelfAssertStudentVerification(request.resource.data) && usersDocKakaoIdOk(request.resource.data, kakaoUserId)"
+  );
+  // hasVerifiedYonseiEmail() must survive ONLY in the update branch (legacy
+  // hosted page stamping verification onto a server-created doc). Exactly one
+  // call site remains; a second one means the create branch came back.
+  assert.equal(
+    (compactRules.match(/hasVerifiedYonseiEmail\(\)/g) ?? []).length,
+    2, // 1 declaration + 1 call site (the update branch)
+    "hasVerifiedYonseiEmail() must have exactly one call site: the users update branch"
+  );
+  assertContains(
+    "the email-verified UPDATE branch must remain for legacy verification",
+    "hasVerifiedYonseiEmail() && writesOwnStudentEmail(request.resource.data) && studentEmailIsUnboundOrMine(resource.data) && request.resource.data.isStudentVerified == true"
+  );
+});
+
 test("kakao friend pairs are server-only and snapshot fields stay off the users allowlists", () => {
   // kakao-friend-pairs-contract §2 / §10: the pair materialization is
   // social-graph-sensitive and must never be client-readable, even for a
@@ -212,11 +236,15 @@ test("kakao friend pairs are server-only and snapshot fields stay off the users 
   );
   // §10.2: the server-written snapshot/preference fields must not appear in
   // any users create/update allowlist (they are absent from the whole file).
+  // terms-gate-contract §3 adds termsAcceptance: the authoritative consent
+  // record is Admin-SDK only. Naming it in any allowlist would make it
+  // client-forgeable, which is the defect (F5) the server record replaces.
   for (const serverOnlyField of [
     "kakaoFriendSnapshot",
     "kakaoFriendAvoidanceEnabled",
     "kakaoFriendConnection",
     "recommendationPrivacyReady",
+    "termsAcceptance",
   ]) {
     assert.doesNotMatch(
       compactRules,
