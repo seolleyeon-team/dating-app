@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../models/terms_gate_failure.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../router/route_names.dart';
 import '../../../services/account_setup_flow.dart';
@@ -67,6 +68,22 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         actions: const [CupertinoDialogAction(child: Text('확인'))],
       ),
     );
+  }
+
+  /// Terms-gate contract §7/§9: a missing or stale acceptance — whether it
+  /// was caught locally before sending, or returned by the server on the link
+  /// request or the completion — sends the user back to the terms screen.
+  /// This is what closes the cold-start deep-link bypass (finding F7): the
+  /// email-link branch may reach this screen without ever passing terms, but
+  /// it cannot get past the server.
+  Future<void> _handleTermsGateFailure(TermsGateException failure) async {
+    if (!mounted) return;
+    setState(() => _statusMessage = failure.userMessage);
+    await _showDialogMessage('약관 동의 필요', failure.userMessage);
+    if (!mounted) return;
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil(RouteNames.terms, (route) => false);
   }
 
   Future<bool> _handlePendingInviteAfterVerification() async {
@@ -272,6 +289,8 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       if (!mounted) return;
       setState(() => _statusMessage = '학생 인증 완료!');
       await _continueAfterPrimaryAuth(appUserId);
+    } on TermsGateException catch (failure) {
+      await _handleTermsGateFailure(failure);
     } catch (e) {
       if (!mounted) return;
       setState(() => _statusMessage = '인증 실패: ${e.toString()}');
@@ -326,6 +345,8 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
 
       if (!mounted) return;
       setState(() => _statusMessage = '연세 메일로 인증 링크를 보냈습니다');
+    } on TermsGateException catch (failure) {
+      await _handleTermsGateFailure(failure);
     } catch (e) {
       final safeError = FirebaseDiagnostics.safeErrorForLog(e);
       debugPrint(

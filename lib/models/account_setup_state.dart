@@ -1,3 +1,4 @@
+import '../constants/legal_texts.dart';
 import '../services/onboarding_route_resolver.dart';
 
 /// Ladder of account-setup gates for the Yonsei-email-primary architecture.
@@ -13,6 +14,11 @@ enum AccountSetupState {
   /// Either an email action link is being consumed, or the session/user doc
   /// does not carry a server-confirmed `isStudentVerified == true` yet.
   emailVerificationPending,
+
+  /// The account carries no acceptance of the CURRENT `LegalTexts.version`
+  /// (terms-gate contract §7). Routes back to `RouteNames.terms`, where an
+  /// authenticated user re-consents through `recordTermsAcceptance`.
+  termsAcceptanceRequired,
 
   /// Canonical session exists but the server has not confirmed the PortOne
   /// identity verification (`adultVerified` / `realNameVerified`).
@@ -45,11 +51,20 @@ bool _isTruthy(Object? value) {
   return value == true || value == 'true' || (value is num && value != 0);
 }
 
+/// Reads a `version` string out of a consent map, tolerating a missing or
+/// wrongly-typed field (both mean "no usable acceptance").
+String? _consentVersion(Object? raw) {
+  if (raw is! Map) return null;
+  final version = raw['version']?.toString().trim() ?? '';
+  return version.isEmpty ? null : version;
+}
+
 /// Pure resolver over server-truth fields of `users/{appUserId}`.
 ///
-/// Gate order (kakao-friend-pairs contract §8): session → student email →
-/// adult verification → Kakao friend connection → one-time friend snapshot →
-/// onboarding → tutorial.
+/// Gate order (kakao-friend-pairs contract §8 + terms-gate contract §7):
+/// session → student email → TERMS ACCEPTANCE → adult verification →
+/// Kakao friend connection → one-time friend snapshot → onboarding →
+/// tutorial.
 ///
 /// GRANDFATHER / MIGRATION GATE (spec §30): legacy documents without a
 /// `kakaoFriendConnection` map and/or without a `kakaoFriendSnapshot` field
@@ -78,6 +93,18 @@ AccountSetupState resolveAccountSetupState({
   // that creates the shell, so fail closed toward re-verification.
   if (userDoc == null || userDoc['isStudentVerified'] != true) {
     return AccountSetupState.emailVerificationPending;
+  }
+
+  // TERMS GATE (terms-gate contract §7). The server-owned `termsAcceptance`
+  // record is the ONLY authority. `legalConsents` is a client-writable UX
+  // receipt — three firestore.rules allowlists let the owner rewrite it at
+  // will — so it can never satisfy a security gate, not even for legacy
+  // accounts. An account without the server record re-consents once; that
+  // writes `termsAcceptance` and touches nothing else, so the profile, Kakao
+  // identity, friend snapshot, and onboarding all survive untouched.
+  final acceptedVersion = _consentVersion(userDoc['termsAcceptance']);
+  if (acceptedVersion != LegalTexts.version) {
+    return AccountSetupState.termsAcceptanceRequired;
   }
 
   final adultVerified =

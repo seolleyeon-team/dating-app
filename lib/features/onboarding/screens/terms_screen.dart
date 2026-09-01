@@ -12,8 +12,11 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../constants/legal_texts.dart';
+import '../../../models/terms_gate_failure.dart';
 import '../../../router/route_names.dart';
 import 'terms_detail_sheet.dart';
+import '../../../services/account_setup_flow.dart';
+import '../../../services/auth_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../shared/utils/dev_entry_policy.dart';
 
@@ -94,6 +97,16 @@ class _TermsScreenState extends State<TermsScreen> {
     ),
   ];
 
+  // Lazily constructed: these reach FirebaseAuth/Firestore singletons, and
+  // the screen must still build (and its checkbox logic stay testable) in a
+  // widget test where Firebase was never initialised.
+  final _storageService = StorageService();
+  AuthService? _authServiceOrNull;
+  AccountSetupFlow? _setupFlowOrNull;
+
+  AuthService get _authService => _authServiceOrNull ??= AuthService();
+  AccountSetupFlow get _setupFlow => _setupFlowOrNull ??= AccountSetupFlow();
+
   bool _isSubmitting = false;
   bool _marketingChecked = false;
   bool _pushEnabled = false;
@@ -142,12 +155,16 @@ class _TermsScreenState extends State<TermsScreen> {
       ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
     } on FirebaseAuthException catch (error) {
       if (mounted) {
-        await _showTestAccountError(_testAccountErrorMessage(error));
+        await _showErrorDialog(
+          title: '로그인 실패',
+          message: _testAccountErrorMessage(error),
+        );
       }
     } catch (error) {
       if (mounted) {
-        await _showTestAccountError(
-          error is StateError
+        await _showErrorDialog(
+          title: '로그인 실패',
+          message: error is StateError
               ? error.message
               : '테스트 계정 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.',
         );
@@ -212,12 +229,15 @@ class _TermsScreenState extends State<TermsScreen> {
     }
   }
 
-  Future<void> _showTestAccountError(String message) {
+  Future<void> _showErrorDialog({
+    required String title,
+    required String message,
+  }) {
     return showCupertinoDialog<void>(
       context: context,
       builder: (dialogContext) {
         return CupertinoAlertDialog(
-          title: const Text('로그인 실패'),
+          title: Text(title),
           content: Text(message),
           actions: [
             CupertinoDialogAction(
@@ -236,10 +256,11 @@ class _TermsScreenState extends State<TermsScreen> {
         item.isChecked = value;
       }
       _marketingChecked = value;
-      if (value) {
-        _pushEnabled = true;
-        _emailEnabled = true;
-      }
+      // Symmetric (terms-gate contract §7, finding F4): the old version
+      // force-enabled push/email on check but never cleared them on uncheck,
+      // so "전체 동의" could not be undone.
+      _pushEnabled = value;
+      _emailEnabled = value;
     });
     HapticFeedback.selectionClick();
   }
@@ -279,15 +300,77 @@ class _TermsScreenState extends State<TermsScreen> {
     }
   }
 
+  /// True when a canonical Seolleyeon session is already attached. Guarded so
+  /// the screen still builds in tests where Firebase is not initialised.
+  bool get _hasCanonicalSession {
+    try {
+      return FirebaseAuth.instance.currentUser != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Dual-mode submit (terms-gate contract §7).
+  ///
+  /// - PRE-AUTH (no session): stores the REAL selections locally; the pending
+  ///   acceptance becomes the `termsAcceptance` payload of
+  ///   `sendPrimaryStudentEmailLink`. Continues to adult verification.
+  /// - POST-AUTH (canonical session, stale version): `termsAcceptance` is
+  ///   server-written only, so the re-consent goes through the
+  ///   `recordTermsAcceptance` callable and the setup ladder decides where
+  ///   the user goes next.
+  ///
+  /// Neither branch ever pushes `RouteNames.main`.
   Future<void> _onSubmit() async {
     if (!_allRequiredChecked || _isSubmitting) return;
 
     setState(() => _isSubmitting = true);
     try {
-      await StorageService().savePendingLegalConsents();
+      final acceptedDocumentIds = _requiredTerms
+          .where((item) => item.isChecked)
+          .map((item) => item.id)
+          .toList(growable: false);
+      final optionalConsents = <String, bool>{
+        'marketing': _marketingChecked,
+        'push': _pushEnabled,
+        'email': _emailEnabled,
+      };
+
+      if (_hasCanonicalSession) {
+        await _authService.recordTermsAcceptance(
+          version: LegalTexts.version,
+          acceptedDocumentIds: acceptedDocumentIds,
+          optionalConsents: optionalConsents,
+        );
+        final route = await _setupFlow.resolveNextRoute();
+        HapticFeedback.mediumImpact();
+        if (!mounted) return;
+        Navigator.of(context).pushNamedAndRemoveUntil(route, (r) => false);
+        return;
+      }
+
+      await _storageService.savePendingLegalConsents(
+        acceptedDocumentIds: acceptedDocumentIds,
+        optionalConsents: optionalConsents,
+        version: LegalTexts.version,
+      );
       HapticFeedback.mediumImpact();
       if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed(RouteNames.adultVerification);
+      // Terms → Yonsei email auth. Adult/real-name verification is a POST-auth
+      // gate: `verifyAdultIdentityAfterLogin` requires `request.auth.uid`, so a
+      // result produced before the canonical appUserId exists has no account to
+      // attach to.
+      Navigator.of(
+        context,
+      ).pushReplacementNamed(RouteNames.studentVerification);
+    } catch (error) {
+      if (!mounted) return;
+      await _showErrorDialog(
+        title: '약관 동의 실패',
+        message: error is TermsGateException
+            ? error.userMessage
+            : '약관 동의를 저장하지 못했어요. 잠시 후 다시 시도해주세요.',
+      );
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);

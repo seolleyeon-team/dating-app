@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show NavigatorState;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../firebase_options.dart';
@@ -15,6 +17,7 @@ import '../features/blind_meeting/presentation/blind_meeting_route_args.dart';
 import '../features/chat/models/safety_stamp_follow_up_args.dart';
 import '../shared/layouts/main_scaffold_args.dart';
 import '../shared/utils/privacy_log_utils.dart';
+import 'account_setup_flow.dart';
 import 'navigation_service.dart';
 import 'storage_service.dart';
 
@@ -455,10 +458,47 @@ class PushNotificationService {
     _navigateFromData(data);
   }
 
+  /// Notification taps must not jump past the account-setup ladder
+  /// (terms-gate contract §8, finding F11): the old code pushed
+  /// `RouteNames.main` unconditionally, so a tap on a stale notification put
+  /// an un-onboarded — or un-consented — account straight onto the home tab.
   void _navigateFromData(Map<String, String> data) {
+    unawaited(_navigateFromDataGuarded(data));
+  }
+
+  Future<void> _navigateFromDataGuarded(Map<String, String> data) async {
+    if (NavigationService.navigatorKey.currentState == null) return;
+
+    final gateRoute = await _resolveSetupGateRoute();
     final nav = NavigationService.navigatorKey.currentState;
     if (nav == null) return;
 
+    if (gateRoute != null) {
+      nav.pushNamedAndRemoveUntil(gateRoute, (route) => false);
+      return;
+    }
+
+    _routeNotificationTarget(nav, data);
+  }
+
+  /// Returns the prerequisite route when the setup ladder is incomplete, and
+  /// `null` when the account is `complete` (so in-app deep-link targets keep
+  /// working). On an unexpected failure it returns the terms route: the
+  /// ladder itself already fails closed internally, so reaching here means
+  /// the gate state is unknown and a deep link must not be honoured.
+  Future<String?> _resolveSetupGateRoute() async {
+    try {
+      final route = await AccountSetupFlow().resolveNextRoute();
+      return route == RouteNames.main ? null : route;
+    } catch (e) {
+      debugPrint(
+        '[PUSH] setup gate resolve failed: ${PrivacyLogUtils.errorSummary(e)}',
+      );
+      return RouteNames.terms;
+    }
+  }
+
+  void _routeNotificationTarget(NavigatorState nav, Map<String, String> data) {
     final type = data['type'] ?? '';
 
     // 3:3 미팅 아이스브레이킹 룰렛.
