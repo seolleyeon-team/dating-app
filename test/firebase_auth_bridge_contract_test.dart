@@ -2,113 +2,103 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+/// The Kakao→Firebase custom-token bridge was REMOVED with the
+/// Yonsei-email-primary re-architecture. These tests pin its absence and the
+/// integrity checks of the replacement (canonical email custom token).
 void main() {
   final root = Directory.current.path;
 
   String read(String relativePath) =>
       File('$root/$relativePath').readAsStringSync();
 
-  String sectionBetween(String source, String startMarker, String endMarker) {
-    final start = source.indexOf(startMarker);
-    expect(start, isNonNegative, reason: startMarker);
-    final end = source.indexOf(endMarker, start + startMarker.length);
-    return source.substring(start, end == -1 ? source.length : end);
-  }
+  test('the Kakao→custom-token bridge is gone from the client', () {
+    final authService = read('lib/services/auth_service.dart');
 
-  test('session inspection failure is distinct from mismatch and sign-out', () {
-    final source = read('lib/services/auth_service.dart');
-    final signOutSection = sectionBetween(
-      source,
-      'Future<void> _signOutFirebaseIfMismatched',
-      'Future<Map<String, dynamic>> loginWithKakao',
+    expect(authService, isNot(contains('createFirebaseCustomToken')));
+    expect(authService, isNot(contains('ensureFirebaseSessionForKakao')));
+    expect(
+      authService,
+      isNot(contains('ensureFirebaseSessionForVerifiedUser')),
     );
+    expect(authService, isNot(contains('FirebaseSessionInspector')));
+    expect(authService, isNot(contains('FirebaseSessionFailure')));
 
-    expect(signOutSection, contains('FirebaseSessionIdentityState.mismatched'));
-    expect(signOutSection, isNot(contains('_hasMatchingFirebaseSession')));
-
-    final ensureSection = sectionBetween(
-      source,
-      'Future<bool> ensureFirebaseSessionForKakao',
-      'Future<bool> ensureFirebaseSessionForVerifiedUser',
+    // The bridge support machinery was deleted with it.
+    expect(
+      File('$root/lib/services/firebase_session_inspector.dart').existsSync(),
+      isFalse,
     );
     expect(
-      ensureSection,
-      contains('FirebaseSessionIdentityState.inspectionFailed'),
-    );
-    expect(
-      ensureSection,
-      contains('FirebaseSessionFailureReason.sessionInspectionFailed'),
-    );
-    expect(
-      ensureSection,
-      contains('FirebaseSessionFailureReason.identityMismatch'),
+      File('$root/lib/services/firebase_session_failure.dart').existsSync(),
+      isFalse,
     );
   });
 
-  test('App Check preflight completes before the custom-token callable', () {
-    final source = read('lib/services/auth_service.dart');
-    final ensureSection = sectionBetween(
-      source,
-      'Future<bool> ensureFirebaseSessionForKakao',
-      'Future<bool> ensureFirebaseSessionForVerifiedUser',
-    );
-    final preflight = ensureSection.indexOf('appCheckReadiness.preflight');
-    final preflightGuard = ensureSection.indexOf(
-      'if (!appCheckPreflight.isReady)',
-    );
-    final callable = ensureSection.indexOf(
-      "httpsCallable('createFirebaseCustomToken')",
-    );
-
-    expect(preflight, isNonNegative);
-    expect(preflightGuard, isNonNegative);
-    expect(callable, isNonNegative);
-    expect(preflight, lessThan(preflightGuard));
-    expect(preflightGuard, lessThan(callable));
+  test('no production file bridges a Kakao token into a Firebase session', () {
+    final libDir = Directory('$root/lib');
+    final offenders = <String>[];
+    for (final entity in libDir.listSync(recursive: true)) {
+      if (entity is! File || !entity.path.endsWith('.dart')) continue;
+      final source = entity.readAsStringSync();
+      if (source.contains('createFirebaseCustomToken') ||
+          source.contains('ensureFirebaseSessionForKakao') ||
+          source.contains('ensureFirebaseSessionForVerifiedUser')) {
+        offenders.add(entity.path);
+      }
+    }
     expect(
-      ensureSection,
-      contains('FirebaseSessionFailureReason.appCheckRejected'),
-    );
-    expect(
-      ensureSection,
-      contains('FirebaseSessionFailureReason.customTokenEmpty'),
+      offenders,
+      isEmpty,
+      reason:
+          'Kakao access tokens must never become Firebase sessions anywhere.',
     );
   });
 
   test(
-    'successful custom-token sign-in validates identity without forced refresh',
+    'completePrimaryStudentEmailAuth verifies the minted session identity',
     () {
       final source = read('lib/services/auth_service.dart');
-      final ensureSection = sectionBetween(
-        source,
-        'Future<bool> ensureFirebaseSessionForKakao',
-        'Future<bool> ensureFirebaseSessionForVerifiedUser',
-      );
+      final start = source.indexOf('completePrimaryStudentEmailAuth');
+      expect(start, isNonNegative);
+      final end = source.indexOf('bool isSignInWithEmailLink', start);
+      final section = source.substring(start, end == -1 ? source.length : end);
 
-      expect(ensureSection, contains('_inspectFirebaseSession'));
-      expect(ensureSection, contains('firebase_custom_token_signin_success'));
-      expect(ensureSection, isNot(contains('getIdToken(true)')));
+      final signIn = section.indexOf('signInWithCustomToken');
+      final refresh = section.indexOf('getIdToken(true)');
+      final assertUid = section.indexOf('uid != completion.appUserId');
+      final signOutOnMismatch = section.indexOf('signOut');
+
+      expect(signIn, isNonNegative);
+      expect(refresh, isNonNegative);
+      expect(assertUid, isNonNegative);
+      expect(signOutOnMismatch, isNonNegative);
+      expect(signIn, lessThan(refresh));
+      expect(refresh, lessThan(assertUid));
+      expect(
+        assertUid,
+        lessThan(signOutOnMismatch),
+        reason: 'A uid-mismatched session must be discarded, never kept.',
+      );
     },
   );
 
-  test('login boundaries propagate typed bridge failures', () {
-    final bootstrap = read(
-      'lib/features/auth/services/kakao_login_firestore_bootstrap.dart',
-    );
-    final authProvider = read('lib/providers/auth_provider.dart');
+  test('ensureCanonicalAppSession is a pure Firebase check', () {
+    final source = read('lib/services/auth_service.dart');
+    final start = source.indexOf('Future<bool> ensureCanonicalAppSession()');
+    expect(start, isNonNegative);
+    final end = source.indexOf('Future<void> sendPrimaryStudentEmailLink');
+    final section = source.substring(start, end);
 
-    expect(bootstrap, contains('FirebaseSessionFailure'));
-    expect(authProvider, contains('FirebaseSessionFailure'));
-    expect(bootstrap, isNot(contains('Firebase 濡쒓렇???몄뀡??以鍮꾪븯吏')));
+    expect(section, contains('_firebaseAuth.currentUser != null'));
+    expect(section, isNot(contains('httpsCallable')));
+    expect(section, isNot(contains('TokenManagerProvider')));
+    expect(section, isNot(contains('accessTokenInfo')));
   });
 
-  test('transient failures do not clear the cached Kakao identity', () {
-    final authProvider = read('lib/providers/auth_provider.dart');
-    final splash = read('lib/features/splash/splash_screen.dart');
-
-    expect(authProvider, contains('lastFirebaseSessionFailure'));
-    expect(authProvider, contains('isTransient'));
-    expect(splash, contains('lastFirebaseSessionFailure'));
-    expect(splash, contains('isTransient'));
+  test('primary email completion propagates typed callable failures', () {
+    final source = read('lib/services/auth_service.dart');
+    expect(source, contains('primary_email_completion_failed'));
+    expect(source, contains('primary_email_signin_failed'));
+    expect(source, contains('rethrow;'));
   });
 }

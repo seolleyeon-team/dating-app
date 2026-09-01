@@ -39,6 +39,9 @@ class VisualRiskRegion:
     bbox_xyxy: BBoxXYXY = field(repr=False)
     confidence: Optional[float] = None
     status: str = STATUS_NEEDS_REVIEW
+    # Raw OCR text is process-local evidence only.  It is intentionally hidden
+    # from repr()/documents and is consumed by the typed watermark decision.
+    raw_label: Optional[str] = field(default=None, repr=False, compare=False)
 
     @property
     def bbox(self) -> BBoxXYXY:
@@ -172,28 +175,42 @@ def _parse_florence_regions(
     ocr = _task_payload(outputs, TASK_OCR_WITH_REGION)
     quad_boxes = ocr.get("quad_boxes", [])
     ocr_labels = ocr.get("labels", [])
+    ocr_scores = _parallel_scores(ocr.get("scores") or ocr.get("confidences"), len(ocr_labels))
     if len(quad_boxes) != len(ocr_labels):
         raise ValueError("OCR quad_boxes/labels length mismatch")
-    for quad, label in zip(quad_boxes, ocr_labels):
+    for index, (quad, label) in enumerate(zip(quad_boxes, ocr_labels)):
         if _has_visible_label(label):
             regions.append(
-                VisualRiskRegion(_classify_ocr_label(label), _quad_to_xyxy(quad, image_size))
+                VisualRiskRegion(
+                    _classify_ocr_label(label),
+                    _quad_to_xyxy(quad, image_size),
+                    confidence=ocr_scores[index],
+                    raw_label=str(label),
+                )
             )
 
     od = _task_payload(outputs, TASK_OD)
     bboxes = od.get("bboxes", [])
     labels = od.get("labels", [])
+    od_scores = _parallel_scores(od.get("scores") or od.get("confidences"), len(labels))
     if len(bboxes) != len(labels):
         raise ValueError("OD bboxes/labels length mismatch")
     primary_bbox = _normalize_bbox(primary_face_bbox_xyxy, image_size) if primary_face_bbox_xyxy else None
-    for bbox, label in zip(bboxes, labels):
+    for index, (bbox, label) in enumerate(zip(bboxes, labels)):
         bbox_xyxy = _normalize_bbox(bbox, image_size)
         kind = _classify_od_label(label)
         if kind is None:
             continue
         if kind == KIND_PERSON and not _is_primary_person(bbox_xyxy, primary_bbox):
             kind = KIND_BACKGROUND_PERSON
-        regions.append(VisualRiskRegion(kind, bbox_xyxy))
+        regions.append(
+            VisualRiskRegion(
+                kind,
+                bbox_xyxy,
+                confidence=od_scores[index],
+                raw_label=str(label),
+            )
+        )
 
     return tuple(regions)
 
@@ -262,6 +279,20 @@ def _caption_text(caption_payload: object) -> str:
 
 def _has_visible_label(label: object) -> bool:
     return bool(str(label).strip())
+
+
+def _parallel_scores(value: object, length: int) -> Tuple[Optional[float], ...]:
+    if not isinstance(value, (list, tuple)):
+        return tuple(None for _ in range(length))
+    result = []
+    for item in list(value)[:length]:
+        try:
+            parsed = float(item)
+        except (TypeError, ValueError):
+            parsed = None
+        result.append(parsed if parsed is not None and 0.0 <= parsed <= 1.0 else None)
+    result.extend(None for _ in range(length - len(result)))
+    return tuple(result)
 
 
 def _quad_to_xyxy(quad: Sequence[float], image_size: Optional[Tuple[int, int]]) -> BBoxXYXY:

@@ -22,6 +22,7 @@ import '../../domain/blind_meeting_enums.dart';
 import '../blind_meeting_route_args.dart';
 import '../theme/blind_meeting_palette.dart';
 import '../widgets/blind_meeting_common.dart';
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
 class BlindMeetingDnaWizardScreen extends StatefulWidget {
   final BlindMeetingProfileSnapshot profile;
@@ -158,7 +159,9 @@ class _BlindMeetingDnaWizardScreenState
       _repository.saveBlindMeetingDnaDraft({key: value}).catchError((error) {
         // 최종 제출은 전체 답변을 다시 보내므로 일시적인 진행 저장
         // 실패가 작성 화면을 막지는 않는다.
-        debugPrint('[BlindMeeting] DNA 진행 저장 실패: $error');
+        debugPrint(
+          '[BlindMeeting] DNA 진행 저장 실패: ${PrivacyLogUtils.errorSummary(error)}',
+        );
       }),
     );
   }

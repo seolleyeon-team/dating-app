@@ -1,6 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:seolleyeon/features/auth/screens/kakao_auth_main_screen.dart';
+import 'package:seolleyeon/features/auth/screens/kakao_friend_connection_screen.dart';
 import 'package:seolleyeon/shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 
 Future<void> _useMobileSurface(WidgetTester tester) async {
@@ -49,24 +49,31 @@ void main() {
       );
     });
 
-    testWidgets('kakao auth main screen exposes primary action semantics', (
-      tester,
-    ) async {
-      await _useMobileSurface(tester);
-      await tester.pumpWidget(
-        CupertinoApp(home: KakaoAuthMainScreen(onKakaoLogin: () {})),
-      );
+    testWidgets(
+      'kakao friend connection view exposes primary action semantics',
+      (tester) async {
+        await _useMobileSurface(tester);
+        await tester.pumpWidget(
+          CupertinoApp(
+            home: KakaoFriendConnectionView(
+              isConnecting: false,
+              consentRefused: false,
+              errorMessage: null,
+              onConnectPressed: () {},
+            ),
+          ),
+        );
 
-      expect(find.bySemanticsLabel('카카오로 계속하기'), findsOneWidget);
-      expect(find.bySemanticsLabel('뒤로 가기'), findsOneWidget);
+        expect(find.bySemanticsLabel('카카오 친구 연결하기'), findsOneWidget);
 
-      final loginSemantics = tester.getSemantics(
-        find.bySemanticsLabel('카카오로 계속하기'),
-      );
-      expect(
-        _semanticsFlagEnabled(loginSemantics.flagsCollection.isButton),
-        isTrue,
-      );
-    });
+        final connectSemantics = tester.getSemantics(
+          find.bySemanticsLabel('카카오 친구 연결하기'),
+        );
+        expect(
+          _semanticsFlagEnabled(connectSemantics.flagsCollection.isButton),
+          isTrue,
+        );
+      },
+    );
   });
 }

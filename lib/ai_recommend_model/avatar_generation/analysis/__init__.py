@@ -23,6 +23,16 @@ from .visual_risk import (
     VisualRiskRegion,
     analyze_florence_visual_risk_outputs,
 )
+from .watermark import (
+    WATERMARK_QA_ACTION_ALLOW,
+    WATERMARK_QA_ACTION_REJECT,
+    WATERMARK_QA_ACTION_REVIEW,
+    WATERMARK_POLICY_VERSION,
+    WatermarkDecision,
+    evaluate_watermark_risk,
+    resolve_watermark_qa_action,
+    watermark_risk_for_action,
+)
 from .source_analyzer import (
     REJECT_CORRUPT_IMAGE,
     REJECT_FACE_TOO_SMALL,
@@ -54,9 +64,17 @@ __all__ = [
     "VisualRiskRegion",
     "VisualRiskAnalysis",
     "VisualRiskAdapter",
+    "WATERMARK_QA_ACTION_ALLOW",
+    "WATERMARK_QA_ACTION_REJECT",
+    "WATERMARK_QA_ACTION_REVIEW",
+    "WATERMARK_POLICY_VERSION",
+    "WatermarkDecision",
     "analyze_avatar_source_image",
     "analyze_florence_visual_risk_outputs",
     "build_default_face_detector",
+    "evaluate_watermark_risk",
+    "resolve_watermark_qa_action",
     "redact_source_ref",
     "redacted_source_ref",
+    "watermark_risk_for_action",
 ]

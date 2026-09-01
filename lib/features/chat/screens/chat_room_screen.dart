@@ -595,20 +595,55 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  /// 약속 동작 실패를 조용히 삼키지 않는다.
+  ///
+  /// 권한은 서버 규칙이 최종 판정한다. 클라이언트는 버튼을 맞게 감추지만,
+  /// 화면이 낡았거나 상대가 먼저 처리한 경우 거부될 수 있다. 그때 아무 일도
+  /// 일어나지 않는 것처럼 보이면 사용자가 계속 다시 누른다.
+  Future<void> _runPromiseAction(
+    Future<void> Function() action,
+    String failureMessage,
+  ) async {
+    try {
+      await action();
+    } catch (_) {
+      if (!mounted) return;
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: const Text('처리하지 못했어요'),
+          content: Text(failureMessage),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   Future<void> _approvePromise(_ChatMessage message) async {
     if (message.promiseId == null || _currentUserId == null) return;
-    await _chatService.acceptPromise(
-      roomId: _roomId,
-      promiseId: message.promiseId!,
-      acceptedBy: _currentUserId!,
+    await _runPromiseAction(
+      () => _chatService.acceptPromise(
+        roomId: _roomId,
+        promiseId: message.promiseId!,
+        acceptedBy: _currentUserId!,
+      ),
+      '약속을 수락하지 못했어요. 잠시 후 다시 시도해주세요.',
     );
   }
 
   Future<void> _rejectPromise(_ChatMessage message) async {
     if (message.promiseId == null) return;
-    await _chatService.rejectPromise(
-      roomId: _roomId,
-      promiseId: message.promiseId!,
+    await _runPromiseAction(
+      () => _chatService.rejectPromise(
+        roomId: _roomId,
+        promiseId: message.promiseId!,
+      ),
+      '약속을 거절하지 못했어요. 약속을 받은 사람만 거절할 수 있어요.',
     );
   }
 
@@ -1435,7 +1470,10 @@ class _MessageItem extends StatelessWidget {
         return _PromiseConfirmedBanner(
           message: message,
           onEdit: onEditPromise,
-          onDelete: onDeletePromise,
+          // 약속 삭제(취소)는 제안한 사람만 할 수 있다.
+          // 규칙(promiseStatusTransitionOk)과 같은 조건이어야 상대에게
+          // 눌러도 아무 일이 안 일어나는 버튼을 보여주지 않는다.
+          onDelete: message.isMineRequest ? onDeletePromise : null,
         );
       case MessageType.promiseInProgress:
         return _PromiseInProgressBanner(message: message);

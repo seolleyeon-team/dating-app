@@ -30,7 +30,7 @@ class FirebaseDiagnostics {
 
   static void logAuthBridgePhase(
     String phase, {
-    String functionName = 'createFirebaseCustomToken',
+    String functionName = 'auth',
     String region = 'asia-northeast3',
     String? kakaoUserId,
     Object? error,

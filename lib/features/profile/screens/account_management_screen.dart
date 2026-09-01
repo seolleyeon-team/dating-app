@@ -87,7 +87,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       Navigator.of(
         context,
         rootNavigator: true,
-      ).pushNamedAndRemoveUntil(RouteNames.kakaoAuth, (route) => false);
+      ).pushNamedAndRemoveUntil(RouteNames.login, (route) => false);
     } catch (e) {
       if (!mounted) return;
       await showCupertinoDialog<void>(

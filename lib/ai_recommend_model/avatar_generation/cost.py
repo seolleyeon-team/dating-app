@@ -18,6 +18,8 @@ DEFAULT_HARD_DAILY_GENERATION_LIMIT = 500
 DEFAULT_HARD_MONTHLY_GENERATION_LIMIT = 10000
 DEFAULT_SCENARIO_USERS = 1000
 DEFAULT_SCENARIO_CANDIDATES_PER_USER = 4
+DEFAULT_GENERATION_BACKEND = "local_cloud_run_flux"
+AZURE_GENERATION_BACKEND = "azure_gpt_image_2"
 
 GENERATED_STATUSES = {"preview_ready", "approved", "needs_review", "failed", "no_previewable_candidates"}
 
@@ -157,11 +159,18 @@ def estimate_job_cost(
     *,
     duration_seconds: float,
     config: Optional[AvatarCostConfig] = None,
+    generation_backend: str = DEFAULT_GENERATION_BACKEND,
 ) -> AvatarJobCost:
     config = config or AvatarCostConfig.from_env()
     seconds = max(0.0, float(duration_seconds))
     gpu_multiplier = 2.0 if config.gpu_zonal_redundancy else 1.0
-    gpu_usd = seconds * config.gpu_usd_per_second * gpu_multiplier
+    backend = str(generation_backend or DEFAULT_GENERATION_BACKEND).strip()
+    gpu_charge_applied = backend != AZURE_GENERATION_BACKEND
+    gpu_usd = (
+        seconds * config.gpu_usd_per_second * gpu_multiplier
+        if gpu_charge_applied
+        else 0.0
+    )
     cpu_usd = seconds * config.vcpu * config.cpu_usd_per_vcpu_second
     memory_usd = seconds * config.memory_gib * config.memory_usd_per_gib_second
     total = _round_money(gpu_usd + cpu_usd + memory_usd)
@@ -171,6 +180,8 @@ def estimate_job_cost(
         pricing_version=config.pricing_version,
         breakdown={
             "gpuUsd": _round_money(gpu_usd),
+            "gpuChargeApplied": gpu_charge_applied,
+            "generationBackend": backend,
             "cpuUsd": _round_money(cpu_usd),
             "memoryUsd": _round_money(memory_usd),
             "gpuZonalRedundancy": bool(config.gpu_zonal_redundancy),
@@ -185,12 +196,22 @@ def estimate_batch_cost(
     *,
     duration_seconds: float,
     config: Optional[AvatarCostConfig] = None,
+    generation_backend: Optional[str] = None,
 ) -> AvatarBatchCost:
     config = config or AvatarCostConfig.from_env()
     job_list = [dict(job) for job in jobs]
-    total_cost = estimate_job_cost(duration_seconds=duration_seconds, config=config)
+    backend = generation_backend or _batch_generation_backend(job_list)
+    total_cost = estimate_job_cost(
+        duration_seconds=duration_seconds,
+        config=config,
+        generation_backend=backend,
+    )
     unbatched_seconds = sum(_duration_seconds(job) or float(duration_seconds) for job in job_list)
-    unbatched_cost = estimate_job_cost(duration_seconds=unbatched_seconds, config=config)
+    unbatched_cost = estimate_job_cost(
+        duration_seconds=unbatched_seconds,
+        config=config,
+        generation_backend=backend,
+    )
     savings = max(0.0, unbatched_cost.usd - total_cost.usd)
     ratio = (savings / unbatched_cost.usd) if unbatched_cost.usd > 0 else 0.0
     return AvatarBatchCost(
@@ -208,15 +229,40 @@ def build_job_cost_document(
     duration_seconds: float,
     config: Optional[AvatarCostConfig] = None,
     estimated_at: Optional[datetime] = None,
+    generation_backend: str = DEFAULT_GENERATION_BACKEND,
+    provider_usage: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
-    cost = estimate_job_cost(duration_seconds=duration_seconds, config=config)
+    cost = estimate_job_cost(
+        duration_seconds=duration_seconds,
+        config=config,
+        generation_backend=generation_backend,
+    )
     document = cost.to_dict()
     if estimated_at is not None:
         document["estimatedAt"] = estimated_at
-    return {
+    document = {
         "costEstimateUsd": cost.usd,
         "costEstimate": document,
     }
+    if generation_backend:
+        document["costEstimate"]["generationBackend"] = str(generation_backend)
+    if provider_usage:
+        document["providerUsage"] = {
+            str(key): value
+            for key, value in provider_usage.items()
+            if str(key)
+            in {
+                "provider",
+                "generationBackend",
+                "requestCount",
+                "attemptCount",
+                "successCount",
+                "failureCount",
+                "unknownOutcomeCount",
+                "outcome",
+            }
+        }
+    return document
 
 
 def build_batch_cost_document(
@@ -225,8 +271,14 @@ def build_batch_cost_document(
     duration_seconds: float,
     config: Optional[AvatarCostConfig] = None,
     estimated_at: Optional[datetime] = None,
+    generation_backend: Optional[str] = None,
 ) -> Dict[str, Any]:
-    batch = estimate_batch_cost(jobs, duration_seconds=duration_seconds, config=config)
+    batch = estimate_batch_cost(
+        jobs,
+        duration_seconds=duration_seconds,
+        config=config,
+        generation_backend=generation_backend,
+    )
     document = batch.to_dict()
     document["pricingVersion"] = batch.total_cost.pricing_version
     if estimated_at is not None:
@@ -425,7 +477,38 @@ def _job_cost_usd(job: Mapping[str, Any], *, config: AvatarCostConfig) -> float:
             if parsed is not None:
                 return _round_money(parsed)
     duration = _duration_seconds(job)
-    return estimate_job_cost(duration_seconds=duration or 0.0, config=config).usd
+    return estimate_job_cost(
+        duration_seconds=duration or 0.0,
+        config=config,
+        generation_backend=_job_generation_backend(job),
+    ).usd
+
+
+def _job_generation_backend(job: Mapping[str, Any]) -> str:
+    for key in ("generationBackend", "backend"):
+        value = str(job.get(key) or "").strip()
+        if value:
+            return value
+    for container_key in ("costEstimate", "cost", "processing"):
+        container = job.get(container_key)
+        if not isinstance(container, Mapping):
+            continue
+        value = str(container.get("generationBackend") or "").strip()
+        if value:
+            return value
+        breakdown = container.get("breakdown")
+        if isinstance(breakdown, Mapping):
+            value = str(breakdown.get("generationBackend") or "").strip()
+            if value:
+                return value
+    return DEFAULT_GENERATION_BACKEND
+
+
+def _batch_generation_backend(jobs: Iterable[Mapping[str, Any]]) -> str:
+    backends = {_job_generation_backend(job) for job in jobs}
+    if backends == {AZURE_GENERATION_BACKEND}:
+        return AZURE_GENERATION_BACKEND
+    return DEFAULT_GENERATION_BACKEND
 
 
 def _duration_seconds(job: Mapping[str, Any]) -> Optional[float]:

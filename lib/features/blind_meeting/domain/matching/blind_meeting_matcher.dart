@@ -17,10 +17,14 @@ import 'blind_meeting_scoring.dart';
 /// 후보 팀 하나 (같은 편 3명).
 class BlindMeetingTeamProposal {
   final List<BlindMeetingCandidate> members;
+
+  /// 팀은 단일 성별이다 (3:3 에서 "같은 편"은 동성 3명).
+  final BlindMeetingGender gender;
   final InternalTeamScoreBreakdown score;
 
   BlindMeetingTeamProposal({
     required List<BlindMeetingCandidate> members,
+    required this.gender,
     required this.score,
   }) : members = List<BlindMeetingCandidate>.unmodifiable(members);
 
@@ -147,22 +151,25 @@ class BlindMeetingMatcher {
       dateKey: dateKey,
       alcoholFree: alcoholFree,
     );
-    if (eligible.length < 3) return const <BlindMeetingTeamProposal>[];
+    if (eligible.length < BlindMeetingHardConstraints.teamSize) {
+      return const <BlindMeetingTeamProposal>[];
+    }
 
     final byKey = <String, BlindMeetingTeamProposal>{};
 
-    void tryTeam(List<BlindMeetingCandidate> trio) {
+    void tryTeam(List<BlindMeetingCandidate> trio, BlindMeetingGender gender) {
       if (!BlindMeetingHardConstraints.isGroupAllowed(
         trio,
         dateKey: dateKey,
         alcoholFreeGroup: alcoholFree,
-        expectedSize: 3,
+        expectedSize: BlindMeetingHardConstraints.teamSize,
       )) {
         return;
       }
       final ordered = _orderTeamMembers(trio);
       final proposal = BlindMeetingTeamProposal(
         members: ordered,
+        gender: gender,
         score: internalTeamScore(
           ordered,
           config: config,
@@ -172,20 +179,36 @@ class BlindMeetingMatcher {
       byKey[proposal.key] = proposal;
     }
 
-    if (eligible.length <= exhaustiveTeamPoolLimit) {
-      for (var i = 0; i < eligible.length; i++) {
-        for (var j = i + 1; j < eligible.length; j++) {
-          for (var k = j + 1; k < eligible.length; k++) {
-            tryTeam([eligible[i], eligible[j], eligible[k]]);
+    // 3:3 에서 한 팀은 동성 3명이므로 성별로 후보군을 먼저 나눈 뒤
+    // 각 성별 안에서만 조합을 만든다. 전체 상위 6명을 뽑아놓고 나중에
+    // 성비를 맞추는 ad-hoc post-processing 이 아니라, 제약을 탐색 공간
+    // 자체에 넣는 constrained selection 이다.
+    final crossWeights = config.crossWeightsFor(alcoholFree: alcoholFree);
+    final byGender = BlindMeetingHardConstraints.splitByGender(eligible);
+
+    for (final entry in <(BlindMeetingGender, List<BlindMeetingCandidate>)>[
+      (BlindMeetingGender.male, byGender.male),
+      (BlindMeetingGender.female, byGender.female),
+    ]) {
+      final gender = entry.$1;
+      final sameGender = entry.$2;
+      if (sameGender.length < BlindMeetingHardConstraints.teamSize) continue;
+
+      if (sameGender.length <= exhaustiveTeamPoolLimit) {
+        for (var i = 0; i < sameGender.length; i++) {
+          for (var j = i + 1; j < sameGender.length; j++) {
+            for (var k = j + 1; k < sameGender.length; k++) {
+              tryTeam([sameGender[i], sameGender[j], sameGender[k]], gender);
+            }
           }
         }
+        continue;
       }
-    } else {
-      final crossWeights = config.crossWeightsFor(alcoholFree: alcoholFree);
-      for (var i = 0; i < eligible.length; i++) {
-        final seed = eligible[i];
+
+      for (var i = 0; i < sameGender.length; i++) {
+        final seed = sameGender[i];
         final neighbors =
-            eligible.where((c) => c.userId != seed.userId).toList()
+            sameGender.where((c) => c.userId != seed.userId).toList()
               ..sort((a, b) {
                 final byAffinity = pairCompatibility(
                   seed,
@@ -198,7 +221,7 @@ class BlindMeetingMatcher {
         final window = neighbors.take(neighborhoodSize).toList();
         for (var j = 0; j < window.length; j++) {
           for (var k = j + 1; k < window.length; k++) {
-            tryTeam([seed, window[j], window[k]]);
+            tryTeam([seed, window[j], window[k]], gender);
           }
         }
       }
@@ -265,13 +288,26 @@ class BlindMeetingMatcher {
     );
     if (teams.length < 2) return null;
 
-    final shortlist = teams.take(teamShortlistSize).toList();
+    // 두 팀은 반드시 서로 다른 성별이다. 성별별로 상위 팀을 따로 추려서
+    // 짝지으므로, 한쪽 성별이 점수 상위권을 독점해도 shortlist 가 한 성별로
+    // 채워져 3:3 이 사라지는 일이 없다.
+    final maleTeams = teams
+        .where((t) => t.gender == BlindMeetingGender.male)
+        .take(teamShortlistSize)
+        .toList();
+    final femaleTeams = teams
+        .where((t) => t.gender == BlindMeetingGender.female)
+        .take(teamShortlistSize)
+        .toList();
+    if (maleTeams.isEmpty || femaleTeams.isEmpty) return null;
+
     final groups = <BlindMeetingGroupProposal>[];
 
-    for (var i = 0; i < shortlist.length; i++) {
-      for (var j = i + 1; j < shortlist.length; j++) {
-        final left = shortlist[i];
-        final right = shortlist[j];
+    for (var i = 0; i < maleTeams.length; i++) {
+      for (var j = 0; j < femaleTeams.length; j++) {
+        final left = maleTeams[i];
+        final right = femaleTeams[j];
+        // 같은 uid 가 남/여 양쪽 문서에 존재하는 손상 데이터 방어.
         if (left.userIds.intersection(right.userIds).isNotEmpty) continue;
 
         final members = [...left.members, ...right.members];
@@ -285,7 +321,7 @@ class BlindMeetingMatcher {
           members,
           dateKey: dateKey,
           alcoholFreeGroup: alcoholFree,
-          expectedSize: 6,
+          expectedSize: BlindMeetingHardConstraints.groupSize,
         )) {
           continue;
         }

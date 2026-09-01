@@ -1,4 +1,12 @@
-"""Fail-closed Kakao-friend privacy policy for the 1:1 recommender.
+"""Fail-closed recommendation privacy policy for the 1:1 recommender.
+
+Two independent gates compose here:
+
+* Account-state eligibility: only verified, fully onboarded, visible, active
+  accounts may appear as a viewer or a candidate.
+* Per-pair Kakao friend exclusion: active ``recommendationExclusions`` docs
+  (materialized bilaterally from ``kakaoFriendPairs``) remove specific
+  viewer/candidate pairs.
 
 The model pipeline runs with Admin SDK privileges, so Firestore Security Rules
 cannot protect model output from an accidental policy omission.  Every source
@@ -26,8 +34,6 @@ def _is_recommendation_ready_user(data: Mapping[str, Any]) -> bool:
     status = str(data.get("status") or data.get("accountStatus") or "active").strip().lower()
     if status in _INACTIVE_ACCOUNT_STATUSES:
         return False
-    if data.get("recommendationPrivacyReady") is not True:
-        return False
     if data.get("isStudentVerified") is not True:
         return False
     if data.get("initialSetupComplete") is not True:
@@ -46,8 +52,9 @@ def _is_recommendation_ready_user(data: Mapping[str, Any]) -> bool:
 
 
 def _is_active_exclusion(data: Mapping[str, Any]) -> bool:
-    # ``active`` is the forward-compatible compact representation.  Existing
-    # documents use enabledBy, so keep the strict bool-only compatibility path.
+    # New-style docs (source == "kakao_friend_pair") carry ``active: True``.
+    # Legacy docs use enabledBy only, so keep the strict bool-only
+    # compatibility path for the any-member-enabled shape.
     if data.get("active") is True:
         return True
     enabled_by = data.get("enabledBy")

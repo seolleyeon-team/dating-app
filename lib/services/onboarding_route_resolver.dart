@@ -1,4 +1,5 @@
 import '../router/route_names.dart';
+import '../shared/utils/avatar_lock_policy.dart';
 
 /// Resolves the first incomplete onboarding step for a stored user profile.
 ///
@@ -26,8 +27,9 @@ String? resolveOnboardingNextRoute(Map<String, dynamic>? profile) {
     return RouteNames.onboardingMajor;
   }
 
-  final uploadedPhotoCount = onboarding['sourcePhotoUploadCount'];
-  if (uploadedPhotoCount is! num || uploadedPhotoCount <= 0) {
+  // 사진 단계는 승인된 아바타가 있어야만 완료된 것으로 본다. 업로드 카운터는
+  // 클라이언트가 위조할 수 있고, 생성/승인 전 상태는 사진 화면에서 이어간다.
+  if (!_hasApprovedAvatar(profile, onboarding)) {
     return RouteNames.onboardingPhoto;
   }
   if (_isEmpty(onboarding['selfIntroduction'])) {
@@ -57,4 +59,15 @@ bool _isEmpty(dynamic value) {
   if (value == null) return true;
   if (value is String) return value.trim().isEmpty;
   return false;
+}
+
+bool _hasApprovedAvatar(Map<String, dynamic>? profile, Map onboarding) {
+  final avatarRaw = profile?['avatar'];
+  final avatar = avatarRaw is Map ? avatarRaw : const {};
+  final status = avatar['status']?.toString().trim().toLowerCase() ?? '';
+  if (status == 'approved') return true;
+
+  final avatarUrlsRaw = onboarding['avatarUrls'];
+  return avatarUrlsRaw is List &&
+      avatarUrlsRaw.whereType<String>().any(isSafePublicApprovedAvatarUrl);
 }

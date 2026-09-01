@@ -14,7 +14,31 @@ from PIL import Image, ImageChops, ImageStat
 
 from avatar_generation.environment import is_production_like_environment
 
+from .analysis.watermark import (
+    WATERMARK_POLICY_VERSION,
+    WATERMARK_QA_ACTION_REJECT,
+    WATERMARK_QA_ACTION_REVIEW,
+    resolve_watermark_qa_action,
+    watermark_risk_for_action,
+)
+from .qa_contract import OPTIONAL_SIGNAL_NAMES, required_signal_failure_codes
 from .qa_signals import CandidateQASignalResult
+from .trait_policy import (
+    TRAIT_QA_MODE_CANONICAL_DISABLED,
+    TRAIT_QA_POLICY_VERSION,
+    classify_trait_qa_pipeline,
+    normalize_trait_qa_state,
+    trait_qa_satisfied,
+)
+from .unique_mark_policy import (
+    UNIQUE_MARK_QA_ACTION_REJECT,
+    UNIQUE_MARK_QA_POLICY_VERSION,
+    UniqueMarkQAResult,
+    normalize_unique_mark_qa_state,
+    normalize_unique_mark_copy_risk,
+    resolve_unique_mark_qa_state,
+    unique_mark_qa_satisfied,
+)
 
 
 try:  # Pillow 10+ exposes resampling enums.
@@ -43,12 +67,10 @@ AUTO_REJECT_REASONS = {
     "secondary_person_generated",
     "sexualized_or_nightlife",
     "severe_artifact",
-    "hard_trait_contradiction",
     "signed_url_marker",
     "source_candidate_identical",
     "source_candidate_near_duplicate",
     "undecodable_image",
-    "eyewear_invented_or_omitted",
 }
 
 SIGNED_URL_MARKERS = (
@@ -79,6 +101,23 @@ TEXT_WATERMARK_MARKERS = (
     "visible logo",
 )
 
+TEXT_WATERMARK_SIGNAL_KEYS = frozenset(
+    {
+        "logotextwatermarkdetected",
+        "textlogowatermarkdetected",
+        "backgroundtextlogodetected",
+        "schoolsigndetected",
+        "campussigndetected",
+        "brandlogodetected",
+        "watermarkdetected",
+        "textlogoriskdetected",
+        "textlogowatermarkrisk",
+        "logotextwatermarkrisk",
+        "backgroundtextlogorisk",
+        "textlogorisk",
+    }
+)
+
 DEBUG_FORBIDDEN_KEYS = {
     "clipembeddings",
     "downloadurl",
@@ -107,6 +146,8 @@ BLANK_STDDEV_THRESHOLD = 4.0
 BLANK_CHANNEL_RANGE_THRESHOLD = 8
 COMPARE_SIZE = 64
 HASH_SIZE = 16
+QA_CONTRACT_VERSION = "avatar_qa_v7_watermark_evidence_parity_v1"
+QA_INPUT_CONTRACT_VERSION = "azure_post_generation_direct_source_v2_watermark_evidence"
 
 
 @dataclass(frozen=True)
@@ -133,8 +174,19 @@ class AvatarQAResult:
     cropConsistency: str = "needs_review"
     cropIsolationQuality: str = "pass"
     uniqueMarkCopyRisk: str = "medium"
+    uniqueMarkQaApplicability: str = ""
+    uniqueMarkQaAction: str = ""
+    uniqueMarkQaReason: str = ""
+    uniqueMarkPolicyVersion: str = UNIQUE_MARK_QA_POLICY_VERSION
     logoTextWatermarkRisk: str = "medium"
     textLogoWatermarkRisk: str = "low"
+    watermarkQaAction: str = ""
+    watermarkPolicyVersion: str = WATERMARK_POLICY_VERSION
+    traitQaApplicability: str = ""
+    traitQaAction: str = ""
+    traitQaReason: str = ""
+    traitReviewContribution: bool = False
+    traitPolicyVersion: str = TRAIT_QA_POLICY_VERSION
     backgroundLeakageRisk: str = "low"
     secondaryFaceLeakageRisk: str = "low"
     faceSimilarityScore: Optional[float] = None
@@ -152,7 +204,16 @@ class AvatarQAResult:
     debug: Dict[str, Any] = field(default_factory=dict)
 
     def to_document(self) -> Dict[str, object]:
-        return {
+        watermark_action = resolve_watermark_qa_action(
+            {
+                "watermarkQaAction": self.watermarkQaAction,
+                "watermarkDecisionClass": (self.debug or {}).get("watermarkDecisionClass"),
+                "textLogoWatermarkRisk": self.textLogoWatermarkRisk,
+                "logoTextWatermarkRisk": self.logoTextWatermarkRisk,
+            }
+        )
+        watermark_risk = watermark_risk_for_action(watermark_action)
+        document: Dict[str, object] = {
             "adultQa": self.adultQa,
             "childlikeRisk": self.childlikeRisk,
             "privacyQa": self.privacyQa,
@@ -161,8 +222,14 @@ class AvatarQAResult:
             "cropConsistency": self.cropConsistency,
             "cropIsolationQuality": self.cropIsolationQuality,
             "uniqueMarkCopyRisk": self.uniqueMarkCopyRisk,
-            "logoTextWatermarkRisk": self.logoTextWatermarkRisk,
-            "textLogoWatermarkRisk": self.textLogoWatermarkRisk,
+            "uniqueMarkQaApplicability": self.uniqueMarkQaApplicability,
+            "uniqueMarkQaAction": self.uniqueMarkQaAction,
+            "uniqueMarkQaReason": self.uniqueMarkQaReason,
+            "uniqueMarkPolicyVersion": UNIQUE_MARK_QA_POLICY_VERSION,
+            "logoTextWatermarkRisk": watermark_risk,
+            "textLogoWatermarkRisk": watermark_risk,
+            "watermarkQaAction": watermark_action,
+            "watermarkPolicyVersion": WATERMARK_POLICY_VERSION,
             "backgroundLeakageRisk": self.backgroundLeakageRisk,
             "secondaryFaceLeakageRisk": self.secondaryFaceLeakageRisk,
             "faceSimilarityScore": _rounded_score(self.faceSimilarityScore),
@@ -182,6 +249,12 @@ class AvatarQAResult:
             or datetime.now(tz=timezone.utc).isoformat(),
             "debug": _sanitize_debug_value(dict(self.debug or {})),
         }
+        trait_state = _trait_state_from_result(self)
+        document["traitPolicyVersion"] = TRAIT_QA_POLICY_VERSION
+        if trait_state is not None:
+            document.update(trait_state.to_document())
+            document["traitComparisonStatus"] = trait_state.comparison_status
+        return document
 
     @property
     def is_rejected(self) -> bool:
@@ -195,13 +268,128 @@ class LoadedImage:
     reject_reason: Optional[str] = None
 
 
+def _trait_state_from_result(result: AvatarQAResult):
+    return normalize_trait_qa_state(
+        {
+            "traitQaApplicability": result.traitQaApplicability,
+            "traitQaAction": result.traitQaAction,
+            "traitQaReason": result.traitQaReason,
+            "traitComparisonStatus": result.debug.get("traitComparisonStatus")
+            if isinstance(result.debug, Mapping)
+            else None,
+        }
+    )
+
+
+def _apply_trait_state(result: AvatarQAResult, trait_state: Any) -> None:
+    result.traitQaApplicability = trait_state.applicability
+    result.traitQaAction = trait_state.action
+    result.traitQaReason = trait_state.reason
+    result.traitReviewContribution = trait_state.trait_review_contribution
+    result.traitPolicyVersion = TRAIT_QA_POLICY_VERSION
+
+
+def _unique_mark_state_from_result(
+    result: AvatarQAResult,
+) -> UniqueMarkQAResult | None:
+    return normalize_unique_mark_qa_state(
+        {
+            "uniqueMarkQaApplicability": result.uniqueMarkQaApplicability,
+            "uniqueMarkQaAction": result.uniqueMarkQaAction,
+            "uniqueMarkQaReason": result.uniqueMarkQaReason,
+        }
+    )
+
+
+def _apply_unique_mark_state(
+    result: AvatarQAResult,
+    unique_mark_state: UniqueMarkQAResult,
+) -> None:
+    result.uniqueMarkQaApplicability = unique_mark_state.applicability
+    result.uniqueMarkQaAction = unique_mark_state.action
+    result.uniqueMarkQaReason = unique_mark_state.reason
+    result.uniqueMarkPolicyVersion = UNIQUE_MARK_QA_POLICY_VERSION
+
+
+def _embedded_unique_mark_pipeline_contract(
+    signals: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    for key in ("_uniqueMarkPipelineContract", "uniqueMarkPipelineContract"):
+        value = signals.get(key)
+        if isinstance(value, Mapping):
+            return value
+    authority_keys = {
+        "provider",
+        "generationBackend",
+        "sourceInputMode",
+        "uploadNormalization",
+        "preGenerationTransform",
+        "pipelineMode",
+        "legacyTraitExtraction",
+        "legacyReferencePreprocessing",
+        "legacyFlux",
+        "uniqueMarkQaMode",
+        "uniqueMarkQaAuthority",
+    }
+    if authority_keys.intersection(signals):
+        return signals
+    return None
+
+
+def _resolve_unique_mark_state(
+    signals: Mapping[str, Any],
+    *,
+    pipeline_contract: Mapping[str, Any] | None = None,
+) -> UniqueMarkQAResult | None:
+    contract = pipeline_contract or _embedded_unique_mark_pipeline_contract(signals)
+    if contract is not None:
+        return resolve_unique_mark_qa_state(contract, signals)
+    # A typed applicability claim without the server pipeline contract is not
+    # authoritative.  The production entry point supplies the contract from
+    # server-created metadata; direct legacy mappers keep their risk fallback.
+    return None
+
+
+def _unique_mark_result_satisfied(
+    result: AvatarQAResult,
+    unique_mark_state: UniqueMarkQAResult | None,
+) -> bool:
+    if unique_mark_state is None:
+        return _risk_is_low(result.uniqueMarkCopyRisk)
+    return unique_mark_qa_satisfied(
+        unique_mark_state.applicability,
+        unique_mark_state.action,
+    )
+
+
 def apply_avatar_qa_rejection_logic(result: AvatarQAResult) -> AvatarQAResult:
     reasons = set(result.rejectReasons)
+    watermark_action = resolve_watermark_qa_action(
+        {
+            "watermarkQaAction": result.watermarkQaAction,
+            "watermarkDecisionClass": (result.debug or {}).get("watermarkDecisionClass"),
+            "textLogoWatermarkRisk": result.textLogoWatermarkRisk,
+            "logoTextWatermarkRisk": result.logoTextWatermarkRisk,
+        }
+    )
+    result.watermarkQaAction = watermark_action
+    result.watermarkPolicyVersion = WATERMARK_POLICY_VERSION
+    watermark_risk = watermark_risk_for_action(watermark_action)
+    result.logoTextWatermarkRisk = watermark_risk
+    result.textLogoWatermarkRisk = watermark_risk
+    trait_state = _trait_state_from_result(result)
+    if trait_state is not None:
+        _apply_trait_state(result, trait_state)
+    unique_mark_state = _unique_mark_state_from_result(result)
+    if unique_mark_state is not None:
+        _apply_unique_mark_state(result, unique_mark_state)
     if result.adultQa == "fail" or result.childlikeRisk == "high":
         reasons.add("childlike_or_teenager")
     if result.privacyQa == "fail" or result.identifiabilityRisk == "high":
         reasons.add("too_identifiable")
     if result.uniqueMarkCopyRisk == "high":
+        reasons.add("unique_mark_copied")
+    if unique_mark_state is not None and unique_mark_state.hard_reject:
         reasons.add("unique_mark_copied")
     if result.beautificationRisk == "high":
         reasons.add("too_beautified")
@@ -209,9 +397,7 @@ def apply_avatar_qa_rejection_logic(result: AvatarQAResult) -> AvatarQAResult:
         result.cropConsistency == "fail" or result.cropIsolationQuality == "fail"
     ) and "severe_artifact" not in reasons:
         reasons.add("crop_expanded_to_unseen_body")
-    if _risk_is_high(result.logoTextWatermarkRisk) or _risk_is_high(
-        result.textLogoWatermarkRisk
-    ):
+    if watermark_action == WATERMARK_QA_ACTION_REJECT:
         reasons.add("logo_text_watermark")
     if _risk_is_high(result.backgroundLeakageRisk):
         reasons.add("background_leakage")
@@ -223,6 +409,22 @@ def apply_avatar_qa_rejection_logic(result: AvatarQAResult) -> AvatarQAResult:
     if result.rejectReasons:
         result.previewAllowed = False
         result.requiresHumanReview = False
+        result.softPass = False
+    elif (
+        watermark_action == WATERMARK_QA_ACTION_REVIEW
+        or (trait_state is not None and trait_state.needs_review)
+        or (unique_mark_state is not None and unique_mark_state.needs_review)
+    ):
+        review_reasons = set(result.reviewReasons)
+        if watermark_action == WATERMARK_QA_ACTION_REVIEW:
+            review_reasons.add("watermark_artifact_review")
+        if trait_state is not None and trait_state.needs_review:
+            review_reasons.add(trait_state.reason)
+        if unique_mark_state is not None and unique_mark_state.needs_review:
+            review_reasons.add(unique_mark_state.reason)
+        result.reviewReasons = sorted(review_reasons)
+        result.previewAllowed = False
+        result.requiresHumanReview = True
         result.softPass = False
     elif result.softPass:
         result.previewAllowed = False
@@ -240,6 +442,14 @@ def apply_avatar_qa_rejection_logic(result: AvatarQAResult) -> AvatarQAResult:
         and result.textLogoWatermarkRisk == "low"
         and result.backgroundLeakageRisk == "low"
         and result.secondaryFaceLeakageRisk == "low"
+        and (
+            trait_state is None
+            or trait_qa_satisfied(
+                trait_state.applicability,
+                trait_state.action,
+            )
+        )
+        and _unique_mark_result_satisfied(result, unique_mark_state)
     ):
         result.previewAllowed = True
         result.requiresHumanReview = False
@@ -362,8 +572,45 @@ def _risk_from_score(
     return "low"
 
 
+def _resolve_identifiability_risk(
+    signals: Mapping[str, Any],
+    *,
+    face_similarity: Optional[float],
+    thresholds: AvatarQAThresholds,
+) -> str:
+    """Use the versioned calibrated face decision before generic fallback thresholds."""
+
+    decision = str(signals.get("faceSimilarityDecision") or "").strip().lower()
+    calibration_state = str(
+        signals.get("faceSimilarityCalibrationState") or ""
+    ).strip().lower()
+    reliable = signals.get("faceSimilarityReliable") is True
+
+    if calibration_state == "calibrated" and reliable:
+        if decision == "low_similarity_risk":
+            return "low"
+        if decision == "high_similarity_risk":
+            return "high"
+    if (
+        calibration_state == "calibrated_review_band"
+        and not reliable
+        and decision == "review_similarity"
+    ):
+        return "medium"
+
+    return _risk_from_score(
+        face_similarity,
+        review_threshold=thresholds.face_similarity_review,
+        reject_threshold=thresholds.face_similarity_reject,
+    )
+
+
 def _risk_is_high(value: Any) -> bool:
     return str(value or "").strip().lower() in {"high", "critical", "fail", "failed"}
+
+
+def _risk_is_low(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"low", "none", "pass", "passed", "ok", "clear"}
 
 
 def _normalized_risk(value: Any, *, fallback: str = "medium") -> str:
@@ -438,6 +685,14 @@ def _eyewear_contract_from_trait_card(value: Any) -> Dict[str, Any]:
 
 
 def _candidate_eyewear_consistency(metadata: Mapping[str, Any]) -> Dict[str, Any]:
+    if classify_trait_qa_pipeline(metadata) == TRAIT_QA_MODE_CANONICAL_DISABLED:
+        return {
+            "eyewearMatch": "not_applicable",
+            "eyewearReason": "trait_qa_not_applicable",
+            "sourcePresent": None,
+            "candidatePresent": None,
+            "sourceConfidence": "not_applicable",
+        }
     source_trait = (
         metadata.get("sourceTraitCard")
         or metadata.get("traitCard")
@@ -504,13 +759,16 @@ def _apply_candidate_trait_consistency(
     result.debug = dict(result.debug or {})
     result.debug["candidateTraitConsistency"] = dict(consistency or {})
     if consistency.get("eyewearMatch") == "fail":
-        reasons = set(result.rejectReasons)
-        reasons.add("eyewear_invented_or_omitted")
-        result.rejectReasons = sorted(reasons)
         result.reviewReasons = sorted(
             set(result.reviewReasons + [str(consistency.get("eyewearReason") or "eyewear_mismatch")])
         )
-        result = apply_avatar_qa_rejection_logic(result)
+        # Trait consistency is a review signal.  It must not become an
+        # automatic hard reject, even when a legacy eyewear comparison finds a
+        # meaningful mismatch.
+        if not result.rejectReasons:
+            result.previewAllowed = False
+            result.requiresHumanReview = True
+            result.softPass = False
     return result
 
 
@@ -560,21 +818,32 @@ def _contains_text_watermark_marker(metadata: Mapping[str, Any], refs: Sequence[
         if any(marker in lowered_ref for marker in TEXT_WATERMARK_MARKERS):
             return True
 
+    def normalized_key(value: Any) -> str:
+        return re.sub(r"[^a-z0-9]", "", str(value).lower())
+
+    def positive_signal(value: Any) -> bool:
+        if value is True:
+            return True
+        if isinstance(value, str):
+            return value.strip().lower() in {
+                "true",
+                "detected",
+                "high",
+                "block",
+                "blocked",
+                "fail",
+                "failed",
+            }
+        return False
+
     def walk(value: Any) -> bool:
         if isinstance(value, Mapping):
             for key, child in value.items():
-                lowered_key = str(key).lower()
-                if (
-                    any(marker in lowered_key for marker in TEXT_WATERMARK_MARKERS)
-                    and child is True
-                ):
+                if normalized_key(key) in TEXT_WATERMARK_SIGNAL_KEYS and positive_signal(child):
                     return True
-                if walk(child):
+                if isinstance(child, (Mapping, list, tuple, set)) and walk(child):
                     return True
             return False
-        if isinstance(value, str):
-            lowered_value = value.lower()
-            return any(marker in lowered_value for marker in TEXT_WATERMARK_MARKERS)
         if isinstance(value, (list, tuple, set)):
             return any(walk(child) for child in value)
         return False
@@ -707,6 +976,15 @@ def _analysis_reference_image(metadata: Mapping[str, Any]) -> Optional[Image.Ima
     return _process_local_image(metadata, "_analysis_reference_image")
 
 
+def _uses_direct_azure_source_contract(metadata: Mapping[str, Any]) -> bool:
+    return (
+        str(metadata.get("generationBackend") or "").strip().lower()
+        == "azure_gpt_image_2"
+        and str(metadata.get("sourceInputMode") or "").strip().lower()
+        in {"original_direct", "storage_normalized_original_direct"}
+    )
+
+
 def _is_blank_or_monochrome(image: Image.Image) -> bool:
     sample = image.convert("RGB").resize((COMPARE_SIZE, COMPARE_SIZE), _LANCZOS)
     stat = ImageStat.Stat(sample)
@@ -835,7 +1113,6 @@ def _dev_bypass_result() -> AvatarQAResult:
             "brandFit": True,
             "cropConsistent": True,
             "logoTextWatermarkDetected": False,
-            "uniqueMarkCopied": False,
             "faceSimilarityScore": 0.0,
             "childlikeScore": 0.0,
             "beautificationScore": 0.0,
@@ -857,7 +1134,6 @@ def _staging_heuristic_preview_result(
             "brandFit": True,
             "cropConsistent": True,
             "logoTextWatermarkDetected": text_watermark_detected,
-            "uniqueMarkCopied": False,
             "faceSimilarityScore": None,
             "childlikeScore": 0.05,
             "beautificationScore": 0.05,
@@ -876,7 +1152,7 @@ def _staging_heuristic_preview_result(
             thresholds=thresholds,
             face_similarity_score=None,
             perceptual_similarity_score=perceptual_similarity_score,
-            model_availability={"faceSimilarity": "unavailable", "clip": "unavailable", "dino": "unavailable"},
+            model_availability={"faceSimilarity": "unavailable", "clip": "unavailable", "dino": "not_required"},
             decision_tier="soft_pass",
             hard_reject_reasons=[],
             needs_review_reasons=[],
@@ -893,9 +1169,8 @@ def _merge_local_signals(
 ) -> Dict[str, Any]:
     merged: Dict[str, Any] = dict(_metadata_qa_signals(metadata or {}))
     merged.update(dict(signals or {}))
-    if text_watermark_detected:
-        merged["logoTextWatermarkDetected"] = True
-        merged["textLogoWatermarkDetected"] = True
+    # Legacy marker detection is diagnostic only. It cannot establish an
+    # artifact action without typed visual evidence.
     return merged
 
 
@@ -909,14 +1184,27 @@ def _qa_debug_document(
     hard_reject_reasons: Sequence[str],
     needs_review_reasons: Sequence[str],
     soft_pass_reasons: Sequence[str],
+    face_similarity_observed_score: Optional[float] = None,
+    face_similarity_decision: Optional[str] = None,
 ) -> Dict[str, Any]:
     perceptual_distance = (
         None
         if perceptual_similarity_score is None
         else round(1.0 - float(perceptual_similarity_score), 6)
     )
+    local_safety_status = str(
+        model_availability.get("localSafetyRisk")
+        or model_availability.get("clipSafety")
+        or model_availability.get("clip")
+        or "unavailable"
+    )
+    normalized_availability = {
+        **dict(model_availability),
+        "localSafetyRisk": local_safety_status,
+        "clip": local_safety_status,
+    }
     return {
-        "qaVersion": "avatar_qa_v1",
+        "qaVersion": QA_CONTRACT_VERSION,
         "thresholdSnapshot": {
             "faceSimilarityReject": thresholds.face_similarity_reject,
             "faceSimilarityReview": thresholds.face_similarity_review,
@@ -928,14 +1216,24 @@ def _qa_debug_document(
             ),
         },
         "modelAvailability": {
-            "faceDetector": model_availability.get("faceDetector", "unavailable"),
-            "faceSimilarity": model_availability.get("faceSimilarity", "unavailable"),
-            "clip": model_availability.get("clip", "unavailable"),
-            "dino": model_availability.get("dino", "unavailable"),
-            "mediapipe": model_availability.get("mediapipe", "unavailable"),
+            "faceDetector": normalized_availability.get("faceDetector", "unavailable"),
+            "visualRisk": normalized_availability.get("visualRisk", "unavailable"),
+            "faceSimilarity": normalized_availability.get("faceSimilarity", "unavailable"),
+            "clipSafety": local_safety_status,
+            "clip": local_safety_status,
+            "localSafetyRisk": local_safety_status,
+            "dino": normalized_availability.get("dino", "unavailable"),
+            "mediapipe": normalized_availability.get("mediapipe", "unavailable"),
+        },
+        "signalContract": {
+            "required": ["faceDetector", "visualRisk", "clipSafety", "faceSimilarity"],
+            "optional": list(OPTIONAL_SIGNAL_NAMES),
+            "requiredSignalFailures": list(required_signal_failure_codes(normalized_availability)),
         },
         "scores": {
             "faceSimilarityScore": _rounded_score(face_similarity_score),
+            "faceSimilarityObservedScore": _rounded_score(face_similarity_observed_score),
+            "faceSimilarityDecision": face_similarity_decision,
             "perceptualHashDistance": _rounded_score(perceptual_distance),
             "perceptualSimilarityScore": _rounded_score(perceptual_similarity_score),
             "ssimScore": None,
@@ -958,6 +1256,56 @@ def _qa_debug_document(
     }
 
 
+def _attach_watermark_debug(
+    result: AvatarQAResult,
+    signals: Mapping[str, Any],
+) -> None:
+    """Attach only the coarse, typed watermark decision to persisted debug."""
+
+    decision_class = signals.get("watermarkDecisionClass")
+    if isinstance(decision_class, str) and decision_class.strip():
+        result.debug["watermarkDecisionClass"] = decision_class.strip()
+    evidence_classes = signals.get("watermarkEvidenceClasses")
+    if isinstance(evidence_classes, (list, tuple)):
+        result.debug["watermarkEvidenceClasses"] = [
+            str(value).strip()
+            for value in evidence_classes
+            if isinstance(value, str) and value.strip()
+        ]
+    evidence = signals.get("watermarkEvidence")
+    if isinstance(evidence, Mapping):
+        result.debug["watermarkEvidence"] = dict(evidence)
+    result.debug["watermarkQaAction"] = result.watermarkQaAction
+    result.debug["watermarkPolicyVersion"] = WATERMARK_POLICY_VERSION
+
+
+def _attach_trait_debug(
+    result: AvatarQAResult,
+    signals: Mapping[str, Any],
+) -> None:
+    """Persist only the resolved, server-authoritative trait QA state."""
+
+    trait_state = normalize_trait_qa_state(signals)
+    if trait_state is None:
+        trait_state = _trait_state_from_result(result)
+    if trait_state is None:
+        return
+    _apply_trait_state(result, trait_state)
+    result.debug.update(trait_state.to_document())
+    result.debug["traitComparisonStatus"] = trait_state.comparison_status
+
+
+def _attach_visual_risk_debug(
+    result: AvatarQAResult,
+    signals: Mapping[str, Any],
+) -> None:
+    """Persist semantic visual-risk status separately from model availability."""
+
+    status = signals.get("visualRiskStatus")
+    if isinstance(status, str) and status.strip():
+        result.debug["visualRiskStatus"] = status.strip()
+
+
 def _model_unavailable_with_local_similarity(
     face_similarity_score: Optional[float],
     *,
@@ -977,7 +1325,7 @@ def _model_unavailable_with_local_similarity(
         thresholds=thresholds,
         face_similarity_score=face_similarity_score,
         perceptual_similarity_score=perceptual_similarity_score,
-        model_availability={"faceSimilarity": "unavailable", "clip": "unavailable", "dino": "unavailable"},
+        model_availability={"faceSimilarity": "unavailable", "clip": "unavailable", "dino": "not_required"},
         decision_tier="needs_review",
         hard_reject_reasons=[],
         needs_review_reasons=result.reviewReasons,
@@ -990,6 +1338,7 @@ def build_avatar_qa_from_signals(
     signals: Mapping[str, Any],
     *,
     thresholds: Optional[AvatarQAThresholds] = None,
+    pipeline_contract: Mapping[str, Any] | None = None,
 ) -> AvatarQAResult:
     """Convert local model/heuristic signals into the persisted QA contract.
 
@@ -999,6 +1348,10 @@ def build_avatar_qa_from_signals(
     included in the returned document.
     """
     t = thresholds or qa_thresholds_from_env()
+    unique_mark_state = _resolve_unique_mark_state(
+        signals,
+        pipeline_contract=pipeline_contract,
+    )
     face_similarity_reliable = signals.get("faceSimilarityReliable") is True
     face_similarity = (
         _score(signals.get("faceSimilarityScore")) if face_similarity_reliable else None
@@ -1012,10 +1365,10 @@ def build_avatar_qa_from_signals(
         review_threshold=t.childlike_review,
         reject_threshold=t.childlike_reject,
     )
-    identifiability_risk = _risk_from_score(
-        face_similarity,
-        review_threshold=t.face_similarity_review,
-        reject_threshold=t.face_similarity_reject,
+    identifiability_risk = _resolve_identifiability_risk(
+        signals,
+        face_similarity=face_similarity,
+        thresholds=t,
     )
     beautification_risk = _risk_from_score(
         beautification_score,
@@ -1046,17 +1399,8 @@ def build_avatar_qa_from_signals(
             "identifiableLocationBackground",
         )
     )
-    text_logo_detected = any(
-        signals.get(key) is True
-        for key in (
-            "logoTextWatermarkDetected",
-            "textLogoWatermarkDetected",
-            "backgroundTextLogoDetected",
-            "schoolSignDetected",
-            "campusSignDetected",
-            "brandLogoDetected",
-        )
-    )
+    watermark_action = resolve_watermark_qa_action(signals)
+    watermark_risk = watermark_risk_for_action(watermark_action)
     crop_expanded = any(
         signals.get(key) is True
         for key in (
@@ -1076,14 +1420,7 @@ def build_avatar_qa_from_signals(
         if multiple_faces_generated or secondary_person_generated
         else _normalized_risk(signals.get("secondaryFaceLeakageRisk"), fallback="medium")
     )
-    text_logo_watermark_risk = (
-        "high"
-        if text_logo_detected
-        else _normalized_risk(
-            signals.get("textLogoWatermarkRisk", signals.get("logoTextWatermarkRisk")),
-            fallback="medium",
-        )
-    )
+    text_logo_watermark_risk = watermark_risk
     crop_isolation_quality = (
         "fail"
         if crop_expanded
@@ -1102,7 +1439,7 @@ def build_avatar_qa_from_signals(
         reject_reasons.append("idol_model_influencer_look")
     if crop_expanded:
         reject_reasons.append("crop_expanded_to_unseen_body")
-    if text_logo_watermark_risk == "high":
+    if watermark_action == WATERMARK_QA_ACTION_REJECT:
         reject_reasons.append("logo_text_watermark")
     if background_leakage_risk == "high":
         reject_reasons.append("background_leakage")
@@ -1122,8 +1459,6 @@ def build_avatar_qa_from_signals(
         reject_reasons.append("sexualized_or_nightlife")
     if signals.get("severeArtifactDetected") is True:
         reject_reasons.append("severe_artifact")
-    if signals.get("hardTraitContradiction") is True:
-        reject_reasons.append("hard_trait_contradiction")
 
     adult_qa = _qa_status_from_bool(
         signals.get("adultLike"),
@@ -1139,12 +1474,11 @@ def build_avatar_qa_from_signals(
     ) else _qa_status_from_bool(signals.get("brandFit"))
 
     logo_risk = text_logo_watermark_risk
-    unique_mark_risk = "high" if signals.get("uniqueMarkCopied") is True else (
-        "low" if signals.get("uniqueMarkCopied") is False else "unknown"
-    )
+    unique_mark_risk = normalize_unique_mark_copy_risk(signals)
     crop_consistency = "fail" if crop_expanded else (
         "pass" if signals.get("cropConsistent") is True else "needs_review"
     )
+    trait_state = normalize_trait_qa_state(signals)
 
     result = AvatarQAResult(
         adultQa=adult_qa,
@@ -1155,6 +1489,16 @@ def build_avatar_qa_from_signals(
         cropConsistency=crop_consistency,
         cropIsolationQuality=crop_isolation_quality,
         uniqueMarkCopyRisk=unique_mark_risk,
+        uniqueMarkQaApplicability=(
+            unique_mark_state.applicability if unique_mark_state is not None else ""
+        ),
+        uniqueMarkQaAction=(
+            unique_mark_state.action if unique_mark_state is not None else ""
+        ),
+        uniqueMarkQaReason=(
+            unique_mark_state.reason if unique_mark_state is not None else ""
+        ),
+        uniqueMarkPolicyVersion=UNIQUE_MARK_QA_POLICY_VERSION,
         logoTextWatermarkRisk=logo_risk,
         textLogoWatermarkRisk=text_logo_watermark_risk,
         backgroundLeakageRisk=background_leakage_risk,
@@ -1162,7 +1506,14 @@ def build_avatar_qa_from_signals(
         faceSimilarityScore=face_similarity,
         primaryFaceConfidence=primary_face_confidence,
         identifiabilityRisk=identifiability_risk,
-        qaVersion="avatar_qa_v1",
+        watermarkQaAction=watermark_action,
+        watermarkPolicyVersion=WATERMARK_POLICY_VERSION,
+        traitQaApplicability=(trait_state.applicability if trait_state else ""),
+        traitQaAction=(trait_state.action if trait_state else ""),
+        traitQaReason=(trait_state.reason if trait_state else ""),
+        traitReviewContribution=(trait_state.trait_review_contribution if trait_state else False),
+        traitPolicyVersion=TRAIT_QA_POLICY_VERSION,
+        qaVersion=QA_CONTRACT_VERSION,
         rejectReasons=reject_reasons,
     )
     result = apply_avatar_qa_rejection_logic(result)
@@ -1175,23 +1526,48 @@ def build_avatar_qa_from_signals(
     else:
         decision_tier = "needs_review"
     if not result.rejectReasons and not result.previewAllowed and not result.softPass:
-        result.reviewReasons = ["qa_signal_uncertain"]
+        review_reasons = set(result.reviewReasons)
+        if result.watermarkQaAction == WATERMARK_QA_ACTION_REVIEW:
+            review_reasons.add("watermark_artifact_review")
+        if trait_state is not None and trait_state.needs_review:
+            review_reasons.add(trait_state.reason)
+        if not review_reasons:
+            review_reasons.add("qa_signal_uncertain")
+        result.reviewReasons = sorted(review_reasons)
     result.debug = _qa_debug_document(
         thresholds=t,
         face_similarity_score=face_similarity,
+        face_similarity_observed_score=_score(signals.get("faceSimilarityObservedScore")),
+        face_similarity_decision=(
+            str(signals.get("faceSimilarityDecision") or "").strip() or None
+        ),
         perceptual_similarity_score=_score(signals.get("perceptualSimilarityScore")),
         model_availability={
             "faceSimilarity": (
-                "available" if face_similarity is not None else ("uncalibrated" if signals.get("faceSimilarityScore") is not None or signals.get("faceSimilarityNeedsReview") is True else "unavailable")
+                "available"
+                if face_similarity is not None
+                else (
+                    "available"
+                    if signals.get("faceSimilarityCalibrationState") == "calibrated_review_band"
+                    else (
+                        "uncalibrated"
+                        if signals.get("faceSimilarityScore") is not None
+                        or signals.get("faceSimilarityNeedsReview") is True
+                        else "unavailable"
+                    )
+                )
             ),
-            "clip": str(signals.get("localSafetyRiskAvailability") or "unavailable"),
-            "dino": "unavailable",
+            "localSafetyRisk": str(signals.get("localSafetyRiskAvailability") or "unavailable"),
+            "dino": "not_required",
         },
         decision_tier=decision_tier,
         hard_reject_reasons=result.rejectReasons,
         needs_review_reasons=result.reviewReasons,
         soft_pass_reasons=result.softPassReasons,
     )
+    _attach_watermark_debug(result, signals)
+    if unique_mark_state is not None:
+        result.debug.update(unique_mark_state.to_document())
     return result
 
 
@@ -1207,6 +1583,8 @@ def needs_review_model_unavailable_result() -> AvatarQAResult:
         uniqueMarkCopyRisk="unknown",
         logoTextWatermarkRisk="medium",
         textLogoWatermarkRisk="medium",
+        watermarkQaAction=WATERMARK_QA_ACTION_REVIEW,
+        watermarkPolicyVersion=WATERMARK_POLICY_VERSION,
         backgroundLeakageRisk="medium",
         secondaryFaceLeakageRisk="medium",
         identifiabilityRisk="medium",
@@ -1249,7 +1627,12 @@ def run_avatar_candidate_qa(
     perceptual_similarity_score: Optional[float] = None
     review_reasons: List[str] = []
     reference_image = _analysis_reference_image(qa_metadata)
-    if not hard_reasons and reference_image is None and _is_production_environment():
+    if (
+        not hard_reasons
+        and reference_image is None
+        and _is_production_environment()
+        and not _uses_direct_azure_source_contract(qa_metadata)
+    ):
         result = needs_review_model_unavailable_result()
         result.reviewReasons = ["analysis_reference_image_unavailable"]
         result.debug = _qa_debug_document(
@@ -1259,7 +1642,7 @@ def run_avatar_candidate_qa(
             model_availability={
                 "faceSimilarity": "unavailable",
                 "clip": "unavailable",
-                "dino": "unavailable",
+                "dino": "not_required",
             },
             decision_tier="needs_review",
             hard_reject_reasons=[],
@@ -1290,11 +1673,11 @@ def run_avatar_candidate_qa(
         qa_metadata,
         [source_image_ref, candidate_image_ref],
     )
-    if text_watermark_detected:
-        hard_reasons.add("logo_text_watermark")
     eyewear_consistency = _candidate_eyewear_consistency(qa_metadata)
     if eyewear_consistency.get("eyewearMatch") == "fail":
-        hard_reasons.add("eyewear_invented_or_omitted")
+        review_reasons.append(
+            str(eyewear_consistency.get("eyewearReason") or "eyewear_mismatch")
+        )
 
     if hard_reasons:
         debug = _qa_debug_document(
@@ -1304,7 +1687,7 @@ def run_avatar_candidate_qa(
             model_availability={
                 "faceSimilarity": "unavailable",
                 "clip": "unavailable",
-                "dino": "unavailable",
+                "dino": "not_required",
             },
             decision_tier="hard_reject",
             hard_reject_reasons=sorted(hard_reasons),
@@ -1366,17 +1749,32 @@ def run_avatar_candidate_qa(
     )
     if perceptual_similarity_score is not None:
         merged_signals["perceptualSimilarityScore"] = perceptual_similarity_score
-    result = build_avatar_qa_from_signals(merged_signals, thresholds=thresholds)
+    unique_mark_pipeline_contract = (
+        qa_metadata
+        if "uniqueMarkQaMode" in qa_metadata
+        or "uniqueMarkQaAuthority" in qa_metadata
+        else None
+    )
+    result = build_avatar_qa_from_signals(
+        merged_signals,
+        thresholds=thresholds,
+        pipeline_contract=unique_mark_pipeline_contract,
+    )
+    unique_mark_state = _unique_mark_state_from_result(result)
     model_availability = (
         dict(runtime_signal_result.model_availability)
         if runtime_signal_result is not None
         else dict(_mapping_child(qa_metadata, "modelAvailability"))
     )
     if runtime_signal_result is not None:
-        result.qaVersion = "avatar_qa_v2"
+        result.qaVersion = QA_CONTRACT_VERSION
         result.debug = _qa_debug_document(
             thresholds=thresholds,
             face_similarity_score=result.faceSimilarityScore,
+            face_similarity_observed_score=_score(merged_signals.get("faceSimilarityObservedScore")),
+            face_similarity_decision=(
+                str(merged_signals.get("faceSimilarityDecision") or "").strip() or None
+            ),
             perceptual_similarity_score=perceptual_similarity_score,
             model_availability=model_availability,
             decision_tier=_decision_tier(result),
@@ -1384,7 +1782,7 @@ def run_avatar_candidate_qa(
             needs_review_reasons=result.reviewReasons,
             soft_pass_reasons=result.softPassReasons,
         )
-        result.debug["qaVersion"] = "avatar_qa_v2"
+        result.debug["qaVersion"] = QA_CONTRACT_VERSION
     needs_review_from_models = _runtime_result_needs_review(runtime_signal_result, model_availability)
     if qa_metadata.get("modelsUnavailable") is True:
         needs_review_from_models = True
@@ -1405,13 +1803,17 @@ def run_avatar_candidate_qa(
         result.debug = _qa_debug_document(
             thresholds=thresholds,
             face_similarity_score=result.faceSimilarityScore,
+            face_similarity_observed_score=_score(merged_signals.get("faceSimilarityObservedScore")),
+            face_similarity_decision=(
+                str(merged_signals.get("faceSimilarityDecision") or "").strip() or None
+            ),
             perceptual_similarity_score=perceptual_similarity_score,
             model_availability=model_availability or {
                 "faceSimilarity": (
                     "available" if result.faceSimilarityScore is not None else "unavailable"
                 ),
                 "clip": "unavailable",
-                "dino": "unavailable",
+                "dino": "not_required",
             },
             decision_tier="needs_review",
             hard_reject_reasons=result.rejectReasons,
@@ -1419,7 +1821,13 @@ def run_avatar_candidate_qa(
             soft_pass_reasons=result.softPassReasons,
         )
         if runtime_signal_result is not None:
-            result.debug["qaVersion"] = "avatar_qa_v2"
+            result.debug["qaVersion"] = QA_CONTRACT_VERSION
+    if runtime_signal_result is not None:
+        _attach_visual_risk_debug(result, merged_signals)
+        _attach_watermark_debug(result, merged_signals)
+        _attach_trait_debug(result, merged_signals)
+    if unique_mark_state is not None:
+        result.debug.update(unique_mark_state.to_document())
     return _apply_candidate_trait_consistency(result, eyewear_consistency)
 
 

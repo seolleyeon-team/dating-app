@@ -55,3 +55,55 @@ test("removed email-link custom-token bridge stays absent", () => {
     /export const createFirebaseCustomTokenFromEmailLinkToken\s*=/
   );
 });
+
+test("primary auth and kakao identity factories enforce App Check", () => {
+  for (const file of [
+    "../src/primaryEmailAuth.ts",
+    "../src/kakaoIdentityLink.ts",
+    "../src/kakaoFriendPairs.ts",
+  ]) {
+    const src = readFileSync(resolve(__dirname, file), "utf8");
+    assert.doesNotMatch(src, /onCall\(\s*async\b/, file);
+    assert.match(src, /onCall\(\s*withAppCheck\(/, file);
+  }
+
+  // index.ts wires the new callables exclusively through those factories.
+  assert.match(
+    indexSrc,
+    /export const sendPrimaryStudentEmailLink = createSendPrimaryStudentEmailLinkFunction\(/
+  );
+  assert.match(
+    indexSrc,
+    /export const completePrimaryStudentEmailAuth =\s*\n?\s*createCompletePrimaryStudentEmailAuthFunction\(/
+  );
+  assert.match(
+    indexSrc,
+    /export const linkKakaoFriendIdentity = createLinkKakaoFriendIdentityFunction\(/
+  );
+  assert.match(
+    indexSrc,
+    /export const createKakaoFriendPairsOnce =\s*\n?\s*createCreateKakaoFriendPairsOnceFunction\(/
+  );
+  assert.match(
+    indexSrc,
+    /export const setKakaoFriendAvoidanceEnabled =\s*\n?\s*createSetKakaoFriendAvoidanceEnabledFunction\(/
+  );
+});
+
+test("snapshot callable carries the contract §4 timeout and memory options", () => {
+  const pairsSrc = readFileSync(
+    resolve(__dirname, "../src/kakaoFriendPairs.ts"),
+    "utf8"
+  );
+  assert.match(
+    pairsSrc,
+    /withAppCheck\(\{ timeoutSeconds: 180, memory: "512MiB" \}\)/
+  );
+});
+
+test("legacy Kakao auth endpoints stay marked as required for old clients", () => {
+  const markers = indexSrc.match(
+    /LEGACY_KAKAO_AUTH_BACKEND_STILL_REQUIRED_FOR_OLD_CLIENTS/g
+  );
+  assert.equal((markers ?? []).length, 3);
+});

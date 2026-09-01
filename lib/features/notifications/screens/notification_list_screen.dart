@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
 import '../../../router/route_names.dart';
+import '../../blind_meeting/presentation/blind_meeting_route_args.dart';
 import '../../event/models/event_team_route_args.dart';
 import '../../chat/models/safety_stamp_follow_up_args.dart';
 import '../../../services/storage_service.dart';
@@ -128,6 +129,30 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
       Navigator.of(context, rootNavigator: true).pushNamed(
         RouteNames.eventTeamInviteResponse,
         arguments: EventTeamInviteResponseArgs(inviteId: inviteId),
+      );
+      return;
+    }
+
+    // 3:3 블라인드 취향 미팅. 알림이 만들어진 시점의 단계가 이미 지났어도
+    // 결과 화면이 서버 상태를 실시간으로 읽어 현재 단계를 보여준다.
+    // 대체 참가 제안은 제외한다. 제안 대상자는 아직 그 미팅의 참가자가 아니라
+    // 미팅 문서를 읽을 수 없다 (전용 화면이 아직 없다).
+    if (notification.type != 'blind_meeting_replacement_offer' &&
+        (deeplinkType == 'blind_meeting' ||
+            deeplinkType == 'blind_meeting_follow_up')) {
+      final meetingId = notification.meetingId ?? '';
+      if (!mounted) return;
+      final nav = Navigator.of(context, rootNavigator: true);
+      if (meetingId.isEmpty) {
+        // 미팅 id 가 없으면 진입 화면이 신청 상태로 알아서 복구한다.
+        nav.pushNamed(RouteNames.blindTasteMeeting);
+        return;
+      }
+      nav.pushNamed(
+        deeplinkType == 'blind_meeting_follow_up'
+            ? RouteNames.blindTasteMeetingFollowUp
+            : RouteNames.blindTasteMeetingResult,
+        arguments: BlindMeetingMeetingArgs(meetingId: meetingId),
       );
       return;
     }

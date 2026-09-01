@@ -134,191 +134,26 @@ class ChatService {
     return '${local.month}월 ${local.day}일 $period $hour12:$minute';
   }
 
+  /// 안전도장을 찍는다.
+  ///
+  /// 도장 주인은 서버가 인증 컨텍스트(auth.uid)에서 직접 정한다. 그래서 이
+  /// 메서드는 uid 를 받지 않는다 (블라인드 미팅 쪽 markSafetyStamp 와 동일한
+  /// 계약). 기존 도장 목록도 서버가 약속 문서에서 직접 읽으므로, 방 문서의
+  /// activePromise 미러를 조작해 도장 상태를 흔들 수 없다.
+  ///
+  /// [verification] 은 단말이 만든 근접 검증 기록이다. 서버가 재현할 수 없으므로
+  /// 호출자 본인 키 아래에 그대로 보관될 뿐, 대면 사실을 증명하지 않는다.
   Future<void> markSafetyStamp({
     required String roomId,
     required String promiseId,
-    required String userId,
     required String phase,
     Map<String, dynamic>? verification,
   }) async {
-    final roomRef = _firestore.collection('chat_rooms').doc(roomId);
-    final promiseRef = roomRef.collection('promises').doc(promiseId);
-    final inProgressMessageRef = roomRef.collection('messages').doc();
-    final completedMessageRef = roomRef.collection('messages').doc();
-
-    await _firestore.runTransaction((tx) async {
-      final roomSnap = await tx.get(roomRef);
-      if (!roomSnap.exists) {
-        throw Exception('채팅방이 존재하지 않습니다.');
-      }
-
-      final roomData = roomSnap.data() ?? <String, dynamic>{};
-      final activePromiseRaw = roomData['activePromise'];
-      if (activePromiseRaw is! Map) {
-        throw Exception('활성 약속이 없습니다.');
-      }
-
-      final activePromise = Map<String, dynamic>.from(
-        activePromiseRaw as Map<Object?, Object?>,
-      );
-      final activePromiseId = activePromise['promiseId']?.toString() ?? '';
-      if (activePromiseId.isEmpty || activePromiseId != promiseId) {
-        throw Exception('현재 활성 약속과 일치하지 않습니다.');
-      }
-
-      final safetyStamp = _coerceStringMap(activePromise['safetyStamp']);
-
-      final participantIds =
-          (roomData['participantIds'] as List?)
-              ?.map((e) => e.toString())
-              .where((e) => e.isNotEmpty)
-              .toSet() ??
-          <String>{};
-      if (participantIds.isEmpty) {
-        throw Exception('참여자 정보가 없습니다.');
-      }
-
-      final meetupStampedUserIds =
-          (safetyStamp['meetupStampedUserIds'] as List?)
-              ?.map((e) => e.toString())
-              .where((e) => e.isNotEmpty)
-              .toSet() ??
-          <String>{};
-      final legacyStampedUserIds =
-          (safetyStamp['stampedUserIds'] as List?)
-              ?.map((e) => e.toString())
-              .where((e) => e.isNotEmpty)
-              .toSet() ??
-          <String>{};
-      final effectiveMeetupStampedUserIds = meetupStampedUserIds.isNotEmpty
-          ? meetupStampedUserIds
-          : legacyStampedUserIds;
-      final goodbyeStampedUserIds =
-          (safetyStamp['goodbyeStampedUserIds'] as List?)
-              ?.map((e) => e.toString())
-              .where((e) => e.isNotEmpty)
-              .toSet() ??
-          <String>{};
-
-      if (phase == 'goodbye') {
-        if (!effectiveMeetupStampedUserIds.containsAll(participantIds)) {
-          throw Exception('만남 인증이 아직 완료되지 않았습니다.');
-        }
-        if (!goodbyeStampedUserIds.add(userId)) {
-          return;
-        }
-      } else {
-        if (!effectiveMeetupStampedUserIds.add(userId)) {
-          return;
-        }
-      }
-
-      final nextSafetyStamp = <String, dynamic>{
-        ...safetyStamp,
-        'meetupStampedUserIds': effectiveMeetupStampedUserIds.toList(),
-        'goodbyeStampedUserIds': goodbyeStampedUserIds.toList(),
-      };
-      if (verification != null) {
-        final recordKey = phase == 'goodbye'
-            ? 'goodbyeVerificationByUserId'
-            : 'meetupVerificationByUserId';
-        final verificationByUserId = _coerceStringMap(
-          nextSafetyStamp[recordKey],
-        );
-        verificationByUserId[userId] = verification;
-        nextSafetyStamp[recordKey] = verificationByUserId;
-      }
-      nextSafetyStamp.remove('stampedUserIds');
-
-      activePromise['participantIds'] = participantIds.toList();
-      activePromise['safetyStamp'] = nextSafetyStamp;
-
-      tx.update(promiseRef, {
-        'participantIds': participantIds.toList(),
-        'safetyStamp': nextSafetyStamp,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      if (phase != 'goodbye' &&
-          effectiveMeetupStampedUserIds.containsAll(participantIds)) {
-        activePromise['status'] = 'in_progress';
-        activePromise['safetyStamp'] = {
-          ...nextSafetyStamp,
-          'meetupCompletedAt': FieldValue.serverTimestamp(),
-        };
-
-        tx.update(promiseRef, {
-          'safetyStamp': activePromise['safetyStamp'],
-          'status': 'in_progress',
-          'meetupCompletedAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-
-        tx.set(inProgressMessageRef, {
-          'senderId': userId,
-          'text': '약속을 진행중입니다',
-          'type': 'promise_in_progress',
-          'promiseId': promiseId,
-          'dateTime': FieldValue.serverTimestamp(),
-          'place': activePromise['place'],
-          'placeCategory': activePromise['placeCategory'],
-          'status': 'in_progress',
-          'readBy': [userId],
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-
-        tx.update(roomRef, {
-          'activePromise': activePromise,
-          'lastMessage': '약속을 진행중입니다',
-          'lastMessageAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-        return;
-      }
-
-      if (phase == 'goodbye' &&
-          goodbyeStampedUserIds.containsAll(participantIds)) {
-        activePromise['status'] = 'completed';
-        activePromise['safetyStamp'] = {
-          ...nextSafetyStamp,
-          'completedAt': FieldValue.serverTimestamp(),
-        };
-
-        tx.update(promiseRef, {
-          'safetyStamp': activePromise['safetyStamp'],
-          'status': 'completed',
-          'completedAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-
-        tx.set(completedMessageRef, {
-          'senderId': userId,
-          'text': '약속이 완료되었어요',
-          'type': 'promise_completed',
-          'promiseId': promiseId,
-          'dateTime': FieldValue.serverTimestamp(),
-          'place': activePromise['place'],
-          'placeCategory': activePromise['placeCategory'],
-          'status': 'completed',
-          'readBy': [userId],
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-
-        tx.update(roomRef, {
-          'activePromise': activePromise,
-          'lastMessage': '약속이 완료되었어요',
-          'lastMessageAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-        return;
-      }
-
-      tx.update(roomRef, {
-        'activePromise': activePromise,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+    await _functions.httpsCallable('submitSafetyStamp').call<dynamic>({
+      'roomId': roomId,
+      'promiseId': promiseId,
+      'phase': phase,
+      if (verification != null) 'verification': verification,
     });
   }
 
@@ -408,9 +243,7 @@ class ChatService {
     String? currentUserAvatarUrl,
     String? partnerAvatarUrl,
   }) async {
-    final ready = await _authService.ensureFirebaseSessionForKakao(
-      currentUserId,
-    );
+    final ready = await _authService.ensureCanonicalAppSession();
     if (!ready) throw StateError('로그인 세션을 준비하지 못했어요.');
     await _functions.httpsCallable('unlockDirectChat').call<dynamic>({
       'partnerId': partnerId,

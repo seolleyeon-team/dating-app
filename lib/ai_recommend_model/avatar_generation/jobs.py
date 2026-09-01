@@ -4,7 +4,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
-from avatar_generation import FLUX2_KLEIN_MODEL_ID, FLUX2_KLEIN_VERSION
+from avatar_generation.avatar_prompt_contract import AVATAR_GENERAL_PROMPT_VERSION
+from avatar_generation.model_adapters.azure_contracts import (
+    AZURE_GPT_IMAGE_2_MODEL_ID,
+    AZURE_GPT_IMAGE_2_VERSION,
+)
 from avatar_generation.preview_policy import is_preview_eligible, passes_absolute_preview_checks
 from avatar_generation.qa import AvatarQAResult
 from avatar_generation.storage import build_approved_avatar_ref
@@ -29,9 +33,21 @@ def build_avatar_job_doc(spec: AvatarJobSpec, *, server_timestamp: Any = None) -
         "jobId": spec.job_id,
         "uid": spec.uid,
         "model": {
-            "provider": "local_cloud_run",
-            "modelId": FLUX2_KLEIN_MODEL_ID,
-            "version": FLUX2_KLEIN_VERSION,
+            "provider": "azure",
+            "modelId": AZURE_GPT_IMAGE_2_MODEL_ID,
+            "version": AZURE_GPT_IMAGE_2_VERSION,
+        },
+        "generationBackend": AZURE_GPT_IMAGE_2_MODEL_ID,
+        "provenance": {
+            "sourceInputMode": "storage_normalized_original_direct",
+            "uploadNormalization": "existing_avatar_media_ingestion",
+            "preGenerationTransform": "none",
+            "promptVersion": AVATAR_GENERAL_PROMPT_VERSION,
+            "legacyTraitExtraction": False,
+            "legacyReferencePreprocessing": False,
+            "legacyFlux": False,
+            "uniqueMarkQaMode": "disabled_by_pipeline",
+            "uniqueMarkQaAuthority": "server",
         },
         "sourcePhotoIds": list(spec.source_photo_ids),
         "sourcePhotoRefs": list(spec.source_photo_refs),

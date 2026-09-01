@@ -97,10 +97,10 @@ class _SafetyStampFollowUpScreenState extends State<SafetyStampFollowUpScreen> {
     });
 
     try {
+      // 응답 주체는 서버가 auth.uid 로 정한다.
       await _followUpService.submitReason(
         roomId: widget.args.roomId,
         promiseId: widget.args.promiseId,
-        userId: userId,
         reason: reason,
         otherText: _otherReasonController.text,
         notificationId: widget.args.notificationId,

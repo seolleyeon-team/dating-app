@@ -30,4 +30,15 @@ void main() {
     expect(storage, contains('clearUserScopedSession'));
     expect(auth, contains('clearUserScopedSession'));
   });
+
+  test('logout also clears the pre-auth pending email link keys', () {
+    final storage = File(
+      'lib/services/storage_service.dart',
+    ).readAsStringSync();
+    final scopedStart = storage.indexOf('Future<void> clearUserScopedSession');
+    expect(scopedStart, greaterThanOrEqualTo(0));
+    final scopedSection = storage.substring(scopedStart);
+    expect(scopedSection, contains('clearPendingStudentEmail()'));
+    expect(scopedSection, contains('clearPendingStudentEmailRequestId()'));
+  });
 }

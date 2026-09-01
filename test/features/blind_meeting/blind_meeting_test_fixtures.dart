@@ -11,6 +11,7 @@ const String kDateKey = '2026-08-01';
 
 BlindMeetingCandidate candidate(
   String userId, {
+  BlindMeetingGender gender = BlindMeetingGender.male,
   ConversationAtmosphere atmosphere = ConversationAtmosphere.calm,
   ConversationInitiative initiative = ConversationInitiative.adaptive,
   MeetingPurpose purpose = MeetingPurpose.both,
@@ -32,6 +33,7 @@ BlindMeetingCandidate candidate(
 }) {
   return BlindMeetingCandidate(
     userId: userId,
+    gender: gender,
     atmosphere: atmosphere,
     initiative: initiative,
     purpose: purpose,
@@ -51,9 +53,27 @@ BlindMeetingCandidate candidate(
   );
 }
 
-/// 균형 잡힌 3인 팀 (주도 / 상황 / 경청).
-List<BlindMeetingCandidate> balancedTeam(String prefix) => [
-  candidate('${prefix}1', initiative: ConversationInitiative.initiator),
-  candidate('${prefix}2', initiative: ConversationInitiative.adaptive),
-  candidate('${prefix}3', initiative: ConversationInitiative.listener),
+/// 균형 잡힌 동성 3인 팀 (주도 / 상황 / 경청).
+///
+/// 3:3 에서 "같은 편"은 동성 3명이다. 6인 pool 은 남성 팀 + 여성 팀으로
+/// 조립해야 성비 불변식(3남 + 3녀)을 만족한다.
+List<BlindMeetingCandidate> balancedTeam(
+  String prefix, {
+  BlindMeetingGender gender = BlindMeetingGender.male,
+}) => [
+  candidate(
+    '${prefix}1',
+    gender: gender,
+    initiative: ConversationInitiative.initiator,
+  ),
+  candidate(
+    '${prefix}2',
+    gender: gender,
+    initiative: ConversationInitiative.adaptive,
+  ),
+  candidate(
+    '${prefix}3',
+    gender: gender,
+    initiative: ConversationInitiative.listener,
+  ),
 ];

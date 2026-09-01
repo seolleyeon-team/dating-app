@@ -8,6 +8,7 @@ from PIL import Image
 
 from .analysis.config import SourceSafetyConfig
 from .analysis.detectors import build_default_face_detector
+from .calibration_artifact import CalibrationArtifactError, load_configured_calibration_artifact
 from .model_adapters.clip_risk import ClipRiskCalibrationPolicy, LocalClipRiskScorer, classify_clip_risk
 from .model_adapters.florence2_visual import Florence2VisualRiskAdapter
 from .model_adapters.image_similarity import CalibrationPolicy, ImageSimilarityAdapter, compare_image_similarity
@@ -17,6 +18,15 @@ from .qa_signals import CandidateQASignalResult, build_candidate_qa_signals
 _ENV_SIMILARITY_CALIBRATION_VERSION = "AVATAR_QA_SIMILARITY_CALIBRATION_VERSION"
 _ENV_SIMILARITY_THRESHOLD = "AVATAR_QA_SIMILARITY_THRESHOLD"
 _ENV_SIMILARITY_REVIEW_MARGIN = "AVATAR_QA_SIMILARITY_REVIEW_MARGIN"
+_ENV_VISUAL_RISK_MODEL_ID = "AVATAR_QA_VISUAL_RISK_MODEL_ID"
+_ENV_CLIP_RISK_MODEL_ID = "AVATAR_CLIP_RISK_MODEL_ID"
+_ENV_SIMILARITY_MODEL_ID = "AVATAR_QA_SIMILARITY_MODEL_ID"
+
+# The official Transformers-converted checkpoint avoids the original
+# Microsoft checkpoint's tokenizer compatibility issue on Transformers 4.57.
+_DEFAULT_VISUAL_RISK_MODEL_ID = "florence-community/Florence-2-large-ft"
+_DEFAULT_CLIP_RISK_MODEL_ID = "openai/clip-vit-large-patch14"
+_DEFAULT_SIMILARITY_MODEL_ID = "openai/clip-vit-base-patch32"
 
 _DEFAULT_FACE_DETECTOR: Any = None
 _DEFAULT_VISUAL_RISK_ADAPTER: Florence2VisualRiskAdapter | None = None
@@ -31,6 +41,9 @@ class CachedImageSimilarityAdapter:
         self.encoder = encoder
         self.provider = encoder.provider
         self.version = encoder.version
+
+    def is_available(self) -> bool:
+        return bool(self.encoder.is_available())
 
     def compare(
         self,
@@ -67,7 +80,19 @@ class AvatarQARuntime:
     ) -> CandidateQASignalResult:
         source_analysis = _mapping_child(metadata, "sourceAnalysis")
         reference_preprocess = _mapping_child(metadata, "referencePreprocess")
-        return build_candidate_qa_signals(
+        source_visual_risk: Any = None
+        source_visual_unavailable = False
+        if metadata.get("compareSourceVisualRisk") is True:
+            try:
+                source_visual_risk = self.visual_risk_adapter.analyze(
+                    source_image,
+                    primary_face_bbox_xyxy=None,
+                )
+            except Exception:
+                # Candidate QA still runs, but cannot call text source-consistency
+                # evidence reliable when the source-side detector is unavailable.
+                source_visual_unavailable = True
+        result = build_candidate_qa_signals(
             source_image=source_image,
             candidate_image=candidate_image,
             source_analysis=source_analysis,
@@ -80,6 +105,26 @@ class AvatarQARuntime:
             local_risk_adapter=self.local_risk_adapter,
             similarity_adapter=self.similarity_adapter,
             similarity_policy=self.similarity_policy,
+            source_visual_risk=source_visual_risk,
+            source_visual_image_size=source_image.size,
+            trait_qa_context=metadata,
+        )
+        if not source_visual_unavailable:
+            return result
+        availability = dict(result.model_availability)
+        availability["sourceVisualRisk"] = "unavailable"
+        unavailable = tuple(dict.fromkeys((*result.models_unavailable, "sourceVisualRisk")))
+        signals = dict(result.signals)
+        signals["sourceVisualConsistency"] = "unknown"
+        return CandidateQASignalResult(
+            signals=signals,
+            model_availability=availability,
+            stage=result.stage,
+            cascade=result.cascade,
+            models_unavailable=unavailable,
+            needs_review=True,
+            skipped_heavy_reason=result.skipped_heavy_reason,
+            trait_matches=result.trait_matches,
         )
 
     def cache_snapshot(self) -> dict[str, Any]:
@@ -101,14 +146,26 @@ def get_default_face_detector() -> Any:
 def get_default_visual_risk_adapter() -> Florence2VisualRiskAdapter:
     global _DEFAULT_VISUAL_RISK_ADAPTER
     if _DEFAULT_VISUAL_RISK_ADAPTER is None:
-        _DEFAULT_VISUAL_RISK_ADAPTER = Florence2VisualRiskAdapter(local_files_only=True)
+        _DEFAULT_VISUAL_RISK_ADAPTER = Florence2VisualRiskAdapter(
+            model_id=(
+                os.environ.get(_ENV_VISUAL_RISK_MODEL_ID, "").strip()
+                or _DEFAULT_VISUAL_RISK_MODEL_ID
+            ),
+            local_files_only=True,
+        )
     return _DEFAULT_VISUAL_RISK_ADAPTER
 
 
 def get_default_clip_risk_scorer() -> LocalClipRiskScorer:
     global _DEFAULT_CLIP_RISK_SCORER
     if _DEFAULT_CLIP_RISK_SCORER is None:
-        _DEFAULT_CLIP_RISK_SCORER = LocalClipRiskScorer(local_files_only=True)
+        _DEFAULT_CLIP_RISK_SCORER = LocalClipRiskScorer(
+            model_id=(
+                os.environ.get(_ENV_CLIP_RISK_MODEL_ID, "").strip()
+                or _DEFAULT_CLIP_RISK_MODEL_ID
+            ),
+            local_files_only=True,
+        )
     return _DEFAULT_CLIP_RISK_SCORER
 
 
@@ -116,7 +173,13 @@ def get_default_similarity_adapter() -> CachedImageSimilarityAdapter:
     global _DEFAULT_SIMILARITY_ADAPTER
     if _DEFAULT_SIMILARITY_ADAPTER is None:
         _DEFAULT_SIMILARITY_ADAPTER = CachedImageSimilarityAdapter(
-            ImageSimilarityAdapter(local_files_only=True)
+            ImageSimilarityAdapter(
+                model_id=(
+                    os.environ.get(_ENV_SIMILARITY_MODEL_ID, "").strip()
+                    or _DEFAULT_SIMILARITY_MODEL_ID
+                ),
+                local_files_only=True,
+            )
         )
     return _DEFAULT_SIMILARITY_ADAPTER
 
@@ -157,11 +220,34 @@ def _classify_clip_risk_from_env(image: Image.Image) -> Any:
     return classify_clip_risk(
         image,
         scorer=get_default_clip_risk_scorer(),
-        calibration_policy=ClipRiskCalibrationPolicy.from_env(),
+        calibration_policy=_clip_risk_policy_from_env(),
     )
 
 
+def _calibration_artifact_is_configured() -> bool:
+    return bool(os.environ.get("AVATAR_QA_CALIBRATION_ARTIFACT_PATH", "").strip())
+
+
+def _configured_calibration_artifact() -> Any | None:
+    if not _calibration_artifact_is_configured():
+        return None
+    try:
+        return load_configured_calibration_artifact(required=True)
+    except CalibrationArtifactError:
+        return None
+
+
+def _clip_risk_policy_from_env() -> ClipRiskCalibrationPolicy | None:
+    if _calibration_artifact_is_configured():
+        artifact = _configured_calibration_artifact()
+        return artifact.to_clip_policy() if artifact is not None else None
+    return ClipRiskCalibrationPolicy.from_env()
+
+
 def _similarity_policy_from_env() -> CalibrationPolicy | None:
+    if _calibration_artifact_is_configured():
+        artifact = _configured_calibration_artifact()
+        return artifact.to_similarity_policy() if artifact is not None else None
     version = os.environ.get(_ENV_SIMILARITY_CALIBRATION_VERSION, "").strip()
     if not version:
         return None

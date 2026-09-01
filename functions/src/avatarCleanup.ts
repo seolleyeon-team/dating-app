@@ -19,6 +19,8 @@ import {
   type AccountDeletionSocialDocs,
   type SocialCleanupOperation,
 } from "./accountDeletionSocialCleanup";
+import { kakaoIdentityHash } from "./kakaoIdentityLink";
+import { normalizeYonseiEmail } from "./studentVerificationEmail";
 
 const DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-final-private-source-photos";
 const DEFAULT_AVATAR_TEMP_BUCKET = "seolleyeon-final-avatar-temp";
@@ -69,6 +71,9 @@ export type AvatarCleanupCounts = {
   reverseBlockTargetsDeleted: number;
   recommendationExclusionTargetsDeleted: number;
   reverseRecommendationExclusionTargetsDeleted: number;
+  kakaoFriendPairsDeleted: number;
+  studentEmailBindingsDeleted: number;
+  kakaoIdentitiesDeleted: number;
   interactionsDeleted: number;
   asksDeleted: number;
   friendshipsDeleted: number;
@@ -93,6 +98,12 @@ export type AccountDeletionDocs = {
   reverseBlockViewerUids: string[];
   recommendationExclusionTargetIds: string[];
   reverseRecommendationExclusionViewerUids: string[];
+  // kakao-friend-pairs contract §9: pair docs this uid is a member of.
+  kakaoFriendPairIds: string[];
+  // Identity-contract PII: only ids whose documents name this uid as
+  // `appUserId` are ever listed here (verified again at apply time).
+  studentEmailBindingIds: string[];
+  kakaoIdentityHashIds: string[];
   social: AccountDeletionSocialDocs;
 };
 
@@ -149,6 +160,9 @@ export type CleanupOperation =
   | { kind: "deleteReverseBlockTarget"; viewerUid: string }
   | { kind: "deleteRecommendationExclusionTarget"; targetUid: string }
   | { kind: "deleteReverseRecommendationExclusionTarget"; viewerUid: string }
+  | { kind: "deleteKakaoFriendPair"; pairId: string }
+  | { kind: "deleteStudentEmailBinding"; emailHash: string }
+  | { kind: "deleteKakaoIdentity"; kakaoIdentityHash: string }
   | SocialCleanupOperation;
 
 export type CleanupExecutor = {
@@ -266,6 +280,9 @@ function emptyCounts(): AvatarCleanupCounts {
     reverseBlockTargetsDeleted: 0,
     recommendationExclusionTargetsDeleted: 0,
     reverseRecommendationExclusionTargetsDeleted: 0,
+    kakaoFriendPairsDeleted: 0,
+    studentEmailBindingsDeleted: 0,
+    kakaoIdentitiesDeleted: 0,
     ...emptySocialCounts(),
   };
 }
@@ -301,6 +318,9 @@ export function accountDeletionDocsFromParts(
       parts.recommendationExclusionTargetIds ?? [],
     reverseRecommendationExclusionViewerUids:
       parts.reverseRecommendationExclusionViewerUids ?? [],
+    kakaoFriendPairIds: parts.kakaoFriendPairIds ?? [],
+    studentEmailBindingIds: parts.studentEmailBindingIds ?? [],
+    kakaoIdentityHashIds: parts.kakaoIdentityHashIds ?? [],
     social: parts.social ?? emptySocialDocs(),
   };
 }
@@ -347,6 +367,20 @@ export function planAccountDeletionPiiOperations(params: {
       viewerUid,
     });
   }
+  // kakao-friend-pairs contract §9: every pair doc this uid is a member of is
+  // deleted (chunked per-doc operations, idempotent). The bilateral exclusion
+  // docs are already covered by the source-agnostic target deletions above.
+  for (const pairId of docs.kakaoFriendPairIds) {
+    operations.push({ kind: "deleteKakaoFriendPair", pairId });
+  }
+  // Identity-contract PII (auth re-architecture §5): the mailbox binding and
+  // the Kakao identity mapping are deleted only when they name this uid.
+  for (const emailHash of docs.studentEmailBindingIds) {
+    operations.push({ kind: "deleteStudentEmailBinding", emailHash });
+  }
+  for (const identityHash of docs.kakaoIdentityHashIds) {
+    operations.push({ kind: "deleteKakaoIdentity", kakaoIdentityHash: identityHash });
+  }
   operations.push(
     ...planAccountDeletionSocialOperations({ uid, docs: docs.social }),
   );
@@ -375,6 +409,9 @@ function applyAccountDeletionCounts(
     docs.reverseRecommendationExclusionViewerUids.filter(
       (viewerUid) => viewerUid !== uid,
     ).length;
+  counts.kakaoFriendPairsDeleted = docs.kakaoFriendPairIds.length;
+  counts.studentEmailBindingsDeleted = docs.studentEmailBindingIds.length;
+  counts.kakaoIdentitiesDeleted = docs.kakaoIdentityHashIds.length;
   Object.assign(counts, socialCountsFromDocs(docs.social));
 }
 
@@ -596,6 +633,7 @@ export async function loadAccountDeletionDocs(
 ): Promise<AccountDeletionDocs> {
   const safeUid = requirePathSegment(uid, "uid");
   const [
+    userSnap,
     userPrivateSnap,
     deviceTokensSnap,
     notificationsSnap,
@@ -603,8 +641,10 @@ export async function loadAccountDeletionDocs(
     blockTargetsSnap,
     recommendationExclusionTargetsSnap,
     reverseBlockTargetsSnap,
+    kakaoFriendPairsSnap,
     social,
   ] = await Promise.all([
+    firestore.collection("users").doc(safeUid).get(),
     firestore.collection("userPrivate").doc(safeUid).get(),
     firestore.collection("users").doc(safeUid).collection("deviceTokens").get(),
     firestore.collection("users").doc(safeUid).collection("notifications").get(),
@@ -622,6 +662,10 @@ export async function loadAccountDeletionDocs(
     firestore
       .collectionGroup("targets")
       .where(FieldPath.documentId(), "==", safeUid)
+      .get(),
+    firestore
+      .collection("kakaoFriendPairs")
+      .where("memberUids", "array-contains", safeUid)
       .get(),
     loadAccountDeletionSocialDocs(firestore, safeUid),
   ]);
@@ -643,6 +687,57 @@ export async function loadAccountDeletionDocs(
     })
     .filter((viewerUid) => viewerUid.length > 0);
 
+  // Identity-contract PII (auth re-architecture §5). Candidate document ids
+  // come from the user's own doc; each is deleted only when its `appUserId`
+  // names this uid, so a mailbox or Kakao identity that was re-bound to a
+  // different account is never touched.
+  const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
+  const normalizedEmail = normalizeYonseiEmail(userData.studentEmail);
+  const bindingCandidateIds = normalizedEmail
+    ? [createHash("sha256").update(normalizedEmail, "utf8").digest("hex")]
+    : [];
+  const connection =
+    userData.kakaoFriendConnection &&
+    typeof userData.kakaoFriendConnection === "object" &&
+    !Array.isArray(userData.kakaoFriendConnection)
+      ? (userData.kakaoFriendConnection as Record<string, unknown>)
+      : {};
+  const identityCandidateIds = new Set<string>();
+  const linkedIdentityHash = asString(connection.kakaoIdentityHash);
+  if (/^[0-9a-f]{64}$/.test(linkedIdentityHash)) {
+    identityCandidateIds.add(linkedIdentityHash);
+  }
+  // Legacy fallback: accounts keyed by their Kakao id may have been mapped
+  // without kakaoFriendConnection bookkeeping.
+  identityCandidateIds.add(kakaoIdentityHash(safeUid));
+
+  const [bindingSnaps, identitySnaps] = await Promise.all([
+    bindingCandidateIds.length > 0
+      ? firestore.getAll(
+          ...bindingCandidateIds.map((id) =>
+            firestore.collection("studentEmailBindings").doc(id),
+          ),
+        )
+      : Promise.resolve([]),
+    identityCandidateIds.size > 0
+      ? firestore.getAll(
+          ...[...identityCandidateIds].map((id) =>
+            firestore.collection("kakaoIdentities").doc(id),
+          ),
+        )
+      : Promise.resolve([]),
+  ]);
+  const studentEmailBindingIds = bindingSnaps
+    .filter(
+      (snap) => snap.exists && asString(snap.data()?.appUserId) === safeUid,
+    )
+    .map((snap) => snap.id);
+  const kakaoIdentityHashIds = identitySnaps
+    .filter(
+      (snap) => snap.exists && asString(snap.data()?.appUserId) === safeUid,
+    )
+    .map((snap) => snap.id);
+
   return accountDeletionDocsFromParts({
     phoneHash: asString(userPrivateSnap.data()?.phoneHash) || null,
     deviceTokenIds: deviceTokensSnap.docs.map((doc) => doc.id),
@@ -653,6 +748,9 @@ export async function loadAccountDeletionDocs(
     recommendationExclusionTargetIds:
       recommendationExclusionTargetsSnap.docs.map((doc) => doc.id),
     reverseRecommendationExclusionViewerUids,
+    kakaoFriendPairIds: kakaoFriendPairsSnap.docs.map((doc) => doc.id),
+    studentEmailBindingIds,
+    kakaoIdentityHashIds,
     social,
   });
 }
@@ -971,6 +1069,46 @@ function firestoreExecutor(
             .collection("targets")
             .doc(uid)
             .delete();
+          return;
+        }
+        case "deleteKakaoFriendPair": {
+          const pairId = requirePathSegment(operation.pairId, "pairId");
+          // Idempotent: ids come from the memberUids array-contains query, so
+          // this uid is a member; a re-run simply deletes a missing doc.
+          await firestore.collection("kakaoFriendPairs").doc(pairId).delete();
+          return;
+        }
+        case "deleteStudentEmailBinding": {
+          const emailHash = requirePathSegment(operation.emailHash, "emailHash");
+          const bindingRef = firestore
+            .collection("studentEmailBindings")
+            .doc(emailHash);
+          const bindingSnap = await bindingRef.get();
+          // Ownership is re-verified at apply time: a mailbox that was bound
+          // to a different appUserId in the meantime is never deleted.
+          if (
+            bindingSnap.exists &&
+            asString(bindingSnap.data()?.appUserId) === uid
+          ) {
+            await bindingRef.delete();
+          }
+          return;
+        }
+        case "deleteKakaoIdentity": {
+          const identityHash = requirePathSegment(
+            operation.kakaoIdentityHash,
+            "kakaoIdentityHash",
+          );
+          const identityRef = firestore
+            .collection("kakaoIdentities")
+            .doc(identityHash);
+          const identitySnap = await identityRef.get();
+          if (
+            identitySnap.exists &&
+            asString(identitySnap.data()?.appUserId) === uid
+          ) {
+            await identityRef.delete();
+          }
           return;
         }
         case "deleteInteraction":

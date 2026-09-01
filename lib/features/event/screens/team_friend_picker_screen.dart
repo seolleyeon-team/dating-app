@@ -59,7 +59,7 @@ class _TeamFriendPickerScreenState extends State<TeamFriendPickerScreen> {
       }
       return;
     }
-    final canRead = await _authService.ensureFirebaseSessionForKakao(uid);
+    final canRead = await _authService.ensureCanonicalAppSession();
     if (!mounted) return;
     setState(() {
       _currentUserId = uid;

@@ -133,6 +133,21 @@
         }
 
         const data = tokenSnap.data() || {};
+
+        // ✅ 새 기본(연세 이메일 우선) 인증 토큰: purpose == 'primary_auth'.
+        // 이 토큰에는 kakaoUserId가 없고, 인증 완료는 설레연 앱의
+        // completePrimaryStudentEmailAuth 콜러블이 서버에서 처리한다.
+        // 웹에서는 users 문서를 절대 쓰지 않고 안내만 보여준다.
+        if (data.purpose === 'primary_auth') {
+          stage = 'primary_auth_guidance';
+          setStatus(
+            '<span class="success">설레연 앱에서 인증을 완료해 주세요.</span><br/>' +
+            '<span class="muted">이 인증 링크는 설레연 앱이 설치된 휴대폰에서 열면 자동으로 처리돼요.<br/>' +
+            '메일을 컴퓨터에서 열었다면, 휴대폰에서 같은 메일의 버튼을 다시 눌러주세요.</span>'
+          );
+          return;
+        }
+
         const email = data.email;
         const kakaoUserId = data.kakaoUserId;
         const expiresAt = data.expiresAt;

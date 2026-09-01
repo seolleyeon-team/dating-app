@@ -146,11 +146,11 @@ test("matching and recommendation rules are participant or owner scoped", () => 
   );
   assertContains(
     "asks must be participant-readable and recipient can only mark read",
-    "match /asks/{askId} { allow read: if isAskParticipant(resource.data); allow create: if isSignedIn() && request.resource.data.fromUserId is string && request.resource.data.fromUserId == request.auth.uid"
+    "match /asks/{askId} { allow read: if isAskParticipant(resource.data); allow create: if isCanonicalAppSession() && request.resource.data.fromUserId is string && request.resource.data.fromUserId == request.auth.uid"
   );
   assertContains(
     "interactions must be participant-readable and from-user-bound create only",
-    "match /interactions/{interactionId} { allow read: if isInteractionParticipant(resource.data); allow create: if isSignedIn() && request.resource.data.fromUserId is string && request.resource.data.fromUserId == request.auth.uid"
+    "match /interactions/{interactionId} { allow read: if isInteractionParticipant(resource.data); allow create: if isCanonicalAppSession() && request.resource.data.fromUserId is string && request.resource.data.fromUserId == request.auth.uid"
   );
   assertContains(
     "matches must be participant-readable and backend-created",
@@ -160,6 +160,70 @@ test("matching and recommendation rules are participant or owner scoped", () => 
     "matches can only be unmatched by a participant",
     "allow update: if isMatchParticipant(resource.data) && matchStatusOnlyMovesToUnmatched(); allow delete: if false;"
   );
+});
+
+test("canonical app session gates the interactive surfaces (auth re-architecture)", () => {
+  assertContains(
+    "isCanonicalAppSession helper must accept appSession or legacy kakaoUserId claims only",
+    "function isCanonicalAppSession() { return request.auth != null && (request.auth.token.appSession == true || request.auth.token.kakaoUserId != null); }"
+  );
+  assertContains(
+    "publicProfiles get must require a canonical app session",
+    "match /publicProfiles/{uid} { allow get: if isCanonicalAppSession(); allow list: if false; allow create, update, delete: if false; }"
+  );
+  assertContains(
+    "interactions create must require a canonical app session",
+    "match /interactions/{interactionId} { allow read: if isInteractionParticipant(resource.data); allow create: if isCanonicalAppSession() &&"
+  );
+  assertContains(
+    "asks create must require a canonical app session",
+    "match /asks/{askId} { allow read: if isAskParticipant(resource.data); allow create: if isCanonicalAppSession() &&"
+  );
+  // 1:1 채팅방 생성은 unlockDirectChat callable(하트 차감) 전용으로
+  // 서버에서만 이뤄진다 — 클라이언트 생성은 세션 종류와 무관하게 전면 거부.
+  assertContains(
+    "chat room create is server-only (heart paywall cannot be bypassed)",
+    "// 1:1 방은 unlockDirectChat callable이 하트 차감과 함께 생성한다. // 시즌/블라인드 미팅 방도 각 서버 트랜잭션의 소유다. allow create: if false;"
+  );
+  assertContains(
+    "bamboo post create must require a canonical app session",
+    "allow create: if isCanonicalAppSession() && request.resource.data.authorId == request.auth.uid && request.resource.data.postId is string"
+  );
+});
+
+test("server-owned identity indexes deny every client operation", () => {
+  assertContains(
+    "student email bindings must deny every client operation",
+    "match /studentEmailBindings/{emailHash} { allow read, write: if false; }"
+  );
+  assertContains(
+    "kakao identity mappings must deny every client operation",
+    "match /kakaoIdentities/{kakaoIdentityHash} { allow read, write: if false; }"
+  );
+});
+
+test("kakao friend pairs are server-only and snapshot fields stay off the users allowlists", () => {
+  // kakao-friend-pairs-contract §2 / §10: the pair materialization is
+  // social-graph-sensitive and must never be client-readable, even for a
+  // pair's own members.
+  assertContains(
+    "kakao friend pairs must deny every client operation",
+    "match /kakaoFriendPairs/{pairId} { allow read, write: if false; }"
+  );
+  // §10.2: the server-written snapshot/preference fields must not appear in
+  // any users create/update allowlist (they are absent from the whole file).
+  for (const serverOnlyField of [
+    "kakaoFriendSnapshot",
+    "kakaoFriendAvoidanceEnabled",
+    "kakaoFriendConnection",
+    "recommendationPrivacyReady",
+  ]) {
+    assert.doesNotMatch(
+      compactRules,
+      new RegExp(serverOnlyField),
+      `${serverOnlyField} must not be mentioned by any firestore rule allowlist`
+    );
+  }
 });
 
 test("event team setup and invite reads are participant scoped", () => {

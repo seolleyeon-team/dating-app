@@ -57,9 +57,7 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
     if (userId != null && userId.isNotEmpty) {
       final userProfile = await _userService.getUserProfile(userId);
       friendCountHint = (userProfile?['friendsCount'] as num?)?.toInt() ?? 0;
-      canReadFriends = await _authService.ensureFirebaseSessionForVerifiedUser(
-        userId,
-      );
+      canReadFriends = await _authService.ensureCanonicalAppSession();
     }
 
     if (!mounted) return;

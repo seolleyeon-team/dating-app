@@ -1,0 +1,38 @@
+substitutions:
+  _IMAGE: asia-southeast1-docker.pkg.dev/seolleyeon-final/seolleyeon-avatar-repo/seolleyeon-avatar-worker:g004-visualrisk-serializer-20260825
+  _GIT_COMMIT: unset
+  _SOURCE_ARCHIVE_SHA256: unset
+  _DOCKERFILE_SHA256: unset
+  _REQUIREMENTS_SHA256: unset
+  _SOURCE_URL: local-provenance-snapshot
+  _BUILD_PHASE: g004_qa_serializer_fix
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - lib/ai_recommend_model/avatar_generation/Dockerfile
+      - --label=org.opencontainers.image.revision=${_GIT_COMMIT}
+      - --label=org.opencontainers.image.source=${_SOURCE_URL}
+      - --label=org.opencontainers.image.version=${_GIT_COMMIT}
+      - --label=io.seolleyeon.build.phase=${_BUILD_PHASE}
+      - --label=io.seolleyeon.source-archive-sha256=${_SOURCE_ARCHIVE_SHA256}
+      - --label=io.seolleyeon.dockerfile-sha256=${_DOCKERFILE_SHA256}
+      - --label=io.seolleyeon.requirements-sha256=${_REQUIREMENTS_SHA256}
+      - -t
+      - ${_IMAGE}
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_IMAGE}
+
+images:
+  - ${_IMAGE}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 3600s

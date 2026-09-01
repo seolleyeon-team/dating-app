@@ -22,6 +22,7 @@ import '../../../shop/widgets/heart_spend_confirmation.dart';
 import '../blind_meeting_route_args.dart';
 import '../theme/blind_meeting_palette.dart';
 import '../widgets/blind_meeting_common.dart';
+import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
 class BlindMeetingIntroScreen extends StatefulWidget {
   final BlindMeetingRepository? repository;
@@ -98,7 +99,9 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
         try {
           dnaProgress = await _repository.loadMyDnaProgress();
         } catch (error) {
-          debugPrint('[BlindMeeting] DNA 작성 진행 상태를 읽을 수 없어요: $error');
+          debugPrint(
+            '[BlindMeeting] DNA 작성 진행 상태를 읽을 수 없어요: ${PrivacyLogUtils.errorSummary(error)}',
+          );
         }
       }
 

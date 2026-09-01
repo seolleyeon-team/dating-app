@@ -10,9 +10,20 @@
 
 import '../blind_meeting_enums.dart';
 
+/// 3:3 상품이 지원하는 canonical 성별.
+///
+/// 3:3 은 "남성 3명 + 여성 3명"이 상품 정의 자체다. 이 값은 누가 누구를
+/// 좋아할 수 있는지를 정하는 지향 정책이 아니라, 두 팀을 채우는 구조적
+/// 제약이다. canonical 값을 확인할 수 없는 사용자는 후보에 넣지 않는다
+/// (임의로 한쪽에 배정하지 않는다).
+enum BlindMeetingGender { male, female }
+
 /// 매칭 알고리즘이 필요한 참가자 정보 전부.
 class BlindMeetingCandidate {
   final String userId;
+
+  /// canonical 성별. 3남 + 3녀 불변식의 입력이다.
+  final BlindMeetingGender gender;
 
   final ConversationAtmosphere atmosphere;
   final ConversationInitiative initiative;
@@ -54,6 +65,7 @@ class BlindMeetingCandidate {
 
   const BlindMeetingCandidate({
     required this.userId,
+    required this.gender,
     required this.atmosphere,
     required this.initiative,
     required this.purpose,
@@ -98,9 +110,11 @@ class BlindMeetingCandidate {
     Set<String>? blockedUserIds,
     Set<String>? recentlyMetUserIds,
     int? waitedMinutes,
+    BlindMeetingGender? gender,
   }) {
     return BlindMeetingCandidate(
       userId: userId,
+      gender: gender ?? this.gender,
       atmosphere: atmosphere ?? this.atmosphere,
       initiative: initiative ?? this.initiative,
       purpose: purpose ?? this.purpose,

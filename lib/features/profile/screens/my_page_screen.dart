@@ -68,7 +68,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
     await _friendsCountSubscription?.cancel();
 
     final canReadFriends = kakaoUserId != null && kakaoUserId.isNotEmpty
-        ? await _authService.ensureFirebaseSessionForVerifiedUser(kakaoUserId)
+        ? await _authService.ensureCanonicalAppSession()
         : false;
 
     if (canReadFriends) {
@@ -96,8 +96,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
 
     final user = await _userService.getUserProfile(kakaoUserId);
     if (!mounted || user == null) return;
-    final canReadFriends = await _authService
-        .ensureFirebaseSessionForVerifiedUser(kakaoUserId);
+    final canReadFriends = await _authService.ensureCanonicalAppSession();
     final actualFriendsCount = canReadFriends
         ? await _friendService
               .getFriendsCount(kakaoUserId)

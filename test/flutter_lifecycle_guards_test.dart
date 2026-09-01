@@ -27,9 +27,17 @@ void main() {
     expect(logoutIdx, greaterThan(0));
     final slice = src.substring(logoutIdx, logoutIdx + 900);
     expect(slice, contains('clearUserScopedSession'));
+    // In-memory auth reset is centralized in _resetSessionState(), which sets
+    // _isAuthenticated = false. Storage must be cleared before that reset.
     expect(
       slice.indexOf('clearUserScopedSession'),
-      lessThan(slice.indexOf('_isAuthenticated = false')),
+      lessThan(slice.indexOf('_resetSessionState()')),
+    );
+    final resetIdx = src.indexOf('void _resetSessionState()');
+    expect(resetIdx, greaterThan(0));
+    expect(
+      src.substring(resetIdx, resetIdx + 500),
+      contains('_isAuthenticated = false'),
     );
   });
 }

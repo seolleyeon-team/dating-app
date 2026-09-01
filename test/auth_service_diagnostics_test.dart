@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/services/firebase_diagnostics.dart';
 
 void main() {
-  test('Kakao Firebase bridge logs phases without printing tokens', () {
+  test('primary email auth logs phases without printing tokens', () {
     final authService = File('lib/services/auth_service.dart');
     final diagnostics = File('lib/services/firebase_diagnostics.dart');
 
@@ -15,20 +15,20 @@ void main() {
     final diagnosticsSource = diagnostics.readAsStringSync();
 
     for (final marker in [
-      'kakao_login_start',
-      'kakao_login_success',
-      'firebase_session_prepare_start',
-      'firebase_custom_token_request_start',
-      'firebase_custom_token_request_success',
-      'firebase_custom_token_request_failed',
-      'firebase_custom_token_signin_start',
-      'firebase_custom_token_signin_success',
-      'firebase_custom_token_signin_failed',
+      'primary_email_link_send_start',
+      'primary_email_link_send_success',
+      'primary_email_link_send_failed',
+      'primary_email_completion_start',
+      'primary_email_completion_success',
+      'primary_email_completion_failed',
+      'primary_email_signin_start',
+      'primary_email_signin_failed',
+      'primary_email_uid_mismatch',
     ]) {
       expect(
         authSource,
         contains(marker),
-        reason: 'Auth bridge should expose debug phase marker $marker.',
+        reason: 'Primary auth should expose debug phase marker $marker.',
       );
     }
 

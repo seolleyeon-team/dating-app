@@ -16,8 +16,16 @@ import {
   loadCampusLifeZoneEnforced,
 } from "../campusLifeZoneActivation";
 import {
+  BLIND_MEETING_GROUP_SIZE,
+  BLIND_MEETING_TEAM_SIZE,
+  readBlindMeetingGender,
+  validateBlindThreeVsThreeParticipants,
+} from "./genderBalance";
+import {
   Candidate,
   GroupProposal,
+  describeGenderAvailability,
+  splitByGender,
   alcoholFreePool,
   bestGroup,
   groupScore,
@@ -67,6 +75,7 @@ import {
   pairKey,
   recordMetUsers,
   recordNoShow,
+  reopenApplicationIfBoundTo,
   setApplication,
   setGroupChatWritable,
   syncGroupChatMembership,
@@ -74,6 +83,7 @@ import {
   updateParticipant,
 } from "./store";
 import {
+  holdsChatMembership,
   BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
   BLIND_MEETING_COLLECTIONS,
   BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
@@ -159,7 +169,26 @@ export async function runMatchingForDate(dateKey: string): Promise<string[]> {
     const scopedPool = alcoholFree
       ? alcoholFreePool(pool.filter(requiresAlcoholFreeGroup))
       : standardPool(pool);
-    if (scopedPool.length < 6) continue;
+    if (scopedPool.length < BLIND_MEETING_GROUP_SIZE) continue;
+
+    // 성비를 만족할 수 없으면 상위 점수 6명을 뽑는 것이 아니라
+    // 아무 구성도 만들지 않는다. 실패 사유는 PII 없이 남긴다.
+    const availability = describeGenderAvailability(
+      scopedPool,
+      dateKey,
+      alcoholFree
+    );
+    if (availability.failure != null) {
+      logger.info("blindMeeting matching skipped: unbalanced candidate pool", {
+        code: availability.failure,
+        dateKey,
+        alcoholFree,
+        eligibleMaleCount: availability.eligibleMaleCount,
+        eligibleFemaleCount: availability.eligibleFemaleCount,
+        scopedPoolSize: scopedPool.length,
+      });
+      continue;
+    }
 
     let remaining = scopedPool;
     // 한 번의 실행에서 만들 수 있는 만큼 겹치지 않게 구성한다.
@@ -187,15 +216,57 @@ export async function runMatchingForDate(dateKey: string): Promise<string[]> {
       }
 
       remaining = remaining.filter((c) => !used.has(c.userId));
-      if (remaining.length < 6) break;
+      if (remaining.length < BLIND_MEETING_GROUP_SIZE) break;
     }
   }
 
   // 아직 매칭되지 않은 신청자의 단계를 갱신한다.
   const stillOpen = await loadOpenApplications(dateKey);
+  const stillOpenIds = new Set(stillOpen.map((a) => a.userId));
+  const genderByUserId = new Map(pool.map((c) => [c.userId, c.gender]));
+  const remainingByGender = splitByGender(
+    pool.filter((c) => stillOpenIds.has(c.userId))
+  );
+
+  // 상대 성별이 3명을 못 채우면 이 신청자는 이 날짜에서 아무리 기다려도
+  // 매칭될 수 없다. 계속 "후보를 찾는 중"으로 두면 영영 대기 화면에 머문다.
+  // 조건 완화(날짜 추가 등)를 제안할 수 있도록 별도 단계로 표시한다.
+  const blockedByOppositeGender: typeof stillOpen = [];
+  const stillSearching: typeof stillOpen = [];
+  for (const application of stillOpen) {
+    const gender = genderByUserId.get(application.userId);
+    if (gender == null) {
+      // 후보로 hydrate 되지 않은 신청 (DNA/성별/안전 조건 미확인).
+      // 성비 때문이라고 단정할 수 없으므로 기존 단계를 유지한다.
+      stillSearching.push(application);
+      continue;
+    }
+    const oppositeCount =
+      gender === "male"
+        ? remainingByGender.female.length
+        : remainingByGender.male.length;
+    if (oppositeCount < BLIND_MEETING_TEAM_SIZE) {
+      blockedByOppositeGender.push(application);
+    } else {
+      stillSearching.push(application);
+    }
+  }
+
+  if (blockedByOppositeGender.length > 0) {
+    logger.info("blindMeeting applicants blocked by opposite gender shortage", {
+      code: "INSUFFICIENT_BALANCED_CANDIDATES",
+      dateKey,
+      blockedCount: blockedByOppositeGender.length,
+      remainingMaleCount: remainingByGender.male.length,
+      remainingFemaleCount: remainingByGender.female.length,
+    });
+  }
+  await markStage(blockedByOppositeGender, "insufficientCandidates");
   await markStage(
-    stillOpen,
-    stillOpen.length >= 6 ? "checkingCrossTeam" : "searchingCandidates"
+    stillSearching,
+    stillSearching.length >= BLIND_MEETING_GROUP_SIZE
+      ? "checkingCrossTeam"
+      : "searchingCandidates"
   );
 
   return createdMeetingIds;
@@ -241,6 +312,46 @@ export async function createMeetingFromProposal(
   const teamBIds = proposal.teamB.map((m) => m.userId);
   const participantIds = [...teamAIds, ...teamBIds];
 
+  // 최상위 불변식 1차 그물: 제안 자체가 3남 + 3녀 6인인지.
+  // 알고리즘이 이미 보장하지만, 손상되거나 legacy 경로로 만들어진
+  // 제안이 downstream 으로 새어 나가지 않도록 확정 직전에 다시 본다.
+  const proposalBalance = validateBlindThreeVsThreeParticipants(
+    [...proposal.teamA, ...proposal.teamB].map((m) => ({
+      userId: m.userId,
+      gender: m.gender,
+    }))
+  );
+  // 총원 3남3녀뿐 아니라 각 팀이 단일 성별인지도 확인한다.
+  // (teamA=[남,남,여], teamB=[여,여,남] 도 합계로는 3:3 이 된다.)
+  const teamGenders = [proposal.teamA, proposal.teamB].map(
+    (team) => new Set(team.map((m) => m.gender))
+  );
+  const teamsAreSingleGender =
+    teamGenders.every((genders) => genders.size === 1) &&
+    teamGenders[0].size === 1 &&
+    teamGenders[1].size === 1 &&
+    [...teamGenders[0]][0] !== [...teamGenders[1]][0];
+  if (!teamsAreSingleGender) {
+    logger.error("blindMeeting proposal rejected: teams are not single-gender", {
+      code: "blindMeetingGenderInvariantViolated",
+      dateKey: proposal.dateKey,
+    });
+    return null;
+  }
+
+  if (!proposalBalance.ok) {
+    logger.error("blindMeeting proposal rejected: not 3M+3F", {
+      code: "blindMeetingGenderInvariantViolated",
+      violations: proposalBalance.violations,
+      maleCount: proposalBalance.counts.male,
+      femaleCount: proposalBalance.counts.female,
+      unknownGenderCount: proposalBalance.counts.unknown,
+      uniqueParticipantCount: proposalBalance.uniqueUserCount,
+      dateKey: proposal.dateKey,
+    });
+    return null;
+  }
+
   // 여섯 명이 공통으로 가능한 날짜가 없으면 확정하지 않는다.
   if (proposal.commonDateKeys.length === 0) {
     logger.warn("blindMeeting proposal rejected: no common date", {
@@ -265,16 +376,70 @@ export async function createMeetingFromProposal(
     return null;
   }
 
+  // 공개 프로필 스냅샷 (얼굴 사진 없음).
+  // 미팅 문서와 같은 transaction 으로 써야 한다. 확정 직후 앱이 곧바로
+  // 결과 화면을 열기 때문에, transaction 밖에서 순차 write 하면 그 사이에
+  // 프로필이 비어 있는 미팅이 보이고 (그리고 중간에 실패하면 영영 비어 있고)
+  // 이를 복구하는 스케줄도 없다.
+  const publicProfiles = await Promise.all(
+    participantIds.map((userId) => buildPublicProfile(userId))
+  );
+
   const claimed = await db().runTransaction(async (tx) => {
     const refs = participantIds.map((userId) =>
       db().collection(BLIND_MEETING_COLLECTIONS.applications).doc(userId)
     );
-    const snaps = await Promise.all(refs.map((ref) => tx.get(ref)));
+    const userRefs = participantIds.map((userId) =>
+      db().collection("users").doc(userId)
+    );
+    // transaction 안의 read 는 전부 write 이전에 끝내야 한다.
+    const [snaps, userSnaps] = await Promise.all([
+      Promise.all(refs.map((ref) => tx.get(ref))),
+      Promise.all(userRefs.map((ref) => tx.get(ref))),
+    ]);
 
     for (const snap of snaps) {
       const data = snap.data();
       if (!snap.exists || data?.open !== true) return false;
       if (typeof data?.meetingId === "string" && data.meetingId.length > 0) {
+        return false;
+      }
+    }
+
+    // 최상위 불변식 2차 그물: 제안 snapshot 이 아니라 확정 시점의
+    // authoritative users 문서를 다시 읽어 3남 + 3녀를 확인한다.
+    // 제안 생성과 확정 사이에 성별/자격이 바뀌었을 수 있다.
+    const authoritative = participantIds.map((userId, index) => ({
+      userId,
+      gender: readBlindMeetingGender(userSnaps[index].data()),
+    }));
+    const liveBalance = validateBlindThreeVsThreeParticipants(authoritative);
+    if (!liveBalance.ok) {
+      logger.error("blindMeeting claim rejected: live roster is not 3M+3F", {
+        code: "blindMeetingGenderInvariantViolated",
+        violations: liveBalance.violations,
+        maleCount: liveBalance.counts.male,
+        femaleCount: liveBalance.counts.female,
+        unknownGenderCount: liveBalance.counts.unknown,
+        dateKey: proposal.dateKey,
+      });
+      return false;
+    }
+
+    // 자격도 snapshot 이 아니라 확정 시점 값으로 다시 본다
+    // (탈퇴·정지·학교 인증 해제는 되돌리기 어려운 확정을 막아야 한다).
+    for (const userSnap of userSnaps) {
+      const user = userSnap.data();
+      if (
+        !userSnap.exists ||
+        user?.isStudentVerified !== true ||
+        user?.isWithdrawn === true ||
+        user?.loginDisabled === true
+      ) {
+        logger.info("blindMeeting claim rejected: participant no longer eligible", {
+          code: "blindMeetingParticipantIneligibleAtClaim",
+          dateKey: proposal.dateKey,
+        });
         return false;
       }
     }
@@ -330,14 +495,21 @@ export async function createMeetingFromProposal(
         }
       );
 
-      tx.set(refs[i], {
-        open: false,
-        meetingId,
-        status: PARTICIPANT_STATUS_TO_APP.invited,
-        serverStatus: "invited",
-        stage: "matched",
-        updatedAt: FieldValue.serverTimestamp(),
-      });
+      // merge 필수. 통째로 쓰면 requestedDateKeys / appliedAt /
+      // prefersAlcoholFree 가 사라지고, 이후 취소·거절로 신청이 다시 열려도
+      // loadOpenApplications 의 날짜 쿼리에 영영 걸리지 않는다.
+      tx.set(
+        refs[i],
+        {
+          open: false,
+          meetingId,
+          status: PARTICIPANT_STATUS_TO_APP.invited,
+          serverStatus: "invited",
+          stage: "matched",
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
     }
 
     // 내부 점수는 서버 전용 문서에만 저장한다.
@@ -366,6 +538,16 @@ export async function createMeetingFromProposal(
       }
     );
 
+    for (let i = 0; i < participantIds.length; i++) {
+      tx.set(
+        meetingRef
+          .collection(BLIND_MEETING_COLLECTIONS.publicProfiles)
+          .doc(participantIds[i]),
+        publicProfiles[i],
+        { merge: true }
+      );
+    }
+
     return true;
   });
 
@@ -374,17 +556,6 @@ export async function createMeetingFromProposal(
       meetingId,
     });
     return null;
-  }
-
-  // 공개 프로필 스냅샷 (얼굴 사진 없음)
-  for (const userId of participantIds) {
-    const profile = await buildPublicProfile(userId);
-    await db()
-      .collection(BLIND_MEETING_COLLECTIONS.meetings)
-      .doc(meetingId)
-      .collection(BLIND_MEETING_COLLECTIONS.publicProfiles)
-      .doc(userId)
-      .set(profile, { merge: true });
   }
 
   await notifyBlindMeeting({
@@ -463,13 +634,9 @@ export async function declineInvitation(
       cancelReason: reason,
     },
   });
-  // 신청은 다시 열어 다음 미팅 후보로 둔다.
-  await setApplication(userId, {
-    status: "applied",
-    stage: "searchingCandidates",
-    open: true,
-    meetingId: null,
-  });
+  // 신청은 다시 열어 다음 미팅 후보로 둔다. 중복 거절이 도착했을 때
+  // 이미 재오픈되어 다른 미팅에 재클레임된 신청은 덮어쓰지 않는다.
+  await reopenApplicationIfBoundTo(userId, meetingId);
   await handleVacancy({ meetingId, vacantUserId: userId, urgent: false });
 }
 
@@ -673,6 +840,63 @@ async function advanceWithoutDeposit(meetingId: string): Promise<boolean> {
   }
   return true;
 }
+
+/**
+ * 확정된 미팅에 단체 채팅방을 열고 `chat_open` 으로 넘긴다.
+ *
+ * 확정 transaction 과 별개 단계라 중간에 실패하면 미팅이 `confirmed` 에서
+ * 멈춘다 (채팅방도 약속잡기 기한도 없는 상태). scheduled 복구 tick 이
+ * 되살릴 수 있도록 idempotent 하게 분리했다. `ensureGroupChat` 과
+ * `transitionMeetingStatus` 모두 재실행에 안전하다.
+ */
+export async function openGroupChatForConfirmedMeeting(
+  meetingId: string
+): Promise<boolean> {
+  const meeting = await loadMeeting(meetingId);
+  if (meeting.status !== "confirmed") return false;
+  const policy = await loadPolicy();
+
+  const roomId = await ensureGroupChat({
+    meetingId,
+    memberIds: meeting.participantIds,
+    isAlcoholFree: meeting.isAlcoholFree,
+  });
+
+  await db()
+    .collection(BLIND_MEETING_COLLECTIONS.meetings)
+    .doc(meetingId)
+    .set(
+      {
+        groupChatId: roomId,
+        // 약속잡기 기한. 지나면 서버가 제출된 투표(없으면 기준 날짜)로 확정한다.
+        // 이 값이 없으면 시간 미확정 상태로 무기한 방치된다.
+        scheduleVoteDeadlineAt: Timestamp.fromMillis(
+          Date.now() + policy.scheduleVoteWindowMs
+        ),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  await transitionMeetingStatus(meetingId, "chat_open");
+  await recordMetUsers(meetingId, meeting.participantIds);
+
+  await notifyBlindMeeting({
+    userIds: meeting.participantIds,
+    meetingId,
+    kind: "chat_created",
+    deeplinkId: roomId,
+    data: { roomId },
+  });
+  await notifyBlindMeeting({
+    userIds: meeting.participantIds,
+    meetingId,
+    kind: "schedule_vote",
+    deeplinkId: roomId,
+    data: { roomId },
+  });
+  return true;
+}
+
 
 // -----------------------------------------------------------------------------
 // 일정 확정
@@ -1174,8 +1398,61 @@ export async function respondReplacementOffer(params: {
     const applicationRef = db()
       .collection(BLIND_MEETING_COLLECTIONS.applications)
       .doc(params.userId);
-    const applicationSnap = await tx.get(applicationRef);
+    const joinerParticipantRef = meetingRef
+      .collection(BLIND_MEETING_COLLECTIONS.participants)
+      .doc(params.userId);
+    const [applicationSnap, joinerParticipantSnap, joinerUserSnap, vacantUserSnap] =
+      await Promise.all([
+        tx.get(applicationRef),
+        tx.get(joinerParticipantRef),
+        tx.get(db().collection("users").doc(params.userId)),
+        tx.get(db().collection("users").doc(vacantUserId)),
+      ]);
     if (applicationSnap.data()?.open !== true) {
+      return { ok: false as const, code: "not_available" as const };
+    }
+
+    // 매칭 확정 경로(createMeetingFromProposal)와 같은 claim 가드.
+    // 이게 없으면 이미 다른 미팅에 묶인 신청서를 그대로 끌어와
+    // 같은 사용자가 두 개의 active 미팅에 동시에 들어갈 수 있다.
+    const joinerMeetingId = applicationSnap.data()?.meetingId;
+    if (typeof joinerMeetingId === "string" && joinerMeetingId.length > 0) {
+      return { ok: false as const, code: "not_available" as const };
+    }
+    const joinerApplicationStatus = String(
+      applicationSnap.data()?.serverStatus ?? ""
+    );
+    if (
+      joinerApplicationStatus !== "applied" &&
+      joinerApplicationStatus !== "waitlisted"
+    ) {
+      return { ok: false as const, code: "not_available" as const };
+    }
+
+    // 이미 이 미팅에서 terminal 로 끝난 참가자 문서를 되살리지 않는다
+    // (replaced 로 빠졌던 사용자가 같은 미팅에 다시 들어오는 경로).
+    const joinerPriorStatus = String(
+      joinerParticipantSnap.data()?.serverStatus ?? ""
+    );
+    if (
+      joinerPriorStatus === "replaced" ||
+      joinerPriorStatus === "cancelled" ||
+      joinerPriorStatus === "no_show"
+    ) {
+      return { ok: false as const, code: "already_member" as const };
+    }
+
+    // 최상위 불변식: 대체 후에도 3남 + 3녀여야 한다.
+    // 빈자리와 다른 성별이 들어오면 4M2F 가 되므로 거부한다.
+    const joinerGender = readBlindMeetingGender(joinerUserSnap.data());
+    const vacantGender = readBlindMeetingGender(vacantUserSnap.data());
+    if (joinerGender == null || joinerGender !== vacantGender) {
+      logger.info("blindMeeting replacement rejected: gender mismatch", {
+        code: "blindMeetingGenderInvariantViolated",
+        meetingId,
+        hasJoinerGender: joinerGender != null,
+        hasVacantGender: vacantGender != null,
+      });
       return { ok: false as const, code: "not_available" as const };
     }
 
@@ -1431,8 +1708,25 @@ export async function settleCancellation(params: {
     reason: decision.outcome,
   });
 
+  // 대체 성공 경로에서는 이탈자가 이미 transaction 안에서 `replaced` 로
+  // 확정돼 있다. `replaced` 는 terminal 이라 FSM 이 cancelled 로의 전이를
+  // 거부하므로, 여기서 상태를 다시 밀면 환급을 끝낸 뒤 예외가 나서
+  // 신청서 분리·알림·통계가 전부 건너뛰어진다 (이탈자가 영구히 잠긴다).
+  // 이미 terminal 이면 동반 필드만 갱신한다.
+  const settlingParticipant = (
+    await loadParticipants(params.meetingId)
+  ).find((p) => p.userId === params.userId);
+  const alreadySettled =
+    settlingParticipant?.status === "replaced" ||
+    settlingParticipant?.status === "cancelled" ||
+    settlingParticipant?.status === "no_show";
+
   await updateParticipant(params.meetingId, params.userId, {
-    status: params.isNoShowWithoutContact ? "no_show" : "cancelled",
+    status: alreadySettled
+      ? undefined
+      : params.isNoShowWithoutContact
+        ? "no_show"
+        : "cancelled",
     depositStatus: refund.status,
     extra: {
       cancelledAt: FieldValue.serverTimestamp(),
@@ -1440,6 +1734,27 @@ export async function settleCancellation(params: {
       refundedAmount: refund.refundedAmount,
     },
   });
+
+
+  // 미팅을 떠난 사람은 단체 채팅방에서도 빠져야 한다.
+  // 대체 경로는 respondReplacementOffer 에서 이미 sync 하지만, 대체 없이
+  // 취소로 끝나는 경로에는 sync 가 없어서 이탈자가 남은 다섯 명의 대화를
+  // 계속 읽고 쓸 수 있었다. holdsChatMembership 이 cancelled/replaced/no_show
+  // 를 제외하므로 두 경로가 같은 정의를 공유한다.
+  //
+  // 최종 노쇼도 여기서 빠진다. 나타나지 않은 사람이 남은 참가자들의 대화를
+  // 계속 읽고 쓸 수 있으면 안 된다 (CHAT_MEMBERSHIP_STATUSES 주석 참고).
+  //
+  // 이 단계 실패가 아래 신청서 분리·제재·통계를 막으면 안 된다.
+  // 사용자가 잠기는 쪽이 채팅방이 늦게 정리되는 쪽보다 훨씬 나쁘다.
+  try {
+    await syncGroupChatMembership(params.meetingId);
+  } catch (error) {
+    logger.error("blindMeeting chat membership sync failed", {
+      meetingId: params.meetingId,
+      error,
+    });
+  }
 
   // 노쇼·취소·교체된 참가자에게는 아이스브레이킹 알림을 보내지 않는다.
   await stopBlindMeetingParticipantPrompts({
@@ -1511,6 +1826,19 @@ export async function voteFivePersonException(params: {
   const meeting = await loadMeeting(params.meetingId);
   if (!meeting.participantIds.includes(params.userId)) {
     throw new HttpsError("permission-denied", "참가 중인 미팅이 아니에요.");
+  }
+
+  // participantIds 는 좌석 명부라 노쇼·취소된 사람도 그대로 남는다.
+  // 그것만 확인하면 결원을 만든 당사자가 "거부"를 던져 남은 다섯 명의
+  // 진행 결정을 뒤집고 미팅을 취소시킬 수 있다 (아래 veto 로직 참고).
+  // 투표권은 지금도 자리를 지키고 있는 참가자에게만 있다.
+  const voters = await loadParticipants(params.meetingId);
+  const voter = voters.find((p) => p.userId === params.userId);
+  if (voter == null || !holdsChatMembership(voter.status)) {
+    throw new HttpsError(
+      "permission-denied",
+      "이 미팅의 참가자가 아니에요."
+    );
   }
 
   await db()
@@ -1588,12 +1916,10 @@ export async function cancelMeeting(
       status: "cancelled",
       depositStatus: refund.status,
     });
-    await setApplication(participant.userId, {
-      status: "applied",
-      stage: "searchingCandidates",
-      open: true,
-      meetingId: null,
-      extra: { priorityRematch: true },
+    // 이 미팅에 아직 귀속된 신청만 재오픈한다 (먼저 거절해 다른 미팅에
+    // 재클레임된 참가자의 새 link 를 취소 정리가 덮어쓰지 않도록).
+    await reopenApplicationIfBoundTo(participant.userId, meetingId, {
+      priorityRematch: true,
     });
   }
 
@@ -1635,6 +1961,30 @@ export async function markSafetyStamp(params: {
     throw new HttpsError("permission-denied", "참가 중인 미팅이 아니에요.");
   }
 
+  // 안전도장 횟수는 다른 참가자에게 보이는 공개 신뢰 지표
+  // (publicProfile.safetyStampSummary) 로 이어진다. 같은 도장을 다시 보내도
+  // 카운터가 두 번 오르지 않도록 현재 참가자 문서를 먼저 읽는다.
+  const stampParticipant = (await loadParticipants(params.meetingId)).find(
+    (p) => p.userId === params.userId
+  );
+  if (stampParticipant == null) {
+    throw new HttpsError("permission-denied", "참가 중인 미팅이 아니에요.");
+  }
+
+  // 최종 노쇼 판정을 받은 참가자는 더 이상 이 미팅의 활성 참가자가 아니다.
+  // FSM 에서 no_show -> attended edge 도 제거했지만, 도장 경로에서 명시적으로
+  // 막아 두어야 실패 사유가 사용자에게 정확히 전달된다.
+  if (
+    stampParticipant.status === "no_show" ||
+    stampParticipant.status === "cancelled" ||
+    stampParticipant.status === "replaced"
+  ) {
+    throw new HttpsError(
+      "permission-denied",
+      "이 미팅의 참가자가 아니에요."
+    );
+  }
+
   if (params.phase === "meetup") {
     if (
       meeting.status !== "schedule_confirmed" &&
@@ -1654,7 +2004,10 @@ export async function markSafetyStamp(params: {
         checkInVerification: params.verification,
       },
     });
-    await incrementStats(params.userId, { checkinCompleted: 1 });
+    // 재전송이면 상태만 그대로 두고 카운터는 올리지 않는다.
+    if (!stampParticipant.checkedIn) {
+      await incrementStats(params.userId, { checkinCompleted: 1 });
+    }
     await transitionMeetingStatus(params.meetingId, "checkin_open");
     await maybeStartMeeting(params.meetingId);
     // 시작 안전도장 완료 → 15분 뒤부터 아이스브레이킹 룰렛 알림
@@ -1666,6 +2019,22 @@ export async function markSafetyStamp(params: {
     return;
   }
 
+  // 종료 도장은 도착 도장 이후에만 의미가 있다. 선행 조건이 없으면
+  // 미팅 며칠 전에도 checkOut 을 완료로 표시해 본인 알림을 영구히 끄고
+  // 실제로 만나지 않은 미팅을 완료처럼 보이게 만들 수 있다.
+  if (!stampParticipant.checkedIn) {
+    throw new HttpsError(
+      "failed-precondition",
+      "도착 안전도장을 먼저 찍어주세요."
+    );
+  }
+  if (meeting.status !== "checkin_open" && meeting.status !== "in_progress") {
+    throw new HttpsError(
+      "failed-precondition",
+      "지금은 종료 안전도장을 찍을 수 없어요."
+    );
+  }
+
   await updateParticipant(params.meetingId, params.userId, {
     extra: {
       checkOutStatus: "completed",
@@ -1673,7 +2042,9 @@ export async function markSafetyStamp(params: {
       checkOutVerification: params.verification,
     },
   });
-  await incrementStats(params.userId, { checkoutCompleted: 1 });
+  if (!stampParticipant.checkedOut) {
+    await incrementStats(params.userId, { checkoutCompleted: 1 });
+  }
   // 종료 안전도장 완료 → 해당 참가자 반복 알림 즉시 종료
   await onBlindMeetingCheckOut({
     meetingId: params.meetingId,

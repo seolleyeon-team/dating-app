@@ -37,6 +37,7 @@ Map<String, dynamic> _profile({
 }) {
   return <String, dynamic>{
     'initialSetupComplete': true,
+    'avatar': <String, dynamic>{'status': 'approved'},
     'onboarding': <String, dynamic>{
       'nickname': 'tester',
       'gender': 'female',

@@ -38,6 +38,16 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Canonical app session gate (auth re-architecture, identity-contract §2).
+    // Temporary email-link sessions (pre-exchange) carry neither claim;
+    // legacy Kakao custom tokens carry kakaoUserId; new canonical tokens
+    // minted by completePrimaryStudentEmailAuth carry appSession.
+    function isCanonicalAppSession() {
+      return request.auth != null &&
+          (request.auth.token.appSession == true ||
+            request.auth.token.kakaoUserId != null);
+    }
+
     function isSelf(uid) {
       return isSignedIn() && request.auth.uid == uid;
     }
@@ -317,6 +327,11 @@ service cloud.firestore {
       let onboarding = data.get('onboarding', {});
       return onboarding is map &&
           !onboarding.keys().hasAny([
+            'sourcePhotoUploadCount',
+            'sourcePhotoUploadStatus',
+            'sourcePhotoLastQueuedAt',
+            'avatarGenerationJobId',
+            'avatarSourceSelectionVersion',
             'avatarUrls',
             'photoUrls',
             'sourcePhotos',
@@ -324,6 +339,11 @@ service cloud.firestore {
             'sourcePhotoRefs',
             'sourcePhotoIds',
             'sourcePhotoGcsUri',
+            'sourcePhotoUploadCount',
+            'sourcePhotoUploadStatus',
+            'sourcePhotoLastQueuedAt',
+            'avatarGenerationJobId',
+            'avatarSourceSelectionVersion',
             'gcsUri',
             'signedUrl',
             'signedUrls',
@@ -374,6 +394,11 @@ service cloud.firestore {
       let before = resource.data.get('onboarding', {});
       return after is map && before is map &&
           !after.diff(before).affectedKeys().hasAny([
+            'sourcePhotoUploadCount',
+            'sourcePhotoUploadStatus',
+            'sourcePhotoLastQueuedAt',
+            'avatarGenerationJobId',
+            'avatarSourceSelectionVersion',
             'avatarUrls',
             'photoUrls',
             'sourcePhotos',
@@ -381,6 +406,11 @@ service cloud.firestore {
             'sourcePhotoRefs',
             'sourcePhotoIds',
             'sourcePhotoGcsUri',
+            'sourcePhotoUploadCount',
+            'sourcePhotoUploadStatus',
+            'sourcePhotoLastQueuedAt',
+            'avatarGenerationJobId',
+            'avatarSourceSelectionVersion',
             'gcsUri',
             'signedUrl',
             'signedUrls',
@@ -574,6 +604,148 @@ service cloud.firestore {
     function canUpdateChatMessage(roomId) {
       return isExistingChatRoomParticipant(roomId) &&
           (onlyMessageReadReceiptUpdate() || onlyPromiseMessageLifecycleUpdate());
+    }
+
+    // -----------------------------------------------------------------------
+    // 약속(promises) — 3:3 시즌 미팅 약속잡기와 안전도장의 원본 문서
+    //
+    // 이전에는 필드 검증이 하나도 없어서, 방 참가자 한 명이 단독으로
+    //   - 남의 uid 로 requestedBy 를 채워 약속을 만들고
+    //   - 자기가 보낸 요청을 자기가 수락하고
+    //   - safetyStamp 에 참가자 6명 uid 를 한 번에 박아 "만나지도 않은 만남"을
+    //     완료 처리(= 룰렛 게이트 통과)할 수 있었다.
+    // 안전도장은 사고 대응의 유일한 기록이므로 도장은 "내 uid 하나만 append"
+    // 로 못박고, 서버(Cloud Functions)만 쓰는 필드는 허용 목록에서 뺀다.
+    // -----------------------------------------------------------------------
+
+    function promiseRoomParticipantIds(roomId) {
+      return chatRoomParticipantIds(
+        get(/databases/$(database)/documents/chat_rooms/$(roomId)).data
+      );
+    }
+
+    // create 시 클라이언트가 쓸 수 있는 필드 (chat_service.dart:createPromise).
+    // exactReminderTaskToken / exactReminderScheduledForMs /
+    // oneHourReminderSentAt / completionMode / participantIds / safetyStamp 는
+    // 서버 소유이거나 라이프사이클 이후에만 생겨야 하므로 의도적으로 없다.
+    function promiseClientCreatableKeys() {
+      return [
+        'promiseId', 'messageId', 'requestedBy', 'requestedTo',
+        'dateTime', 'place', 'placeCategory',
+        'placeId', 'placeAddress', 'placeLat', 'placeLng',
+        'placeThumbnailUrl',
+        'status', 'createdAt', 'updatedAt',
+        'isEdited', 'editedAt', 'acceptedAt'
+      ];
+    }
+
+    // update 시 바뀔 수 있는 필드. promiseId / messageId / createdAt 이
+    // 빠져 있으므로 이 세 개는 목록만으로 불변이 된다.
+    //
+    // 안전도장 관련 필드(safetyStamp / participantIds / meetupCompletedAt /
+    // completedAt)는 여기에 없다. 도장은 submitSafetyStamp callable 이
+    // auth.uid 기준으로만 쓴다 (Admin SDK 는 규칙을 우회하므로 서버는 계속 쓸 수
+    // 있다). 클라이언트가 도장 배열이나 완료 시각을 직접 만지는 경로는 없다.
+    function promiseClientMutableKeys() {
+      return [
+        'requestedBy', 'requestedTo',
+        'dateTime', 'place', 'placeCategory',
+        'placeId', 'placeAddress', 'placeLat', 'placeLng',
+        'placeThumbnailUrl',
+        'status', 'acceptedAt', 'updatedAt',
+        'isEdited', 'editedAt',
+        'cancelledAt', 'cancelledReason'
+      ];
+    }
+
+    /** 약속의 당사자(제안자 또는 수신자)인가. */
+    function promiseIsParty() {
+      return request.auth.uid == resource.data.requestedBy ||
+          request.auth.uid == resource.data.requestedTo;
+    }
+
+    // 안전도장 관련 규칙 헬퍼는 제거했다.
+    // safetyStamp / participantIds / meetupCompletedAt / completedAt 은
+    // promiseClientMutableKeys() 에 없으므로 클라이언트가 아예 쓸 수 없고,
+    // 검증은 submitSafetyStamp callable 이 서버에서 수행한다.
+
+    function promiseAuthorPairUnchanged() {
+      return request.resource.data.requestedBy == resource.data.requestedBy &&
+          request.resource.data.requestedTo == resource.data.requestedTo;
+    }
+
+    // chat_service.dart:updatePromise 는 상대방이 약속을 고치면
+    // requestedBy/requestedTo 를 서로 뒤집는다(= 제안자가 바뀐다).
+    // 이 경로만 예외로 허용하되, 새 제안자는 반드시 수정하는 본인이어야 한다.
+    function promiseAuthorPairSwappedByEditor() {
+      return request.resource.data.requestedBy == request.auth.uid &&
+          request.resource.data.requestedBy == resource.data.requestedTo &&
+          request.resource.data.requestedTo == resource.data.requestedBy &&
+          request.resource.data.status == 'requested';
+    }
+
+    // 약속 상태 전이는 "누가" 하는지까지 규칙에서 강제한다.
+    //
+    // 이전에는 `status in ['rejected','cancelled','requested']` 한 줄이 방
+    // 참가자 누구에게나 열려 있어서, 6인 방에서 제3자가 남의 약속을 거절하거나
+    // 취소하거나 날짜·장소를 바꿔치기할 수 있었다.
+    //
+    // in_progress / completed 는 더 이상 여기 없다. 안전도장이 서버 권위로
+    // 바뀌면서 그 두 전이는 submitSafetyStamp 만 수행한다 (Admin SDK).
+    function promiseStatusTransitionOk(roomId) {
+      return (
+        // 상태를 바꾸지 않는 수정(날짜·장소 등)은 약속 당사자만.
+        // 이미 끝났거나 진행 중인 약속의 내용은 아무도 못 고친다.
+        // 안전도장이 기록된 뒤 "언제 어디서 만났는지"가 바뀌면
+        // 사고 대응 기록으로서의 의미가 사라진다.
+        (request.resource.data.status == resource.data.status &&
+          resource.data.status in ['requested', 'confirmed'] &&
+          promiseIsParty())
+      ) || (
+        // 수락: 받은 사람만, 아직 requested 일 때만.
+        request.resource.data.status == 'confirmed' &&
+        resource.data.status == 'requested' &&
+        promiseAuthorPairUnchanged() &&
+        request.auth.uid == resource.data.requestedTo
+      ) || (
+        // 거절: 받은 사람만, 아직 requested 일 때만.
+        // (수락과 대칭. 제3자도, 제안자 본인도 거절할 수 없다.)
+        request.resource.data.status == 'rejected' &&
+        resource.data.status == 'requested' &&
+        promiseAuthorPairUnchanged() &&
+        request.auth.uid == resource.data.requestedTo
+      ) || (
+        // 취소(삭제): 약속 당사자 누구나, 아직 끝나지 않은 약속만.
+        // (main 의 cancelPromise 제품 계약 — 제3자는 여전히 불가.)
+        request.resource.data.status == 'cancelled' &&
+        resource.data.status in ['requested', 'confirmed'] &&
+        promiseAuthorPairUnchanged() &&
+        promiseIsParty()
+      ) || (
+        // 도착 안전도장 시한이 지나 자동 취소되는 경로는 당사자 누구나
+        // 트리거할 수 있다 (chat_service.cancelExpiredIncompleteSafetyStamp).
+        request.resource.data.status == 'cancelled' &&
+        resource.data.status == 'confirmed' &&
+        request.resource.data.cancelledReason == 'safety_stamp_timeout' &&
+        promiseAuthorPairUnchanged() &&
+        promiseIsParty()
+      ) || (
+        // 재요청(수정). 상대가 고치면 제안자·수신자가 뒤집힌다.
+        // 종료된 약속(rejected/cancelled/completed)은 되살릴 수 없다.
+        request.resource.data.status == 'requested' &&
+        resource.data.status in ['requested', 'confirmed'] &&
+        (promiseAuthorPairSwappedByEditor() ||
+          (promiseAuthorPairUnchanged() &&
+            request.auth.uid == resource.data.requestedBy))
+      );
+    }
+
+    function isPromiseAuthorAtCreate(roomId) {
+      return request.resource.data.requestedBy is string &&
+          request.resource.data.requestedBy == request.auth.uid &&
+          request.resource.data.requestedTo is string &&
+          request.resource.data.requestedTo != request.auth.uid &&
+          request.resource.data.requestedTo in promiseRoomParticipantIds(roomId);
     }
 
     function isAskParticipant(data) {
@@ -876,6 +1048,16 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           request.auth.uid == kakaoUserId;
         allow create, update, delete: if false;
       }
+
+      // 추천 새로고침 이용권. 하트를 결제하고 받은 영수증에 해당하므로
+      // 본인은 반드시 읽을 수 있어야 한다 (읽지 못하면 앱을 껐다 켤 때마다
+      // 결제한 4~6위 노출 구간이 조용히 사라진다).
+      // 발급은 서버(recommendationRefresh.ts)만 한다.
+      match /recommendationRefreshes/{dateKey} {
+        allow get: if isSelf(kakaoUserId);
+        allow list: if false;
+        allow create, update, delete: if false;
+      }
     }
 
     // -----------------------------------------------------------------------
@@ -894,6 +1076,24 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     }
 
     match /avatarCandidates/{candidateId} {
+      allow read, write: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Server-owned identity indexes (auth re-architecture, identity-contract §3)
+    // -----------------------------------------------------------------------
+    match /studentEmailBindings/{emailHash} {
+      allow read, write: if false;
+    }
+
+    match /kakaoIdentities/{kakaoIdentityHash} {
+      allow read, write: if false;
+    }
+
+    // Server-owned Kakao friend pair materialization (one-time snapshot,
+    // kakao-friend-pairs-contract §2). Social-graph-sensitive: never
+    // client-readable, even for a pair's own members.
+    match /kakaoFriendPairs/{pairId} {
       allow read, write: if false;
     }
 
@@ -1034,6 +1234,32 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       ]);
     }
 
+    // 방 문서의 activePromise 는 UI 표시용 미러다. 클라이언트가 여기에
+    // safetyStamp 를 실어 보내면 화면상 도장 상태를 위조할 수 있고, 예전
+    // 클라이언트는 이 미러를 도장 계산의 기준으로 삼기까지 했다.
+    // 도장 미러는 submitSafetyStamp 만 쓴다 (Admin SDK 는 규칙을 우회한다).
+    // update 의 request.resource.data 는 "패치"가 아니라 "병합된 최종 문서"다.
+    // 따라서 activePromise 안에 safetyStamp 가 있는지만 보면, 서버가 도장을 한 번
+    // 기록한 뒤로는 그 방의 모든 클라이언트 write(일반 메시지 전송 포함)가 막힌다.
+    // 클라이언트가 도장 미러를 "바꿨는지"만 본다.
+    function chatRoomActivePromiseHasNoStamp() {
+      return !request.resource.data.diff(resource.data)
+            .affectedKeys().hasAny(['activePromise']) ||
+          // 미러 삭제는 허용한다. 약속 수정·삭제·도착도장 시한초과 취소가
+          // 모두 activePromise 를 FieldValue.delete() 한다
+          // (chat_service.dart updatePromise / deletePromise /
+          //  cancelExpiredIncompleteSafetyStamp).
+          !request.resource.data.keys().hasAny(['activePromise']) ||
+          (
+            // map 이 아닌 값을 허용하면 그 방의 이후 activePromise 규칙 평가가
+            // 전부 에러가 되어 안전도장 경로가 영구히 잠긴다. 참가자 한 명이
+            // 나머지 다섯 명을 막을 수 있으므로 반드시 map 이어야 한다.
+            request.resource.data.activePromise is map &&
+            request.resource.data.activePromise.get('safetyStamp', null) ==
+              resource.data.get('activePromise', {}).get('safetyStamp', null)
+          );
+    }
+
     function seasonMeetingRoomMutableOnly() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         'lastMessage',
@@ -1078,6 +1304,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         isChatRoomParticipantAfter() &&
         chatRoomParticipantIdsUnchanged() &&
         chatRoomDoesNotPersistPrivateMedia(request.resource.data) &&
+        chatRoomActivePromiseHasNoStamp() &&
         (!isBlindMeetingRoomData(resource.data) || (
           resource.data.writable == true &&
           request.resource.data.roomType == resource.data.roomType &&
@@ -1114,12 +1341,26 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         allow delete: if false;
       }
 
+      // 필드 검증은 위 promise* 헬퍼에 모여 있다.
       match /promises/{promiseId} {
         allow read: if isExistingChatRoomParticipant(roomId);
         allow create: if isExistingChatRoomParticipant(roomId) &&
           (!isBlindMeetingRoomData(blindRoomData(roomId)) ||
-            blindRoomData(roomId).writable == true);
-        allow update: if canUpdatePromise(roomId);
+            blindRoomData(roomId).writable == true) &&
+          request.resource.data.keys().hasOnly(promiseClientCreatableKeys()) &&
+          request.resource.data.keys().hasAll([
+            'promiseId', 'messageId', 'requestedBy', 'requestedTo', 'status'
+          ]) &&
+          request.resource.data.promiseId == promiseId &&
+          isPromiseAuthorAtCreate(roomId) &&
+          request.resource.data.status == 'requested';
+        allow update: if isExistingChatRoomParticipant(roomId) &&
+          (!isBlindMeetingRoomData(blindRoomData(roomId)) ||
+            blindRoomData(roomId).writable == true) &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(promiseClientMutableKeys()) &&
+          (promiseAuthorPairUnchanged() || promiseAuthorPairSwappedByEditor()) &&
+          promiseStatusTransitionOk(roomId);
         allow delete: if false;
       }
     }
@@ -1382,7 +1623,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       allow get, list: if isSignedIn();
 
       allow create: if
-        isSignedIn() &&
+        isCanonicalAppSession() &&
         request.resource.data.authorId == request.auth.uid &&
         request.resource.data.postId is string &&
         request.resource.data.authorId is string &&
@@ -1713,7 +1954,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       allow read: if isAskParticipant(resource.data);
 
       allow create: if
-        isSignedIn() &&
+        isCanonicalAppSession() &&
         request.resource.data.fromUserId is string &&
         request.resource.data.fromUserId == request.auth.uid &&
         request.resource.data.toUserId is string &&
@@ -1744,7 +1985,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     match /interactions/{interactionId} {
       allow read: if isInteractionParticipant(resource.data);
       allow create: if
-        isSignedIn() &&
+        isCanonicalAppSession() &&
         request.resource.data.fromUserId is string &&
         request.resource.data.fromUserId == request.auth.uid &&
         request.resource.data.toUserId is string &&
@@ -1810,7 +2051,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     // Never store email, studentEmail, preferenceVector, tokens, or
     // moderation internals here.
     match /publicProfiles/{uid} {
-      allow get: if isSignedIn();
+      allow get: if isCanonicalAppSession();
       allow list: if false;
       allow create, update, delete: if false;
     }

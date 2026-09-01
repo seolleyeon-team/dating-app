@@ -16,7 +16,10 @@ from avatar_generation.preview_policy import (  # noqa: E402
     is_preview_eligible,
     passes_absolute_preview_checks,
 )
-from avatar_generation.qa import needs_review_model_unavailable_result  # noqa: E402
+from avatar_generation.qa import (  # noqa: E402
+    build_avatar_qa_from_signals,
+    needs_review_model_unavailable_result,
+)
 
 
 def _candidate(candidate_id, *, status="needs_review", qa=None):
@@ -109,6 +112,32 @@ def test_model_unavailable_result_uses_availability_not_medium_risk():
     assert doc["beautificationRisk"] == "unavailable"
     assert doc["previewAllowed"] is False
     assert doc["requiresHumanReview"] is True
+
+
+def test_active_qa_contract_marks_dino_not_required_without_relaxing_preview_gate():
+    result = build_avatar_qa_from_signals(
+        {
+            "adultLike": True,
+            "brandFit": True,
+            "cropConsistent": True,
+            "cropIsolationQuality": "pass",
+            "logoTextWatermarkDetected": False,
+            "uniqueMarkCopied": False,
+            "faceSimilarityReliable": True,
+            "faceSimilarityScore": 0.10,
+            "childlikeScore": 0.05,
+            "beautificationScore": 0.05,
+            "localSafetyRiskAvailability": "available",
+        }
+    )
+
+    assert result.debug["modelAvailability"]["dino"] == "not_required"
+    absolute_qa = _absolute_soft_qa(
+        debug={"modelAvailability": {"faceSimilarity": "available", "clip": "available", "dino": "not_required"}}
+    )
+    assert passes_absolute_preview_checks(
+        _candidate("dino_optional", status="soft_pass", qa=absolute_qa)
+    ) is True
 
 
 def test_uniform_first_round_systemic_unavailable_suppresses_extra_generation():

@@ -165,7 +165,14 @@
         "source": "/auth/email-link/**",
         "destination": "/auth-email-link.html"
       },
-
+      {
+        "source": "/child-safety",
+        "destination": "/child-safety.html"
+      },
+      {
+        "source": "/child-safety/**",
+        "destination": "/child-safety.html"
+      },
       {
         "source": "**",
         "destination": "/index.html"

@@ -30,7 +30,9 @@ describe("heart economy contract", () => {
     assert.match(indexSource, /directChat:\s*10/);
     assert.match(indexSource, /seasonRoulette:\s*20/);
     assert.match(indexSource, /recommendationRefresh:\s*5/);
-    assert.match(blindStoreSource, /const heartCost = 30/);
+    // 상수 이름은 BLIND_MEETING_HEART_COST 로 승격됐다 — 비용 30H 는 그대로
+    // 서버 소스에 고정되어 있어야 한다.
+    assert.match(blindStoreSource, /const BLIND_MEETING_HEART_COST = 30/);
   });
 
   it("creates paid resources and ledger entries in transactions", () => {

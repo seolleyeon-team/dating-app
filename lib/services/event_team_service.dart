@@ -160,7 +160,7 @@ class EventTeamService {
     if (kakaoUserId == null || kakaoUserId.isEmpty) {
       throw StateError('로그인이 필요해요.');
     }
-    await _authService.ensureFirebaseSessionForKakao(kakaoUserId);
+    await _authService.ensureCanonicalAppSession();
     final token = await _authService.getKakaoAccessTokenForFunctions();
     final map = Map<String, dynamic>.from(extra);
     if (token != null && token.isNotEmpty) {

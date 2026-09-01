@@ -13,8 +13,9 @@ Date: 2026-07-22
 
 G004 closes the repository-level real-image quality and safety implementation
 checkpoint. It does not prove production avatar quality. Production quality
-readiness remains blocked until a fresh exact-consent calibration cohort passes
-with the current real-QA wiring.
+readiness remains blocked until one fresh exact-consent calibration run with at
+least 5 participants passes with the current real-QA wiring. Once that run passes,
+the G004 quality/calibration scope may be marked production-ready.
 
 ## Implementation Evidence
 
@@ -86,11 +87,18 @@ still required.
 
 Minimum next gate:
 
-- 10-20 fresh current-QA participants.
+- At least 5 fresh current-QA participants in a single calibration run.
 - Exact UID/photo consent for every row.
 - Current production-like QA wiring.
+- The run passes the current QA calibration criteria.
 - Nonzero hard-pass evidence.
+- No hard reject appears in preview.
 - Versioned threshold snapshot.
 - Human rubric review.
+- Privacy scan/report redaction passes.
 
-Broader release calibration remains 50-100 participants after the 10-20 gate.
+Production-readiness rule:
+
+- If that single 5+ participant calibration run passes, `QA-007` may be closed, `QUALITY_QA_PRODUCTION_READY=true` may be set, and the G004 quality/calibration scope may be considered `production-ready=true`.
+- A separate 10-20 or 50-100 participant calibration is not a blocking prerequisite for G004 production readiness.
+- Larger cohorts remain optional for additional confidence, post-release monitoring, or recalibration after a material model/threshold/preprocessing change.

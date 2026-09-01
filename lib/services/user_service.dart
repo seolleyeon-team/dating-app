@@ -307,18 +307,8 @@ class UserService {
     await docRef.update(buildOnboardingFieldUpdates(fieldsToWrite));
   }
 
-  /// Saves onboarding profile photos without replacing other onboarding fields.
-  Future<void> saveOnboardingPhotos({
-    required String kakaoUserId,
-    required List<String> photoUrls,
-  }) async {
-    await _firestore
-        .collection('users')
-        .doc(kakaoUserId)
-        .update(
-          buildOnboardingFieldUpdate(fieldName: 'photoUrls', value: photoUrls),
-        );
-  }
+  // onboarding.photoUrls 클라이언트 쓰기는 firestore.rules의
+  // onboardingAvatarPhotoFieldsUnchanged 가드가 거부하므로 저장 API를 두지 않는다.
 
   /// Saves interests only. Keyword writes must use saveOnboardingKeywords.
   Future<void> saveOnboardingInterests({

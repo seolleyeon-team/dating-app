@@ -26,6 +26,8 @@ class _ReadyAvatarClient extends AvatarGenerationClient {
     required XFile file,
     required String uid,
     int? slotIndex,
+    String? clientRequestId,
+    bool chatPartnerRealPhotoDisclosure = false,
   }) async {
     return const AvatarSourcePhotoUploadResult(
       jobId: 'job_ready',
@@ -190,6 +192,7 @@ Widget _harness({
   required AvatarGenerationClient client,
   required void Function(List<String>) onNext,
   List<String?>? initialPhotos,
+  String? lockedApprovedAvatarUrl,
 }) {
   return MaterialApp(
     home: PhotoUploadScreen(
@@ -200,6 +203,7 @@ Widget _harness({
             AvatarSourcePhotoService.queuedSlotToken('job_ready'),
             AvatarSourcePhotoService.queuedSlotToken('job_second'),
           ],
+      lockedApprovedAvatarUrlForTesting: lockedApprovedAvatarUrl,
       onNext: onNext,
     ),
   );
@@ -258,7 +262,7 @@ void main() {
       expect(advancedPhotos, hasLength(2));
     });
 
-    testWidgets('사진 없이도 임시 설정에서 다음 단계로 넘어간다', (tester) async {
+    testWidgets('사진 없이는 다음 단계로 넘어갈 수 없다', (tester) async {
       await _useMobileSurface(tester);
       List<String>? advancedPhotos;
 
@@ -272,13 +276,14 @@ void main() {
       await tester.pump();
 
       final nextButton = tester.widget<ElevatedButton>(_nextButton());
-      expect(nextButton.onPressed, isNotNull);
-      expect(find.text('사진은 나중에 추가할 수 있어요'), findsOneWidget);
+      expect(nextButton.onPressed, isNull);
+      expect(find.text('사진은 나중에 추가할 수 있어요'), findsNothing);
+      expect(find.text('최소 2장 필요'), findsOneWidget);
 
-      await tester.tap(_nextButton());
+      await tester.tap(_nextButton(), warnIfMissed: false);
       await tester.pump();
 
-      expect(advancedPhotos, isEmpty);
+      expect(advancedPhotos, isNull);
     });
 
     testWidgets('polls latest queued test job instead of first stale slot', (
@@ -317,6 +322,7 @@ void main() {
           _harness(
             client: _ReadyAvatarClient(),
             initialPhotos: const ['https://cdn.example/approved-avatar.png'],
+            lockedApprovedAvatarUrl: 'https://cdn.example/approved-avatar.png',
             onNext: (photos) => advancedPhotos = photos,
           ),
         );
@@ -342,6 +348,7 @@ void main() {
         _harness(
           client: _ReadyAvatarClient(),
           initialPhotos: const ['https://cdn.example/approved-avatar.png'],
+          lockedApprovedAvatarUrl: 'https://cdn.example/approved-avatar.png',
           onNext: (_) {},
         ),
       );

@@ -328,4 +328,3 @@ __all__ = [
     "compare_image_similarity",
     "cosine_similarity",
 ]
-

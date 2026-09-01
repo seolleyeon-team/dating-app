@@ -25,6 +25,8 @@ function candidate(
 ): Candidate {
   return {
     userId,
+    // 생활권 테스트 fixture. 성비는 별도 테스트에서 다룬다.
+    gender: "male",
     atmosphere: "calm",
     initiative: "adaptive",
     purpose: "both",
@@ -45,14 +47,23 @@ function candidate(
   };
 }
 
-function zonedTeam(prefix: string, zones: string[]): Candidate[] {
+// 3:3 에서 한 팀은 동성 3명이다. 6인 pool 은 남성 팀 + 여성 팀으로 만든다.
+function zonedTeam(
+  prefix: string,
+  zones: string[],
+  gender: Candidate["gender"] = "male"
+): Candidate[] {
   const roles: Candidate["initiative"][] = [
     "initiator",
     "adaptive",
     "listener",
   ];
   return roles.map((initiative, index) =>
-    candidate(`${prefix}${index}`, { initiative, campusLifeZones: zones })
+    candidate(`${prefix}${index}`, {
+      gender,
+      initiative,
+      campusLifeZones: zones,
+    })
   );
 }
 
@@ -99,7 +110,7 @@ describe("campus life zone rollout activation", () => {
 
 describe("blind meeting activation matrix", () => {
   const sinchonTeam = () => zonedTeam("s", ["sinchon"]);
-  const songdoTeam = () => zonedTeam("o", ["songdo"]);
+  const songdoTeam = () => zonedTeam("o", ["songdo"], "female");
 
   it("OFF 면 생활권이 달라도 6인 구성이 가능하다", () => {
     const pool = [...sinchonTeam(), ...songdoTeam()];
@@ -111,7 +122,7 @@ describe("blind meeting activation matrix", () => {
   });
 
   it("OFF 면 생활권 정보가 없어도 구성 가능하다", () => {
-    const pool = [...zonedTeam("a", []), ...zonedTeam("b", [])];
+    const pool = [...zonedTeam("a", []), ...zonedTeam("b", [], "female")];
     assert.equal(bestGroup(pool, DATE, false), null);
     assert.ok(bestGroup(pool, DATE, false, CURRENT_MATCHING_CONFIG, false) != null);
   });
@@ -119,7 +130,7 @@ describe("blind meeting activation matrix", () => {
   it("OFF 가 생활권 외의 조건까지 풀어주지는 않는다", () => {
     const blocked = [
       ...sinchonTeam(),
-      ...zonedTeam("o", ["songdo"]).map((member, index) =>
+      ...zonedTeam("o", ["songdo"], "female").map((member, index) =>
         index === 0
           ? { ...member, blockedUserIds: ["s0"] }
           : member
@@ -156,14 +167,18 @@ describe("blind meeting activation matrix", () => {
 
   it("대체 참가자 경로도 activation 을 따른다", () => {
     const teamA = zonedTeam("a", ["sinchon"]);
-    const teamB = zonedTeam("b", ["sinchon"]);
+    const teamB = zonedTeam("b", ["sinchon"], "female");
     const baseline = groupScore(
       teamA,
       teamB,
       CURRENT_MATCHING_CONFIG,
       false
     ).finalGroupScore;
-    const crossZone = candidate("x", { campusLifeZones: ["songdo"] });
+    // 빈자리는 teamA(남성)의 a0 이므로 대체 후보도 남성이어야 한다.
+    const crossZone = candidate("x", {
+      gender: "male",
+      campusLifeZones: ["songdo"],
+    });
 
     const onResult = evaluateReplacement({
       teamA,
@@ -194,7 +209,10 @@ describe("blind meeting activation matrix", () => {
   it("ON 은 기존에 검증된 hard filter semantics 그대로다", () => {
     assert.equal(bestGroup([...sinchonTeam(), ...songdoTeam()], DATE, false), null);
     const ok = bestGroup(
-      [...zonedTeam("a", ["sinchon"]), ...zonedTeam("b", ["sinchon", "songdo"])],
+      [
+        ...zonedTeam("a", ["sinchon"]),
+        ...zonedTeam("b", ["sinchon", "songdo"], "female"),
+      ],
       DATE,
       false
     );

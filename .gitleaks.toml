@@ -12,8 +12,6 @@ paths = [
   '''test/auth_service_diagnostics_test.dart''',
   # Public client configuration and SDK identifiers. These files do not hold
   # server credentials; the values are required by the client-side SDKs.
-  '''festival_web/web/firebase-messaging-sw.js''',
-  '''festival_web/web/index.html''',
   '''lib/main.dart''',
   '''lib/services/auth_service.dart''',
   # Dependency lockfile checksums are not credentials.
@@ -21,4 +19,9 @@ paths = [
   # Deterministic test fixture identifiers are not credentials.
   '''test/features/meeting_icebreaker/meeting_icebreaker_domain_test.dart''',
   '''tmp/.*''',
+  # Retired festival web client (public Firebase web config, not a server
+  # credential). Files were deleted in the festival retirement cleanup but
+  # remain in history on integration lineages.
+  '''festival_web/web/firebase-messaging-sw\.js''',
+  '''festival_web/web/index\.html''',
 ]

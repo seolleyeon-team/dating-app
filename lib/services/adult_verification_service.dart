@@ -116,7 +116,7 @@ class AdultVerificationService {
       expiresAt: now.add(
         const Duration(minutes: PortOneConfig.pendingSessionMinutes),
       ),
-      message: '본인인증이 완료되었어요. 이제 카카오 로그인을 진행해 주세요.',
+      message: '본인인증이 완료되었어요. 이제 연세 이메일 로그인을 진행해 주세요.',
       providerPayload: providerPayload,
     );
     await _storageService.savePendingAdultVerificationResult(result);

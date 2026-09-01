@@ -38,7 +38,7 @@ class HeartEconomyService {
     if (userId == null || userId.isEmpty) {
       throw StateError('로그인이 필요해요.');
     }
-    final ready = await _authService.ensureFirebaseSessionForKakao(userId);
+    final ready = await _authService.ensureCanonicalAppSession();
     if (!ready) throw StateError('로그인 세션을 준비하지 못했어요.');
 
     final operationId = _pendingRefreshOperationId ?? const Uuid().v4();

@@ -78,6 +78,8 @@ function candidate(
 ): Candidate {
   return {
     userId,
+    // 기본 fixture 는 남성. 성비를 검증하는 테스트만 명시적으로 덮어쓴다.
+    gender: "male",
     atmosphere: "calm",
     initiative: "adaptive",
     purpose: "both",
@@ -100,11 +102,20 @@ function candidate(
   };
 }
 
-function balancedTeam(prefix: string): Candidate[] {
+/**
+ * 역할이 균형 잡힌 동성 3인 (한 팀).
+ *
+ * 3:3 에서 "같은 편"은 동성 3명이므로 팀 fixture 는 성별을 갖는다.
+ * 6인 pool 은 남성 팀 + 여성 팀으로 조립한다.
+ */
+function balancedTeam(
+  prefix: string,
+  gender: Candidate["gender"] = "male"
+): Candidate[] {
   return [
-    candidate(`${prefix}1`, { initiative: "initiator" }),
-    candidate(`${prefix}2`, { initiative: "adaptive" }),
-    candidate(`${prefix}3`, { initiative: "listener" }),
+    candidate(`${prefix}1`, { gender, initiative: "initiator" }),
+    candidate(`${prefix}2`, { gender, initiative: "adaptive" }),
+    candidate(`${prefix}3`, { gender, initiative: "listener" }),
   ];
 }
 
@@ -519,8 +530,12 @@ describe("무알코올 후보군 분리", () => {
 });
 
 describe("생활권 hard constraint", () => {
-  function zonedTeam(prefix: string, zones: string[]): Candidate[] {
-    return balancedTeam(prefix).map((member) => ({
+  function zonedTeam(
+    prefix: string,
+    zones: string[],
+    gender: Candidate["gender"] = "male"
+  ): Candidate[] {
+    return balancedTeam(prefix, gender).map((member) => ({
       ...member,
       campusLifeZones: zones,
     }));
@@ -592,7 +607,7 @@ describe("생활권 hard constraint", () => {
 
   it("공통 생활권이 없는 그룹은 hard constraint 위반이다", () => {
     const violations = checkGroupConstraints(
-      [...zonedTeam("a", ["sinchon"]), ...zonedTeam("b", ["songdo"])],
+      [...zonedTeam("a", ["sinchon"]), ...zonedTeam("b", ["songdo"], "female")],
       DATE,
       false,
       6
@@ -600,7 +615,7 @@ describe("생활권 hard constraint", () => {
     assert.ok(violations.includes("campusLifeZoneMismatch"));
     assert.equal(
       isGroupAllowed(
-        [...zonedTeam("a", ["sinchon"]), ...zonedTeam("b", ["songdo"])],
+        [...zonedTeam("a", ["sinchon"]), ...zonedTeam("b", ["songdo"], "female")],
         DATE,
         false,
         6
@@ -610,12 +625,12 @@ describe("생활권 hard constraint", () => {
   });
 
   it("신촌 3명 + 송도 3명은 점수와 무관하게 매칭되지 않는다", () => {
-    const pool = [...zonedTeam("sin", ["sinchon"]), ...zonedTeam("song", ["songdo"])];
+    const pool = [...zonedTeam("sin", ["sinchon"]), ...zonedTeam("song", ["songdo"], "female")];
     assert.equal(bestGroup(pool, DATE, false), null);
   });
 
   it("같은 생활권 6명은 정상 매칭된다", () => {
-    const pool = [...zonedTeam("a", ["sinchon"]), ...zonedTeam("b", ["sinchon"])];
+    const pool = [...zonedTeam("a", ["sinchon"]), ...zonedTeam("b", ["sinchon"], "female")];
     const group = bestGroup(pool, DATE, false);
     assert.ok(group != null);
     assert.deepEqual(
@@ -627,7 +642,7 @@ describe("생활권 hard constraint", () => {
   it("dual-zone 사용자는 양쪽 생활권 그룹에 참여할 수 있다", () => {
     const withSinchon = [
       ...zonedTeam("a", ["sinchon"]),
-      ...zonedTeam("b", ["sinchon", "songdo"]),
+      ...zonedTeam("b", ["sinchon", "songdo"], "female"),
     ];
     const sinchonGroup = bestGroup(withSinchon, DATE, false);
     assert.ok(sinchonGroup != null);
@@ -638,7 +653,7 @@ describe("생활권 hard constraint", () => {
 
     const withSongdo = [
       ...zonedTeam("a", ["songdo"]),
-      ...zonedTeam("b", ["sinchon", "songdo"]),
+      ...zonedTeam("b", ["sinchon", "songdo"], "female"),
     ];
     const songdoGroup = bestGroup(withSongdo, DATE, false);
     assert.ok(songdoGroup != null);
@@ -687,6 +702,7 @@ describe("생활권 hard constraint", () => {
 });
 
 describe("optimizer", () => {
+  // 남/여를 번갈아 채운다. 3:3 은 3남 + 3녀가 성립해야 구성된다.
   function pool(size: number): Candidate[] {
     const roles: Candidate["initiative"][] = [
       "initiator",
@@ -694,7 +710,10 @@ describe("optimizer", () => {
       "listener",
     ];
     return Array.from({ length: size }, (_, i) =>
-      candidate(`u${i}`, { initiative: roles[i % 3] })
+      candidate(`u${i}`, {
+        gender: i % 2 === 0 ? "male" : "female",
+        initiative: roles[i % 3],
+      })
     );
   }
 
@@ -717,7 +736,9 @@ describe("optimizer", () => {
   });
 
   it("동점이면 정렬된 id로 tie-break", () => {
-    const identical = Array.from({ length: 6 }, (_, i) => candidate(`u${i}`));
+    const identical = Array.from({ length: 6 }, (_, i) =>
+      candidate(`u${i}`, { gender: i % 2 === 0 ? "male" : "female" })
+    );
     const group = bestGroup(identical, DATE, false);
     assert.equal(group!.key, "u0|u1|u2|u3|u4|u5");
   });
@@ -730,10 +751,18 @@ describe("optimizer", () => {
     ];
     const candidates = [
       ...Array.from({ length: 3 }, (_, i) =>
-        candidate(`r${i}`, { purpose: "romance", initiative: roles[i] })
+        candidate(`r${i}`, {
+          gender: "male",
+          purpose: "romance",
+          initiative: roles[i],
+        })
       ),
       ...Array.from({ length: 3 }, (_, i) =>
-        candidate(`f${i}`, { purpose: "friendship", initiative: roles[i] })
+        candidate(`f${i}`, {
+          gender: "female",
+          purpose: "friendship",
+          initiative: roles[i],
+        })
       ),
     ];
     assert.equal(bestGroup(candidates, DATE, false), null);
@@ -752,7 +781,7 @@ describe("optimizer", () => {
 
 describe("대체 후보", () => {
   const teamA = balancedTeam("a");
-  const teamB = balancedTeam("b");
+  const teamB = balancedTeam("b", "female");
   const baseline = groupScore(
     teamA,
     teamB,
@@ -765,7 +794,7 @@ describe("대체 후보", () => {
       teamA,
       teamB,
       vacantUserId: "b3",
-      candidate: candidate("new", { initiative: "listener" }),
+      candidate: candidate("new", { gender: "female", initiative: "listener" }),
       baselineFinalGroupScore: baseline,
       dateKey: DATE,
       alcoholFree: false,
@@ -779,7 +808,7 @@ describe("대체 후보", () => {
       teamA,
       teamB,
       vacantUserId: "b3",
-      candidate: candidate("bad", { eligible: false }),
+      candidate: candidate("bad", { gender: "female", eligible: false }),
       baselineFinalGroupScore: baseline,
       dateKey: DATE,
       alcoholFree: false,
@@ -801,7 +830,10 @@ describe("대체 후보", () => {
       teamA,
       teamB,
       vacantUserId: "b3",
-      candidates: [candidate("a1"), candidate("c1", { initiative: "listener" })],
+      candidates: [
+        candidate("a1"),
+        candidate("c1", { gender: "female", initiative: "listener" }),
+      ],
       baselineFinalGroupScore: baseline,
       dateKey: DATE,
       alcoholFree: false,
@@ -816,6 +848,7 @@ describe("대체 후보", () => {
       vacantUserId: "b3",
       candidates: Array.from({ length: 6 }, (_, i) =>
         candidate(`cand${i}`, {
+          gender: "female",
           initiative: "listener",
           waitedMinutes: i * 100,
         })

@@ -269,12 +269,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       _idealMaxAge = _parseInt(idealRaw['maxAge']);
       _idealMinHeight = _parseInt(idealRaw['minHeight']);
       _idealMaxHeight = _parseInt(idealRaw['maxHeight']);
-      _idealMbti = _asStringList(idealRaw['preferredMbti'])
-          .map((value) => value.toUpperCase())
-          .toList();
-      _idealDepartments = _asStringList(idealRaw['preferredDepartments'])
-          .map(_normalizeMajor)
-          .toList();
+      _idealMbti = _asStringList(
+        idealRaw['preferredMbti'],
+      ).map((value) => value.toUpperCase()).toList();
+      _idealDepartments = _asStringList(
+        idealRaw['preferredDepartments'],
+      ).map(_normalizeMajor).toList();
       final preferredPersonalities = idealRaw['preferredPersonalities'];
       _idealPersonalityKeywords = preferredPersonalities is List
           ? preferredPersonalities.map((e) => e.toString()).toList()
@@ -404,7 +404,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       message = '학년을 선택해주세요.';
     } else if (!YonseiDepartments.majorLabels.containsKey(_major)) {
       message = '계열을 선택해주세요.';
-    } else if (!YonseiDepartments.departmentsFor(_major).contains(_department)) {
+    } else if (!YonseiDepartments.departmentsFor(
+      _major,
+    ).contains(_department)) {
       message = '계열에 맞는 학과를 선택해주세요.';
     } else if (!profileRelationshipOptions.any(
       (option) => option.value == _relationship,
@@ -1179,9 +1181,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
     await _showSingleSelectSheet(
       title: '학과',
-      options: YonseiDepartments.departmentsFor(_major)
-          .map((department) => ProfileOption(department, department))
-          .toList(),
+      options: YonseiDepartments.departmentsFor(
+        _major,
+      ).map((department) => ProfileOption(department, department)).toList(),
       current: _department,
       onSaved: (value) => setState(() {
         _department = value;

@@ -114,7 +114,8 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen> {
 
     try {
       // The callable creates the token and sends the Firebase action link.
-      await _authService.sendStudentEmailLink(
+      // Primary flow: no Kakao precondition of any kind.
+      await _authService.sendPrimaryStudentEmailLink(
         email: email,
         requestId: requestId,
       );

@@ -902,7 +902,7 @@ class _BottomCTA extends StatelessWidget {
           ),
           child: Center(
             child: Text(
-              isLoading ? '저장 중...' : '동의하고 카카오 로그인',
+              isLoading ? '저장 중...' : '동의하고 시작하기',
               style: TextStyle(
                 fontFamily: 'NanumSquareRound',
                 fontSize: 17,

@@ -20,6 +20,22 @@ void main() {
       reason: 'users collection must only be read as .doc(uid), never scanned',
     );
     expect(source.contains('.collection("users")'), isFalse);
+    // users collection 참조는 본인 문서 접근(.doc(...))만 허용한다.
+    // roster 조회(.where/.limit/.get on collection)는 전체 사용자 노출이므로 금지.
+    final usersCollectionUses = RegExp(
+      r"collection\('users'\)\s*\.\s*(\w+)\(",
+      multiLine: true,
+    ).allMatches(source).toList();
+    expect(usersCollectionUses, isNotEmpty);
+    for (final use in usersCollectionUses) {
+      expect(
+        use.group(1),
+        'doc',
+        reason:
+            "collection('users') must only be followed by .doc(uid); "
+            'roster-level queries are a privacy regression',
+      );
+    }
     expect(source.contains('_emptyFeedBecauseNoModelRecs'), isTrue);
   });
 
@@ -67,13 +83,21 @@ void main() {
       source.contains('Never trust local SharedPreferences alone'),
       isTrue,
     );
-    // Missing Firestore user doc path must clear local verified flag.
+    // A Firebase session without a users doc must clear the local verified
+    // flag instead of trusting SharedPreferences.
     expect(
       RegExp(
-        r'kakaoUserExists[\s\S]*?else \{[\s\S]*?'
+        r'if \(profile == null\) \{[\s\S]*?'
         r'_isStudentVerified = false;[\s\S]*?'
-        r'setStudentVerified\(kakaoUserId, false\)',
+        r'setStudentVerified\(uid, false\)',
       ).hasMatch(source),
+      isTrue,
+    );
+    // Student verification state always hydrates from the server doc.
+    expect(
+      source.contains(
+        "_isStudentVerified = profile['isStudentVerified'] == true",
+      ),
       isTrue,
     );
   });

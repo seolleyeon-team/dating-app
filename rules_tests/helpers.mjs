@@ -64,4 +64,16 @@ export async function emailLinkSession(uid, email) {
     .firestore();
 }
 
+/**
+ * Canonical app session minted by `completePrimaryStudentEmailAuth`
+ * (auth re-architecture): uid is the appUserId, claims carry
+ * `appSession: true` and `primaryAuth: "yonsei_email"` but no kakaoUserId.
+ */
+export async function appSession(uid) {
+  const env = await getTestEnv();
+  return env
+    .authenticatedContext(uid, { appSession: true, primaryAuth: "yonsei_email" })
+    .firestore();
+}
+
 export { assertFails, assertSucceeds };

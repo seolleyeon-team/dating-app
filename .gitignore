@@ -67,3 +67,44 @@ out/
 
 # Local-only generated artifacts
 .tmp/
+
+# ---- Release hardening (2026-08-31 port from release-branch audit) ----
+
+# pytest 임시 캐시/basetemp (실행 잔여물, 재생성됨)
+pytest-cache-files-*/
+.pytest_cache/
+pytest_tmp_*/
+.tmp_pytest_*/
+.pytest-basetemp-*/
+.g003_pytest_tmp/
+g005_pytest_owned_escalated*/
+pytest_tmp_avatar_qa_escalated/
+
+# 로컬 검증용 virtualenv (기본 이름 포함)
+.venv-*/
+.venv/
+
+# Python 바이트코드 캐시 디렉터리
+__pycache__/
+
+# npm 의존성 — 과거 node_modules 9,768개 커밋 사고 재발 방지
+node_modules/
+
+# 도구 실행 잔여물
+*.rej
+*.orig
+.tmp-commit-msg*.txt
+analyze_output.txt
+
+# Firebase hosting 배포 캐시 (firebase-tools 생성)
+.firebase/
+
+# 서명 자료는 어떤 형식이든 커밋 금지 (fail-closed)
+*.jks
+*.keystore
+*.p12
+*.p8
+*.mobileprovision
+
+# 실 UID↔사진 동의 증빙 — 로컬 보존, Git 추적 금지 (SEC-01)
+mini_calibration_uid_photo_map.txt

@@ -21,10 +21,15 @@ import 'avatar_source_photo_service.dart';
 /// - Firestore 직접 쓰기를 하지 않는다.
 abstract class AvatarGenerationClient {
   /// 사용자가 선택한 사진 파일을 백엔드 콜러블로 업로드한다.
+  ///
+  /// [clientRequestId]는 재시도 시에도 동일하게 유지해 서버가 중복 생성 대신
+  /// 멱등 재생(replay)을 수행할 수 있게 한다.
   Future<AvatarSourcePhotoUploadResult> uploadSourcePhoto({
     required XFile file,
     required String uid,
     int? slotIndex,
+    String? clientRequestId,
+    bool chatPartnerRealPhotoDisclosure = false,
   });
 
   /// 단일 폴 호출. 진행 중이면 후보 리스트가 비어 있을 수 있다.
@@ -155,11 +160,15 @@ class BackendAvatarGenerationClient extends AvatarGenerationClient {
     required XFile file,
     required String uid,
     int? slotIndex,
+    String? clientRequestId,
+    bool chatPartnerRealPhotoDisclosure = false,
   }) {
     return _sourcePhotoService.uploadPickedImage(
       file: file,
       slotIndex: slotIndex,
       uid: uid,
+      clientRequestId: clientRequestId,
+      chatPartnerRealPhotoDisclosure: chatPartnerRealPhotoDisclosure,
     );
   }
 
@@ -252,6 +261,8 @@ class MockAvatarGenerationClient extends AvatarGenerationClient {
     required XFile file,
     required String uid,
     int? slotIndex,
+    String? clientRequestId,
+    bool chatPartnerRealPhotoDisclosure = false,
   }) async {
     await Future<void>.delayed(uploadDelay);
     return const AvatarSourcePhotoUploadResult(
