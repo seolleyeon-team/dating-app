@@ -106,7 +106,16 @@ beforeEach(async () => {
 });
 
 const anon = () => testEnv.unauthenticatedContext().firestore();
-const as = (uid) => testEnv.authenticatedContext(uid).firestore();
+// Normal app traffic uses the canonical token minted after the temporary
+// email-link session is exchanged. Plain Firebase auth is intentionally not
+// enough for interactive social surfaces such as publicProfiles/asks/bamboo.
+const as = (uid) =>
+  testEnv
+    .authenticatedContext(uid, {
+      appSession: true,
+      primaryAuth: "yonsei_email",
+    })
+    .firestore();
 
 // ---------------------------------------------------------------------------
 // 1. 계정 탈취 체인
@@ -250,6 +259,27 @@ describe("users 보호 필드", () => {
       updateDoc(doc(as(ATTACKER), "users", ATTACKER), {
         onboarding: { nickname: "새 닉네임" },
         onboardingUpdatedAt: serverTimestamp(),
+      })
+    );
+  });
+
+  it("본인도 onboarding의 서버 소유 사진 필드를 추가할 수 없다", async () => {
+    await assertFails(
+      updateDoc(doc(as(ATTACKER), "users", ATTACKER), {
+        "onboarding.photoUrls": ["https://cdn.example/avatar.png"],
+        "onboarding.avatarUrls": ["https://cdn.example/avatar.png"],
+      })
+    );
+  });
+
+  it("본인도 승인 아바타 표시 필드를 직접 추가할 수 없다", async () => {
+    await assertFails(
+      updateDoc(doc(as(ATTACKER), "users", ATTACKER), {
+        avatar: {
+          approvedAvatarUrl: "https://cdn.example/avatar.png",
+          approvedAvatarStoragePath:
+            "gs://seolleyeon-final-approved-avatars/users/attacker/avatar/a.png",
+        },
       })
     );
   });
@@ -572,8 +602,9 @@ describe("chat_rooms / messages", () => {
     );
   });
 
-  it("자신이 참가자인 방은 만들 수 있다", async () => {
-    await assertSucceeds(
+  it("canonical app session도 채팅방을 직접 만들 수 없다", async () => {
+    // unlockDirectChat callable owns direct-room creation and heart charging.
+    await assertFails(
       setDoc(doc(as(ATTACKER), "chat_rooms", "new-room-2"), {
         participantIds: [ATTACKER, VICTIM].sort(),
         roomType: "direct",

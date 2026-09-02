@@ -201,7 +201,13 @@ describe("카카오 로그인 — Firebase 세션 없음 (request.auth == null) 
 });
 
 describe("카카오 로그인 — 다른 사용자 세션으로는 남의 문서에 쓸 수 없다", () => {
-  const otherDb = () => testEnv.authenticatedContext("9999999999").firestore();
+  const otherDb = () =>
+    testEnv
+      .authenticatedContext("9999999999", {
+        appSession: true,
+        primaryAuth: "yonsei_email",
+      })
+      .firestore();
 
   // Cross-user profile reads use the server-synced publicProfiles projection.
   // The private users/{kakaoUserId} document remains owner-only.

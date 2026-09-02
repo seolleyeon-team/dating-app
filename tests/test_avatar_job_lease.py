@@ -24,7 +24,7 @@ from avatar_generation.job_lease import (
 
 
 NOW = datetime(2026, 5, 14, 12, 0, tzinfo=timezone.utc)
-PRIVATE_REF = "gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg"
+PRIVATE_REF = "gs://seolleyeon-final-private-source-photos/users/u1/source/src_001.jpg"
 
 
 class FakeSnapshot:
@@ -273,8 +273,9 @@ def test_consent_revoked_job_is_not_claimed_and_is_terminal():
     "source_refs",
     [
         [],
+        ["gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg"],
         ["gs://wrong-bucket/users/u1/source/src_001.jpg"],
-        ["https://storage.googleapis.com/seolleyeon-private-source-photos/users/u1/source/src_001.jpg"],
+        ["https://storage.googleapis.com/seolleyeon-final-private-source-photos/users/u1/source/src_001.jpg"],
     ],
 )
 def test_missing_or_non_private_source_refs_are_rejected_without_leaking_ref(source_refs):

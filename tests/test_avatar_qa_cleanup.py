@@ -142,7 +142,7 @@ def test_qa_schema_unknown_model_requires_review_not_preview():
     assert "embedding" not in doc
 
 
-def test_qa_rejects_childlike_high_similarity_and_watermark():
+def test_qa_raw_watermark_boolean_does_not_override_child_identity_rejects():
     result = build_avatar_qa_from_signals(
         {
             "adultLike": False,
@@ -159,8 +159,10 @@ def test_qa_rejects_childlike_high_similarity_and_watermark():
     assert set(result.rejectReasons) >= {
         "childlike_or_teenager",
         "too_identifiable",
-        "logo_text_watermark",
     }
+    assert "logo_text_watermark" not in result.rejectReasons
+    assert result.watermarkQaAction == "allow"
+    assert result.textLogoWatermarkRisk == "low"
 
 
 def test_qa_passes_only_low_risk_complete_signal_set():
@@ -192,7 +194,7 @@ def test_qa_passes_only_low_risk_complete_signal_set():
     assert doc["cropIsolationQuality"] == "pass"
 
 
-def test_qa_rejects_generated_multi_face_background_text_and_bad_crop():
+def test_qa_raw_sign_boolean_does_not_override_other_hard_rejects():
     result = build_avatar_qa_from_signals(
         {
             "adultLike": True,
@@ -219,12 +221,13 @@ def test_qa_rejects_generated_multi_face_background_text_and_bad_crop():
         "multiple_faces_generated",
         "secondary_person_generated",
         "background_leakage",
-        "logo_text_watermark",
         "crop_expanded_to_unseen_body",
     }
+    assert "logo_text_watermark" not in doc["rejectReasons"]
     assert doc["backgroundLeakageRisk"] == "high"
     assert doc["secondaryFaceLeakageRisk"] == "high"
-    assert doc["textLogoWatermarkRisk"] == "high"
+    assert doc["watermarkQaAction"] == "allow"
+    assert doc["textLogoWatermarkRisk"] == "low"
     assert doc["cropIsolationQuality"] == "fail"
     assert doc["primaryFaceConfidence"] == 0.87
 
@@ -439,7 +442,7 @@ def test_run_avatar_candidate_qa_uses_processed_reference_metadata(tmp_path):
     assert doc["previewAllowed"] is True
 
 
-def test_run_avatar_candidate_qa_rejects_invented_eyewear_signal(tmp_path):
+def test_run_avatar_candidate_qa_routes_invented_eyewear_to_review(tmp_path):
     source_ref = _save_png(tmp_path, "source.png", _pattern_image())
     candidate_ref = _save_png(tmp_path, "candidate.png", _other_pattern_image())
 
@@ -468,12 +471,14 @@ def test_run_avatar_candidate_qa_rejects_invented_eyewear_signal(tmp_path):
     doc = result.to_document()
 
     assert doc["previewAllowed"] is False
-    assert "eyewear_invented_or_omitted" in doc["rejectReasons"]
+    assert doc["requiresHumanReview"] is True
+    assert doc["rejectReasons"] == []
+    assert "invented_eyewear_from_no_glasses_source" in doc["reviewReasons"]
     assert doc["candidateTraitConsistency"]["eyewearMatch"] == "fail"
     assert doc["candidateTraitConsistency"]["eyewearReason"] == "invented_eyewear_from_no_glasses_source"
 
 
-def test_run_avatar_candidate_qa_rejects_omitted_eyewear_trait_card(tmp_path):
+def test_run_avatar_candidate_qa_routes_omitted_eyewear_to_review(tmp_path):
     source_ref = _save_png(tmp_path, "source.png", _pattern_image())
     candidate_ref = _save_png(tmp_path, "candidate.png", _other_pattern_image())
 
@@ -506,7 +511,9 @@ def test_run_avatar_candidate_qa_rejects_omitted_eyewear_trait_card(tmp_path):
     doc = result.to_document()
 
     assert doc["previewAllowed"] is False
-    assert "eyewear_invented_or_omitted" in doc["rejectReasons"]
+    assert doc["requiresHumanReview"] is True
+    assert doc["rejectReasons"] == []
+    assert "omitted_eyewear_from_glasses_source" in doc["reviewReasons"]
     assert doc["candidateTraitConsistency"]["eyewearMatch"] == "fail"
     assert doc["candidateTraitConsistency"]["eyewearReason"] == "omitted_eyewear_from_glasses_source"
 
@@ -644,24 +651,24 @@ def test_expired_candidate_cleanup_selects_only_temp_candidates():
             "candidateId": "expired",
             "status": "preview_ready",
             "expiresAt": (now - timedelta(hours=1)).isoformat(),
-            "imageRef": "gs://seolleyeon-avatar-temp/users/u/jobs/j/candidates/expired.png",
+            "imageRef": "gs://seolleyeon-final-avatar-temp/users/u/jobs/j/candidates/expired.png",
         },
         "approved": {
             "candidateId": "approved",
             "status": "approved",
             "expiresAt": (now - timedelta(hours=1)).isoformat(),
-            "imageRef": "gs://seolleyeon-approved-avatars/users/u/avatar/a.png",
+            "imageRef": "gs://seolleyeon-final-approved-avatars/users/u/avatar/a.png",
         },
         "source": {
             "candidateId": "source",
             "status": "rejected",
-            "imageRef": "gs://seolleyeon-private-source-photos/users/u/source/src.jpg",
+            "imageRef": "gs://seolleyeon-final-private-source-photos/users/u/source/src.jpg",
         },
         "needs_review": {
             "candidateId": "needs_review",
             "status": "needs_review",
             "expiresAt": (now - timedelta(hours=1)).isoformat(),
-            "imageRef": "gs://seolleyeon-avatar-temp/users/u/jobs/j/candidates/needs_review.png",
+            "imageRef": "gs://seolleyeon-final-avatar-temp/users/u/jobs/j/candidates/needs_review.png",
         },
     }
 
@@ -678,12 +685,12 @@ def test_cleanup_expired_candidates_deletes_only_temp_bucket_objects():
                 "cand_1": {
                     "candidateId": "cand_1",
                     "status": "rejected",
-                    "imageRef": "gs://seolleyeon-avatar-temp/users/u/jobs/j/candidates/cand_1.png",
+                    "imageRef": "gs://seolleyeon-final-avatar-temp/users/u/jobs/j/candidates/cand_1.png",
                 },
                 "cand_approved": {
                     "candidateId": "cand_approved",
                     "status": "approved",
-                    "imageRef": "gs://seolleyeon-approved-avatars/users/u/avatar/avatar_1.png",
+                    "imageRef": "gs://seolleyeon-final-approved-avatars/users/u/avatar/avatar_1.png",
                     "expiresAt": (now - timedelta(days=3)).isoformat(),
                 },
             }
@@ -693,10 +700,10 @@ def test_cleanup_expired_candidates_deletes_only_temp_bucket_objects():
     approved_blob = FakeBlob()
     st = FakeStorage(
         {
-            "seolleyeon-avatar-temp": FakeBucket(
+            "seolleyeon-final-avatar-temp": FakeBucket(
                 {"users/u/jobs/j/candidates/cand_1.png": temp_blob}
             ),
-            "seolleyeon-approved-avatars": FakeBucket(
+            "seolleyeon-final-approved-avatars": FakeBucket(
                 {"users/u/avatar/avatar_1.png": approved_blob}
             ),
         }
@@ -722,7 +729,7 @@ def test_user_media_cleanup_deletes_source_temp_approved_and_clip():
             "users": {
                 "u1": {
                     "avatar": {
-                        "approvedAvatarStoragePath": "gs://seolleyeon-approved-avatars/users/u1/avatar/avatar_1.png"
+                        "approvedAvatarStoragePath": "gs://seolleyeon-final-approved-avatars/users/u1/avatar/avatar_1.png"
                     }
                 }
             },
@@ -737,7 +744,7 @@ def test_user_media_cleanup_deletes_source_temp_approved_and_clip():
                         {
                             "photoId": "src_001",
                             "status": "active",
-                            "gcsUri": "gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg",
+                            "gcsUri": "gs://seolleyeon-final-private-source-photos/users/u1/source/src_001.jpg",
                         }
                     ],
                     "clip": {"embeddingStatus": "ready"},
@@ -748,7 +755,7 @@ def test_user_media_cleanup_deletes_source_temp_approved_and_clip():
                 "cand_1": {
                     "uid": "u1",
                     "status": "preview_ready",
-                    "imageRef": "gs://seolleyeon-avatar-temp/users/u1/jobs/j/candidates/cand_1.png",
+                    "imageRef": "gs://seolleyeon-final-avatar-temp/users/u1/jobs/j/candidates/cand_1.png",
                 }
             },
             "avatarJobs": {"avatar_job_1": {"uid": "u1", "status": "queued"}},
@@ -759,13 +766,13 @@ def test_user_media_cleanup_deletes_source_temp_approved_and_clip():
     approved_blob = FakeBlob()
     st = FakeStorage(
         {
-            "seolleyeon-private-source-photos": FakeBucket(
+            "seolleyeon-final-private-source-photos": FakeBucket(
                 {"users/u1/source/src_001.jpg": source_blob}
             ),
-            "seolleyeon-avatar-temp": FakeBucket(
+            "seolleyeon-final-avatar-temp": FakeBucket(
                 {"users/u1/jobs/j/candidates/cand_1.png": temp_blob}
             ),
-            "seolleyeon-approved-avatars": FakeBucket(
+            "seolleyeon-final-approved-avatars": FakeBucket(
                 {"users/u1/avatar/avatar_1.png": approved_blob}
             ),
         }
@@ -807,7 +814,7 @@ def test_user_media_cleanup_writes_redacted_audit_log():
                         {
                             "photoId": "src_001",
                             "status": "active",
-                            "gcsUri": "gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg",
+                            "gcsUri": "gs://seolleyeon-final-private-source-photos/users/u1/source/src_001.jpg",
                         }
                     ],
                     "clip": {"embeddingStatus": "ready"},
@@ -821,7 +828,7 @@ def test_user_media_cleanup_writes_redacted_audit_log():
     source_blob = FakeBlob()
     st = FakeStorage(
         {
-            "seolleyeon-private-source-photos": FakeBucket(
+            "seolleyeon-final-private-source-photos": FakeBucket(
                 {"users/u1/source/src_001.jpg": source_blob}
             )
         }
@@ -840,7 +847,7 @@ def test_user_media_cleanup_writes_redacted_audit_log():
     audit_text = json.dumps(list(audit_docs.values()), default=str, sort_keys=True)
     assert "account_deletion" in audit_text
     assert "u1" not in audit_text
-    assert "seolleyeon-private-source-photos" not in audit_text
+    assert "seolleyeon-final-private-source-photos" not in audit_text
     assert "users/u1/source/src_001.jpg" not in audit_text
     assert "0.1" not in audit_text
 
@@ -864,7 +871,7 @@ def test_cleanup_dry_run_reports_planned_not_actual_deletes():
                 "cand_1": {
                     "candidateId": "cand_1",
                     "status": "rejected",
-                    "imageRef": "gs://seolleyeon-avatar-temp/users/u/jobs/j/candidates/cand_1.png",
+                    "imageRef": "gs://seolleyeon-final-avatar-temp/users/u/jobs/j/candidates/cand_1.png",
                 }
             }
         }
@@ -872,7 +879,7 @@ def test_cleanup_dry_run_reports_planned_not_actual_deletes():
     temp_blob = FakeBlob()
     st = FakeStorage(
         {
-            "seolleyeon-avatar-temp": FakeBucket(
+            "seolleyeon-final-avatar-temp": FakeBucket(
                 {"users/u/jobs/j/candidates/cand_1.png": temp_blob}
             )
         }
@@ -905,12 +912,12 @@ def test_avatar_ttl_cleanup_script_defaults_to_dry_run_and_writes_report(tmp_pat
                     "candidateId": "cand_temp",
                     "status": "preview_ready",
                     "expiresAt": (now - timedelta(hours=1)).isoformat(),
-                    "imageRef": "gs://seolleyeon-avatar-temp/users/u1/jobs/j/candidates/cand_temp.png",
+                    "imageRef": "gs://seolleyeon-final-avatar-temp/users/u1/jobs/j/candidates/cand_temp.png",
                 },
                 "cand_source": {
                     "candidateId": "cand_source",
                     "status": "rejected",
-                    "imageRef": "gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg",
+                    "imageRef": "gs://seolleyeon-final-private-source-photos/users/u1/source/src_001.jpg",
                 },
             }
         }
@@ -919,10 +926,10 @@ def test_avatar_ttl_cleanup_script_defaults_to_dry_run_and_writes_report(tmp_pat
     source_blob = FakeBlob()
     st = FakeStorage(
         {
-            "seolleyeon-avatar-temp": FakeBucket(
+            "seolleyeon-final-avatar-temp": FakeBucket(
                 {"users/u1/jobs/j/candidates/cand_temp.png": temp_blob}
             ),
-            "seolleyeon-private-source-photos": FakeBucket(
+            "seolleyeon-final-private-source-photos": FakeBucket(
                 {"users/u1/source/src_001.jpg": source_blob}
             ),
         }

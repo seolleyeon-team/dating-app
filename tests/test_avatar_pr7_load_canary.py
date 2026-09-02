@@ -16,7 +16,7 @@ from avatar_generation.job_lease import AvatarJobLeaseConfig
 
 
 NOW = datetime(2026, 5, 14, 12, 0, tzinfo=timezone.utc)
-PRIVATE_REF = "gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg"
+PRIVATE_REF = "gs://seolleyeon-final-private-source-photos/users/u1/source/src_001.jpg"
 
 
 def _load_script(name):
@@ -218,7 +218,7 @@ def test_load_test_cost_report_includes_timing_and_privacy_marker():
     assert report["privacy"]["leakageCheck"] == "pass"
     assert report["privacy"]["qaMarker"] == "pr7f_privacy_qa_pass"
     encoded = json.dumps(report)
-    assert "gs://seolleyeon-private-source-photos" not in encoded
+    assert "gs://seolleyeon-final-private-source-photos" not in encoded
 
 
 def test_privacy_status_fails_when_emitted_report_contains_sensitive_markers():
@@ -226,7 +226,7 @@ def test_privacy_status_fails_when_emitted_report_contains_sensitive_markers():
 
     report = module._privacy_status(
         {
-            "bad": "gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg?X-Goog-Signature=abc"
+            "bad": "gs://seolleyeon-final-private-source-photos/users/u1/source/src_001.jpg?X-Goog-Signature=abc"
         }
     )
 

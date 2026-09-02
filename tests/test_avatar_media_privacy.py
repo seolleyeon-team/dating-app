@@ -118,6 +118,35 @@ def test_gcs_loader_enforces_allowed_bucket_and_size():
         )
 
 
+def test_clip_loader_dispatches_private_gcs_to_backend_storage(monkeypatch):
+    import seolleyeon_clip_embedder as clip
+
+    expected = Image.new("RGB", (2, 2), color=(10, 20, 30))
+    calls = []
+
+    def fake_load(uri, *, max_bytes, allowed_buckets, storage_client=None):
+        calls.append((uri, max_bytes, allowed_buckets, storage_client))
+        return expected
+
+    monkeypatch.setattr(clip, "_load_image_from_gcs", fake_load)
+
+    actual = clip.load_image_any(
+        "gs://seolleyeon-final-private-source-photos/users/u1/source/src_001.png",
+        max_bytes=123,
+        allowed_gcs_buckets={"seolleyeon-final-private-source-photos"},
+    )
+
+    assert actual is expected
+    assert calls == [
+        (
+            "gs://seolleyeon-final-private-source-photos/users/u1/source/src_001.png",
+            123,
+            {"seolleyeon-final-private-source-photos"},
+            None,
+        )
+    ]
+
+
 def test_private_media_loader_filters_consent_status_and_scheme():
     from seolleyeon_rec_common_v3 import load_users_with_private_source_photos_from_docs
 
@@ -505,6 +534,90 @@ def test_clip_https_loader_rejects_signed_private_and_temp_urls_before_download(
         )
 
 
+def test_clip_https_loader_rejects_redirect_without_following_location(monkeypatch):
+    import seolleyeon_clip_embedder as clip
+
+    calls = []
+
+    class RedirectResponse:
+        status_code = 302
+        headers = {"location": "http://169.254.169.254/latest/meta-data/"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def raise_for_status(self):
+            return None
+
+        def iter_content(self, *, chunk_size):
+            raise AssertionError("redirect response body must not be downloaded")
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return RedirectResponse()
+
+    monkeypatch.setattr(clip.requests, "get", fake_get)
+
+    with pytest.raises(ValueError, match="Redirects are not allowed"):
+        clip._load_image_from_url(
+            "https://storage.googleapis.com/public-bucket/avatar.png",
+            timeout=0.1,
+            max_bytes=16,
+            allowed_hosts={"storage.googleapis.com"},
+        )
+
+    assert calls == [
+        (
+            "https://storage.googleapis.com/public-bucket/avatar.png",
+            {"stream": True, "timeout": 0.1, "allow_redirects": False},
+        )
+    ]
+
+
+def test_clip_https_loader_keeps_normal_allowlisted_200_download(monkeypatch):
+    import seolleyeon_clip_embedder as clip
+
+    data = _png_bytes(size=(3, 2))
+    calls = []
+
+    class SuccessResponse:
+        status_code = 200
+        headers = {"content-length": str(len(data))}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def raise_for_status(self):
+            return None
+
+        def iter_content(self, *, chunk_size):
+            yield data
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return SuccessResponse()
+
+    monkeypatch.setattr(clip.requests, "get", fake_get)
+
+    image = clip._load_image_from_url(
+        "https://storage.googleapis.com/public-bucket/avatar.png",
+        timeout=0.1,
+        max_bytes=len(data) + 1,
+        allowed_hosts={"storage.googleapis.com"},
+    )
+
+    assert image.mode == "RGB"
+    assert image.size == (3, 2)
+    assert len(calls) == 1
+    assert calls[0][1]["allow_redirects"] is False
+
+
 def test_qa_fixture_detects_onboarding_avatar_url_temp_leakage():
     from scripts.qa_media_privacy import run_fixture_checks
 
@@ -580,11 +693,30 @@ def test_qa_fixture_detects_signed_markers_and_storage_source_paths():
     assert summary.passed is False
 
 
-def test_firestore_rules_protect_client_written_avatar_display_fields():
+def test_firestore_rules_wire_avatar_display_protection_helpers():
     rules = (REPO_ROOT / "firestore.rules").read_text(encoding="utf-8")
 
-    assert re.search(r"function\s+onboardingAvatarPhotoFieldsUnchanged", rules)
-    assert re.search(r"function\s+avatarApprovalFieldsUnchanged", rules)
+    onboarding_helper = re.search(
+        r"function\s+onboardingAvatarPhotoFieldsUnchanged\(\)\s*\{(?P<body>.*?)\n\s*\}",
+        rules,
+        re.DOTALL,
+    )
+    avatar_helper = re.search(
+        r"function\s+avatarApprovalFieldsUnchanged\(\)\s*\{(?P<body>.*?)\n\s*\}",
+        rules,
+        re.DOTALL,
+    )
+
+    assert onboarding_helper is not None
+    assert avatar_helper is not None
+    onboarding_body = onboarding_helper.group("body")
+    avatar_body = avatar_helper.group("body")
+    assert ".get('onboarding', {})" in onboarding_body
+    assert ".diff(" in onboarding_body
+    assert "affectedKeys().hasAny" in onboarding_body
+    assert ".diff(" in avatar_body
+    assert "affectedKeys().hasAny" in avatar_body
+    assert re.search(r"allow\s+update:\s+if\s+onboardingAvatarPhotoFieldsUnchanged\(\)", rules)
     assert re.search(r"function\s+isStorageSourcePath", rules)
     assert "lower()" in rules
     assert "x-goog-" in rules
@@ -593,12 +725,10 @@ def test_firestore_rules_protect_client_written_avatar_display_fields():
     assert "signature=" in rules
     assert "expires=" in rules
     assert "awsaccesskeyid" in rules
-    assert "request.resource.data.onboarding.diff(resource.data.onboarding)" in rules
-    assert "request.resource.data.avatar.diff(resource.data.avatar)" in rules
-    assert "'avatarUrls'" in rules
-    assert "'photoUrls'" in rules
-    assert "'approvedAvatarUrl'" in rules
-    assert "'approvedAvatarStoragePath'" in rules
+    assert "'avatarUrls'" in onboarding_body
+    assert "'photoUrls'" in onboarding_body
+    assert "'approvedAvatarUrl'" in avatar_body
+    assert "'approvedAvatarStoragePath'" in avatar_body
     assert "chatRoomDoesNotPersistPrivateMedia" in rules
     assert "'realProfilePhotoUrl'" in rules
     assert "seolleyeon-chat-profile-photos" in rules
@@ -688,6 +818,8 @@ def test_private_media_allows_chat_profile_photo_copy_with_consent():
                     "sourcePhotos": [
                         {
                             "photoId": "src_001",
+                            # The QA migration reader still accepts the historical
+                            # source alias; this test's contract is the final chat bucket.
                             "gcsUri": "gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg",
                             "status": "active",
                             "purpose": {"clipRecommendation": True, "avatarGeneration": True},
@@ -695,9 +827,9 @@ def test_private_media_allows_chat_profile_photo_copy_with_consent():
                     ],
                     "chatRealPhoto": {
                         "enabled": True,
-                        "storageBucket": "seolleyeon-chat-profile-photos",
+                        "storageBucket": "seolleyeon-final-chat-profile-photos",
                         "storagePath": "users/u1/chat-profile/src_001.jpg",
-                        "gcsUri": "gs://seolleyeon-chat-profile-photos/users/u1/chat-profile/src_001.jpg",
+                        "gcsUri": "gs://seolleyeon-final-chat-profile-photos/users/u1/chat-profile/src_001.jpg",
                     },
                 }
             },

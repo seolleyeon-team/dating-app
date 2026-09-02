@@ -27,6 +27,7 @@ if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 
 from seolleyeon_clip_embedder import DEFAULT_MODEL_ID, SeolleyeonCLIPEmbedder
+from avatar_media_privacy import _parse_gcs_uri
 from seolleyeon_rec_common_v3 import redact_private_image_ref
 
 CLIP_SCHEMA_VERSION = "clip_job_v1"
@@ -63,16 +64,6 @@ def _parse_allowed_buckets(value: str | None = None) -> Optional[set[str]]:
         return None
     buckets = {item.strip() for item in raw.split(",") if item.strip()}
     return buckets or None
-
-
-def _gcs_bucket(source: str) -> str:
-    if source.startswith("gs://"):
-        rest = source[len("gs://") :]
-    elif source.startswith("gcs://"):
-        rest = source[len("gcs://") :]
-    else:
-        return ""
-    return rest.split("/", 1)[0].strip()
 
 
 def _load_json_arg(value: str) -> Dict[str, Any]:
@@ -113,6 +104,7 @@ def decode_clip_job_payload(value: Mapping[str, Any] | str) -> Dict[str, Any]:
 def select_private_clip_sources(
     private_media_doc: Mapping[str, Any],
     *,
+    uid: str,
     requested_source_photo_ids: Optional[Iterable[str]] = None,
     allowed_buckets: Optional[set[str]] = None,
 ) -> Tuple[List[str], List[str]]:
@@ -152,9 +144,14 @@ def select_private_clip_sources(
         gcs_uri = _as_str(entry.get("gcsUri"))
         if not gcs_uri.startswith(("gs://", "gcs://")):
             continue
-        bucket = _gcs_bucket(gcs_uri)
+        try:
+            bucket, object_path = _parse_gcs_uri(gcs_uri)
+        except ValueError:
+            continue
         if allowed_buckets is not None and bucket not in allowed_buckets:
             raise ValueError(f"source photo bucket is not allowed: {bucket}")
+        if not object_path.startswith(f"users/{uid}/source/") or object_path.endswith("/"):
+            raise ValueError("source photo object path does not belong to uid")
         selected_ids.append(photo_id)
         selected_refs.append(gcs_uri)
 
@@ -248,6 +245,7 @@ def process_clip_job_payload(
         )
         source_photo_ids, source_refs = select_private_clip_sources(
             private_doc,
+            uid=uid,
             requested_source_photo_ids=requested_ids,
         )
 

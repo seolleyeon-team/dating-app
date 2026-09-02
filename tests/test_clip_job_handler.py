@@ -22,7 +22,7 @@ def _payload():
         "uid": "u1",
         "sourcePhotoIds": ["src_001"],
         "sourcePhotoRefs": [
-            "gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg"
+            "gs://seolleyeon-final-private-source-photos/users/u1/source/src_001.jpg"
         ],
         "embeddingVersion": "clip-vit-large-patch14_v1",
         "jobType": "clip_embedding",
@@ -56,7 +56,7 @@ def test_select_private_clip_sources_filters_consent_status_scheme_and_ids():
         "sourcePhotos": [
             {
                 "photoId": "src_001",
-                "gcsUri": "gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg",
+                "gcsUri": "gs://seolleyeon-final-private-source-photos/users/u1/source/src_001.jpg",
                 "status": "active",
                 "purpose": {"clipRecommendation": True},
             },
@@ -68,7 +68,7 @@ def test_select_private_clip_sources_filters_consent_status_scheme_and_ids():
             },
             {
                 "photoId": "src_003",
-                "gcsUri": "gs://seolleyeon-private-source-photos/users/u1/source/src_003.jpg",
+                "gcsUri": "gs://seolleyeon-final-private-source-photos/users/u1/source/src_003.jpg",
                 "status": "deleted",
                 "purpose": {"clipRecommendation": True},
             },
@@ -77,11 +77,12 @@ def test_select_private_clip_sources_filters_consent_status_scheme_and_ids():
 
     source_ids, refs = select_private_clip_sources(
         private_doc,
+        uid="u1",
         requested_source_photo_ids=["src_001", "src_002"],
     )
 
     assert source_ids == ["src_001"]
-    assert refs == ["gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg"]
+    assert refs == ["gs://seolleyeon-final-private-source-photos/users/u1/source/src_001.jpg"]
 
 
 def test_select_private_clip_sources_requires_no_original_display_consent():
@@ -93,7 +94,8 @@ def test_select_private_clip_sources_requires_no_original_display_consent():
                     "profileDisplayOriginalPhoto": True,
                 },
                 "sourcePhotos": [],
-            }
+            },
+            uid="u1",
         )
 
 
@@ -114,7 +116,8 @@ def test_select_private_clip_sources_rejects_non_allowlisted_bucket():
                     }
                 ],
             },
-            allowed_buckets={"seolleyeon-private-source-photos"},
+            uid="u1",
+            allowed_buckets={"seolleyeon-final-private-source-photos"},
         )
 
 
@@ -209,7 +212,7 @@ def test_process_clip_job_payload_writes_embedding_and_private_status(monkeypatc
             "sourcePhotos": [
                 {
                     "photoId": "src_001",
-                    "gcsUri": "gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg",
+                    "gcsUri": "gs://seolleyeon-final-private-source-photos/users/u1/source/src_001.jpg",
                     "status": "active",
                     "purpose": {"clipRecommendation": True},
                 }
@@ -228,8 +231,44 @@ def test_process_clip_job_payload_writes_embedding_and_private_status(monkeypatc
 
     assert result["status"] == "ready"
     assert embedder.sources == [
-        "gs://seolleyeon-private-source-photos/users/u1/source/src_001.jpg"
+        "gs://seolleyeon-final-private-source-photos/users/u1/source/src_001.jpg"
     ]
     assert store["clipEmbeddings/u1"]["vector"] == [0.6, 0.8]
     assert store["clipEmbeddings/u1"]["sourcePhotoIds"] == ["src_001"]
     assert store["userPrivateMedia/u1"]["clip"]["embeddingStatus"] == "ready"
+
+
+def test_process_clip_job_payload_rejects_cross_user_source_path(monkeypatch):
+    store = {
+        "userPrivateMedia/u1": {
+            "photoConsent": {
+                "clipRecommendation": True,
+                "profileDisplayOriginalPhoto": False,
+            },
+            "sourcePhotos": [
+                {
+                    "photoId": "src_001",
+                    "gcsUri": (
+                        "gs://seolleyeon-final-private-source-photos/"
+                        "users/u2/source/src_001.jpg"
+                    ),
+                    "status": "active",
+                    "purpose": {"clipRecommendation": True},
+                }
+            ],
+        }
+    }
+    fake_firestore = _FakeFirestoreModule(store)
+    monkeypatch.setattr("seolleyeon_clip_job_handler.firestore", fake_firestore)
+    embedder = _FakeEmbedder()
+
+    with pytest.raises(ValueError, match="source photo object path does not belong to uid"):
+        process_clip_job_payload(
+            _payload(),
+            firestore_project="demo",
+            embedder=embedder,
+        )
+
+    assert embedder.sources == []
+    assert "clipEmbeddings/u1" not in store
+    assert store["userPrivateMedia/u1"]["clip"]["embeddingStatus"] == "failed"
