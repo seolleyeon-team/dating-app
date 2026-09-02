@@ -54,3 +54,32 @@ class TermsGateException implements Exception {
   @override
   String toString() => 'TermsGateException($detail)';
 }
+
+/// What the client must do after the server rejected the terms proof during
+/// primary email-link completion.
+///
+/// `signInWithEmailLink()` leaves a TEMPORARY Firebase session attached before
+/// `completePrimaryStudentEmailAuth()` runs. That session is not a canonical
+/// app session — no `users/{uid}` document exists for it — but the terms
+/// screen classifies by `FirebaseAuth.currentUser != null`, so leaving it in
+/// place sends the user into the post-auth re-consent branch, where
+/// `recordTermsAcceptance` fails with `identity_conflict` and the user has no
+/// way back into the normal pre-auth flow.
+enum TermsGateRecovery {
+  /// The temporary session is gone, so the terms screen takes its PRE-AUTH
+  /// branch and the user can accept and request a fresh email link.
+  returnToTerms,
+
+  /// The temporary session could not be dropped. Returning to terms now would
+  /// let it masquerade as a canonical account, so the client stops instead
+  /// (fail closed) and lets the user retry.
+  blockedSessionNotCleared,
+}
+
+TermsGateRecovery resolveTermsGateRecovery({
+  required bool temporarySessionCleared,
+}) {
+  return temporarySessionCleared
+      ? TermsGateRecovery.returnToTerms
+      : TermsGateRecovery.blockedSessionNotCleared;
+}

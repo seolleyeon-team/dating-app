@@ -77,7 +77,26 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
   /// email-link branch may reach this screen without ever passing terms, but
   /// it cannot get past the server.
   Future<void> _handleTermsGateFailure(TermsGateException failure) async {
+    // `signInWithEmailLink()` above left a TEMPORARY Firebase session attached.
+    // It is not a canonical app session (no `users/{uid}` document exists for
+    // it), but the terms screen classifies by `currentUser != null`, so leaving
+    // it in place would send the user into the post-auth re-consent branch and
+    // dead-end on `identity_conflict`. Drop it before going back.
+    final recovery = resolveTermsGateRecovery(
+      temporarySessionCleared: await _authService
+          .clearTemporaryEmailLinkSession(),
+    );
     if (!mounted) return;
+
+    if (recovery == TermsGateRecovery.blockedSessionNotCleared) {
+      // Fail closed: never hand the terms screen a live session it would read
+      // as a canonical account.
+      const message = '로그인 상태를 정리하지 못했어요. 앱을 다시 시작한 뒤 시도해 주세요.';
+      setState(() => _statusMessage = message);
+      await _showDialogMessage('세션 정리 실패', message);
+      return;
+    }
+
     setState(() => _statusMessage = failure.userMessage);
     await _showDialogMessage('약관 동의 필요', failure.userMessage);
     if (!mounted) return;

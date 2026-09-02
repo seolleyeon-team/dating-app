@@ -314,7 +314,8 @@ class _TermsScreenState extends State<TermsScreen> {
   ///
   /// - PRE-AUTH (no session): stores the REAL selections locally; the pending
   ///   acceptance becomes the `termsAcceptance` payload of
-  ///   `sendPrimaryStudentEmailLink`. Continues to adult verification.
+  ///   `sendPrimaryStudentEmailLink`. Continues to Yonsei email
+  ///   authentication; adult/real-name verification is a post-auth gate.
   /// - POST-AUTH (canonical session, stale version): `termsAcceptance` is
   ///   server-written only, so the re-consent goes through the
   ///   `recordTermsAcceptance` callable and the setup ladder decides where

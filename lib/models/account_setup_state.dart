@@ -7,8 +7,8 @@ import '../services/onboarding_route_resolver.dart';
 /// Yonsei email link (`completePrimaryStudentEmailAuth`). Kakao OAuth is a
 /// friend-exclusion authorization step and never authenticates the account.
 enum AccountSetupState {
-  /// No Firebase session. The user must start from terms → adult
-  /// verification → Yonsei email login.
+  /// No Firebase session. The user must start from terms → Yonsei email
+  /// login → canonical session → adult verification.
   unauthenticated,
 
   /// Either an email action link is being consumed, or the session/user doc

@@ -301,6 +301,28 @@ class AuthService {
     debugPrint('[Kakao] KakaoSdk.init ensured (kIsWeb=$kIsWeb)');
   }
 
+  /// Drops the TEMPORARY Firebase session that `signInWithEmailLink()` leaves
+  /// attached when primary auth completion is rejected at the terms gate.
+  ///
+  /// That session is not a canonical app session — no `users/{uid}` document
+  /// exists for it — so it must not survive into the terms screen, which
+  /// classifies by `currentUser != null`.
+  ///
+  /// Returns whether no session remains. `signOut()` can throw, so the answer
+  /// is derived from the observed session rather than from the call
+  /// succeeding: a swallowed error can never report success.
+  Future<bool> clearTemporaryEmailLinkSession() async {
+    try {
+      await _firebaseAuth.signOut();
+    } catch (e) {
+      debugPrint(
+        '[Auth] temporary email-link sign-out '
+        '${PrivacyLogUtils.errorSummary(e)}',
+      );
+    }
+    return _firebaseAuth.currentUser == null;
+  }
+
   /// Signs out both the Firebase session and any Kakao SDK session so a
   /// different next user on this device cannot inherit a stale Kakao token.
   Future<void> signOutAll() async {
