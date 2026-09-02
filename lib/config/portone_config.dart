@@ -8,7 +8,10 @@ class PortOneConfig {
 
   static const kgInicisIdentityChannelKey = String.fromEnvironment(
     'PORTONE_KG_INICIS_IDENTITY_CHANNEL_KEY',
-    defaultValue: '',
+    // PortOne Channel Key is a public client identifier embedded in the app
+    // binary, not the server API Secret. Keep the production channel as the
+    // portable default; local/staging builds can override it via dart-define.
+    defaultValue: 'channel-key-decfd8bd-d150-4023-b4bb-982f5579bb52',
   );
 
   static const verificationProvider = String.fromEnvironment(

@@ -41,6 +41,15 @@ def profile_completion_provenance(doc: Mapping[str, Any]) -> dict[str, Any]:
 
 def account_active_provenance(doc: Mapping[str, Any]) -> dict[str, Any]:
     """Normalize account availability without using recency as ``isActive``."""
+    # Operations staff can use chat but are never recommendation actors or
+    # candidates.  This is intentionally before generic status/active flags:
+    # provisioning an active staff account must not accidentally enter a batch.
+    if str(doc.get("accountType") or "").strip().lower() == "operations":
+        return {
+            "value": False,
+            "source": "users.accountType",
+            "reason": "operations_account",
+        }
     status_field = "status" if doc.get("status") is not None else "accountStatus"
     status = str(doc.get(status_field) or "").strip().lower()
     if status in _BLOCKED_ACCOUNT_STATUSES:

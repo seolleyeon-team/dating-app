@@ -35,7 +35,8 @@ test("auth and bootstrap callables pass through withAppCheck", () => {
     "spinSeasonMeetingRoulette",
     "syncContactBlocks",
     "syncKakaoTalkFriendBlocks",
-    "saveUserPhoneHash",
+    "backfillVerifiedPhoneHashIndex",
+    "purgeLegacyKakaoPhoneHashes",
   ];
 
   for (const name of required) {

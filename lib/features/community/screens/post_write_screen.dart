@@ -10,12 +10,12 @@
 
 import 'dart:ui';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
-import '../../../services/storage_service.dart';
 import '../providers/community_provider.dart';
 
 // =============================================================================
@@ -54,7 +54,6 @@ class PostWriteScreen extends StatefulWidget {
 
 class _PostWriteScreenState extends State<PostWriteScreen> {
   final TextEditingController _textController = TextEditingController();
-  final StorageService _storageService = StorageService();
 
   final int _maxLength = 300;
   String _currentText = '';
@@ -94,34 +93,37 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
     });
 
     try {
-      final kakaoUserId = await _storageService.getKakaoUserId();
-
-      if (kakaoUserId == null || kakaoUserId.isEmpty) {
-        throw Exception('로그인 정보가 없습니다.');
+      final appUserId = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+      if (appUserId.isEmpty) {
+        throw StateError('로그인 세션을 확인하지 못했어요. 다시 로그인해주세요.');
       }
 
       debugPrint(
-        '[PostWrite] 글 등록 author=${PrivacyLogUtils.idFingerprint(kakaoUserId)}, category="$_selectedCategory"',
+        '[PostWrite] 글 등록 author=${PrivacyLogUtils.idFingerprint(appUserId)}, category="$_selectedCategory"',
       );
 
       if (!mounted) return;
       final provider = context.read<CommunityProvider>();
 
-      await provider.createPost(
-        authorId: kakaoUserId,
+      final postId = await provider.createPost(
+        authorId: appUserId,
         content: _currentText.trim(),
         category: _selectedCategory,
         tags: [_selectedCategory],
       );
+      if (postId.isEmpty) {
+        throw StateError('게시글을 저장하지 못했어요. 잠시 후 다시 시도해주세요.');
+      }
 
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
+      debugPrint('[PostWrite] 글 등록 실패: ${PrivacyLogUtils.errorSummary(e)}');
       if (!mounted) return;
 
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('게시글 등록 실패: $e')));
+      ).showSnackBar(SnackBar(content: Text(_failureMessage(e))));
     } finally {
       if (mounted) {
         setState(() {
@@ -129,6 +131,22 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
         });
       }
     }
+  }
+
+  String _failureMessage(Object error) {
+    if (error is FirebaseException) {
+      switch (error.code) {
+        case 'permission-denied':
+        case 'unauthenticated':
+          return '글쓰기 권한을 확인하지 못했어요. 다시 로그인한 뒤 시도해주세요.';
+        case 'unavailable':
+        case 'deadline-exceeded':
+          return '네트워크 연결을 확인한 뒤 다시 시도해주세요.';
+      }
+    }
+
+    if (error is StateError) return error.message.toString();
+    return '게시글을 등록하지 못했어요. 잠시 후 다시 시도해주세요.';
   }
 
   Color _getCategoryBackgroundColor(String category, bool isSelected) {

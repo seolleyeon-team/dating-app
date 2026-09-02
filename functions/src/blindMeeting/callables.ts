@@ -11,10 +11,6 @@
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
-import {
-  isFreeBlindMeetingTestClient,
-  isFreeBlindMeetingTestUser,
-} from "./compatibility";
 import { hasRequiredInterests } from "./eligibility";
 import { requiresAlcoholFreeGroup } from "./matching";
 import {
@@ -37,13 +33,20 @@ import {
 } from "./orchestrator";
 import { BLIND_MEETING_CALLABLE_OPTIONS } from "./runtime";
 import {
+  cancelBlindMeetingParty,
+  createBlindMeetingPartyInvite,
+  ensureBlindMeetingParty,
+  loadActivePartyForUser,
+  lockBlindMeetingParty,
+  reconcileBlindMeetingParty,
+  respondBlindMeetingPartyInvite,
+} from "./party";
+import {
   db,
   loadPolicy,
   requireVerifiedUser,
   cancelOpenApplication,
-  claimFreeBlindMeetingTestSlot,
   updateApplicationForDnaEdit,
-  createFreeBlindMeetingApplication,
   createPaidBlindMeetingApplication,
   startPaidBlindMeetingDna,
   saveBlindMeetingDnaDraft,
@@ -96,10 +99,6 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
   const data = getData(request);
   const dnaRaw = data.dna;
   const editExistingApplication = data.editExistingApplication === true;
-  const clientBuild = asStr(data.clientBuild, "").trim();
-  const isFreeTestUser = isFreeBlindMeetingTestUser(user.userId);
-  const isFreeTestBuild =
-    !editExistingApplication && isFreeBlindMeetingTestClient(clientBuild);
   if (!isRecord(dnaRaw)) {
     throw new HttpsError("invalid-argument", "dna가 필요해요.");
   }
@@ -239,32 +238,16 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
     waitlistOptIn: dnaRaw.waitlistOptIn !== false,
   };
 
+  const party = await loadActivePartyForUser(user.userId);
+  if (party?.status === "forming") {
+    throw new HttpsError(
+      "failed-precondition",
+      "친구 팀 구성을 먼저 확정해주세요."
+    );
+  }
+
   if (editExistingApplication) {
     await updateApplicationForDnaEdit({
-      userId: user.userId,
-      dnaPayload,
-      requestedDateKeys: dateKeys,
-      prefersAlcoholFree,
-      waitlistOptIn: dnaRaw.waitlistOptIn !== false,
-    });
-  } else if (isFreeTestUser) {
-    // 수동 UID 예외는 build 슬롯과 무관하게 계속 허용한다.
-    await createFreeBlindMeetingApplication({
-      userId: user.userId,
-      dnaPayload,
-      requestedDateKeys: dateKeys,
-      prefersAlcoholFree,
-      waitlistOptIn: dnaRaw.waitlistOptIn !== false,
-    });
-  } else if (isFreeTestBuild) {
-    // build 번호는 클라이언트 입력이므로 단독 보안 경계로 쓰지 않는다.
-    // App Check가 통과한 요청만 여기까지 오며, 서버 트랜잭션이 동일 UID의
-    // 재시도를 멱등 처리하고 전체 무료 슬롯을 서버 설정 한도 안에서 제한한다.
-    await claimFreeBlindMeetingTestSlot({
-      userId: user.userId,
-      clientBuild,
-    });
-    await createFreeBlindMeetingApplication({
       userId: user.userId,
       dnaPayload,
       requestedDateKeys: dateKeys,
@@ -278,15 +261,26 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
       requestedDateKeys: dateKeys,
       prefersAlcoholFree,
       waitlistOptIn: dnaRaw.waitlistOptIn !== false,
+      partyId: party?.partyId ?? null,
+      partyMemberIds: party?.acceptedUserIds ?? [user.userId],
     });
   }
+
+  const readiness = party
+    ? await reconcileBlindMeetingParty(party.partyId)
+    : null;
 
   // 신청 즉시 매칭을 시도하되 날짜 수만큼 선형으로 늘리지 않는다.
   // 날짜를 21개 고른 사용자 때문에 callable이 타임아웃되면
   // '많이 고르라'고 안내한 사용자가 오히려 실패하게 된다.
   // 나머지 날짜는 10분 주기 스케줄러가 이어서 처리한다.
   const policy = await loadPolicy();
-  const inlineDateKeys = dateKeys.slice(
+  const matchableDateKeys = readiness?.ready
+    ? readiness.commonDateKeys
+    : party
+      ? []
+      : dateKeys;
+  const inlineDateKeys = matchableDateKeys.slice(
     0,
     Math.max(1, policy.inlineMatchingDateLimit)
   );
@@ -311,11 +305,7 @@ async function submitBlindMeetingApplicationHandler(request: BlindMeetingRequest
     availabilityWindowDays: BLIND_MEETING_AVAILABILITY_WINDOW_DAYS,
     prefersAlcoholFree,
     createdMeetings: createdMeetingIds.length,
-    billingMode: isFreeTestBuild
-      ? "free_test_build"
-      : isFreeTestUser
-        ? "free_test_user"
-        : "paid",
+    billingMode: "paid",
   });
 
   return { accepted: true, stage, meetingId };
@@ -363,8 +353,67 @@ async function saveBlindMeetingDnaDraftHandler(request: BlindMeetingRequest) {
 
 async function cancelBlindMeetingApplicationHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
+  const party = await loadActivePartyForUser(user.userId);
+  if (party && party.status !== "matched") {
+    await cancelBlindMeetingParty(user.userId, party.partyId);
+    return { ok: true };
+  }
   // 미팅에 배정된 신청은 여기서 취소할 수 없다 (store가 transaction으로 게이트).
   await cancelOpenApplication(user.userId);
+  return { ok: true };
+}
+
+async function ensureBlindMeetingPartyHandler(request: BlindMeetingRequest) {
+  const user = await requireVerifiedUser(request);
+  const party = await ensureBlindMeetingParty(user.userId);
+  return { ok: true, partyId: party.partyId, status: party.status };
+}
+
+async function createBlindMeetingPartyInviteHandler(request: BlindMeetingRequest) {
+  const user = await requireVerifiedUser(request);
+  const data = getData(request);
+  const partyId = asTrimmedOrNull(data.partyId);
+  const inviteeUserId = asTrimmedOrNull(data.inviteeUserId);
+  if (!partyId || !inviteeUserId) {
+    throw new HttpsError("invalid-argument", "partyId와 inviteeUserId가 필요해요.");
+  }
+  return createBlindMeetingPartyInvite({
+    userId: user.userId,
+    partyId,
+    inviteeUserId,
+  });
+}
+
+async function respondBlindMeetingPartyInviteHandler(request: BlindMeetingRequest) {
+  const user = await requireVerifiedUser(request);
+  const data = getData(request);
+  const inviteId = asTrimmedOrNull(data.inviteId);
+  if (!inviteId) throw new HttpsError("invalid-argument", "inviteId가 필요해요.");
+  return respondBlindMeetingPartyInvite({
+    userId: user.userId,
+    inviteId,
+    accept: data.accept === true,
+  });
+}
+
+async function lockBlindMeetingPartyHandler(request: BlindMeetingRequest) {
+  const user = await requireVerifiedUser(request);
+  const partyId = asTrimmedOrNull(getData(request).partyId);
+  if (!partyId) throw new HttpsError("invalid-argument", "partyId가 필요해요.");
+  const party = await lockBlindMeetingParty(user.userId, partyId);
+  return {
+    ok: true,
+    partyId: party.partyId,
+    status: party.status,
+    memberCount: party.acceptedUserIds.length,
+  };
+}
+
+async function cancelBlindMeetingPartyHandler(request: BlindMeetingRequest) {
+  const user = await requireVerifiedUser(request);
+  const partyId = asTrimmedOrNull(getData(request).partyId);
+  if (!partyId) throw new HttpsError("invalid-argument", "partyId가 필요해요.");
+  await cancelBlindMeetingParty(user.userId, partyId);
   return { ok: true };
 }
 
@@ -572,6 +621,11 @@ type BlindMeetingHandler = (
 ) => Promise<Record<string, unknown>>;
 
 const HANDLERS: Record<string, BlindMeetingHandler> = {
+  ensureBlindMeetingParty: ensureBlindMeetingPartyHandler,
+  createBlindMeetingPartyInvite: createBlindMeetingPartyInviteHandler,
+  respondBlindMeetingPartyInvite: respondBlindMeetingPartyInviteHandler,
+  lockBlindMeetingParty: lockBlindMeetingPartyHandler,
+  cancelBlindMeetingParty: cancelBlindMeetingPartyHandler,
   submitBlindMeetingApplication: submitBlindMeetingApplicationHandler,
   startBlindMeetingDna: startBlindMeetingDnaHandler,
   saveBlindMeetingDnaDraft: saveBlindMeetingDnaDraftHandler,

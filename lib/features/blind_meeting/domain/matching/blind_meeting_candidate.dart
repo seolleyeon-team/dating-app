@@ -22,6 +22,10 @@ enum BlindMeetingGender { male, female }
 class BlindMeetingCandidate {
   final String userId;
 
+  /// 분리할 수 없는 선결 파티. null이면 legacy 1인 파티다.
+  final String? partyId;
+  final Set<String> partyMemberIds;
+
   /// canonical 성별. 3남 + 3녀 불변식의 입력이다.
   final BlindMeetingGender gender;
 
@@ -65,6 +69,8 @@ class BlindMeetingCandidate {
 
   const BlindMeetingCandidate({
     required this.userId,
+    this.partyId,
+    this.partyMemberIds = const <String>{},
     required this.gender,
     required this.atmosphere,
     required this.initiative,
@@ -114,6 +120,8 @@ class BlindMeetingCandidate {
   }) {
     return BlindMeetingCandidate(
       userId: userId,
+      partyId: partyId,
+      partyMemberIds: partyMemberIds,
       gender: gender ?? this.gender,
       atmosphere: atmosphere ?? this.atmosphere,
       initiative: initiative ?? this.initiative,

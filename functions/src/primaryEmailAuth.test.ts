@@ -7,6 +7,7 @@ import {
   CURRENT_TERMS_VERSION,
   REQUIRED_TERMS_DOCUMENT_IDS,
   SUPPORTED_TERMS_VERSIONS,
+  buildPrimaryEmailDeliveryRequestId,
   buildCanonicalSessionClaims,
   buildPrimaryAuthNewUserShell,
   buildTermsAcceptanceRecord,
@@ -15,6 +16,7 @@ import {
   evaluatePrimaryEmailLinkToken,
   evaluateTermsAcceptancePayload,
   readStoredTermsVersion,
+  shouldRenewPrimaryEmailSend,
 } from "./primaryEmailAuth";
 
 const NOW = new Date("2026-08-31T12:00:00.000Z");
@@ -23,6 +25,66 @@ const FUTURE = new Date("2026-08-31T12:20:00.000Z");
 const PAST = new Date("2026-08-31T11:55:00.000Z");
 
 const NO_OPTIONAL_CONSENTS = { marketing: false, push: false, email: false };
+
+test("a sent request renews after the legacy resend cooldown or token expiry", () => {
+  const nowMs = NOW.getTime();
+  assert.equal(
+    shouldRenewPrimaryEmailSend({
+      status: "sent",
+      expiresAtMs: nowMs + 1,
+      sentAtMs: nowMs - 59_999,
+      nowMs,
+    }),
+    false
+  );
+  assert.equal(
+    shouldRenewPrimaryEmailSend({
+      status: "sent",
+      expiresAtMs: nowMs,
+      sentAtMs: nowMs - 1,
+      nowMs,
+    }),
+    true
+  );
+  assert.equal(
+    shouldRenewPrimaryEmailSend({
+      status: "sent",
+      expiresAtMs: null,
+      sentAtMs: null,
+      nowMs,
+    }),
+    true
+  );
+  assert.equal(
+    shouldRenewPrimaryEmailSend({
+      status: "sending",
+      expiresAtMs: nowMs - 1,
+      sentAtMs: nowMs - 60_000,
+      nowMs,
+    }),
+    false
+  );
+  assert.equal(
+    shouldRenewPrimaryEmailSend({
+      status: "sent",
+      expiresAtMs: nowMs + 20 * 60_000,
+      sentAtMs: nowMs - 60_000,
+      nowMs,
+    }),
+    true
+  );
+});
+
+test("renewed sends use a fresh provider idempotency key", () => {
+  assert.equal(buildPrimaryEmailDeliveryRequestId("request_12345678", 0),
+    "request_12345678");
+  assert.equal(buildPrimaryEmailDeliveryRequestId("request_12345678", 1),
+    "request_12345678-renewal-1");
+  assert.notEqual(
+    buildPrimaryEmailDeliveryRequestId("request_12345678", 1),
+    buildPrimaryEmailDeliveryRequestId("request_12345678", 2)
+  );
+});
 
 function primaryToken(overrides: Record<string, unknown> = {}) {
   return {
@@ -60,6 +122,65 @@ test("primary token with matching mailbox proof passes and normalizes the email"
       version: CURRENT_TERMS_VERSION,
       optionalConsents: NO_OPTIONAL_CONSENTS,
     },
+  });
+});
+
+test("pending status is accepted explicitly as well as on legacy primary tokens", () => {
+  assert.deepEqual(evaluateToken(primaryToken({ status: "pending" })), {
+    ok: true,
+    email: "student@yonsei.ac.kr",
+    terms: {
+      ok: true,
+      version: CURRENT_TERMS_VERSION,
+      optionalConsents: NO_OPTIONAL_CONSENTS,
+    },
+  });
+});
+
+test("completed token can recover the same account result until expiry", () => {
+  assert.deepEqual(
+    evaluateToken(
+      primaryToken({
+        status: "completed",
+        completedAppUserId: "app_uid_1",
+        completedIsNewUser: true,
+      })
+    ),
+    {
+      ok: true,
+      email: "student@yonsei.ac.kr",
+      terms: {
+        ok: true,
+        version: CURRENT_TERMS_VERSION,
+        optionalConsents: NO_OPTIONAL_CONSENTS,
+      },
+      completedAppUserId: "app_uid_1",
+      completedIsNewUser: true,
+    }
+  );
+});
+
+test("completed token without a complete recovery marker is malformed", () => {
+  assert.deepEqual(
+    evaluateToken(primaryToken({ status: "completed" })),
+    { ok: false, reason: "malformed" }
+  );
+  assert.deepEqual(
+    evaluateToken(
+      primaryToken({
+        status: "completed",
+        completedAppUserId: "app_uid_1",
+        completedIsNewUser: "yes",
+      })
+    ),
+    { ok: false, reason: "malformed" }
+  );
+});
+
+test("unknown primary token status is rejected fail-closed", () => {
+  assert.deepEqual(evaluateToken(primaryToken({ status: "sending" })), {
+    ok: false,
+    reason: "malformed",
   });
 });
 

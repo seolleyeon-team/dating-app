@@ -329,11 +329,11 @@ class AuthProvider with ChangeNotifier {
       _isLoading = true;
       notifyListeners();
 
-      // 1) One-time action code proves mailbox ownership (temp session).
-      await _authService.signInWithEmailLink(email: email, emailLink: link);
-      // 2) Server resolves appUserId, consumes the token and mints the
-      //    canonical custom token (uid == appUserId asserted client-side).
-      final completion = await _authService.completePrimaryStudentEmailAuth(
+      // All observers of this native link share one process-wide completion
+      // future, so the one-time Firebase action code is consumed once.
+      final completion = await _authService.completePrimaryStudentEmailLink(
+        email: email,
+        emailLink: link,
         token: verificationToken,
       );
       final appUserId = completion.appUserId;

@@ -14,6 +14,11 @@ import {
 } from "../shared/notify";
 
 export type BlindMeetingNotificationKind =
+  | "party_invite"
+  | "party_joined"
+  | "party_locked"
+  | "party_member_completed"
+  | "party_ready"
   | "matched"
   | "acceptance_request"
   | "deposit_request"
@@ -37,10 +42,44 @@ type NotificationTemplate = {
   type: InAppNotificationType;
   title: string;
   body: string;
-  deeplinkType: "blind_meeting" | "blind_meeting_follow_up" | "chat";
+  deeplinkType:
+    | "blind_meeting_party"
+    | "blind_meeting"
+    | "blind_meeting_follow_up"
+    | "chat";
 };
 
 const TEMPLATES: Record<BlindMeetingNotificationKind, NotificationTemplate> = {
+  party_invite: {
+    type: "blind_meeting_party_invite",
+    title: "친구가 취향 미팅에 초대했어요",
+    body: "친구와 같은 편으로 블라인드 취향 미팅에 참가해보세요.",
+    deeplinkType: "blind_meeting_party",
+  },
+  party_joined: {
+    type: "blind_meeting_party_joined",
+    title: "친구가 팀에 합류했어요",
+    body: "팀 구성 화면에서 함께 참가할 멤버를 확인해보세요.",
+    deeplinkType: "blind_meeting_party",
+  },
+  party_locked: {
+    type: "blind_meeting_party_locked",
+    title: "취향 미팅 팀이 확정됐어요",
+    body: "이제 각자 미팅 DNA와 가능한 날짜를 작성해주세요.",
+    deeplinkType: "blind_meeting_party",
+  },
+  party_member_completed: {
+    type: "blind_meeting_party_member_completed",
+    title: "친구가 날짜 신청을 완료했어요",
+    body: "팀 전원이 완료하면 같은 미팅으로 함께 매칭을 시작해요.",
+    deeplinkType: "blind_meeting_party",
+  },
+  party_ready: {
+    type: "blind_meeting_party_ready",
+    title: "우리 팀의 신청이 모두 완료됐어요",
+    body: "함께 가능한 날짜로 같은 편 매칭을 시작했어요.",
+    deeplinkType: "blind_meeting_party",
+  },
   matched: {
     type: "blind_meeting_matched",
     title: "블라인드 취향 미팅 구성 완료",
@@ -215,5 +254,62 @@ export async function notifyBlindMeeting(params: {
       },
     },
     pushKey
+  );
+}
+
+/** 친구 파티 단계 알림. 미팅이 만들어지기 전이라 partyId를 링크로 쓴다. */
+export async function notifyBlindMeetingParty(params: {
+  userIds: string[];
+  partyId: string;
+  kind:
+    | "party_invite"
+    | "party_joined"
+    | "party_locked"
+    | "party_member_completed"
+    | "party_ready";
+  dedupeSuffix?: string;
+}): Promise<void> {
+  const template = TEMPLATES[params.kind];
+  for (const userId of params.userIds) {
+    if (!userId) continue;
+    const notificationId = buildNotificationIdempotencyKey([
+      "blind_meeting_party",
+      params.kind,
+      params.partyId,
+      userId,
+      params.dedupeSuffix,
+    ]);
+    await createInAppNotification(
+      userId,
+      {
+        type: template.type,
+        title: template.title,
+        body: template.body,
+        deeplinkType: "blind_meeting_party",
+        deeplinkId: params.partyId,
+        partyId: params.partyId,
+      },
+      notificationId
+    );
+  }
+  await sendPushOnce(
+    params.userIds,
+    {
+      title: template.title,
+      body: template.body,
+      data: {
+        type: template.type,
+        partyId: params.partyId,
+        deeplinkType: "blind_meeting_party",
+        deeplinkId: params.partyId,
+      },
+    },
+    buildNotificationIdempotencyKey([
+      "blind_meeting_party_push",
+      params.kind,
+      params.partyId,
+      params.userIds.slice().sort().join("-"),
+      params.dedupeSuffix,
+    ])
   );
 }

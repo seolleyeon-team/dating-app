@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
@@ -43,7 +44,7 @@ class _FriendsListScreenState extends State<FriendsListScreen> {
   }
 
   Future<void> _loadCurrentUser() async {
-    final userId = await _storageService.getKakaoUserId();
+    final userId = await _storageService.getAppUserId();
     if (!mounted) return;
 
     var canReadFriends = false;
@@ -52,7 +53,9 @@ class _FriendsListScreenState extends State<FriendsListScreen> {
     if (userId != null && userId.isNotEmpty) {
       final userProfile = await _userService.getUserProfile(userId);
       friendCountHint = (userProfile?['friendsCount'] as num?)?.toInt() ?? 0;
-      canReadFriends = await _authService.ensureCanonicalAppSession();
+      canReadFriends =
+          await _authService.ensureCanonicalAppSession() &&
+          FirebaseAuth.instance.currentUser?.uid == userId;
     }
 
     if (!mounted) return;

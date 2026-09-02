@@ -64,6 +64,8 @@
 	<string>안전도장에서 상대방 기기가 가까이에 있는지 확인하기 위해 블루투스 권한이 필요합니다.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>안전도장 시 만남 위치를 기록하고 약속 장소 정보를 보여주기 위해 위치 정보가 필요합니다.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>안전도장 이용 중 상대와의 안전 확인 및 약속 장소 정보를 제공하기 위해 위치 정보가 필요합니다.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>

@@ -46,6 +46,30 @@ void main() {
     },
   );
 
+  test('onboarding exposes only male and female gender choices', () {
+    final source = read(
+      'lib/features/onboarding/screens/basic_info_screen.dart',
+    );
+
+    expect(source, contains('enum Gender { male, female }'));
+    expect(source, isNot(contains('Gender.other')));
+    expect(source, isNot(contains("label: '기타'")));
+  });
+
+  test(
+    'primary-email users without a legacy Kakao id can update onboarding',
+    () {
+      final rules = read('firestore.rules');
+
+      expect(rules, contains("data.get('kakaoUserId', null) == null"));
+      expect(rules, isNot(contains('return data.kakaoUserId == null')));
+      expect(
+        rules,
+        isNot(contains('request.resource.data.kakaoUserId == null')),
+      );
+    },
+  );
+
   test('recommendation → like → chat → report/block services exist', () {
     expect(
       File('$root/lib/services/ai_recommendation_service.dart').existsSync(),

@@ -115,6 +115,23 @@ def test_empty_when_only_self_or_synthetic_candidates_remain():
     assert result["selection"]["rejected"]["synthetic"] == 1
 
 
+def test_operations_account_is_filtered_from_recommendation_candidates():
+    meta = merge_meta(
+        policy_meta("actor", gender="male"),
+        policy_meta("operations", gender="female", active=False),
+    )
+    result = select_daily_items(
+        "actor",
+        rrf(("operations", 0.99)),
+        meta,
+        date_key="20260824",
+    )
+
+    assert result["status"] == "empty"
+    assert result["items"] == []
+    assert result["selection"]["rejected"]["policy"] == 1
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -190,6 +207,26 @@ def test_mutual_block_report_nope_and_recent_exposure_are_hard_exclusions():
     assert result["selection"]["rejected"]["blocked_or_reported"] == 2
     assert result["selection"]["rejected"]["nope"] == 1
     assert result["selection"]["rejected"]["recent_exposure"] == 1
+
+
+def test_same_department_avoidance_is_removed_before_rank_selection():
+    actor = policy_meta("actor", gender="male")
+    candidate = policy_meta("candidate", gender="female")
+    alternate = policy_meta("alternate", gender="female")
+    actor["actor"]["department"] = "컴퓨터과학과"
+    candidate["candidate"]["department"] = "컴퓨터과학과"
+    candidate["candidate"]["avoidSameDepartment"] = True
+    alternate["alternate"]["department"] = "심리학과"
+
+    result = select_daily_items(
+        "actor",
+        rrf(("candidate", 1.0), ("alternate", 0.8)),
+        merge_meta(actor, candidate, alternate),
+        date_key="20260824",
+    )
+
+    assert [item["uid"] for item in result["items"]] == ["alternate"]
+    assert result["selection"]["rejected"]["same_department"] == 1
 
 
 def test_selection_is_deterministic_for_same_actor_and_date():

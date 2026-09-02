@@ -6,7 +6,7 @@ Firebase Callable Function이 포트원 API에서 인증 결과를 다시 확인
 ## iOS Xcode 영구 설정
 
 한 번만 아래 스크립트를 실행하면, 입력한 실 통합인증 채널 키가 Git에
-포함되지 않는 `ios/Flutter/Local.xcconfig`에 저장된다. 이 파일은 이미
+포함되지 않는 `ios/Flutter/Local.xcconfig`에 저장할 수 있다. 이 파일은 이미
 Debug, Profile, Release 설정 모두에서 불러오므로 그 다음부터는 Xcode에서
 평소처럼 `Runner.xcworkspace`를 열어 Archive 하면 된다.
 
@@ -15,7 +15,10 @@ zsh scripts/configure_ios_portone_identity_channel.sh
 ```
 
 프롬프트에 포트원 실 Channel Key만 입력한다. 입력 글자는 표시되지 않는 것이
-정상이다. `Local.xcconfig` 또는 Xcode Build Settings에 API Secret을 넣으면 안 된다.
+정상이다. 운영 Channel Key는 앱 바이너리에 포함되는 공개 클라이언트 식별자이므로
+`PortOneConfig`에도 휴대 가능한 기본값이 있으며, `Local.xcconfig`의 dart-define은
+개발/스테이징 채널로 덮어쓸 때 사용한다. `Local.xcconfig` 또는 Xcode Build
+Settings에 API Secret을 넣으면 안 된다.
 
 ## 다른 빌드 환경의 운영값 주입
 

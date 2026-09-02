@@ -36,6 +36,42 @@ test("only an open applied or waitlisted application without a meeting is editab
   );
 });
 
+test("a closed party application remains editable while waiting for teammates", () => {
+  assert.equal(
+    canEditBlindMeetingApplication({
+      status: "applied",
+      stage: "waitingForPartyMembers",
+      open: false,
+      meetingId: null,
+    }),
+    true
+  );
+  assert.deepEqual(
+    buildBlindMeetingApplicationEditPatch(
+      {
+        status: "applied",
+        stage: "waitingForCommonDates",
+        open: false,
+        meetingId: null,
+      },
+      {
+        requestedDateKeys: ["2026-08-11"],
+        prefersAlcoholFree: true,
+        waitlistOptIn: true,
+      }
+    ),
+    {
+      status: "applied",
+      stage: "waitingForCommonDates",
+      open: false,
+      meetingId: null,
+      requestedDateKeys: ["2026-08-11"],
+      prefersAlcoholFree: true,
+      waitlistOptIn: true,
+    }
+  );
+});
+
 test("closed, cancelled, matched, or assigned applications cannot be edited", () => {
   for (const application of [
     {

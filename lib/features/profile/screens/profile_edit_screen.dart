@@ -9,6 +9,7 @@ import '../../../services/avatar_source_photo_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../shared/utils/avatar_lock_policy.dart';
+import '../../../shared/widgets/mbti_choice_grid.dart';
 import '../../../shared/widgets/profile_photo_mosaic.dart';
 import '../../../router/route_names.dart';
 import '../../matching/models/profile_card_args.dart';
@@ -27,14 +28,20 @@ class _AppColors {
 const List<InterestCategory> _interestCategories = interestCategories;
 
 class ProfileEditScreen extends StatefulWidget {
-  const ProfileEditScreen({super.key});
+  const ProfileEditScreen({super.key, this.showcase = false});
+
+  /// Builds the screen with deterministic sample values for visual QA.
+  ///
+  /// Production routes use the default value, so this never bypasses the
+  /// signed-in user's profile loading unless a test opts in explicitly.
+  final bool showcase;
 
   @override
   State<ProfileEditScreen> createState() => _ProfileEditScreenState();
 }
 
 class _ProfileEditScreenState extends State<ProfileEditScreen> {
-  final _userService = UserService();
+  late final UserService _userService;
   final _storageService = StorageService();
 
   bool _isLoading = true;
@@ -148,7 +155,51 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    if (widget.showcase) {
+      _loadShowcaseProfile();
+    } else {
+      _userService = UserService();
+      _loadProfile();
+    }
+  }
+
+  void _loadShowcaseProfile() {
+    _currentUserId = 'profile-showcase';
+    _selfIntroduction =
+        '새로운 카페와 전시를 찾아다니는 걸 좋아해요. 편하게 대화하면서 '
+        '서로의 일상을 응원할 수 있는 사람을 만나고 싶어요.';
+    _nickname = '연세봄';
+    _age = 23;
+    _gender = 'female';
+    _profileQa = [
+      {'question': '주말에 보통 뭐 해요?', 'answer': '산책하고 맛있는 디저트 가게를 찾아가요.'},
+    ];
+    _interests = ['카페', '전시', '산책', '여행'];
+    _keywords = ['잘 웃는', '차분한', '예의 바른'];
+    _idealPersonalityKeywords = ['재치있는', '어른스러운', '목소리 좋은'];
+    _height = 165;
+    _grade = '3학년';
+    _isRa = false;
+    _relationship = 'serious';
+    _mbti = 'ENFJ';
+    _major = 'liberalArts';
+    _department = '심리학과';
+    _drinking = 'sometimes';
+    _smoking = 'nonSmoker';
+    _exercise = 'sometimes';
+    _religion = 'none';
+    _idealMinAge = 22;
+    _idealMaxAge = 27;
+    _idealMinHeight = 170;
+    _idealMaxHeight = 185;
+    _idealMbti = ['ENFP', 'INFJ'];
+    _idealDepartments = ['science', 'liberalArts'];
+    _idealDrinking = 'sometimes';
+    _idealSmoking = 'nonSmoker';
+    _idealExercise = 'daily';
+    _idealReligion = 'none';
+    _hasIdealTypeData = true;
+    _isLoading = false;
   }
 
   String _normalizeMajor(dynamic value) {
@@ -630,51 +681,22 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Future<void> _showMbtiSheet() async {
-    String e = _mbti.isNotEmpty ? _mbti[0] : 'E';
-    String n = _mbti.length >= 2 ? _mbti[1] : 'N';
-    String f = _mbti.length >= 3 ? _mbti[2] : 'F';
-    String j = _mbti.length >= 4 ? _mbti[3] : 'J';
+    var selected = _isValidMbti(_mbti) ? _mbti : 'ENFJ';
 
     await _showCenteredSheet(
       title: 'MBTI',
-      onDone: () => setState(() => _mbti = '$e$n$f$j'),
+      onDone: () => setState(() => _mbti = selected),
       useFlexible: false,
       child: StatefulBuilder(
         builder: (context, setSheetState) {
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            child: SizedBox(
-              height: 120,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _MbtiColumn(
-                    top: profileMbtiDimensions[0].first,
-                    bottom: profileMbtiDimensions[0].second,
-                    selected: e,
-                    onSelect: (v) => setSheetState(() => e = v),
-                  ),
-                  _MbtiColumn(
-                    top: profileMbtiDimensions[1].first,
-                    bottom: profileMbtiDimensions[1].second,
-                    selected: n,
-                    onSelect: (v) => setSheetState(() => n = v),
-                  ),
-                  _MbtiColumn(
-                    top: profileMbtiDimensions[2].first,
-                    bottom: profileMbtiDimensions[2].second,
-                    selected: f,
-                    onSelect: (v) => setSheetState(() => f = v),
-                  ),
-                  _MbtiColumn(
-                    top: profileMbtiDimensions[3].first,
-                    bottom: profileMbtiDimensions[3].second,
-                    selected: j,
-                    onSelect: (v) => setSheetState(() => j = v),
-                  ),
-                ],
-              ),
-            ),
+          return MbtiChoiceGrid(
+            selectedValue: selected,
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
+            onSelect: (index, value) => setSheetState(() {
+              final characters = selected.split('');
+              characters[index] = value;
+              selected = characters.join();
+            }),
           );
         },
       ),
@@ -1312,7 +1334,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         ),
         trailing: CupertinoButton(
           padding: EdgeInsets.zero,
-          onPressed: _isSaving ? null : _saveProfile,
+          onPressed: _isSaving || widget.showcase ? null : _saveProfile,
           child: const Text(
             '저장',
             style: TextStyle(
@@ -1972,39 +1994,6 @@ class _SelectChip extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _MbtiColumn extends StatelessWidget {
-  final String top;
-  final String bottom;
-  final String selected;
-  final ValueChanged<String> onSelect;
-
-  const _MbtiColumn({
-    required this.top,
-    required this.bottom,
-    required this.selected,
-    required this.onSelect,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _SelectChip(
-          label: top,
-          isSelected: selected == top,
-          onTap: () => onSelect(top),
-        ),
-        const SizedBox(height: 8),
-        _SelectChip(
-          label: bottom,
-          isSelected: selected == bottom,
-          onTap: () => onSelect(bottom),
-        ),
-      ],
     );
   }
 }

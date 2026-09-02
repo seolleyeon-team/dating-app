@@ -8,6 +8,14 @@ const blindStoreSource = readFileSync(
   resolve(__dirname, "../src/blindMeeting/store.ts"),
   "utf8"
 );
+const blindCallablesSource = readFileSync(
+  resolve(__dirname, "../src/blindMeeting/callables.ts"),
+  "utf8"
+);
+const productionEnvExample = readFileSync(
+  resolve(__dirname, "../.env.seolleyeon-final.example"),
+  "utf8"
+);
 const rulesSource = readFileSync(resolve(__dirname, "../../firestore.rules"), "utf8");
 
 describe("heart economy contract", () => {
@@ -26,6 +34,15 @@ describe("heart economy contract", () => {
     assert.match(indexSource, /firstPurchaseOfferUsed/);
   });
 
+  it("grants the server-authoritative heart amount exactly once per transaction", () => {
+    assert.match(indexSource, /const heartBalance = currentBalance \+ heartAmount/);
+    assert.match(indexSource, /transaction\.create\(transactionRef/);
+    assert.match(indexSource, /heartBalanceAfter: heartBalance/);
+    assert.match(indexSource, /if \(existing\.exists\)/);
+    assert.match(indexSource, /alreadyGranted: true/);
+    assert.doesNotMatch(indexSource, /data\.heartAmount/);
+  });
+
   it("keeps feature costs server-authoritative", () => {
     assert.match(indexSource, /directChat:\s*10/);
     assert.match(indexSource, /seasonRoulette:\s*20/);
@@ -33,6 +50,18 @@ describe("heart economy contract", () => {
     // 상수 이름은 BLIND_MEETING_HEART_COST 로 승격됐다 — 비용 30H 는 그대로
     // 서버 소스에 고정되어 있어야 한다.
     assert.match(blindStoreSource, /const BLIND_MEETING_HEART_COST = 30/);
+  });
+
+  it("has no free blind-meeting purchase bypass", () => {
+    for (const source of [
+      blindStoreSource,
+      blindCallablesSource,
+      productionEnvExample,
+    ]) {
+      assert.doesNotMatch(source, /BLIND_MEETING_FREE_TEST/);
+      assert.doesNotMatch(source, /createFreeBlindMeetingApplication/);
+      assert.doesNotMatch(source, /claimFreeBlindMeetingTestSlot/);
+    }
   });
 
   it("creates paid resources and ledger entries in transactions", () => {

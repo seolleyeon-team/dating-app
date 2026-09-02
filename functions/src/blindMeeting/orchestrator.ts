@@ -37,6 +37,10 @@ import {
 import { CURRENT_MATCHING_CONFIG } from "./matchingConfig";
 import { notifyBlindMeeting } from "./notifications";
 import {
+  loadActivePartyForUser,
+  withdrawMatchedBlindMeetingParty,
+} from "./party";
+import {
   BlindMeetingPolicy,
   refundAmountFor,
   resolveCancellation,
@@ -120,11 +124,30 @@ async function buildCandidatePool(
         application.userId,
         policy,
         now,
-        application.appliedAtMs
+        application.appliedAtMs,
+        application.partyId,
+        application.partyMemberIds
       )
     )
   );
   return candidates.filter((c): c is Candidate => c != null);
+}
+
+/** 파티 중 한 명이라도 무알코올을 요구하면 파티 전체를 같은 pool로 이동한다. */
+function poolForAlcoholMode(pool: Candidate[], alcoholFree: boolean): Candidate[] {
+  const byParty = new Map<string, Candidate[]>();
+  for (const candidate of pool) {
+    const partyId = candidate.partyId ?? `legacy:${candidate.userId}`;
+    const members = byParty.get(partyId) ?? [];
+    members.push(candidate);
+    byParty.set(partyId, members);
+  }
+  const selected: Candidate[] = [];
+  for (const members of byParty.values()) {
+    const requiresAlcoholFree = members.some(requiresAlcoholFreeGroup);
+    if (requiresAlcoholFree === alcoholFree) selected.push(...members);
+  }
+  return alcoholFree ? alcoholFreePool(selected) : standardPool(selected);
 }
 
 /**
@@ -166,9 +189,7 @@ export async function runMatchingForDate(dateKey: string): Promise<string[]> {
   const createdMeetingIds: string[] = [];
 
   for (const alcoholFree of [true, false]) {
-    const scopedPool = alcoholFree
-      ? alcoholFreePool(pool.filter(requiresAlcoholFreeGroup))
-      : standardPool(pool);
+    const scopedPool = poolForAlcoholMode(pool, alcoholFree);
     if (scopedPool.length < BLIND_MEETING_GROUP_SIZE) continue;
 
     // 성비를 만족할 수 없으면 상위 점수 6명을 뽑는 것이 아니라
@@ -311,6 +332,11 @@ export async function createMeetingFromProposal(
   const teamAIds = proposal.teamA.map((m) => m.userId);
   const teamBIds = proposal.teamB.map((m) => m.userId);
   const participantIds = [...teamAIds, ...teamBIds];
+  const realPartyIds = [...new Set(
+    [...proposal.teamA, ...proposal.teamB]
+      .map((member) => member.partyId ?? `legacy:${member.userId}`)
+      .filter((partyId) => partyId.length > 0 && !partyId.startsWith("legacy:"))
+  )];
 
   // 최상위 불변식 1차 그물: 제안 자체가 3남 + 3녀 6인인지.
   // 알고리즘이 이미 보장하지만, 손상되거나 legacy 경로로 만들어진
@@ -393,15 +419,33 @@ export async function createMeetingFromProposal(
       db().collection("users").doc(userId)
     );
     // transaction 안의 read 는 전부 write 이전에 끝내야 한다.
-    const [snaps, userSnaps] = await Promise.all([
+    const partyRefs = realPartyIds.map((partyId) =>
+      db().collection(BLIND_MEETING_COLLECTIONS.parties).doc(partyId)
+    );
+    const [snaps, userSnaps, partySnaps] = await Promise.all([
       Promise.all(refs.map((ref) => tx.get(ref))),
       Promise.all(userRefs.map((ref) => tx.get(ref))),
+      Promise.all(partyRefs.map((ref) => tx.get(ref))),
     ]);
 
     for (const snap of snaps) {
       const data = snap.data();
       if (!snap.exists || data?.open !== true) return false;
       if (typeof data?.meetingId === "string" && data.meetingId.length > 0) {
+        return false;
+      }
+    }
+
+    // 선결 파티는 ready roster 전체가 제안의 같은 편에 있어야 한다.
+    for (let i = 0; i < partySnaps.length; i++) {
+      const raw = partySnaps[i].data() ?? {};
+      const members = asStrArray(raw.acceptedUserIds);
+      if (!partySnaps[i].exists || raw.status !== "ready" || members.length < 1) {
+        return false;
+      }
+      const entirelyInA = members.every((id) => teamAIds.includes(id));
+      const entirelyInB = members.every((id) => teamBIds.includes(id));
+      if ((!entirelyInA && !entirelyInB) || members.some((id) => !participantIds.includes(id))) {
         return false;
       }
     }
@@ -461,6 +505,7 @@ export async function createMeetingFromProposal(
       teamAUserIds: teamAIds,
       teamBUserIds: teamBIds,
       participantIds,
+      partyIds: realPartyIds,
       waitlistIds: [],
       groupChatId: null,
       venue: null,
@@ -510,6 +555,16 @@ export async function createMeetingFromProposal(
         },
         { merge: true }
       );
+    }
+
+
+    for (let i = 0; i < partyRefs.length; i++) {
+      tx.set(partyRefs[i], {
+        status: "matched",
+        meetingId,
+        updatedAt: FieldValue.serverTimestamp(),
+        matchedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
     }
 
     // 내부 점수는 서버 전용 문서에만 저장한다.
@@ -625,6 +680,25 @@ export async function declineInvitation(
       "failed-precondition",
       "지금은 초대를 거절할 수 있는 단계가 아니에요. 참여가 어려우면 취소 요청을 이용해주세요."
     );
+  }
+
+  const party = await loadActivePartyForUser(userId);
+  if (
+    party &&
+    party.status === "matched" &&
+    party.meetingId === meetingId &&
+    party.acceptedUserIds.length > 1
+  ) {
+    const withdrawnUserIds = await withdrawMatchedBlindMeetingParty({
+      userId,
+      partyId: party.partyId,
+      meetingId,
+      reason,
+    });
+    for (const vacantUserId of withdrawnUserIds) {
+      await handleVacancy({ meetingId, vacantUserId, urgent: false });
+    }
+    return;
   }
 
   await updateParticipant(meetingId, userId, {

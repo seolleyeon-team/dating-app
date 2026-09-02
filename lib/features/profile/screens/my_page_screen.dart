@@ -247,12 +247,6 @@ class _MyPageScreenState extends State<MyPageScreen> {
                           final hasUnread = (askSnap.data ?? 0) > 0;
                           return _Header(
                             showAsksBadge: hasUnread,
-                            onReceivedHearts: () {
-                              Navigator.of(
-                                context,
-                                rootNavigator: true,
-                              ).pushNamed(RouteNames.receivedHearts);
-                            },
                             onAsksInbox: () {
                               Navigator.of(
                                 context,
@@ -270,12 +264,6 @@ class _MyPageScreenState extends State<MyPageScreen> {
                         },
                       )
                     : _Header(
-                        onReceivedHearts: () {
-                          Navigator.of(
-                            context,
-                            rootNavigator: true,
-                          ).pushNamed(RouteNames.receivedHearts);
-                        },
                         onAsksInbox: () {
                           Navigator.of(
                             context,
@@ -406,13 +394,11 @@ class _InviteToast extends StatelessWidget {
 
 class _Header extends StatelessWidget {
   final VoidCallback? onSettings;
-  final VoidCallback? onReceivedHearts;
   final VoidCallback? onAsksInbox;
   final bool showAsksBadge;
 
   const _Header({
     this.onSettings,
-    this.onReceivedHearts,
     this.onAsksInbox,
     this.showAsksBadge = false,
   });
@@ -448,29 +434,6 @@ class _Header extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Semantics(
-                  label: '받은 하트',
-                  button: true,
-                  child: CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: () {
-                      HapticFeedback.lightImpact();
-                      onReceivedHearts?.call();
-                    },
-                    child: SizedBox(
-                      width: 40,
-                      height: 40,
-                      child: Center(
-                        child: Icon(
-                          CupertinoIcons.heart_fill,
-                          size: 23,
-                          color: primary,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 4),
                 CupertinoButton(
                   padding: EdgeInsets.zero,
                   onPressed: () {

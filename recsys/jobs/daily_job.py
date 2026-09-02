@@ -145,7 +145,7 @@ def build_daily_documents(
         1 for uid, status in display_status.items()
         if status.get("displayReady") is True
         and uid in policy_meta
-        and uid in privacy_policy.ready_user_ids
+        and uid in privacy_policy.candidate_user_ids
     )
 
     docs: dict[str, dict[str, Any]] = {}
@@ -343,7 +343,7 @@ def run_daily(
     if firestore is None:
         raise RuntimeError("google-cloud-firestore is not installed")
     db = firestore.Client(project=project, database=database)
-    privacy_policy = load_recommendation_privacy_policy(db)
+    privacy_policy = load_recommendation_privacy_policy(db, date_key=date_key)
     users = load_user_documents_from_firestore(
         project,
         users_collection=users_collection,

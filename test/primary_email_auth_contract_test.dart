@@ -168,11 +168,27 @@ void main() {
     expect(source, isNot(contains('카카오 로그인')));
     expect(source, isNot(contains('카카오로 시작')));
     expect(source, contains('sendPrimaryStudentEmailLink'));
-    expect(source, contains('completePrimaryStudentEmailAuth'));
+    expect(source, contains('completePrimaryStudentEmailLink'));
     expect(source, contains('applyPrimaryEmailAuthCompletion'));
     // Pending friend invites re-enter the setup ladder, never jump to /main.
     expect(source, isNot(contains('pushNamedAndRemoveUntil(RouteNames.main')));
     expect(source, contains('resolveNextRoute'));
+  });
+
+  test('native email-link observers share one single-use completion gate', () {
+    final authService = read('lib/services/auth_service.dart');
+    final provider = read('lib/providers/auth_provider.dart');
+    final screen = read(
+      'lib/features/auth/screens/student_verification_screen.dart',
+    );
+
+    expect(authService, contains('_primaryEmailLinkInFlight'));
+    expect(authService, contains('_lastCompletedPrimaryEmailLinkToken'));
+    expect(authService, contains('hasVerifiedEmailSession'));
+    expect(provider, contains('completePrimaryStudentEmailLink'));
+    expect(screen, contains('completePrimaryStudentEmailLink'));
+    expect(provider, isNot(contains('_authService.signInWithEmailLink(')));
+    expect(screen, isNot(contains('_authService.signInWithEmailLink(')));
   });
 
   test('adult verification gate hands the next step back to the resolver', () {
@@ -183,6 +199,23 @@ void main() {
     // Post-auth gate: the single resolver decides what follows (Kakao friend
     // connection for a fresh account), never the screen itself.
     expect(source, contains('resolveNextRoute'));
+    final confirmStart = source.indexOf(
+      'Future<void> _confirmVerificationAndContinue()',
+    );
+    final actionStart = source.indexOf(
+      'Future<void> _handlePrimaryAction()',
+      confirmStart,
+    );
+    expect(confirmStart, isNonNegative);
+    expect(actionStart, greaterThan(confirmStart));
+    final confirmation = source.substring(confirmStart, actionStart);
+    expect(confirmation, contains('verifyPendingSessionAfterLogin'));
+    expect(
+      confirmation.indexOf('verifyPendingSessionAfterLogin'),
+      lessThan(confirmation.indexOf('_continueThroughResolver')),
+    );
+    expect(confirmation, contains('if (!result.isVerified) return;'));
+    expect(source, contains('await _confirmVerificationAndContinue();'));
     expect(source, isNot(contains('pushReplacementNamed(RouteNames.login)')));
   });
 

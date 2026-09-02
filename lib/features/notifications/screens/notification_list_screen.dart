@@ -137,6 +137,15 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
     // 결과 화면이 서버 상태를 실시간으로 읽어 현재 단계를 보여준다.
     // 대체 참가 제안은 제외한다. 제안 대상자는 아직 그 미팅의 참가자가 아니라
     // 미팅 문서를 읽을 수 없다 (전용 화면이 아직 없다).
+    if (deeplinkType == 'blind_meeting_party') {
+      if (!mounted) return;
+      Navigator.of(
+        context,
+        rootNavigator: true,
+      ).pushNamed(RouteNames.blindTasteMeetingParty);
+      return;
+    }
+
     if (notification.type != 'blind_meeting_replacement_offer' &&
         (deeplinkType == 'blind_meeting' ||
             deeplinkType == 'blind_meeting_follow_up')) {
@@ -168,6 +177,17 @@ class _NotificationListScreenState extends State<NotificationListScreen> {
           promiseId: promiseId,
           notificationId: notification.id,
         ),
+      );
+      return;
+    }
+
+    if (deeplinkType == 'blind_meeting' ||
+        deeplinkType == 'blind_meeting_follow_up' ||
+        notification.type.startsWith('blind_meeting_')) {
+      Navigator.of(context, rootNavigator: true).pushNamed(
+        notification.type.startsWith('blind_meeting_party_')
+            ? RouteNames.blindTasteMeetingParty
+            : RouteNames.blindTasteMeeting,
       );
       return;
     }

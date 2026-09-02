@@ -27,6 +27,55 @@ void main() {
     );
   }
 
+  group('친구 파티', () {
+    test('파티 일부만 든 같은 편 후보는 거부한다', () {
+      final partial = [
+        candidate('p1', partyId: 'party', partyMemberIds: const {'p1', 'p2'}),
+        candidate('solo1'),
+        candidate('solo2'),
+      ];
+      expect(preservesBlindMeetingPartyBoundaries(partial), isFalse);
+
+      final whole = [
+        candidate('p1', partyId: 'party', partyMemberIds: const {'p1', 'p2'}),
+        candidate('p2', partyId: 'party', partyMemberIds: const {'p1', 'p2'}),
+        candidate('solo'),
+      ];
+      expect(preservesBlindMeetingPartyBoundaries(whole), isTrue);
+    });
+
+    test('보수적 취향은 같은 파티에만 적용하고 솔로의 취향은 유지한다', () {
+      final effective = applyConservativeTeamPreferences([
+        candidate(
+          'p1',
+          partyId: 'party',
+          partyMemberIds: const {'p1', 'p2'},
+          purpose: MeetingPurpose.romance,
+        ),
+        candidate(
+          'p2',
+          partyId: 'party',
+          partyMemberIds: const {'p1', 'p2'},
+          purpose: MeetingPurpose.friendship,
+          alcoholPreference: AlcoholCompanionPreference.allSober,
+          smokingPreference: SmokingCompanionPreference.nonSmokersOnly,
+        ),
+        candidate('solo', purpose: MeetingPurpose.both),
+      ]);
+      expect(effective[0].purpose, MeetingPurpose.friendship);
+      expect(effective[1].purpose, MeetingPurpose.friendship);
+      expect(
+        effective[0].alcoholPreference,
+        AlcoholCompanionPreference.allSober,
+      );
+      expect(
+        effective[1].smokingPreference,
+        SmokingCompanionPreference.nonSmokersOnly,
+      );
+      expect(effective[2].purpose, MeetingPurpose.both);
+    });
+  });
+
   group('hard constraint', () {
     test('학교 인증이 없으면 후보에서 제외된다', () {
       final violations = BlindMeetingHardConstraints.checkCandidate(

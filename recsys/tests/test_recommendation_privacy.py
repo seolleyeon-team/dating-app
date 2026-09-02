@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 
 
@@ -12,6 +13,7 @@ from seolleyeon_recommendation_privacy import (  # noqa: E402
     _is_active_exclusion,
     build_recommendation_privacy_policy,
     filter_recommendations,
+    load_recommendation_privacy_policy,
 )
 
 
@@ -28,6 +30,30 @@ def _users(*uids: str):
         )
         for uid in uids
     ]
+
+
+class _FakeDoc:
+    def __init__(self, doc_id: str, data: dict, path: str):
+        self.id = doc_id
+        self._data = data
+        self.reference = SimpleNamespace(path=path)
+
+    def to_dict(self):
+        return self._data
+
+
+class _FakeDb:
+    def __init__(self, users, exclusions):
+        self._users = users
+        self._exclusions = exclusions
+
+    def collection(self, name):
+        assert name == "users"
+        return SimpleNamespace(stream=lambda: iter(self._users))
+
+    def collection_group(self, name):
+        assert name == "targets"
+        return SimpleNamespace(stream=lambda: iter(self._exclusions))
 
 
 class RecommendationPrivacyPolicyTest(unittest.TestCase):
@@ -49,6 +75,26 @@ class RecommendationPrivacyPolicyTest(unittest.TestCase):
 
         self.assertEqual(policy.excluded_by_viewer["a"], frozenset({"c"}))
         self.assertEqual(policy.excluded_by_viewer["c"], frozenset({"a"}))
+
+    def test_loader_includes_same_department_exclusion_collection(self):
+        policy = load_recommendation_privacy_policy(
+            _FakeDb(
+                [
+                    _FakeDoc(uid, data, f"users/{uid}")
+                    for uid, data in _users("a", "b")
+                ],
+                [
+                    _FakeDoc(
+                        "b",
+                        {"active": True},
+                        "departmentRecommendationExclusions/a/targets/b",
+                    )
+                ],
+            )
+        )
+
+        self.assertFalse(policy.allows("a", "b"))
+        self.assertFalse(policy.allows("b", "a"))
 
     def test_recommendation_privacy_ready_flag_no_longer_gates_eligibility(self):
         # The legacy Kakao-sync pending gate is gone: users lacking (or even
@@ -146,7 +192,58 @@ class RecommendationPrivacyPolicyTest(unittest.TestCase):
             [],
         )
 
-        self.assertEqual(policy.ready_user_ids, frozenset({"active"}))
+        # A hidden profile can still receive recommendations as a viewer.
+        self.assertEqual(policy.ready_user_ids, frozenset({"active", "hidden"}))
+        self.assertEqual(policy.candidate_user_ids, frozenset({"active"}))
+
+    def test_hidden_profile_keeps_its_own_feed_but_is_not_a_candidate_tomorrow(self):
+        hidden = {
+            **_users("hidden")[0][1],
+            "profileVisible": False,
+            "profileVisibleBeforeEffectiveDate": True,
+            "profileVisibleEffectiveDateKey": "20260902",
+        }
+        visible = dict(_users("visible")[0][1])
+
+        today = build_recommendation_privacy_policy(
+            [("hidden", hidden), ("visible", visible)],
+            [],
+            date_key="20260901",
+        )
+        tomorrow = build_recommendation_privacy_policy(
+            [("hidden", hidden), ("visible", visible)],
+            [],
+            date_key="20260902",
+        )
+
+        # Turning off is not retroactive for the already-generated day.
+        self.assertTrue(today.allows("visible", "hidden"))
+        # The owner remains a viewer after turning off their public profile.
+        self.assertTrue(tomorrow.allows("hidden", "visible"))
+        self.assertFalse(tomorrow.allows("visible", "hidden"))
+
+    def test_showing_a_hidden_profile_waits_until_its_effective_date(self):
+        pending_show = {
+            **_users("pending")[0][1],
+            "profileVisible": True,
+            "profileVisibleBeforeEffectiveDate": False,
+            "profileVisibleEffectiveDateKey": "20260902",
+        }
+        other = dict(_users("other")[0][1])
+
+        today = build_recommendation_privacy_policy(
+            [("pending", pending_show), ("other", other)],
+            [],
+            date_key="20260901",
+        )
+        tomorrow = build_recommendation_privacy_policy(
+            [("pending", pending_show), ("other", other)],
+            [],
+            date_key="20260902",
+        )
+
+        self.assertFalse(today.allows("other", "pending"))
+        self.assertTrue(tomorrow.allows("other", "pending"))
 
     def test_unverified_or_incomplete_accounts_never_enter_the_ready_pool(self):
         policy = build_recommendation_privacy_policy(

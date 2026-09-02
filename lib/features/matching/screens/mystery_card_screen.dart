@@ -837,39 +837,72 @@ class _LockerRecommendationContentState
                 ),
               ),
               const SizedBox(width: 10),
-              CupertinoButton(
-                key: const Key('one_to_one_refresh_button'),
-                padding: EdgeInsets.zero,
-                onPressed: _onRefreshPressed,
-                child: Semantics(
-                  label: '오늘의 추천 새로고침',
-                  button: true,
-                  child: Icon(
-                    CupertinoIcons.arrow_clockwise,
-                    // 이미 새로고침한 날은 비활성 톤으로 표시하고, tap 시
-                    // 안내만 보여준다 (두 번째 결제 CTA 없음).
-                    color: _isRefreshedWindow
-                        ? mutedColor.withValues(alpha: 0.35)
-                        : mutedColor,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CupertinoButton(
+                    key: const Key('one_to_one_refresh_button'),
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(40, 40),
+                    onPressed: _onRefreshPressed,
+                    child: Semantics(
+                      label: '오늘의 추천 새로고침',
+                      button: true,
+                      child: Icon(
+                        CupertinoIcons.arrow_clockwise,
+                        color: _isRefreshedWindow
+                            ? mutedColor.withValues(alpha: 0.35)
+                            : mutedColor,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(width: 2),
-              StreamBuilder<int>(
-                stream: _userId == null
-                    ? null
-                    : _askService.unreadReceivedCount(_userId!),
-                builder: (context, snapshot) => CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: () => Navigator.of(
-                    context,
-                    rootNavigator: true,
-                  ).pushNamed(RouteNames.asksInbox),
-                  child: Badge(
-                    isLabelVisible: (snapshot.data ?? 0) > 0,
-                    child: Icon(CupertinoIcons.tray_fill, color: mutedColor),
+                  const SizedBox(width: 2),
+                  Semantics(
+                    label: '받은 하트',
+                    button: true,
+                    child: CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(40, 40),
+                      onPressed: () {
+                        HapticFeedback.lightImpact();
+                        Navigator.of(
+                          context,
+                          rootNavigator: true,
+                        ).pushNamed(RouteNames.receivedHearts);
+                      },
+                      child: Icon(
+                        CupertinoIcons.heart_fill,
+                        size: 22,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 2),
+                  StreamBuilder<int>(
+                    stream: _userId == null
+                        ? null
+                        : _askService.unreadReceivedCount(_userId!),
+                    builder: (context, snapshot) => Semantics(
+                      label: '무물함',
+                      button: true,
+                      child: CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(40, 40),
+                        onPressed: () => Navigator.of(
+                          context,
+                          rootNavigator: true,
+                        ).pushNamed(RouteNames.asksInbox),
+                        child: Badge(
+                          isLabelVisible: (snapshot.data ?? 0) > 0,
+                          child: Icon(
+                            CupertinoIcons.tray_fill,
+                            color: mutedColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

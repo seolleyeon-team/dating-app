@@ -27,6 +27,19 @@ bool recommendable(Map<String, dynamic>? cand, {Map<String, dynamic>? viewer}) {
 }
 
 void main() {
+  test('operations accounts are never recommendation candidates', () {
+    expect(
+      RecommendationEligibility.isCandidateDisplayable({
+        'accountType': 'operations',
+        'status': 'active',
+        'isStudentVerified': true,
+        'initialSetupComplete': true,
+        'profileImageUrl': 'https://example.com/avatar.png',
+      }),
+      isFalse,
+    );
+  });
+
   group('후보 노출 가능 여부', () {
     test('인증·완성·승인 아바타를 갖춘 이성 후보는 노출된다', () {
       expect(recommendable(candidate()), isTrue);

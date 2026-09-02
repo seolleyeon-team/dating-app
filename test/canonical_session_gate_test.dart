@@ -39,12 +39,16 @@ void main() {
     expect(screen, contains('pushReplacementNamed(RouteNames.login)'));
   });
 
-  test('friend connection preserves the KakaoTalk-vs-account fallback and '
-      'bundleId special case from the legacy login', () {
+  test('friend connection falls back only when KakaoTalk itself cannot be '
+      'used, never after consent cancellation or OAuth rejection', () {
     final service = read('lib/services/kakao_friend_connection_service.dart');
     expect(service, contains('isKakaoTalkInstalled'));
     expect(service, contains('loginWithKakaoTalk'));
     expect(service, contains('loginWithKakaoAccount'));
+    expect(service, contains('_shouldFallbackToKakaoAccount'));
+    expect(service, contains('if (_isCancellation(error)) return false;'));
+    expect(service, contains('error is KakaoAuthException'));
+    expect(service, contains("code == 'CANCELED' || code == 'CANCELLED'"));
     expect(service, contains("detail.contains('bundleId')"));
     expect(service, contains('rethrow;'));
     expect(service, contains('KakaoLoginCoordinator.run'));

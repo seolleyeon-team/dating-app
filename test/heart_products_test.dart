@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/features/shop/services/heart_products.dart';
 
@@ -24,4 +27,51 @@ void main() {
       hasLength(1),
     );
   });
+
+  test('rejects empty or zero-priced store product details', () {
+    expect(
+      HeartProducts.hasValidPaidStorePrice(
+        rawPrice: 3900,
+        formattedPrice: '₩3,900',
+      ),
+      isTrue,
+    );
+    expect(
+      HeartProducts.hasValidPaidStorePrice(rawPrice: 0, formattedPrice: '₩0'),
+      isFalse,
+    );
+    expect(
+      HeartProducts.hasValidPaidStorePrice(rawPrice: 3900, formattedPrice: ''),
+      isFalse,
+    );
+  });
+
+  test(
+    'local Korean StoreKit catalog matches the five paid heart products',
+    () {
+      final raw =
+          jsonDecode(
+                File('ios/Runner/Configuration.storekit').readAsStringSync(),
+              )
+              as Map<String, dynamic>;
+      final products = (raw['products'] as List<dynamic>)
+          .cast<Map<String, dynamic>>();
+      final productById = <String, Map<String, dynamic>>{
+        for (final product in products) product['productID'] as String: product,
+      };
+
+      expect(
+        productById.keys.toSet(),
+        HeartProducts.productIdsFor(HeartPurchasePlatform.ios),
+      );
+      for (final product in productById.values) {
+        expect(product['currency'], 'KRW');
+        expect(
+          product['price'],
+          isA<num>().having((price) => price, 'price', greaterThan(0)),
+        );
+        expect((product['displayPrice'] as String).trim(), isNotEmpty);
+      }
+    },
+  );
 }

@@ -43,6 +43,9 @@ import {
 
 export type Candidate = {
   userId: string;
+  /** 분리할 수 없는 선결 파티. legacy 신청은 자기 자신만 포함한다. */
+  partyId?: string;
+  partyMemberIds?: string[];
   /**
    * canonical 성별 (`male` / `female`).
    *
@@ -74,6 +77,67 @@ export type Candidate = {
   recentlyMetUserIds: string[];
   waitedMinutes: number;
 };
+
+/**
+ * 완성된 같은 편 3명의 목적·음주·흡연 선호를 가장 보수적인 값으로 맞춘다.
+ * 사실값(drinkingLevel/smokingStatus)과 나머지 DNA는 그대로 유지한다.
+ */
+export function applyConservativeTeamPreferences(
+  members: Candidate[]
+): Candidate[] {
+  if (members.length === 0) return [];
+  const byParty = new Map<string, Candidate[]>();
+  for (const member of members) {
+    const key = member.partyId ?? `solo:${member.userId}`;
+    byParty.set(key, [...(byParty.get(key) ?? []), member]);
+  }
+  const effective = new Map<string, Pick<Candidate,
+    "purpose" | "alcoholPreference" | "smokingPreference">>();
+  for (const [key, partyMembers] of byParty) {
+    const purpose: MeetingPurpose = partyMembers.some((m) => m.purpose === "friendship")
+      ? "friendship"
+      : partyMembers.some((m) => m.purpose === "both")
+        ? "both"
+        : "romance";
+    const alcoholPreference: AlcoholCompanionPreference = partyMembers.some(
+      (m) => m.alcoholPreference === "allSober"
+    )
+      ? "allSober"
+      : partyMembers.some((m) => m.alcoholPreference === "lightOkay")
+        ? "lightOkay"
+        : "noPreference";
+    const smokingPreference: SmokingCompanionPreference = partyMembers.some(
+      (m) => m.smokingPreference === "nonSmokersOnly"
+    )
+      ? "nonSmokersOnly"
+      : partyMembers.some((m) => m.smokingPreference === "noIndoorSmoking")
+        ? "noIndoorSmoking"
+        : "noPreference";
+    effective.set(key, { purpose, alcoholPreference, smokingPreference });
+  }
+  return members.map((member) => ({
+    ...member,
+    ...effective.get(member.partyId ?? `solo:${member.userId}`)!,
+  }));
+}
+
+/** 한 팀 안에 파티 일부만 들어가는 제안을 거부한다. */
+export function preservesPartyBoundaries(members: Candidate[]): boolean {
+  const teamIds = new Set(members.map((member) => member.userId));
+  for (const member of members) {
+    const expected = member.partyMemberIds && member.partyMemberIds.length > 0
+      ? member.partyMemberIds
+      : [member.userId];
+    if (expected.some((userId) => !teamIds.has(userId))) return false;
+    if (expected.length > 1) {
+      for (const teammate of members.filter((item) => expected.includes(item.userId))) {
+        if ((teammate.partyId ?? `legacy:${teammate.userId}`) !==
+            (member.partyId ?? `legacy:${member.userId}`)) return false;
+      }
+    }
+  }
+  return true;
+}
 
 export type ConstraintViolation =
   | "notSchoolVerified"
@@ -888,9 +952,11 @@ export function buildTeamProposals(
   const byKey = new Map<string, TeamProposal>();
 
   const tryTeam = (trio: Candidate[], gender: BlindMeetingGender) => {
+    if (!preservesPartyBoundaries(trio)) return;
+    const effectiveTrio = applyConservativeTeamPreferences(trio);
     if (
       !isGroupAllowed(
-        trio,
+        effectiveTrio,
         dateKey,
         alcoholFree,
         BLIND_MEETING_TEAM_SIZE,
@@ -899,7 +965,7 @@ export function buildTeamProposals(
     ) {
       return;
     }
-    const ordered = orderTeamMembers(trio);
+    const ordered = orderTeamMembers(effectiveTrio);
     const proposal: TeamProposal = {
       members: ordered,
       gender,
@@ -1175,6 +1241,9 @@ export function rankReplacements(params: {
   const evaluations: ReplacementEvaluation[] = [];
   for (const candidate of params.candidates) {
     if (seatUserIds.has(candidate.userId)) continue;
+    // 대체 좌석은 한 자리뿐이다. 2~3명 파티의 한 명만 제안하면 파티를
+    // 서로 다른 미팅으로 분리하게 되므로 개인 파티만 대체 후보가 될 수 있다.
+    if ((candidate.partyMemberIds?.length ?? 1) > 1) continue;
     const evaluation = evaluateReplacement({ ...params, candidate, config });
     if (evaluation.accepted) evaluations.push(evaluation);
   }

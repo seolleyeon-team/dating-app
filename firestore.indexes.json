@@ -253,6 +253,20 @@
       ]
     },
     {
+      "collectionGroup": "blindMeetingPartyInvites",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "inviteeUserId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "blindMeetingApplications",
       "queryScope": "COLLECTION",
       "fields": [

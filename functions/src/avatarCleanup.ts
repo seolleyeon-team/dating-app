@@ -63,6 +63,8 @@ export type AvatarCleanupCounts = {
   skippedUnsafeRefs: number;
   userPrivateDeleted: number;
   phoneHashIndexDeleted: number;
+  userPrivateVerificationDeleted: number;
+  verifiedPhoneHashIndexOwnersDeleted: number;
   deviceTokensDeleted: number;
   notificationsDeleted: number;
   contactBlockedHashesDeleted: number;
@@ -91,6 +93,7 @@ export type AvatarCleanupCounts = {
 
 export type AccountDeletionDocs = {
   phoneHash: string | null;
+  verifiedPhoneHash: string | null;
   deviceTokenIds: string[];
   notificationIds: string[];
   contactBlockedHashIds: string[];
@@ -152,6 +155,8 @@ export type CleanupOperation =
   | { kind: "lockAccountForDeletion" }
   | { kind: "deleteUserPrivate" }
   | { kind: "deletePhoneHashIndex"; phoneHash: string }
+  | { kind: "deleteUserPrivateVerification" }
+  | { kind: "deleteVerifiedPhoneHashIndexOwner"; phoneHash: string }
   | { kind: "deleteDeviceToken"; tokenId: string }
   | { kind: "deleteNotification"; notificationId: string }
   | { kind: "deleteContactBlockedHash"; phoneHash: string }
@@ -272,6 +277,8 @@ function emptyCounts(): AvatarCleanupCounts {
     skippedUnsafeRefs: 0,
     userPrivateDeleted: 0,
     phoneHashIndexDeleted: 0,
+    userPrivateVerificationDeleted: 0,
+    verifiedPhoneHashIndexOwnersDeleted: 0,
     deviceTokensDeleted: 0,
     notificationsDeleted: 0,
     contactBlockedHashesDeleted: 0,
@@ -309,6 +316,7 @@ export function accountDeletionDocsFromParts(
 ): AccountDeletionDocs {
   return {
     phoneHash: parts.phoneHash ?? null,
+    verifiedPhoneHash: parts.verifiedPhoneHash ?? null,
     deviceTokenIds: parts.deviceTokenIds ?? [],
     notificationIds: parts.notificationIds ?? [],
     contactBlockedHashIds: parts.contactBlockedHashIds ?? [],
@@ -350,6 +358,13 @@ export function planAccountDeletionPiiOperations(params: {
     operations.push({ kind: "deletePhoneHashIndex", phoneHash: docs.phoneHash });
   }
   operations.push({ kind: "deleteUserPrivate" });
+  if (docs.verifiedPhoneHash) {
+    operations.push({
+      kind: "deleteVerifiedPhoneHashIndexOwner",
+      phoneHash: docs.verifiedPhoneHash,
+    });
+  }
+  operations.push({ kind: "deleteUserPrivateVerification" });
   for (const targetUid of docs.blockTargetIds) {
     operations.push({ kind: "deleteBlockTarget", targetUid });
   }
@@ -395,6 +410,8 @@ function applyAccountDeletionCounts(
 ): void {
   counts.userPrivateDeleted = 1;
   counts.phoneHashIndexDeleted = docs.phoneHash ? 1 : 0;
+  counts.userPrivateVerificationDeleted = 1;
+  counts.verifiedPhoneHashIndexOwnersDeleted = docs.verifiedPhoneHash ? 1 : 0;
   counts.deviceTokensDeleted = docs.deviceTokenIds.length;
   counts.notificationsDeleted = docs.notificationIds.length;
   counts.contactBlockedHashesDeleted = docs.contactBlockedHashIds.length;
@@ -635,6 +652,7 @@ export async function loadAccountDeletionDocs(
   const [
     userSnap,
     userPrivateSnap,
+    verificationSnap,
     deviceTokensSnap,
     notificationsSnap,
     contactBlockedHashesSnap,
@@ -646,6 +664,7 @@ export async function loadAccountDeletionDocs(
   ] = await Promise.all([
     firestore.collection("users").doc(safeUid).get(),
     firestore.collection("userPrivate").doc(safeUid).get(),
+    firestore.collection("userPrivateVerifications").doc(safeUid).get(),
     firestore.collection("users").doc(safeUid).collection("deviceTokens").get(),
     firestore.collection("users").doc(safeUid).collection("notifications").get(),
     firestore
@@ -740,6 +759,7 @@ export async function loadAccountDeletionDocs(
 
   return accountDeletionDocsFromParts({
     phoneHash: asString(userPrivateSnap.data()?.phoneHash) || null,
+    verifiedPhoneHash: asString(verificationSnap.data()?.phoneHash) || null,
     deviceTokenIds: deviceTokensSnap.docs.map((doc) => doc.id),
     notificationIds: notificationsSnap.docs.map((doc) => doc.id),
     contactBlockedHashIds: contactBlockedHashesSnap.docs.map((doc) => doc.id),
@@ -984,6 +1004,19 @@ function firestoreExecutor(
           if (indexSnap.exists && asString(indexSnap.data()?.userId) === uid) {
             await indexRef.delete();
           }
+          return;
+        }
+        case "deleteUserPrivateVerification":
+          await firestore.collection("userPrivateVerifications").doc(uid).delete();
+          return;
+        case "deleteVerifiedPhoneHashIndexOwner": {
+          const phoneHash = requirePathSegment(operation.phoneHash, "phoneHash");
+          await firestore
+            .collection("verifiedPhoneHashIndex")
+            .doc(phoneHash)
+            .collection("owners")
+            .doc(uid)
+            .delete();
           return;
         }
         case "deleteDeviceToken": {

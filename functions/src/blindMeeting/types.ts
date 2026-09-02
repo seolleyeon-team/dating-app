@@ -14,6 +14,10 @@ export const BLIND_MEETING_COLLECTIONS = {
   // 30H를 차감했지만 아직 최종 신청하지 않은 DNA 작성 진행 상태.
   // 신청 문서와 분리해 매칭 후보군에 노출되지 않도록 한다.
   dnaDrafts: "blindMeetingDnaDrafts",
+  parties: "blindMeetingParties",
+  partyInvites: "blindMeetingPartyInvites",
+  partyMatching: "blindMeetingPartyMatching",
+  partyMemberships: "blindMeetingPartyMemberships",
   participants: "participants",
   publicProfiles: "publicProfiles",
   followUpChoices: "followUpChoices",
@@ -130,6 +134,8 @@ export type DepositStatus =
   | "cancelled";
 
 export type MatchingStage =
+  | "waitingForPartyMembers"
+  | "waitingForCommonDates"
   | "searchingCandidates"
   | "formingOwnTeam"
   | "checkingCrossTeam"

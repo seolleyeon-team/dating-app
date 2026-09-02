@@ -17,8 +17,10 @@ import {
 import { HttpsError } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
-import { readFreeBlindMeetingTestBuildConfig } from "./compatibility";
-import { isStrictStudentVerification } from "./eligibility";
+import {
+  hasRequiredLifestyle,
+  isStrictStudentVerification,
+} from "./eligibility";
 import {
   readBlindMeetingGender,
   validateBlindThreeVsThreeParticipants,
@@ -147,6 +149,9 @@ export type ApplicationDoc = {
   waitlistOptIn: boolean;
   meetingId: string | null;
   appliedAtMs: number;
+  /** 잠긴 친구 파티. legacy 신청은 자기 자신만 든 가상 파티로 읽는다. */
+  partyId: string;
+  partyMemberIds: string[];
 };
 
 export function readApplicationDoc(
@@ -155,6 +160,7 @@ export function readApplicationDoc(
 ): ApplicationDoc | null {
   if (!isRecord(raw)) return null;
   const appliedAt = raw.appliedAt;
+  const partyMemberIds = asStrArray(raw.partyMemberIds);
   return {
     userId,
     status: oneOf(
@@ -179,6 +185,8 @@ export function readApplicationDoc(
     ),
     stage: oneOf(
       [
+        "waitingForPartyMembers",
+        "waitingForCommonDates",
         "searchingCandidates",
         "formingOwnTeam",
         "checkingCrossTeam",
@@ -200,6 +208,8 @@ export function readApplicationDoc(
     meetingId: asTrimmedOrNull(raw.meetingId),
     appliedAtMs:
       appliedAt instanceof Timestamp ? appliedAt.toMillis() : Date.now(),
+    partyId: asTrimmedOrNull(raw.partyId) ?? `legacy:${userId}`,
+    partyMemberIds: partyMemberIds.length > 0 ? partyMemberIds : [userId],
   };
 }
 
@@ -261,7 +271,9 @@ export async function loadCandidate(
   userId: string,
   policy: BlindMeetingPolicy,
   nowMs: number,
-  appliedAtMs: number
+  appliedAtMs: number,
+  partyId: string = `legacy:${userId}`,
+  partyMemberIds: string[] = [userId]
 ): Promise<Candidate | null> {
   const [dnaSnap, userSnap, blocked, recentlyMet, restricted] =
     await Promise.all([
@@ -281,6 +293,8 @@ export async function loadCandidate(
     restricted,
     nowMs,
     appliedAtMs,
+    partyId,
+    partyMemberIds,
   });
 }
 
@@ -300,6 +314,8 @@ export function buildCandidate(params: {
   restricted: boolean;
   nowMs: number;
   appliedAtMs: number;
+  partyId?: string;
+  partyMemberIds?: string[];
 }): Candidate | null {
   const {
     userId,
@@ -400,6 +416,11 @@ export function buildCandidate(params: {
 
   return {
     userId,
+    partyId: params.partyId ?? `legacy:${userId}`,
+    partyMemberIds:
+      params.partyMemberIds && params.partyMemberIds.length > 0
+        ? params.partyMemberIds
+        : [userId],
     gender,
     atmosphere,
     initiative,
@@ -982,126 +1003,6 @@ export async function setApplication(
   });
 }
 
-/**
- * 서버 allowlist에 등록된 테스트 UID의 무료 호환 신청 저장 경로.
- *
- * 이 함수는 App Check 앱 ID나 클라이언트가 보낸 테스트 플래그를 신뢰하지
- * 않는다. callables.ts가 서버 환경변수의 명시적인 Firebase Auth UID allowlist를
- * 확인한 경우에만 이 경로를 선택한다.
- */
-export async function createFreeBlindMeetingApplication(params: {
-  userId: string;
-  dnaPayload: Record<string, unknown>;
-  requestedDateKeys: string[];
-  prefersAlcoholFree: boolean;
-  waitlistOptIn: boolean;
-}): Promise<void> {
-  await db()
-    .collection(BLIND_MEETING_COLLECTIONS.dna)
-    .doc(params.userId)
-    .set(
-      {
-        ...params.dnaPayload,
-        updatedAt: FieldValue.serverTimestamp(),
-        createdAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-  await setApplication(params.userId, {
-    status: "applied",
-    stage: "searchingCandidates",
-    open: true,
-    meetingId: null,
-    extra: {
-      userId: params.userId,
-      requestedDateKeys: params.requestedDateKeys,
-      availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
-      scheduleSelectionVersion: BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
-      prefersAlcoholFree: params.prefersAlcoholFree,
-      waitlistOptIn: params.waitlistOptIn,
-      appliedAt: FieldValue.serverTimestamp(),
-    },
-  });
-}
-
-const FREE_BLIND_MEETING_TEST_CLAIMS_COLLECTION =
-  "blindMeetingFreeTestClaims";
-const FREE_BLIND_MEETING_TEST_COUNTER_DOC = "_meta";
-
-/**
- * 미리 UID를 수집할 수 없는 폐쇄 TestFlight 테스트를 위한 무료 슬롯 claim.
- *
- * claim 문서는 Firebase Auth UID를 키로 삼고 counter 문서와 함께 하나의
- * Firestore transaction에서 갱신한다. 따라서 같은 UID의 재시도는 무료
- * 슬롯을 다시 차지하지 않고, 동시 가입자는 설정된 최대 인원을 넘을 수 없다.
- */
-export async function claimFreeBlindMeetingTestSlot(params: {
-  userId: string;
-  clientBuild: string;
-}): Promise<void> {
-  const config = readFreeBlindMeetingTestBuildConfig();
-  const normalizedClientBuild = params.clientBuild.trim();
-  const acceptsLegacyClient = normalizedClientBuild.length === 0;
-  if (
-    config.builds.length === 0 ||
-    config.expiresAtMs == null ||
-    config.maxAccounts == null ||
-    (!acceptsLegacyClient && !config.builds.includes(normalizedClientBuild)) ||
-    config.expiresAtMs <= Date.now()
-  ) {
-    throw new HttpsError(
-      "failed-precondition",
-      "무료 테스트 빌드가 현재 활성화되어 있지 않아요."
-    );
-  }
-
-  const firestore = db();
-  const claimRef = firestore
-    .collection(FREE_BLIND_MEETING_TEST_CLAIMS_COLLECTION)
-    .doc(params.userId);
-  const counterRef = firestore
-    .collection(FREE_BLIND_MEETING_TEST_CLAIMS_COLLECTION)
-    .doc(FREE_BLIND_MEETING_TEST_COUNTER_DOC);
-
-  await firestore.runTransaction(async (tx) => {
-    const claimSnap = await tx.get(claimRef);
-    if (claimSnap.exists) return;
-
-    const counterSnap = await tx.get(counterRef);
-    const claimedCount = Math.max(
-      0,
-      Math.floor(asNum(counterSnap.data()?.claimedCount, 0))
-    );
-    if (claimedCount >= config.maxAccounts!) {
-      throw new HttpsError(
-        "resource-exhausted",
-        "이번 무료 테스트 참가 인원이 모두 찼어요."
-      );
-    }
-
-    const claimBuild =
-      normalizedClientBuild.length > 0
-        ? normalizedClientBuild
-        : config.builds[0] ?? config.build;
-    tx.create(claimRef, {
-      build: claimBuild,
-      claimedAt: FieldValue.serverTimestamp(),
-      expiresAt: Timestamp.fromMillis(config.expiresAtMs!),
-    });
-    tx.set(
-      counterRef,
-      {
-        build: claimBuild,
-        claimedCount: claimedCount + 1,
-        maxAccounts: config.maxAccounts,
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-  });
-}
-
 const BLIND_MEETING_HEART_COST = 30;
 
 function heartBalanceFromSnapshot(snapshot: DocumentSnapshot): number {
@@ -1148,6 +1049,15 @@ export async function startPaidBlindMeetingDna(userId: string): Promise<{
     ]);
     if (!userSnap.exists) {
       throw new HttpsError("not-found", "사용자 정보를 찾을 수 없어요.");
+    }
+    const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
+    // 결제 트랜잭션 안에서 최신 프로필을 확인한다. 이 검사를 차감보다 먼저
+    // 수행해야 음주·흡연 정보가 비어 있는 사용자의 하트가 줄지 않는다.
+    if (!hasRequiredLifestyle(userData.onboarding)) {
+      throw new HttpsError(
+        "failed-precondition",
+        "프로필의 음주·흡연 정보를 먼저 등록해주세요."
+      );
     }
 
     const existingApplication =
@@ -1301,6 +1211,8 @@ export async function createPaidBlindMeetingApplication(params: {
   requestedDateKeys: string[];
   prefersAlcoholFree: boolean;
   waitlistOptIn: boolean;
+  partyId?: string | null;
+  partyMemberIds?: string[];
 }): Promise<void> {
   const heartCost = BLIND_MEETING_HEART_COST;
   const firestore = db();
@@ -1329,7 +1241,16 @@ export async function createPaidBlindMeetingApplication(params: {
     const existingMeetingId = asTrimmedOrNull(existing.meetingId);
     const isOpenRetry =
       applicationSnap.exists && existing.open === true && !existingMeetingId;
-    if (applicationSnap.exists && !isOpenRetry) {
+    const isSamePartyWaitingRetry =
+      applicationSnap.exists &&
+      existing.open !== true &&
+      !existingMeetingId &&
+      typeof params.partyId === "string" &&
+      params.partyId.length > 0 &&
+      existing.partyId === params.partyId &&
+      (existing.stage === "waitingForPartyMembers" ||
+        existing.stage === "waitingForCommonDates");
+    if (applicationSnap.exists && !isOpenRetry && !isSamePartyWaitingRetry) {
       const rawStatus = asStr(existing.serverStatus ?? existing.status, "");
       const previous = APP_STATUS_TO_SERVER[rawStatus];
       if (previous == null) {
@@ -1413,7 +1334,7 @@ export async function createPaidBlindMeetingApplication(params: {
       asStr(draft.status, "") === "in_progress" &&
       draftChargeCount > 0;
     chargeCount = Math.max(chargeCount, draftChargeCount);
-    if (!isOpenRetry && !hasPaidDraft) {
+    if (!isOpenRetry && !isSamePartyWaitingRetry && !hasPaidDraft) {
       heartBalance = Math.max(0, Math.floor(heartBalance));
       if (heartBalance < heartCost) {
         throw new HttpsError(
@@ -1464,8 +1385,8 @@ export async function createPaidBlindMeetingApplication(params: {
       applicationRef,
       buildApplicationPatchPayload({
         status: "applied",
-        stage: "searchingCandidates",
-        open: true,
+        stage: params.partyId ? "waitingForPartyMembers" : "searchingCandidates",
+        open: !params.partyId,
         meetingId: null,
         extra: {
           userId: params.userId,
@@ -1478,6 +1399,13 @@ export async function createPaidBlindMeetingApplication(params: {
           heartCost,
           heartChargeCount: chargeCount,
           dnaApplicationCompleted: true,
+          partyId: params.partyId ?? null,
+          partyMemberIds:
+            params.partyMemberIds && params.partyMemberIds.length > 0
+              ? params.partyMemberIds
+              : [params.userId],
+          partySize: Math.max(1, params.partyMemberIds?.length ?? 1),
+          partyReady: !params.partyId,
         },
       }),
       { merge: true }

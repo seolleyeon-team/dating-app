@@ -70,10 +70,44 @@ class RecommendationEligibility {
   /// 후보 계정 자체가 노출 가능한 상태인지.
   static bool isCandidateDisplayable(Map<String, dynamic>? profile) {
     if (profile == null) return false;
+    if (profile['accountType']?.toString().toLowerCase() == 'operations') {
+      return false;
+    }
+    if (!isProfileVisibleForRecommendationToday(profile)) return false;
     if (!isAccountActive(profile)) return false;
     if (profile['isStudentVerified'] != true) return false;
     if (!isProfileComplete(profile)) return false;
     return ProfileDisplayImageResolver.resolve(profile).isNotEmpty;
+  }
+
+  /// Resolves the public profile's server-assigned KST next-day transition.
+  /// This also protects the rare yesterday-feed fallback when today's batch is
+  /// unavailable: a profile hidden from today must not be rendered from an
+  /// older recommendation document.
+  static bool isProfileVisibleForRecommendationToday(
+    Map<String, dynamic> profile, {
+    DateTime? now,
+  }) {
+    final requestedVisible = profile['profileVisible'] != false;
+    final effectiveDateKey = profile['profileVisibleEffectiveDateKey']
+        ?.toString()
+        .trim();
+    if (effectiveDateKey == null ||
+        !RegExp(r'^\d{8}$').hasMatch(effectiveDateKey)) {
+      return requestedVisible;
+    }
+
+    final localNow = (now ?? DateTime.now()).toUtc().add(
+      const Duration(hours: 9),
+    );
+    final todayKey =
+        '${localNow.year.toString().padLeft(4, '0')}'
+        '${localNow.month.toString().padLeft(2, '0')}'
+        '${localNow.day.toString().padLeft(2, '0')}';
+    if (todayKey.compareTo(effectiveDateKey) < 0) {
+      return profile['profileVisibleBeforeEffectiveDate'] != false;
+    }
+    return requestedVisible;
   }
 
   static bool isAccountActive(Map<String, dynamic> profile) {

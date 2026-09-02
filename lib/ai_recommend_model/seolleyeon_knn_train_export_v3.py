@@ -222,7 +222,7 @@ def export_to_firestore(
     require_firestore()
     db = firestore.Client(project=project_id, database=database)
     generated_viewer_ids = set(recommendations)
-    privacy_policy = load_recommendation_privacy_policy(db)
+    privacy_policy = load_recommendation_privacy_policy(db, date_key=date_key)
     recommendations, privacy_stats = filter_recommendations(
         recommendations,
         privacy_policy,

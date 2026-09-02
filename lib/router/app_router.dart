@@ -61,6 +61,7 @@ import '../shared/widgets/sensitive_screen_protection.dart';
 // Chat
 import '../features/chat/screens/premium_chat_list_screen.dart';
 import '../features/chat/screens/chat_room_screen.dart';
+import '../features/chat/screens/support_user_directory_screen.dart';
 import '../features/chat/screens/group_match_screen.dart';
 import '../features/chat/models/chat_room_data.dart';
 import '../features/chat/models/safety_stamp_follow_up_args.dart';
@@ -117,6 +118,8 @@ import '../features/blind_meeting/presentation/screens/blind_meeting_dna_wizard_
 import '../features/blind_meeting/presentation/screens/blind_meeting_feedback_screen.dart';
 import '../features/blind_meeting/presentation/screens/blind_meeting_follow_up_screen.dart';
 import '../features/blind_meeting/presentation/screens/blind_meeting_intro_screen.dart';
+import '../features/blind_meeting/presentation/screens/blind_meeting_party_friend_picker_screen.dart';
+import '../features/blind_meeting/presentation/screens/blind_meeting_party_screen.dart';
 import '../features/blind_meeting/presentation/screens/blind_meeting_result_screen.dart';
 import '../features/blind_meeting/presentation/screens/blind_meeting_schedule_screen.dart';
 import '../features/blind_meeting/presentation/screens/blind_meeting_waiting_screen.dart';
@@ -268,6 +271,8 @@ class AppRouter {
             partnerAvatarUrl: data?.partnerAvatarUrl,
           ),
         );
+      case RouteNames.supportUserDirectory:
+        return _cupertino(const SupportUserDirectoryScreen());
       case RouteNames.groupChat:
       case RouteNames.groupMatch:
         return _cupertino(const GroupMatchScreen());
@@ -332,20 +337,19 @@ class AppRouter {
                 ({
                   required String category,
                   required String content,
-                  required bool allowContact,
+                  required bool allowOperationsFollowUp,
                 }) async {
                   try {
-                    await IssueReportService().submitIssueReport(
+                    return await IssueReportService().submitIssueReport(
                       category: category,
                       content: content,
-                      allowContact: allowContact,
+                      allowOperationsFollowUp: allowOperationsFollowUp,
                     );
-                    return true;
                   } catch (e) {
                     debugPrint(
                       'Issue report submit error: ${PrivacyLogUtils.errorSummary(e)}',
                     );
-                    return false;
+                    return null;
                   }
                 },
           ),
@@ -357,20 +361,19 @@ class AppRouter {
                 ({
                   required String category,
                   required String content,
-                  required bool allowContact,
+                  required bool allowOperationsFollowUp,
                 }) async {
                   try {
-                    await InquiryService().submitInquiry(
+                    return await InquiryService().submitInquiry(
                       category: category,
                       content: content,
-                      allowContact: allowContact,
+                      allowOperationsFollowUp: allowOperationsFollowUp,
                     );
-                    return true;
                   } catch (e) {
                     debugPrint(
                       'Inquiry submit error: ${PrivacyLogUtils.errorSummary(e)}',
                     );
-                    return false;
+                    return null;
                   }
                 },
           ),
@@ -423,6 +426,22 @@ class AppRouter {
       // Blind taste meeting (3:3 블라인드 취향 미팅)
       //
       // legacy 랜덤 미팅 deep link는 그대로 살려두고 새 소개 화면으로 보낸다.
+      case RouteNames.blindTasteMeetingParty:
+        return _cupertino(const BlindMeetingPartyScreen(), settings: settings);
+      case RouteNames.blindTasteMeetingPartyFriendPicker:
+        final partyId = settings.arguments;
+        if (partyId is! String || partyId.trim().isEmpty) {
+          return _cupertino(
+            const BlindMeetingPartyScreen(),
+            settings: const RouteSettings(
+              name: RouteNames.blindTasteMeetingParty,
+            ),
+          );
+        }
+        return _cupertino(
+          BlindMeetingPartyFriendPickerScreen(partyId: partyId),
+          settings: settings,
+        );
       case RouteNames.blindTasteMeeting:
       case RouteNames.legacyRandomMatching:
       case RouteNames.legacyRandomMeeting:

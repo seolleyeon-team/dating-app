@@ -249,7 +249,7 @@ def run_verify(
 
     t0 = time.time()
     db = firestore.Client(project=project, database=database)
-    privacy_policy = load_recommendation_privacy_policy(db)
+    privacy_policy = load_recommendation_privacy_policy(db, date_key=date_key)
     user_docs = {
         doc.id: (doc.to_dict() or {})
         for doc in db.collection("users").stream()
@@ -319,14 +319,14 @@ def run_verify(
         if status.get("displayReady") is True
         and uid in policy_meta
         and uid in user_docs
-        and uid in privacy_policy.ready_user_ids
+        and uid in privacy_policy.candidate_user_ids
     )
     pair_candidate_ids = sorted(
         uid
         for uid, status in display_status.items()
         if status.get("displayReady") is True
         and uid in policy_meta
-        and uid in privacy_policy.ready_user_ids
+        and uid in privacy_policy.candidate_user_ids
     )
     # 지금 의도한 생활권 정책 상태. 진단 지표와 provenance 검사가 같은 값을 쓴다.
     try:

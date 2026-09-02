@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import 'storage_service.dart';
-import 'user_service.dart';
 import '../shared/utils/privacy_log_utils.dart';
 import '../shared/utils/recommendation_eligibility.dart';
 import 'campus_life_zone_repair_service.dart';
@@ -55,7 +54,6 @@ class AiRecommendedProfile {
 // =============================================================================
 class AiRecommendationService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final UserService _userService = UserService();
   final CampusLifeZoneRepairService _campusLifeZoneRepairService =
       CampusLifeZoneRepairService();
   final StorageService _storageService = StorageService();
@@ -74,22 +72,32 @@ class AiRecommendationService {
   }
 
   /// Recommendation-only exclusions are separate from safety blocks because
-  /// Kakao friend privacy must not disable chat, push, or other meeting flows.
-  /// A read failure is allowed to propagate so the feed fails closed.
+  /// Kakao friend and same-department privacy must not disable chat, push, or
+  /// other meeting flows. A read failure is allowed to propagate so the feed
+  /// fails closed.
   Future<Set<String>> _fetchRecommendationExcludedUids(String uid) async {
-    final snap = await _firestore
-        .collection('recommendationExclusions')
-        .doc(uid)
-        .collection('targets')
-        .get(const GetOptions(source: Source.server));
+    final snapshots = await Future.wait([
+      _firestore
+          .collection('recommendationExclusions')
+          .doc(uid)
+          .collection('targets')
+          .get(const GetOptions(source: Source.server)),
+      _firestore
+          .collection('departmentRecommendationExclusions')
+          .doc(uid)
+          .collection('targets')
+          .get(const GetOptions(source: Source.server)),
+    ]);
     final excluded = <String>{};
-    for (final doc in snap.docs) {
-      final enabledBy = doc.data()['enabledBy'];
-      final active = doc.data()['active'] == true;
-      if (active ||
-          (enabledBy is Map &&
-              enabledBy.values.any((value) => value == true))) {
-        excluded.add(doc.id);
+    for (final snapshot in snapshots) {
+      for (final doc in snapshot.docs) {
+        final enabledBy = doc.data()['enabledBy'];
+        final active = doc.data()['active'] == true;
+        if (active ||
+            (enabledBy is Map &&
+                enabledBy.values.any((value) => value == true))) {
+          excluded.add(doc.id);
+        }
       }
     }
     return excluded;
@@ -101,6 +109,8 @@ class AiRecommendationService {
     late final StreamController<void> controller;
     StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? userSub;
     StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? exclusionsSub;
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+    departmentExclusionsSub;
 
     controller = StreamController<void>(
       onListen: () {
@@ -115,10 +125,17 @@ class AiRecommendationService {
             .collection('targets')
             .snapshots()
             .listen((_) => controller.add(null), onError: controller.addError);
+        departmentExclusionsSub = _firestore
+            .collection('departmentRecommendationExclusions')
+            .doc(uid)
+            .collection('targets')
+            .snapshots()
+            .listen((_) => controller.add(null), onError: controller.addError);
       },
       onCancel: () async {
         await userSub?.cancel();
         await exclusionsSub?.cancel();
+        await departmentExclusionsSub?.cancel();
       },
     );
     return controller.stream;
@@ -150,7 +167,8 @@ class AiRecommendationService {
                     data != null &&
                     data['status'] != 'withdrawn' &&
                     data['isWithdrawn'] != true &&
-                    data['profileVisible'] != false;
+                    data['profileVisible'] != false &&
+                    RecommendationEligibility.isCandidateDisplayable(data);
                 if (!receivedInitialEligibleSnapshot) {
                   receivedInitialEligibleSnapshot = eligible;
                   if (eligible) return;
@@ -238,6 +256,26 @@ class AiRecommendationService {
     return state is String && state.isNotEmpty ? state : null;
   }
 
+  static String? _departmentOf(Map<String, dynamic>? profile) {
+    if (profile == null) return null;
+    final onboarding = profile['onboarding'];
+    final values = <dynamic>[
+      if (onboarding is Map) onboarding['department'],
+      profile['department'],
+    ];
+    for (final value in values) {
+      final text = value?.toString().trim();
+      if (text != null && text.isNotEmpty) return text;
+    }
+    return null;
+  }
+
+  static bool _avoidSameDepartmentEnabled(Map<String, dynamic>? profile) {
+    final privacySettings = profile?['privacySettings'];
+    return privacySettings is Map &&
+        privacySettings['avoidSameDepartment'] == true;
+  }
+
   /// 이 피드에 생활권 hard filter 를 적용해야 하는지 정한다.
   ///
   /// 클라이언트가 정책을 직접 정하지 않는다. 서버가 남긴 두 가지 근거
@@ -298,11 +336,22 @@ class AiRecommendationService {
       activation: activation,
       enforcedObserved: CampusLifeZoneRepairService.enforcedObserved,
     );
+    // Own users/{uid} is private but readable by the signed-in user. Reading it
+    // here gives the viewer-side guard zero trigger latency when the toggle is
+    // switched on; the server materialized pair collection protects the other
+    // direction without exposing another user's privacySettings.
+    final viewerSnapshot = await _firestore
+        .collection('users')
+        .doc(viewerUid)
+        .get(const GetOptions(source: Source.server));
+    final viewerProfile = viewerSnapshot.data();
     final viewerZones = enforceCampusLifeZone
-        ? RecommendationEligibility.campusLifeZonesOf(
-            await _userService.getUserProfile(viewerUid),
-          )
+        ? RecommendationEligibility.campusLifeZonesOf(viewerProfile)
         : const <String>{};
+    final viewerDepartment = _departmentOf(viewerProfile);
+    final viewerAvoidsSameDepartment = _avoidSameDepartmentEnabled(
+      viewerProfile,
+    );
 
     // 순위를 보장하기 위해 items 안의 rank나 순서를 기반으로 정렬 (Python 스크립트는 이미 rank 순 정렬)
     final sortedItems = List.from(rawItems);
@@ -347,6 +396,12 @@ class AiRecommendationService {
           : RecommendationEligibility.isAccountActive(userProfile) &&
                 userProfile['isStudentVerified'] == true;
       if (!isDisplayable) {
+        continue;
+      }
+
+      if (viewerAvoidsSameDepartment &&
+          viewerDepartment != null &&
+          _departmentOf(userProfile) == viewerDepartment) {
         continue;
       }
 

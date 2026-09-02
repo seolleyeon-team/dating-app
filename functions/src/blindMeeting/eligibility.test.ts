@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   hasRequiredInterests,
+  hasRequiredLifestyle,
   isStrictStudentVerification,
 } from "./eligibility";
 
@@ -19,4 +20,28 @@ test("student verification eligibility accepts boolean true only", () => {
   assert.equal(isStrictStudentVerification("true"), false);
   assert.equal(isStrictStudentVerification(1), false);
   assert.equal(isStrictStudentVerification(null), false);
+});
+
+test("blind meeting lifestyle eligibility requires both drinking and smoking", () => {
+  assert.equal(
+    hasRequiredLifestyle({
+      lifestyle: { drinking: "sometimes", smoking: "nonSmoker" },
+    }),
+    true
+  );
+  assert.equal(
+    hasRequiredLifestyle({ lifestyle: { drinking: "sometimes" } }),
+    false
+  );
+  assert.equal(
+    hasRequiredLifestyle({ lifestyle: { smoking: "nonSmoker" } }),
+    false
+  );
+  assert.equal(
+    hasRequiredLifestyle({
+      lifestyle: { drinking: "unknown", smoking: "nonSmoker" },
+    }),
+    false
+  );
+  assert.equal(hasRequiredLifestyle(null), false);
 });

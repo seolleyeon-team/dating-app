@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 
 import '../shared/utils/privacy_log_utils.dart';
@@ -156,26 +157,31 @@ class KakaoFriendConnectionService {
 
     try {
       await UserApi.instance.loginWithKakaoTalk();
-    } on KakaoException catch (e) {
-      final detail = e.message ?? e.toString();
-      debugPrint(
-        '[KakaoConnect] loginWithKakaoTalk ${PrivacyLogUtils.errorSummary(e)}',
-      );
-      if (detail.contains('bundleId') || detail.contains('IOS bundleId')) {
-        rethrow;
-      }
-      debugPrint('[KakaoConnect] fallback to loginWithKakaoAccount');
-      await UserApi.instance.loginWithKakaoAccount();
     } catch (e) {
       debugPrint(
         '[KakaoConnect] loginWithKakaoTalk ${PrivacyLogUtils.errorSummary(e)}',
       );
-      final detail = e.toString();
-      if (detail.contains('bundleId') || detail.contains('IOS bundleId')) {
-        rethrow;
-      }
+      if (!_shouldFallbackToKakaoAccount(e)) rethrow;
+      debugPrint('[KakaoConnect] fallback to loginWithKakaoAccount');
       await UserApi.instance.loginWithKakaoAccount();
     }
+  }
+
+  /// A consent cancellation or an OAuth/configuration rejection happened
+  /// after KakaoTalk was already shown. Opening the browser in those cases
+  /// repeats the same consent screen and cannot repair the failure. Keep the
+  /// account-login fallback only for failures to launch/use KakaoTalk itself.
+  bool _shouldFallbackToKakaoAccount(Object error) {
+    if (_isCancellation(error)) return false;
+    if (error is KakaoAuthException) return false;
+
+    final detail = error is KakaoException
+        ? (error.message ?? error.toString())
+        : error.toString();
+    if (detail.contains('bundleId') || detail.contains('IOS bundleId')) {
+      return false;
+    }
+    return true;
   }
 
   bool _isCancellation(Object error) {
@@ -186,6 +192,10 @@ class KakaoFriendConnectionService {
     if (error is KakaoClientException &&
         error.reason == ClientErrorCause.cancelled) {
       return true;
+    }
+    if (error is PlatformException) {
+      final code = error.code.toUpperCase();
+      if (code == 'CANCELED' || code == 'CANCELLED') return true;
     }
     final text = error.toString().toLowerCase();
     return text.contains('cancel') || text.contains('access_denied');

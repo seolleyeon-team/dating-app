@@ -23,12 +23,6 @@ class ChatListScreen extends StatelessWidget {
               // TODO: Navigate to 3:3 chat
             },
           ),
-          _buildChatItem(
-            title: '채팅 어시스턴트',
-            onTap: () {
-              // TODO: Navigate to chat assistant
-            },
-          ),
 
           const Divider(),
 

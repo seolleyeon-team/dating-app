@@ -35,11 +35,6 @@ void main() {
     return button.onPressed != null;
   }
 
-  Finder switchAt(int index) => find.byType(CupertinoSwitch).at(index);
-
-  bool switchValue(WidgetTester tester, int index) =>
-      tester.widget<CupertinoSwitch>(switchAt(index)).value;
-
   /// The required-item labels live in a `RichText` span, so the finder must
   /// opt into rich text.
   Future<void> tapRequired(WidgetTester tester, String label) async {
@@ -69,50 +64,27 @@ void main() {
     }
   });
 
-  testWidgets('all four REQUIRED items with EVERY optional item off still '
-      'lets the user proceed', (tester) async {
+  testWidgets('all four REQUIRED items let the user proceed without any '
+      'notification-consent controls', (tester) async {
     await pumpTermsScreen(tester);
 
     for (final label in requiredLabels) {
       await tapRequired(tester, label);
     }
 
-    // Contract §2: optional consents are never blocking.
-    expect(switchValue(tester, 0), isFalse, reason: 'push stays off');
-    expect(switchValue(tester, 1), isFalse, reason: 'email stays off');
+    expect(find.byType(CupertinoSwitch), findsNothing);
     expect(ctaEnabled(tester), isTrue);
   });
 
-  testWidgets('F4: 전체 동의 on→off clears the push and email switches', (
+  testWidgets('전체 동의 does not expose Push or Email consent toggles', (
     tester,
   ) async {
     await pumpTermsScreen(tester);
 
     await tester.tap(find.text(allAgreeLabel));
     await tester.pumpAndSettle();
-    expect(switchValue(tester, 0), isTrue);
-    expect(switchValue(tester, 1), isTrue);
     expect(ctaEnabled(tester), isTrue);
-
-    // The old asymmetric implementation left both switches stuck on.
-    await tester.tap(find.text(allAgreeLabel));
-    await tester.pumpAndSettle();
-    expect(switchValue(tester, 0), isFalse);
-    expect(switchValue(tester, 1), isFalse);
-    expect(ctaEnabled(tester), isFalse);
-  });
-
-  testWidgets('an optional switch toggled on its own never opens the gate', (
-    tester,
-  ) async {
-    await pumpTermsScreen(tester);
-
-    await tester.tap(switchAt(0));
-    await tester.pumpAndSettle();
-    expect(switchValue(tester, 0), isTrue);
-    expect(switchValue(tester, 1), isFalse);
-    // Optional switches never gate the CTA.
-    expect(ctaEnabled(tester), isFalse);
+    expect(find.byType(CupertinoSwitch), findsNothing);
   });
 
   testWidgets('the detail sheet round-trips without losing checkbox state', (

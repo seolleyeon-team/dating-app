@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../router/route_names.dart';
 import '../../../services/firebase_diagnostics.dart';
+import '../../../services/push_notification_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../shared/widgets/chat_profile_photo_avatar.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
@@ -22,6 +23,7 @@ import '../../../shared/utils/dev_entry_policy.dart';
 import '../../../shared/utils/privacy_log_utils.dart';
 import '../models/chat_room_data.dart';
 import '../services/chat_service.dart';
+import '../services/support_chat_service.dart';
 
 // =============================================================================
 // 색상 상수
@@ -102,14 +104,12 @@ class _ChatItem {
 // 메인 화면
 // =============================================================================
 class ChatListScreen extends StatefulWidget {
-  final VoidCallback? onFilter;
   final Function(String chatId)? onChatTap;
   final Function(int tabIndex)? onTabChange;
   final Function(int navIndex)? onNavTap;
 
   const ChatListScreen({
     super.key,
-    this.onFilter,
     this.onChatTap,
     this.onTabChange,
     this.onNavTap,
@@ -122,6 +122,7 @@ class ChatListScreen extends StatefulWidget {
 class _ChatListScreenState extends State<ChatListScreen> {
   final StorageService _storageService = StorageService();
   final ChatService _chatService = ChatService();
+  final SupportChatService _supportChatService = SupportChatService();
 
   String? _currentKakaoUserId;
   bool _isLoading = true;
@@ -129,20 +130,41 @@ class _ChatListScreenState extends State<ChatListScreen> {
   @override
   void initState() {
     super.initState();
+    PushNotificationService.instance.setChatListVisible(true);
     _loadCurrentUser();
+  }
+
+  @override
+  void deactivate() {
+    PushNotificationService.instance.setChatListVisible(false);
+    super.deactivate();
+  }
+
+  @override
+  void activate() {
+    super.activate();
+    PushNotificationService.instance.setChatListVisible(true);
+  }
+
+  @override
+  void dispose() {
+    PushNotificationService.instance.setChatListVisible(false);
+    super.dispose();
   }
 
   Future<void> _loadCurrentUser() async {
     final kakaoUserId = await _storageService.getKakaoUserId();
+    final resolvedUserId =
+        kakaoUserId ?? FirebaseAuth.instance.currentUser?.uid;
 
     debugPrint(
-      'CHAT LIST current user: ${PrivacyLogUtils.idFingerprint(kakaoUserId)}',
+      'CHAT LIST current user: ${PrivacyLogUtils.idFingerprint(resolvedUserId)}',
     );
 
     if (!mounted) return;
 
     setState(() {
-      _currentKakaoUserId = kakaoUserId;
+      _currentKakaoUserId = resolvedUserId;
       _isLoading = false;
     });
   }
@@ -307,6 +329,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    PushNotificationService.instance.setChatListVisible(true);
     final bottomPadding = MediaQuery.of(context).padding.bottom;
     final currentUserId = _currentKakaoUserId ?? '';
 
@@ -331,9 +354,29 @@ class _ChatListScreenState extends State<ChatListScreen> {
           CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
-              SliverToBoxAdapter(child: _Header(onFilter: widget.onFilter)),
+              const SliverToBoxAdapter(child: _Header()),
               SliverToBoxAdapter(
                 child: _TabBar(onTabChange: widget.onTabChange),
+              ),
+              FutureBuilder<bool>(
+                future: _supportChatService.isOperations(),
+                builder: (context, snapshot) {
+                  if (snapshot.data != true) {
+                    return const SliverToBoxAdapter(child: SizedBox.shrink());
+                  }
+                  return SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: CupertinoButton.filled(
+                        onPressed: () => Navigator.of(
+                          context,
+                          rootNavigator: true,
+                        ).pushNamed(RouteNames.supportUserDirectory),
+                        child: const Text('사용자 목록'),
+                      ),
+                    ),
+                  );
+                },
               ),
               if (currentUserId.isEmpty)
                 const SliverToBoxAdapter(
@@ -705,25 +748,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
 // 헤더
 // =============================================================================
 class _Header extends StatelessWidget {
-  final VoidCallback? onFilter;
-
-  const _Header({this.onFilter});
+  const _Header();
 
   @override
   Widget build(BuildContext context) {
     final seol = Theme.of(context).extension<SeolThemeColors>()!;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final titleColor = seol.gray800;
-    final filterBg = isDark
-        ? CupertinoColors.white.withValues(alpha: 0.08)
-        : CupertinoColors.black.withValues(alpha: 0.03);
 
     return SafeArea(
       bottom: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
               '채팅',
@@ -733,26 +769,6 @@ class _Header extends StatelessWidget {
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.5,
                 color: titleColor,
-              ),
-            ),
-            CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: () {
-                HapticFeedback.lightImpact();
-                onFilter?.call();
-              },
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: filterBg,
-                ),
-                child: Icon(
-                  CupertinoIcons.slider_horizontal_3,
-                  size: 24,
-                  color: titleColor,
-                ),
               ),
             ),
           ],
@@ -802,16 +818,6 @@ class _TabBarState extends State<_TabBar> {
               widget.onTabChange?.call(1);
             },
           ),
-          const SizedBox(width: 12),
-          _TabChip(
-            label: 'AI 어시스턴트',
-            icon: CupertinoIcons.sparkles,
-            isSelected: _selectedIndex == 2,
-            onTap: () {
-              setState(() => _selectedIndex = 2);
-              widget.onTabChange?.call(2);
-            },
-          ),
         ],
       ),
     );
@@ -820,16 +826,10 @@ class _TabBarState extends State<_TabBar> {
 
 class _TabChip extends StatelessWidget {
   final String label;
-  final IconData? icon;
   final bool isSelected;
   final VoidCallback? onTap;
 
-  const _TabChip({
-    required this.label,
-    this.icon,
-    this.isSelected = false,
-    this.onTap,
-  });
+  const _TabChip({required this.label, this.isSelected = false, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -860,14 +860,6 @@ class _TabChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (icon != null) ...[
-              Icon(
-                icon,
-                size: 14,
-                color: isSelected ? CupertinoColors.white : seol.gray400,
-              ),
-              const SizedBox(width: 6),
-            ],
             Text(
               label,
               style: TextStyle(

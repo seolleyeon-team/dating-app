@@ -5,6 +5,7 @@ import '../../features/event/screens/event_screen.dart';
 import '../../features/community/screens/community_screen.dart';
 import '../../features/profile/screens/my_page_screen.dart';
 import '../widgets/sensitive_screen_protection.dart';
+import '../../services/push_notification_service.dart';
 
 /// 메인 화면 스캐폴드 (CupertinoTabScaffold, 5탭: 설레연/채팅/이벤트/대나무숲/내 페이지)
 class MainScaffold extends StatefulWidget {
@@ -32,6 +33,8 @@ class _MainScaffoldState extends State<MainScaffold> {
     _tabController = CupertinoTabController(
       initialIndex: widget.initialTabIndex,
     );
+    _tabController.addListener(_syncChatListVisibility);
+    _syncChatListVisibility();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.pendingRouteName != null) {
@@ -45,8 +48,16 @@ class _MainScaffoldState extends State<MainScaffold> {
 
   @override
   void dispose() {
+    _tabController.removeListener(_syncChatListVisibility);
+    PushNotificationService.instance.setChatListVisible(false);
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _syncChatListVisibility() {
+    PushNotificationService.instance.setChatListVisible(
+      _tabController.index == 1,
+    );
   }
 
   @override

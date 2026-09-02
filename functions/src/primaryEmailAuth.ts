@@ -33,6 +33,7 @@ const TOKEN_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const SAFE_EMAIL_REQUEST_ID = /^[A-Za-z0-9_-]{16,128}$/;
 const PRIMARY_AUTH_TOKEN_TTL_MS = 30 * 60 * 1000;
 const PRIMARY_AUTH_REQUEST_TTL_MS = 31 * 24 * 60 * 60 * 1000;
+const PRIMARY_AUTH_LEGACY_RESEND_COOLDOWN_MS = 60 * 1000;
 // Terms gate (terms-gate-contract §2/§3). One repo-wide version covers all four
 // required documents — there are no per-document versions.
 export const CURRENT_TERMS_VERSION = "2026-05-16";
@@ -53,6 +54,39 @@ const REJOIN_RESTRICTED_STATUSES = new Set([
   "suspended",
   "withdrawn",
 ]);
+
+export function shouldRenewPrimaryEmailSend(params: {
+  status: string;
+  expiresAtMs: number | null;
+  sentAtMs: number | null;
+  nowMs: number;
+}): boolean {
+  return (
+    params.status === "sent" &&
+    (params.expiresAtMs === null ||
+      params.expiresAtMs <= params.nowMs ||
+      (params.sentAtMs !== null &&
+        params.sentAtMs <=
+          params.nowMs - PRIMARY_AUTH_LEGACY_RESEND_COOLDOWN_MS))
+  );
+}
+
+export function buildPrimaryEmailDeliveryRequestId(
+  clientRequestId: string,
+  sendGeneration: number
+): string {
+  return sendGeneration > 0
+    ? `${clientRequestId}-renewal-${sendGeneration}`
+    : clientRequestId;
+}
+
+function readSendGeneration(value: unknown): number {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0
+    ? value
+    : 0;
+}
 
 function asNonEmptyString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -202,7 +236,13 @@ export type PrimaryEmailLinkTermsDecision =
   | { ok: false; reason: PrimaryEmailLinkTermsRejection };
 
 export type PrimaryEmailLinkTokenDecision =
-  | { ok: true; email: string; terms: PrimaryEmailLinkTermsDecision }
+  | {
+      ok: true;
+      email: string;
+      terms: PrimaryEmailLinkTermsDecision;
+      completedAppUserId?: string;
+      completedIsNewUser?: boolean;
+    }
   | { ok: false; reason: PrimaryEmailLinkTokenRejection };
 
 /**
@@ -240,8 +280,10 @@ export function evaluatePrimaryEmailLinkToken(params: {
   now: Date;
 }): PrimaryEmailLinkTokenDecision {
   const tokenData = params.tokenData;
-  // Tokens are deleted in the completion transaction, so a missing document
-  // means "consumed or never existed" — both map to the same rejection.
+  // A missing document means "expired/purged or never existed". Completed
+  // primary tokens remain until expiry so a lost callable response can be
+  // retried by the same verified mailbox without consuming the Firebase
+  // action code a second time.
   if (!tokenData) return { ok: false, reason: "missing" };
 
   const email = normalizeYonseiEmail(tokenData.email);
@@ -276,7 +318,31 @@ export function evaluatePrimaryEmailLinkToken(params: {
     return { ok: false, reason: "expired" };
   }
 
-  return { ok: true, email, terms: evaluatePrimaryEmailLinkTerms(tokenData) };
+  const terms = evaluatePrimaryEmailLinkTerms(tokenData);
+  const status = asNonEmptyString(tokenData.status) ?? "pending";
+  if (status === "completed") {
+    const completedAppUserId = asNonEmptyString(
+      tokenData.completedAppUserId
+    );
+    if (
+      !completedAppUserId ||
+      typeof tokenData.completedIsNewUser !== "boolean"
+    ) {
+      return { ok: false, reason: "malformed" };
+    }
+    return {
+      ok: true,
+      email,
+      terms,
+      completedAppUserId,
+      completedIsNewUser: tokenData.completedIsNewUser,
+    };
+  }
+  if (status !== "pending") {
+    return { ok: false, reason: "malformed" };
+  }
+
+  return { ok: true, email, terms };
 }
 
 /** Reads the server-owned acceptance version already stored on a users doc. */
@@ -614,8 +680,10 @@ export function createSendPrimaryStudentEmailLinkFunction(
 
       const reservation = await db.runTransaction(async (tx) => {
         const existingRequest = await tx.get(requestRef);
+        let existing: Record<string, unknown> | null = null;
+        let sendGeneration = 0;
         if (existingRequest.exists) {
-          const existing = (existingRequest.data() ?? {}) as Record<
+          existing = (existingRequest.data() ?? {}) as Record<
             string,
             unknown
           >;
@@ -629,12 +697,36 @@ export function createSendPrimaryStudentEmailLinkFunction(
               "인증 요청을 확인할 수 없어요."
             );
           }
-          return {
-            existing: true,
-            status: asNonEmptyString(existing.status) ?? "preparing",
-            actionLink: asNonEmptyString(existing.actionLink),
-            token: asNonEmptyString(existing.token),
-          };
+          const status = asNonEmptyString(existing.status) ?? "preparing";
+          sendGeneration = readSendGeneration(existing.sendGeneration);
+          if (
+            !shouldRenewPrimaryEmailSend({
+              status,
+              expiresAtMs: toDate(existing.expiresAt)?.getTime() ?? null,
+              sentAtMs: toDate(existing.sentAt)?.getTime() ?? null,
+              nowMs,
+            })
+          ) {
+            return {
+              existing: true,
+              status,
+              actionLink: asNonEmptyString(existing.actionLink),
+              token: asNonEmptyString(existing.token),
+              deliveryRequestId:
+                asNonEmptyString(existing.deliveryRequestId) ??
+                buildPrimaryEmailDeliveryRequestId(
+                  clientRequestId,
+                  sendGeneration
+                ),
+              sendGeneration,
+            };
+          }
+
+          // Older app builds keep the same client request id after a
+          // successful send. Once that send's token has expired, renew the
+          // reservation and provider idempotency key instead of returning a
+          // permanent duplicate.
+          sendGeneration += 1;
         }
 
         const emailRateSnap = await tx.get(emailRateRef);
@@ -670,6 +762,10 @@ export function createSendPrimaryStudentEmailLinkFunction(
         const expiresAt = Timestamp.fromMillis(
           nowMs + PRIMARY_AUTH_TOKEN_TTL_MS
         );
+        const deliveryRequestId = buildPrimaryEmailDeliveryRequestId(
+          clientRequestId,
+          sendGeneration
+        );
         // Primary-flow token shape (contract §3): purpose only, NO kakaoUserId.
         tx.set(emailRateRef, {
           minuteWindowStartedAt: Timestamp.fromMillis(
@@ -693,17 +789,44 @@ export function createSendPrimaryStudentEmailLinkFunction(
           termsAcceptedAt: Timestamp.fromMillis(nowMs),
           termsOptionalConsents: termsDecision.optionalConsents,
         });
-        tx.set(requestRef, {
+        const requestReservation = {
           kind: PRIMARY_AUTH_TOKEN_PURPOSE,
           emailHash,
           clientRequestId,
           token,
           status: "preparing",
-          createdAt: Timestamp.fromMillis(nowMs),
+          sendGeneration,
+          deliveryRequestId,
           expiresAt,
           purgeAt: Timestamp.fromMillis(nowMs + PRIMARY_AUTH_REQUEST_TTL_MS),
-        });
-        return { existing: false, status: "preparing", actionLink: null, token };
+        };
+        if (existing) {
+          tx.set(
+            requestRef,
+            {
+              ...requestReservation,
+              renewedAt: Timestamp.fromMillis(nowMs),
+              updatedAt: Timestamp.fromMillis(nowMs),
+              actionLink: FieldValue.delete(),
+              providerMessageId: FieldValue.delete(),
+              sentAt: FieldValue.delete(),
+            },
+            { merge: true }
+          );
+        } else {
+          tx.set(requestRef, {
+            ...requestReservation,
+            createdAt: Timestamp.fromMillis(nowMs),
+          });
+        }
+        return {
+          existing: false,
+          status: "preparing",
+          actionLink: null,
+          token,
+          deliveryRequestId,
+          sendGeneration,
+        };
       });
 
       if (reservation.status === "sent") {
@@ -758,7 +881,7 @@ export function createSendPrimaryStudentEmailLinkFunction(
           from: sender.from,
           replyTo: sender.replyTo,
           to: email,
-          requestId: clientRequestId,
+          requestId: reservation.deliveryRequestId,
           actionLink,
         });
         // The bearer link is not needed on our server once the provider has
@@ -776,6 +899,7 @@ export function createSendPrimaryStudentEmailLinkFunction(
         logger.info("primary auth email accepted by provider", {
           requestIdHash: sha256Hex(clientRequestId).slice(0, 12),
           emailHashPrefix: emailHash.slice(0, 12),
+          sendGeneration: reservation.sendGeneration,
         });
         return { accepted: true, duplicate: false };
       } catch (error) {
@@ -852,6 +976,35 @@ export function createCompletePrimaryStudentEmailAuthFunction(
         throw tokenError(tokenDecision.reason);
       }
       const email = tokenDecision.email;
+
+      // The account/binding transaction may have committed even when the
+      // callable response carrying the custom token was lost. Re-mint only
+      // for the exact same server-verified mailbox and the recorded account.
+      if (tokenDecision.completedAppUserId) {
+        const completedUserSnapshot = await transaction.get(
+          db.collection("users").doc(tokenDecision.completedAppUserId)
+        );
+        const completedUserData = completedUserSnapshot.exists
+          ? ((completedUserSnapshot.data() ?? {}) as Record<string, unknown>)
+          : null;
+        if (!completedUserData) {
+          throw accountError("identity_conflict");
+        }
+        const completedUserRejection = evaluateExistingUser(
+          completedUserData,
+          email
+        );
+        if (completedUserRejection) {
+          throw accountError(completedUserRejection);
+        }
+        return {
+          appUserId: tokenDecision.completedAppUserId,
+          isNewUser: tokenDecision.completedIsNewUser === true,
+          userData: completedUserData,
+          email,
+        };
+      }
+
       const emailHash = sha256Hex(email);
       const bindingRef = db.collection("studentEmailBindings").doc(emailHash);
       const bindingSnapshot = await transaction.get(bindingRef);
@@ -962,8 +1115,20 @@ export function createCompletePrimaryStudentEmailAuthFunction(
           { merge: true }
         );
       }
-      // Single-use guarantee: the token is consumed in the same transaction.
-      transaction.delete(tokenRef);
+      // Logical single-use guarantee: the account transition happens once,
+      // while an identical verified-mailbox retry can recover a response that
+      // was lost after this transaction committed. The purge job removes the
+      // marker after the original 30-minute expiry.
+      transaction.set(
+        tokenRef,
+        {
+          status: "completed",
+          completedAppUserId: decision.appUserId,
+          completedIsNewUser: decision.isNewUser,
+          completedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
       return {
         appUserId: decision.appUserId,
         isNewUser: decision.isNewUser,

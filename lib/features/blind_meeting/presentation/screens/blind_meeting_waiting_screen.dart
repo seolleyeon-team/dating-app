@@ -14,6 +14,7 @@ import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_repository.dart';
 import '../../domain/blind_meeting_application.dart';
 import '../../domain/blind_meeting_availability.dart';
+import '../../domain/blind_meeting_party.dart';
 import '../blind_meeting_route_args.dart';
 import '../blind_meeting_navigation.dart';
 import '../theme/blind_meeting_palette.dart';
@@ -191,6 +192,9 @@ class _BlindMeetingWaitingScreenState extends State<BlindMeetingWaitingScreen> {
     BlindMeetingApplication application,
   ) {
     final stage = application.stage;
+    final waitingForParty =
+        stage == BlindMeetingMatchingStage.waitingForPartyMembers ||
+        stage == BlindMeetingMatchingStage.waitingForCommonDates;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -198,31 +202,69 @@ class _BlindMeetingWaitingScreenState extends State<BlindMeetingWaitingScreen> {
         Text(stage.label, style: BlindMeetingText.title(palette.ink)),
         const SizedBox(height: 8),
         Text(
-          '조건에 맞는 참가자가 모이면 알림을 보내드려요.\n앱을 닫아도 진행 상황은 그대로 유지돼요.',
+          waitingForParty
+              ? '함께 시작한 친구 전원이 날짜 신청을 마쳐야 같은 미팅으로 배정돼요.\n앱을 닫아도 진행 상황은 그대로 유지돼요.'
+              : '조건에 맞는 참가자가 모이면 알림을 보내드려요.\n앱을 닫아도 진행 상황은 그대로 유지돼요.',
           style: BlindMeetingText.caption(palette.inkSoft),
         ),
         const SizedBox(height: 20),
-        BlindMeetingCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final step in const [
-                BlindMeetingMatchingStage.searchingCandidates,
-                BlindMeetingMatchingStage.formingOwnTeam,
-                BlindMeetingMatchingStage.checkingCrossTeam,
-                BlindMeetingMatchingStage.awaitingConfirmation,
-              ])
-                _stageRow(
-                  palette,
-                  label: step.label,
-                  done:
-                      stage.stepIndex > step.stepIndex ||
-                      stage == BlindMeetingMatchingStage.matched,
-                  active: stage.stepIndex == step.stepIndex,
+        if (waitingForParty && application.partyId != null)
+          StreamBuilder<BlindMeetingParty?>(
+            stream: _repository.watchParty(application.partyId!),
+            builder: (context, snapshot) {
+              final party = snapshot.data;
+              final completed = party?.completedApplicationUserIds.length ?? 0;
+              final total =
+                  party?.memberCount ?? application.partyMemberIds.length;
+              return BlindMeetingCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$completed/$total명 날짜 신청 완료',
+                      style: BlindMeetingText.sectionTitle(palette.ink),
+                    ),
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      value: total <= 0 ? 0 : completed / total,
+                      color: palette.accent,
+                      backgroundColor: palette.surfaceMuted,
+                    ),
+                    if (stage ==
+                        BlindMeetingMatchingStage.waitingForCommonDates) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        '전원이 선택한 날짜 중 겹치는 날이 없어요. DNA 수정에서 날짜를 추가해주세요.',
+                        style: BlindMeetingText.caption(palette.inkSoft),
+                      ),
+                    ],
+                  ],
                 ),
-            ],
+              );
+            },
+          )
+        else
+          BlindMeetingCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final step in const [
+                  BlindMeetingMatchingStage.searchingCandidates,
+                  BlindMeetingMatchingStage.formingOwnTeam,
+                  BlindMeetingMatchingStage.checkingCrossTeam,
+                  BlindMeetingMatchingStage.awaitingConfirmation,
+                ])
+                  _stageRow(
+                    palette,
+                    label: step.label,
+                    done:
+                        stage.stepIndex > step.stepIndex ||
+                        stage == BlindMeetingMatchingStage.matched,
+                    active: stage.stepIndex == step.stepIndex,
+                  ),
+              ],
+            ),
           ),
-        ),
         const SizedBox(height: 16),
         BlindMeetingCard(
           background: palette.surfaceMuted,

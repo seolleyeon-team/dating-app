@@ -334,7 +334,8 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
           SizedBox(height: 12),
           Text(
             '• 연락처의 전화번호만 사용하며, 이름이나 기타 정보는 서버에 전송되지 않아요.\n'
-            '• 전화번호는 기기에서 안전하게 암호화(해시)된 후 전송되며, 원본 전화번호는 서버에 저장되지 않아요.\n'
+            '• 내 연락처의 원본 전화번호는 서버에 저장되지 않고, 기기에서 해시된 값만 전송돼요.\n'
+            '• 해시값은 KG이니시스 본인인증을 완료한 가입자 정보와만 대조돼요.\n'
             '• 연락처 권한을 해제해도 이미 적용된 차단은 유지돼요.',
             style: TextStyle(
               fontFamily: 'NanumSquareRound',
