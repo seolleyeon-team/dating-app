@@ -243,7 +243,11 @@ void main() {
         resolveAccountSetupState(
           hasFirebaseSession: true,
           userDoc: completeDoc(
-            overrides: {'initialSetupComplete': false, 'onboarding': {}},
+            overrides: {
+              'initialSetupComplete': false,
+              'hasSeenTutorial': false,
+              'onboarding': {},
+            },
           ),
         ),
         AccountSetupState.onboardingRequired,
@@ -297,6 +301,32 @@ void main() {
         AccountSetupState.complete,
       );
     });
+
+    test(
+      'completed tutorial never falls back to the photo step when the legacy '
+      'onboarding marker or approved avatar is missing',
+      () {
+        final doc = completeDoc(
+          overrides: {
+            'initialSetupComplete': false,
+            'hasSeenTutorial': true,
+            'onboarding': {
+              'nickname': 'n',
+              'gender': 'f',
+              'interests': ['a'],
+              'lifestyle': {'x': 1},
+              'major': 'CS',
+            },
+          },
+        );
+        doc.remove('avatar');
+
+        expect(
+          resolveAccountSetupState(hasFirebaseSession: true, userDoc: doc),
+          AccountSetupState.complete,
+        );
+      },
+    );
   });
 
   group('gate ordering (restart at each state)', () {

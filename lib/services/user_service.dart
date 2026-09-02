@@ -170,6 +170,10 @@ class UserService {
   Future<void> setTutorialSeen(String kakaoUserId) async {
     await _firestore.collection('users').doc(kakaoUserId).set({
       'hasSeenTutorial': true,
+      // Reaching or skipping the tutorial is only possible after onboarding.
+      // Persist both markers atomically so a restart can never resume at an
+      // earlier onboarding step because one completion write was missed.
+      'initialSetupComplete': true,
     }, SetOptions(merge: true));
   }
 

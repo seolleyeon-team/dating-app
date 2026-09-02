@@ -45,7 +45,7 @@ class _PromiseAgreementTutorialScreenState
       widget.onAgree!();
       return;
     }
-    Navigator.of(context).pushNamed(RouteNames.slotMachineTutorial);
+    Navigator.of(context).pushNamed(RouteNames.bambooForestWriteTutorial);
   }
 
   @override

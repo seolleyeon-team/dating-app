@@ -30,7 +30,7 @@ const int maxSelfIntroductionLength = 300;
 
 const List<ProfileOption> profileRelationshipOptions = <ProfileOption>[
   ProfileOption('serious', '진지한 연애를 원해요'),
-  ProfileOption('friend', '편안한 친구 같은 관계'),
+  ProfileOption('friend', '가볍게 알아가고 싶어요'),
   ProfileOption('open', '상관없어요'),
 ];
 

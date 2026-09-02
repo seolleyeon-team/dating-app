@@ -129,6 +129,24 @@ class AuthProvider with ChangeNotifier {
         return;
       }
 
+      // Firestore의 대나무숲 등 사용자 상호작용 기능은 canonical 앱 세션만
+      // 허용한다. 이메일 링크를 막 열어 생긴 임시 Firebase 세션은 사용자를
+      // 읽을 수 있는 경우가 있어도 appSession/kakaoUserId 클레임이 없으므로
+      // 글쓰기는 permission-denied가 된다. 부팅 단계에서 이를 로그인 상태로
+      // 오인하지 않고, 정상적인 연세 메일 로그인 플로우로 돌려보낸다.
+      final tokenResult = await firebaseUser.getIdTokenResult(true);
+      final claims = tokenResult.claims;
+      final hasCanonicalSession =
+          claims?['appSession'] == true || claims?['kakaoUserId'] != null;
+      if (!hasCanonicalSession) {
+        await _authService.signOutAll();
+        await _storageService.clearUserId();
+        await _storageService.clearAppUserId();
+        _resetSessionState();
+        _setupState = AccountSetupState.emailVerificationPending;
+        return;
+      }
+
       final uid = firebaseUser.uid;
       _firebaseUid = uid;
 
@@ -165,10 +183,9 @@ class AuthProvider with ChangeNotifier {
       _studentEmail = rawEmail is String && rawEmail.trim().isNotEmpty
           ? rawEmail.trim().toLowerCase()
           : null;
-      _isInitialSetupComplete = _isTruthyMarker(
-        profile['initialSetupComplete'],
-      );
       _hasSeenTutorial = profile['hasSeenTutorial'] == true;
+      _isInitialSetupComplete =
+          _isTruthyMarker(profile['initialSetupComplete']) || _hasSeenTutorial;
       _setupState = resolveAccountSetupState(
         hasFirebaseSession: true,
         userDoc: profile,
@@ -571,6 +588,8 @@ class AuthProvider with ChangeNotifier {
     try {
       final profile = await _authService.getUserProfile(uid);
       _hasSeenTutorial = profile?['hasSeenTutorial'] == true;
+      _isInitialSetupComplete =
+          completion.initialSetupComplete || _hasSeenTutorial;
       _setupState = resolveAccountSetupState(
         hasFirebaseSession: true,
         userDoc: profile,
@@ -588,10 +607,14 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> markTutorialSeen() async {
     final appUserId = _appUserId;
-    if (appUserId == null) return;
+    if (appUserId == null || appUserId.isEmpty) {
+      throw StateError('tutorial_completion_requires_authenticated_user');
+    }
 
     await _authService.setTutorialSeen(appUserId);
     _hasSeenTutorial = true;
+    _isInitialSetupComplete = true;
+    _setupState = AccountSetupState.complete;
     notifyListeners();
   }
 
