@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -69,7 +70,7 @@ def _pipeline_config(**overrides):
     return SmallFacePipelineConfig(**values)
 
 
-def test_production_flux_cannot_disable_source_analysis_or_reach_generation(monkeypatch):
+def test_production_flux_is_rejected_before_analysis_or_generation(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production_bridge")
     monkeypatch.setenv("AVATAR_DATA_PROJECT", "seolleyeon-festival")
     monkeypatch.setenv("AVATAR_FACE_DETECTOR_ENABLED", "false")
@@ -101,17 +102,20 @@ def test_production_flux_cannot_disable_source_analysis_or_reach_generation(monk
     payload = _payload(job_id="avatar_g006_source_analysis_required")
     fs = _fake_firestore(payload)
 
-    result = worker_module.process_avatar_generation_payload(
-        payload,
-        firestore_client=fs,
-        storage_client=_fake_storage(),
-        qa_runner=_passing_qa,
-        mode="flux",
-        firestore_project="seolleyeon-festival",
-    )
+    with pytest.raises(
+        worker_module.AvatarGenerationError,
+        match="legacy_flux_is_not_a_production_generation_backend",
+    ):
+        worker_module.process_avatar_generation_payload(
+            payload,
+            firestore_client=fs,
+            storage_client=_fake_storage(),
+            qa_runner=_passing_qa,
+            mode="flux",
+            firestore_project="seolleyeon-festival",
+        )
 
-    assert result.status == "failed"
-    assert calls == {"analysis": 1, "generation": 0}
+    assert calls == {"analysis": 0, "generation": 0}
     assert fs.data["avatarCandidates"] == {}
 
 

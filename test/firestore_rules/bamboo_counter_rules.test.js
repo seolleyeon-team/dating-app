@@ -77,7 +77,16 @@ beforeEach(async () => {
   });
 });
 
-const authed = (uid) => testEnv.authenticatedContext(uid).firestore();
+// Bamboo writes are an interactive app surface and require the canonical
+// app-session claim. Using it here keeps the payload/counter assertions from
+// passing early at the session gate.
+const authed = (uid) =>
+  testEnv
+    .authenticatedContext(uid, {
+      appSession: true,
+      primaryAuth: "yonsei_email",
+    })
+    .firestore();
 
 const postRef = (db) => doc(db, "bamboo_posts", POST);
 const likeRef = (db, uid) => doc(db, "bamboo_posts", POST, "likes", uid);

@@ -28,6 +28,12 @@ import torch
 from PIL import Image
 from transformers import AutoModel, AutoProcessor
 
+from avatar_media_privacy import (
+    _is_private_or_signed_image_ref,
+    _load_image_from_gcs,
+    _parse_gcs_uri,
+)
+
 
 # -----------------------------
 # Defaults (모델/다운로드 보안)
@@ -39,6 +45,10 @@ DEFAULT_MODEL_ID = os.getenv("CLIP_MODEL_ID", "openai/clip-vit-large-patch14")
 DEFAULT_ALLOWED_HOSTS = os.getenv(
     "ALLOWED_IMAGE_HOSTS",
     "firebasestorage.googleapis.com,storage.googleapis.com"
+)
+DEFAULT_ALLOWED_GCS_IMAGE_BUCKETS = os.getenv(
+    "ALLOWED_GCS_IMAGE_BUCKETS",
+    "seolleyeon-final-private-source-photos",
 )
 
 DEFAULT_MAX_IMAGE_BYTES = int(os.getenv("MAX_IMAGE_BYTES", str(5 * 1024 * 1024)))  # 5MB
@@ -85,6 +95,10 @@ def _parse_allowed_hosts(s: str) -> Optional[set]:
     return hosts or None
 
 
+def _parse_allowed_buckets(value: str) -> set[str]:
+    return {item.strip() for item in (value or "").split(",") if item.strip()}
+
+
 def _load_image_from_url(
     url: str,
     *,
@@ -95,6 +109,8 @@ def _load_image_from_url(
     # https 권장(서버 운영 시 필수급)
     if not url.startswith("https://"):
         raise ValueError("Only https:// URLs are allowed for safety (server-friendly).")
+    if _is_private_or_signed_image_ref(url):
+        raise ValueError("Sensitive or signed image URL must not be downloaded.")
 
     parsed = urlparse(url)
     host = (parsed.netloc or "").lower()
@@ -103,7 +119,14 @@ def _load_image_from_url(
         raise ValueError(f"Host not allowed: {host}. Set ALLOWED_IMAGE_HOSTS env if needed.")
 
     # 다운로드 (청크 단위로 max_bytes 초과 방지)
-    with requests.get(url, stream=True, timeout=timeout) as r:
+    with requests.get(
+        url,
+        stream=True,
+        timeout=timeout,
+        allow_redirects=False,
+    ) as r:
+        if 300 <= r.status_code < 400:
+            raise ValueError("Redirects are not allowed for image downloads.")
         r.raise_for_status()
 
         cl = r.headers.get("content-length")
@@ -141,12 +164,22 @@ def load_image_any(
     timeout: float = DEFAULT_HTTP_TIMEOUT,
     max_bytes: int = DEFAULT_MAX_IMAGE_BYTES,
     allowed_hosts: Optional[set] = _parse_allowed_hosts(DEFAULT_ALLOWED_HOSTS),
+    allowed_gcs_buckets: Optional[set[str]] = _parse_allowed_buckets(
+        DEFAULT_ALLOWED_GCS_IMAGE_BUCKETS
+    ),
 ) -> Image.Image:
     """
     source:
       - 로컬 파일 경로
       - https URL
+      - gs:// or gcs:// private GCS URI
     """
+    if source.startswith(("gs://", "gcs://")):
+        return _load_image_from_gcs(
+            source,
+            max_bytes=max_bytes,
+            allowed_buckets=set(allowed_gcs_buckets or ()),
+        )
     if source.startswith("https://"):
         return _load_image_from_url(source, timeout=timeout, max_bytes=max_bytes, allowed_hosts=allowed_hosts)
     return _load_image_from_path(source)
