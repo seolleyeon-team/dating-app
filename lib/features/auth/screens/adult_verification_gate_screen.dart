@@ -10,7 +10,7 @@ import 'package:portone_flutter/v2/model/response/identity_verification_response
 import 'package:portone_flutter/v2/portone_identity_verification.dart';
 
 import '../../../config/portone_config.dart';
-import '../../../router/route_names.dart';
+import '../../../services/account_setup_flow.dart';
 import '../../../services/adult_verification_result.dart';
 import '../../../services/adult_verification_service.dart';
 
@@ -26,6 +26,7 @@ class _AdultVerificationGateScreenState
     extends State<AdultVerificationGateScreen> {
   final AdultVerificationService _verificationService =
       AdultVerificationService();
+  final AccountSetupFlow _setupFlow = AccountSetupFlow();
 
   AdultVerificationResult _result = AdultVerificationResult.notStarted;
   bool _isLoading = true;
@@ -163,16 +164,19 @@ class _AdultVerificationGateScreenState
     );
   }
 
-  void _goToEmailLogin() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed(RouteNames.login);
-    });
+  /// Adult/real-name verification is a POST-auth gate, so what comes next is
+  /// whatever the single account-setup resolver says (the Kakao friend
+  /// connection for a fresh account). The screen never picks a destination of
+  /// its own.
+  Future<void> _continueThroughResolver() async {
+    final route = await _setupFlow.resolveNextRoute();
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil(route, (r) => false);
   }
 
   Future<void> _handlePrimaryAction() async {
     if (_result.canProceedToKakao) {
-      _goToEmailLogin();
+      await _continueThroughResolver();
       return;
     }
     await _startVerification();
@@ -183,7 +187,7 @@ class _AdultVerificationGateScreenState
       return '설레연은 연 나이 20세 이상만 이용할 수 있어요.';
     }
     if (_result.canProceedToKakao) {
-      return '본인인증이 완료되었어요.\n이제 연세 이메일 로그인을 진행해 주세요.';
+      return '본인인증이 완료되었어요.\n이어서 가입을 계속 진행해 주세요.';
     }
     if (_result.status == AdultVerificationStatus.pendingServerVerification) {
       return '로그인 후 본인인증 결과를 서버에서 확인하고 있어요.';
@@ -269,7 +273,7 @@ class _AdultVerificationGateScreenState
                   child: _isLoading
                       ? const CupertinoActivityIndicator(color: Colors.white)
                       : Text(
-                          canProceedToKakao ? '이메일 로그인 진행하기' : '본인인증 시작하기',
+                          canProceedToKakao ? '계속 진행하기' : '본인인증 시작하기',
                           style: TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,

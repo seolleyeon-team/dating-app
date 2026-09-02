@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../models/terms_gate_failure.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../router/route_names.dart';
 import '../../../services/account_setup_flow.dart';
@@ -67,6 +68,41 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         actions: const [CupertinoDialogAction(child: Text('확인'))],
       ),
     );
+  }
+
+  /// Terms-gate contract §7/§9: a missing or stale acceptance — whether it
+  /// was caught locally before sending, or returned by the server on the link
+  /// request or the completion — sends the user back to the terms screen.
+  /// This is what closes the cold-start deep-link bypass (finding F7): the
+  /// email-link branch may reach this screen without ever passing terms, but
+  /// it cannot get past the server.
+  Future<void> _handleTermsGateFailure(TermsGateException failure) async {
+    // `signInWithEmailLink()` above left a TEMPORARY Firebase session attached.
+    // It is not a canonical app session (no `users/{uid}` document exists for
+    // it), but the terms screen classifies by `currentUser != null`, so leaving
+    // it in place would send the user into the post-auth re-consent branch and
+    // dead-end on `identity_conflict`. Drop it before going back.
+    final recovery = resolveTermsGateRecovery(
+      temporarySessionCleared: await _authService
+          .clearTemporaryEmailLinkSession(),
+    );
+    if (!mounted) return;
+
+    if (recovery == TermsGateRecovery.blockedSessionNotCleared) {
+      // Fail closed: never hand the terms screen a live session it would read
+      // as a canonical account.
+      const message = '로그인 상태를 정리하지 못했어요. 앱을 다시 시작한 뒤 시도해 주세요.';
+      setState(() => _statusMessage = message);
+      await _showDialogMessage('세션 정리 실패', message);
+      return;
+    }
+
+    setState(() => _statusMessage = failure.userMessage);
+    await _showDialogMessage('약관 동의 필요', failure.userMessage);
+    if (!mounted) return;
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil(RouteNames.terms, (route) => false);
   }
 
   Future<bool> _handlePendingInviteAfterVerification() async {
@@ -272,6 +308,8 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
       if (!mounted) return;
       setState(() => _statusMessage = '학생 인증 완료!');
       await _continueAfterPrimaryAuth(appUserId);
+    } on TermsGateException catch (failure) {
+      await _handleTermsGateFailure(failure);
     } catch (e) {
       if (!mounted) return;
       setState(() => _statusMessage = '인증 실패: ${e.toString()}');
@@ -326,6 +364,8 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
 
       if (!mounted) return;
       setState(() => _statusMessage = '연세 메일로 인증 링크를 보냈습니다');
+    } on TermsGateException catch (failure) {
+      await _handleTermsGateFailure(failure);
     } catch (e) {
       final safeError = FirebaseDiagnostics.safeErrorForLog(e);
       debugPrint(

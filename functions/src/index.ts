@@ -122,8 +122,11 @@ import {
   isKakaoFriendAvoidanceEnabled,
 } from "./kakaoFriendRecommendationPrivacy";
 import {
+  buildTermsAcceptanceRecord,
   createCompletePrimaryStudentEmailAuthFunction,
   createSendPrimaryStudentEmailLinkFunction,
+  evaluateTermsAcceptancePayload,
+  termsAcceptanceError,
 } from "./primaryEmailAuth";
 import {
   createLinkKakaoFriendIdentityFunction,
@@ -1231,18 +1234,25 @@ async function verifyKakaoAccessToken(
   return { userId };
 }
 
-function emailFromAuthToken(
-  token: Record<string, unknown> | undefined
-): string | null {
-  if (!token) return null;
-  const raw = asNonEmptyString(token.email);
-  return raw ? raw.toLowerCase() : null;
-}
-
 /**
  * Callable 인증 사용자 → Firestore users 문서.
- * - 커스텀 토큰(UID = 카카오 ID): users/{uid} 직접 조회
- * - 이메일 링크 로그인(UID ≠ 카카오 ID): JWT의 email로 studentEmail 일치 문서 조회
+ *
+ * 오직 `users/{request.auth.uid}` 문서 ID 조회만 사용한다 (canonical session:
+ * `FirebaseAuth.currentUser.uid == appUserId`, identity-contract §1).
+ *
+ * F9 (terms-gate-contract §0/§8): 예전에는 `users/{authUid}` 가 없으면
+ * `users.where("studentEmail","==", token.email)` 로 되짚었고, `email_verified`
+ * 를 전혀 확인하지 않았다. 그 결과 `@yonsei.ac.kr` email claim 만 가진 임의의
+ * Firebase 세션이 남의 계정의 canonical 주체가 되어 20여 개의 특권 callable
+ * (하트 지급/차감, 1:1 채팅 잠금해제, 친구 초대, 아바타/온보딩 사진,
+ * 시즌 미팅 보증금·환불)을 실행할 수 있었다.
+ *
+ * email → appUserId 해석은 identity-contract §7 에 따라
+ * `completePrimaryStudentEmailAuth` 안에서만 일어난다. 그 경로는 서버가 쓴
+ * 일회용 `emailLinkTokens` 문서를 같은 트랜잭션에서 소비한다.
+ * 자기 `users/{uid}` 문서가 없는 세션은 canonical 세션이 아니므로 거부한다.
+ * (firestore.rules 의 `isCanonicalAppSession()` 도 동일하게 임시 email-link
+ * 세션에게 모든 상호작용 표면을 이미 거부하고 있다.)
  */
 async function resolveAuthedAppUser(
   auth: { uid?: string; token?: Record<string, unknown> } | null | undefined
@@ -1252,27 +1262,7 @@ async function resolveAuthedAppUser(
     throw new HttpsError("unauthenticated", "로그인이 필요해요.");
   }
 
-  const token = auth?.token as Record<string, unknown> | undefined;
-
-  let doc = await db.collection("users").doc(authUid).get();
-
-  if (!doc.exists) {
-    const email = emailFromAuthToken(token);
-    if (email && email.endsWith("@yonsei.ac.kr")) {
-      const q = await db
-        .collection("users")
-        .where("studentEmail", "==", email)
-        .limit(1)
-        .get();
-      if (!q.empty) {
-        doc = q.docs[0];
-        logger.info(
-          "resolveAuthedAppUser: matched user by studentEmail (email-link auth uid differs from kakao doc id)",
-          { authUid, resolvedUserId: doc.id }
-        );
-      }
-    }
-  }
+  const doc = await db.collection("users").doc(authUid).get();
 
   if (!doc.exists) {
     throw new HttpsError(
@@ -2532,6 +2522,62 @@ export const sendPrimaryStudentEmailLink = createSendPrimaryStudentEmailLinkFunc
 
 export const completePrimaryStudentEmailAuth =
   createCompletePrimaryStudentEmailAuthFunction(db, getAuth());
+
+/**
+ * Re-consent for an already-signed-in canonical user whose accepted terms
+ * version went stale (terms-gate contract §6). Required because
+ * `users/{uid}.termsAcceptance` is server-owned: it is absent from
+ * firestore.rules entirely, so the client cannot write it.
+ *
+ * Canonical-only: the caller must already hold a session; this endpoint never
+ * creates an account and never resolves an identity from an email claim.
+ * Idempotent — re-sending the same version converges on the same state.
+ */
+export const recordTermsAcceptance = onCall(
+  withAppCheck({ timeoutSeconds: 30, memory: "256MiB" }),
+  async (request) => {
+    const uid =
+      typeof request.auth?.uid === "string" ? request.auth.uid.trim() : "";
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "로그인이 필요해요.");
+    }
+
+    const userRef = db.collection("users").doc(uid);
+    const userSnapshot = await userRef.get();
+    if (!userSnapshot.exists) {
+      throw new HttpsError(
+        "failed-precondition",
+        "계정 정보를 확인할 수 없어요. 고객센터로 문의해주세요.",
+        { detail: "identity_conflict" }
+      );
+    }
+
+    // Same validator as the pre-auth path (contract §4): fail closed, optional
+    // consents default to false, unknown document ids are ignored.
+    const decision = evaluateTermsAcceptancePayload(request.data);
+    if (!decision.ok) {
+      throw termsAcceptanceError(decision.reason);
+    }
+
+    await userRef.set(
+      {
+        termsAcceptance: buildTermsAcceptanceRecord({
+          version: decision.version,
+          optionalConsents: decision.optionalConsents,
+          source: "authenticated_reconsent",
+        }),
+      },
+      { merge: true }
+    );
+
+    // Never log the acceptance payload itself.
+    logger.info("recordTermsAcceptance stored", {
+      uidHash: sha256Hex(uid).slice(0, 12),
+      version: decision.version,
+    });
+    return { recorded: true, version: decision.version };
+  }
+);
 
 export const linkKakaoFriendIdentity = createLinkKakaoFriendIdentityFunction({
   db,

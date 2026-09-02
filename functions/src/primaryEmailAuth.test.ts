@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import test from "node:test";
 
 import {
+  CURRENT_TERMS_VERSION,
+  REQUIRED_TERMS_DOCUMENT_IDS,
+  SUPPORTED_TERMS_VERSIONS,
   buildCanonicalSessionClaims,
   buildPrimaryAuthNewUserShell,
+  buildTermsAcceptanceRecord,
   decidePrimaryEmailAccountResolution,
+  evaluatePrimaryEmailLinkTerms,
   evaluatePrimaryEmailLinkToken,
+  evaluateTermsAcceptancePayload,
+  readStoredTermsVersion,
 } from "./primaryEmailAuth";
 
 const NOW = new Date("2026-08-31T12:00:00.000Z");
@@ -13,12 +22,16 @@ const CREATED = new Date("2026-08-31T11:50:00.000Z");
 const FUTURE = new Date("2026-08-31T12:20:00.000Z");
 const PAST = new Date("2026-08-31T11:55:00.000Z");
 
+const NO_OPTIONAL_CONSENTS = { marketing: false, push: false, email: false };
+
 function primaryToken(overrides: Record<string, unknown> = {}) {
   return {
     email: "Student@yonsei.ac.kr",
     purpose: "primary_auth",
     createdAt: CREATED,
     expiresAt: FUTURE,
+    termsVersion: CURRENT_TERMS_VERSION,
+    termsOptionalConsents: NO_OPTIONAL_CONSENTS,
     ...overrides,
   };
 }
@@ -42,6 +55,11 @@ test("primary token with matching mailbox proof passes and normalizes the email"
   assert.deepEqual(evaluateToken(primaryToken()), {
     ok: true,
     email: "student@yonsei.ac.kr",
+    terms: {
+      ok: true,
+      version: CURRENT_TERMS_VERSION,
+      optionalConsents: NO_OPTIONAL_CONSENTS,
+    },
   });
 });
 
@@ -360,6 +378,8 @@ test("new user shell carries exactly the contract fields with fail-closed defaul
   const shell = buildPrimaryAuthNewUserShell({
     appUserId: "emaillink_uid_1",
     studentEmail: EMAIL,
+    termsVersion: CURRENT_TERMS_VERSION,
+    termsOptionalConsents: NO_OPTIONAL_CONSENTS,
   });
   assert.deepEqual(Object.keys(shell).sort(), [
     "appUserId",
@@ -374,6 +394,7 @@ test("new user shell carries exactly the contract fields with fail-closed defaul
     "recommendationPrivacyReady",
     "studentEmail",
     "studentVerifiedAt",
+    "termsAcceptance",
   ]);
   assert.equal(shell.appUserId, "emaillink_uid_1");
   assert.equal(shell.studentEmail, EMAIL);
@@ -389,4 +410,418 @@ test("new user shell carries exactly the contract fields with fail-closed defaul
     status: "not_started",
     schemaVersion: 1,
   });
+  // terms-gate contract §3/§5: an account is never created without a record.
+  const acceptance = shell.termsAcceptance as Record<string, unknown>;
+  assert.equal(acceptance.schemaVersion, 1);
+  assert.equal(acceptance.version, CURRENT_TERMS_VERSION);
+  assert.equal(acceptance.source, "primary_auth_token");
+  assert.deepEqual(acceptance.requiredDocumentIds, [
+    "termsOfService",
+    "privacyPolicy",
+    "kakaoNamePhone",
+    "ageOver20",
+  ]);
+  assert.deepEqual(acceptance.optionalConsents, NO_OPTIONAL_CONSENTS);
+  assert.ok(acceptance.acceptedAt);
+  assert.ok(acceptance.optionalUpdatedAt);
+  // ageOver18 is not a UI item and must never be fabricated.
+  assert.equal(
+    JSON.stringify(shell).includes("ageOver18"),
+    false
+  );
+});
+
+// ============================================================================
+// Terms constants (terms-gate contract §2/§3)
+// ============================================================================
+
+test("terms constants match the contract exactly", () => {
+  assert.equal(CURRENT_TERMS_VERSION, "2026-05-16");
+  assert.deepEqual([...SUPPORTED_TERMS_VERSIONS], ["2026-05-16"]);
+  assert.deepEqual(
+    [...REQUIRED_TERMS_DOCUMENT_IDS],
+    ["termsOfService", "privacyPolicy", "kakaoNamePhone", "ageOver20"]
+  );
+  // ageOver18 is never a required (or accepted) document id.
+  assert.equal(REQUIRED_TERMS_DOCUMENT_IDS.includes("ageOver18"), false);
+});
+
+// ============================================================================
+// evaluateTermsAcceptancePayload (contract §4)
+// ============================================================================
+
+function acceptancePayload(overrides: Record<string, unknown> = {}) {
+  return {
+    version: CURRENT_TERMS_VERSION,
+    acceptedDocumentIds: [...REQUIRED_TERMS_DOCUMENT_IDS],
+    ...overrides,
+  };
+}
+
+test("a complete acceptance payload passes with all optional consents false", () => {
+  assert.deepEqual(evaluateTermsAcceptancePayload(acceptancePayload()), {
+    ok: true,
+    version: CURRENT_TERMS_VERSION,
+    optionalConsents: NO_OPTIONAL_CONSENTS,
+  });
+});
+
+test("an absent or non-record payload fails closed as terms_acceptance_required", () => {
+  for (const raw of [undefined, null, "", "yes", 1, true, [], [1, 2]]) {
+    assert.deepEqual(
+      evaluateTermsAcceptancePayload(raw),
+      { ok: false, reason: "terms_acceptance_required" },
+      `payload=${JSON.stringify(raw)}`
+    );
+  }
+});
+
+test("a missing version is terms_acceptance_required, a wrong one is terms_version_outdated", () => {
+  assert.deepEqual(
+    evaluateTermsAcceptancePayload(acceptancePayload({ version: undefined })),
+    { ok: false, reason: "terms_acceptance_required" }
+  );
+  assert.deepEqual(
+    evaluateTermsAcceptancePayload(acceptancePayload({ version: null })),
+    { ok: false, reason: "terms_acceptance_required" }
+  );
+  for (const version of ["2025-01-01", "2099-12-31", "  ", 20260516, {}]) {
+    assert.deepEqual(
+      evaluateTermsAcceptancePayload(acceptancePayload({ version })),
+      { ok: false, reason: "terms_version_outdated" },
+      `version=${JSON.stringify(version)}`
+    );
+  }
+});
+
+test("every single missing required document id blocks acceptance", () => {
+  for (const missing of REQUIRED_TERMS_DOCUMENT_IDS) {
+    const acceptedDocumentIds = REQUIRED_TERMS_DOCUMENT_IDS.filter(
+      (id) => id !== missing
+    );
+    assert.deepEqual(
+      evaluateTermsAcceptancePayload(
+        acceptancePayload({ acceptedDocumentIds })
+      ),
+      { ok: false, reason: "terms_acceptance_required" },
+      `missing=${missing}`
+    );
+  }
+});
+
+test("acceptedDocumentIds must be an array of strings", () => {
+  for (const acceptedDocumentIds of [
+    undefined,
+    null,
+    "termsOfService",
+    { termsOfService: true },
+  ]) {
+    assert.deepEqual(
+      evaluateTermsAcceptancePayload(
+        acceptancePayload({ acceptedDocumentIds })
+      ),
+      { ok: false, reason: "terms_acceptance_required" },
+      `ids=${JSON.stringify(acceptedDocumentIds)}`
+    );
+  }
+  // Non-string entries are discarded, so they can never satisfy a required id.
+  assert.deepEqual(
+    evaluateTermsAcceptancePayload(
+      acceptancePayload({
+        acceptedDocumentIds: [
+          "termsOfService",
+          "privacyPolicy",
+          "kakaoNamePhone",
+          true,
+        ],
+      })
+    ),
+    { ok: false, reason: "terms_acceptance_required" }
+  );
+});
+
+test("unknown accepted ids are ignored safely and never fabricate ageOver18", () => {
+  const decision = evaluateTermsAcceptancePayload(
+    acceptancePayload({
+      acceptedDocumentIds: [
+        ...REQUIRED_TERMS_DOCUMENT_IDS,
+        "ageOver18",
+        "somethingElse",
+        "__proto__",
+      ],
+    })
+  );
+  assert.equal(decision.ok, true);
+  assert.equal(JSON.stringify(decision).includes("ageOver18"), false);
+  assert.equal(JSON.stringify(decision).includes("somethingElse"), false);
+});
+
+test("optional consents default to false and are coerced to strict booleans", () => {
+  // No optionalConsents key at all.
+  assert.deepEqual(
+    evaluateTermsAcceptancePayload(acceptancePayload()),
+    {
+      ok: true,
+      version: CURRENT_TERMS_VERSION,
+      optionalConsents: NO_OPTIONAL_CONSENTS,
+    }
+  );
+  // Malformed blob must NOT record consent (the legacy `fallback: true` bug).
+  for (const optionalConsents of [null, "all", 1, []]) {
+    const decision = evaluateTermsAcceptancePayload(
+      acceptancePayload({ optionalConsents })
+    );
+    assert.deepEqual(
+      decision.ok && decision.optionalConsents,
+      NO_OPTIONAL_CONSENTS,
+      `optionalConsents=${JSON.stringify(optionalConsents)}`
+    );
+  }
+  // Truthy-but-not-true values are false; only literal true opts in.
+  const coerced = evaluateTermsAcceptancePayload(
+    acceptancePayload({
+      optionalConsents: {
+        marketing: true,
+        push: "true",
+        email: 1,
+      },
+    })
+  );
+  assert.deepEqual(coerced.ok && coerced.optionalConsents, {
+    marketing: true,
+    push: false,
+    email: false,
+  });
+  const allOn = evaluateTermsAcceptancePayload(
+    acceptancePayload({
+      optionalConsents: { marketing: true, push: true, email: true },
+    })
+  );
+  assert.deepEqual(allOn.ok && allOn.optionalConsents, {
+    marketing: true,
+    push: true,
+    email: true,
+  });
+});
+
+// ============================================================================
+// buildTermsAcceptanceRecord (contract §3)
+// ============================================================================
+
+test("acceptance record carries the contract §3 shape for both sources", () => {
+  for (const source of ["primary_auth_token", "authenticated_reconsent"] as const) {
+    const record = buildTermsAcceptanceRecord({
+      version: CURRENT_TERMS_VERSION,
+      optionalConsents: { marketing: true, push: false, email: true },
+      source,
+    });
+    assert.deepEqual(Object.keys(record).sort(), [
+      "acceptedAt",
+      "optionalConsents",
+      "optionalUpdatedAt",
+      "requiredDocumentIds",
+      "schemaVersion",
+      "source",
+      "version",
+    ]);
+    assert.equal(record.source, source);
+    assert.equal(record.schemaVersion, 1);
+    assert.equal(record.version, CURRENT_TERMS_VERSION);
+    assert.deepEqual(record.requiredDocumentIds, [
+      ...REQUIRED_TERMS_DOCUMENT_IDS,
+    ]);
+    assert.deepEqual(record.optionalConsents, {
+      marketing: true,
+      push: false,
+      email: true,
+    });
+  }
+});
+
+test("acceptance record copies requiredDocumentIds instead of aliasing the constant", () => {
+  const record = buildTermsAcceptanceRecord({
+    version: CURRENT_TERMS_VERSION,
+    optionalConsents: NO_OPTIONAL_CONSENTS,
+    source: "primary_auth_token",
+  });
+  assert.notEqual(record.requiredDocumentIds, REQUIRED_TERMS_DOCUMENT_IDS);
+});
+
+// ============================================================================
+// Terms proof on the emailLinkTokens document (contract §4/§5)
+// ============================================================================
+
+test("a token carrying the current version yields a valid terms proof", () => {
+  assert.deepEqual(
+    evaluatePrimaryEmailLinkTerms({
+      termsVersion: CURRENT_TERMS_VERSION,
+      termsOptionalConsents: { marketing: true, push: false, email: false },
+    }),
+    {
+      ok: true,
+      version: CURRENT_TERMS_VERSION,
+      optionalConsents: { marketing: true, push: false, email: false },
+    }
+  );
+});
+
+test("a token with no terms proof rejects as terms-missing", () => {
+  for (const tokenData of [
+    null,
+    undefined,
+    {},
+    { termsVersion: "" },
+    { termsVersion: "   " },
+    { termsVersion: null },
+    { termsVersion: 20260516 },
+  ]) {
+    assert.deepEqual(
+      evaluatePrimaryEmailLinkTerms(tokenData),
+      { ok: false, reason: "terms-missing" },
+      `tokenData=${JSON.stringify(tokenData)}`
+    );
+  }
+});
+
+test("a token carrying an unsupported version rejects as terms-stale", () => {
+  assert.deepEqual(
+    evaluatePrimaryEmailLinkTerms({ termsVersion: "2025-01-01" }),
+    { ok: false, reason: "terms-stale" }
+  );
+});
+
+test("token evaluation surfaces terms-missing without failing the token itself", () => {
+  // Existing accounts must not be locked out by a token that predates the
+  // gate: the token still resolves, only the terms proof is absent.
+  const decision = evaluateToken(
+    primaryToken({ termsVersion: undefined, termsOptionalConsents: undefined })
+  );
+  assert.equal(decision.ok, true);
+  assert.deepEqual(decision.ok && decision.terms, {
+    ok: false,
+    reason: "terms-missing",
+  });
+});
+
+test("token evaluation surfaces terms-stale for an outdated recorded version", () => {
+  const decision = evaluateToken(primaryToken({ termsVersion: "2025-01-01" }));
+  assert.equal(decision.ok, true);
+  assert.deepEqual(decision.ok && decision.terms, {
+    ok: false,
+    reason: "terms-stale",
+  });
+});
+
+test("terms proof is never consulted before the pre-existing rejections", () => {
+  // All nine pre-existing rejection paths keep their exact reason even when
+  // the token carries a perfectly valid terms proof, and vice versa.
+  assert.deepEqual(evaluateToken(null), { ok: false, reason: "missing" });
+  assert.deepEqual(
+    evaluateToken(primaryToken({ purpose: "verify", termsVersion: undefined })),
+    { ok: false, reason: "malformed" }
+  );
+  assert.deepEqual(
+    evaluateToken(primaryToken({ kakaoUserId: "1", termsVersion: undefined })),
+    { ok: false, reason: "malformed" }
+  );
+  assert.deepEqual(
+    evaluateToken(primaryToken({ termsVersion: undefined }), "other@yonsei.ac.kr"),
+    { ok: false, reason: "email-mismatch" }
+  );
+  assert.deepEqual(
+    evaluateToken(primaryToken({ expiresAt: PAST, termsVersion: undefined })),
+    { ok: false, reason: "expired" }
+  );
+});
+
+// ============================================================================
+// readStoredTermsVersion
+// ============================================================================
+
+test("stored acceptance version is read only from a well-formed record", () => {
+  assert.equal(readStoredTermsVersion(null), null);
+  assert.equal(readStoredTermsVersion(undefined), null);
+  assert.equal(readStoredTermsVersion({}), null);
+  assert.equal(readStoredTermsVersion({ termsAcceptance: "yes" }), null);
+  assert.equal(readStoredTermsVersion({ termsAcceptance: {} }), null);
+  assert.equal(
+    readStoredTermsVersion({ termsAcceptance: { version: "  " } }),
+    null
+  );
+  assert.equal(
+    readStoredTermsVersion({
+      termsAcceptance: { version: CURRENT_TERMS_VERSION },
+    }),
+    CURRENT_TERMS_VERSION
+  );
+});
+
+// ============================================================================
+// Source contract: ordering and token-document payload
+// ============================================================================
+
+// Compiled tests live under lib/; source under src/.
+const authSrc = readFileSync(
+  resolvePath(__dirname, "../src/primaryEmailAuth.ts"),
+  "utf8"
+);
+const sendFnSrc = authSrc.slice(
+  authSrc.indexOf("export function createSendPrimaryStudentEmailLinkFunction")
+);
+
+test("sendPrimaryStudentEmailLink validates terms before spending any quota", () => {
+  const termsIdx = sendFnSrc.indexOf("evaluateTermsAcceptancePayload(");
+  const rateIdx = sendFnSrc.indexOf("decideStudentVerificationRateLimit(");
+  const txIdx = sendFnSrc.indexOf("db.runTransaction(");
+  const requestRefIdx = sendFnSrc.indexOf("studentVerificationEmailRequests");
+  assert.ok(termsIdx > 0, "terms validation must exist in the send callable");
+  assert.ok(rateIdx > 0 && txIdx > 0 && requestRefIdx > 0);
+  // A malformed payload must not consume rate-limit quota or an idempotency
+  // slot, so validation runs before the reservation transaction.
+  assert.ok(termsIdx < rateIdx, "terms must be validated before the rate limit");
+  assert.ok(termsIdx < txIdx, "terms must be validated before the transaction");
+  assert.ok(
+    termsIdx < requestRefIdx,
+    "terms must be validated before the idempotency doc"
+  );
+});
+
+test("the emailLinkTokens write carries the terms proof but no raw payload", () => {
+  const match = authSrc.match(
+    /collection\("emailLinkTokens"\)\.doc\(token\), \{([\s\S]*?)\n {8}\}\);/
+  );
+  assert.ok(match, "emailLinkTokens write block not found");
+  const tokenWrite = match[1];
+  for (const field of [
+    "termsVersion",
+    "termsAcceptedAt",
+    "termsOptionalConsents",
+  ]) {
+    assert.ok(
+      tokenWrite.includes(field),
+      `token write must persist ${field}`
+    );
+  }
+  // The document is world-readable by id: no raw acceptance payload, no
+  // accepted-document list, no extra identity beyond the existing email.
+  assert.doesNotMatch(tokenWrite, /acceptedDocumentIds/);
+  assert.doesNotMatch(tokenWrite, /termsAcceptance\b/);
+  assert.doesNotMatch(tokenWrite, /data\.termsAcceptance/);
+});
+
+test("completePrimaryStudentEmailAuth enforces terms only for new accounts", () => {
+  const completeSrc = authSrc.slice(
+    authSrc.indexOf(
+      "export function createCompletePrimaryStudentEmailAuthFunction"
+    )
+  );
+  // The throw is guarded by isNewUser, so existing users are never locked out.
+  assert.match(
+    completeSrc,
+    /if \(decision\.isNewUser && !terms\.ok\) \{\s*\n\s*throw tokenError\(terms\.reason\);/
+  );
+  // ...and it precedes every transaction write.
+  const throwIdx = completeSrc.indexOf("throw tokenError(terms.reason)");
+  const firstWriteIdx = completeSrc.indexOf("transaction.set(");
+  assert.ok(throwIdx > 0 && firstWriteIdx > throwIdx);
 });

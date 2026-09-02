@@ -25,6 +25,7 @@ test("index callables never use bare onCall without options", () => {
 test("auth and bootstrap callables pass through withAppCheck", () => {
   const required = [
     "createFirebaseCustomToken",
+    "recordTermsAcceptance",
     "verifyAdultIdentityAfterLogin",
     "createFriendInvite",
     "acceptFriendInvite",

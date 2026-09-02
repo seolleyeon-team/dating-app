@@ -220,21 +220,72 @@ test("identity indexes deny anon, email-link, kakao and appSession clients", asy
 });
 
 // ---------------------------------------------------------------------------
-// Regression — the temporary email-link session must KEEP its users-doc
-// verification writes (legacy web completion page, firestore.rules
-// users create Branch A / update Branch 1) until force-update.
+// F8 (terms-gate-contract §0/§8) — the temporary email-link session must NOT be
+// able to CREATE a users document. The old `users` create Branch A was gated
+// only on `hasVerifiedYonseiEmail() && writesOwnStudentEmail(...)` with no
+// doc-id↔uid binding, so any email-link session could mint
+// `users/{ARBITRARY_ID}` with `isStudentVerified: true` — a second
+// account-creation path that bypasses completePrimaryStudentEmailAuth (and
+// therefore the terms gate) entirely.
+//
+// Account creation is server-owned:
+//   - legacy Kakao flow: `createFirebaseCustomToken` builds the shell (Admin SDK)
+//   - new flow: `buildPrimaryAuthNewUserShell` writes it (Admin SDK)
+// The email-link session only ever needs the UPDATE branch, which stays open.
 // ---------------------------------------------------------------------------
 
-test("regression: an email-link session still verifies a brand-new users doc", async () => {
+test("F8: an email-link session cannot create a brand-new users doc", async () => {
   await withClearedDb();
   const db = await emailLinkSession("emaillink_fresh", "fresh@yonsei.ac.kr");
 
-  await assertSucceeds(
+  await assertFails(
     setDoc(doc(db, "users", "app_user_fresh_5000"), {
       kakaoUserId: "app_user_fresh_5000",
       isStudentVerified: true,
       studentEmail: "fresh@yonsei.ac.kr",
       verifiedAt: Timestamp.now(),
     })
+  );
+});
+
+test("F8: an email-link session cannot mint an arbitrary doc id it does not own", async () => {
+  await withClearedDb();
+  const db = await emailLinkSession("emaillink_fresh", "fresh@yonsei.ac.kr");
+
+  // Even the session's own uid is not a create principal — only the server
+  // (Admin SDK) creates users documents.
+  await assertFails(
+    setDoc(doc(db, "users", "emaillink_fresh"), {
+      kakaoUserId: "emaillink_fresh",
+      isStudentVerified: true,
+      studentEmail: "fresh@yonsei.ac.kr",
+      verifiedAt: Timestamp.now(),
+    })
+  );
+});
+
+test("F8 regression: an email-link session still stamps verification on an EXISTING doc", async () => {
+  // The server pre-creates the shell; the legacy hosted page
+  // (public/auth-email-link.html) then merges verification onto it. That is
+  // the update branch, which must keep working for old clients.
+  await withClearedDb(async (db) => {
+    await setDoc(doc(db, "users", "app_user_fresh_5000"), {
+      kakaoUserId: "app_user_fresh_5000",
+      nickname: "새 사용자",
+    });
+  });
+  const db = await emailLinkSession("emaillink_fresh", "fresh@yonsei.ac.kr");
+
+  await assertSucceeds(
+    setDoc(
+      doc(db, "users", "app_user_fresh_5000"),
+      {
+        kakaoUserId: "app_user_fresh_5000",
+        isStudentVerified: true,
+        studentEmail: "fresh@yonsei.ac.kr",
+        verifiedAt: Timestamp.now(),
+      },
+      { merge: true }
+    )
   );
 });

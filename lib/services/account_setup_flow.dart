@@ -75,6 +75,10 @@ class AccountSetupFlow {
         return RouteNames.terms;
       case AccountSetupState.emailVerificationPending:
         return RouteNames.studentVerification;
+      case AccountSetupState.termsAcceptanceRequired:
+        // Terms-gate contract §7: the same screen serves pre-auth consent and
+        // authenticated re-consent; it decides which mode it is in.
+        return RouteNames.terms;
       case AccountSetupState.adultVerificationRequired:
         return RouteNames.adultVerification;
       case AccountSetupState.kakaoConnectionRequired:

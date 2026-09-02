@@ -33,6 +33,17 @@ const TOKEN_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const SAFE_EMAIL_REQUEST_ID = /^[A-Za-z0-9_-]{16,128}$/;
 const PRIMARY_AUTH_TOKEN_TTL_MS = 30 * 60 * 1000;
 const PRIMARY_AUTH_REQUEST_TTL_MS = 31 * 24 * 60 * 60 * 1000;
+// Terms gate (terms-gate-contract §2/§3). One repo-wide version covers all four
+// required documents — there are no per-document versions.
+export const CURRENT_TERMS_VERSION = "2026-05-16";
+export const SUPPORTED_TERMS_VERSIONS: readonly string[] = ["2026-05-16"];
+// `ageOver18` is NOT a UI item and MUST NOT be fabricated in any record.
+export const REQUIRED_TERMS_DOCUMENT_IDS: readonly string[] = [
+  "termsOfService",
+  "privacyPolicy",
+  "kakaoNamePhone",
+  "ageOver20",
+];
 // Restricted account states may never re-enter through a fresh email login.
 const REJOIN_RESTRICTED_STATUSES = new Set([
   "deleting",
@@ -74,15 +85,149 @@ function sha256Hex(value: string): string {
 // Pure decision logic (unit-testable without Firestore)
 // =============================================================================
 
+export type TermsOptionalConsents = {
+  marketing: boolean;
+  push: boolean;
+  email: boolean;
+};
+
+export type TermsAcceptanceSource =
+  | "primary_auth_token"
+  | "authenticated_reconsent";
+
+export type TermsAcceptanceRejection =
+  | "terms_acceptance_required"
+  | "terms_version_outdated";
+
+export type TermsAcceptanceDecision =
+  | { ok: true; version: string; optionalConsents: TermsOptionalConsents }
+  | { ok: false; reason: TermsAcceptanceRejection };
+
+/**
+ * Optional consents are ALWAYS strict booleans defaulting to FALSE. The legacy
+ * client receipt used `fallback: true`, so a malformed blob recorded full
+ * consent; that is the bug this gate closes.
+ */
+function normalizeOptionalConsents(raw: unknown): TermsOptionalConsents {
+  const record = isRecord(raw) ? raw : {};
+  return {
+    marketing: record.marketing === true,
+    push: record.push === true,
+    email: record.email === true,
+  };
+}
+
+/**
+ * Validates a client terms-acceptance payload (contract §4). Fail closed: an
+ * absent or non-record payload is `terms_acceptance_required`, never an
+ * implicit acceptance.
+ *
+ * Version handling: a present-but-unsupported version is `terms_version_outdated`
+ * (the user accepted *something*, just not the current documents); an absent or
+ * blank version is `terms_acceptance_required` (nothing was accepted at all).
+ */
+export function evaluateTermsAcceptancePayload(
+  raw: unknown
+): TermsAcceptanceDecision {
+  if (!isRecord(raw)) {
+    return { ok: false, reason: "terms_acceptance_required" };
+  }
+  const rawVersion = raw.version;
+  const version = asNonEmptyString(rawVersion);
+  if (!version) {
+    return {
+      ok: false,
+      reason:
+        rawVersion === undefined || rawVersion === null
+          ? "terms_acceptance_required"
+          : "terms_version_outdated",
+    };
+  }
+  if (!SUPPORTED_TERMS_VERSIONS.includes(version)) {
+    return { ok: false, reason: "terms_version_outdated" };
+  }
+
+  const rawAccepted = raw.acceptedDocumentIds;
+  if (!Array.isArray(rawAccepted)) {
+    return { ok: false, reason: "terms_acceptance_required" };
+  }
+  // Unknown ids are ignored, never persisted: the required set is the only
+  // gate and `ageOver18` is never fabricated from an unknown id.
+  const acceptedIds = new Set(
+    rawAccepted
+      .map((value) => asNonEmptyString(value))
+      .filter((value): value is string => value !== null)
+  );
+  for (const requiredId of REQUIRED_TERMS_DOCUMENT_IDS) {
+    if (!acceptedIds.has(requiredId)) {
+      return { ok: false, reason: "terms_acceptance_required" };
+    }
+  }
+
+  return {
+    ok: true,
+    version,
+    optionalConsents: normalizeOptionalConsents(raw.optionalConsents),
+  };
+}
+
+/** Server-owned `users/{appUserId}.termsAcceptance` record (contract §3). */
+export function buildTermsAcceptanceRecord(params: {
+  version: string;
+  optionalConsents: TermsOptionalConsents;
+  source: TermsAcceptanceSource;
+}): Record<string, unknown> {
+  return {
+    schemaVersion: 1,
+    version: params.version,
+    requiredDocumentIds: [...REQUIRED_TERMS_DOCUMENT_IDS],
+    acceptedAt: FieldValue.serverTimestamp(),
+    source: params.source,
+    optionalConsents: normalizeOptionalConsents(params.optionalConsents),
+    optionalUpdatedAt: FieldValue.serverTimestamp(),
+  };
+}
+
+export type PrimaryEmailLinkTermsRejection = "terms-missing" | "terms-stale";
+
 export type PrimaryEmailLinkTokenRejection =
   | "missing"
   | "malformed"
   | "email-mismatch"
-  | "expired";
+  | "expired"
+  | PrimaryEmailLinkTermsRejection;
+
+export type PrimaryEmailLinkTermsDecision =
+  | { ok: true; version: string; optionalConsents: TermsOptionalConsents }
+  | { ok: false; reason: PrimaryEmailLinkTermsRejection };
 
 export type PrimaryEmailLinkTokenDecision =
-  | { ok: true; email: string }
+  | { ok: true; email: string; terms: PrimaryEmailLinkTermsDecision }
   | { ok: false; reason: PrimaryEmailLinkTokenRejection };
+
+/**
+ * Reads the non-PII terms proof carried on an `emailLinkTokens` document
+ * (contract §4). Returned alongside the token decision rather than folded into
+ * it, because only the account-CREATING branch enforces it — an existing user
+ * whose token predates this change must still be able to log in (no lockout,
+ * no migration).
+ */
+export function evaluatePrimaryEmailLinkTerms(
+  tokenData: Record<string, unknown> | null | undefined
+): PrimaryEmailLinkTermsDecision {
+  const version = asNonEmptyString(tokenData?.termsVersion);
+  if (!version) return { ok: false, reason: "terms-missing" };
+  if (!SUPPORTED_TERMS_VERSIONS.includes(version)) {
+    return { ok: false, reason: "terms-stale" };
+  }
+  return {
+    ok: true,
+    version,
+    optionalConsents: normalizeOptionalConsents(
+      tokenData?.termsOptionalConsents
+    ),
+  };
+}
 
 /**
  * Validates an `emailLinkTokens` document for the primary-auth flow. The
@@ -131,7 +276,15 @@ export function evaluatePrimaryEmailLinkToken(params: {
     return { ok: false, reason: "expired" };
   }
 
-  return { ok: true, email };
+  return { ok: true, email, terms: evaluatePrimaryEmailLinkTerms(tokenData) };
+}
+
+/** Reads the server-owned acceptance version already stored on a users doc. */
+export function readStoredTermsVersion(
+  userData: Record<string, unknown> | null | undefined
+): string | null {
+  const record = userData?.termsAcceptance;
+  return isRecord(record) ? asNonEmptyString(record.version) : null;
 }
 
 export type PrimaryEmailAccountRejection =
@@ -282,6 +435,8 @@ export function buildCanonicalSessionClaims(
 export function buildPrimaryAuthNewUserShell(params: {
   appUserId: string;
   studentEmail: string;
+  termsVersion: string;
+  termsOptionalConsents: TermsOptionalConsents;
 }): Record<string, unknown> {
   return {
     appUserId: params.appUserId,
@@ -298,11 +453,42 @@ export function buildPrimaryAuthNewUserShell(params: {
     // One-time snapshot state (kakao-friend-pairs contract §3): new accounts
     // start before their exactly-once Kakao friend snapshot.
     kakaoFriendSnapshot: { status: "not_started", schemaVersion: 1 },
+    // Terms gate (contract §3/§5): an account can never be created without an
+    // acceptance recorded in the same transaction.
+    termsAcceptance: buildTermsAcceptanceRecord({
+      version: params.termsVersion,
+      optionalConsents: params.termsOptionalConsents,
+      source: "primary_auth_token",
+    }),
   };
+}
+
+/** Terms rejections from a client payload (contract §9 `details.detail`). */
+export function termsAcceptanceError(
+  reason: TermsAcceptanceRejection
+): HttpsError {
+  switch (reason) {
+    case "terms_version_outdated":
+      return new HttpsError(
+        "failed-precondition",
+        "약관이 업데이트됐어요. 약관에 다시 동의해주세요.",
+        { detail: "terms_version_outdated" }
+      );
+    case "terms_acceptance_required":
+      return new HttpsError(
+        "failed-precondition",
+        "약관 동의가 필요해요. 약관 동의 후 다시 시도해주세요.",
+        { detail: "terms_acceptance_required" }
+      );
+  }
 }
 
 function tokenError(reason: PrimaryEmailLinkTokenRejection): HttpsError {
   switch (reason) {
+    case "terms-missing":
+      return termsAcceptanceError("terms_acceptance_required");
+    case "terms-stale":
+      return termsAcceptanceError("terms_version_outdated");
     case "email-mismatch":
       return new HttpsError(
         "permission-denied",
@@ -389,6 +575,22 @@ export function createSendPrimaryStudentEmailLinkFunction(
           "invalid-argument",
           "연세 이메일 인증 요청이 올바르지 않아요."
         );
+      }
+
+      // Terms gate (contract §4), validated BEFORE any rate-limit or
+      // idempotency work so a malformed payload cannot consume send quota.
+      //
+      // COMPATIBILITY / FAIL-CLOSED: an ABSENT `termsAcceptance` is rejected
+      // with `terms_acceptance_required`. The only legitimate caller is the
+      // post-terms email screen, so there is no legacy caller to grandfather;
+      // this is precisely what closes the F7 deep-link bypass, where a cold
+      // start on an email link reached student verification (and account
+      // creation) with no terms acceptance at all.
+      const termsDecision = evaluateTermsAcceptancePayload(
+        data.termsAcceptance
+      );
+      if (!termsDecision.ok) {
+        throw termsAcceptanceError(termsDecision.reason);
       }
 
       const sender = deps.requireSender();
@@ -480,11 +682,16 @@ export function createSendPrimaryStudentEmailLinkFunction(
           dayRequestCount: emailDecision.dayRequestCount,
           updatedAt: Timestamp.fromMillis(nowMs),
         }, { merge: true });
+        // The token doc is world-readable by id, so it carries ONLY the
+        // non-PII terms proof (contract §4) — never the raw payload.
         tx.set(db.collection("emailLinkTokens").doc(token), {
           email,
           purpose: PRIMARY_AUTH_TOKEN_PURPOSE,
           createdAt: Timestamp.fromMillis(nowMs),
           expiresAt,
+          termsVersion: termsDecision.version,
+          termsAcceptedAt: Timestamp.fromMillis(nowMs),
+          termsOptionalConsents: termsDecision.optionalConsents,
         });
         tx.set(requestRef, {
           kind: PRIMARY_AUTH_TOKEN_PURPOSE,
@@ -698,13 +905,24 @@ export function createCompletePrimaryStudentEmailAuthFunction(
         throw accountError(decision.reason);
       }
 
+      const terms = tokenDecision.terms;
+      // Terms gate (contract §5): enforced ONLY for the account-creating
+      // branch, and thrown before any write so no partial state survives.
+      // Existing accounts stay functional without a proof (no lockout, no
+      // migration) — their staleness is handled by the client resolver rung.
+      if (decision.isNewUser && !terms.ok) {
+        throw tokenError(terms.reason);
+      }
+
       const userRef = db.collection("users").doc(decision.appUserId);
-      if (decision.isNewUser) {
+      if (decision.isNewUser && terms.ok) {
         transaction.set(
           userRef,
           buildPrimaryAuthNewUserShell({
             appUserId: decision.appUserId,
             studentEmail: email,
+            termsVersion: terms.version,
+            termsOptionalConsents: terms.optionalConsents,
           }),
           { merge: true }
         );
@@ -716,6 +934,17 @@ export function createCompletePrimaryStudentEmailAuthFunction(
             isStudentVerified: true,
             studentVerifiedAt: FieldValue.serverTimestamp(),
             lastLoginAt: FieldValue.serverTimestamp(),
+            // A returning user who re-accepted a bumped version at login gets
+            // the fresh record; without a proof the stored one is untouched.
+            ...(terms.ok
+              ? {
+                  termsAcceptance: buildTermsAcceptanceRecord({
+                    version: terms.version,
+                    optionalConsents: terms.optionalConsents,
+                    source: "primary_auth_token",
+                  }),
+                }
+              : {}),
           },
           { merge: true }
         );
@@ -740,6 +969,11 @@ export function createCompletePrimaryStudentEmailAuthFunction(
         isNewUser: decision.isNewUser,
         userData: decision.userData,
         email,
+        // The version in force after this completion: the one just recorded,
+        // otherwise whatever the account already carried.
+        termsVersion: terms.ok
+          ? terms.version
+          : readStoredTermsVersion(decision.userData),
       };
     });
 
@@ -763,6 +997,7 @@ export function createCompletePrimaryStudentEmailAuthFunction(
       adultVerified: userData?.adultVerified === true,
       recommendationPrivacyReady:
         userData?.recommendationPrivacyReady === true,
+      termsVersion: completion.termsVersion,
     };
   });
 }

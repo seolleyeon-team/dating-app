@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../constants/campus_life_zones.dart';
-import '../constants/legal_texts.dart';
+import '../models/terms_acceptance.dart';
 import 'onboarding_write_payload.dart';
 
 class UserService {
@@ -115,46 +115,35 @@ class UserService {
   // 필수 약관/개인정보 동의 저장
   // ---------------------------------------------------------------------------
 
+  /// Writes the legacy client-side consent RECEIPT (terms-gate contract §3).
+  ///
+  /// This map stays for UX and for the existing publicProfile-exclusion and
+  /// legacy rules tests, but it is explicitly demoted: it is never the
+  /// authority for any gate — the server-only
+  /// `users/{appUserId}.termsAcceptance` map is. The one exception is the
+  /// documented §7 grandfather, which reads `legalConsents.version` for
+  /// accounts created before the server record existed.
+  ///
+  /// It records exactly what the user checked. The former
+  /// `fallback: true` defaults (finding F5, which recorded FULL consent from
+  /// a malformed blob) and the fabricated `ageOver18` (§2) are gone; any
+  /// previously stored `ageOver18`/`ageOver14` value is actively purged.
   Future<void> saveLegalConsents({
     required String kakaoUserId,
-    Map<String, dynamic>? consentData,
+    required PendingTermsAcceptance acceptance,
   }) async {
     await _firestore.collection('users').doc(kakaoUserId).set({
       'legalConsents': {
-        'termsOfService': _readConsentBool(
-          consentData?['termsOfService'],
-          fallback: true,
-        ),
-        'privacyPolicy': _readConsentBool(
-          consentData?['privacyPolicy'],
-          fallback: true,
-        ),
-        'kakaoNamePhone': _readConsentBool(
-          consentData?['kakaoNamePhone'],
-          fallback: true,
-        ),
-        'ageOver20': _readConsentBool(
-          consentData?['ageOver20'],
-          fallback: true,
-        ),
-        'ageOver18': _readConsentBool(
-          consentData?['ageOver18'] ?? consentData?['ageOver14'],
-          fallback: true,
-        ),
+        for (final id in PendingTermsAcceptance.requiredDocumentIds)
+          id: acceptance.accepted(id),
+        for (final key in PendingTermsAcceptance.optionalConsentKeys)
+          key: acceptance.optional(key),
+        'ageOver18': FieldValue.delete(),
         'ageOver14': FieldValue.delete(),
         'agreedAt': FieldValue.serverTimestamp(),
-        if (consentData?['agreedAtClientIso'] != null)
-          'agreedAtClientIso': consentData!['agreedAtClientIso'],
-        'version': consentData?['version']?.toString() ?? LegalTexts.version,
+        'version': acceptance.version,
       },
     }, SetOptions(merge: true));
-  }
-
-  bool _readConsentBool(dynamic value, {required bool fallback}) {
-    if (value is bool) return value;
-    if (value is num) return value != 0;
-    if (value is String) return value.toLowerCase() == 'true';
-    return fallback;
   }
 
   // ---------------------------------------------------------------------------
