@@ -18,6 +18,8 @@ import {
 const zeroAccountDeletionCounts = {
   userPrivateDeleted: 0,
   phoneHashIndexDeleted: 0,
+  userPrivateVerificationDeleted: 0,
+  verifiedPhoneHashIndexOwnersDeleted: 0,
   deviceTokensDeleted: 0,
   notificationsDeleted: 0,
   contactBlockedHashesDeleted: 0,
@@ -359,6 +361,7 @@ test("account deletion removes public user and auth only after cleanup/audit", a
 test("account deletion plans scoped PII cleanup operations", () => {
   const docs = accountDeletionDocsFromParts({
     phoneHash: "abc123def456",
+    verifiedPhoneHash: "verified_phone_hash_1",
     deviceTokenIds: ["token_a", "token_b"],
     notificationIds: ["notif_1"],
     contactBlockedHashIds: ["hash_1"],
@@ -381,6 +384,11 @@ test("account deletion plans scoped PII cleanup operations", () => {
     { kind: "deleteContactBlockedHashIndexOwner", phoneHash: "hash_1" },
     { kind: "deletePhoneHashIndex", phoneHash: "abc123def456" },
     { kind: "deleteUserPrivate" },
+    {
+      kind: "deleteVerifiedPhoneHashIndexOwner",
+      phoneHash: "verified_phone_hash_1",
+    },
+    { kind: "deleteUserPrivateVerification" },
     { kind: "deleteBlockTarget", targetUid: "blocked_u2" },
     { kind: "deleteReverseBlockTarget", viewerUid: "blocker_u3" },
     { kind: "deleteRecommendationExclusionTarget", targetUid: "friend_u4" },
@@ -433,6 +441,7 @@ test("account deletion includes PII cleanup counts and skips PII for consent wit
         existingRequest: null,
         accountDeletionDocs: accountDeletionDocsFromParts({
           phoneHash: "phone_hash_1",
+          verifiedPhoneHash: "verified_phone_hash_1",
           deviceTokenIds: ["token_1"],
           notificationIds: ["notif_1"],
           contactBlockedHashIds: ["cb_hash_1"],
@@ -469,6 +478,8 @@ test("account deletion includes PII cleanup counts and skips PII for consent wit
     skippedUnsafeRefs: 0,
     userPrivateDeleted: 1,
     phoneHashIndexDeleted: 1,
+    userPrivateVerificationDeleted: 1,
+    verifiedPhoneHashIndexOwnersDeleted: 1,
     deviceTokensDeleted: 1,
     notificationsDeleted: 1,
     contactBlockedHashesDeleted: 1,

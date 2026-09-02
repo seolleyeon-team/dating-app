@@ -45,6 +45,21 @@ void main() {
   });
 
   group('블라인드 취향 미팅 라우트', () {
+    test('친구 팀 구성 경로가 기존 소개 경로와 분리되어 있다', () {
+      expect(
+        RouteNames.blindTasteMeetingParty,
+        '/event/blind-taste-meeting/team',
+      );
+      expect(
+        RouteNames.blindTasteMeetingPartyFriendPicker,
+        '/event/blind-taste-meeting/team/friends',
+      );
+      expect(
+        RouteNames.blindTasteMeetingParty,
+        isNot(RouteNames.blindTasteMeeting),
+      );
+    });
+
     testWidgets('신규 route가 각 화면으로 연결된다', (tester) async {
       await pumpRoute(tester, RouteNames.blindTasteMeeting);
       expect(find.byType(BlindMeetingIntroScreen), findsOneWidget);

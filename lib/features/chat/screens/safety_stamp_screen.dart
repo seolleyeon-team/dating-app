@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -12,6 +11,7 @@ import '../../../services/user_service.dart';
 import '../services/chat_service.dart';
 import '../services/safety_stamp_verification_service.dart';
 import '../utils/safety_stamp_availability.dart';
+import '../widgets/safety_stamp_motion/safety_stamp_slot_motion.dart';
 import '../../../router/route_names.dart';
 
 class SafetyStampScreen extends StatefulWidget {
@@ -21,6 +21,8 @@ class SafetyStampScreen extends StatefulWidget {
   final String partnerId;
   final String partnerName;
   final String myName;
+  final bool motionPreviewMode;
+  final bool motion3dEnabled;
 
   const SafetyStampScreen({
     super.key,
@@ -30,6 +32,8 @@ class SafetyStampScreen extends StatefulWidget {
     required this.partnerId,
     required this.partnerName,
     required this.myName,
+    this.motionPreviewMode = false,
+    this.motion3dEnabled = true,
   });
 
   @override
@@ -38,12 +42,10 @@ class SafetyStampScreen extends StatefulWidget {
 
 class _SafetyStampScreenState extends State<SafetyStampScreen>
     with TickerProviderStateMixin {
-  final ChatService _chatService = ChatService();
-  final SafetyStampLogCacheService _logCacheService =
-      SafetyStampLogCacheService();
-  final UserService _userService = UserService();
-  final SafetyStampVerificationService _verificationService =
-      SafetyStampVerificationService();
+  late final ChatService _chatService;
+  late final SafetyStampLogCacheService _logCacheService;
+  late final UserService _userService;
+  late final SafetyStampVerificationService _verificationService;
   late final AnimationController _floatController;
   late final AnimationController _myStampController;
   late final AnimationController _partnerStampController;
@@ -72,16 +74,26 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
     )..repeat(reverse: true);
     _myStampController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2400),
+      duration: SafetyStampMotionTiming.total,
     );
     _partnerStampController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2400),
+      duration: SafetyStampMotionTiming.total,
     );
     _successController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
+    if (widget.motionPreviewMode) {
+      _hasReceivedInitialSnapshot = true;
+      _isPartnerStamped = true;
+      _showHydratedPartnerStamp = true;
+      return;
+    }
+    _chatService = ChatService();
+    _logCacheService = SafetyStampLogCacheService();
+    _userService = UserService();
+    _verificationService = SafetyStampVerificationService();
     _loadPartnerPlatform();
     _subscribeToSafetyStamp();
   }
@@ -186,6 +198,7 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
           nextMyStamped &&
           nextPartnerStamped &&
           (!_didPlaySuccess || displayPhase != _phase);
+      final newStampAnimations = <Future<void>>[];
 
       if (isInitialSnapshot) {
         if (nextMyStamped) {
@@ -196,15 +209,30 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
         }
       } else if (nextMyStamped && !_isMyStamped) {
         _showHydratedMyStamp = false;
-        _myStampController.forward(from: 0);
+        newStampAnimations.add(_myStampController.forward(from: 0).orCancel);
       }
       if (!isInitialSnapshot && nextPartnerStamped && !_isPartnerStamped) {
         _showHydratedPartnerStamp = false;
-        _partnerStampController.forward(from: 0);
+        newStampAnimations.add(
+          _partnerStampController.forward(from: 0).orCancel,
+        );
       }
       if (shouldPlaySuccess) {
         _didPlaySuccess = true;
-        _successController.forward(from: 0);
+        if (newStampAnimations.isEmpty) {
+          _successController.forward(from: 0);
+        } else {
+          unawaited(
+            (() async {
+              try {
+                await Future.wait(newStampAnimations);
+              } catch (_) {
+                return;
+              }
+              if (mounted) _successController.forward(from: 0);
+            })(),
+          );
+        }
       }
 
       if (displayPhase != _phase && !(nextMyStamped && nextPartnerStamped)) {
@@ -254,6 +282,25 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
     setState(() {
       _isSubmittingMyStamp = true;
     });
+
+    if (widget.motionPreviewMode) {
+      await Future<void>.delayed(const Duration(milliseconds: 180));
+      if (!mounted) return;
+      setState(() {
+        _isSubmittingMyStamp = false;
+        _isMyStamped = true;
+        _showHydratedMyStamp = false;
+      });
+      try {
+        await _myStampController.forward(from: 0).orCancel;
+      } catch (_) {
+        return;
+      }
+      if (!mounted) return;
+      _didPlaySuccess = true;
+      _successController.forward(from: 0);
+      return;
+    }
 
     try {
       final verification = await _verificationService
@@ -428,6 +475,7 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
                                 stampProgress: partnerAnim,
                                 settledRotationDeg: 5.0,
                                 emphasis: false,
+                                enable3d: widget.motion3dEnabled,
                               ),
                               const SizedBox(height: 14),
                               _StickerSlotCard(
@@ -440,6 +488,7 @@ class _SafetyStampScreenState extends State<SafetyStampScreen>
                                 stampProgress: myAnim,
                                 settledRotationDeg: -3.0,
                                 emphasis: true,
+                                enable3d: widget.motion3dEnabled,
                                 helperText: _isMyStamped
                                     ? null
                                     : visualPhase == SafetyStampPhase.goodbye
@@ -562,6 +611,7 @@ class _StickerSlotCard extends StatelessWidget {
   final double stampProgress;
   final double settledRotationDeg;
   final bool emphasis;
+  final bool enable3d;
   final String? helperText;
 
   const _StickerSlotCard({
@@ -574,6 +624,7 @@ class _StickerSlotCard extends StatelessWidget {
     required this.stampProgress,
     required this.settledRotationDeg,
     required this.emphasis,
+    required this.enable3d,
     this.helperText,
   });
 
@@ -655,189 +706,20 @@ class _StickerSlotCard extends StatelessWidget {
             ),
           ),
 
-          // ── 벚꽃 스티커: ClipRRect 바깥 레이어 → 카드 위로 자유롭게 이동 ──
-          if (isStamped)
-            _AnimatedCherrySticker(
-              progress: progress,
+          // 각 칸은 독립된 타임라인과 3D 모델을 사용한다. 그래서 내 도장과
+          // 상대 도장이 서로 다른 시점에 도착해도 원래의 2분할 상태를 지킨다.
+          Positioned.fill(
+            child: SafetyStampSlotMotion(
+              timeline: progress,
+              isVisible: isStamped,
+              forceSettled: forceSettled,
               stickerSize: stickerSize,
               settledRotationDeg: settledRotationDeg,
-              skipAnimation: forceSettled,
+              enable3d: enable3d,
             ),
+          ),
         ],
       ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 스티커 포즈 — 각 프레임의 완전한 상태
-// 위치는 카드 중앙(Stack alignment: center)을 기준으로 하는 절대 픽셀 오프셋
-// ─────────────────────────────────────────────────────────────────────────────
-class _StickerPose {
-  final double dx;
-  final double dy;
-  final double rotDeg;
-  final double scaleX;
-  final double scaleY;
-  final double opacity;
-
-  const _StickerPose({
-    required this.dx,
-    required this.dy,
-    required this.rotDeg,
-    this.scaleX = 1.0,
-    this.scaleY = 1.0,
-    this.opacity = 1.0,
-  });
-}
-
-// 4개 포즈 — 스티커가 내려와 붙을 때 거치는 기준 포즈들
-// 단계 수를 줄여서 더 단순하고 한 구간씩 길게 보이도록 만든다.
-List<_StickerPose> _buildPoses(double stickerSize, double finalRotDeg) {
-  final s = stickerSize;
-  const fx = 0.0;
-  const fy = 0.0;
-  return [
-    // F0: 카드 위쪽 바깥, 투명
-    _StickerPose(dx: fx - 34, dy: -s * 1.28, rotDeg: -18, opacity: 0),
-    // F1: 상단에서 천천히 나타남
-    _StickerPose(
-      dx: fx + 24,
-      dy: -s * 0.82,
-      rotDeg: 10,
-      scaleX: 1.015,
-      scaleY: 1.015,
-      opacity: 1,
-    ),
-    // F2: 카드 직상단
-    _StickerPose(dx: fx - 18, dy: -s * 0.22, rotDeg: -7),
-    // F3: 찰싹 붙으며 정착
-    _StickerPose(
-      dx: fx,
-      dy: fy,
-      rotDeg: finalRotDeg,
-      scaleX: 1.04,
-      scaleY: 0.96,
-    ),
-  ];
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 벚꽃 스티커 애니메이션 위젯
-// 스티커는 카드 밖 위쪽에서 시작해 아래로 회전하며 붙는다.
-// 기준 포즈들을 부드럽게 보간해서 스무스하게 내려오도록 만든다.
-// ─────────────────────────────────────────────────────────────────────────────
-class _AnimatedCherrySticker extends StatelessWidget {
-  final double progress;
-  final double stickerSize;
-  final double settledRotationDeg;
-  final bool skipAnimation;
-
-  const _AnimatedCherrySticker({
-    required this.progress,
-    required this.stickerSize,
-    required this.settledRotationDeg,
-    required this.skipAnimation,
-  });
-  @override
-  Widget build(BuildContext context) {
-    final p = skipAnimation ? 1.0 : _clampUnit(progress);
-    final poses = _buildPoses(stickerSize, settledRotationDeg);
-    final motionProgress = Curves.easeInOut.transform(p);
-    final pose = _poseAt(poses, motionProgress);
-
-    final trailProgresses = [
-      math.max(0.0, motionProgress - 0.08),
-      math.max(0.0, motionProgress - 0.16),
-    ];
-
-    return Stack(
-      clipBehavior: Clip.none,
-      alignment: Alignment.center,
-      children: [
-        for (int i = trailProgresses.length - 1; i >= 0; i--)
-          _buildStickerLayer(
-            _poseAt(poses, trailProgresses[i]),
-            extraOpacity: i == 0 ? 0.16 : 0.08,
-          ),
-        _buildStickerLayer(pose),
-      ],
-    );
-  }
-
-  Widget _buildStickerLayer(_StickerPose pose, {double extraOpacity = 1.0}) {
-    return Transform.translate(
-      offset: Offset(pose.dx, pose.dy),
-      child: Transform.rotate(
-        angle: pose.rotDeg * (math.pi / 180.0),
-        child: Transform.scale(
-          scaleX: pose.scaleX,
-          scaleY: pose.scaleY,
-          child: Opacity(
-            opacity: _clampUnit(pose.opacity * extraOpacity),
-            child: Image.asset(
-              'cherrysticker.png',
-              width: stickerSize,
-              height: stickerSize,
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.high,
-              errorBuilder: (_, __, ___) => SizedBox(
-                width: stickerSize,
-                height: stickerSize,
-                child: const Icon(
-                  CupertinoIcons.heart_fill,
-                  color: Color(0xFFE86F91),
-                  size: 64,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  _StickerPose _poseAt(List<_StickerPose> poses, double progress) {
-    final interpolated = _interpolatePose(poses, progress);
-    final sway =
-        math.sin(progress * math.pi * 3.2) *
-        (stickerSize * 0.045) *
-        (1 - progress);
-
-    return _StickerPose(
-      dx: interpolated.dx + sway,
-      dy: interpolated.dy,
-      rotDeg: interpolated.rotDeg,
-      scaleX: interpolated.scaleX,
-      scaleY: interpolated.scaleY,
-      opacity: interpolated.opacity,
-    );
-  }
-
-  _StickerPose _interpolatePose(List<_StickerPose> poses, double progress) {
-    if (progress >= 1.0) return poses.last;
-
-    final segmentProgress = progress * (poses.length - 1);
-    final lowerIndex = segmentProgress.floor().clamp(0, poses.length - 1);
-    final upperIndex = math.min(lowerIndex + 1, poses.length - 1);
-
-    if (lowerIndex == upperIndex) {
-      return poses[lowerIndex];
-    }
-
-    final localT = Curves.easeInOutCubic.transform(
-      segmentProgress - lowerIndex,
-    );
-    final from = poses[lowerIndex];
-    final to = poses[upperIndex];
-
-    return _StickerPose(
-      dx: ui.lerpDouble(from.dx, to.dx, localT) ?? to.dx,
-      dy: ui.lerpDouble(from.dy, to.dy, localT) ?? to.dy,
-      rotDeg: ui.lerpDouble(from.rotDeg, to.rotDeg, localT) ?? to.rotDeg,
-      scaleX: ui.lerpDouble(from.scaleX, to.scaleX, localT) ?? to.scaleX,
-      scaleY: ui.lerpDouble(from.scaleY, to.scaleY, localT) ?? to.scaleY,
-      opacity: ui.lerpDouble(from.opacity, to.opacity, localT) ?? to.opacity,
     );
   }
 }

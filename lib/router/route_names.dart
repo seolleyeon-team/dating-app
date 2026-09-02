@@ -84,6 +84,7 @@ class RouteNames {
   // Chat
   static const String premiumChatList = '/chat/list';
   static const String chatRoom = '/chat/room';
+  static const String supportUserDirectory = '/chat/support-users';
   static const String groupChat = '/chat/group';
   static const String safetyStampFollowUp = '/chat/safety-stamp-follow-up';
 
@@ -138,6 +139,10 @@ class RouteNames {
       '/event/meeting-icebreaker/bomb-timer';
 
   // Blind taste meeting (3:3 블라인드 취향 미팅)
+  static const String blindTasteMeetingParty =
+      '/event/blind-taste-meeting/team';
+  static const String blindTasteMeetingPartyFriendPicker =
+      '/event/blind-taste-meeting/team/friends';
   static const String blindTasteMeeting = '/event/blind-taste-meeting';
   static const String blindTasteMeetingDna = '/event/blind-taste-meeting/dna';
   static const String blindTasteMeetingSchedule =

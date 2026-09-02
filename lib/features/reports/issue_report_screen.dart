@@ -1,16 +1,20 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
+import '../../features/chat/models/chat_room_data.dart';
+import '../../router/route_names.dart';
+import '../../services/support_submission_result.dart';
+
 class IssueReportScreen extends StatefulWidget {
   const IssueReportScreen({super.key, this.onSubmit});
 
   /// 나중에 Firestore 저장 로직 연결할 때 사용
   /// return true  -> 성공
   /// return false -> 실패
-  final Future<bool> Function({
+  final Future<SupportSubmissionResult?> Function({
     required String category,
     required String content,
-    required bool allowContact,
+    required bool allowOperationsFollowUp,
   })?
   onSubmit;
 
@@ -33,7 +37,7 @@ class _IssueReportScreenState extends State<IssueReportScreen> {
   ];
 
   String? _selectedCategory;
-  bool _allowContact = false;
+  bool _allowOperationsFollowUp = false;
   bool _isSubmitting = false;
 
   bool get _canSubmit {
@@ -66,43 +70,64 @@ class _IssueReportScreenState extends State<IssueReportScreen> {
 
     final category = _selectedCategory!;
     final content = _contentController.text.trim();
-    final allowContact = _allowContact;
+    final allowOperationsFollowUp = _allowOperationsFollowUp;
 
     setState(() {
       _isSubmitting = true;
     });
 
     try {
-      bool success = true;
+      SupportSubmissionResult? result;
 
       if (widget.onSubmit != null) {
-        success = await widget.onSubmit!(
+        result = await widget.onSubmit!(
           category: category,
           content: content,
-          allowContact: allowContact,
+          allowOperationsFollowUp: allowOperationsFollowUp,
         );
       } else {
         await Future.delayed(const Duration(milliseconds: 500));
+        result = const SupportSubmissionResult(caseId: 'preview');
       }
 
       if (!mounted) return;
 
-      if (success) {
-        await showCupertinoDialog(
+      if (result != null) {
+        final openSupportChat = await showCupertinoDialog<bool>(
           context: context,
           builder: (ctx) => CupertinoAlertDialog(
             title: const Text('접수 완료'),
-            content: const Text('문제가 접수되었습니다.\n빠르게 확인해볼게요.'),
+            content: Text(
+              result!.hasSupportChat
+                  ? '문제가 접수되었습니다.\n운영팀 채팅으로 답변을 받을 수 있어요.'
+                  : '문제가 접수되었습니다.\n빠르게 확인해볼게요.',
+            ),
             actions: [
+              if (result.hasSupportChat)
+                CupertinoDialogAction(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('운영팀 채팅 열기'),
+                ),
               CupertinoDialogAction(
                 isDefaultAction: true,
-                onPressed: () => Navigator.pop(ctx),
+                onPressed: () => Navigator.pop(ctx, false),
                 child: const Text('확인'),
               ),
             ],
           ),
         );
 
+        if (!mounted) return;
+        if (openSupportChat == true && result.hasSupportChat) {
+          await Navigator.of(context, rootNavigator: true).pushNamed(
+            RouteNames.chatRoom,
+            arguments: ChatRoomData(
+              chatRoomId: result.supportRoomId!,
+              partnerId: 'operations',
+              partnerName: '운영팀',
+            ),
+          );
+        }
         if (!mounted) return;
         Navigator.of(context).pop(true);
       } else {
@@ -225,7 +250,7 @@ class _IssueReportScreenState extends State<IssueReportScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '추가 확인이 필요할 때 연락받기',
+                            '운영팀에게 추가 문의를 받아볼래요',
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w600,
@@ -234,7 +259,7 @@ class _IssueReportScreenState extends State<IssueReportScreen> {
                           ),
                           SizedBox(height: 6),
                           Text(
-                            '문제 재현이나 확인을 위해 운영팀이 연락할 수 있어요.',
+                            '켜면 이 신고가 운영팀 채팅으로 전달돼요.',
                             style: TextStyle(
                               fontSize: 13,
                               height: 1.4,
@@ -246,12 +271,12 @@ class _IssueReportScreenState extends State<IssueReportScreen> {
                     ),
                     const SizedBox(width: 12),
                     CupertinoSwitch(
-                      value: _allowContact,
+                      value: _allowOperationsFollowUp,
                       activeTrackColor: _IssueColors.primary,
                       onChanged: (value) {
                         HapticFeedback.selectionClick();
                         setState(() {
-                          _allowContact = value;
+                          _allowOperationsFollowUp = value;
                         });
                       },
                     ),

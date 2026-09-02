@@ -26,6 +26,7 @@ from seolleyeon_rec_common_v3 import (  # noqa: E402
     campus_life_zone_rejection,
     is_ai_profile,
     passes_policy,
+    same_department_avoidance_rejection,
 )
 
 
@@ -161,6 +162,10 @@ def select_daily_items(
 
         actor_meta = policy_meta.get(actor_uid)
         candidate_meta = policy_meta.get(uid)
+
+        if same_department_avoidance_rejection(actor_meta, candidate_meta):
+            rejected["same_department"] += 1
+            continue
 
         # 생활권은 hard eligibility다. passes_policy 도 같은 조건을 강제하지만
         # 여기서 먼저 확인해 skip 사유를 구분 가능한 카운터로 남긴다.

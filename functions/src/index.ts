@@ -36,6 +36,7 @@ import {
   getFirestore,
   FieldValue,
   Timestamp,
+  FieldPath,
   DocumentReference,
   DocumentSnapshot,
   Transaction,
@@ -50,7 +51,12 @@ import {
   shouldSchedulePromiseReminderTransition,
   type PromiseReminderTaskPayload,
 } from "./promiseReminder";
-import { createInAppNotification, sendPushToUsers } from "./shared/notify";
+import {
+  buildNotificationIdempotencyKey,
+  createInAppNotification,
+  sendPushOnce,
+  sendPushToUsers,
+} from "./shared/notify";
 
 // 3:3 블라인드 취향 미팅 (callables + 예약 작업)
 export * from "./blindMeeting";
@@ -75,6 +81,11 @@ import {
   publicProfileProjectionChanged,
   syncPublicProfileForUser,
 } from "./publicProfileSync";
+import {
+  isProfileVisibleForRecommendationDate,
+  kstDateKey,
+  nextKstDateKey,
+} from "./profileVisibility";
 import { nextAcceptedUserIds } from "./eventTeamInviteAcceptPolicy";
 import {
   createSeasonMeetingCancelFunction,
@@ -111,6 +122,7 @@ import {
   resolveBambooOwner,
 } from "./bambooOwnership";
 import { createUploadOnboardingPhotoFunction } from "./onboardingPhotoUpload";
+import { createSupportOperationsCallables } from "./supportOperations";
 import {
   buildStudentVerificationEmail,
   decideStudentVerificationRateLimit,
@@ -140,6 +152,7 @@ import {
   createCreateKakaoFriendPairsOnceFunction,
   createSetKakaoFriendAvoidanceEnabledFunction,
 } from "./kakaoFriendPairs";
+import { createDepartmentRecommendationPrivacyTrigger } from "./departmentRecommendationPrivacy";
 
 // Firebase Admin 초기화
 initializeApp();
@@ -1290,6 +1303,19 @@ async function resolveAuthedAppUser(
   };
 }
 
+// Support operations use a Firebase Auth custom claim plus an immutable
+// server-managed admin/{uid} record.  Keeping these callables beside the
+// existing auth resolver means support cases retain the same Kakao/email-link
+// identity mapping as every other user action.
+const supportOperations = createSupportOperationsCallables({
+  firestore: db,
+  resolveAppUser: resolveAuthedAppUser,
+});
+export const listSupportUsers = supportOperations.listSupportUsers;
+export const openSupportChat = supportOperations.openSupportChat;
+export const submitInquiry = supportOperations.submitInquiry;
+export const submitIssueReport = supportOperations.submitIssueReport;
+
 function getCallableData(request: {
   data?: unknown;
   rawRequest?: { body?: unknown } | null;
@@ -1882,6 +1908,8 @@ export const unlockDirectChat = onCall(withAppCheck(), async (request) => {
   }
   const partnerData = (partnerSnap.data() ?? {}) as Record<string, unknown>;
   if (
+    user.data.accountType === "operations" ||
+    partnerData.accountType === "operations" ||
     partnerData.isWithdrawn === true ||
     partnerData.loginDisabled === true ||
     forwardBlock.exists ||
@@ -2096,6 +2124,47 @@ export const onUserPublicProfileSync = onDocumentWritten(
 );
 
 /**
+ * Updates the candidate-side profile setting.  The effective date is assigned
+ * by the server so a client cannot make a same-day recommendation rerun apply
+ * a different privacy snapshot.
+ */
+export const updateProfileVisibility = onCall(
+  withAppCheck(),
+  async (request) => {
+    const user = await resolveAuthedAppUser(request.auth);
+    const visible = request.data?.visible;
+    if (typeof visible !== "boolean") {
+      throw new HttpsError("invalid-argument", "공개 여부가 올바르지 않아요.");
+    }
+
+    const ref = db.collection("users").doc(user.userId);
+    const snapshot = await ref.get();
+    if (!snapshot.exists) {
+      throw new HttpsError("failed-precondition", "사용자 정보를 찾을 수 없어요.");
+    }
+    const now = new Date();
+    const currentVisible = isProfileVisibleForRecommendationDate(
+      (snapshot.data() ?? {}) as Record<string, unknown>,
+      kstDateKey(now),
+    );
+    const effectiveDateKey = nextKstDateKey(now);
+    await ref.update({
+      profileVisible: visible,
+      profileVisibleBeforeEffectiveDate: currentVisible,
+      profileVisibleEffectiveDateKey: effectiveDateKey,
+      profileVisibilityUpdatedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return { visible, effectiveDateKey };
+  },
+);
+
+/** Keep same-department recommendation exclusions materialized in both directions. */
+export const onDepartmentRecommendationPrivacySync =
+  createDepartmentRecommendationPrivacyTrigger(db);
+
+/**
  * New accounts cannot participate in 1:1 recommendations until the Kakao
  * friend privacy reconciliation has completed. A transaction avoids racing a
  * very fast reconciliation that may finish before this trigger is delivered.
@@ -2201,14 +2270,25 @@ export const completeStudentEmailLink = createCompleteStudentEmailLinkFunction(
 const STUDENT_VERIFICATION_TOKEN_TTL_MS = 30 * 60 * 1000;
 const STUDENT_VERIFICATION_REQUEST_TTL_MS = 31 * 24 * 60 * 60 * 1000;
 const SAFE_EMAIL_REQUEST_ID = /^[A-Za-z0-9_-]{16,128}$/;
+const EMAIL_LINK_PAGE_VERSION = "primary-20260902-1";
 
-function buildStudentVerificationContinueUrl(token: string): string {
+function buildStudentVerificationContinueUrl(
+  token: string,
+  flow: "legacy" | "primary_auth" = "legacy"
+): string {
   const projectId = asNonEmptyString(process.env.GCLOUD_PROJECT) ?? "";
   const origin =
     projectId === "seolleyeon-final"
       ? "https://seolleyeon-final.web.app"
       : "https://seolleyeon.web.app";
   const url = new URL("/auth/email-link", origin);
+  // Mail-app browsers can retain an already-open Hosting document even when
+  // the response itself is no-store. Version every newly generated link so a
+  // primary-auth mail cannot execute a pre-primary legacy page from cache.
+  url.searchParams.set("v", EMAIL_LINK_PAGE_VERSION);
+  if (flow === "primary_auth") {
+    url.searchParams.set("flow", flow);
+  }
   url.searchParams.set("t", token);
   return url.toString();
 }
@@ -2508,7 +2588,7 @@ export const sendPrimaryStudentEmailLink = createSendPrimaryStudentEmailLinkFunc
   readApiKey: () => RESEND_API_KEY.value().trim(),
   generateActionLink: (email, token) =>
     getAuth().generateSignInWithEmailLink(email, {
-      url: buildStudentVerificationContinueUrl(token),
+      url: buildStudentVerificationContinueUrl(token, "primary_auth"),
       handleCodeInApp: true,
       iOS: { bundleId: "com.seolleyeon.app" },
       android: {
@@ -2785,7 +2865,16 @@ export const verifyAdultIdentityAfterLogin = onCall(
       );
     }
 
+    const normalizedPhone = normalizeKoreanPhone(phoneNumber);
+    if (!normalizedPhone) {
+      throw new HttpsError(
+        "failed-precondition",
+        "본인인증 전화번호 형식을 확인하지 못했어요."
+      );
+    }
+
     const phoneLast4 = phoneNumber.slice(-4);
+    const verifiedPhoneHash = hashPhoneNumber(normalizedPhone);
     const ciHash = ci ? sha256Hex(ci) : null;
     const diHash = di ? sha256Hex(di) : null;
     const uniqueKeyHash = sha256Hex(uniqueKey);
@@ -2799,6 +2888,7 @@ export const verifyAdultIdentityAfterLogin = onCall(
 
     await db.runTransaction(async (tx) => {
       const userSnap = await tx.get(userRef);
+      const previousVerificationSnap = await tx.get(privateRef);
       if (!userSnap.exists) {
         throw new HttpsError(
           "failed-precondition",
@@ -2806,11 +2896,23 @@ export const verifyAdultIdentityAfterLogin = onCall(
         );
       }
 
+      const previousPhoneHash = asNonEmptyString(
+        (previousVerificationSnap.data() as Record<string, unknown> | undefined)
+          ?.phoneHash
+      );
+      if (
+        previousPhoneHash &&
+        (!adult || previousPhoneHash !== verifiedPhoneHash)
+      ) {
+        tx.delete(verifiedPhoneHashIndexOwnerRef(previousPhoneHash, uid));
+      }
+
       tx.set(
         privateRef,
         {
           name,
           phoneNumber,
+          phoneHash: adult ? verifiedPhoneHash : FieldValue.delete(),
           birthDate,
           ciHash,
           diHash,
@@ -2825,6 +2927,18 @@ export const verifyAdultIdentityAfterLogin = onCall(
         },
         { merge: true }
       );
+
+      if (adult) {
+        tx.set(
+          verifiedPhoneHashIndexOwnerRef(verifiedPhoneHash, uid),
+          {
+            userId: uid,
+            provider: ADULT_VERIFICATION_PROVIDER,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+      }
 
       tx.set(
         userRef,
@@ -2849,6 +2963,15 @@ export const verifyAdultIdentityAfterLogin = onCall(
         "permission-denied",
         "설레연은 연 나이 20세 이상만 이용할 수 있어요."
       );
+    }
+
+    try {
+      await reconcileVerifiedPhoneHashWithExistingContacts(uid, verifiedPhoneHash);
+    } catch (error) {
+      logger.error("verified phone contact reconciliation failed", {
+        uidHash: createHash("sha256").update(uid).digest("hex").slice(0, 16),
+        errorType: error instanceof Error ? error.name : "unknown",
+      });
     }
 
     return {
@@ -3975,6 +4098,21 @@ export const onInteractionCreated = onDocumentCreated(
     if (!fromUserId || !toUserId) return;
     if (action !== "like" && action !== "super_like") return;
 
+    // A forged client interaction must not turn an operations account into a
+    // normal recommendation/match counterpart.  UI filtering alone is not an
+    // authority boundary, so enforce the exclusion again before notifications
+    // or mutual-match room creation.
+    const [fromUserSnap, toUserSnap] = await Promise.all([
+      db.collection("users").doc(fromUserId).get(),
+      db.collection("users").doc(toUserId).get(),
+    ]);
+    if (
+      fromUserSnap.data()?.accountType === "operations" ||
+      toUserSnap.data()?.accountType === "operations"
+    ) {
+      return;
+    }
+
     // -----------------------------------------------------------------------
     // 프로필 좋아요 알림: 상대방에게 인앱 알림(idempotent) + 푸시
     // -----------------------------------------------------------------------
@@ -4157,14 +4295,25 @@ export const onChatMessageCreated = onDocumentCreated(
       message.text ?? message.content ?? "메시지가 도착했어요."
     ).trim();
 
-    await sendPushToUsers(targetUserIds, {
-      title: senderName,
-      body: body || "메시지가 도착했어요.",
-      data: {
-        type: "chat",
-        roomId,
+    const notificationId = buildNotificationIdempotencyKey([
+      "chat",
+      roomId,
+      event.params.messageId,
+    ]);
+    await sendPushOnce(
+      targetUserIds,
+      {
+        title: senderName,
+        body: body || "메시지가 도착했어요.",
+        data: {
+          type: "chat",
+          roomId,
+          messageId: event.params.messageId,
+          notificationId,
+        },
       },
-    });
+      notificationId
+    );
 
     logger.info("Chat push sent", {
       roomId,
@@ -4254,26 +4403,42 @@ export const onBambooCommentCreated = onDocumentCreated(
     // 일반 댓글: 글 작성자에게 푸시 + 인앱 알림
     if (!parentCommentId) {
       if (postAuthorId && postAuthorId !== authorId) {
-        await sendPushToUsers([postAuthorId], {
-          title: "내 글에 새 댓글이 달렸어요",
-          body: content || "댓글이 도착했어요.",
-          data: {
-            type: "community_comment",
-            postId,
-          },
-        });
-
-        await createInAppNotification(postAuthorId, {
-          type: "community_comment",
-          title: "내 글에 새 댓글이 달렸어요",
-          body: content || "누군가가 회원님의 글에 댓글을 남겼습니다.",
-          deeplinkType: "community_post",
-          deeplinkId: postId,
-          actorId: authorId,
-          actorName: authorInfo.nickname,
+        const notificationId = buildNotificationIdempotencyKey([
+          "community_comment",
           postId,
           commentId,
-        });
+          postAuthorId,
+        ]);
+        await sendPushOnce(
+          [postAuthorId],
+          {
+            title: "내 글에 새 댓글이 달렸어요",
+            body: content || "댓글이 도착했어요.",
+            data: {
+              type: "community_comment",
+              postId,
+              commentId,
+              notificationId,
+            },
+          },
+          `push_${notificationId}`
+        );
+
+        await createInAppNotification(
+          postAuthorId,
+          {
+            type: "community_comment",
+            title: "내 글에 새 댓글이 달렸어요",
+            body: content || "누군가가 회원님의 글에 댓글을 남겼습니다.",
+            deeplinkType: "community_post",
+            deeplinkId: postId,
+            actorId: authorId,
+            actorName: authorInfo.nickname,
+            postId,
+            commentId,
+          },
+          notificationId
+        );
 
         logger.info("Community comment push + in-app notification sent", {
           postId,
@@ -4305,26 +4470,42 @@ export const onBambooCommentCreated = onDocumentCreated(
     const targets = [parentAuthorId].filter((uid) => uid && uid !== authorId);
 
     if (targets.length > 0) {
-      await sendPushToUsers(targets, {
-        title: "내 댓글에 답글이 달렸어요",
-        body: content || "답글이 도착했어요.",
-        data: {
-          type: "community_reply",
-          postId,
-        },
-      });
-
-      await createInAppNotification(parentAuthorId, {
-        type: "community_reply",
-        title: "내 댓글에 답글이 달렸어요",
-        body: content || "누군가가 회원님의 댓글에 답글을 남겼습니다.",
-        deeplinkType: "community_post",
-        deeplinkId: postId,
-        actorId: authorId,
-        actorName: authorInfo.nickname,
+      const notificationId = buildNotificationIdempotencyKey([
+        "community_reply",
         postId,
         commentId,
-      });
+        parentAuthorId,
+      ]);
+      await sendPushOnce(
+        targets,
+        {
+          title: "내 댓글에 답글이 달렸어요",
+          body: content || "답글이 도착했어요.",
+          data: {
+            type: "community_reply",
+            postId,
+            commentId,
+            notificationId,
+          },
+        },
+        `push_${notificationId}`
+      );
+
+      await createInAppNotification(
+        parentAuthorId,
+        {
+          type: "community_reply",
+          title: "내 댓글에 답글이 달렸어요",
+          body: content || "누군가가 회원님의 댓글에 답글을 남겼습니다.",
+          deeplinkType: "community_post",
+          deeplinkId: postId,
+          actorId: authorId,
+          actorName: authorInfo.nickname,
+          postId,
+          commentId,
+        },
+        notificationId
+      );
 
       logger.info("Community reply push + in-app notification sent", {
         postId,
@@ -4958,7 +5139,7 @@ export const dispatchPromiseReminder = onTaskDispatched(
       title: buildUpcomingPromiseReminderTitle(result.place),
       body: "상대방 만날 때 같이 안전도장 누르는 거 잊지 말기!",
       data: {
-        type: "chat",
+        type: "promise_reminder",
         roomId,
         promiseId,
       },
@@ -5206,6 +5387,41 @@ export function hashPhoneNumber(normalized: string): string {
   return createHash("sha256").update(normalized).digest("hex");
 }
 
+// KG Inicis/PortOne 본인인증 문서에서만 파생되는 역색인이다. 연락처 원본과
+// 본인인증 원본 전화번호 모두 이 경로에는 저장하지 않는다.
+const VERIFIED_PHONE_HASH_INDEX = "verifiedPhoneHashIndex";
+const VERIFIED_PHONE_HASH_BACKFILL_PAGE_SIZE = 100;
+
+function verifiedPhoneHashIndexOwnerRef(phoneHash: string, uid: string) {
+  return db
+    .collection(VERIFIED_PHONE_HASH_INDEX)
+    .doc(phoneHash)
+    .collection("owners")
+    .doc(uid);
+}
+
+async function markContactHashMatchedToUsers(
+  ownerUid: string,
+  phoneHash: string,
+  matchedUserIds: string[]
+): Promise<void> {
+  if (matchedUserIds.length === 0) return;
+  await db
+    .collection("users")
+    .doc(ownerUid)
+    .collection("contactBlockedHashes")
+    .doc(phoneHash)
+    .set(
+      {
+        isMatchedToAppUser: true,
+        matchedUserIds: FieldValue.arrayUnion(...matchedUserIds),
+        matchSource: "kg_inicis_verified_phone",
+        matchedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+}
+
 // =============================================================================
 // syncContactBlocks — 연락처 차단 동기화 Callable
 // =============================================================================
@@ -5287,45 +5503,44 @@ export const syncContactBlocks = onCall(withAppCheck(), async (request) => {
     }
     await batch.commit();
 
-    // 3. phoneHashIndex lookup + mutual block
+    // 3. KG이니시스 본인인증 전화번호 해시 역색인 lookup + 상호 block
     for (const phoneHash of chunk) {
-      const phiSnap = await db
-        .collection("phoneHashIndex")
+      const ownersSnap = await db
+        .collection(VERIFIED_PHONE_HASH_INDEX)
         .doc(phoneHash)
+        .collection("owners")
         .get();
-      if (!phiSnap.exists) continue;
+      if (ownersSnap.empty) continue;
 
-      const matchedUid = asNonEmptyString(
-        (phiSnap.data() as Record<string, unknown>)?.userId
-      );
-      if (!matchedUid) continue;
-      if (matchedUid === callerUid) {
-        skippedSelfCount++;
-        continue;
+      const matchedUserIds: string[] = [];
+      for (const ownerDoc of ownersSnap.docs) {
+        const matchedUid = ownerDoc.id;
+        if (matchedUid === callerUid) {
+          skippedSelfCount++;
+          continue;
+        }
+        matchedUserIds.push(matchedUid);
       }
-      matchedUserCount++;
+      if (matchedUserIds.length === 0) continue;
 
-      // update contactBlockedHashes doc
-      await db
-        .collection("users")
-        .doc(callerUid)
-        .collection("contactBlockedHashes")
-        .doc(phoneHash)
-        .set(
-          { isMatchedToAppUser: true, matchedUserId: matchedUid },
-          { merge: true }
-        );
-
-      // mutual block
-      const created = await ensureMutualContactBlock(
+      matchedUserCount += matchedUserIds.length;
+      await markContactHashMatchedToUsers(
         callerUid,
-        matchedUid,
-        phoneHash
+        phoneHash,
+        matchedUserIds
       );
-      if (created) {
-        newlyBlockedPairCount++;
-      } else {
-        alreadyBlockedPairCount++;
+
+      for (const matchedUid of matchedUserIds) {
+        const created = await ensureMutualContactBlock(
+          callerUid,
+          matchedUid,
+          phoneHash
+        );
+        if (created) {
+          newlyBlockedPairCount++;
+        } else {
+          alreadyBlockedPairCount++;
+        }
       }
     }
   }
@@ -5905,107 +6120,187 @@ async function ensureMutualContactBlock(
 }
 
 // =============================================================================
-// onUserPhoneHashUpsert — phoneHash가 생기면 기존 연락처 차단과 상호 block
+// KG이니시스 본인인증 전화번호 ↔ 기존 연락처 해시 상호 차단 정합성
 // =============================================================================
-export const onUserPhoneHashUpsert = onDocumentWritten(
-  "userPrivate/{uid}",
-  async (event) => {
-    const uid = event.params.uid;
-    const after = event.data?.after?.data() as
-      | Record<string, unknown>
-      | undefined;
-    const before = event.data?.before?.data() as
-      | Record<string, unknown>
-      | undefined;
-    if (!after) return; // deleted
+async function reconcileVerifiedPhoneHashWithExistingContacts(
+  verifiedUid: string,
+  phoneHash: string
+): Promise<void> {
+  const ownersSnap = await db
+    .collection("contactBlockedHashIndex")
+    .doc(phoneHash)
+    .collection("owners")
+    .get();
 
-    const newHash = asNonEmptyString(after.phoneHash);
-    const oldHash = asNonEmptyString(before?.phoneHash);
-    if (!newHash || newHash === oldHash) return;
+  if (ownersSnap.empty) return;
 
-    // 1. phoneHashIndex upsert
-    await db.collection("phoneHashIndex").doc(newHash).set(
-      { userId: uid, updatedAt: FieldValue.serverTimestamp() },
-      { merge: true }
-    );
+  for (const ownerDoc of ownersSnap.docs) {
+    const ownerUid = ownerDoc.id;
+    if (ownerUid === verifiedUid) continue;
 
-    // 2. old hash cleanup
-    if (oldHash && oldHash !== newHash) {
-      await db.collection("phoneHashIndex").doc(oldHash).delete();
+    await ensureMutualContactBlock(ownerUid, verifiedUid, phoneHash);
+    await markContactHashMatchedToUsers(ownerUid, phoneHash, [verifiedUid]);
+  }
+
+  logger.info("verified phone contact reconciliation completed", {
+    verifiedUidHash: createHash("sha256")
+      .update(verifiedUid)
+      .digest("hex")
+      .slice(0, 16),
+    ownerCount: ownersSnap.size,
+  });
+}
+
+// =============================================================================
+// backfillVerifiedPhoneHashIndex — 기존 KG이니시스 본인인증 문서의 파생 색인 생성
+// =============================================================================
+// 운영자만 페이지 단위로 호출한다. 원본 전화번호는 응답·로그에 포함하지 않는다.
+export const backfillVerifiedPhoneHashIndex = onCall(
+  withAppCheck({ timeoutSeconds: 120, memory: "512MiB" }),
+  async (request) => {
+    const callerUid = request.auth?.uid;
+    const claims = request.auth?.token as Record<string, unknown> | undefined;
+    if (!callerUid || claims?.admin !== true) {
+      throw new HttpsError("permission-denied", "운영자 권한이 필요합니다.");
     }
 
-    // 3. contactBlockedHashIndex에서 이 해시를 가진 owner 찾기
-    const ownersSnap = await db
-      .collection("contactBlockedHashIndex")
-      .doc(newHash)
-      .collection("owners")
-      .get();
+    const data = getCallableData(request);
+    const startAfterUid = asNonEmptyString(data.startAfterUid);
+    if (startAfterUid && !/^[A-Za-z0-9_-]{1,128}$/.test(startAfterUid)) {
+      throw new HttpsError("invalid-argument", "startAfterUid 형식이 올바르지 않아요.");
+    }
 
-    if (ownersSnap.empty) return;
+    let query = db
+      .collection("userPrivateVerifications")
+      .orderBy(FieldPath.documentId())
+      .limit(VERIFIED_PHONE_HASH_BACKFILL_PAGE_SIZE);
+    if (startAfterUid) query = query.startAfter(startAfterUid);
 
-    for (const ownerDoc of ownersSnap.docs) {
-      const ownerUid = ownerDoc.id;
-      if (ownerUid === uid) continue;
+    const page = await query.get();
+    let indexedCount = 0;
+    let skippedCount = 0;
+    const reconciliations: Array<{ uid: string; phoneHash: string }> = [];
+    const batch = db.batch();
 
-      await ensureMutualContactBlock(ownerUid, uid, newHash);
+    for (const verificationDoc of page.docs) {
+      const verification = verificationDoc.data() as Record<string, unknown>;
+      if (verification.verificationStatus !== "adult_verified") {
+        skippedCount++;
+        continue;
+      }
+      const phoneNumber = asNonEmptyString(verification.phoneNumber);
+      const normalizedPhone = phoneNumber ? normalizeKoreanPhone(phoneNumber) : null;
+      if (!normalizedPhone) {
+        skippedCount++;
+        continue;
+      }
 
-      // mark matched in owner's contactBlockedHashes
-      await db
-        .collection("users")
-        .doc(ownerUid)
-        .collection("contactBlockedHashes")
-        .doc(newHash)
-        .set(
-          { isMatchedToAppUser: true, matchedUserId: uid },
-          { merge: true }
+      const phoneHash = hashPhoneNumber(normalizedPhone);
+      const existingPhoneHash = asNonEmptyString(verification.phoneHash);
+      batch.set(
+        verificationDoc.ref,
+        { phoneHash, phoneHashUpdatedAt: FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+      batch.set(
+        verifiedPhoneHashIndexOwnerRef(phoneHash, verificationDoc.id),
+        {
+          userId: verificationDoc.id,
+          provider: ADULT_VERIFICATION_PROVIDER,
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      if (existingPhoneHash && existingPhoneHash !== phoneHash) {
+        batch.delete(
+          verifiedPhoneHashIndexOwnerRef(existingPhoneHash, verificationDoc.id)
         );
+      }
+      indexedCount++;
+      reconciliations.push({ uid: verificationDoc.id, phoneHash });
+    }
+    if (indexedCount > 0) {
+      await batch.commit();
     }
 
-    logger.info("onUserPhoneHashUpsert: processed", {
-      uid,
-      phoneHash: newHash,
-      ownerCount: ownersSnap.size,
-    });
+    for (let i = 0; i < reconciliations.length; i += 10) {
+      await Promise.all(
+        reconciliations
+          .slice(i, i + 10)
+          .map(({ uid, phoneHash }) =>
+            reconcileVerifiedPhoneHashWithExistingContacts(uid, phoneHash)
+          )
+      );
+    }
+
+    const lastDoc =
+      page.docs.length > 0 ? page.docs[page.docs.length - 1] : undefined;
+    return {
+      scannedCount: page.size,
+      indexedCount,
+      skippedCount,
+      nextStartAfterUid:
+        page.size === VERIFIED_PHONE_HASH_BACKFILL_PAGE_SIZE && lastDoc
+          ? lastDoc.id
+          : null,
+    };
   }
 );
 
 // =============================================================================
-// saveUserPhoneHash — 카카오 로그인 후 전화번호 해시 저장 Callable
+// purgeLegacyKakaoPhoneHashes — 더 이상 사용하지 않는 카카오 유래 해시 제거
 // =============================================================================
-export const saveUserPhoneHash = onCall(withAppCheck(), async (request) => {
-  const data = getCallableData(request);
-  const phoneHash = asNonEmptyString(data.phoneHash);
-  const phoneSource = asNonEmptyString(data.phoneSource) ?? "kakao";
-
-  // auth 또는 kakaoAccessToken으로 uid 결정
-  let uid = request.auth?.uid;
-  if (!uid) {
-    const accessToken = asNonEmptyString(data.kakaoAccessToken);
-    if (!accessToken) {
-      throw new HttpsError("unauthenticated", "로그인이 필요해요.");
+// 운영자만 페이지 단위로 호출한다. 새로운 KG이니시스 기반 색인에는 영향을 주지 않는다.
+export const purgeLegacyKakaoPhoneHashes = onCall(
+  withAppCheck({ timeoutSeconds: 120, memory: "512MiB" }),
+  async (request) => {
+    const callerUid = request.auth?.uid;
+    const claims = request.auth?.token as Record<string, unknown> | undefined;
+    if (!callerUid || claims?.admin !== true) {
+      throw new HttpsError("permission-denied", "운영자 권한이 필요합니다.");
     }
-    const kakaoUser = await verifyKakaoAccessToken(accessToken);
-    uid = kakaoUser.userId;
+
+    const data = getCallableData(request);
+    const startAfterUid = asNonEmptyString(data.startAfterUid);
+    if (startAfterUid && !/^[A-Za-z0-9_-]{1,128}$/.test(startAfterUid)) {
+      throw new HttpsError("invalid-argument", "startAfterUid 형식이 올바르지 않아요.");
+    }
+
+    let query = db
+      .collection("userPrivate")
+      .orderBy(FieldPath.documentId())
+      .limit(VERIFIED_PHONE_HASH_BACKFILL_PAGE_SIZE);
+    if (startAfterUid) query = query.startAfter(startAfterUid);
+
+    const page = await query.get();
+    const batch = db.batch();
+    let purgedIndexCount = 0;
+    for (const privateDoc of page.docs) {
+      const phoneHash = asNonEmptyString(
+        (privateDoc.data() as Record<string, unknown>).phoneHash
+      );
+      if (phoneHash) {
+        batch.delete(db.collection("phoneHashIndex").doc(phoneHash));
+        purgedIndexCount++;
+      }
+      batch.delete(privateDoc.ref);
+    }
+    if (!page.empty) {
+      await batch.commit();
+    }
+
+    const lastDoc =
+      page.docs.length > 0 ? page.docs[page.docs.length - 1] : undefined;
+    return {
+      purgedPrivateDocumentCount: page.size,
+      purgedIndexCount,
+      nextStartAfterUid:
+        page.size === VERIFIED_PHONE_HASH_BACKFILL_PAGE_SIZE && lastDoc
+          ? lastDoc.id
+          : null,
+    };
   }
-
-  if (!phoneHash) {
-    throw new HttpsError("invalid-argument", "phoneHash가 필요합니다.");
-  }
-
-  await db
-    .collection("userPrivate")
-    .doc(uid)
-    .set(
-      {
-        phoneHash,
-        phoneSource,
-        phoneUpdatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-  return { success: true };
-});
+);
 
 // =============================================================================
 // recEvents 기반 매치 체크 헬퍼

@@ -148,7 +148,7 @@ class KakaoTalkFriendService {
     );
   }
 
-  /// 필요한 경우에만 추가 동의 화면을 표시하고, 완료 뒤 `me()`를 호출합니다.
+  /// 필요한 경우에만 카카오 친구목록 추가 동의를 요청합니다.
   Future<KakaoConsentStatus> ensureRequiredConsents({
     required bool requireTalkMessage,
   }) async {
@@ -192,8 +192,8 @@ class KakaoTalkFriendService {
         await UserApi.instance.loginWithNewScopes(missingScopes);
       }
 
-      // 팀멤버의 앱 연결이 정리되지 않도록 동의 이후 사용자 정보 조회까지 완료합니다.
-      await fetchCurrentUser();
+      // 프로필(닉네임/사진)은 이 흐름에 필요하지 않으므로 `me()`를
+      // 호출하지 않고 동의 scope 상태만 다시 확인합니다.
       status = await getConsentStatus();
       final stillMissing = requiredScopes.any((scope) {
         return switch (scope) {

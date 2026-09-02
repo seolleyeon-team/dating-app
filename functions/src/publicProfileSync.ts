@@ -44,6 +44,11 @@ function asStringList(value: unknown): string[] {
     .filter((item): item is string => item != null);
 }
 
+function asDateKey(value: unknown): string | null {
+  const text = asString(value);
+  return text && /^\d{8}$/.test(text) ? text : null;
+}
+
 function pickSafePhotoUrls(values: unknown): string[] {
   return asStringList(values).filter((url) => isSafePublicAvatarUrl(url));
 }
@@ -108,6 +113,11 @@ export function buildPublicProfileFromUser(
 ): Record<string, unknown> | null {
   if (!userData) return null;
 
+  // Operations staff may chat with members but must never become a public
+  // recommendation candidate.  Returning null also removes an older public
+  // projection when an account is converted to operations.
+  if (userData.accountType === "operations") return null;
+
   const status = asString(userData.status) ?? "active";
   const inactiveStatuses = new Set([
     "banned",
@@ -123,10 +133,10 @@ export function buildPublicProfileFromUser(
     userData.isDeleted === true ||
     userData.isSuspended === true ||
     userData.isActive === false;
-  const profileVisible = userData.profileVisible !== false;
-
-  // Moderated, deleted, withdrawn, or invisible users leave no public surface.
-  if (isInactive || !profileVisible) {
+  // A member's recommendation visibility is date-scoped and resolved by the
+  // daily server job. Keep today's public projection intact so a change made
+  // during the day cannot retroactively remove already-issued cards.
+  if (isInactive) {
     return null;
   }
 
@@ -147,7 +157,15 @@ export function buildPublicProfileFromUser(
     profileImageUrl: photoUrl,
     status: "active",
     isWithdrawn: false,
-    profileVisible: true,
+    // Candidate visibility is a KST-date-scoped setting. These three fields
+    // are intentionally public so the app can defend against serving an old
+    // fallback feed after the next-day transition has taken effect.
+    profileVisible: userData.profileVisible !== false,
+    profileVisibleBeforeEffectiveDate:
+      userData.profileVisibleBeforeEffectiveDate !== false,
+    profileVisibleEffectiveDateKey: asDateKey(
+      userData.profileVisibleEffectiveDateKey,
+    ),
     isStudentVerified: userData.isStudentVerified === true,
     initialSetupComplete: userData.initialSetupComplete === true,
     isProfileComplete: userData.initialSetupComplete === true,

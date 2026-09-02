@@ -75,7 +75,10 @@ Do NOT introduce a duplicate readiness flag. Client resolvers read
 ### `emailLinkTokens/{token}` — new token shape for the primary flow
 Legacy shape (kept, old binaries): `{ email, kakaoUserId, createdAt, expiresAt }`.
 Primary-flow shape (new): `{ email, purpose: "primary_auth", createdAt, expiresAt }` — NO kakaoUserId.
-TTL 30min unchanged. Single-use: deleted in the completion transaction.
+TTL 30min unchanged. On first completion, the same transaction changes the token to
+`{ status:"completed", completedAppUserId, completedIsNewUser, completedAt }`.
+This is logically single-use for account mutation, while the same server-verified mailbox may
+retry until expiry to recover a custom-token response lost after the transaction committed.
 
 ## 4. New callables (functions/src)
 
@@ -110,7 +113,9 @@ TTL 30min unchanged. Single-use: deleted in the completion transaction.
          (fail-closed recommendation defaults); create binding.
   3. Rejoin/withdrawal guard: if resolved `users/{appUserId}` has `status in {deleting, banned, blocked, restricted_rejoin, suspended, withdrawn}` or `loginDisabled == true` or `isWithdrawn == true` → `failed-precondition` detail `rejoin_restricted`. NEVER create a fresh account to bypass.
   4. Existing user merge: if stored non-empty `studentEmail` != verified email → `permission-denied` (same message class as legacy). Merge `{ studentEmail, isStudentVerified:true, studentVerifiedAt, lastLoginAt }`.
-  5. `transaction.delete(tokenRef)` (single-use).
+  5. Mark the token `completed` in the same transaction. A retry for the same
+     server-verified mailbox may re-read the recorded user and mint the same canonical session;
+     it never repeats account resolution or creates a second account. Expiry/purge removes the marker.
 - After the transaction: `createCustomToken(appUserId, claims per §2)`.
 - Response: `{ customToken, appUserId, email, isNewUser, initialSetupComplete, adultVerified, recommendationPrivacyReady }`.
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -7,6 +8,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show NavigatorState;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/widgets.dart';
 
 import '../firebase_options.dart';
 import '../router/route_names.dart';
@@ -26,7 +28,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 }
 
-class PushNotificationService {
+class PushNotificationService with WidgetsBindingObserver {
   PushNotificationService._();
   static final PushNotificationService instance = PushNotificationService._();
 
@@ -53,6 +55,9 @@ class PushNotificationService {
 
   String? _openedChatRoomId;
   bool _isChatRoomVisible = false;
+  bool _isChatListVisible = false;
+  bool _isAppForeground = true;
+  Timer? _deliveryContextHeartbeat;
   bool _initialized = false;
   bool _initializing = false;
   final Set<String> _handledOpenKeys = <String>{};
@@ -92,6 +97,10 @@ class PushNotificationService {
     _handledOpenKeys.clear();
     _openedChatRoomId = null;
     _isChatRoomVisible = false;
+    _isChatListVisible = false;
+    _isAppForeground = true;
+    _deliveryContextHeartbeat?.cancel();
+    _deliveryContextHeartbeat = null;
   }
 
   static const AndroidNotificationChannel _chatChannel =
@@ -149,6 +158,8 @@ class PushNotificationService {
       }
       await _initLocalNotifications();
       await syncFcmToken(notificationSettings: notificationSettings);
+      WidgetsBinding.instance.addObserver(this);
+      _startDeliveryContextHeartbeat();
 
       FirebaseMessaging.onMessage.listen(_onForegroundMessage);
       FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageTap);
@@ -168,8 +179,11 @@ class PushNotificationService {
   }
 
   void setOpenedChatRoom(String roomId) {
+    if (roomId.isEmpty) return;
+    _isChatListVisible = false;
     _openedChatRoomId = roomId;
     _isChatRoomVisible = true;
+    unawaited(_syncDeliveryContext());
     debugPrint('[PUSH] opened ${PrivacyLogUtils.idFingerprint(roomId)}');
   }
 
@@ -178,6 +192,81 @@ class PushNotificationService {
       debugPrint('[PUSH] cleared ${PrivacyLogUtils.idFingerprint(roomId)}');
       _openedChatRoomId = null;
       _isChatRoomVisible = false;
+      unawaited(_syncDeliveryContext());
+    }
+  }
+
+  /// Marks the chat-list screen as visible for this device.
+  ///
+  /// The server uses this short-lived state to avoid a redundant chat banner
+  /// while the user is already looking at the conversation list.
+  void setChatListVisible(bool visible) {
+    if (_isChatListVisible == visible &&
+        !(visible && (_isChatRoomVisible || _openedChatRoomId != null))) {
+      return;
+    }
+    _isChatListVisible = visible;
+    if (visible) {
+      _openedChatRoomId = null;
+      _isChatRoomVisible = false;
+    }
+    unawaited(_syncDeliveryContext());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final foreground = state == AppLifecycleState.resumed;
+    if (_isAppForeground == foreground) return;
+    _isAppForeground = foreground;
+    unawaited(_syncDeliveryContext());
+  }
+
+  void _startDeliveryContextHeartbeat() {
+    _deliveryContextHeartbeat?.cancel();
+    _deliveryContextHeartbeat = Timer.periodic(const Duration(seconds: 45), (
+      _,
+    ) {
+      if (_isAppForeground) {
+        unawaited(_syncDeliveryContext());
+      }
+    });
+  }
+
+  Map<String, Object?> _deliveryContext() {
+    final screen = !_isAppForeground
+        ? 'background'
+        : _isChatListVisible
+        ? 'chat_list'
+        : _isChatRoomVisible && _openedChatRoomId != null
+        ? 'chat_room'
+        : 'other';
+    return {
+      'appState': _isAppForeground ? 'foreground' : 'background',
+      'screen': screen,
+      'chatRoomId': screen == 'chat_room' ? _openedChatRoomId : null,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+  }
+
+  Future<void> _syncDeliveryContext() async {
+    if (kIsWeb) return;
+    try {
+      final userId = await _storage.getKakaoUserId();
+      if (userId == null || userId.isEmpty) return;
+      final token = await _messaging.getToken();
+      if (token == null || token.isEmpty) return;
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('deviceTokens')
+          .doc(token)
+          .set({
+            'deliveryContext': _deliveryContext(),
+          }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint(
+        '[PUSH] delivery context sync ${PrivacyLogUtils.errorSummary(e)}',
+      );
     }
   }
 
@@ -322,6 +411,7 @@ class PushNotificationService {
             'platform': defaultTargetPlatform.name,
             'notificationsEnabled': userNotificationSettings['all'] != false,
             'notificationSettings': userNotificationSettings,
+            'deliveryContext': _deliveryContext(),
             'updatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
 
@@ -425,6 +515,7 @@ class PushNotificationService {
     switch (type) {
       case 'chat':
       case 'chat_digest':
+      case 'promise_reminder':
         return 'chat';
       case 'profile_like':
         return 'matching';
@@ -511,7 +602,7 @@ class PushNotificationService {
       return;
     }
 
-    if (type == 'chat' || type == 'chat_digest') {
+    if (type == 'chat' || type == 'chat_digest' || type == 'promise_reminder') {
       nav.pushNamedAndRemoveUntil(
         RouteNames.main,
         (route) => false,
@@ -577,6 +668,10 @@ class PushNotificationService {
     // 라우팅한다. 알림에 담긴 단계(예: "수락해주세요")가 이미 지났더라도
     // 결과 화면이 서버 상태를 실시간으로 읽어 현재 단계를 보여준다.
     final deeplinkType = data['deeplinkType'] ?? '';
+    if (deeplinkType == 'blind_meeting_party') {
+      nav.pushNamed(RouteNames.blindTasteMeetingParty);
+      return;
+    }
     // 대체 참가 제안은 예외다. 제안을 받은 사람은 아직 그 미팅의 참가자가
     // 아니라서 미팅 문서를 읽을 수 없다 (rules 상 participantIds 기준).
     // 전용 화면이 생기기 전까지는 알림함으로 보낸다.
@@ -605,6 +700,17 @@ class PushNotificationService {
         RouteNames.main,
         (route) => false,
         arguments: const MainScaffoldArgs(initialTabIndex: 1),
+      );
+      return;
+    }
+
+    // Older notifications may not include a deeplinkType.  They still lead
+    // safely to the blind-meeting entry screen instead of doing nothing.
+    if (type.startsWith('blind_meeting_')) {
+      nav.pushNamed(
+        type.startsWith('blind_meeting_party_')
+            ? RouteNames.blindTasteMeetingParty
+            : RouteNames.blindTasteMeeting,
       );
       return;
     }

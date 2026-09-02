@@ -28,7 +28,9 @@ except Exception:  # pragma: no cover
 
 from seolleyeon_rec_common_v3 import (
     canonicalize_recommendation_target_id,
+    filter_same_department_items,
     is_ai_profile,
+    load_policy_meta_from_firestore,
 )
 from seolleyeon_recommendation_privacy import (
     load_recommendation_privacy_policy,
@@ -341,7 +343,12 @@ def main() -> int:
     source_weights = parse_source_weights_json(args.source_weights_json)
 
     db = firestore.Client(project=args.firestore_project, database=args.firestore_database)
-    privacy_policy = load_recommendation_privacy_policy(db)
+    privacy_policy = load_recommendation_privacy_policy(db, date_key=date_key)
+    policy_meta, policy_meta_source = load_policy_meta_from_firestore(
+        args.firestore_project,
+        database=args.firestore_database,
+    )
+    print(f"[policy] same-department metadata source: {policy_meta_source}")
 
     # 생활권 정책 상태. 조회 실패(UNKNOWN)면 여기서 예외가 올라와 배치가 멈춘다.
     # 활성화 여부를 모른 채 융합 피드를 새로 쓰지 않기 위해서다.
@@ -431,6 +438,9 @@ def main() -> int:
             topn=privacy_prefilter_limit,
         )
         merged = privacy_policy.filter_items(uid, merged)
+        # Source exports apply this policy before ranking. Re-apply it here as
+        # a defense for stale or independently generated source documents.
+        merged = filter_same_department_items(uid, merged, policy_meta)
         merged = merged[: int(args.topn)]
         for rank, item in enumerate(merged, start=1):
             item["rank"] = rank

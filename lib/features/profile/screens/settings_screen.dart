@@ -34,6 +34,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final UserService _userService = UserService();
 
   bool _profileVisible = true;
+  bool _isSavingProfileVisibility = false;
   bool _avoidSameDepartment = false;
   bool _isSavingAvoidSameDepartment = false;
 
@@ -51,10 +52,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted || user == null) return;
 
     final privacySettings = user['privacySettings'];
-    if (privacySettings is Map) {
-      setState(() {
+    setState(() {
+      _profileVisible = user['profileVisible'] != false;
+      if (privacySettings is Map) {
         _avoidSameDepartment = privacySettings['avoidSameDepartment'] == true;
-      });
+      }
+    });
+  }
+
+  Future<void> _updateProfileVisibility(bool value) async {
+    if (_isSavingProfileVisibility) return;
+
+    final previousValue = _profileVisible;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _profileVisible = value;
+      _isSavingProfileVisibility = true;
+    });
+
+    try {
+      await _userService.updateProfileVisibility(visible: value);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _profileVisible = previousValue);
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (dialogContext) => CupertinoAlertDialog(
+          title: const Text('저장 실패'),
+          content: const Text('프로필 공개 설정을 저장하지 못했어요. 잠시 후 다시 시도해주세요.'),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingProfileVisibility = false);
+      }
     }
   }
 
@@ -239,8 +276,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _SettingsToggle(
                         icon: CupertinoIcons.eye,
                         title: '프로필 공개',
+                        subtitle: '다음날 추천부터 다른 사람에게 내 프로필을 보여줘요',
                         value: _profileVisible,
-                        onChanged: (v) => setState(() => _profileVisible = v),
+                        onChanged: _isSavingProfileVisibility
+                            ? null
+                            : _updateProfileVisibility,
                       ),
                       const _Divider(),
                       _SettingsToggle(

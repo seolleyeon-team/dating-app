@@ -12,6 +12,7 @@ import { describe, it } from "node:test";
 
 import {
   Candidate,
+  applyConservativeTeamPreferences,
   alcoholCompatibility,
   alcoholFreePool,
   alcoholToleranceScore,
@@ -30,6 +31,7 @@ import {
   mbtiCompatibility,
   proposeGroups,
   purposeCompatibility,
+  preservesPartyBoundaries,
   rankReplacements,
   sharedCampusLifeZones,
   smokingCompatibility,
@@ -66,6 +68,7 @@ import {
   selectableDateKeys,
   slotStartAt,
 } from "../types";
+import { aggregatePartyPreferences } from "../party";
 
 const SLOT = "2026-08-01#evening";
 
@@ -142,6 +145,102 @@ describe("매칭 설정", () => {
 
   it("algorithmVersion이 고정되어 있다", () => {
     assert.equal(CURRENT_MATCHING_CONFIG.algorithmVersion, "blind_taste_v1");
+  });
+});
+
+describe("친구 파티 원자성 및 보수적 취향", () => {
+  it("파티 일부만 든 팀은 거부하고 전원이 같은 편이면 허용한다", () => {
+    const wholeParty = balancedTeam("p").map((member) => ({
+      ...member,
+      partyId: "party-1",
+      partyMemberIds: ["p1", "p2", "p3"],
+    }));
+    assert.equal(preservesPartyBoundaries(wholeParty), true);
+    assert.equal(
+      preservesPartyBoundaries([
+        wholeParty[0],
+        wholeParty[1],
+        candidate("outsider"),
+      ]),
+      false
+    );
+  });
+
+  it("같은 파티의 흡연·술·목적 조건을 가장 보수적인 값으로 통일한다", () => {
+    const members = [
+      candidate("p1", {
+        partyId: "party-1",
+        partyMemberIds: ["p1", "p2"],
+        purpose: "romance",
+        alcoholPreference: "noPreference",
+        smokingPreference: "noPreference",
+      }),
+      candidate("p2", {
+        partyId: "party-1",
+        partyMemberIds: ["p1", "p2"],
+        purpose: "friendship",
+        alcoholPreference: "allSober",
+        smokingPreference: "nonSmokersOnly",
+      }),
+      candidate("solo"),
+    ];
+    const effective = applyConservativeTeamPreferences(members);
+    assert.equal(effective[0].purpose, "friendship");
+    assert.equal(effective[1].purpose, "friendship");
+    assert.equal(effective[0].alcoholPreference, "allSober");
+    assert.equal(effective[1].smokingPreference, "nonSmokersOnly");
+    assert.equal(effective[2].purpose, "both");
+  });
+
+  it("서버 집계도 friendship/allSober/nonSmokersOnly를 우선한다", () => {
+    const aggregated = aggregatePartyPreferences([
+      {
+        meetingPurpose: "romance",
+        alcoholCompanionPreference: "noPreference",
+        smokingCompanionPreference: "noPreference",
+        waitlistOptIn: true,
+      },
+      {
+        meetingPurpose: "friendship",
+        alcoholCompanionPreference: "allSober",
+        smokingCompanionPreference: "nonSmokersOnly",
+        waitlistOptIn: false,
+      },
+    ]);
+    assert.deepEqual(aggregated, {
+      meetingPurpose: "friendship",
+      alcoholCompanionPreference: "allSober",
+      smokingCompanionPreference: "nonSmokersOnly",
+      waitlistOptIn: false,
+    });
+  });
+
+  it("한 자리 대체 후보에서는 2~3명 파티를 제외한다", () => {
+    const teamA = balancedTeam("m", "male");
+    const teamB = balancedTeam("f", "female");
+    const baseline = groupScore(
+      teamA,
+      teamB,
+      CURRENT_MATCHING_CONFIG,
+      false
+    ).finalGroupScore;
+    const ranked = rankReplacements({
+      teamA,
+      teamB,
+      vacantUserId: "m3",
+      candidates: [
+        candidate("partyCandidate", {
+          gender: "male",
+          partyId: "party-2",
+          partyMemberIds: ["partyCandidate", "friend"],
+        }),
+      ],
+      baselineFinalGroupScore: baseline,
+      dateKey: DATE,
+      alcoholFree: false,
+      urgent: true,
+    });
+    assert.deepEqual(ranked, []);
   });
 });
 

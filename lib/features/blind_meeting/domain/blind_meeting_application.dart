@@ -13,6 +13,12 @@ import 'blind_meeting_enums.dart';
 
 /// 매칭 대기 화면에 표시할 단계.
 enum BlindMeetingMatchingStage {
+  /// 같은 파티의 모든 멤버가 DNA와 날짜 신청을 마치기를 기다리는 중
+  waitingForPartyMembers,
+
+  /// 파티 전원이 함께 참여할 수 있는 공통 날짜가 생기기를 기다리는 중
+  waitingForCommonDates,
+
   /// 조건에 맞는 참가자를 찾고 있어요
   searchingCandidates,
 
@@ -37,6 +43,8 @@ enum BlindMeetingMatchingStage {
 
 extension BlindMeetingMatchingStageLabel on BlindMeetingMatchingStage {
   String get label => switch (this) {
+    BlindMeetingMatchingStage.waitingForPartyMembers => '친구들의 날짜 신청을 기다리고 있어요',
+    BlindMeetingMatchingStage.waitingForCommonDates => '함께 가능한 날짜를 맞춰주세요',
     BlindMeetingMatchingStage.searchingCandidates => '조건에 맞는 참가자를 찾고 있어요',
     BlindMeetingMatchingStage.formingOwnTeam => '우리 팀을 구성하고 있어요',
     BlindMeetingMatchingStage.checkingCrossTeam => '상대 팀과의 취향 연결을 확인하고 있어요',
@@ -49,6 +57,8 @@ extension BlindMeetingMatchingStageLabel on BlindMeetingMatchingStage {
 
   /// 진행률 표시용 순서 (0부터). 종료 단계는 -1.
   int get stepIndex => switch (this) {
+    BlindMeetingMatchingStage.waitingForPartyMembers => 0,
+    BlindMeetingMatchingStage.waitingForCommonDates => 0,
     BlindMeetingMatchingStage.searchingCandidates => 0,
     BlindMeetingMatchingStage.formingOwnTeam => 1,
     BlindMeetingMatchingStage.checkingCrossTeam => 2,
@@ -94,6 +104,10 @@ class BlindMeetingApplication {
   /// 매칭된 미팅 id. 아직 없으면 null.
   final String? meetingId;
 
+  /// 친구 파티 식별자. legacy 개인 신청에는 없을 수 있다.
+  final String? partyId;
+  final List<String> partyMemberIds;
+
   final DateTime? appliedAt;
   final DateTime? updatedAt;
 
@@ -115,6 +129,8 @@ class BlindMeetingApplication {
     this.prefersAlcoholFree = false,
     this.waitlistOptIn = true,
     this.meetingId,
+    this.partyId,
+    this.partyMemberIds = const <String>[],
     this.appliedAt,
     this.updatedAt,
     this.heartCost = 0,
@@ -165,6 +181,8 @@ class BlindMeetingApplication {
       prefersAlcoholFree: data['prefersAlcoholFree'] == true,
       waitlistOptIn: data['waitlistOptIn'] != false,
       meetingId: _nullableString(data['meetingId']),
+      partyId: _nullableString(data['partyId']),
+      partyMemberIds: _stringList(data['partyMemberIds']),
       appliedAt: _dateTime(data['appliedAt']),
       updatedAt: _dateTime(data['updatedAt']),
       heartCost: _nonNegativeInt(data['heartCost']),
@@ -173,6 +191,15 @@ class BlindMeetingApplication {
       waitedMinutes: _intOr(data['waitedMinutes'], 0),
     );
   }
+}
+
+List<String> _stringList(Object? raw) {
+  if (raw is! Iterable) return const <String>[];
+  return raw
+      .map((value) => value?.toString().trim() ?? '')
+      .where((value) => value.isNotEmpty)
+      .toSet()
+      .toList(growable: false);
 }
 
 String? _nullableString(Object? raw) {

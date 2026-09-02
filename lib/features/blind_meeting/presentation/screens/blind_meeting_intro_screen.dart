@@ -22,6 +22,7 @@ import '../../../shop/widgets/heart_spend_confirmation.dart';
 import '../blind_meeting_route_args.dart';
 import '../theme/blind_meeting_palette.dart';
 import '../widgets/blind_meeting_common.dart';
+import '../widgets/blind_meeting_lifestyle_required_dialog.dart';
 import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
 class BlindMeetingIntroScreen extends StatefulWidget {
@@ -165,6 +166,14 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
       await Navigator.of(
         context,
       ).pushNamed(RouteNames.blindTasteMeetingDna, arguments: profile);
+      if (mounted) await _load();
+      return;
+    }
+
+    // 실제 앱은 DNA 시작 시 하트를 먼저 차감하므로, 누락된 생활정보를
+    // 결제 확인창보다 앞에서 막아야 최종 신청 실패로 인한 차감을 방지한다.
+    if (profile.needsLifestyleUpdate) {
+      await showBlindMeetingLifestyleRequiredDialog(context);
       if (mounted) await _load();
       return;
     }

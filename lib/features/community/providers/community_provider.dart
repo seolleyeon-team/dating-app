@@ -197,7 +197,7 @@ class CommunityProvider extends ChangeNotifier {
     }
   }
 
-  Future<String?> createPost({
+  Future<String> createPost({
     required String authorId,
     required String content,
     required String category,
@@ -219,7 +219,7 @@ class CommunityProvider extends ChangeNotifier {
       debugPrint(
         'CommunityProvider createPost error: ${PrivacyLogUtils.errorSummary(e)}',
       );
-      return null;
+      rethrow;
     }
   }
 

@@ -78,8 +78,8 @@ void main() {
       expect(body, contains('acceptedDocumentIds:'));
       expect(body, contains('optionalConsents:'));
       expect(body, contains("'marketing': _marketingChecked"));
-      expect(body, contains("'push': _pushEnabled"));
-      expect(body, contains("'email': _emailEnabled"));
+      expect(body, contains("'push': false"));
+      expect(body, contains("'email': false"));
       expect(body, contains('LegalTexts.version'));
       // Pre-auth progression goes to Yonsei email auth — adult/real-name
       // verification is a post-auth gate. /main is never a submit target.
@@ -88,13 +88,12 @@ void main() {
       expect(body, isNot(contains('RouteNames.main')));
     });
 
-    test('F4: 전체 동의 clears the push/email switches symmetrically', () {
+    test('전체 동의 does not manage hidden Push or Email consent controls', () {
       final source = read('lib/features/onboarding/screens/terms_screen.dart');
       final body = section(source, 'void _toggleAll(', 'void _toggleItem(');
 
-      expect(body, contains('_pushEnabled = value'));
-      expect(body, contains('_emailEnabled = value'));
-      expect(body, isNot(contains('if (value)')));
+      expect(body, isNot(contains('_pushEnabled')));
+      expect(body, isNot(contains('_emailEnabled')));
     });
   });
 

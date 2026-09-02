@@ -15,6 +15,7 @@ from seolleyeon_rec_common_v3 import (  # noqa: E402
     build_mutual_block_index,
     build_policy_meta_from_user_docs,
     extend_mutual_block_index,
+    same_department_avoidance_rejection,
     passes_policy,
     resolve_mutual_block_index,
     university_id_from_student_email,
@@ -153,7 +154,19 @@ def verified_user_doc(**overrides):
 
 
 def test_policy_meta_is_derived_from_users_when_profile_index_is_absent():
-    meta = build_policy_meta_from_user_docs({"u1": verified_user_doc()})
+    meta = build_policy_meta_from_user_docs(
+        {
+            "u1": verified_user_doc(
+                onboarding={
+                    "gender": "female",
+                    "birthYear": 2002,
+                    "department": " 컴퓨터과학과 ",
+                    "campusLifeZones": ["sinchon"],
+                },
+                privacySettings={"avoidSameDepartment": True},
+            )
+        }
+    )
 
     assert meta["u1"]["isVerified"] is True
     assert meta["u1"]["isActive"] is True
@@ -163,6 +176,52 @@ def test_policy_meta_is_derived_from_users_when_profile_index_is_absent():
     assert meta["u1"]["universityId"] == "yonsei"
     assert meta["u1"]["prefAgeMin"] == 20
     assert meta["u1"]["prefAgeMax"] == 28
+    assert meta["u1"]["department"] == "컴퓨터과학과"
+    assert meta["u1"]["avoidSameDepartment"] is True
+
+
+def test_same_department_avoidance_is_bilateral_and_missing_department_is_safe():
+    meta = build_policy_meta_from_user_docs(
+        {
+            "viewer": verified_user_doc(
+                onboarding={
+                    "gender": "male",
+                    "birthYear": 2001,
+                    "department": "컴퓨터과학과",
+                    "campusLifeZones": ["sinchon"],
+                }
+            ),
+            "candidate": verified_user_doc(
+                onboarding={
+                    "gender": "female",
+                    "birthYear": 2002,
+                    "department": "컴퓨터과학과",
+                    "campusLifeZones": ["sinchon"],
+                },
+                privacySettings={"avoidSameDepartment": True},
+            ),
+            "unknown": verified_user_doc(
+                onboarding={
+                    "gender": "female",
+                    "birthYear": 2002,
+                    "campusLifeZones": ["sinchon"],
+                },
+                privacySettings={"avoidSameDepartment": True},
+            ),
+        }
+    )
+
+    assert same_department_avoidance_rejection(meta["viewer"], meta["candidate"])
+    assert same_department_avoidance_rejection(meta["candidate"], meta["viewer"])
+    assert not same_department_avoidance_rejection(meta["viewer"], meta["unknown"])
+    policy = dict(
+        manner_min=33.0,
+        active_within_days=14,
+        require_same_university=True,
+        reciprocal=False,
+    )
+    assert passes_policy("viewer", "candidate", meta, **policy) is False
+    assert passes_policy("candidate", "viewer", meta, **policy) is False
 
 
 def test_policy_meta_uses_login_activity_writer_and_modern_ideal_age_fields():

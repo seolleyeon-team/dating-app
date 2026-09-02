@@ -101,4 +101,18 @@ void main() {
     expect(source, contains('primary_email_signin_failed'));
     expect(source, contains('rethrow;'));
   });
+
+  test('protected writes use the canonical Firebase session', () {
+    for (final path in <String>[
+      'lib/features/community/screens/post_write_screen.dart',
+      'lib/services/inquiry_service.dart',
+      'lib/services/issue_report_service.dart',
+    ]) {
+      final source = read(path);
+      expect(source, contains('FirebaseAuth.instance.currentUser'));
+      expect(source, isNot(contains('ensureFirebaseSessionForKakao')));
+      expect(source, isNot(contains('ensureFirebaseUidSessionForKakao')));
+      expect(source, isNot(contains('getKakaoUserId()')));
+    }
+  });
 }

@@ -27,6 +27,7 @@ import '../blind_meeting_route_args.dart';
 import '../blind_meeting_navigation.dart';
 import '../theme/blind_meeting_palette.dart';
 import '../widgets/blind_meeting_common.dart';
+import '../widgets/blind_meeting_lifestyle_required_dialog.dart';
 
 class BlindMeetingScheduleScreen extends StatefulWidget {
   final BlindMeetingDnaDraft draft;
@@ -163,6 +164,39 @@ class _BlindMeetingScheduleScreenState
     setState(() => _visibleMonth = month);
   }
 
+  Future<bool> _hasRequiredLifestyle() async {
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    try {
+      // 화면 진입 때 전달된 스냅샷은 오래됐을 수 있으므로 차감 직전에
+      // Firestore의 최신 프로필을 다시 읽는다.
+      final profile = await _repository.loadProfileSnapshot();
+      if (!mounted) return false;
+      setState(() => _submitting = false);
+      if (profile == null) {
+        setState(() => _error = '프로필 정보를 확인하지 못했어요. 잠시 후 다시 시도해주세요.');
+        return false;
+      }
+      if (profile.needsLifestyleUpdate) {
+        await showBlindMeetingLifestyleRequiredDialog(
+          context,
+          heartAlreadyCharged: widget.draft.heartCharged,
+        );
+        return false;
+      }
+      return true;
+    } catch (_) {
+      if (!mounted) return false;
+      setState(() {
+        _submitting = false;
+        _error = '프로필 정보를 확인하지 못했어요. 잠시 후 다시 시도해주세요.';
+      });
+      return false;
+    }
+  }
+
   Future<void> _submit() async {
     if (_submitting) return;
 
@@ -192,6 +226,10 @@ class _BlindMeetingScheduleScreenState
       setState(() => _error = '참여 가능한 날짜를 한 개 이상 선택해주세요.');
       return;
     }
+
+    // 하트 확인창과 서버 신청 호출보다 먼저 검사한다. 누락 시에는 결제와
+    // 화면 이동을 모두 중단하고 프로필 편집 경로만 안내한다.
+    if (!await _hasRequiredLifestyle() || !mounted) return;
 
     final dna = widget.draft.toDna(
       dateKeys: valid,
@@ -276,6 +314,14 @@ class _BlindMeetingScheduleScreenState
       final serverMessage = rawServerMessage.isNotEmpty
           ? blindMeetingUserErrorMessage(rawServerMessage)
           : '';
+      if (rawServerMessage.contains('음주·흡연 정보를 먼저 등록')) {
+        setState(() => _submitting = false);
+        await showBlindMeetingLifestyleRequiredDialog(
+          context,
+          heartAlreadyCharged: widget.draft.heartCharged,
+        );
+        return;
+      }
       setState(() {
         _submitting = false;
         // 우선순위: 하트 부족 안내 → 서버 guard 문구(예: 진행 중 미팅

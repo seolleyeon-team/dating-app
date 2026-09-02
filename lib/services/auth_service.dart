@@ -41,6 +41,11 @@ class AuthService {
   );
 
   static const _tokenIdPattern = r'^[A-Za-z0-9_-]{1,128}$';
+  static String? _primaryEmailLinkInFlightToken;
+  static Future<PrimaryStudentEmailAuthCompletion>? _primaryEmailLinkInFlight;
+  static String? _lastCompletedPrimaryEmailLinkToken;
+  static PrimaryStudentEmailAuthCompletion?
+  _lastCompletedPrimaryEmailLinkResult;
 
   // -------------------------------------------------------------------------
   // Canonical session (primary Yonsei email auth)
@@ -125,8 +130,10 @@ class AuthService {
   ///
   /// Preconditions: the caller already consumed the Firebase action link via
   /// [signInWithEmailLink] (temporary email-link session). The server then
-  /// resolves/creates the appUserId, consumes the single-use token and mints
-  /// the canonical custom token whose uid == appUserId (contract §4.2).
+  /// resolves/creates the appUserId, completes the logically single-use token,
+  /// and mints the canonical custom token whose uid == appUserId (contract
+  /// §4.2). The server can safely replay the same completed result if its
+  /// first response was lost.
   Future<PrimaryStudentEmailAuthCompletion> completePrimaryStudentEmailAuth({
     required String token,
   }) async {
@@ -257,6 +264,78 @@ class AuthService {
       if (termsFailure != null) throw termsFailure;
       rethrow;
     }
+  }
+
+  /// Atomically owns the client-side half of primary email-link completion.
+  ///
+  /// Both [AuthProvider] and [StudentVerificationScreen] may observe the same
+  /// native deep link. Firebase action codes are single-use, so this
+  /// process-wide gate makes every observer share one sign-in/completion
+  /// future. A verified temporary email session is reused after a transient
+  /// server failure instead of attempting to consume the action code again.
+  Future<PrimaryStudentEmailAuthCompletion> completePrimaryStudentEmailLink({
+    required String email,
+    required String emailLink,
+    required String token,
+  }) async {
+    final normalizedEmail = email.trim().toLowerCase();
+    final normalizedToken = token.trim();
+    if (!normalizedEmail.endsWith('@yonsei.ac.kr')) {
+      throw StateError('primary_email_invalid_domain');
+    }
+    if (!RegExp(_tokenIdPattern).hasMatch(normalizedToken)) {
+      throw StateError('invalid_email_link_token');
+    }
+
+    if (_lastCompletedPrimaryEmailLinkToken == normalizedToken) {
+      final completed = _lastCompletedPrimaryEmailLinkResult;
+      if (completed != null) return completed;
+    }
+
+    final active = _primaryEmailLinkInFlight;
+    if (active != null) {
+      if (_primaryEmailLinkInFlightToken == normalizedToken) return active;
+      throw StateError('primary_email_link_completion_in_progress');
+    }
+
+    final request = _completePrimaryStudentEmailLinkOnce(
+      email: normalizedEmail,
+      emailLink: emailLink,
+      token: normalizedToken,
+    );
+    _primaryEmailLinkInFlightToken = normalizedToken;
+    _primaryEmailLinkInFlight = request;
+
+    try {
+      final completion = await request;
+      _lastCompletedPrimaryEmailLinkToken = normalizedToken;
+      _lastCompletedPrimaryEmailLinkResult = completion;
+      return completion;
+    } finally {
+      if (identical(_primaryEmailLinkInFlight, request)) {
+        _primaryEmailLinkInFlight = null;
+        _primaryEmailLinkInFlightToken = null;
+      }
+    }
+  }
+
+  Future<PrimaryStudentEmailAuthCompletion>
+  _completePrimaryStudentEmailLinkOnce({
+    required String email,
+    required String emailLink,
+    required String token,
+  }) async {
+    final currentUser = _firebaseAuth.currentUser;
+    final currentEmail = currentUser?.email?.trim().toLowerCase();
+    final hasVerifiedEmailSession =
+        currentUser != null &&
+        currentUser.emailVerified &&
+        currentEmail == email;
+
+    if (!hasVerifiedEmailSession) {
+      await signInWithEmailLink(email: email, emailLink: emailLink);
+    }
+    return completePrimaryStudentEmailAuth(token: token);
   }
 
   /// Reads the email bound to the opaque token in the continue URL. The token

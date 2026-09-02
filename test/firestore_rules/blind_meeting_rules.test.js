@@ -31,6 +31,9 @@ const {
   updateDoc,
   addDoc,
   collection,
+  getDocs,
+  query,
+  where,
 } = require("firebase/firestore");
 
 const MEETING_ID = "m1";
@@ -64,6 +67,26 @@ before(async () => {
       requestedDateKeys: ["2026-08-02", "2026-08-05"],
       availabilityMode: "date_only",
       scheduleSelectionVersion: 2,
+    });
+    await setDoc(doc(db, "blindMeetingParties", "party1"), {
+      partyId: "party1",
+      leaderUserId: A1,
+      acceptedUserIds: [A1, A2],
+      pendingInviteeIds: [B1],
+      status: "forming",
+    });
+    await setDoc(doc(db, "blindMeetingPartyInvites", "partyInvite1"), {
+      partyId: "party1",
+      inviterUserId: A1,
+      inviteeUserId: B1,
+      status: "pending",
+    });
+    await setDoc(doc(db, "blindMeetingPartyMemberships", A1), {
+      partyId: "party1",
+      active: true,
+    });
+    await setDoc(doc(db, "blindMeetingPartyMatching", "party1"), {
+      effectivePreferences: { smokingCompanionPreference: "nonSmokersOnly" },
     });
     await setDoc(doc(db, "blindMeetings", MEETING_ID), {
       meetingId: MEETING_ID,
@@ -146,6 +169,72 @@ describe("신청 문서", () => {
     await assertFails(getDoc(doc(authed(A2), "blindMeetingApplications", A1)));
     await assertFails(
       updateDoc(doc(authed(A1), "blindMeetingApplications", A1), { open: false })
+    );
+  });
+});
+
+describe("친구 파티", () => {
+  it("수락한 멤버는 파티를 읽고 외부인과 초대 대기자는 읽지 못한다", async () => {
+    await assertSucceeds(
+      getDoc(doc(authed(A1), "blindMeetingParties", "party1"))
+    );
+    await assertSucceeds(
+      getDoc(doc(authed(A2), "blindMeetingParties", "party1"))
+    );
+    await assertFails(
+      getDoc(doc(authed(B1), "blindMeetingParties", "party1"))
+    );
+    await assertFails(
+      getDoc(doc(authed(OUTSIDER), "blindMeetingParties", "party1"))
+    );
+  });
+
+  it("acceptedUserIds 조건을 건 본인 파티 목록 조회만 허용한다", async () => {
+    await assertSucceeds(
+      getDocs(
+        query(
+          collection(authed(A1), "blindMeetingParties"),
+          where("acceptedUserIds", "array-contains", A1)
+        )
+      )
+    );
+    await assertFails(getDocs(collection(authed(A1), "blindMeetingParties")));
+  });
+
+  it("초대자와 초대받은 사람만 초대장을 읽는다", async () => {
+    await assertSucceeds(
+      getDoc(doc(authed(A1), "blindMeetingPartyInvites", "partyInvite1"))
+    );
+    await assertSucceeds(
+      getDoc(doc(authed(B1), "blindMeetingPartyInvites", "partyInvite1"))
+    );
+    await assertFails(
+      getDoc(doc(authed(A2), "blindMeetingPartyInvites", "partyInvite1"))
+    );
+  });
+
+  it("파티·초대는 클라이언트가 만들거나 수정할 수 없다", async () => {
+    await assertFails(
+      updateDoc(doc(authed(A1), "blindMeetingParties", "party1"), {
+        acceptedUserIds: [A1, OUTSIDER],
+      })
+    );
+    await assertFails(
+      setDoc(doc(authed(A1), "blindMeetingPartyInvites", "forged"), {
+        partyId: "party1",
+        inviterUserId: A1,
+        inviteeUserId: OUTSIDER,
+        status: "accepted",
+      })
+    );
+  });
+
+  it("membership lock과 집계된 취향은 파티 멤버에게도 비공개다", async () => {
+    await assertFails(
+      getDoc(doc(authed(A1), "blindMeetingPartyMemberships", A1))
+    );
+    await assertFails(
+      getDoc(doc(authed(A1), "blindMeetingPartyMatching", "party1"))
     );
   });
 });

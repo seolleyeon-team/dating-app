@@ -11,6 +11,8 @@ const String kDateKey = '2026-08-01';
 
 BlindMeetingCandidate candidate(
   String userId, {
+  String? partyId,
+  Set<String> partyMemberIds = const <String>{},
   BlindMeetingGender gender = BlindMeetingGender.male,
   ConversationAtmosphere atmosphere = ConversationAtmosphere.calm,
   ConversationInitiative initiative = ConversationInitiative.adaptive,
@@ -33,6 +35,8 @@ BlindMeetingCandidate candidate(
 }) {
   return BlindMeetingCandidate(
     userId: userId,
+    partyId: partyId,
+    partyMemberIds: partyMemberIds,
     gender: gender,
     atmosphere: atmosphere,
     initiative: initiative,

@@ -174,9 +174,31 @@ class _AdultVerificationGateScreenState
     Navigator.of(context).pushNamedAndRemoveUntil(route, (r) => false);
   }
 
+  Future<void> _confirmVerificationAndContinue() async {
+    if (_isLoading) return;
+    setState(() {
+      _isLoading = true;
+      _result = _result.copyWith(
+        status: AdultVerificationStatus.pendingServerVerification,
+        message: '본인인증 결과를 서버에서 확인하고 있어요.',
+      );
+    });
+
+    final result = await _verificationService.verifyPendingSessionAfterLogin();
+    if (!mounted) return;
+
+    setState(() {
+      _result = result;
+      _isLoading = false;
+    });
+    if (!result.isVerified) return;
+
+    await _continueThroughResolver();
+  }
+
   Future<void> _handlePrimaryAction() async {
     if (_result.canProceedToKakao) {
-      await _continueThroughResolver();
+      await _confirmVerificationAndContinue();
       return;
     }
     await _startVerification();
@@ -242,7 +264,7 @@ class _AdultVerificationGateScreenState
               ),
               const SizedBox(height: 14),
               const Text(
-                '설레연은 안전한 서비스 운영과 청소년 이용 제한을 위해 본인인증을 진행합니다.\n인증된 이름과 휴대전화번호는 신고 및 분쟁 대응, 중복 가입 방지, 성인 여부 확인 목적으로만 사용되며 다른 사용자에게 공개되지 않습니다.\n본인인증을 완료해야 연세 이메일 로그인을 진행할 수 있어요.',
+                '설레연은 안전한 서비스 운영과 청소년 이용 제한을 위해 본인인증을 진행합니다.\n인증된 이름과 휴대전화번호는 신고 및 분쟁 대응, 중복 가입 방지, 성인 여부 확인 목적으로만 사용되며 다른 사용자에게 공개되지 않습니다.\n본인인증을 완료해야 가입을 계속할 수 있어요.',
                 style: TextStyle(
                   fontSize: 15,
                   height: 1.55,

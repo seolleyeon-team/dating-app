@@ -88,4 +88,16 @@ abstract final class HeartProducts {
     }
     return null;
   }
+
+  /// StoreKit/Play Billing이 제공한 가격만 화면에 표시한다.
+  /// 하트는 유료 소모품이므로 0원·음수·비어 있는 표시 가격은 출시 빌드에서
+  /// 판매 가능한 상품으로 취급하지 않는다.
+  static bool hasValidPaidStorePrice({
+    required double rawPrice,
+    required String formattedPrice,
+  }) {
+    return rawPrice.isFinite &&
+        rawPrice > 0 &&
+        formattedPrice.trim().isNotEmpty;
+  }
 }

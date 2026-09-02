@@ -109,8 +109,6 @@ class _TermsScreenState extends State<TermsScreen> {
 
   bool _isSubmitting = false;
   bool _marketingChecked = false;
-  bool _pushEnabled = false;
-  bool _emailEnabled = false;
   bool _isTestLoginLoading = false;
 
   bool get _allRequiredChecked =>
@@ -256,11 +254,6 @@ class _TermsScreenState extends State<TermsScreen> {
         item.isChecked = value;
       }
       _marketingChecked = value;
-      // Symmetric (terms-gate contract §7, finding F4): the old version
-      // force-enabled push/email on check but never cleared them on uncheck,
-      // so "전체 동의" could not be undone.
-      _pushEnabled = value;
-      _emailEnabled = value;
     });
     HapticFeedback.selectionClick();
   }
@@ -333,8 +326,10 @@ class _TermsScreenState extends State<TermsScreen> {
           .toList(growable: false);
       final optionalConsents = <String, bool>{
         'marketing': _marketingChecked,
-        'push': _pushEnabled,
-        'email': _emailEnabled,
+        // Push and email marketing controls are intentionally not exposed on
+        // the terms screen. Keep the payload explicit and opt-out by default.
+        'push': false,
+        'email': false,
       };
 
       if (_hasCanonicalSession) {
@@ -430,16 +425,6 @@ class _TermsScreenState extends State<TermsScreen> {
                           marketingChecked: _marketingChecked,
                           onMarketingChanged: (value) {
                             setState(() => _marketingChecked = value);
-                            HapticFeedback.selectionClick();
-                          },
-                          pushEnabled: _pushEnabled,
-                          onPushChanged: (value) {
-                            setState(() => _pushEnabled = value);
-                            HapticFeedback.selectionClick();
-                          },
-                          emailEnabled: _emailEnabled,
-                          onEmailChanged: (value) {
-                            setState(() => _emailEnabled = value);
                             HapticFeedback.selectionClick();
                           },
                         ),
@@ -592,10 +577,6 @@ class _TermsCard extends StatelessWidget {
   final ValueChanged<TermsItem> onDetailPressed;
   final bool marketingChecked;
   final ValueChanged<bool> onMarketingChanged;
-  final bool pushEnabled;
-  final ValueChanged<bool> onPushChanged;
-  final bool emailEnabled;
-  final ValueChanged<bool> onEmailChanged;
 
   const _TermsCard({
     required this.allChecked,
@@ -605,10 +586,6 @@ class _TermsCard extends StatelessWidget {
     required this.onDetailPressed,
     required this.marketingChecked,
     required this.onMarketingChanged,
-    required this.pushEnabled,
-    required this.onPushChanged,
-    required this.emailEnabled,
-    required this.onEmailChanged,
   });
 
   @override
@@ -632,23 +609,28 @@ class _TermsCard extends StatelessWidget {
           Container(height: 1, color: _AppColors.gray100),
           // 필수 항목들
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: requiredTerms.map((item) {
-                return _TermsItemRow(
-                  item: item,
-                  onChanged: (value) => onToggleItem(item, value),
-                  onDetailPressed: item.hasDetail
-                      ? () => onDetailPressed(item)
-                      : null,
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: _TermsItemRow(
+                    item: item,
+                    onChanged: (value) => onToggleItem(item, value),
+                    onDetailPressed: item.hasDetail
+                        ? () => onDetailPressed(item)
+                        : null,
+                  ),
                 );
               }).toList(),
             ),
           ),
+          Container(height: 1, color: _AppColors.gray100),
           // 선택 항목 (마케팅)
           Container(
-            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            padding: const EdgeInsets.all(16),
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
               color: _AppColors.gray100,
               borderRadius: BorderRadius.circular(12),
@@ -664,52 +646,44 @@ class _TermsCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: RichText(
-                        text: const TextSpan(
-                          style: TextStyle(
-                            fontFamily: 'NanumSquareRound',
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
-                            color: _AppColors.textSecondary,
-                          ),
-                          children: [
-                            TextSpan(
-                              text: '[선택] ',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          RichText(
+                            text: TextSpan(
                               style: TextStyle(
-                                color: _AppColors.textMuted,
-                                fontWeight: FontWeight.w700,
+                                fontFamily: 'NanumSquareRound',
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500,
+                                color: _AppColors.textSecondary,
                               ),
+                              children: [
+                                TextSpan(
+                                  text: '[선택] ',
+                                  style: TextStyle(
+                                    color: _AppColors.textMuted,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                TextSpan(text: '마케팅 정보 수신 동의'),
+                              ],
                             ),
-                            TextSpan(text: '마케팅 정보 수신 동의'),
-                          ],
-                        ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            '설레연의 새로운 소식과 혜택을 받아볼 수 있어요.',
+                            style: TextStyle(
+                              fontFamily: 'NanumSquareRound',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: _AppColors.textMuted,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
-                ),
-                const SizedBox(height: 16),
-                // 토글 스위치들
-                Padding(
-                  padding: const EdgeInsets.only(left: 36),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _ToggleOption(
-                          label: 'Push',
-                          isEnabled: pushEnabled,
-                          onChanged: onPushChanged,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _ToggleOption(
-                          label: 'Email',
-                          isEnabled: emailEnabled,
-                          onChanged: onEmailChanged,
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
               ],
             ),
@@ -793,7 +767,7 @@ class _TermsItemRow extends StatelessWidget {
       padding: EdgeInsets.zero,
       onPressed: () => onChanged(!item.isChecked),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         child: Row(
           children: [
             _CustomCheckbox(isChecked: item.isChecked, onChanged: onChanged),
@@ -888,44 +862,6 @@ class _CustomCheckbox extends StatelessWidget {
               )
             : null,
       ),
-    );
-  }
-}
-
-// =============================================================================
-// 토글 옵션
-// =============================================================================
-class _ToggleOption extends StatelessWidget {
-  final String label;
-  final bool isEnabled;
-  final ValueChanged<bool> onChanged;
-
-  const _ToggleOption({
-    required this.label,
-    required this.isEnabled,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontFamily: 'NanumSquareRound',
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: _AppColors.textMuted,
-          ),
-        ),
-        CupertinoSwitch(
-          value: isEnabled,
-          activeTrackColor: _AppColors.primary,
-          onChanged: onChanged,
-        ),
-      ],
     );
   }
 }

@@ -60,6 +60,10 @@ void main() {
     // Pair filter: recommendationExclusions unioned into blockedUids, read
     // from the SERVER (an offline cache must not reopen an exclusion).
     expect(source, contains("collection('recommendationExclusions')"));
+    expect(
+      source,
+      contains("collection('departmentRecommendationExclusions')"),
+    );
     expect(source, contains('_fetchRecommendationExcludedUids(uid)'));
     expect(source, contains('GetOptions(source: Source.server)'));
     // Filter-then-take with backfill: iterate rank order, skip excluded,
@@ -320,7 +324,9 @@ void main() {
     // Account-state gates stay (these are not Kakao pending state).
     expect(predicate, contains('isStudentVerified'));
     expect(predicate, contains('initialSetupComplete'));
-    expect(predicate, contains('profileVisible'));
+    // Visibility controls whether others see this profile; it must not
+    // suppress the owner's own recommendation feed.
+    expect(predicate, isNot(contains('profileVisible')));
   });
 
   test('legacy general profile-card system is removed from the app graph', () {

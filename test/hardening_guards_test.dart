@@ -9,8 +9,8 @@ enum _Sample { alpha, beta }
 
 void main() {
   group('InAppPurchasePolicy', () {
-    test('Google Play is enabled while unverified iOS remains gated', () {
-      expect(InAppPurchasePolicy.enabled, isFalse);
+    test('native stores are enabled while web remains unavailable', () {
+      expect(InAppPurchasePolicy.enabled, isTrue);
       expect(
         InAppPurchasePolicy.allowPurchaseUiFor(
           isWeb: false,
@@ -23,7 +23,7 @@ void main() {
           isWeb: false,
           platform: TargetPlatform.iOS,
         ),
-        isFalse,
+        isTrue,
       );
       expect(
         InAppPurchasePolicy.allowPurchaseUiFor(

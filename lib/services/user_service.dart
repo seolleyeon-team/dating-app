@@ -202,6 +202,14 @@ class UserService {
     await _firestore.collection('users').doc(kakaoUserId).update(updateData);
   }
 
+  /// Changes only whether this member is a candidate for other people's
+  /// recommendations. The server assigns the next KST recommendation date.
+  Future<void> updateProfileVisibility({required bool visible}) async {
+    await _functions.httpsCallable('updateProfileVisibility').call({
+      'visible': visible,
+    });
+  }
+
   /// Requests server-orchestrated hard deletion. Success only after callable
   /// returns `completed`. Does not mutate protected moderation fields client-side.
   Future<void> withdrawAccount({

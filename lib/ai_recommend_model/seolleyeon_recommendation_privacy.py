@@ -1,5 +1,4 @@
 """Fail-closed recommendation privacy policy for the 1:1 recommender.
-
 Two independent gates compose here:
 
 * Account-state eligibility: only verified, fully onboarded, visible, active
@@ -11,7 +10,7 @@ Two independent gates compose here:
 The model pipeline runs with Admin SDK privileges, so Firestore Security Rules
 cannot protect model output from an accidental policy omission.  Every source
 export and the final RRF merge must apply this snapshot before writing
-``modelRecs``.
+``modelRecs``. It includes Kakao-friend and same-department pair exclusions.
 """
 
 from __future__ import annotations
@@ -29,16 +28,25 @@ _INACTIVE_ACCOUNT_STATUSES = {
     "withdrawn",
 }
 
+_RECOMMENDATION_EXCLUSION_COLLECTIONS = {
+    "recommendationExclusions",
+    "departmentRecommendationExclusions",
+}
+
 
 def _is_recommendation_ready_user(data: Mapping[str, Any]) -> bool:
+    """Whether the user may receive recommendations as a viewer.
+
+    Profile visibility deliberately does not belong here.  Hiding a profile
+    controls whether *other people* can be shown that profile; it must never
+    remove the owner's own daily feed.
+    """
     status = str(data.get("status") or data.get("accountStatus") or "active").strip().lower()
     if status in _INACTIVE_ACCOUNT_STATUSES:
         return False
     if data.get("isStudentVerified") is not True:
         return False
     if data.get("initialSetupComplete") is not True:
-        return False
-    if data.get("profileVisible") is False:
         return False
     if data.get("isActive") is False:
         return False
@@ -49,6 +57,37 @@ def _is_recommendation_ready_user(data: Mapping[str, Any]) -> bool:
     if data.get("isWithdrawn") is True:
         return False
     return True
+
+
+def _valid_date_key(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if len(text) != 8 or not text.isdigit():
+        return None
+    return text
+
+
+def is_profile_visible_for_recommendations(
+    data: Mapping[str, Any],
+    *,
+    date_key: str | None = None,
+) -> bool:
+    """Resolve candidate visibility for one KST recommendation date.
+
+    The app stores a requested value plus its next-day effective date.  This
+    keeps a generated day's feed stable even if the owner changes the setting
+    later that day.  Legacy records without transition metadata retain their
+    existing ``profileVisible`` behavior.
+    """
+    requested_visible = data.get("profileVisible") is not False
+    effective_date_key = _valid_date_key(
+        data.get("profileVisibleEffectiveDateKey")
+    )
+    requested_date_key = _valid_date_key(date_key)
+    if effective_date_key and requested_date_key:
+        previous_visible = data.get("profileVisibleBeforeEffectiveDate") is not False
+        if requested_date_key < effective_date_key:
+            return previous_visible
+    return requested_visible
 
 
 def _is_active_exclusion(data: Mapping[str, Any]) -> bool:
@@ -65,15 +104,27 @@ def _is_active_exclusion(data: Mapping[str, Any]) -> bool:
 
 @dataclass(frozen=True)
 class RecommendationPrivacyPolicy:
+    # ``ready_user_ids`` is intentionally retained as the viewer set for
+    # compatibility with existing batch consumers.  Candidate eligibility is
+    # separately represented below.
     ready_user_ids: frozenset[str]
     excluded_by_viewer: Mapping[str, frozenset[str]]
+    candidate_ready_user_ids: frozenset[str] | None = None
+
+    @property
+    def candidate_user_ids(self) -> frozenset[str]:
+        return (
+            self.ready_user_ids
+            if self.candidate_ready_user_ids is None
+            else self.candidate_ready_user_ids
+        )
 
     def allows(self, viewer_uid: str, candidate_uid: str) -> bool:
         if not viewer_uid or not candidate_uid or viewer_uid == candidate_uid:
             return False
         if viewer_uid not in self.ready_user_ids:
             return False
-        if candidate_uid not in self.ready_user_ids:
+        if candidate_uid not in self.candidate_user_ids:
             return False
         return candidate_uid not in self.excluded_by_viewer.get(
             viewer_uid, frozenset()
@@ -104,11 +155,22 @@ class RecommendationPrivacyPolicy:
 def build_recommendation_privacy_policy(
     user_records: Iterable[Tuple[str, Mapping[str, Any]]],
     exclusion_records: Iterable[Tuple[str, str, Mapping[str, Any]]],
+    *,
+    date_key: str | None = None,
 ) -> RecommendationPrivacyPolicy:
-    ready_user_ids = {
-        str(uid)
+    normalized_users = [
+        (str(uid), data)
         for uid, data in user_records
-        if uid and _is_recommendation_ready_user(data)
+        if uid and isinstance(data, Mapping)
+    ]
+    ready_user_ids = {
+        uid for uid, data in normalized_users if _is_recommendation_ready_user(data)
+    }
+    candidate_ready_user_ids = {
+        uid
+        for uid, data in normalized_users
+        if uid in ready_user_ids
+        and is_profile_visible_for_recommendations(data, date_key=date_key)
     }
     excluded: MutableMapping[str, Set[str]] = {}
     for viewer_uid, candidate_uid, data in exclusion_records:
@@ -125,6 +187,7 @@ def build_recommendation_privacy_policy(
 
     return RecommendationPrivacyPolicy(
         ready_user_ids=frozenset(ready_user_ids),
+        candidate_ready_user_ids=frozenset(candidate_ready_user_ids),
         excluded_by_viewer={
             uid: frozenset(targets) for uid, targets in excluded.items()
         },
@@ -135,6 +198,7 @@ def load_recommendation_privacy_policy(
     db: Any,
     *,
     users_collection: str = "users",
+    date_key: str | None = None,
 ) -> RecommendationPrivacyPolicy:
     """Load one authoritative snapshot or raise; never return an empty fallback."""
 
@@ -148,12 +212,16 @@ def load_recommendation_privacy_policy(
         parts = doc.reference.path.split("/")
         if (
             len(parts) == 4
-            and parts[0] == "recommendationExclusions"
+            and parts[0] in _RECOMMENDATION_EXCLUSION_COLLECTIONS
             and parts[2] == "targets"
         ):
             exclusion_records.append((parts[1], parts[3], doc.to_dict() or {}))
 
-    return build_recommendation_privacy_policy(user_records, exclusion_records)
+    return build_recommendation_privacy_policy(
+        user_records,
+        exclusion_records,
+        date_key=date_key,
+    )
 
 
 def filter_recommendations(

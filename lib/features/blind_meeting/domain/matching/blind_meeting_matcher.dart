@@ -9,10 +9,105 @@
 // tie-break 하므로 같은 입력에 대해 매번 같은 결과가 나온다.
 // =============================================================================
 
+import '../blind_meeting_enums.dart';
 import 'blind_meeting_candidate.dart';
 import 'blind_meeting_hard_constraints.dart';
 import 'blind_meeting_matching_config.dart';
 import 'blind_meeting_scoring.dart';
+
+List<BlindMeetingCandidate> applyConservativeTeamPreferences(
+  List<BlindMeetingCandidate> members,
+) {
+  if (members.isEmpty) return const [];
+  final byParty = <String, List<BlindMeetingCandidate>>{};
+  for (final member in members) {
+    final key = member.partyId ?? 'solo:${member.userId}';
+    byParty.putIfAbsent(key, () => []).add(member);
+  }
+  final effective =
+      <
+        String,
+        ({
+          MeetingPurpose purpose,
+          AlcoholCompanionPreference alcohol,
+          SmokingCompanionPreference smoking,
+        })
+      >{};
+  for (final entry in byParty.entries) {
+    final partyMembers = entry.value;
+    final purpose =
+        partyMembers.any(
+          (member) => member.purpose == MeetingPurpose.friendship,
+        )
+        ? MeetingPurpose.friendship
+        : partyMembers.any((member) => member.purpose == MeetingPurpose.both)
+        ? MeetingPurpose.both
+        : MeetingPurpose.romance;
+    final alcohol =
+        partyMembers.any(
+          (member) =>
+              member.alcoholPreference == AlcoholCompanionPreference.allSober,
+        )
+        ? AlcoholCompanionPreference.allSober
+        : partyMembers.any(
+            (member) =>
+                member.alcoholPreference ==
+                AlcoholCompanionPreference.lightOkay,
+          )
+        ? AlcoholCompanionPreference.lightOkay
+        : AlcoholCompanionPreference.noPreference;
+    final smoking =
+        partyMembers.any(
+          (member) =>
+              member.smokingPreference ==
+              SmokingCompanionPreference.nonSmokersOnly,
+        )
+        ? SmokingCompanionPreference.nonSmokersOnly
+        : partyMembers.any(
+            (member) =>
+                member.smokingPreference ==
+                SmokingCompanionPreference.noIndoorSmoking,
+          )
+        ? SmokingCompanionPreference.noIndoorSmoking
+        : SmokingCompanionPreference.noPreference;
+    effective[entry.key] = (
+      purpose: purpose,
+      alcohol: alcohol,
+      smoking: smoking,
+    );
+  }
+  return members
+      .map((member) {
+        final values = effective[member.partyId ?? 'solo:${member.userId}']!;
+        return member.copyWith(
+          purpose: values.purpose,
+          alcoholPreference: values.alcohol,
+          smokingPreference: values.smoking,
+        );
+      })
+      .toList(growable: false);
+}
+
+bool preservesBlindMeetingPartyBoundaries(List<BlindMeetingCandidate> members) {
+  final teamIds = members.map((member) => member.userId).toSet();
+  for (final member in members) {
+    final expected = member.partyMemberIds.isEmpty
+        ? <String>{member.userId}
+        : member.partyMemberIds;
+    if (!teamIds.containsAll(expected)) return false;
+    if (expected.length > 1) {
+      final key = member.partyId ?? 'legacy:${member.userId}';
+      for (final teammate in members.where(
+        (item) => expected.contains(item.userId),
+      )) {
+        if ((teammate.partyId ?? 'legacy:${teammate.userId}') != key) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
 
 /// 후보 팀 하나 (같은 편 3명).
 class BlindMeetingTeamProposal {
@@ -158,15 +253,17 @@ class BlindMeetingMatcher {
     final byKey = <String, BlindMeetingTeamProposal>{};
 
     void tryTeam(List<BlindMeetingCandidate> trio, BlindMeetingGender gender) {
+      if (!preservesBlindMeetingPartyBoundaries(trio)) return;
+      final effectiveTrio = applyConservativeTeamPreferences(trio);
       if (!BlindMeetingHardConstraints.isGroupAllowed(
-        trio,
+        effectiveTrio,
         dateKey: dateKey,
         alcoholFreeGroup: alcoholFree,
         expectedSize: BlindMeetingHardConstraints.teamSize,
       )) {
         return;
       }
-      final ordered = _orderTeamMembers(trio);
+      final ordered = _orderTeamMembers(effectiveTrio);
       final proposal = BlindMeetingTeamProposal(
         members: ordered,
         gender: gender,

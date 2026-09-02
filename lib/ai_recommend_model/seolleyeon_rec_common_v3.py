@@ -559,6 +559,9 @@ def load_profile_index_from_firestore(
         completion = profile_completion_provenance(d)
         meta[doc.id] = {
             "universityId": d.get("universityId"),
+            # 학과 회피 여부는 private users 문서에서 다시 보강한다.
+            "department": normalize_department(d.get("department")),
+            "avoidSameDepartment": False,
             "isVerified": bool(d.get("isVerified", False)),
             "isActive": bool(d.get("isActive", False)),
             "isProfileComplete": completion["value"] is True,
@@ -578,6 +581,68 @@ def load_profile_index_from_firestore(
             ),
         }
     return meta
+
+
+def normalize_department(value: Any) -> Optional[str]:
+    """Read a non-empty department without guessing missing values."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text if text else None
+
+
+def department_from_user_doc(doc: Mapping[str, Any]) -> Optional[str]:
+    onboarding = doc.get("onboarding")
+    onboarding_map = onboarding if isinstance(onboarding, Mapping) else {}
+    return normalize_department(onboarding_map.get("department")) or normalize_department(
+        doc.get("department")
+    )
+
+
+def avoid_same_department_from_user_doc(doc: Mapping[str, Any]) -> bool:
+    privacy_settings = doc.get("privacySettings")
+    if not isinstance(privacy_settings, Mapping):
+        return False
+    return privacy_settings.get("avoidSameDepartment") is True
+
+
+def same_department_avoidance_rejection(
+    viewer_meta: Mapping[str, Any] | None,
+    candidate_meta: Mapping[str, Any] | None,
+) -> bool:
+    """Return true when either side opted out of same-department matches."""
+    if not isinstance(viewer_meta, Mapping) or not isinstance(candidate_meta, Mapping):
+        return False
+    viewer_department = normalize_department(viewer_meta.get("department"))
+    candidate_department = normalize_department(candidate_meta.get("department"))
+    if not viewer_department or viewer_department != candidate_department:
+        return False
+    return bool(
+        viewer_meta.get("avoidSameDepartment") is True
+        or candidate_meta.get("avoidSameDepartment") is True
+    )
+
+
+def filter_same_department_items(
+    viewer_uid: str,
+    items: Sequence[Mapping[str, Any]],
+    policy_meta: Mapping[str, Mapping[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Remove opted-out same-department candidates and compact their ranks."""
+    viewer_meta = policy_meta.get(viewer_uid)
+    filtered: List[Dict[str, Any]] = []
+    for item in items:
+        candidate_uid = str(item.get("uid") or "").strip()
+        if not candidate_uid:
+            continue
+        candidate_meta = policy_meta.get(candidate_uid)
+        if same_department_avoidance_rejection(viewer_meta, candidate_meta):
+            continue
+        payload = dict(item)
+        payload["uid"] = candidate_uid
+        payload["rank"] = len(filtered) + 1
+        filtered.append(payload)
+    return filtered
 
 
 def university_id_from_student_email(email: Any) -> Optional[str]:
@@ -635,6 +700,8 @@ def build_policy_meta_from_user_docs(
 
         out[str(uid)] = {
             "universityId": university_id,
+            "department": department_from_user_doc(doc),
+            "avoidSameDepartment": avoid_same_department_from_user_doc(doc),
             "isVerified": bool(doc.get("isStudentVerified", doc.get("isVerified", False))),
             "isActive": policy_state["isActive"],
             "isProfileComplete": policy_state["isProfileComplete"],
@@ -668,13 +735,30 @@ def load_policy_meta_from_firestore(
     users_collection: str = "users",
     database: Optional[str] = None,
 ) -> Tuple[Dict[str, Dict[str, Any]], str]:
-    """Load profileIndex first, falling back to the normalized users adapter."""
+    """Load profileIndex first, enriching private preference fields from users."""
     meta = load_profile_index_from_firestore(
         project_id,
         collection=profile_index_collection,
         database=database,
     )
     if meta:
+        # profileIndex is optimized for ranking and intentionally does not
+        # carry private privacySettings. The raw users snapshot is authoritative
+        # for the department and the opt-in flag used by this hard filter.
+        user_docs = load_user_documents_from_firestore(
+            project_id,
+            users_collection=users_collection,
+            database=database,
+        )
+        user_meta = build_policy_meta_from_user_docs(user_docs)
+        for uid, indexed_meta in meta.items():
+            private_meta = user_meta.get(uid)
+            indexed_meta["department"] = (
+                private_meta.get("department") if private_meta else None
+            )
+            indexed_meta["avoidSameDepartment"] = bool(
+                private_meta and private_meta.get("avoidSameDepartment") is True
+            )
         return meta, profile_index_collection
 
     docs = load_user_documents_from_firestore(
@@ -776,6 +860,11 @@ def passes_policy(
     mu = meta.get(user_id)
     mv = meta.get(cand_id)
     if mu is None or mv is None:
+        return False
+
+    # Department avoidance is a bilateral hard exclusion: a preference on
+    # either side removes the pair in both recommendation directions.
+    if same_department_avoidance_rejection(mu, mv):
         return False
 
     # 생활권은 점수가 아니라 eligibility다. 값이 없으면 fail-closed.

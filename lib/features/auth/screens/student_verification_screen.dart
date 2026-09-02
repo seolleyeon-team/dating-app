@@ -280,14 +280,11 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
         throw Exception('이메일 정보를 찾을 수 없습니다. 다시 시도해주세요.');
       }
 
-      // 1) Firebase가 원본 action URL의 일회성 oobCode로 메일 소유권을 확인한다.
-      //    이 시점의 세션은 임시 email-link 세션이다.
-      await _authService.signInWithEmailLink(email: email, emailLink: link);
-
-      // 2) 서버가 인증된 메일 세션과 token 문서를 대조하고, 같은 트랜잭션에서
-      //    appUserId 를 확정·토큰 소모 후 canonical custom token 을 발급한다.
-      //    signInWithCustomToken 후 uid == appUserId 가 검증된다.
-      final completion = await _authService.completePrimaryStudentEmailAuth(
+      // 전역 처리기와 화면이 같은 링크를 동시에 받아도 AuthService의
+      // process-wide gate가 일회용 action code를 정확히 한 번만 소비한다.
+      final completion = await _authService.completePrimaryStudentEmailLink(
+        email: email,
+        emailLink: link,
         token: verificationToken,
       );
       final appUserId = completion.appUserId;
@@ -353,6 +350,10 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
           email: email,
           requestId: requestId,
         );
+        // Keep the id only while the outcome is unknown. Once the server has
+        // accepted this send, a later explicit resend must create a fresh
+        // request instead of being mistaken for the same network retry.
+        await _storageService.clearPendingStudentEmailRequestId();
         debugPrint('✅ 학생 인증 메일 발송 요청 완료');
       } catch (e) {
         debugPrint(

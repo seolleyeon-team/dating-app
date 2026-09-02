@@ -1,25 +1,23 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
-import 'storage_service.dart';
+import 'firebase_runtime.dart';
+import 'support_submission_result.dart';
 
 class InquiryService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final StorageService _storageService = StorageService();
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
+    region: firebaseFunctionsRegion,
+  );
 
-  CollectionReference<Map<String, dynamic>> get _inquiriesRef =>
-      _firestore.collection('app_inquiries');
-
-  Future<void> submitInquiry({
+  Future<SupportSubmissionResult> submitInquiry({
     required String category,
     required String content,
-    required bool allowContact,
+    required bool allowOperationsFollowUp,
     String sourceScreen = 'settings_inquiry',
   }) async {
-    final inquirerId = await _storageService.getKakaoUserId();
-
-    if (inquirerId == null || inquirerId.trim().isEmpty) {
-      throw Exception('Kakao user id not found');
+    if (FirebaseAuth.instance.currentUser?.uid.trim().isEmpty != false) {
+      throw StateError('Firebase session is not ready');
     }
 
     if (category.trim().isEmpty) {
@@ -30,16 +28,19 @@ class InquiryService {
       throw Exception('content is empty');
     }
 
-    await _inquiriesRef.add({
-      'inquirerId': inquirerId.trim(),
-      'category': category.trim(),
-      'content': content.trim(),
-      'allowContact': allowContact,
-      'sourceScreen': sourceScreen,
-      'platform': defaultTargetPlatform.name,
-      'status': 'pending',
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    final result = await _functions
+        .httpsCallable('submitInquiry')
+        .call<dynamic>({
+          'category': category.trim(),
+          'content': content.trim(),
+          'allowOperationsFollowUp': allowOperationsFollowUp,
+          'sourceScreen': sourceScreen,
+          'platform': defaultTargetPlatform.name,
+        });
+    final data = Map<String, dynamic>.from(result.data as Map? ?? const {});
+    return SupportSubmissionResult(
+      caseId: data['caseId']?.toString() ?? '',
+      supportRoomId: data['supportRoomId']?.toString(),
+    );
   }
 }

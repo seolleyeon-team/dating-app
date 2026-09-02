@@ -79,10 +79,50 @@ test("blocks and user reports are server-written only", () => {
   );
 });
 
+test("operations metadata is server-only and support rooms protect their assignment", () => {
+  assertContains(
+    "admin metadata must deny every client operation",
+    "match /admin/{adminUid} { allow read, write: if false; }",
+  );
+  assertContains(
+    "support rooms must restrict client updates to preview fields",
+    "function supportRoomMutableOnly()",
+  );
+  assertContains(
+    "support room assignment must be part of the chat update gate",
+    "!isSupportRoomData(resource.data) || supportRoomMutableOnly()",
+  );
+  assertContains(
+    "support messages must be bounded normal text replies",
+    "function isValidClientSupportMessage(roomId)",
+  );
+});
+
+test("operations accounts are excluded before direct-chat and mutual-match side effects", () => {
+  const indexSource = readFileSync(resolve(__dirname, "../src/index.ts"), "utf8");
+  assert.match(indexSource, /partnerData\.accountType === "operations"/);
+  assert.match(indexSource, /toUserSnap\.data\(\)\?\.accountType === "operations"/);
+});
+
 test("recommendation exclusions are server-written and owner-readable", () => {
   assertContains(
     "recommendation exclusion targets must be owner-readable only",
     "match /recommendationExclusions/{viewerUid} { allow get, list, create, update, delete: if false; match /targets/{targetUid} { allow get, list: if isSelf(viewerUid); allow create, update, delete: if false; } }"
+  );
+  assertContains(
+    "same-department exclusion targets must be owner-readable only",
+    "match /departmentRecommendationExclusions/{viewerUid} { allow get, list, create, update, delete: if false; match /targets/{targetUid} { allow get, list: if isSelf(viewerUid); allow create, update, delete: if false; } }"
+  );
+});
+
+test("identity verification and verified-phone reverse index stay server-only", () => {
+  assertContains(
+    "identity verification documents must deny every client operation",
+    "match /userPrivateVerifications/{uid} { allow read, write: if false; }"
+  );
+  assertContains(
+    "verified phone index documents must deny every client operation",
+    "match /verifiedPhoneHashIndex/{phoneHash} { allow read, write: if false; match /owners/{ownerUid} { allow read, write: if false; } }"
   );
 });
 

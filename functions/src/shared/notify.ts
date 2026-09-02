@@ -58,6 +58,7 @@ export function notificationCategoryForType(type: string): string | null {
   switch (type) {
     case "chat":
     case "chat_digest":
+    case "promise_reminder":
       return "chat";
     case "profile_like":
       return "matching";
@@ -99,6 +100,25 @@ export async function fetchUserTokens(
   userId: string,
   notificationType: string
 ): Promise<string[]> {
+  const records = await fetchUserTokenRecords(userId, notificationType);
+  return records.map((record) => record.token);
+}
+
+export type PushTokenRecord = {
+  token: string;
+  deliveryContext: Record<string, unknown> | null;
+};
+
+/**
+ * Device-token records eligible for this notification category.
+ *
+ * Delivery context is kept per device: if the chat list is open on one device,
+ * another backgrounded signed-in device can still receive the message.
+ */
+export async function fetchUserTokenRecords(
+  userId: string,
+  notificationType: string
+): Promise<PushTokenRecord[]> {
   const userRef = db().collection("users").doc(userId);
   const userSnap = await userRef.get();
   const userSettings = userSnap.data()?.notificationSettings;
@@ -116,8 +136,64 @@ export async function fetchUserTokens(
       const tokenSettings = data.notificationSettings ?? userSettings;
       return isPushEnabledForType(tokenSettings, notificationType);
     })
-    .map((d) => d.id)
-    .filter((t) => t.length > 0);
+    .map((doc) => {
+      const data = doc.data();
+      return {
+        token: doc.id,
+        deliveryContext: isRecord(data.deliveryContext)
+          ? data.deliveryContext
+          : null,
+      };
+    })
+    .filter((record) => record.token.length > 0);
+}
+
+const CHAT_DELIVERY_CONTEXT_MAX_AGE_MS = 90 * 1000;
+
+function contextUpdatedAtMs(context: Record<string, unknown>): number | null {
+  const value = context.updatedAt;
+  if (value && typeof value === "object" && "toMillis" in value) {
+    const toMillis = (value as { toMillis?: unknown }).toMillis;
+    if (typeof toMillis === "function") {
+      const millis = toMillis.call(value);
+      return typeof millis === "number" && Number.isFinite(millis)
+        ? millis
+        : null;
+    }
+  }
+  return null;
+}
+
+/** Whether a device already showing relevant chat UI should skip this push. */
+export function shouldSuppressPushForDevice(params: {
+  notificationType: string;
+  roomId?: string;
+  deliveryContext: Record<string, unknown> | null;
+  nowMs?: number;
+}): boolean {
+  if (params.notificationType !== "chat" || !params.deliveryContext) {
+    return false;
+  }
+  const context = params.deliveryContext;
+  if (context.appState !== "foreground") return false;
+
+  const updatedAtMs = contextUpdatedAtMs(context);
+  const nowMs = params.nowMs ?? Date.now();
+  if (
+    updatedAtMs == null ||
+    updatedAtMs > nowMs + 10 * 1000 ||
+    nowMs - updatedAtMs > CHAT_DELIVERY_CONTEXT_MAX_AGE_MS
+  ) {
+    return false;
+  }
+
+  const screen = asString(context.screen, "");
+  if (screen === "chat_list") return true;
+  return (
+    screen === "chat_room" &&
+    !!params.roomId &&
+    asString(context.chatRoomId, "") === params.roomId
+  );
 }
 
 export type InAppNotificationType =
@@ -129,6 +205,11 @@ export type InAppNotificationType =
   | "ask_received"
   | "safety_stamp_follow_up"
   | "event_team_invite"
+  | "blind_meeting_party_invite"
+  | "blind_meeting_party_joined"
+  | "blind_meeting_party_locked"
+  | "blind_meeting_party_member_completed"
+  | "blind_meeting_party_ready"
   | "blind_meeting_matched"
   | "blind_meeting_acceptance_request"
   | "blind_meeting_deposit_request"
@@ -155,6 +236,7 @@ export type InAppNotificationDeeplinkType =
   | "asks_inbox"
   | "safety_stamp_follow_up"
   | "event_team_invite"
+  | "blind_meeting_party"
   | "blind_meeting"
   | "blind_meeting_follow_up"
   | "meeting_icebreaker_roulette";
@@ -172,6 +254,7 @@ export type InAppNotificationPayload = {
   roomId?: string;
   digestDate?: string;
   teamSetupId?: string;
+  partyId?: string;
   inviteId?: string;
   meetingId?: string;
   /** 미팅 아이스브레이킹 세션 식별자 (서버 검증용) */
@@ -324,9 +407,35 @@ export async function sendPushToUsers(
 
   const notificationType = asString(payload.data.type, "");
   const tokenLists = await Promise.all(
-    uniqueUserIds.map((uid) => fetchUserTokens(uid, notificationType))
+    uniqueUserIds.map((uid) => fetchUserTokenRecords(uid, notificationType))
   );
-  const tokens = tokenLists.flat().filter(Boolean);
+  const roomId = asString(payload.data.roomId, "");
+  const tokenRecords = tokenLists.flat();
+  const suppressedTokens = tokenRecords.filter((record) =>
+    shouldSuppressPushForDevice({
+      notificationType,
+      roomId,
+      deliveryContext: record.deliveryContext,
+    })
+  );
+  const tokens = tokenRecords
+    .filter(
+      (record) =>
+        !shouldSuppressPushForDevice({
+          notificationType,
+          roomId,
+          deliveryContext: record.deliveryContext,
+        })
+    )
+    .map((record) => record.token);
+
+  if (suppressedTokens.length > 0) {
+    logger.info("Suppressed redundant foreground chat pushes", {
+      notificationType,
+      roomId,
+      suppressedDeviceCount: suppressedTokens.length,
+    });
+  }
 
   if (tokens.length === 0) {
     logger.info("No device tokens found for users", { userIds: uniqueUserIds });

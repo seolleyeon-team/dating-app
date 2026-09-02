@@ -48,6 +48,7 @@ test("public profile omits private PII and moderation internals", () => {
   assert.equal(publicProfile.isProfileComplete, true);
   assert.equal(publicProfile.schemaVersion, 2);
   assert.equal(publicProfile.recommendationPrivacyReady, false);
+  assert.equal(publicProfile.profileVisible, true);
   assert.equal(publicProfile.profileImageUrl, "https://cdn.example/safe-avatar.png");
   assert.deepEqual(publicProfile.onboarding, {
     nickname: "공개닉",
@@ -81,7 +82,15 @@ test("public profile exposes only the recommendation readiness gate", () => {
   assert.equal(publicProfile.kakaoFriendReconcileStatus, undefined);
 });
 
-test("withdrawn or invisible users produce no public profile", () => {
+test("withdrawn users produce no public profile, while a pending visibility change keeps today's card renderable", () => {
+  assert.equal(
+    buildPublicProfileFromUser("operations", {
+      accountType: "operations",
+      status: "active",
+      nickname: "운영팀",
+    }),
+    null,
+  );
   assert.equal(
     buildPublicProfileFromUser("u1", {
       status: "withdrawn",
@@ -90,14 +99,17 @@ test("withdrawn or invisible users produce no public profile", () => {
     }),
     null,
   );
-  assert.equal(
-    buildPublicProfileFromUser("u1", {
+  const pendingHide = buildPublicProfileFromUser("u1", {
       status: "active",
       profileVisible: false,
-      nickname: "hidden",
-    }),
-    null,
-  );
+      profileVisibleEffectiveDateKey: "20260902",
+      profileVisibleBeforeEffectiveDate: true,
+      nickname: "hidden-tomorrow",
+    });
+  assert.ok(pendingHide);
+  assert.equal(pendingHide.profileVisible, false);
+  assert.equal(pendingHide.profileVisibleBeforeEffectiveDate, true);
+  assert.equal(pendingHide.profileVisibleEffectiveDateKey, "20260902");
   assert.equal(
     buildPublicProfileFromUser("u1", {
       status: "banned",

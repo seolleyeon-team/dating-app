@@ -18,6 +18,7 @@ import '../../../router/route_names.dart';
 import '../../../services/onboarding_save_helper.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../shared/widgets/mbti_choice_grid.dart';
 
 // =============================================================================
 // 색상 상수
@@ -36,7 +37,7 @@ class _AppColors {
 // =============================================================================
 // 데이터 모델
 // =============================================================================
-enum Gender { male, female, other }
+enum Gender { male, female }
 
 enum MbtiE { e, i }
 
@@ -175,8 +176,6 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
       _gender = Gender.male;
     } else if (genderStr == 'female') {
       _gender = Gender.female;
-    } else if (genderStr == 'other') {
-      _gender = Gender.other;
     }
     if (mbtiStr.length >= 4) {
       if (mbtiStr[0] == 'e') {
@@ -410,13 +409,6 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                     _GenderOption(
                                       label: '여성',
                                       value: Gender.female,
-                                      groupValue: _gender,
-                                      onChanged: (v) =>
-                                          setState(() => _gender = v),
-                                    ),
-                                    _GenderOption(
-                                      label: '기타',
-                                      value: Gender.other,
                                       groupValue: _gender,
                                       onChanged: (v) =>
                                           setState(() => _gender = v),
@@ -670,103 +662,24 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                             // MBTI
                             _LabelSection(
                               label: 'MBTI',
-                              child: Container(
-                                padding: const EdgeInsets.all(8),
-                                child: Row(
-                                  children: [
-                                    // E/I
-                                    Expanded(
-                                      child: Column(
-                                        children: [
-                                          _MbtiButton(
-                                            text: 'E',
-                                            isSelected: _mbtiE == MbtiE.e,
-                                            onTap: () => setState(
-                                              () => _mbtiE = MbtiE.e,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 16),
-                                          _MbtiButton(
-                                            text: 'I',
-                                            isSelected: _mbtiE == MbtiE.i,
-                                            onTap: () => setState(
-                                              () => _mbtiE = MbtiE.i,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 16),
-                                    // N/S
-                                    Expanded(
-                                      child: Column(
-                                        children: [
-                                          _MbtiButton(
-                                            text: 'N',
-                                            isSelected: _mbtiN == MbtiN.n,
-                                            onTap: () => setState(
-                                              () => _mbtiN = MbtiN.n,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 16),
-                                          _MbtiButton(
-                                            text: 'S',
-                                            isSelected: _mbtiN == MbtiN.s,
-                                            onTap: () => setState(
-                                              () => _mbtiN = MbtiN.s,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 16),
-                                    // F/T
-                                    Expanded(
-                                      child: Column(
-                                        children: [
-                                          _MbtiButton(
-                                            text: 'F',
-                                            isSelected: _mbtiF == MbtiF.f,
-                                            onTap: () => setState(
-                                              () => _mbtiF = MbtiF.f,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 16),
-                                          _MbtiButton(
-                                            text: 'T',
-                                            isSelected: _mbtiF == MbtiF.t,
-                                            onTap: () => setState(
-                                              () => _mbtiF = MbtiF.t,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 16),
-                                    // J/P
-                                    Expanded(
-                                      child: Column(
-                                        children: [
-                                          _MbtiButton(
-                                            text: 'J',
-                                            isSelected: _mbtiJ == MbtiJ.j,
-                                            onTap: () => setState(
-                                              () => _mbtiJ = MbtiJ.j,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 16),
-                                          _MbtiButton(
-                                            text: 'P',
-                                            isSelected: _mbtiJ == MbtiJ.p,
-                                            onTap: () => setState(
-                                              () => _mbtiJ = MbtiJ.p,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                              child: MbtiChoiceGrid(
+                                selectedValue:
+                                    '${_mbtiE.name.toUpperCase()}'
+                                    '${_mbtiN.name.toUpperCase()}'
+                                    '${_mbtiF.name.toUpperCase()}'
+                                    '${_mbtiJ.name.toUpperCase()}',
+                                onSelect: (index, value) => setState(() {
+                                  switch (index) {
+                                    case 0:
+                                      _mbtiE = value == 'E' ? MbtiE.e : MbtiE.i;
+                                    case 1:
+                                      _mbtiN = value == 'N' ? MbtiN.n : MbtiN.s;
+                                    case 2:
+                                      _mbtiF = value == 'F' ? MbtiF.f : MbtiF.t;
+                                    case 3:
+                                      _mbtiJ = value == 'J' ? MbtiJ.j : MbtiJ.p;
+                                  }
+                                }),
                               ),
                             ),
 
@@ -1261,73 +1174,6 @@ class _GenderOption extends StatelessWidget {
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w500,
-              color: isSelected
-                  ? _AppColors.primary
-                  : _AppColors.textSub.withValues(alpha: 0.5),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// MBTI 버튼
-// =============================================================================
-class _MbtiButton extends StatelessWidget {
-  final String text;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _MbtiButton({
-    required this.text,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        onTap();
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        width: double.infinity,
-        height: 70, // AspectRatio 대신 고정 높이 또는 LayoutBuilder 사용
-
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.white : _AppColors.surfaceLight,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected
-                ? _AppColors.primary.withValues(alpha: 0.1)
-                : Colors.white.withValues(alpha: 0.4),
-          ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: _AppColors.primary.withValues(alpha: 0.15),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                  ),
-                ]
-              : [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-        ),
-        child: Center(
-          child: Text(
-            text,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
               color: isSelected
                   ? _AppColors.primary
                   : _AppColors.textSub.withValues(alpha: 0.5),

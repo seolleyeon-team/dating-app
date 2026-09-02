@@ -19,6 +19,7 @@ import '../domain/blind_meeting_enums.dart';
 import '../domain/blind_meeting_feedback.dart';
 import '../domain/blind_meeting_followup.dart';
 import '../domain/blind_meeting_public_profile.dart';
+import '../domain/blind_meeting_party.dart';
 import '../domain/blind_meeting_session.dart';
 import 'blind_meeting_profile_snapshot.dart';
 
@@ -30,6 +31,8 @@ class BlindMeetingCollections {
   static const String applications = 'blindMeetingApplications';
   static const String dna = 'blindMeetingDna';
   static const String dnaDrafts = 'blindMeetingDnaDrafts';
+  static const String parties = 'blindMeetingParties';
+  static const String partyInvites = 'blindMeetingPartyInvites';
   static const String participants = 'participants';
   static const String publicProfiles = 'publicProfiles';
   static const String followUpChoices = 'followUpChoices';
@@ -172,7 +175,10 @@ class BlindMeetingRepository {
   // 인증
   // ---------------------------------------------------------------------------
 
-  Future<String?> currentUserId() => _storageService.getKakaoUserId();
+  /// 현재 설레연 계정 id. `getKakaoUserId`는 같은 저장 키를 읽는 legacy
+  /// 별칭이지만, 블라인드 미팅은 카카오 연결 여부와 무관하므로 canonical
+  /// 이름을 사용한다.
+  Future<String?> currentUserId() => _storageService.getAppUserId();
 
   /// 생활권 hard filter 의 rollout activation 상태.
   ///
@@ -270,6 +276,87 @@ class BlindMeetingRepository {
       userId,
       normalizeFirestoreMap(data),
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 친구 파티
+  // ---------------------------------------------------------------------------
+
+  Future<String> ensureParty() async {
+    final result = await _call('ensureBlindMeetingParty', const {});
+    final partyId = result['partyId']?.toString().trim() ?? '';
+    if (partyId.isEmpty) throw StateError('블라인드 팀을 만들지 못했어요.');
+    return partyId;
+  }
+
+  Future<BlindMeetingParty?> loadCurrentParty() async {
+    final userId = await _requireSession();
+    final snapshot = await _firestore
+        .collection(BlindMeetingCollections.parties)
+        .where('acceptedUserIds', arrayContains: userId)
+        .limit(5)
+        .get();
+    final parties = snapshot.docs
+        .map(BlindMeetingParty.fromDoc)
+        .where((party) => party.status != BlindMeetingPartyStatus.cancelled)
+        .toList();
+    if (parties.isEmpty) return null;
+    parties.sort((a, b) => b.rosterVersion.compareTo(a.rosterVersion));
+    return parties.first;
+  }
+
+  Stream<BlindMeetingParty?> watchParty(String partyId) {
+    if (partyId.isEmpty) return Stream.value(null);
+    return _firestore
+        .collection(BlindMeetingCollections.parties)
+        .doc(partyId)
+        .snapshots()
+        .map(
+          (snapshot) =>
+              snapshot.exists ? BlindMeetingParty.fromDoc(snapshot) : null,
+        );
+  }
+
+  Stream<List<BlindMeetingPartyInvite>> watchPendingPartyInvites() async* {
+    final userId = await _requireSession();
+    yield* _firestore
+        .collection(BlindMeetingCollections.partyInvites)
+        .where('inviteeUserId', isEqualTo: userId)
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map(BlindMeetingPartyInvite.fromDoc)
+              .toList(growable: false),
+        );
+  }
+
+  Future<void> createPartyInvite({
+    required String partyId,
+    required String inviteeUserId,
+  }) async {
+    await _call('createBlindMeetingPartyInvite', {
+      'partyId': partyId,
+      'inviteeUserId': inviteeUserId,
+    });
+  }
+
+  Future<void> respondPartyInvite({
+    required String inviteId,
+    required bool accept,
+  }) async {
+    await _call('respondBlindMeetingPartyInvite', {
+      'inviteId': inviteId,
+      'accept': accept,
+    });
+  }
+
+  Future<void> lockParty(String partyId) async {
+    await _call('lockBlindMeetingParty', {'partyId': partyId});
+  }
+
+  Future<void> cancelParty(String partyId) async {
+    await _call('cancelBlindMeetingParty', {'partyId': partyId});
   }
 
   // ---------------------------------------------------------------------------

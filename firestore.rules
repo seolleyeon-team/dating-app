@@ -31,7 +31,8 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     // If users doc has no kakaoUserId field, rules evaluate it as null and allow profile edits.
     function usersDocKakaoIdOk(data, docKakaoId) {
-      return data.kakaoUserId == null || data.kakaoUserId == docKakaoId;
+      return data.get('kakaoUserId', null) == null ||
+          data.get('kakaoUserId', null) == docKakaoId;
     }
 
     function isSignedIn() {
@@ -497,6 +498,48 @@ service cloud.firestore {
       return request.resource.data.participantIds == resource.data.participantIds;
     }
 
+    // Support rooms are server-created and use the normal participant model.
+    // A participant may update only the message-preview fields that the chat
+    // client writes; case references, staff assignment and room state remain
+    // server-authoritative.
+    function isSupportRoomData(data) {
+      return data != null && data.get('roomType', null) == 'support';
+    }
+
+    function supportRoomMutableOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'lastMessage',
+        'lastMessageAt',
+        'updatedAt',
+        'photoBlurUnlocked',
+        'photoBlurUnlockedAt',
+        'photoBlurUnlockedBy'
+      ]);
+    }
+
+    // The only client-originated support-room payload is a normal text reply.
+    // Case-delivery cards are written by the callable with the Admin SDK, so
+    // a member cannot forge a support_inquiry message or attach an unbounded
+    // data map to a staff conversation.
+    function isValidClientSupportMessage(roomId) {
+      return !isSupportRoomData(blindRoomData(roomId)) || (
+        request.resource.data.keys().hasOnly([
+          'senderId',
+          'text',
+          'type',
+          'readBy',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        request.resource.data.senderId is string &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() > 0 &&
+        request.resource.data.text.size() <= 1000 &&
+        request.resource.data.type == 'text' &&
+        request.resource.data.readBy is list
+      );
+    }
+
     function isExistingChatRoomParticipant(roomId) {
       return isSignedIn() &&
           request.auth.uid in chatRoomParticipantIds(
@@ -944,7 +987,6 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'notificationSettings',
               'notificationSettingsUpdatedAt',
               'preferenceVector',
-              'profileVisible',
               'lastLoginAt',
               'hasSeenTutorial',
               'updatedAt'
@@ -952,8 +994,8 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           ) || (
             // Profile edit (onboarding data update) - keep existing rules and allow onboarding edits
             isUserDocOwner(kakaoUserId) &&
-            (request.resource.data.kakaoUserId == null ||
-              request.resource.data.kakaoUserId == kakaoUserId) &&
+            (request.resource.data.get('kakaoUserId', null) == null ||
+              request.resource.data.get('kakaoUserId', null) == kakaoUserId) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'kakaoUserId',
               'nickname',
@@ -971,7 +1013,6 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'notificationSettings',
               'notificationSettingsUpdatedAt',
               'preferenceVector',
-              'profileVisible',
               'lastLoginAt',
               'hasSeenTutorial',
               'initialSetupComplete',
@@ -1300,6 +1341,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         chatRoomParticipantIdsUnchanged() &&
         chatRoomDoesNotPersistPrivateMedia(request.resource.data) &&
         chatRoomActivePromiseHasNoStamp() &&
+        (!isSupportRoomData(resource.data) || supportRoomMutableOnly()) &&
         (!isBlindMeetingRoomData(resource.data) || (
           resource.data.writable == true &&
           request.resource.data.roomType == resource.data.roomType &&
@@ -1317,6 +1359,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       match /messages/{messageId} {
         allow read: if isExistingChatRoomParticipant(roomId);
         allow create: if isParticipantMessageAuthor(roomId) &&
+          isValidClientSupportMessage(roomId) &&
           (
             !request.resource.data.keys().hasAny(['type']) ||
             request.resource.data.type != 'promise_deleted' ||
@@ -1379,6 +1422,41 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     function isBlindMeetingParticipant(meetingId) {
       return request.auth != null &&
           request.auth.uid in blindMeetingData(meetingId).participantIds;
+    }
+
+    function canReadBlindMeetingParty(data) {
+      return request.auth != null &&
+          data.acceptedUserIds is list &&
+          request.auth.uid in data.acceptedUserIds;
+    }
+
+    function canReadBlindMeetingPartyInvite(data) {
+      return request.auth != null &&
+          (request.auth.uid == data.inviterUserId ||
+           request.auth.uid == data.inviteeUserId);
+    }
+
+    // 친구 파티의 roster와 진행률은 수락한 멤버만 읽는다. 생성·초대·잠금·
+    // 취소와 보수적 취향 집계는 모두 callable 트랜잭션만 수행한다.
+    match /blindMeetingParties/{partyId} {
+      allow get, list: if canReadBlindMeetingParty(resource.data);
+      allow create, update, delete: if false;
+    }
+
+    // 초대 당사자만 초대장을 읽는다. 수락/거절도 callable에서 친구 관계와
+    // 성별, 중복 파티 가입을 다시 검증한 뒤 처리한다.
+    match /blindMeetingPartyInvites/{inviteId} {
+      allow get, list: if canReadBlindMeetingPartyInvite(resource.data);
+      allow create, update, delete: if false;
+    }
+
+    // 단일 활성 파티 membership lock과 집계된 매칭 조건은 서버 내부 자료다.
+    match /blindMeetingPartyMemberships/{userId} {
+      allow read, write: if false;
+    }
+
+    match /blindMeetingPartyMatching/{partyId} {
+      allow read, write: if false;
     }
 
     // 비공개 미팅 DNA: 본인 읽기만, 쓰기는 callable(submitBlindMeetingApplication)만
@@ -1808,9 +1886,28 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       }
     }
 
+    // Same-department avoidance is materialized separately from Kakao friend
+    // exclusions. The pair document contains only recommendation-filter
+    // metadata and is written by the Admin SDK trigger.
+    match /departmentRecommendationExclusions/{viewerUid} {
+      allow get, list, create, update, delete: if false;
+
+      match /targets/{targetUid} {
+        allow get, list: if isSelf(viewerUid);
+        allow create, update, delete: if false;
+      }
+    }
+
     // -----------------------------------------------------------------------
     // Blocks and Reports
     // -----------------------------------------------------------------------
+    // Operations metadata is created and maintained through the Admin SDK.
+    // A Firebase Auth custom claim is checked by callable Functions; this
+    // document is deliberately never a client-readable source of authority.
+    match /admin/{adminUid} {
+      allow read, write: if false;
+    }
+
     // Blocks are written only by the server (reportAndBlockUser,
     // syncContactBlocks). A block must exist in both directions, and a client
     // can only ever write its own side, so client writes are denied here.
@@ -1851,7 +1948,11 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         request.resource.data.allowContact is bool &&
         request.resource.data.sourceScreen is string &&
         request.resource.data.platform is string &&
-        request.resource.data.status is string;
+        request.resource.data.status is string &&
+        // Compatibility path for older clients.  New submissions go through
+        // submitIssueReport so a follow-up case and support message are one
+        // server transaction; clients may never opt into follow-up directly.
+        !request.resource.data.keys().hasAny(['allowOperationsFollowUp']);
 
       allow read: if false;
       allow update: if false;
@@ -1871,7 +1972,8 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         request.resource.data.allowContact is bool &&
         request.resource.data.sourceScreen is string &&
         request.resource.data.platform is string &&
-        request.resource.data.status is string;
+        request.resource.data.status is string &&
+        !request.resource.data.keys().hasAny(['allowOperationsFollowUp']);
 
       allow read: if false;
       allow update: if false;
@@ -1879,12 +1981,11 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     }
 
     // -----------------------------------------------------------------------
-    // User Private (phone hash and other sensitive data - writes only through server callable)
+    // Legacy Kakao-derived phone hashes. These are no longer used and remain
+    // inaccessible while account-deletion cleanup removes existing documents.
     // -----------------------------------------------------------------------
     match /userPrivate/{uid} {
-      allow get: if request.auth != null && request.auth.uid == uid;
-      allow list: if false;
-      allow create, update, delete: if false;
+      allow read, write: if false;
     }
 
     // -----------------------------------------------------------------------
@@ -1896,10 +1997,22 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     }
 
     // -----------------------------------------------------------------------
-    // Phone Hash Index (reverse matching - server/admin only)
+    // Legacy Kakao-derived reverse index (disabled; server cleanup only).
     // -----------------------------------------------------------------------
     match /phoneHashIndex/{phoneHash} {
       allow read, write: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Verified Phone Hash Index
+    // userPrivateVerifications/{uid}.phoneHash에서 KG이니시스 본인인증 완료
+    // 시 서버가 파생한다. 원본 전화번호와 해시는 클라이언트에 공개하지 않는다.
+    // -----------------------------------------------------------------------
+    match /verifiedPhoneHashIndex/{phoneHash} {
+      allow read, write: if false;
+      match /owners/{ownerUid} {
+        allow read, write: if false;
+      }
     }
 
     // -----------------------------------------------------------------------

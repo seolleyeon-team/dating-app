@@ -1,29 +1,24 @@
 import 'package:flutter/foundation.dart';
 
-/// Android heart purchases use Google Play Billing in production.
+/// Digital hearts are sold through the platform's native purchase system.
 ///
-/// Apple production receipt verification is intentionally still gated behind
-/// `--dart-define=ENABLE_IN_APP_PURCHASE=true` until the App Store verifier is
-/// implemented. This prevents enabling an unverified iOS purchase path while
-/// allowing the production-ready Google Play path without a fragile build flag.
+/// iOS uses StoreKit and Android uses Google Play Billing. Both paths verify
+/// the transaction with the server before the app grants any hearts.
 class InAppPurchasePolicy {
   const InAppPurchasePolicy._();
 
-  static const bool enabled = bool.fromEnvironment(
-    'ENABLE_IN_APP_PURCHASE',
-    defaultValue: false,
-  );
+  /// Kept as a named policy value for UI callers and test coverage.
+  static const bool enabled = true;
 
   static bool allowPurchaseUiFor({
     required bool isWeb,
     required TargetPlatform platform,
   }) {
     if (isWeb) return false;
-    if (platform == TargetPlatform.android) return true;
-    return platform == TargetPlatform.iOS && enabled;
+    return platform == TargetPlatform.android || platform == TargetPlatform.iOS;
   }
 
-  /// Android is enabled by default; iOS remains explicitly gated.
+  /// Native iOS and Android builds support StoreKit or Play Billing.
   static bool get allowPurchaseUi =>
       allowPurchaseUiFor(isWeb: kIsWeb, platform: defaultTargetPlatform);
 

@@ -11,7 +11,7 @@ import {
   withClearedDb,
 } from "./helpers.mjs";
 
-import { doc, getDoc, setDoc, Timestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, Timestamp, updateDoc } from "firebase/firestore";
 
 // ---------------------------------------------------------------------------
 // Auth re-architecture (identity-contract §2/§6): the interactive surfaces
@@ -163,6 +163,27 @@ test("a canonical appSession token can use every canonical-session surface", asy
   // 세션이어도 클라이언트 직접 생성은 거부된다.
   await assertFails(ops.createChatRoom());
   await assertSucceeds(ops.createBambooPost());
+});
+
+test("a new primary-email account without legacy kakaoUserId can save onboarding", async () => {
+  await withClearedDb(async (db) => {
+    await setDoc(doc(db, "users", ME), {
+      appUserId: ME,
+      isStudentVerified: true,
+      studentEmail: MY_EMAIL,
+      profileImageUrl: "",
+      profileImageMode: "avatar",
+    });
+  });
+
+  const db = await appSession(ME);
+  await assertSucceeds(
+    updateDoc(doc(db, "users", ME), {
+      "onboarding.nickname": "연세봄",
+      "onboarding.gender": "female",
+      onboardingUpdatedAt: Timestamp.now(),
+    })
+  );
 });
 
 // ---------------------------------------------------------------------------

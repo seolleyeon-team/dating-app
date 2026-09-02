@@ -157,7 +157,41 @@ class IapService extends ChangeNotifier {
       final byId = <String, ProductDetails>{
         for (final product in response.productDetails) product.id: product,
       };
-      _products = HeartProducts.productsFor(purchasePlatform)
+      final configuredProducts = HeartProducts.productsFor(purchasePlatform);
+      final configuredIds = HeartProducts.productIdsFor(purchasePlatform);
+      final missingProductIds = configuredIds
+          .where((productId) => !byId.containsKey(productId))
+          .toSet();
+      final invalidPriceProductIds = configuredProducts
+          .map(
+            (heartProduct) => byId[heartProduct.productIdFor(purchasePlatform)],
+          )
+          .whereType<ProductDetails>()
+          .where(
+            (details) => !HeartProducts.hasValidPaidStorePrice(
+              rawPrice: details.rawPrice,
+              formattedPrice: details.price,
+            ),
+          )
+          .map((details) => details.id)
+          .toSet();
+      _notFoundProductIds = {
+        ...response.notFoundIDs,
+        ...missingProductIds,
+        ...invalidPriceProductIds,
+      };
+      if (_notFoundProductIds.isNotEmpty) {
+        // 일부 상품만 보이면 구버전 App Store Connect 구성이나 잘못된
+        // StoreKit 환경을 사용 중일 수 있다. 전체 다섯 상품을 확인할 때까지
+        // 부분 카탈로그에서 결제를 시작하지 않는다.
+        _products = const <ProductDetails>[];
+        _recordError('하트 상품을 모두 불러오지 못했어요. 잠시 후 다시 시도해주세요.');
+        _debugLog(
+          'Incomplete or invalid priced product catalog missing=${_notFoundProductIds.length}',
+        );
+        return;
+      }
+      _products = configuredProducts
           .map(
             (heartProduct) => byId[heartProduct.productIdFor(purchasePlatform)],
           )

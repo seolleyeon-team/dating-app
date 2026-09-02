@@ -74,4 +74,23 @@ void main() {
     );
     expect(routerSource, contains('case RouteNames.kakaoFriendMessageTest:'));
   });
+
+  test('friend consent flow does not request the current Kakao profile', () {
+    final source = File(
+      'lib/services/kakao_talk_friend_service.dart',
+    ).readAsStringSync();
+    final start = source.indexOf(
+      'Future<KakaoConsentStatus> ensureRequiredConsents',
+    );
+    final end = source.indexOf(
+      'Future<KakaoTalkFriendLookupResult> fetchFriends',
+      start,
+    );
+    expect(start, isNonNegative);
+    expect(end, greaterThan(start));
+    final section = source.substring(start, end);
+
+    expect(section, contains('loginWithNewScopes(missingScopes)'));
+    expect(section, isNot(contains('fetchCurrentUser()')));
+  });
 }

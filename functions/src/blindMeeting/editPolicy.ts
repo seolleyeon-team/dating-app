@@ -10,7 +10,7 @@ export type BlindMeetingApplicationEditState = {
 export type BlindMeetingApplicationEditPatch = {
   status: ParticipantStatus;
   stage: MatchingStage;
-  open: true;
+  open: boolean;
   meetingId: null;
   requestedDateKeys: string[];
   prefersAlcoholFree: boolean;
@@ -25,6 +25,8 @@ export function canEditBlindMeetingApplication(
   application: BlindMeetingApplicationEditState
 ): boolean {
   const editableStages: MatchingStage[] = [
+    "waitingForPartyMembers",
+    "waitingForCommonDates",
     "searchingCandidates",
     "formingOwnTeam",
     "checkingCrossTeam",
@@ -32,7 +34,9 @@ export function canEditBlindMeetingApplication(
     "insufficientCandidates",
   ];
   return (
-    application.open &&
+    (application.open ||
+      application.stage === "waitingForPartyMembers" ||
+      application.stage === "waitingForCommonDates") &&
     application.meetingId == null &&
     (application.status === "applied" || application.status === "waitlisted") &&
     editableStages.includes(application.stage)
@@ -50,8 +54,14 @@ export function buildBlindMeetingApplicationEditPatch(
   if (!canEditBlindMeetingApplication(application)) return null;
   return {
     status: application.status,
-    stage: "searchingCandidates",
-    open: true,
+    stage:
+      application.stage === "waitingForPartyMembers" ||
+      application.stage === "waitingForCommonDates"
+        ? application.stage
+        : "searchingCandidates",
+    open:
+      application.stage !== "waitingForPartyMembers" &&
+      application.stage !== "waitingForCommonDates",
     meetingId: null,
     requestedDateKeys: values.requestedDateKeys,
     prefersAlcoholFree: values.prefersAlcoholFree,

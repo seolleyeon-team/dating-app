@@ -53,7 +53,7 @@ class _BlindMeetingEventCardState extends State<BlindMeetingEventCard> {
     Navigator.of(
       context,
       rootNavigator: true,
-    ).pushNamed(RouteNames.blindTasteMeeting);
+    ).pushNamed(RouteNames.blindTasteMeetingParty);
   }
 
   @override
