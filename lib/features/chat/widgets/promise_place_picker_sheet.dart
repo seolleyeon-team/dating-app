@@ -38,9 +38,14 @@ bool _placeMatchesFilter(PromisePlace p, _PlaceCategoryFilter f) {
 
 /// 약속 장소 선택: 카테고리 필터 → 행 탭 시 같은 목록 안에서 펼쳐 상세 표시.
 class PromisePlacePickerSheet extends StatelessWidget {
-  const PromisePlacePickerSheet({super.key, this.initialPlaceId});
+  const PromisePlacePickerSheet({
+    super.key,
+    this.initialPlaceId,
+    this.showcase = false,
+  });
 
   final String? initialPlaceId;
+  final bool showcase;
 
   static Future<PromisePlace?> show(
     BuildContext context, {
@@ -65,9 +70,7 @@ class PromisePlacePickerSheet extends StatelessWidget {
         child: CupertinoPageScaffold(
           backgroundColor: CupertinoColors.systemBackground,
           navigationBar: CupertinoNavigationBar(
-            backgroundColor: CupertinoColors.systemBackground.withValues(
-              alpha: 0.94,
-            ),
+            backgroundColor: CupertinoColors.systemBackground,
             border: const Border(
               bottom: BorderSide(color: _PickerColors.stone200, width: 0.5),
             ),
@@ -94,7 +97,10 @@ class PromisePlacePickerSheet extends StatelessWidget {
           ),
           child: SafeArea(
             top: false,
-            child: _PromisePlaceListBody(initialPlaceId: initialPlaceId),
+            child: _PromisePlaceListBody(
+              initialPlaceId: initialPlaceId,
+              showcase: showcase,
+            ),
           ),
         ),
       ),
@@ -103,16 +109,17 @@ class PromisePlacePickerSheet extends StatelessWidget {
 }
 
 class _PromisePlaceListBody extends StatefulWidget {
-  const _PromisePlaceListBody({this.initialPlaceId});
+  const _PromisePlaceListBody({this.initialPlaceId, this.showcase = false});
 
   final String? initialPlaceId;
+  final bool showcase;
 
   @override
   State<_PromisePlaceListBody> createState() => _PromisePlaceListBodyState();
 }
 
 class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
-  final _service = PromisePlaceService();
+  PromisePlaceService? _service;
   List<PromisePlace> _places = [];
   bool _loading = true;
   String? _error;
@@ -122,6 +129,11 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
   @override
   void initState() {
     super.initState();
+    if (widget.showcase) {
+      _loading = false;
+      return;
+    }
+    _service = PromisePlaceService();
     _load();
   }
 
@@ -131,7 +143,7 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
       _error = null;
     });
     try {
-      final list = await _service.loadPlaces();
+      final list = await _service!.loadPlaces();
       if (!mounted) return;
       setState(() {
         _places = list;
@@ -240,7 +252,7 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
                 minimumSize: Size.zero,
                 onPressed: () async {
                   setState(() => _loading = true);
-                  await _service.refreshFromRemote();
+                  await _service!.refreshFromRemote();
                   await _load();
                 },
                 child: const Text(
@@ -256,12 +268,11 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
             ],
           ),
         ),
-        // 필터 칩(전체·카페·…) 행을 칩 한 줄 높이만큼 아래로
-        const SizedBox(height: 44),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
+        Padding(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-          child: Row(
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
               _FilterChip(
                 label: '전체',
@@ -439,32 +450,30 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: CupertinoButton(
-        padding: EdgeInsets.zero,
-        onPressed: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: selected
-                ? _PickerColors.primarySoft.withValues(
-                    alpha: _PickerColors.fillAlpha,
-                  )
-                : CupertinoColors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: selected ? _PickerColors.primary : _PickerColors.stone100,
-            ),
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      minimumSize: Size.zero,
+      onPressed: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected
+              ? _PickerColors.primarySoft.withValues(
+                  alpha: _PickerColors.fillAlpha,
+                )
+              : CupertinoColors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? _PickerColors.primary : _PickerColors.stone100,
           ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontFamily: 'NanumSquareRound',
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: selected ? _PickerColors.primary : _PickerColors.textMain,
-            ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontFamily: 'NanumSquareRound',
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: selected ? _PickerColors.primary : _PickerColors.textMain,
           ),
         ),
       ),

@@ -1,11 +1,13 @@
 /// StoreKit/App Store Connect와 Google Play에서 공유하는 하트 상품입니다.
-/// 가격·제목·설명은 각 스토어의 [ProductDetails]만 사용하며 앱에 저장하지 않습니다.
+/// [priceWon]은 한국 스토어에 설정한 화면 표시용 가격입니다. 실제 결제와
+/// 영수증 검증은 계속 플랫폼의 [ProductDetails]와 서버 검증을 사용합니다.
 enum HeartPurchasePlatform { ios, android }
 
 class HeartProduct {
   final String iosProductId;
   final String androidProductId;
   final int hearts;
+  final int priceWon;
   final String displayName;
   final bool isFirstPurchaseOffer;
 
@@ -13,6 +15,7 @@ class HeartProduct {
     required this.iosProductId,
     required this.androidProductId,
     required this.hearts,
+    required this.priceWon,
     required this.displayName,
     this.isFirstPurchaseOffer = false,
   });
@@ -36,30 +39,35 @@ abstract final class HeartProducts {
     iosProductId: heart20ProductId,
     androidProductId: heart20ProductId,
     hearts: 20,
+    priceWon: 3900,
     displayName: '가볍게',
   );
   static const heart40 = HeartProduct(
     iosProductId: heart40ProductId,
     androidProductId: heart40ProductId,
     hearts: 40,
+    priceWon: 6900,
     displayName: '핵심',
   );
   static const heart100 = HeartProduct(
     iosProductId: heart100ProductId,
     androidProductId: heart100ProductId,
     hearts: 100,
+    priceWon: 14900,
     displayName: '활동',
   );
   static const heart220 = HeartProduct(
     iosProductId: heart220ProductId,
     androidProductId: heart220ProductId,
     hearts: 220,
+    priceWon: 29900,
     displayName: '학기',
   );
   static const firstHeart50 = HeartProduct(
     iosProductId: firstHeart50ProductId,
     androidProductId: firstHeart50ProductId,
     hearts: 50,
+    priceWon: 6900,
     displayName: '첫 결제 특별 상품',
     isFirstPurchaseOffer: true,
   );

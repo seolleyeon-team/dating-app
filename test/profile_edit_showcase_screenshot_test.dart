@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/features/profile/screens/profile_edit_screen.dart';
+import 'package:seolleyeon/shared/widgets/mbti_choice_grid.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -121,5 +122,42 @@ void main() {
     await tester.tap(find.text('완료'));
     await tester.pumpAndSettle();
     expect(find.text('ISTP'), findsOneWidget);
+  });
+
+  testWidgets('ideal MBTI edit reuses the same MBTI choice grid', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 3;
+    tester.view.physicalSize = const Size(1170, 2532);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      const CupertinoApp(
+        debugShowCheckedModeBanner: false,
+        home: ProfileEditScreen(showcase: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final idealMbtiTile = find.text('이상형 MBTI');
+    await tester.ensureVisible(idealMbtiTile);
+    await tester.pumpAndSettle();
+    await tester.tap(idealMbtiTile);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(MbtiChoiceGrid), findsOneWidget);
+    for (final letter in ['E', 'N', 'F', 'J', 'I', 'S', 'T', 'P']) {
+      expect(find.text(letter), findsOneWidget);
+    }
+
+    for (final letter in ['I', 'S', 'T', 'P']) {
+      await tester.tap(find.text(letter));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.text('완료'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('I, S, T, P'), findsOneWidget);
   });
 }

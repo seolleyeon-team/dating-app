@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
 import '../../../router/route_names.dart';
+import '../tutorial_completion.dart';
 
 class WelcomeTutorialScreen extends StatelessWidget {
   final VoidCallback? onNext;
@@ -18,15 +19,13 @@ class WelcomeTutorialScreen extends StatelessWidget {
     Navigator.of(context).pushNamed(RouteNames.aiTasteTrainingTutorial);
   }
 
-  void _handleSkip(BuildContext context) {
+  Future<void> _handleSkip(BuildContext context) async {
     HapticFeedback.lightImpact();
     if (onSkip != null) {
       onSkip!.call();
       return;
     }
-    Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
+    await completeTutorialAndEnterMain(context);
   }
 
   @override

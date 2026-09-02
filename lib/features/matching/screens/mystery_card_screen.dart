@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -37,6 +38,7 @@ const bool _temporarilyShowLockerPreview = true;
 class MysteryCardScreen extends StatefulWidget {
   final int notificationCount;
   final int remainingMatches;
+  final int heartBalance;
   final VoidCallback? onAiPreference;
   final VoidCallback? onNotification;
   final VoidCallback? onSettings;
@@ -46,6 +48,7 @@ class MysteryCardScreen extends StatefulWidget {
     super.key,
     this.notificationCount = 1,
     this.remainingMatches = 2,
+    this.heartBalance = 0,
     this.onAiPreference,
     this.onNotification,
     this.onSettings,
@@ -93,6 +96,19 @@ class _MysteryCardScreenState extends State<MysteryCardScreen> {
                       : _notificationService.unreadNotificationCountStream(
                           _currentUserId!,
                         ),
+                  heartBalance: widget.heartBalance,
+                  heartBalanceStream: _currentUserId == null
+                      ? null
+                      : FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(_currentUserId!)
+                            .snapshots()
+                            .map(
+                              (snapshot) =>
+                                  (snapshot.data()?['heartBalance'] as num?)
+                                      ?.toInt() ??
+                                  0,
+                            ),
                   onAiPreference:
                       widget.onAiPreference ??
                       () {
@@ -153,12 +169,16 @@ class _BackgroundGradients extends StatelessWidget {
 class _TopBar extends StatelessWidget {
   final int? notificationCount;
   final Stream<int>? notificationStream;
+  final int heartBalance;
+  final Stream<int>? heartBalanceStream;
   final VoidCallback onAiPreference;
   final VoidCallback onNotification;
 
   const _TopBar({
     this.notificationCount,
     this.notificationStream,
+    required this.heartBalance,
+    this.heartBalanceStream,
     required this.onAiPreference,
     required this.onNotification,
   });
@@ -236,44 +256,90 @@ class _TopBar extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 4),
-              CupertinoButton(
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(40, 40),
-                onPressed: onNotification,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Icon(
-                      CupertinoIcons.bell,
-                      color: isDark
-                          ? AppColorsDark.textSecondary
-                          : const Color(0xFF6B7280),
-                    ),
-                    if (count > 0)
-                      Positioned(
-                        top: -5,
-                        right: -7,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 1,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.primary,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            count > 9 ? '9+' : '$count',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
+              StreamBuilder<int>(
+                stream: heartBalanceStream,
+                initialData: heartBalance,
+                builder: (context, heartSnapshot) {
+                  final balance = heartSnapshot.data ?? heartBalance;
+                  return Semantics(
+                    label: '보유 하트 $balance개',
+                    child: SizedBox(
+                      width: 42,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(40, 32),
+                            onPressed: onNotification,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                Icon(
+                                  CupertinoIcons.bell,
+                                  color: isDark
+                                      ? AppColorsDark.textSecondary
+                                      : const Color(0xFF6B7280),
+                                ),
+                                if (count > 0)
+                                  Positioned(
+                                    top: -5,
+                                    right: -7,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                        vertical: 1,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        count > 9 ? '9+' : '$count',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
-                        ),
+                          Transform.translate(
+                            offset: const Offset(0, -3),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  CupertinoIcons.heart_fill,
+                                  size: 11,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                                const SizedBox(width: 2),
+                                Text(
+                                  '$balance',
+                                  key: const Key('main_heart_balance'),
+                                  style: TextStyle(
+                                    fontFamily: 'Pretendard',
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: isDark
+                                        ? AppColorsDark.textSecondary
+                                        : const Color(0xFF6B7280),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                  ],
-                ),
+                    ),
+                  );
+                },
               ),
             ],
           ),

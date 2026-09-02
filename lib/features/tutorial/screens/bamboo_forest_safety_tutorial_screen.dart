@@ -1,7 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
-import '../../../router/route_names.dart';
+import '../tutorial_completion.dart';
 
 class BambooForestSafetyTutorialScreen extends StatefulWidget {
   const BambooForestSafetyTutorialScreen({super.key});
@@ -31,11 +31,9 @@ class _BambooForestSafetyTutorialScreenState
     super.dispose();
   }
 
-  void _startApp() {
+  Future<void> _startApp() async {
     HapticFeedback.mediumImpact();
-    Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
+    await completeTutorialAndEnterMain(context);
   }
 
   @override
@@ -169,7 +167,6 @@ class _AppColors {
   static const Color pink200 = Color(0xFFFBCFE8);
   static const Color purple50 = Color(0xFFF3E8FF);
   static const Color purple200 = Color(0xFFE9D5FF);
-  static const Color purple500 = Color(0xFFA855F7);
   static const Color blue50 = Color(0xFFEFF6FF);
   static const Color blue500 = Color(0xFF3B82F6);
 }
@@ -263,15 +260,6 @@ class _PromiseCard extends StatelessWidget {
       ),
       child: const Column(
         children: [
-          _PromiseItem(
-            icon: CupertinoIcons.money_dollar_circle_fill,
-            iconColor: _AppColors.purple500,
-            iconBgColor: _AppColors.purple50,
-            title: '3:3 미팅 매너 보증금 제도',
-            description:
-                '미팅 시 No-show 방지를 위한 약속 보증금입니다.\n만남이 성사되고 확인되면 100% 환급됩니다.',
-          ),
-          _Divider(),
           _PromiseItem(
             icon: CupertinoIcons.person_crop_circle_fill,
             iconColor: _AppColors.primary,

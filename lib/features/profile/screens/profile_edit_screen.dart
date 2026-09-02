@@ -1086,24 +1086,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       }),
       useFlexible: false,
       child: StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-          child: SizedBox(
-            height: 136,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                for (var i = 0; i < profileMbtiDimensions.length; i++)
-                  _OptionalMbtiColumn(
-                    top: profileMbtiDimensions[i].first,
-                    bottom: profileMbtiDimensions[i].second,
-                    selected: selected[i],
-                    onSelect: (value) =>
-                        setSheetState(() => selected[i] = value),
-                  ),
-              ],
-            ),
-          ),
+        builder: (context, setSheetState) => MbtiChoiceGrid(
+          selectedValue: selected.map((value) => value ?? '-').join(),
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
+          onSelect: (index, value) => setSheetState(() {
+            selected[index] = selected[index] == value ? null : value;
+          }),
         ),
       ),
     );
@@ -1686,8 +1674,9 @@ class _PhotoSection extends StatelessWidget {
                 );
               }
               return _AddPhotoButton(
+                showAddIcon: index != 0,
                 isLoading: isLoading,
-                onTap: () => onAddPhoto?.call(index),
+                onTap: index == 0 ? null : () => onAddPhoto?.call(index),
               );
             },
           ),
@@ -1736,22 +1725,6 @@ class _PhotoSection extends StatelessWidget {
             ),
             const SizedBox(height: 16),
           ],
-          GestureDetector(
-            onTap: () {},
-            child: Row(
-              children: const [
-                Text(
-                  '사진 가이드 참고하기',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: _AppColors.primary,
-                  ),
-                ),
-                Icon(Icons.chevron_right, size: 16, color: _AppColors.primary),
-              ],
-            ),
-          ),
         ],
       ),
     );
@@ -1886,9 +1859,14 @@ class _FeaturedPhotoBadge extends StatelessWidget {
 
 class _AddPhotoButton extends StatelessWidget {
   final bool isLoading;
+  final bool showAddIcon;
   final VoidCallback? onTap;
 
-  const _AddPhotoButton({this.isLoading = false, this.onTap});
+  const _AddPhotoButton({
+    this.isLoading = false,
+    this.showAddIcon = true,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1902,7 +1880,9 @@ class _AddPhotoButton extends StatelessWidget {
         ),
         child: isLoading
             ? const Center(child: CupertinoActivityIndicator())
-            : const Icon(Icons.add_rounded, color: Color(0xFFD1D5DB), size: 32),
+            : showAddIcon
+            ? const Icon(Icons.add_rounded, color: Color(0xFFD1D5DB), size: 32)
+            : const SizedBox.shrink(),
       ),
     );
   }
@@ -1994,39 +1974,6 @@ class _SelectChip extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _OptionalMbtiColumn extends StatelessWidget {
-  final String top;
-  final String bottom;
-  final String? selected;
-  final ValueChanged<String?> onSelect;
-
-  const _OptionalMbtiColumn({
-    required this.top,
-    required this.bottom,
-    required this.selected,
-    required this.onSelect,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _SelectChip(
-          label: top,
-          isSelected: selected == top,
-          onTap: () => onSelect(selected == top ? null : top),
-        ),
-        const SizedBox(height: 8),
-        _SelectChip(
-          label: bottom,
-          isSelected: selected == bottom,
-          onTap: () => onSelect(selected == bottom ? null : bottom),
-        ),
-      ],
     );
   }
 }
@@ -2154,15 +2101,6 @@ class _SelfIntroSection extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            const Text(
-              '자기소개 꿀팁',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: _AppColors.primary,
-              ),
-            ),
           ],
         ),
       ),
@@ -2201,11 +2139,10 @@ class _ProfileQuestionsSection extends StatelessWidget {
         child: Column(
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
+                const Row(
                   children: [
-                    const Text(
+                    Text(
                       '프로필 문답',
                       style: TextStyle(
                         fontSize: 18,
@@ -2213,24 +2150,18 @@ class _ProfileQuestionsSection extends StatelessWidget {
                         color: _AppColors.textMain,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Container(
+                    SizedBox(width: 8),
+                    SizedBox(
                       width: 6,
                       height: 6,
-                      decoration: const BoxDecoration(
-                        color: _AppColors.primary,
-                        shape: BoxShape.circle,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: _AppColors.primary,
+                          shape: BoxShape.circle,
+                        ),
                       ),
                     ),
                   ],
-                ),
-                const Text(
-                  '+10%',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: _AppColors.primary,
-                  ),
                 ),
               ],
             ),

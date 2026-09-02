@@ -5,6 +5,7 @@ import 'package:flutter/material.dart'
     show showModalBottomSheet, RoundedRectangleBorder;
 import 'package:flutter/services.dart';
 
+import '../../../constants/profile_options.dart';
 import '../../../services/ask_service.dart';
 import '../../../services/interaction_service.dart';
 import '../../../services/rec_event_service.dart';
@@ -48,6 +49,9 @@ class _ResolvedProfile {
   final String birthYearText;
   final String university;
   final String major;
+  final String grade;
+  final String department;
+  final bool? isRa;
   final int matchPercent;
   final String aboutMe;
   final List<String> imageUrls;
@@ -69,6 +73,9 @@ class _ResolvedProfile {
     required this.birthYearText,
     required this.university,
     required this.major,
+    required this.grade,
+    required this.department,
+    required this.isRa,
     required this.matchPercent,
     required this.aboutMe,
     required this.imageUrls,
@@ -84,11 +91,6 @@ class _ResolvedProfile {
     required this.profileQa,
   });
 
-  List<String> get chips {
-    final merged = <String>[...interests, ...keywords];
-    return merged.where((e) => e.trim().isNotEmpty).toSet().toList();
-  }
-
   _ResolvedProfile copyWithImageUrls(List<String> value) {
     return _ResolvedProfile(
       id: id,
@@ -97,6 +99,9 @@ class _ResolvedProfile {
       birthYearText: birthYearText,
       university: university,
       major: major,
+      grade: grade,
+      department: department,
+      isRa: isRa,
       matchPercent: matchPercent,
       aboutMe: aboutMe,
       imageUrls: value,
@@ -677,19 +682,13 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
   }
 
   String _mapRelationship(String raw) {
-    switch (raw) {
-      case 'open':
-        return '열린 만남도 괜찮아요';
-      case 'serious':
-        return '진지한 연애를 원해요';
-      case 'casual':
-      case 'friend':
-        return '가볍게 알아가고 싶어요';
-      case 'friendship':
-        return '친구처럼 편하게 시작하고 싶어요';
-      default:
-        return raw;
+    for (final option in profileRelationshipOptions) {
+      if (option.value == raw) return option.label;
     }
+    if (raw == 'casual' || raw == 'friendship') {
+      return profileRelationshipOptions[1].label;
+    }
+    return raw;
   }
 
   String _mapLifestyleValue(String raw) {
@@ -782,6 +781,9 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
           birthYearText: '',
           university: '',
           major: '',
+          grade: '',
+          department: '',
+          isRa: null,
           matchPercent: 0,
           aboutMe: '',
           imageUrls: [],
@@ -897,6 +899,9 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
             ? onboardingUniversity
             : (seed?.university ?? ''),
         major: _mapMajor(rawMajor),
+        grade: onboarding['grade']?.toString() ?? '',
+        department: onboarding['department']?.toString() ?? '',
+        isRa: onboarding['isRa'] is bool ? onboarding['isRa'] as bool : null,
         matchPercent: seed?.sourceScores != null
             ? (seed!.sourceScores!.toDouble() * 100).round().clamp(0, 99)
             : (seed?.finalScore != null
@@ -941,6 +946,9 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
           birthYearText: _birthYearText(birthYearRaw: null, age: seed?.age),
           university: seed?.university ?? '',
           major: _mapMajor(seed?.major ?? ''),
+          grade: '',
+          department: '',
+          isRa: null,
           matchPercent: 0,
           aboutMe: seed?.bio ?? '',
           imageUrls: seed?.imageUrls ?? const [],
@@ -1282,6 +1290,71 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
   }
 }
 
+/// Deterministic rendering of the profile detail card for visual QA.
+///
+/// Production navigation continues to use [AiMatchProfileScreen].
+class ProfileDetailShowcaseScreen extends StatelessWidget {
+  const ProfileDetailShowcaseScreen({super.key});
+
+  static const _profile = _ResolvedProfile(
+    id: 'profile-showcase',
+    name: '연세봄',
+    age: 23,
+    birthYearText: '04년생',
+    university: '연세대학교',
+    major: '문과계열',
+    grade: '3학년',
+    department: '심리학과',
+    isRa: false,
+    matchPercent: 87,
+    aboutMe: '새로운 카페와 전시를 찾아다니는 걸 좋아해요. 편하게 대화하며 서로의 일상을 응원하고 싶어요.',
+    imageUrls: <String>[],
+    interests: <String>['카페', '전시', '산책', '여행'],
+    keywords: <String>['잘 웃는', '차분한', '예의 바른'],
+    mbti: 'ENFJ',
+    heightText: '165cm',
+    relationship: '진지한 연애를 원해요',
+    drinking: '가끔 해요',
+    smoking: '비흡연',
+    exercise: '가끔 해요',
+    loveLanguages: <String>[],
+    profileQa: <Map<String, String>>[],
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoPageScaffold(
+      backgroundColor: _AppColors.pageBackground,
+      navigationBar: const CupertinoNavigationBar(
+        backgroundColor: _AppColors.pageBackground,
+        border: null,
+        middle: Text(
+          '미리보기',
+          style: TextStyle(
+            fontFamily: _kFontFamily,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.2,
+            color: _AppColors.textMain,
+          ),
+        ),
+      ),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+          child: _ProfileCard(
+            profile: _profile,
+            heroImageIndex: 0,
+            shouldBlurPhotos: false,
+            onHeroImageChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ProfileCard extends StatelessWidget {
   final _ResolvedProfile profile;
   final int heroImageIndex;
@@ -1386,7 +1459,34 @@ class _ProfileCard extends StatelessWidget {
                         if (profile.major.isNotEmpty)
                           _InfoChip(label: '계열', value: profile.major),
                         if (profile.relationship.isNotEmpty)
-                          _InfoChip(label: '연애관', value: profile.relationship),
+                          _InfoChip(
+                            label: '내가 찾는 관계',
+                            value: profile.relationship,
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                ],
+                if (profile.grade.isNotEmpty ||
+                    profile.department.isNotEmpty ||
+                    profile.isRa != null) ...[
+                  const _SectionTitle(text: '학교 정보'),
+                  const SizedBox(height: 10),
+                  _SectionCard(
+                    child: Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        if (profile.grade.isNotEmpty)
+                          _InfoChip(label: '학년', value: profile.grade),
+                        if (profile.department.isNotEmpty)
+                          _InfoChip(label: '학과', value: profile.department),
+                        if (profile.isRa != null)
+                          _InfoChip(
+                            label: 'RA 여부',
+                            value: profile.isRa! ? '예' : '아니요',
+                          ),
                       ],
                     ),
                   ),
@@ -1408,15 +1508,29 @@ class _ProfileCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 18),
                 ],
-                if (profile.chips.isNotEmpty) ...[
+                if (profile.interests.isNotEmpty) ...[
                   const _SectionTitle(text: '요즘 관심 있는 것들!'),
                   const SizedBox(height: 10),
                   _SectionCard(
                     child: Wrap(
                       spacing: 10,
                       runSpacing: 10,
-                      children: profile.chips.map((interest) {
+                      children: profile.interests.map((interest) {
                         return _TagChip(text: interest);
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                ],
+                if (profile.keywords.isNotEmpty) ...[
+                  const _SectionTitle(text: '나를 소개하는 키워드'),
+                  const SizedBox(height: 10),
+                  _SectionCard(
+                    child: Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: profile.keywords.map((keyword) {
+                        return _TagChip(text: keyword);
                       }).toList(),
                     ),
                   ),

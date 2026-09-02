@@ -1702,16 +1702,11 @@ export const grantPurchasedHearts = onCall(withAppCheck(), async (request) => {
     .digest("hex");
   const transactionRef = db.collection("iapTransactions").doc(transactionKey);
   const userRef = db.collection("users").doc(user.userId);
-  const priorPurchasesQuery = db
-    .collection("iapTransactions")
-    .where("uid", "==", user.userId)
-    .limit(1);
 
   const result = await db.runTransaction(async (transaction) => {
-    const [existing, userSnap, priorPurchases] = await Promise.all([
+    const [existing, userSnap] = await Promise.all([
       transaction.get(transactionRef),
       transaction.get(userRef),
-      transaction.get(priorPurchasesQuery),
     ]);
 
     if (existing.exists) {
@@ -1748,13 +1743,11 @@ export const grantPurchasedHearts = onCall(withAppCheck(), async (request) => {
       purchase.productId === FIRST_PURCHASE_HEART_PRODUCT_ID;
     if (
       isFirstPurchaseOffer &&
-      (purchaseCount > 0 ||
-        userSnap.get("firstPurchaseOfferUsed") === true ||
-        !priorPurchases.empty)
+      userSnap.get("firstPurchaseOfferUsed") === true
     ) {
       throw new HttpsError(
         "failed-precondition",
-        "첫 결제 특별 상품은 계정의 첫 결제에만 구매할 수 있어요."
+        "50하트 특별 상품은 계정당 한 번만 구매할 수 있어요."
       );
     }
 

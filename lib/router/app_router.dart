@@ -40,9 +40,7 @@ import '../features/tutorial/screens/todays_match_tutorial_screen.dart';
 import '../features/tutorial/screens/ai_taste_button_tutorial_screen.dart';
 import '../features/tutorial/screens/ai_taste_training_screen.dart';
 import '../features/tutorial/screens/ai_taste_training_tutorial_screen.dart';
-import '../features/tutorial/screens/slot_machine_tutorial_screen.dart';
 import '../features/tutorial/screens/promise_agreement_tutorial_screen.dart';
-import '../features/tutorial/screens/season_meeting_intro_screen.dart';
 import '../features/tutorial/screens/bamboo_forest_intro_tutorial_screen.dart';
 import '../features/tutorial/screens/bamboo_forest_safety_tutorial_screen.dart';
 import '../features/tutorial/screens/bamboo_forest_write_tutorial_screen.dart';
@@ -217,11 +215,11 @@ class AppRouter {
       case RouteNames.aiTasteTrainingTutorial:
         return _cupertino(const AiTasteTrainingTutorialScreen());
       case RouteNames.slotMachineTutorial:
-        return _cupertino(const SlotMachineTutorialScreen());
+        return _cupertino(const BambooForestWriteTutorialScreen());
       case RouteNames.promiseAgreementTutorial:
         return _cupertino(const PromiseAgreementTutorialScreen());
       case RouteNames.seasonMeetingIntro:
-        return _cupertino(const SeasonMeetingIntroScreen());
+        return _cupertino(const BambooForestWriteTutorialScreen());
       case RouteNames.bambooForestIntroTutorial:
         return _cupertino(const BambooForestIntroTutorialScreen());
       case RouteNames.bambooForestSafetyTutorial:
