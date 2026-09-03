@@ -33,6 +33,7 @@ import {
 import {
   confirmLegacyAwaitingAcceptanceMeeting,
   inspectLegacyMatch,
+  isReplacementInProgress,
   markLegacyRepairRequired as markRepairRequired,
 } from "./legacyAcceptance";
 import { db, readMeetingDoc } from "./store";
@@ -41,6 +42,8 @@ import { BLIND_MEETING_COLLECTIONS, asStr } from "./types";
 export type LegacyNormalizationOutcome =
   | "not_legacy"
   | "confirmed"
+  /** 대체 충원 진행 중 — 취소·표시 없이 replacement FSM 에 맡긴다 */
+  | "replacement_in_progress"
   | "repair_required"
   /** 이미 repair 표시가 된 문서. 운영자가 손보기 전까지 다시 건드리지 않는다. */
   | "repair_pending";
@@ -72,8 +75,16 @@ export async function repairLegacyMeetingStatus(
     return "repair_required";
   }
 
-  const reasons = await inspectLegacyMatch(meetingId, meeting.participantIds);
+  const reasons = await inspectLegacyMatch(meeting);
   if (reasons.length > 0) {
+    // 대체 충원이 진행 중이면 손상이 아니라 진행 중인 상태다. legacyAcceptance
+    // 와 같은 판단을 해서 두 legacy 경로가 서로 다른 결론을 내지 않게 한다.
+    if (await isReplacementInProgress(meetingId)) {
+      logger.info("blindMeeting legacy deposit doc left to the replacement FSM", {
+        meetingId,
+      });
+      return "replacement_in_progress";
+    }
     await markRepairRequired(meetingId, reasons);
     return "repair_required";
   }

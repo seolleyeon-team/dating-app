@@ -43,6 +43,7 @@ import {
 import { openGroupChatForConfirmedMeeting } from "./meetingConfirmation";
 import { notifyBlindMeeting } from "./notifications";
 import {
+  MeetingDoc,
   createOpsReview,
   db,
   loadMeeting,
@@ -116,16 +117,30 @@ const LEGACY_HELD_SEAT_STATUSES = new Set<ParticipantStatus>([
 ]);
 
 /**
+ * 확정으로 승격할 수 있는 신청서 상태 (서버 표기 / 앱 표기 모두).
+ * 이 밖의 값이면 FSM 이 승격을 거부하므로 확정을 시작하지 않는다.
+ */
+const LEGACY_PROMOTABLE_APPLICATION_STATUSES = new Set<string>([
+  "invited",
+  "accepted",
+  "confirmed",
+]);
+
+/**
  * legacy 미팅의 canonical match 무결성 검사. 위반 사유 목록을 돌려준다
  * (비어 있으면 온전). legacyDepositNormalizer 와 공유한다.
  *
  * 과거 참가자 상태의 "수락 수"는 기준이 아니다 — 사용자에게 수락을 다시
  * 요구하지 않으므로 좌석이 유지되고 있는지(invited/accepted/confirmed)만 본다.
+ *
+ * 검사 항목은 신규 매칭 tx(createMeetingFromProposal)의 불변식과 같은 강도여야
+ * 한다: 좌석 6·중복 없음·팀 분할(3+3, 각 팀 단일 성별, 두 팀 성별 상이)·총원
+ * 3남+3녀·좌석별 참가자 문서·신청서 귀속과 승격 가능 상태. 하나라도 약하면
+ * legacy 경로가 canonical 경로보다 헐거워져 손상된 미팅이 자동 확정된다.
  */
-export async function inspectLegacyMatch(
-  meetingId: string,
-  participantIds: string[]
-): Promise<string[]> {
+export async function inspectLegacyMatch(meeting: MeetingDoc): Promise<string[]> {
+  const meetingId = meeting.meetingId;
+  const participantIds = meeting.participantIds;
   const reasons: string[] = [];
 
   if (participantIds.length !== 6) {
@@ -133,6 +148,21 @@ export async function inspectLegacyMatch(
   }
   if (new Set(participantIds).size !== participantIds.length) {
     reasons.push("duplicate_seat");
+  }
+
+  // 팀 분할. 신규 매칭 tx 는 각 팀이 단일 성별이고 서로 다른 성별인지 확인한다
+  // (teamA=[남,남,여] / teamB=[여,여,남] 도 총원으로는 3:3 이 된다).
+  const teamA = meeting.teamAUserIds;
+  const teamB = meeting.teamBUserIds;
+  if (teamA.length !== 3 || teamB.length !== 3) {
+    reasons.push("team_size:" + teamA.length + "+" + teamB.length);
+  }
+  const teamUnion = new Set([...teamA, ...teamB]);
+  if (
+    teamUnion.size !== participantIds.length ||
+    participantIds.some((userId) => !teamUnion.has(userId))
+  ) {
+    reasons.push("team_roster_mismatch");
   }
 
   // 좌석마다 참가자 문서가 있고 좌석을 쥔 상태여야 한다.
@@ -154,10 +184,16 @@ export async function inspectLegacyMatch(
     const userSnaps = await db().getAll(
       ...participantIds.map((userId) => db().collection("users").doc(userId))
     );
-    const balance = validateBlindThreeVsThreeParticipants(
-      participantIds.map((userId, index) => ({
+    const genderByUserId = new Map(
+      participantIds.map((userId, index) => [
         userId,
-        gender: readBlindMeetingGender(userSnaps[index]?.data()),
+        readBlindMeetingGender(userSnaps[index]?.data()),
+      ])
+    );
+    const balance = validateBlindThreeVsThreeParticipants(
+      participantIds.map((userId) => ({
+        userId,
+        gender: genderByUserId.get(userId) ?? null,
       }))
     );
     if (!balance.ok) {
@@ -169,9 +205,22 @@ export async function inspectLegacyMatch(
           "u" + balance.counts.unknown
       );
     }
+    // 각 팀은 단일 성별이고, 두 팀의 성별은 서로 달라야 한다.
+    const teamGenders = [teamA, teamB].map(
+      (team) => new Set(team.map((userId) => genderByUserId.get(userId) ?? null))
+    );
+    const singleGenderTeams =
+      teamGenders.every((genders) => genders.size === 1) &&
+      ![...teamGenders[0]].includes(null) &&
+      [...teamGenders[0]][0] !== [...teamGenders[1]][0];
+    if (!singleGenderTeams) {
+      reasons.push("team_gender_split");
+    }
   }
 
-  // 신청서 6개가 모두 이 미팅에 귀속돼 있어야 한다 (재오픈/재클레임 = 이탈).
+  // 신청서 6개가 모두 이 미팅에 귀속돼 있고, 확정으로 승격할 수 있는 상태여야
+  // 한다. 귀속 여부만 보면 이미 confirmed 인 신청서가 섞였을 때 확정 루프가
+  // FSM 거부로 중간에 멈춰 "confirmed 인데 방 없음" 이 남는다.
   if (participantIds.length > 0) {
     const applicationSnaps = await db().getAll(
       ...participantIds.map((userId) =>
@@ -181,7 +230,17 @@ export async function inspectLegacyMatch(
     for (const snap of applicationSnaps) {
       const bound =
         snap.exists && asStr(snap.data()?.meetingId, "").trim() === meetingId;
-      if (!bound) reasons.push("application_detached:" + snap.id);
+      if (!bound) {
+        reasons.push("application_detached:" + snap.id);
+        continue;
+      }
+      const status = asStr(
+        snap.data()?.serverStatus ?? snap.data()?.status,
+        ""
+      );
+      if (!LEGACY_PROMOTABLE_APPLICATION_STATUSES.has(status)) {
+        reasons.push("application_status:" + status);
+      }
     }
   }
 
@@ -207,7 +266,7 @@ export async function confirmLegacyAwaitingAcceptanceMeeting(
   }
   // 상태 전이 전에 검증한다. 손상된 legacy 문서를 confirmed 로 옮겨 놓고
   // 채팅방 생성에서 막히면 "confirmed 인데 방 없음" 상태가 남는다.
-  const integrity = await inspectLegacyMatch(meetingId, meeting.participantIds);
+  const integrity = await inspectLegacyMatch(meeting);
   if (integrity.length > 0) {
     logger.warn("blindMeeting legacy confirm skipped: match not intact", {
       meetingId,
@@ -251,21 +310,30 @@ export async function confirmLegacyAwaitingAcceptanceMeeting(
     const applicationBound =
       applicationSnap.exists &&
       asStr(applicationSnap.data()?.meetingId, "").trim() === meetingId;
+    // 신청서 승격은 현재 상태에서 FSM 이 허용하는 단계만 밟는다. 이미 confirmed
+    // 인 신청서에 accepted 를 다시 쓰면 FSM 이 거부해 루프가 상태 전이 뒤에서
+    // 멈추고 "confirmed 인데 방 없음" 이 남는다.
+    const applicationStatus = asStr(
+      applicationSnap.data()?.serverStatus ?? applicationSnap.data()?.status,
+      ""
+    );
     if (participant.status === "invited") {
       // 수락 단계가 없어졌으므로 legacy invited 좌석은 시스템이 대신 수락한다.
       await updateParticipant(meetingId, userId, {
         status: "accepted",
         extra: { acceptedAt: FieldValue.serverTimestamp(), acceptedBy: "legacy_normalizer" },
       });
-      if (applicationBound) await setApplication(userId, { status: "accepted" });
+      if (applicationBound && applicationStatus === "invited") {
+        await setApplication(userId, { status: "accepted" });
+      }
     }
     await updateParticipant(meetingId, userId, {
       status: "confirmed",
       extra: { confirmedAt: FieldValue.serverTimestamp() },
     });
-    if (applicationBound) {
+    if (applicationBound && applicationStatus !== "confirmed") {
       await setApplication(userId, { status: "confirmed", stage: "matched" });
-    } else {
+    } else if (!applicationBound) {
       logger.warn("blindMeeting legacy confirm: application not bound, skipped", {
         meetingId,
       });
@@ -346,7 +414,7 @@ export async function normalizeLegacyAwaitingAcceptanceMeeting(
     return "replacement_in_progress";
   }
   const meeting = await loadMeeting(meetingId);
-  const reasons = await inspectLegacyMatch(meetingId, meeting.participantIds);
+  const reasons = await inspectLegacyMatch(meeting);
   await markLegacyRepairRequired(
     meetingId,
     reasons.length > 0 ? reasons : ["confirm_declined_by_fsm"]

@@ -1296,6 +1296,13 @@ export async function respondReplacementOffer(params: {
         teamAUserIds: nextTeamA,
         teamBUserIds: nextTeamB,
         participantIds: nextParticipants,
+        // 확정 시점 성별 스냅샷을 새 좌석 주인으로 갱신한다. 이 값이 없으면
+        // 이후 groupChatRepair 가 대체 참가자만 현재 프로필(가변)에 의존하게
+        // 되어, 그 사용자가 성별 필드를 지우면 복구가 막힌다.
+        participantGenders: {
+          [params.userId]: joinerGender,
+          [vacantUserId]: FieldValue.delete(),
+        },
         // 교집합이 비면(있을 수 없는 상태) 기존 값을 유지해 약속잡기를 막지 않는다.
         ...(nextCommon.length > 0
           ? { commonAvailableDateKeys: nextCommon }
@@ -1313,6 +1320,8 @@ export async function respondReplacementOffer(params: {
         userId: params.userId,
         team,
         role: "member",
+        // 확정 시점 성별 (미팅 participantGenders 와 같은 값, 복구 근거 2순위).
+        gender: joinerGender,
         status: PARTICIPANT_STATUS_TO_APP.confirmed,
         serverStatus: "confirmed",
         attendanceConfirmation24h: "attending",
@@ -1811,21 +1820,22 @@ export async function markSafetyStamp(params: {
         checkInVerification: params.verification,
       },
     });
-    // 재전송이면 상태만 그대로 두고 카운터는 올리지 않는다.
+    // 재전송이면 상태만 그대로 두고 카운터도 만남 이력도 다시 쓰지 않는다.
     if (!stampParticipant.checkedIn) {
       await incrementStats(params.userId, { checkinCompleted: 1 });
-    }
-    // recentlyMet(재매칭 제외 이력)는 "실제로 만난" 관계다. 매칭·확정·채팅방·
-    // 약속 확정은 만남이 아니므로 기록하지 않고, 도착 안전도장을 찍은 사람들
-    // 사이에서만 기록한다. 노쇼·취소·대체로 빠진 사람은 도장을 찍을 수 없어
-    // 자연히 제외되고, 6x6 이 아니라 실제 도착자 x 도착자 pair 만 남는다.
-    // recordMetUsers 는 문서 id 가 pair 로 고정된 merge write 라 재도장에도
-    // 관계가 중복 생성되지 않는다.
-    const arrived = (await loadParticipants(params.meetingId))
-      .filter((p) => p.checkedIn && meeting.participantIds.includes(p.userId))
-      .map((p) => p.userId);
-    if (arrived.length >= 2) {
-      await recordMetUsers(params.meetingId, arrived);
+      // recentlyMet(재매칭 제외 이력)는 "실제로 만난" 관계다. 매칭·확정·채팅방·
+      // 약속 확정은 만남이 아니므로 기록하지 않고, 도착 안전도장을 찍은 사람들
+      // 사이에서만 기록한다. 노쇼·취소·대체로 빠진 사람은 도장을 찍을 수 없어
+      // 자연히 제외되고, 6x6 이 아니라 실제 도착자 x 도착자 pair 만 남는다.
+      // 이번에 도착한 사람이 만드는 pair 만 쓴다: 나머지 pair 는 그 사람들이
+      // 도착할 때 이미 기록됐으므로, 각 관계의 metAt 이 실제로 두 사람이 함께
+      // 있게 된 시각으로 한 번만 고정된다 (재도장·후속 도착에 갱신되지 않음).
+      const arrived = (await loadParticipants(params.meetingId))
+        .filter((p) => p.checkedIn && meeting.participantIds.includes(p.userId))
+        .map((p) => p.userId);
+      if (arrived.length >= 2) {
+        await recordMetUsers(params.meetingId, arrived, params.userId);
+      }
     }
     await transitionMeetingStatus(params.meetingId, "checkin_open");
     await maybeStartMeeting(params.meetingId);

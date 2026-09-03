@@ -23,7 +23,7 @@ import assert from "node:assert/strict";
 import { test, before } from "node:test";
 
 import { initializeApp } from "firebase-admin/app";
-import { getFirestore, type Firestore } from "firebase-admin/firestore";
+import { FieldValue, getFirestore, type Firestore } from "firebase-admin/firestore";
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
   throw new Error(
@@ -43,6 +43,7 @@ import {
   settleCancellation,
   voteSchedule,
 } from "./orchestrator";
+import { repairConfirmedMeetingGroupChat } from "./meetingConfirmation";
 import {
   BLIND_MEETING_HEART_COST,
   blindMeetingHeartSpendId,
@@ -802,4 +803,132 @@ test("a candidate who actually met a seat holder before stays excluded (recently
     .where("candidateUid", "==", f5.userId)
     .get();
   assert.equal(offers.size, 0, "F5 who really met M1 is not offered the seat");
+});
+
+// -----------------------------------------------------------------------------
+// 독립 리뷰 finding 회귀 (release review, 2026-09-04)
+// -----------------------------------------------------------------------------
+
+test("review P2-2: a replacement joiner gets a match-time gender snapshot, so repair never depends on their current profile", async () => {
+  // 이 테스트만의 날짜를 쓴다. 공유 날짜를 쓰면 앞선 테스트가 남긴 열린 신청이
+  // 같은 매칭에 섞여 좌석 구성이 달라진다.
+  const dateKey = dateKeyInWindow(13);
+  const seeded = await seedPool(3, 3, dateKey);
+  const created = await runMatchingForDate(dateKey);
+  assert.equal(created.length, 1, "exactly one meeting is created");
+  const meetingId = created[0];
+  const uids = await assertThreeVsThree(meetingId);
+  await assertConfirmedWithRoom(meetingId, uids);
+
+  const [f4] = await seedPool(0, 1, dateKey);
+  const femaleSeats = new Set(
+    seeded.filter((seed) => seed.gender === "female").map((seed) => seed.userId)
+  );
+  const f3 = uids.find((uid) => femaleSeats.has(uid))!;
+  assert.ok(f3 != null, "a female seat to vacate");
+  const stayers = uids.filter((uid) => uid !== f3);
+
+  await requestCancellation({ meetingId, userId: f3, reason: "일정 변경", emergency: false });
+  const offers = await db
+    .collection("blindMeetingReplacementOffers")
+    .where("meetingId", "==", meetingId)
+    .where("candidateUid", "==", f4.userId)
+    .get();
+  assert.equal(offers.size, 1);
+  const joined = await respondReplacementOffer({
+    offerId: offers.docs[0].id,
+    userId: f4.userId,
+    accept: true,
+  });
+  assert.equal(joined.ok, true, JSON.stringify(joined));
+
+  // 대체 tx 가 두 곳 모두에 확정 시점 성별을 남긴다.
+  const meeting = await meetingData(meetingId);
+  const genders = meeting.participantGenders as Record<string, string>;
+  assert.equal(genders[f4.userId], "female", "joiner gender snapshot on the meeting");
+  assert.equal(genders[f3], undefined, "replaced seat's stale entry is removed");
+  assert.deepEqual(
+    Object.keys(genders).sort(),
+    [...stayers, f4.userId].sort(),
+    "snapshot covers exactly the current roster"
+  );
+  assert.equal((await participantData(meetingId, f4.userId)).gender, "female");
+
+  // 대체 참가자가 나중에 프로필 성별을 지워도 스냅샷으로 복구된다.
+  await db.collection("users").doc(f4.userId).set(
+    { onboarding: { gender: FieldValue.delete() }, gender: FieldValue.delete() },
+    { merge: true }
+  );
+  await db.collection("blindMeetings").doc(meetingId).set(
+    { status: "confirmed", serverStatus: "confirmed" },
+    { merge: true }
+  );
+  assert.equal(await repairConfirmedMeetingGroupChat(meetingId), "opened");
+  const repaired = await meetingData(meetingId);
+  assert.equal(repaired.serverStatus, "chat_open");
+  assert.equal(repaired.groupChatRepairRequired, undefined);
+  const room = await db.collection("chat_rooms").doc(`blind_${meetingId}`).get();
+  assert.deepEqual(
+    [...(room.data()?.participantIds as string[])].sort(),
+    [...stayers, f4.userId].sort()
+  );
+});
+
+test("review P2-6: metAt is fixed when two people are first together and is never refreshed by later arrivals or re-stamps", async () => {
+  // 전용 날짜로 격리한다. 공유 날짜를 쓰면 앞선 테스트에서 이미 만난 사용자가
+  // 이 매칭에 섞여 들어와 만남 이력이 이 미팅 것만 남지 않는다.
+  const dateKey = dateKeyInWindow(14);
+  await seedPool(3, 3, dateKey);
+  const created = await runMatchingForDate(dateKey);
+  assert.equal(created.length, 1, "exactly one meeting is created");
+  const meetingId = created[0];
+  const uids = await assertThreeVsThree(meetingId);
+  await assertNoMetUsers(uids, "after confirmation");
+
+  const slotId = `${dateKey}#evening`;
+  for (const uid of uids) {
+    await voteSchedule({ meetingId, userId: uid, preferredSlotIds: [slotId], preferredPlaceId: null });
+  }
+
+  const metAtOf = async (uid: string, otherId: string): Promise<number | null> => {
+    const snap = await db
+      .collection("blindMeetingHistory")
+      .doc(uid)
+      .collection("metUsers")
+      .doc(otherId)
+      .get();
+    const value = snap.data()?.metAt;
+    return value?.toMillis?.() ?? null;
+  };
+
+  await markSafetyStamp({ meetingId, userId: uids[0], phase: "meetup", verification: null });
+  assert.deepEqual(await metUserIds(uids[0]), [], "one arrival makes no relationship");
+
+  await markSafetyStamp({ meetingId, userId: uids[1], phase: "meetup", verification: null });
+  const firstPairAt = await metAtOf(uids[0], uids[1]);
+  assert.ok(firstPairAt != null, "the first pair is recorded on the second arrival");
+
+  // 세 번째 도착: 새 pair 만 생기고, 기존 pair 의 metAt 은 그대로다.
+  await markSafetyStamp({ meetingId, userId: uids[2], phase: "meetup", verification: null });
+  assert.equal(await metAtOf(uids[0], uids[1]), firstPairAt, "later arrival does not refresh");
+  assert.ok((await metAtOf(uids[0], uids[2])) != null);
+  assert.ok((await metAtOf(uids[1], uids[2])) != null);
+
+  // 재도장: 관계도 metAt 도 건드리지 않는다.
+  await markSafetyStamp({ meetingId, userId: uids[0], phase: "meetup", verification: { source: "retry" } });
+  assert.equal(await metAtOf(uids[0], uids[1]), firstPairAt, "re-stamp does not refresh");
+  assert.deepEqual(await metUserIds(uids[0]), [uids[1], uids[2]].sort());
+
+  // 나머지 도착 후에도 각 관계는 정확히 한 번씩만 존재한다.
+  for (const uid of uids.slice(3)) {
+    await markSafetyStamp({ meetingId, userId: uid, phase: "meetup", verification: null });
+  }
+  for (const uid of uids) {
+    assert.deepEqual(
+      await metUserIds(uid),
+      uids.filter((other) => other !== uid).sort(),
+      `${uid} met the other five exactly once`
+    );
+  }
+  assert.equal(await metAtOf(uids[0], uids[1]), firstPairAt, "still the original timestamp");
 });

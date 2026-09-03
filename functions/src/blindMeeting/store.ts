@@ -2261,14 +2261,30 @@ export async function ensureDirectChat(
 // 안전 / 제재 / 이력
 // -----------------------------------------------------------------------------
 
+/**
+ * 실제로 만난 관계를 기록한다 (pair 문서 id 고정 → 중복 생성 없음).
+ *
+ * [arrivedUserId] 를 주면 그 사용자가 새로 만드는 pair 만 쓴다. 나머지 pair 는
+ * 상대가 도착했을 때 이미 기록됐으므로, 각 관계의 `metAt` 이 두 사람이 함께
+ * 있게 된 시각으로 한 번만 고정되고 이후 도착·재도장에 갱신되지 않는다.
+ * (같은 미팅에서 write 수도 N*(N-1) 에서 2*(N-1) 로 줄어든다.)
+ */
 export async function recordMetUsers(
   meetingId: string,
-  userIds: string[]
+  userIds: string[],
+  arrivedUserId?: string
 ): Promise<void> {
   const batch = db().batch();
   for (const userId of userIds) {
     for (const otherId of userIds) {
       if (userId === otherId) continue;
+      if (
+        arrivedUserId != null &&
+        userId !== arrivedUserId &&
+        otherId !== arrivedUserId
+      ) {
+        continue;
+      }
       batch.set(
         db()
           .collection(BLIND_MEETING_COLLECTIONS.matchHistory)

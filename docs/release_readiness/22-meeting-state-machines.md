@@ -195,6 +195,21 @@ meeting `status`/`serverStatus`의 유일한 사후 writer는
   replacement FSM 에 맡기고(`replacement_in_progress`), 그 외는 취소 대신
   `legacyRepairRequired` 1회 + 운영 검토 1건(`repair_required` → 이후
   `repair_pending`). 어떤 legacy 상태도 오래된 수락 기한만으로 취소되지 않는다.
+- legacy 무결성 검사(`legacyAcceptance.inspectLegacyMatch`)는 신규 매칭 tx 와
+  같은 강도다: 좌석 6·uid 중복 없음·팀 3+3·각 팀 단일 성별·두 팀 성별 상이·
+  팀 배열이 명부를 정확히 덮음·총원 3남+3녀·좌석별 참가자 문서·신청서 귀속과
+  승격 가능 상태(invited/accepted/confirmed). 하나라도 어긋나면 상태 전이
+  **이전**에 repair 로 빠지므로 "confirmed 인데 방 없음" 이 생기지 않는다.
+  `legacyDepositNormalizer` 도 같은 검사를 쓰고, 대체 충원이 진행 중이면
+  `replacement_in_progress` 로 동일하게 유예한다.
+- 대체 충원 tx(`respondReplacementOffer`)는 새 좌석 주인의 확정 시점 성별을
+  참가자 문서 `gender` 와 미팅 `participantGenders` 양쪽에 기록하고 이탈자
+  항목을 지운다. 이게 없으면 대체 참가자만 복구 근거가 현재 프로필(가변)로
+  떨어져, 그 사용자가 성별 필드를 지우면 채팅방 복구가 막힌다.
+- `recordMetUsers` 는 이번에 도착한 사람이 만드는 pair 만 쓰고, 최초 체크인일
+  때만 호출된다. 각 관계의 `metAt` 이 두 사람이 함께 있게 된 시각으로 한 번만
+  고정되고(후속 도착·재도장에 갱신되지 않음) 같은 미팅의 write 도
+  N*(N-1) 에서 2*(N-1) 로 준다.
 - groupChatRepair 복구 정책 (closure ③): 매칭 tx 와 legacy 확정이 미팅 문서에
   `participantGenders`(+참가자 문서 `gender`) 스냅샷을 남긴다.
   `ensureGroupChat` 의 3남+3녀 재검증은 `store.resolveRosterGenderEvidence`

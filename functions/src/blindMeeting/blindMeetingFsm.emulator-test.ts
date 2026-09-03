@@ -1603,3 +1603,143 @@ test("closure③: repair never rebuilds the roster from a mutable profile — a 
   const room = await db.collection("chat_rooms").doc(`blind_${meetingId}`).get();
   assert.deepEqual([...(room.data()?.participantIds as string[])].sort(), [...uids].sort());
 });
+
+// -----------------------------------------------------------------------------
+// 독립 리뷰 finding 회귀 (release review, 2026-09-04)
+//
+// legacy 경로의 무결성 검사는 신규 매칭 tx 와 같은 강도여야 한다. 약하면
+// 손상된 legacy 미팅이 자동 확정돼 6인 방이 열리고, 이후 대체 충원조차
+// 좌석 스냅샷 불일치로 조용히 실패한다.
+// -----------------------------------------------------------------------------
+
+test("review P2-1: legacy meeting whose teams are not single-gender is flagged, never confirmed", async () => {
+  const { meetingId, uids } = await seedInvitedMeeting();
+  // 총원은 3남+3녀 그대로지만 팀이 섞여 있다: teamA=[남,남,여] / teamB=[여,여,남].
+  await db.collection("blindMeetings").doc(meetingId).set(
+    {
+      teamAUserIds: [uids[0], uids[1], uids[3]],
+      teamBUserIds: [uids[4], uids[5], uids[2]],
+    },
+    { merge: true }
+  );
+
+  assert.equal(await confirmLegacyAwaitingAcceptanceMeeting(meetingId), false);
+  const outcomes = await repairLegacyAwaitingAcceptanceMeetings();
+  assert.equal(
+    outcomes.find((o) => o.meetingId === meetingId)?.outcome,
+    "repair_required"
+  );
+  const data = (await db.collection("blindMeetings").doc(meetingId).get()).data();
+  assert.equal(data?.serverStatus, "awaiting_acceptance", "not confirmed");
+  assert.equal(data?.legacyRepairRequired, true);
+  assert.ok(
+    (data?.legacyRepairReasons as string[]).includes("team_gender_split"),
+    JSON.stringify(data?.legacyRepairReasons)
+  );
+  assert.equal(
+    (await db.collection("chat_rooms").doc(`blind_${meetingId}`).get()).exists,
+    false,
+    "no room for a corrupted team split"
+  );
+});
+
+test("review P2-1b: legacy meeting whose team arrays do not cover the roster is flagged", async () => {
+  const { meetingId, uids } = await seedInvitedMeeting();
+  await db.collection("blindMeetings").doc(meetingId).set(
+    { teamBUserIds: [uids[3], uids[4]] },
+    { merge: true }
+  );
+
+  const outcomes = await repairLegacyAwaitingAcceptanceMeetings();
+  assert.equal(
+    outcomes.find((o) => o.meetingId === meetingId)?.outcome,
+    "repair_required"
+  );
+  const reasons = (
+    await db.collection("blindMeetings").doc(meetingId).get()
+  ).data()?.legacyRepairReasons as string[];
+  assert.ok(reasons.includes("team_size:3+2"), JSON.stringify(reasons));
+  assert.ok(reasons.includes("team_roster_mismatch"), JSON.stringify(reasons));
+});
+
+test("review P2-4: an already-confirmed application no longer aborts the confirm loop midway", async () => {
+  const { meetingId, uids } = await seedInvitedMeeting();
+  // 부분 승격된 상태(재시도): 참가자는 invited 인데 신청서는 이미 confirmed.
+  // 예전에는 FSM 이 accepted 재기록을 거부해 루프가 상태 전이 뒤에서 멈췄고
+  // "confirmed 인데 방 없음" 이 남았다.
+  await seedApplication(uids[2], "confirmed", { meetingId, open: false });
+
+  assert.equal(await confirmLegacyAwaitingAcceptanceMeeting(meetingId), true);
+  const data = (await db.collection("blindMeetings").doc(meetingId).get()).data();
+  assert.equal(data?.serverStatus, "chat_open", "확정이 끝까지 진행된다");
+  assert.equal(data?.groupChatId, `blind_${meetingId}`);
+  assert.equal(data?.legacyRepairRequired, undefined);
+  for (const uid of uids) {
+    assert.equal(await participantStatus(meetingId, uid), "confirmed");
+    assert.equal((await applicationStatus(uid))?.serverStatus, "confirmed");
+  }
+  const rooms = await db
+    .collection("chat_rooms")
+    .where("meetingId", "==", meetingId)
+    .get();
+  assert.equal(rooms.size, 1);
+});
+
+test("review P2-4b: a bound application in a non-promotable status is flagged before any transition", async () => {
+  const { meetingId, uids } = await seedInvitedMeeting();
+  // 손상: 신청서가 이 미팅에 묶인 채 terminal 상태다. 승격할 수 없으므로
+  // 상태 전이 이전에 걸러야 "confirmed 인데 방 없음" 이 생기지 않는다.
+  await seedApplication(uids[2], "no_show", { meetingId, open: false });
+
+  assert.equal(await confirmLegacyAwaitingAcceptanceMeeting(meetingId), false);
+  const data = (await db.collection("blindMeetings").doc(meetingId).get()).data();
+  assert.equal(data?.serverStatus, "awaiting_acceptance");
+  assert.equal(data?.groupChatId, undefined);
+  assert.equal(
+    (await db.collection("chat_rooms").doc(`blind_${meetingId}`).get()).exists,
+    false
+  );
+  const outcomes = await repairLegacyAwaitingAcceptanceMeetings();
+  assert.equal(
+    outcomes.find((o) => o.meetingId === meetingId)?.outcome,
+    "repair_required"
+  );
+  const reasons = (
+    await db.collection("blindMeetings").doc(meetingId).get()
+  ).data()?.legacyRepairReasons as string[];
+  assert.ok(
+    reasons.some((r) => r.startsWith("application_status:")),
+    JSON.stringify(reasons)
+  );
+});
+
+test("review P2-3: legacy awaiting_deposits with a replacement in progress defers instead of flagging", async () => {
+  const { meetingId, uids } = await seedLegacyDepositMeeting([
+    "accepted", "accepted", "accepted", "accepted", "accepted", "cancelled",
+  ]);
+  await db.collection("blindMeetingReplacementOffers").doc(`${meetingId}_${uids[5]}_cand`).set({
+    meetingId,
+    vacantParticipantId: uids[5],
+    candidateUid: "cand_dep",
+    offerStatus: "offered",
+    expiresAt: new Date(Date.now() + 3600 * 1000),
+  });
+
+  assert.equal(await repairLegacyMeetingStatus(meetingId), "replacement_in_progress");
+  const data = (await db.collection("blindMeetings").doc(meetingId).get()).data();
+  assert.equal(data?.legacyRepairRequired, undefined, "not flagged while replacing");
+  assert.equal(
+    (await db.collection("blindMeetingOpsReviews").doc(`${meetingId}_meeting_legacy_status_repair`).get()).exists,
+    false
+  );
+  // 대체 제안이 사라지면 그때 repair 로 넘어간다 (두 legacy 경로가 같은 판단).
+  await db.collection("blindMeetingReplacementOffers").doc(`${meetingId}_${uids[5]}_cand`).set(
+    { offerStatus: "expired" },
+    { merge: true }
+  );
+  assert.equal(await repairLegacyMeetingStatus(meetingId), "repair_required");
+  assert.equal(
+    (await db.collection("blindMeetings").doc(meetingId).get()).data()?.legacyRepairRequired,
+    true
+  );
+});
