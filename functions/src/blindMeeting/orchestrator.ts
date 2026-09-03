@@ -1820,22 +1820,24 @@ export async function markSafetyStamp(params: {
         checkInVerification: params.verification,
       },
     });
-    // 재전송이면 상태만 그대로 두고 카운터도 만남 이력도 다시 쓰지 않는다.
+    // 재전송이면 카운터는 올리지 않는다 (공개 신뢰 지표라 두 번 오르면 안 된다).
     if (!stampParticipant.checkedIn) {
       await incrementStats(params.userId, { checkinCompleted: 1 });
-      // recentlyMet(재매칭 제외 이력)는 "실제로 만난" 관계다. 매칭·확정·채팅방·
-      // 약속 확정은 만남이 아니므로 기록하지 않고, 도착 안전도장을 찍은 사람들
-      // 사이에서만 기록한다. 노쇼·취소·대체로 빠진 사람은 도장을 찍을 수 없어
-      // 자연히 제외되고, 6x6 이 아니라 실제 도착자 x 도착자 pair 만 남는다.
-      // 이번에 도착한 사람이 만드는 pair 만 쓴다: 나머지 pair 는 그 사람들이
-      // 도착할 때 이미 기록됐으므로, 각 관계의 metAt 이 실제로 두 사람이 함께
-      // 있게 된 시각으로 한 번만 고정된다 (재도장·후속 도착에 갱신되지 않음).
-      const arrived = (await loadParticipants(params.meetingId))
-        .filter((p) => p.checkedIn && meeting.participantIds.includes(p.userId))
-        .map((p) => p.userId);
-      if (arrived.length >= 2) {
-        await recordMetUsers(params.meetingId, arrived, params.userId);
-      }
+    }
+    // recentlyMet(재매칭 제외 이력)는 "실제로 만난" 관계다. 매칭·확정·채팅방·
+    // 약속 확정은 만남이 아니므로 기록하지 않고, 도착 안전도장을 찍은 사람들
+    // 사이에서만 기록한다. 노쇼·취소·대체로 빠진 사람은 도장을 찍을 수 없어
+    // 자연히 제외되고, 6x6 이 아니라 실제 도착자 x 도착자 pair 만 남는다.
+    //
+    // 이번에 도착한 사람이 만드는 pair 만 넘기고, 멱등성은 `checkedIn` 플래그가
+    // 아니라 pair 문서 자체로 판단한다 (recordMetUsers 가 같은 미팅으로 이미
+    // 기록된 pair 는 건너뛴다). 그래서 재도장은 아무것도 쓰지 않고 metAt 도
+    // 그대로지만, 이 write 가 한 번 실패했다면 다음 도장이 빠진 pair 만 채운다.
+    const arrived = (await loadParticipants(params.meetingId))
+      .filter((p) => p.checkedIn && meeting.participantIds.includes(p.userId))
+      .map((p) => p.userId);
+    if (arrived.length >= 2) {
+      await recordMetUsers(params.meetingId, arrived, params.userId);
     }
     await transitionMeetingStatus(params.meetingId, "checkin_open");
     await maybeStartMeeting(params.meetingId);

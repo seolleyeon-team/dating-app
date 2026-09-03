@@ -53,6 +53,7 @@ import {
   transitionMeetingStatus,
   updateParticipant,
 } from "./store";
+import { normalizeLegacyParticipantStatus } from "./legacyDepositStatus";
 import { BLIND_MEETING_COLLECTIONS, ParticipantStatus, asStr } from "./types";
 
 /**
@@ -210,8 +211,7 @@ export async function inspectLegacyMatch(meeting: MeetingDoc): Promise<string[]>
       (team) => new Set(team.map((userId) => genderByUserId.get(userId) ?? null))
     );
     const singleGenderTeams =
-      teamGenders.every((genders) => genders.size === 1) &&
-      ![...teamGenders[0]].includes(null) &&
+      teamGenders.every((genders) => genders.size === 1 && !genders.has(null)) &&
       [...teamGenders[0]][0] !== [...teamGenders[1]][0];
     if (!singleGenderTeams) {
       reasons.push("team_gender_split");
@@ -234,9 +234,8 @@ export async function inspectLegacyMatch(meeting: MeetingDoc): Promise<string[]>
         reasons.push("application_detached:" + snap.id);
         continue;
       }
-      const status = asStr(
-        snap.data()?.serverStatus ?? snap.data()?.status,
-        ""
+      const status = normalizeLegacyParticipantStatus(
+        asStr(snap.data()?.serverStatus ?? snap.data()?.status, "")
       );
       if (!LEGACY_PROMOTABLE_APPLICATION_STATUSES.has(status)) {
         reasons.push("application_status:" + status);
@@ -313,19 +312,25 @@ export async function confirmLegacyAwaitingAcceptanceMeeting(
     // 신청서 승격은 현재 상태에서 FSM 이 허용하는 단계만 밟는다. 이미 confirmed
     // 인 신청서에 accepted 를 다시 쓰면 FSM 이 거부해 루프가 상태 전이 뒤에서
     // 멈추고 "confirmed 인데 방 없음" 이 남는다.
-    const applicationStatus = asStr(
-      applicationSnap.data()?.serverStatus ?? applicationSnap.data()?.status,
-      ""
+    const applicationStatus = normalizeLegacyParticipantStatus(
+      asStr(
+        applicationSnap.data()?.serverStatus ?? applicationSnap.data()?.status,
+        ""
+      )
     );
+    // 참가자와 신청서는 예전에 두 번의 await 로 승격됐으므로 한쪽만 앞서 있는
+    // 문서가 실제로 존재한다. 각자의 현재 상태에서 FSM 이 허용하는 단계만
+    // 밟는다 — 한쪽 기준으로 다른 쪽을 승격하면 불법 전이로 루프가 상태 전이
+    // 뒤에서 멈추고 "confirmed 인데 방 없음" 이 남는다.
     if (participant.status === "invited") {
       // 수락 단계가 없어졌으므로 legacy invited 좌석은 시스템이 대신 수락한다.
       await updateParticipant(meetingId, userId, {
         status: "accepted",
         extra: { acceptedAt: FieldValue.serverTimestamp(), acceptedBy: "legacy_normalizer" },
       });
-      if (applicationBound && applicationStatus === "invited") {
-        await setApplication(userId, { status: "accepted" });
-      }
+    }
+    if (applicationBound && applicationStatus === "invited") {
+      await setApplication(userId, { status: "accepted" });
     }
     await updateParticipant(meetingId, userId, {
       status: "confirmed",

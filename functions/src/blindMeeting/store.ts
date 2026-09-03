@@ -2264,27 +2264,61 @@ export async function ensureDirectChat(
 /**
  * 실제로 만난 관계를 기록한다 (pair 문서 id 고정 → 중복 생성 없음).
  *
- * [arrivedUserId] 를 주면 그 사용자가 새로 만드는 pair 만 쓴다. 나머지 pair 는
- * 상대가 도착했을 때 이미 기록됐으므로, 각 관계의 `metAt` 이 두 사람이 함께
- * 있게 된 시각으로 한 번만 고정되고 이후 도착·재도장에 갱신되지 않는다.
- * (같은 미팅에서 write 수도 N*(N-1) 에서 2*(N-1) 로 줄어든다.)
+ * [arrivedUserId] 를 주면 그 사용자가 새로 만드는 pair 만 쓰고, 이미 같은
+ * 미팅으로 기록된 pair 는 건너뛴다. 따라서
+ *  - 각 관계의 `metAt` 은 두 사람이 함께 있게 된 시각으로 한 번만 고정되고
+ *    이후 도착·재도장에 갱신되지 않으며,
+ *  - 멱등성이 호출자의 상태 플래그가 아니라 pair 문서 자체에서 오므로 write 가
+ *    한 번 실패해도 다음 호출이 빠진 pair 만 다시 채운다 (self-healing).
+ * 다른 미팅으로 기록된 pair 는 이번 미팅 기준으로 갱신한다 (재매칭 제외 기간을
+ * 실제로 만난 최신 시점부터 다시 센다).
  */
 export async function recordMetUsers(
   meetingId: string,
   userIds: string[],
   arrivedUserId?: string
 ): Promise<void> {
+  if (arrivedUserId != null) {
+    const others = userIds.filter((userId) => userId !== arrivedUserId);
+    if (others.length === 0) return;
+    const arrivedHistory = db()
+      .collection(BLIND_MEETING_COLLECTIONS.matchHistory)
+      .doc(arrivedUserId)
+      .collection("metUsers");
+    const existing = await db().getAll(
+      ...others.map((otherId) => arrivedHistory.doc(otherId))
+    );
+    const pending = others.filter(
+      (otherId, index) =>
+        !existing[index].exists ||
+        asStr(existing[index].data()?.meetingId, "") !== meetingId
+    );
+    if (pending.length === 0) return;
+    const scoped = db().batch();
+    for (const otherId of pending) {
+      for (const [ownerId, targetId] of [
+        [arrivedUserId, otherId],
+        [otherId, arrivedUserId],
+      ]) {
+        scoped.set(
+          db()
+            .collection(BLIND_MEETING_COLLECTIONS.matchHistory)
+            .doc(ownerId)
+            .collection("metUsers")
+            .doc(targetId),
+          { meetingId, metAt: FieldValue.serverTimestamp() },
+          { merge: true }
+        );
+      }
+    }
+    await scoped.commit();
+    return;
+  }
+
   const batch = db().batch();
   for (const userId of userIds) {
     for (const otherId of userIds) {
       if (userId === otherId) continue;
-      if (
-        arrivedUserId != null &&
-        userId !== arrivedUserId &&
-        otherId !== arrivedUserId
-      ) {
-        continue;
-      }
       batch.set(
         db()
           .collection(BLIND_MEETING_COLLECTIONS.matchHistory)

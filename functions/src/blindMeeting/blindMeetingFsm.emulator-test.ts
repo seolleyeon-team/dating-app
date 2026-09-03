@@ -1743,3 +1743,53 @@ test("review P2-3: legacy awaiting_deposits with a replacement in progress defer
     true
   );
 });
+
+test("recheck P2-1: a participant ahead of its application still confirms the whole roster", async () => {
+  const { meetingId, uids } = await seedInvitedMeeting();
+  // 반대 방향 skew: 참가자는 accepted 인데 신청서는 아직 invited.
+  // 예전 배포의 acceptInvitation 이 참가자와 신청서를 별도 await 로 승격했기
+  // 때문에 실제로 존재하는 조합이다. 신청서를 참가자 기준으로 승격하면
+  // invited → confirmed 라는 불법 전이가 되어 루프가 전이 뒤에서 멈췄다.
+  await seedParticipant(meetingId, uids[3], "accepted");
+  await seedApplication(uids[3], "invited", { meetingId, open: false });
+
+  assert.equal(await confirmLegacyAwaitingAcceptanceMeeting(meetingId), true);
+  const data = (await db.collection("blindMeetings").doc(meetingId).get()).data();
+  assert.equal(data?.serverStatus, "chat_open");
+  assert.equal(data?.groupChatId, `blind_${meetingId}`);
+  for (const uid of uids) {
+    assert.equal(await participantStatus(meetingId, uid), "confirmed", uid);
+    assert.equal((await applicationStatus(uid))?.serverStatus, "confirmed", uid);
+  }
+  const rooms = await db
+    .collection("chat_rooms")
+    .where("meetingId", "==", meetingId)
+    .get();
+  assert.equal(rooms.size, 1);
+});
+
+test("recheck P2-1b: every participant/application skew combination confirms the whole roster", async () => {
+  const { meetingId, uids } = await seedInvitedMeeting();
+  const combos: [ParticipantStatus, ParticipantStatus][] = [
+    ["invited", "invited"],
+    ["invited", "accepted"],
+    ["invited", "confirmed"],
+    ["accepted", "invited"],
+    ["accepted", "confirmed"],
+    ["confirmed", "invited"],
+  ];
+  for (const [index, [participant, application]] of combos.entries()) {
+    await seedParticipant(meetingId, uids[index], participant);
+    await seedApplication(uids[index], application, { meetingId, open: false });
+  }
+
+  assert.equal(await confirmLegacyAwaitingAcceptanceMeeting(meetingId), true);
+  for (const uid of uids) {
+    assert.equal(await participantStatus(meetingId, uid), "confirmed", uid);
+    assert.equal((await applicationStatus(uid))?.serverStatus, "confirmed", uid);
+  }
+  assert.equal(
+    (await db.collection("blindMeetings").doc(meetingId).get()).data()?.serverStatus,
+    "chat_open"
+  );
+});

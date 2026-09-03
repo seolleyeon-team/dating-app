@@ -932,3 +932,41 @@ test("review P2-6: metAt is fixed when two people are first together and is neve
   }
   assert.equal(await metAtOf(uids[0], uids[1]), firstPairAt, "still the original timestamp");
 });
+
+test("recheck P2-2: a lost met-history write is healed by the next safety stamp", async () => {
+  const dateKey = dateKeyInWindow(15);
+  await seedPool(3, 3, dateKey);
+  const created = await runMatchingForDate(dateKey);
+  assert.equal(created.length, 1);
+  const meetingId = created[0];
+  const uids = await assertThreeVsThree(meetingId);
+
+  const slotId = `${dateKey}#evening`;
+  for (const uid of uids) {
+    await voteSchedule({ meetingId, userId: uid, preferredSlotIds: [slotId], preferredPlaceId: null });
+  }
+
+  await markSafetyStamp({ meetingId, userId: uids[0], phase: "meetup", verification: null });
+  await markSafetyStamp({ meetingId, userId: uids[1], phase: "meetup", verification: null });
+  assert.deepEqual(await metUserIds(uids[0]), [uids[1]]);
+
+  // 이 write 가 한 번 실패해 관계가 유실된 상황을 만든다.
+  for (const [ownerId, targetId] of [
+    [uids[0], uids[1]],
+    [uids[1], uids[0]],
+  ]) {
+    await db
+      .collection("blindMeetingHistory")
+      .doc(ownerId)
+      .collection("metUsers")
+      .doc(targetId)
+      .delete();
+  }
+  assert.deepEqual(await metUserIds(uids[0]), [], "relationship is gone");
+
+  // 재도장은 checkedIn 이 이미 true 지만, 멱등성이 pair 문서에서 오므로
+  // 빠진 관계를 다시 채운다 (예전에는 영구히 유실됐다).
+  await markSafetyStamp({ meetingId, userId: uids[0], phase: "meetup", verification: { source: "retry" } });
+  assert.deepEqual(await metUserIds(uids[0]), [uids[1]], "healed on the next stamp");
+  assert.deepEqual(await metUserIds(uids[1]), [uids[0]], "both directions healed");
+});
