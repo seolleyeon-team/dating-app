@@ -24,6 +24,7 @@ import {
 import {
   readBlindMeetingGender,
   validateBlindThreeVsThreeParticipants,
+  type BlindMeetingGender,
 } from "./genderBalance";
 import {
   buildBlindMeetingApplicationEditPatch,
@@ -40,15 +41,15 @@ import {
   ALCOHOL_PREFERENCES,
   BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
   BLIND_MEETING_COLLECTIONS,
+  CANCEL_ALREADY_MATCHED_CODE,
+  CANCELLABLE_APPLICATION_STATUSES,
   BLIND_MEETING_SCHEMA_VERSION,
   BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
   BLIND_MEETING_TYPE,
   BlindMeetingStatus,
   CONVERSATION_ATMOSPHERES,
   CONVERSATION_INITIATIVES,
-  DEPOSIT_STATUS_TO_APP,
   DRINKING_LEVELS,
-  DepositStatus,
   MEETING_BOUND_APPLICATION_STATUSES,
   MEETING_PURPOSES,
   MEETING_STATUS_TO_APP,
@@ -74,6 +75,10 @@ import {
   readDateKeys,
   slotStartAt,
 } from "./types";
+import {
+  normalizeLegacyMeetingStatus,
+  normalizeLegacyParticipantStatus,
+} from "./legacyDepositStatus";
 
 export function db() {
   return getFirestore();
@@ -169,7 +174,6 @@ export function readApplicationDoc(
         "waitlisted",
         "invited",
         "accepted",
-        "deposit_pending",
         "confirmed",
         "cancel_requested",
         "cancelled",
@@ -180,7 +184,8 @@ export function readApplicationDoc(
         "completed",
         "restricted",
       ] as ParticipantStatus[],
-      raw.serverStatus ?? raw.status,
+      // legacy 결제 대기 상태는 읽기 시점에 canonical 로 정규화한다.
+      normalizeLegacyParticipantStatus(asStr(raw.serverStatus ?? raw.status, "")),
       "applied"
     ),
     stage: oneOf(
@@ -620,7 +625,8 @@ export type MeetingDoc = {
 };
 
 function toServerStatus(raw: unknown): BlindMeetingStatus {
-  const appValue = asStr(raw, "");
+  // legacy 결제 대기 상태는 읽기 시점에 canonical 로 정규화한다.
+  const appValue = normalizeLegacyMeetingStatus(asStr(raw, ""));
   for (const [server, app] of Object.entries(MEETING_STATUS_TO_APP)) {
     if (app === appValue || server === appValue) {
       return server as BlindMeetingStatus;
@@ -712,7 +718,6 @@ export async function transitionMeetingStatus(
 
 function buildParticipantPatchPayload(patch: {
   status?: ParticipantStatus;
-  depositStatus?: DepositStatus;
   extra?: Record<string, unknown>;
 }): Record<string, unknown> {
   const payload: Record<string, unknown> = {
@@ -723,10 +728,6 @@ function buildParticipantPatchPayload(patch: {
     payload.status = PARTICIPANT_STATUS_TO_APP[patch.status];
     payload.serverStatus = patch.status;
   }
-  if (patch.depositStatus) {
-    payload.depositStatus = DEPOSIT_STATUS_TO_APP[patch.depositStatus];
-    payload.serverDepositStatus = patch.depositStatus;
-  }
   return payload;
 }
 
@@ -736,7 +737,7 @@ function buildParticipantPatchPayload(patch: {
  * status가 포함된 patch는 단일 트랜잭션 안에서
  *   participant/meeting read → 상태 파싱(fail-closed) → 참가자 FSM 검증
  *   → terminal meeting 게이트 → write
- * 를 수행한다. status가 없는 patch(depositStatus/extra)는 기존처럼 merge.
+ * 를 수행한다. status가 없는 patch(extra)는 기존처럼 merge.
  *
  * 예외(참가자 FSM을 통과하지 않는 write)는 두 곳뿐이다:
  * - createMeetingFromProposal: 참가자 문서 최초 생성 (invited)
@@ -748,7 +749,6 @@ export async function updateParticipant(
   userId: string,
   patch: {
     status?: ParticipantStatus;
-    depositStatus?: DepositStatus;
     extra?: Record<string, unknown>;
   }
 ): Promise<void> {
@@ -782,7 +782,9 @@ export async function updateParticipant(
       throw new HttpsError("failed-precondition", "blind_participant_missing");
     }
 
-    const rawFrom = String(participantSnap.data()?.serverStatus ?? "");
+    const rawFrom = normalizeLegacyParticipantStatus(
+      String(participantSnap.data()?.serverStatus ?? "")
+    );
     if (!(rawFrom in PARTICIPANT_STATUS_TO_APP)) {
       // 알 수 없는 상태는 정상 상태로 보정하지 않는다 (fail-closed).
       logger.error("blindMeeting participant status unknown", {
@@ -819,7 +821,7 @@ export async function updateParticipant(
     }
 
     if (from === to) {
-      // idempotent 재시도: 동반 필드(depositStatus/extra)만 갱신한다.
+      // idempotent 재시도: 동반 필드(extra)만 갱신한다.
       tx.set(participantRef, buildParticipantPatchPayload(patch), {
         merge: true,
       });
@@ -840,7 +842,6 @@ export async function updateParticipant(
 export type ParticipantDoc = {
   userId: string;
   status: ParticipantStatus;
-  depositStatus: DepositStatus;
   team: "teamA" | "teamB";
   checkedIn: boolean;
   checkedOut: boolean;
@@ -858,13 +859,9 @@ export function readParticipantDoc(
     userId,
     status: oneOf(
       Object.keys(PARTICIPANT_STATUS_TO_APP) as ParticipantStatus[],
-      raw.serverStatus,
+      // legacy 결제 대기 상태는 읽기 시점에 canonical 로 정규화한다.
+      normalizeLegacyParticipantStatus(asStr(raw.serverStatus, "")),
       "applied"
-    ),
-    depositStatus: oneOf(
-      Object.keys(DEPOSIT_STATUS_TO_APP) as DepositStatus[],
-      raw.serverDepositStatus,
-      "not_required"
     ),
     team: raw.team === "teamB" ? "teamB" : "teamA",
     checkedIn: raw.checkInStatus === "completed",
@@ -935,9 +932,11 @@ function buildApplicationPatchPayload(patch: {
  * status가 없는 patch(stage/open/extra)는 기존처럼 merge.
  *
  * FSM을 통과하지 않는 예외는 자체 트랜잭션에서 검증을 마친 곳뿐:
- * - createMeetingFromProposal (open 신청 6개의 원자적 invited 클레임)
+ * - createMeetingFromProposal (open 신청 6개의 원자적 confirmed 클레임 —
+ *   수락 단계가 없으므로 매칭 commit 이 곧 확정이다)
  * - respondReplacementOffer (open 신청의 confirmed 직접 합류)
- * - cancelOpenApplication (아래 전용 helper — applied/waitlisted→cancelled)
+ * - cancelOpenApplication (아래 전용 helper — applied/waitlisted→cancelled
+ *   + 하트 환불 1회, 같은 트랜잭션)
  * - submitNewApplication (아래 전용 helper — 신규 submit 의 재신청
  *   invariant + FSM 검증을 연결 미팅 read 와 같은 트랜잭션에서 수행)
  */
@@ -975,8 +974,8 @@ export async function setApplication(
       return;
     }
 
-    const rawFrom = String(
-      snap.data()?.serverStatus ?? snap.data()?.status ?? ""
+    const rawFrom = normalizeLegacyParticipantStatus(
+      String(snap.data()?.serverStatus ?? snap.data()?.status ?? "")
     );
     const from = APP_STATUS_TO_SERVER[rawFrom];
     if (from == null) {
@@ -1003,7 +1002,7 @@ export async function setApplication(
   });
 }
 
-const BLIND_MEETING_HEART_COST = 30;
+export const BLIND_MEETING_HEART_COST = 30;
 
 function heartBalanceFromSnapshot(snapshot: DocumentSnapshot): number {
   const raw = snapshot.get("heartBalance");
@@ -1078,7 +1077,19 @@ export async function startPaidBlindMeetingDna(userId: string): Promise<{
       0,
       Math.floor(asNum(existingDraft.heartChargeCount, 0))
     );
-    const applicationCompleted = existingApplication.dnaApplicationCompleted === true;
+    // "최종 신청 완료" 플래그는 아직 살아 있는 신청에서만 의미가 있다. 취소·
+    // 완료·노쇼 등 terminal 신청에 남은 플래그를 그대로 믿으면 이어쓰기 초안을
+    // 매번 지우고 새로 차감해 재진입마다 이중 차감된다.
+    const existingApplicationStatus =
+      APP_STATUS_TO_SERVER[
+        normalizeLegacyParticipantStatus(
+          asStr(existingApplication.serverStatus ?? existingApplication.status, "")
+        )
+      ] ?? null;
+    const applicationCompleted =
+      existingApplication.dnaApplicationCompleted === true &&
+      existingApplicationStatus != null &&
+      ACTIVE_APPLICATION_STATUSES.includes(existingApplicationStatus);
     if (
       draftSnap.exists &&
       existingDraftStatus === "in_progress" &&
@@ -1389,6 +1400,12 @@ export async function createPaidBlindMeetingApplication(params: {
         open: !params.partyId,
         meetingId: null,
         extra: {
+          // 이전 취소/매칭 기록은 새 신청에 이어지면 안 된다 (stale 환불 표시 방지).
+          heartRefundedAmount: FieldValue.delete(),
+          heartRefundedChargeCount: FieldValue.delete(),
+          heartRefundedAt: FieldValue.delete(),
+          cancelledAt: FieldValue.delete(),
+          matchedAt: FieldValue.delete(),
           userId: params.userId,
           requestedDateKeys: params.requestedDateKeys,
           availabilityMode: BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
@@ -1445,7 +1462,9 @@ export async function reopenApplicationIfBoundTo(
       return false;
     }
 
-    const rawStatus = String(raw.serverStatus ?? raw.status ?? "");
+    const rawStatus = normalizeLegacyParticipantStatus(
+      String(raw.serverStatus ?? raw.status ?? "")
+    );
     const from = APP_STATUS_TO_SERVER[rawStatus];
     if (from == null) {
       logger.error("blindMeeting application status unknown", {
@@ -1479,30 +1498,276 @@ export async function reopenApplicationIfBoundTo(
   });
 }
 
+// -----------------------------------------------------------------------------
+// 하트 환불 (신청 취소 전용)
+//
+// 신청에 쓴 하트(DNA 시작 시 30H, ledger `heartTransactions/{spendId}`)는
+// 매칭 전 신청 취소가 성공할 때 정확히 한 번 돌려준다.
+//  - 환불 ledger id 는 spend 와 같은 chargeCount 에서 결정된다 → 중복 취소·
+//    네트워크 재시도에도 두 번째 환불이 생기지 않는다.
+//  - 원래 spend ledger 가 없으면(과거 무료 신청 등) 환불하지 않는다 (fail-closed).
+//  - 신청 취소 tx 와 같은 트랜잭션에서 write 하므로 "취소됐는데 환불 없음" /
+//    "환불됐는데 취소 안 됨" 상태가 생기지 않는다.
+// -----------------------------------------------------------------------------
+
+export function blindMeetingHeartSpendId(
+  userId: string,
+  chargeCount: number
+): string {
+  return createHash("sha256")
+    .update(`blind_meeting:${userId}:${chargeCount}`)
+    .digest("hex");
+}
+
+export function blindMeetingHeartRefundId(
+  userId: string,
+  chargeCount: number
+): string {
+  return createHash("sha256")
+    .update(`blind_meeting_heart_refund:${userId}:${chargeCount}`)
+    .digest("hex");
+}
+
+export type HeartRefundDecision = {
+  applicable: boolean;
+  reason:
+    | "refund"
+    | "no_charge"
+    | "spend_missing"
+    | "already_refunded";
+  chargeCount: number;
+  amount: number;
+};
+
 /**
- * 신청 취소는 아직 미팅에 배정되지 않은 신청에만 허용한다 (transaction 게이트).
- * 미팅에 배정된(meetingId 존재) 신청을 여기서 취소하면 참가자 문서·미팅 정원·
- * 보증금 상태와 조용히 어긋나므로, 그 경우 초대 거절(decline) 또는
- * 취소 요청(requestCancellation) 경로를 사용하도록 명시적으로 거부한다.
+ * 순수 판정: 신청서 raw 와 ledger 존재 여부만으로 환불 여부를 정한다.
+ * (unit test 대상. 트랜잭션 read 는 readHeartRefundContext 가 한다.)
  */
-export async function cancelOpenApplication(userId: string): Promise<void> {
+export function decideHeartRefund(params: {
+  applicationRaw: Record<string, unknown>;
+  spendExists: boolean;
+  refundExists: boolean;
+}): HeartRefundDecision {
+  const chargeCount = Math.max(
+    0,
+    Math.floor(asNum(params.applicationRaw.heartChargeCount, 0))
+  );
+  const amount = Math.max(
+    0,
+    Math.floor(asNum(params.applicationRaw.heartCost, 0))
+  );
+  if (chargeCount <= 0 || amount <= 0) {
+    return { applicable: false, reason: "no_charge", chargeCount, amount };
+  }
+  if (!params.spendExists) {
+    return { applicable: false, reason: "spend_missing", chargeCount, amount };
+  }
+  if (params.refundExists) {
+    return {
+      applicable: false,
+      reason: "already_refunded",
+      chargeCount,
+      amount,
+    };
+  }
+  return { applicable: true, reason: "refund", chargeCount, amount };
+}
+
+export type HeartRefundContext = {
+  userId: string;
+  decision: HeartRefundDecision;
+  heartBalanceBefore: number;
+  userExists: boolean;
+  spendId: string | null;
+};
+
+/**
+ * 트랜잭션 read 단계. write 보다 먼저 호출해야 한다 (Firestore tx 규칙).
+ */
+export async function readHeartRefundContext(
+  tx: FirebaseFirestore.Transaction,
+  userId: string,
+  applicationRaw: Record<string, unknown>
+): Promise<HeartRefundContext> {
+  const firestore = db();
+  const userRef = firestore.collection("users").doc(userId);
+  const chargeCount = Math.max(
+    0,
+    Math.floor(asNum(applicationRaw.heartChargeCount, 0))
+  );
+  if (chargeCount <= 0) {
+    const userSnap = await tx.get(userRef);
+    return {
+      userId,
+      decision: decideHeartRefund({
+        applicationRaw,
+        spendExists: false,
+        refundExists: false,
+      }),
+      heartBalanceBefore: heartBalanceFromSnapshot(userSnap),
+      userExists: userSnap.exists,
+      spendId: null,
+    };
+  }
+  const spendId = blindMeetingHeartSpendId(userId, chargeCount);
+  const [userSnap, spendSnap, refundSnap] = await Promise.all([
+    tx.get(userRef),
+    tx.get(firestore.collection("heartTransactions").doc(spendId)),
+    tx.get(
+      firestore
+        .collection("heartTransactions")
+        .doc(blindMeetingHeartRefundId(userId, chargeCount))
+    ),
+  ]);
+  return {
+    userId,
+    decision: decideHeartRefund({
+      applicationRaw,
+      spendExists: spendSnap.exists,
+      refundExists: refundSnap.exists,
+    }),
+    heartBalanceBefore: heartBalanceFromSnapshot(userSnap),
+    userExists: userSnap.exists,
+    spendId,
+  };
+}
+
+/**
+ * 트랜잭션 write 단계. 환불 대상이면 잔액 증가 + 환불 ledger 를 쓰고 환불액을
+ * 돌려준다. 대상이 아니면 아무것도 쓰지 않고 0 을 돌려준다.
+ */
+export function applyHeartRefund(
+  tx: FirebaseFirestore.Transaction,
+  ctx: HeartRefundContext
+): { refunded: number; heartBalance: number } {
+  if (!ctx.decision.applicable || !ctx.userExists) {
+    return { refunded: 0, heartBalance: ctx.heartBalanceBefore };
+  }
+  const firestore = db();
+  const heartBalance = ctx.heartBalanceBefore + ctx.decision.amount;
+  tx.set(
+    firestore.collection("users").doc(ctx.userId),
+    {
+      heartBalance,
+      heartBalanceUpdatedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  tx.create(
+    firestore
+      .collection("heartTransactions")
+      .doc(blindMeetingHeartRefundId(ctx.userId, ctx.decision.chargeCount)),
+    {
+      uid: ctx.userId,
+      feature: "blind_meeting",
+      type: "heart_refund",
+      resourceId: ctx.userId,
+      amount: ctx.decision.amount,
+      refundOfTransactionId: ctx.spendId,
+      heartChargeCount: ctx.decision.chargeCount,
+      heartBalanceAfter: heartBalance,
+      createdAt: FieldValue.serverTimestamp(),
+    }
+  );
+  return { refunded: ctx.decision.amount, heartBalance };
+}
+
+/** 취소 tx 가 신청서에 남기는 환불 기록 필드 (idempotency 감사용). */
+export function cancelledApplicationRefundFields(
+  ctx: HeartRefundContext,
+  refunded: number
+): Record<string, unknown> {
+  if (refunded <= 0) return {};
+  return {
+    heartRefundedChargeCount: ctx.decision.chargeCount,
+    heartRefundedAmount: refunded,
+    heartRefundedAt: FieldValue.serverTimestamp(),
+  };
+}
+
+/**
+ * 신청서 raw 가 "매칭 전 사용자 취소 가능" 상태인지 (applied/waitlisted ∧
+ * meetingId 없음). 파티 취소처럼 여러 신청서를 한 번에 정리하는 경로가
+ * 개별 취소(cancelOpenApplication)와 같은 게이트를 쓰게 한다. 매칭 후
+ * cancelled/no_show 로 정산된 신청은 여기서 false → 건드리지도, 환불하지도 않는다.
+ */
+export function isApplicationCancellableRaw(
+  raw: Record<string, unknown> | undefined
+): boolean {
+  if (raw == null) return false;
+  if (asTrimmedOrNull(raw.meetingId) != null) return false;
+  const status =
+    APP_STATUS_TO_SERVER[
+      normalizeLegacyParticipantStatus(asStr(raw.serverStatus ?? raw.status, ""))
+    ] ?? null;
+  return status != null && CANCELLABLE_APPLICATION_STATUSES.includes(status);
+}
+
+export type ApplicationCancellationResult = {
+  outcome: "cancelled" | "already_cancelled" | "not_active" | "not_found";
+  /** 이번 호출이 돌려준 하트 (0 이면 환불 없음 — 이미 환불됐거나 대상 아님) */
+  heartRefunded: number;
+  heartBalance: number | null;
+};
+
+/**
+ * 신청 취소 (매칭 전 전용, transaction 게이트) + 하트 환불 1회.
+ *
+ * 허용: status ∈ CANCELLABLE_APPLICATION_STATUSES(applied/waitlisted) 이고
+ * meetingId 가 없는 신청. 매칭 tx 가 이미 commit 된 신청(meetingId 존재 또는
+ * confirmed 등 meeting-bound 상태)은 CANNOT_CANCEL_ALREADY_MATCHED 로
+ * deterministic 하게 거부한다 — 매칭 tx 와 같은 문서를 read-modify-write 하므로
+ * "취소 성공 + 매칭 성공" 이 동시에 성립할 수 없다 (cancel-vs-match race 는
+ * Firestore 직렬화가 한쪽만 통과시킨다).
+ *
+ * 이미 취소된 신청/terminal 신청은 idempotent 하게 no-op 이며 환불도 다시
+ * 발생하지 않는다.
+ */
+export async function cancelOpenApplication(
+  userId: string
+): Promise<ApplicationCancellationResult> {
   const ref = db()
     .collection(BLIND_MEETING_COLLECTIONS.applications)
     .doc(userId);
-  await db().runTransaction(async (tx) => {
+  return db().runTransaction(async (tx) => {
     const snap = await tx.get(ref);
-    if (!snap.exists) return; // 취소할 신청이 없으면 idempotent 성공
-    const raw = snap.data() ?? {};
-    const serverStatus = String(raw.serverStatus ?? raw.status ?? "");
-    if (serverStatus === "cancelled") return; // 이미 취소됨 — idempotent
-    const meetingId =
-      typeof raw.meetingId === "string" ? raw.meetingId.trim() : "";
-    if (meetingId.length > 0) {
+    if (!snap.exists) {
+      return { outcome: "not_found", heartRefunded: 0, heartBalance: null };
+    }
+    const raw = (snap.data() ?? {}) as Record<string, unknown>;
+    const rawStatus = normalizeLegacyParticipantStatus(
+      asStr(raw.serverStatus ?? raw.status, "")
+    );
+    const status = APP_STATUS_TO_SERVER[rawStatus] ?? null;
+    if (status === "cancelled") {
+      return {
+        outcome: "already_cancelled",
+        heartRefunded: 0,
+        heartBalance: null,
+      };
+    }
+    const meetingId = asTrimmedOrNull(raw.meetingId);
+    const meetingBound =
+      meetingId != null ||
+      (status != null && MEETING_BOUND_APPLICATION_STATUSES.includes(status));
+    if (meetingBound) {
       throw new HttpsError(
         "failed-precondition",
-        "이미 매칭된 미팅이 있어요. 미팅 화면에서 거절 또는 취소 요청을 이용해주세요."
+        `이미 매칭된 미팅이 있어 신청을 취소할 수 없어요. (${CANCEL_ALREADY_MATCHED_CODE})`,
+        { code: CANCEL_ALREADY_MATCHED_CODE, meetingId }
       );
     }
+    if (status == null || !CANCELLABLE_APPLICATION_STATUSES.includes(status)) {
+      // completed / no_show / restricted / replaced 등 terminal — 취소할 활성
+      // 신청이 아니다. 환불 대상도 아니다.
+      return { outcome: "not_active", heartRefunded: 0, heartBalance: null };
+    }
+
+    // read 단계 (write 전에 끝낸다)
+    const refundCtx = await readHeartRefundContext(tx, userId, raw);
+
+    const { refunded, heartBalance } = applyHeartRefund(tx, refundCtx);
     tx.set(
       ref,
       {
@@ -1511,10 +1776,16 @@ export async function cancelOpenApplication(userId: string): Promise<void> {
         stage: "cancelled",
         open: false,
         meetingId: null,
+        // 취소된 신청은 더 이상 "최종 신청 완료" 가 아니다. 남겨두면 다음
+        // DNA 시작이 이어쓰기 초안을 지우고 매번 새로 차감한다.
+        dnaApplicationCompleted: false,
+        cancelledAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
+        ...cancelledApplicationRefundFields(refundCtx, refunded),
       },
       { merge: true }
     );
+    return { outcome: "cancelled", heartRefunded: refunded, heartBalance };
   });
 }
 
@@ -1554,7 +1825,6 @@ export async function updateApplicationForDnaEdit(params: {
         "waitlisted",
         "invited",
         "accepted",
-        "deposit_pending",
         "confirmed",
         "cancel_requested",
         "cancelled",
@@ -1565,7 +1835,7 @@ export async function updateApplicationForDnaEdit(params: {
         "completed",
         "restricted",
       ] as ParticipantStatus[],
-      raw.serverStatus ?? raw.status
+      normalizeLegacyParticipantStatus(asStr(raw.serverStatus ?? raw.status, ""))
     );
     const stage = oneOfOrNull(
       [
@@ -1641,11 +1911,154 @@ export function groupChatIdFor(meetingId: string): string {
   return `blind_${meetingId}`;
 }
 
+/** 3:3 블라인드 단체 채팅방의 roomType (firestore.rules blindMeetingRoomTypes 와 동일). */
+export const BLIND_MEETING_GROUP_ROOM_TYPE = "blind_meeting_group";
+
+/** 매칭 직후 채팅방에 남기는 첫 시스템 메시지. */
+export const BLIND_MEETING_GROUP_CHAT_WELCOME =
+  "3:3 미팅이 매칭됐어요! 여섯 명이 모두 확정됐어요. 시간과 장소를 함께 정해보세요.";
+
+/** 채팅방 participantInfo (얼굴 사진 없음, 닉네임 + 아바타 seed 만). */
+export function groupChatParticipantInfo(
+  profiles: readonly PublicProfileSnapshot[]
+): Record<string, unknown> {
+  const participantInfo: Record<string, unknown> = {};
+  for (const profile of profiles) {
+    participantInfo[profile.userId] = {
+      nickname: profile.nickname,
+      // 블라인드 미팅에서는 얼굴 사진을 공유하지 않는다.
+      avatarUrl: "",
+      avatarSeed: profile.avatarSeed,
+    };
+  }
+  return participantInfo;
+}
+
 /**
- * 단체 채팅방을 생성한다 (idempotent).
+ * 서버 소유 3:3 채팅방 문서 (신규 생성용 payload).
  *
- * 여섯 명이 모두 확정되고 필요한 보증금 결제가 끝난 뒤에만 호출된다.
+ * 매칭 tx(createMeetingFromProposal)와 복구 경로(ensureGroupChat)가 같은
+ * 모양을 쓰도록 한 곳에 둔다. roomId 는 meetingId 에서 결정되므로
+ * 재시도에도 방은 하나만 생긴다.
+ */
+export function groupChatRoomDocument(params: {
+  meetingId: string;
+  memberIds: readonly string[];
+  participantInfo: Record<string, unknown>;
+  isAlcoholFree: boolean;
+}): Record<string, unknown> {
+  return {
+    roomId: groupChatIdFor(params.meetingId),
+    roomType: BLIND_MEETING_GROUP_ROOM_TYPE,
+    meetingId: params.meetingId,
+    status: "active",
+    isAlcoholFree: params.isAlcoholFree,
+    participantIds: [...params.memberIds],
+    participantInfo: params.participantInfo,
+    writable: true,
+    lastMessage: "",
+    lastMessageAt: null,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+}
+
+/** 좌석 성별 근거의 출처 (신뢰도 순). */
+export type RosterGenderEvidenceSource =
+  | "meeting_snapshot"
+  | "participant_snapshot"
+  | "current_profile";
+
+export type RosterGenderEvidence = {
+  genders: { userId: string; gender: BlindMeetingGender | null }[];
+  sources: Record<string, RosterGenderEvidenceSource>;
+  /** 어떤 근거로도 성별을 알 수 없는 좌석 */
+  missing: string[];
+};
+
+/**
+ * 확정된 미팅 좌석의 성별 근거를 신뢰도 순으로 모은다.
+ *
+ *   1. 미팅 문서 `participantGenders` (매칭 tx 가 확정 시점에 쓴 불변 스냅샷)
+ *   2. 참가자 문서 `gender` (같은 tx 의 좌석별 스냅샷)
+ *   3. 현재 users 문서 (legacy 미팅 전용 fallback — 사용자가 바꿀 수 있는 값)
+ *
+ * 이미 서버 트랜잭션이 3남+3녀를 검증하고 확정한 미팅의 불변식을, 이후
+ * 사용자가 프로필을 수정·삭제했다고 복구 불가능하게 만들지 않기 위한 것이다.
+ * 반대로 확정 시점 스냅샷이 있으면 현재 프로필이 어떻게 바뀌었든 스냅샷이
+ * 우선한다 (mutable 값으로 명부를 다시 짜지 않는다).
+ */
+export async function resolveRosterGenderEvidence(
+  meetingId: string,
+  memberIds: readonly string[]
+): Promise<RosterGenderEvidence> {
+  const firestore = db();
+  const meetingRef = firestore
+    .collection(BLIND_MEETING_COLLECTIONS.meetings)
+    .doc(meetingId);
+  const [meetingSnap, participantSnaps, userSnaps] = await Promise.all([
+    meetingRef.get(),
+    memberIds.length > 0
+      ? firestore.getAll(
+          ...memberIds.map((userId) =>
+            meetingRef
+              .collection(BLIND_MEETING_COLLECTIONS.participants)
+              .doc(userId)
+          )
+        )
+      : Promise.resolve([] as DocumentSnapshot[]),
+    memberIds.length > 0
+      ? firestore.getAll(
+          ...memberIds.map((userId) => firestore.collection("users").doc(userId))
+        )
+      : Promise.resolve([] as DocumentSnapshot[]),
+  ]);
+  const snapshot = isRecord(meetingSnap.data()?.participantGenders)
+    ? (meetingSnap.data()!.participantGenders as Record<string, unknown>)
+    : {};
+
+  const genders: RosterGenderEvidence["genders"] = [];
+  const sources: Record<string, RosterGenderEvidenceSource> = {};
+  const missing: string[] = [];
+  memberIds.forEach((userId, index) => {
+    const fromMeeting = readBlindMeetingGender({ gender: snapshot[userId] });
+    if (fromMeeting != null) {
+      genders.push({ userId, gender: fromMeeting });
+      sources[userId] = "meeting_snapshot";
+      return;
+    }
+    const fromParticipant = readBlindMeetingGender({
+      gender: participantSnaps[index]?.data()?.gender,
+    });
+    if (fromParticipant != null) {
+      genders.push({ userId, gender: fromParticipant });
+      sources[userId] = "participant_snapshot";
+      return;
+    }
+    const fromUser = readBlindMeetingGender(userSnaps[index]?.data());
+    if (fromUser != null) {
+      genders.push({ userId, gender: fromUser });
+      sources[userId] = "current_profile";
+      return;
+    }
+    genders.push({ userId, gender: null });
+    missing.push(userId);
+  });
+  return { genders, sources, missing };
+}
+
+/**
+ * 단체 채팅방을 보장한다 (idempotent, 복구 경로).
+ *
+ * 신규 매칭은 createMeetingFromProposal 의 트랜잭션이 미팅과 함께 방을
+ * 만들므로 여기서는 이미 있는 방을 확인·보정만 하게 된다. legacy 미팅
+ * 확정(legacyAcceptance.ts)과 스케줄러 복구가 이 경로로 방을 만든다.
  * participantIds는 서버만 설정하며, 교체된 참가자는 즉시 제외된다.
+ *
+ * 3남+3녀 재검증은 확정 시점 스냅샷을 우선 근거로 쓴다
+ * (resolveRosterGenderEvidence). 근거로도 성별을 알 수 없거나 불변식이
+ * 깨져 있으면 fail-closed 로 거부한다 — 호출자(meetingConfirmation)가 이를
+ * 재시도 불가 오류로 분류해 repair 표시를 남긴다.
  */
 export async function ensureGroupChat(params: {
   meetingId: string;
@@ -1658,17 +2071,11 @@ export async function ensureGroupChat(params: {
   // 최상위 불변식 3차 그물: 채팅방도 canonical 6인(3남 + 3녀)에서만 만든다.
   // 미팅 문서가 손상됐거나 수동으로 편집됐다면 여기서 멈춘다.
   // (채팅방이 열리면 참가자들이 서로를 보게 되므로 되돌리기 어렵다.)
-  const userSnaps = await db().getAll(
-    ...params.memberIds.map((userId) =>
-      db().collection("users").doc(userId)
-    )
+  const evidence = await resolveRosterGenderEvidence(
+    params.meetingId,
+    params.memberIds
   );
-  const balance = validateBlindThreeVsThreeParticipants(
-    params.memberIds.map((userId, index) => ({
-      userId,
-      gender: readBlindMeetingGender(userSnaps[index]?.data()),
-    }))
-  );
+  const balance = validateBlindThreeVsThreeParticipants(evidence.genders);
   if (!balance.ok) {
     logger.error("blindMeeting group chat rejected: roster is not 3M+3F", {
       code: "blindMeetingGenderInvariantViolated",
@@ -1678,23 +2085,25 @@ export async function ensureGroupChat(params: {
       femaleCount: balance.counts.female,
       unknownGenderCount: balance.counts.unknown,
       uniqueParticipantCount: balance.uniqueUserCount,
+      missingEvidenceCount: evidence.missing.length,
+      evidenceSources: Object.values(evidence.sources),
     });
     throw new HttpsError(
       "failed-precondition",
-      "미팅 구성이 올바르지 않아 채팅방을 만들 수 없어요."
+      "미팅 구성이 올바르지 않아 채팅방을 만들 수 없어요.",
+      {
+        code: "blindMeetingGenderInvariantViolated",
+        violations: balance.violations,
+        missingEvidence: evidence.missing,
+      }
     );
   }
 
-  const participantInfo: Record<string, unknown> = {};
-  for (const userId of params.memberIds) {
-    const profile = await buildPublicProfile(userId);
-    participantInfo[userId] = {
-      nickname: profile.nickname,
-      // 블라인드 미팅에서는 얼굴 사진을 공유하지 않는다.
-      avatarUrl: "",
-      avatarSeed: profile.avatarSeed,
-    };
-  }
+  const participantInfo = groupChatParticipantInfo(
+    await Promise.all(
+      params.memberIds.map((userId) => buildPublicProfile(userId))
+    )
+  );
 
   const created = await db().runTransaction(async (tx) => {
     const snap = await tx.get(roomRef);
@@ -1722,28 +2131,20 @@ export async function ensureGroupChat(params: {
       );
       return false;
     }
-    tx.set(roomRef, {
-      roomId,
-      roomType: "blind_meeting_group",
-      meetingId: params.meetingId,
-      status: "active",
-      isAlcoholFree: params.isAlcoholFree,
-      participantIds: params.memberIds,
-      participantInfo,
-      writable: true,
-      lastMessage: "",
-      lastMessageAt: null,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
+    tx.set(
+      roomRef,
+      groupChatRoomDocument({
+        meetingId: params.meetingId,
+        memberIds: params.memberIds,
+        participantInfo,
+        isAlcoholFree: params.isAlcoholFree,
+      })
+    );
     return true;
   });
 
   if (created) {
-    await appendSystemMessage(
-      roomId,
-      "여섯 명이 모두 확정됐어요. 시간과 장소를 함께 정해보세요."
-    );
+    await appendSystemMessage(roomId, BLIND_MEETING_GROUP_CHAT_WELCOME);
   }
 
   return roomId;

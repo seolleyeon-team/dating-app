@@ -47,7 +47,6 @@ import { interestTaxonomyFingerprint } from "../interestTaxonomy";
 import {
   DEFAULT_POLICY,
   policyFromConfigDoc,
-  refundAmountFor,
   resolveCancellation,
   resolveNoShowSanction,
 } from "../policy";
@@ -1067,35 +1066,36 @@ describe("Dart 기준 구현과의 골든 벡터 일치", () => {
 });
 
 describe("약속잡기 미확정 구간 취소", () => {
-  // 날짜 전용 정책에서는 보증금을 낸 뒤에도 시간이 미확정인 구간이 있다.
-  // 이 구간을 '남은 시간 0'으로 취급하면 무환급이 되어 위약금을 잘못 물린다.
-  it("시작 시각이 없으면 전액 환급이다", () => {
+  // 날짜 전용 정책에서는 확정 뒤에도 시간이 미확정인 구간이 있다.
+  // 금전 결과가 없으므로 이 구간의 취소도 일반 취소와 똑같이 좌석만 놓는다.
+  it("시작 시각이 없으면 제재 없이 좌석을 놓는다", () => {
     const decision = resolveCancellation({
       policy: DEFAULT_POLICY,
       untilMeetingMs: null,
       replacementFound: false,
     });
-    assert.equal(decision.outcome, "full_refund");
-    assert.equal(decision.refundBasisPoints, 10000);
+    assert.equal(decision.outcome, "released");
     assert.equal(decision.appliesRestriction, false);
+    assert.equal(decision.triggersWaitlistFill, true);
   });
 
-  it("시작 시각이 없어도 대체 성공 여부와 무관하게 전액 환급이다", () => {
+  it("시작 시각이 없어도 대체 성공 여부와 무관하게 같은 결과다", () => {
     const decision = resolveCancellation({
       policy: DEFAULT_POLICY,
       untilMeetingMs: null,
       replacementFound: true,
     });
-    assert.equal(decision.outcome, "full_refund");
+    assert.equal(decision.outcome, "released");
   });
 
-  it("남은 시간 0(확정된 미팅 직전)은 여전히 무환급이다", () => {
+  it("남은 시간 0(확정된 미팅 직전) 취소도 금전 제재 없이 좌석을 놓는다", () => {
     const decision = resolveCancellation({
       policy: DEFAULT_POLICY,
       untilMeetingMs: 0,
       replacementFound: false,
     });
-    assert.equal(decision.outcome, "no_refund");
+    assert.equal(decision.outcome, "released");
+    assert.equal(decision.appliesRestriction, false);
   });
 
   it("노쇼는 시작 시각이 없어도 제재 대상이다", () => {
@@ -1105,7 +1105,7 @@ describe("약속잡기 미확정 구간 취소", () => {
       replacementFound: false,
       isNoShowWithoutContact: true,
     });
-    assert.equal(decision.outcome, "no_refund");
+    assert.equal(decision.outcome, "no_show");
     assert.equal(decision.appliesRestriction, true);
   });
 });
@@ -1132,52 +1132,36 @@ describe("약속잡기 자동 확정 정책", () => {
   });
 });
 
-describe("취소 및 환급 정책", () => {
-  it("24시간 이전은 전액 환급", () => {
-    const decision = resolveCancellation({
-      policy: DEFAULT_POLICY,
-      untilMeetingMs: 30 * 60 * 60 * 1000,
-      replacementFound: false,
-    });
-    assert.equal(decision.outcome, "full_refund");
-    assert.equal(decision.refundBasisPoints, 10000);
+describe("취소 및 제재 정책 (금전 개념 없음)", () => {
+  it("취소 시점과 대체 성공 여부는 결과를 바꾸지 않는다", () => {
+    for (const untilMeetingMs of [
+      30 * 60 * 60 * 1000,
+      10 * 60 * 60 * 1000,
+      2 * 60 * 60 * 1000,
+    ]) {
+      for (const replacementFound of [true, false]) {
+        const decision = resolveCancellation({
+          policy: DEFAULT_POLICY,
+          untilMeetingMs,
+          replacementFound,
+        });
+        assert.equal(decision.outcome, "released");
+        assert.equal(decision.triggersWaitlistFill, true);
+        assert.equal(decision.appliesRestriction, false);
+      }
+    }
   });
 
-  it("6~24시간 전은 대체 성공 시 전액, 실패 시 일부", () => {
-    const found = resolveCancellation({
-      policy: DEFAULT_POLICY,
-      untilMeetingMs: 10 * 60 * 60 * 1000,
-      replacementFound: true,
-    });
-    const failed = resolveCancellation({
-      policy: DEFAULT_POLICY,
-      untilMeetingMs: 10 * 60 * 60 * 1000,
-      replacementFound: false,
-    });
-    assert.equal(found.outcome, "full_refund");
-    assert.equal(failed.outcome, "partial_refund");
-    assert.ok(failed.refundBasisPoints < 10000 && failed.refundBasisPoints > 0);
-  });
-
-  it("6시간 이내 대체 실패는 미환급", () => {
-    const decision = resolveCancellation({
-      policy: DEFAULT_POLICY,
-      untilMeetingMs: 2 * 60 * 60 * 1000,
-      replacementFound: false,
-    });
-    assert.equal(decision.outcome, "no_refund");
-    assert.equal(decision.appliesRestriction, false);
-  });
-
-  it("연락 없는 노쇼는 미환급 + 참여 제한", () => {
+  it("연락 없는 노쇼는 참여 제한 + 대기자 충원 없음", () => {
     const decision = resolveCancellation({
       policy: DEFAULT_POLICY,
       untilMeetingMs: 0,
       replacementFound: false,
       isNoShowWithoutContact: true,
     });
-    assert.equal(decision.outcome, "no_refund");
+    assert.equal(decision.outcome, "no_show");
     assert.equal(decision.appliesRestriction, true);
+    assert.equal(decision.triggersWaitlistFill, false);
   });
 
   it("응급 상황은 운영자 검토", () => {
@@ -1188,11 +1172,28 @@ describe("취소 및 환급 정책", () => {
       emergencyReviewRequested: true,
     });
     assert.equal(decision.outcome, "ops_review");
+    assert.equal(decision.appliesRestriction, false);
   });
 
-  it("환급액은 basis point로 계산된다", () => {
-    assert.equal(refundAmountFor(5000, 5000), 2500);
-    assert.equal(refundAmountFor(5000, 0), 0);
+  it("긴급 취소 경계는 유지된다 (대체 탐색 긴급 모드 판단용)", () => {
+    assert.ok(DEFAULT_POLICY.lateCancellationBeforeMs > 0);
+    // 수락 단계가 없으므로 수락 창 정책도 없다.
+    assert.equal("acceptanceWindowMs" in DEFAULT_POLICY, false);
+  });
+
+  it("과거 결제 설정 키는 정책 override 에서 무시된다", () => {
+    const merged = policyFromConfigDoc({
+      depositAmount: 9999,
+      depositWindowMs: 1,
+      fullRefundBeforeMs: 1,
+      acceptanceWindowMs: 3600000,
+      lateCancellationBeforeMs: 3600000,
+    }) as unknown as Record<string, unknown>;
+    assert.equal(merged.lateCancellationBeforeMs, 3600000);
+    assert.equal("acceptanceWindowMs" in merged, false);
+    assert.equal("depositAmount" in merged, false);
+    assert.equal("depositWindowMs" in merged, false);
+    assert.equal("fullRefundBeforeMs" in merged, false);
   });
 
   it("노쇼 제재 단계", () => {

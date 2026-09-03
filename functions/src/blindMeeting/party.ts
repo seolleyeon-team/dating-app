@@ -12,6 +12,7 @@ import { readBlindMeetingGender, type BlindMeetingGender } from "./genderBalance
 import {
   ALCOHOL_PREFERENCES,
   BLIND_MEETING_COLLECTIONS,
+  CANCEL_ALREADY_MATCHED_CODE,
   MEETING_PURPOSES,
   SMOKING_PREFERENCES,
   asStr,
@@ -24,7 +25,13 @@ import {
   type MeetingPurpose,
   type SmokingCompanionPreference,
 } from "./types";
-import { db } from "./store";
+import {
+  applyHeartRefund,
+  cancelledApplicationRefundFields,
+  db,
+  isApplicationCancellableRaw,
+  readHeartRefundContext,
+} from "./store";
 import { notifyBlindMeetingParty } from "./notifications";
 
 async function notifyPartyBestEffort(
@@ -657,20 +664,68 @@ export async function reconcileBlindMeetingParty(
   };
 }
 
-export async function cancelBlindMeetingParty(userId: string, partyId: string): Promise<void> {
+export type PartyCancellationSummary = {
+  userId: string;
+  applicationCancelled: boolean;
+  heartRefunded: number;
+  heartBalance: number | null;
+};
+
+/**
+ * 친구 팀 신청 취소 (매칭 전 전용).
+ *
+ * 팀원 전원의 열린 신청서를 cancelled 로 옮기고, 각자 신청에 쓴 하트를
+ * 같은 트랜잭션에서 정확히 한 번 돌려준다 (store.readHeartRefundContext /
+ * applyHeartRefund 의 deterministic ledger id 로 중복 환불을 막는다).
+ * 이미 매칭된 팀은 취소할 수 없다 (CANNOT_CANCEL_ALREADY_MATCHED).
+ */
+export async function cancelBlindMeetingParty(
+  userId: string,
+  partyId: string
+): Promise<PartyCancellationSummary[]> {
   const firestore = db();
   const pRef = partyRef(partyId);
-  await firestore.runTransaction(async (tx) => {
+  return firestore.runTransaction(async (tx) => {
     const partySnap = await tx.get(pRef);
     const party = readParty(partyId, partySnap.data());
-    if (!party || !party.acceptedUserIds.includes(userId)) return;
+    if (!party || !party.acceptedUserIds.includes(userId)) return [];
+    // 이미 취소된 파티: 재시도/중복 클릭은 no-op (환불 ledger 도 다시 쓰지 않는다).
+    if (party.status === "cancelled") return [];
     if (party.status === "matched") {
-      throw new HttpsError("failed-precondition", "이미 배정된 미팅에서는 팀 신청을 취소할 수 없어요.");
+      throw new HttpsError(
+        "failed-precondition",
+        `이미 배정된 미팅에서는 팀 신청을 취소할 수 없어요. (${CANCEL_ALREADY_MATCHED_CODE})`,
+        { code: CANCEL_ALREADY_MATCHED_CODE, meetingId: party.meetingId }
+      );
     }
     const applicationRefs = party.acceptedUserIds.map((id) =>
       firestore.collection(BLIND_MEETING_COLLECTIONS.applications).doc(id)
     );
     const applicationSnaps = await Promise.all(applicationRefs.map((ref) => tx.get(ref)));
+
+    // read 단계: 취소 대상 신청서의 환불 컨텍스트를 write 전에 모두 읽는다.
+    // 개별 취소와 같은 게이트: applied/waitlisted ∧ meetingId 없음일 때만.
+    // 매칭 후 cancelled/no_show 로 정산된 멤버(meetingId 는 이미 null)는
+    // 건드리지도 환불하지도 않는다.
+    const cancellable = applicationSnaps.map(
+      (snap) =>
+        snap.exists &&
+        isApplicationCancellableRaw(
+          (snap.data() ?? {}) as Record<string, unknown>
+        )
+    );
+    const refundContexts = await Promise.all(
+      party.acceptedUserIds.map((memberId, i) =>
+        cancellable[i]
+          ? readHeartRefundContext(
+              tx,
+              memberId,
+              (applicationSnaps[i].data() ?? {}) as Record<string, unknown>
+            )
+          : Promise.resolve(null)
+      )
+    );
+
     tx.set(pRef, {
       status: "cancelled",
       meetingId: null,
@@ -678,123 +733,43 @@ export async function cancelBlindMeetingParty(userId: string, partyId: string): 
       cancelledAt: FieldValue.serverTimestamp(),
       cancelledByUserId: userId,
     }, { merge: true });
+    const summary: PartyCancellationSummary[] = [];
     for (let i = 0; i < party.acceptedUserIds.length; i++) {
-      tx.set(membershipRef(party.acceptedUserIds[i]), {
+      const memberId = party.acceptedUserIds[i];
+      tx.set(membershipRef(memberId), {
         active: false,
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
-      if (applicationSnaps[i].exists && !asTrimmedOrNull(applicationSnaps[i].data()?.meetingId)) {
+      const ctx = refundContexts[i];
+      if (cancellable[i] && ctx != null) {
+        const { refunded, heartBalance } = applyHeartRefund(tx, ctx);
         tx.set(applicationRefs[i], {
           open: false,
           status: "cancelled",
           serverStatus: "cancelled",
           stage: "cancelled",
+          meetingId: null,
+          dnaApplicationCompleted: false,
+          cancelledAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
+          ...cancelledApplicationRefundFields(ctx, refunded),
         }, { merge: true });
+        summary.push({
+          userId: memberId,
+          applicationCancelled: true,
+          heartRefunded: refunded,
+          heartBalance,
+        });
+      } else {
+        summary.push({
+          userId: memberId,
+          applicationCancelled: false,
+          heartRefunded: 0,
+          heartBalance: null,
+        });
       }
     }
     tx.delete(firestore.collection(BLIND_MEETING_COLLECTIONS.partyMatching).doc(partyId));
-  });
-}
-
-/**
- * 매칭 초대 단계에서 파티 한 명이 거절하면 해당 파티 전원을 그 미팅에서
- * 함께 철회한다. 이 경로에서는 자동 재신청하지 않아 이후 서로 다른 미팅에
- * 배정되는 상황을 원천 차단한다.
- */
-export async function withdrawMatchedBlindMeetingParty(params: {
-  userId: string;
-  partyId: string;
-  meetingId: string;
-  reason: string | null;
-}): Promise<string[]> {
-  const firestore = db();
-  const pRef = partyRef(params.partyId);
-  return firestore.runTransaction(async (tx) => {
-    const partySnap = await tx.get(pRef);
-    const party = readParty(params.partyId, partySnap.data());
-    if (
-      !party ||
-      party.status !== "matched" ||
-      party.meetingId !== params.meetingId ||
-      !party.acceptedUserIds.includes(params.userId) ||
-      party.acceptedUserIds.length < 2
-    ) {
-      throw new HttpsError(
-        "failed-precondition",
-        "함께 배정된 친구 팀을 확인할 수 없어요."
-      );
-    }
-    const applicationRefs = party.acceptedUserIds.map((memberId) =>
-      firestore.collection(BLIND_MEETING_COLLECTIONS.applications).doc(memberId)
-    );
-    const participantRefs = party.acceptedUserIds.map((memberId) =>
-      firestore
-        .collection(BLIND_MEETING_COLLECTIONS.meetings)
-        .doc(params.meetingId)
-        .collection("participants")
-        .doc(memberId)
-    );
-    const [applications, participants] = await Promise.all([
-      Promise.all(applicationRefs.map((ref) => tx.get(ref))),
-      Promise.all(participantRefs.map((ref) => tx.get(ref))),
-    ]);
-    if (
-      applications.some(
-        (snap) => !snap.exists || snap.data()?.meetingId !== params.meetingId
-      ) ||
-      participants.some((snap) => !snap.exists)
-    ) {
-      throw new HttpsError(
-        "failed-precondition",
-        "친구 팀의 미팅 배정 상태가 일치하지 않아요."
-      );
-    }
-    tx.set(
-      pRef,
-      {
-        status: "cancelled",
-        meetingId: null,
-        cancelledByUserId: params.userId,
-        cancelledAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-    for (let i = 0; i < party.acceptedUserIds.length; i++) {
-      const memberId = party.acceptedUserIds[i];
-      tx.set(
-        membershipRef(memberId),
-        { active: false, updatedAt: FieldValue.serverTimestamp() },
-        { merge: true }
-      );
-      tx.set(
-        applicationRefs[i],
-        {
-          open: false,
-          status: "cancelled",
-          serverStatus: "cancelled",
-          stage: "cancelled",
-          meetingId: params.meetingId,
-          updatedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-      tx.set(
-        participantRefs[i],
-        {
-          status: "cancelled",
-          serverStatus: "cancelled",
-          cancelReason:
-            memberId === params.userId
-              ? params.reason
-              : "friend_party_member_declined",
-          cancelledAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-    }
-    return party.acceptedUserIds;
+    return summary;
   });
 }

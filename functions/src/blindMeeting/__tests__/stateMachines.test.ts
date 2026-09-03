@@ -55,6 +55,7 @@ describe("blind participant FSM matrix", () => {
     assert.equal(canTransitionParticipant("cancelled", "replacement_pending"), false);
     assert.equal(canTransitionParticipant("replaced", "confirmed"), false);
     assert.equal(canTransitionParticipant("completed", "invited"), false);
+    // legacy invited 좌석은 legacyAcceptance 가 accepted 를 거쳐 확정한다.
     assert.equal(canTransitionParticipant("invited", "confirmed"), false);
   });
 });
@@ -171,18 +172,40 @@ describe("status write bypass scan", () => {
   }
 
   it("orchestrator raw serverStatus writes stay limited to the allowlisted tx paths", () => {
-    // 허용: 미팅 생성(awaiting_acceptance), 참가자/신청서 최초 초대 클레임
-    // (invited ×2), 대체 합류 tx(confirmed 참가자 + replaced 이탈자 +
-    // confirmed 신청서). 이 목록이 늘어나면 FSM bypass다.
+    // 허용: 매칭 tx 의 미팅 생성(confirmed — 수락 단계 없음), 참가자/신청서
+    // 최초 클레임(confirmed ×2), 대체 합류 tx(confirmed 참가자 + replaced
+    // 이탈자 + confirmed 신청서). 이 목록이 늘어나거나 awaiting_acceptance /
+    // invited 가 다시 나타나면 FSM bypass 또는 수락 단계 부활이다.
     const literals = extractServerStatusLiterals(readCompiled("orchestrator.js"));
     assert.deepEqual(literals, [
-      "awaiting_acceptance",
       "confirmed",
       "confirmed",
-      "invited",
-      "invited",
+      "confirmed",
+      "confirmed",
+      "confirmed",
       "replaced",
     ]);
+  });
+
+  it("legacy normalizer only writes the canonical pre-confirm status", () => {
+    // legacy awaiting_deposits 문서를 되돌릴 때 쓰는 유일한 raw write.
+    // confirmed 로의 전이는 legacyAcceptance 의 FSM 경로를 그대로 탄다.
+    assert.deepEqual(
+      extractServerStatusLiterals(readCompiled("legacyDepositNormalizer.js")),
+      // 폐기된 수락 대기 상태(awaiting_acceptance)를 다시 만들지 않는다:
+      // 온전한 6인 match 는 legacyAcceptance 의 FSM 경로로 확정, 아니면 repair 표시만.
+      []
+    );
+  });
+
+  it("legacy acceptance normalizer and confirmation module use the FSM choke points only", () => {
+    for (const file of ["legacyAcceptance.js", "meetingConfirmation.js"]) {
+      assert.deepEqual(
+        extractServerStatusLiterals(readCompiled(file)),
+        [],
+        `${file} must not write serverStatus literals`
+      );
+    }
   });
 
   it("scheduled/ops/callables/matching have no raw serverStatus writes", () => {

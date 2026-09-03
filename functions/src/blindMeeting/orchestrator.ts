@@ -2,8 +2,11 @@
  * 3:3 블라인드 취향 미팅 — 서버 오케스트레이션
  * 경로: functions/src/blindMeeting/orchestrator.ts
  *
- * 매칭 실행, 참가 확정, 보증금, 단체 채팅 생성, 대체 충원, 노쇼 처리,
+ * 매칭 실행, 참가 확정, 단체 채팅 생성, 대체 충원, 노쇼 처리,
  * 후속 선택과 상호 선택 판정을 담당한다.
+ * 블라인드 미팅에는 결제 단계도, 매칭 후 참가 수락/거절 단계도 없다.
+ * 매칭이 commit 되면 미팅은 곧바로 confirmed 이고 같은 트랜잭션에서
+ * 6인 채팅방이 만들어진다 (사용자에게는 "매칭됐어요" 안내만 간다).
  * 중요한 상태 전환은 모두 여기(서버)에서만 수행한다.
  */
 
@@ -35,18 +38,14 @@ import {
   standardPool,
 } from "./matching";
 import { CURRENT_MATCHING_CONFIG } from "./matchingConfig";
+import { confirmLegacyAwaitingAcceptanceMeeting } from "./legacyAcceptance";
+import { openGroupChatForConfirmedMeeting } from "./meetingConfirmation";
 import { notifyBlindMeeting } from "./notifications";
 import {
-  loadActivePartyForUser,
-  withdrawMatchedBlindMeetingParty,
-} from "./party";
-import {
   BlindMeetingPolicy,
-  refundAmountFor,
   resolveCancellation,
   resolveNoShowSanction,
 } from "./policy";
-import { refundDeposit } from "./payments";
 import {
   onBlindMeetingCheckIn,
   onBlindMeetingCheckOut,
@@ -55,6 +54,7 @@ import {
 } from "../meetingIcebreaker/blindMeetingHooks";
 import {
   ApplicationDoc,
+  BLIND_MEETING_GROUP_CHAT_WELCOME,
   MeetingDoc,
   addSafetyFlag,
   appendSystemMessage,
@@ -63,8 +63,9 @@ import {
   createOpsReview,
   db,
   ensureDirectChat,
-  ensureGroupChat,
   groupChatIdFor,
+  groupChatParticipantInfo,
+  groupChatRoomDocument,
   incrementStats,
   loadCandidate,
   loadMeeting,
@@ -86,6 +87,9 @@ import {
   transitionMeetingStatus,
   updateParticipant,
 } from "./store";
+
+// 스케줄러(groupChatRepair)와 테스트가 기존 경로로 import 할 수 있게 re-export.
+export { openGroupChatForConfirmedMeeting };
 import {
   holdsChatMembership,
   BLIND_MEETING_AVAILABILITY_MODE_DATE_ONLY,
@@ -93,7 +97,6 @@ import {
   BLIND_MEETING_SCHEDULE_SELECTION_VERSION,
   BLIND_MEETING_SCHEMA_VERSION,
   BLIND_MEETING_TYPE,
-  DEPOSIT_STATUS_TO_APP,
   MEETING_STATUS_TO_APP,
   PARTICIPANT_STATUS_TO_APP,
   asStrArray,
@@ -410,6 +413,14 @@ export async function createMeetingFromProposal(
   const publicProfiles = await Promise.all(
     participantIds.map((userId) => buildPublicProfile(userId))
   );
+  const policy = await loadPolicy();
+
+  // 매칭 = 확정. 미팅(confirmed)·참가자·신청서·6인 채팅방을 한 트랜잭션에서
+  // commit 한다. "matched but no room" / "room but no meeting" /
+  // "application still waiting after match" 같은 부분 상태가 생기지 않는다.
+  const roomId = groupChatIdFor(meetingId);
+  const roomRef = db().collection("chat_rooms").doc(roomId);
+  const participantInfo = groupChatParticipantInfo(publicProfiles);
 
   const claimed = await db().runTransaction(async (tx) => {
     const refs = participantIds.map((userId) =>
@@ -422,12 +433,25 @@ export async function createMeetingFromProposal(
     const partyRefs = realPartyIds.map((partyId) =>
       db().collection(BLIND_MEETING_COLLECTIONS.parties).doc(partyId)
     );
-    const [snaps, userSnaps, partySnaps] = await Promise.all([
+    const [snaps, userSnaps, partySnaps, roomSnap] = await Promise.all([
       Promise.all(refs.map((ref) => tx.get(ref))),
       Promise.all(userRefs.map((ref) => tx.get(ref))),
       Promise.all(partyRefs.map((ref) => tx.get(ref))),
+      tx.get(roomRef),
     ]);
 
+    // 방 id 는 새 meetingId 에서 결정되므로 이미 존재하면 손상 신호다.
+    if (roomSnap.exists) {
+      logger.error("blindMeeting claim rejected: room id already exists", {
+        meetingId,
+      });
+      return false;
+    }
+
+    // 신청 취소(cancelOpenApplication)는 같은 문서를 트랜잭션으로
+    // open:false 로 바꾼다. 취소가 먼저 commit 됐으면 여기서 실패해 미팅이
+    // 만들어지지 않고, 매칭이 먼저 commit 됐으면 취소 쪽이 meetingId 를 보고
+    // CANNOT_CANCEL_ALREADY_MATCHED 로 거부된다 — 둘 중 하나만 이긴다.
     for (const snap of snaps) {
       const data = snap.data();
       if (!snap.exists || data?.open !== true) return false;
@@ -488,13 +512,23 @@ export async function createMeetingFromProposal(
       }
     }
 
+    // 확정 시점 성별 스냅샷 (불변 근거). 이후 사용자가 프로필을 바꾸거나 필드가
+    // 사라져도 3남+3녀 사실은 이 스냅샷으로 재현된다 (groupChatRepair 근거 1순위).
+    const participantGenders: Record<string, string> = {};
+    for (const entry of authoritative) {
+      if (entry.gender != null) participantGenders[entry.userId] = entry.gender;
+    }
+
     tx.set(meetingRef, {
       meetingId,
       meetingType: BLIND_MEETING_TYPE,
       schemaVersion: BLIND_MEETING_SCHEMA_VERSION,
       algorithmVersion: proposal.algorithmVersion,
-      status: MEETING_STATUS_TO_APP.awaiting_acceptance,
-      serverStatus: "awaiting_acceptance",
+      // 매칭 commit = 확정. 수락 단계 없음.
+      status: MEETING_STATUS_TO_APP.confirmed,
+      serverStatus: "confirmed",
+      confirmedAt: FieldValue.serverTimestamp(),
+      participantGenders,
       // 세부 시간은 단체 채팅방 약속잡기에서 정한다. 확정 전에는 비워둔다.
       slotId: null,
       matchedDateKey: proposal.dateKey,
@@ -507,7 +541,12 @@ export async function createMeetingFromProposal(
       participantIds,
       partyIds: realPartyIds,
       waitlistIds: [],
-      groupChatId: null,
+      // 채팅방은 같은 트랜잭션에서 만들어진다 (deterministic room id).
+      groupChatId: roomId,
+      // 약속잡기 기한. 지나면 서버가 제출된 투표(없으면 기준 날짜)로 확정한다.
+      scheduleVoteDeadlineAt: Timestamp.fromMillis(
+        Date.now() + policy.scheduleVoteWindowMs
+      ),
       venue: null,
       scheduledStartAt: null,
       fivePersonExceptionApproved: false,
@@ -526,10 +565,11 @@ export async function createMeetingFromProposal(
           userId,
           team,
           role: "member",
-          status: PARTICIPANT_STATUS_TO_APP.invited,
-          serverStatus: "invited",
-          depositStatus: DEPOSIT_STATUS_TO_APP.not_required,
-          serverDepositStatus: "not_required",
+          // 확정 시점 성별 (미팅 문서 participantGenders 와 같은 값, 근거 2순위).
+          gender: participantGenders[userId] ?? null,
+          status: PARTICIPANT_STATUS_TO_APP.confirmed,
+          serverStatus: "confirmed",
+          confirmedAt: FieldValue.serverTimestamp(),
           attendanceConfirmation24h: "pending",
           attendanceConfirmation3h: "pending",
           checkInStatus: "notOpen",
@@ -541,21 +581,34 @@ export async function createMeetingFromProposal(
       );
 
       // merge 필수. 통째로 쓰면 requestedDateKeys / appliedAt /
-      // prefersAlcoholFree 가 사라지고, 이후 취소·거절로 신청이 다시 열려도
-      // loadOpenApplications 의 날짜 쿼리에 영영 걸리지 않는다.
+      // prefersAlcoholFree / heartChargeCount 가 사라지고, 이후 미팅 취소로
+      // 신청이 다시 열려도 loadOpenApplications 의 날짜 쿼리에 영영 걸리지
+      // 않는다. (재사용 DNA 는 blindMeetingDna 에 따로 있어 영향 없음.)
       tx.set(
         refs[i],
         {
           open: false,
           meetingId,
-          status: PARTICIPANT_STATUS_TO_APP.invited,
-          serverStatus: "invited",
+          status: PARTICIPANT_STATUS_TO_APP.confirmed,
+          serverStatus: "confirmed",
           stage: "matched",
+          matchedAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
     }
+
+    // 서버 소유 6인 채팅방 — 미팅과 같은 commit.
+    tx.set(
+      roomRef,
+      groupChatRoomDocument({
+        meetingId,
+        memberIds: participantIds,
+        participantInfo,
+        isAlcoholFree: proposal.alcoholFree,
+      })
+    );
 
 
     for (let i = 0; i < partyRefs.length; i++) {
@@ -613,17 +666,6 @@ export async function createMeetingFromProposal(
     return null;
   }
 
-  await notifyBlindMeeting({
-    userIds: participantIds,
-    meetingId,
-    kind: "matched",
-  });
-  await notifyBlindMeeting({
-    userIds: participantIds,
-    meetingId,
-    kind: "acceptance_request",
-  });
-
   logger.info("blindMeeting created", {
     meetingId,
     commonDateCount: proposal.commonDateKeys.length,
@@ -631,346 +673,27 @@ export async function createMeetingFromProposal(
     algorithmVersion: proposal.algorithmVersion,
   });
 
+  // 트랜잭션 이후 부수 단계. 여기서 실패해도 미팅+채팅방은 이미 commit 돼
+  // 있고, 스케줄러 groupChatRepair 가 confirmed 미팅에 대해
+  // openGroupChatForConfirmedMeeting 을 다시 불러 chat_open 전이·알림을
+  // 마무리한다 (모두 idempotent).
+  try {
+    await appendSystemMessage(roomId, BLIND_MEETING_GROUP_CHAT_WELCOME);
+    await notifyBlindMeeting({
+      userIds: participantIds,
+      meetingId,
+      kind: "matched",
+    });
+    await openGroupChatForConfirmedMeeting(meetingId);
+  } catch (error) {
+    logger.error("blindMeeting post-match steps failed; scheduler will repair", {
+      meetingId,
+      error,
+    });
+  }
+
   return meetingId;
 }
-
-// -----------------------------------------------------------------------------
-// 수락 / 확정 (블라인드 미팅은 보증금 없음)
-// -----------------------------------------------------------------------------
-
-export async function acceptInvitation(
-  meetingId: string,
-  userId: string
-): Promise<void> {
-  const meeting = await loadMeeting(meetingId);
-  if (!meeting.participantIds.includes(userId)) {
-    throw new HttpsError("permission-denied", "참가 중인 미팅이 아니에요.");
-  }
-  if (meeting.status !== "awaiting_acceptance") {
-    throw new HttpsError(
-      "failed-precondition",
-      "지금은 수락할 수 있는 단계가 아니에요."
-    );
-  }
-
-  await updateParticipant(meetingId, userId, {
-    status: "accepted",
-    extra: { acceptedAt: FieldValue.serverTimestamp() },
-  });
-  await setApplication(userId, { status: "accepted" });
-  await advanceAfterAcceptance(meetingId);
-}
-
-export async function declineInvitation(
-  meetingId: string,
-  userId: string,
-  reason: string | null
-): Promise<void> {
-  const meeting = await loadMeeting(meetingId);
-  if (!meeting.participantIds.includes(userId)) {
-    throw new HttpsError("permission-denied", "참가 중인 미팅이 아니에요.");
-  }
-  // 수락 대기/보증금 대기 단계까지만 거절할 수 있다.
-  // 확정 이후에는 requestCancellation(취소 요청) 경로를 사용해야 한다.
-  if (
-    meeting.status !== "awaiting_acceptance" &&
-    meeting.status !== "awaiting_deposits"
-  ) {
-    throw new HttpsError(
-      "failed-precondition",
-      "지금은 초대를 거절할 수 있는 단계가 아니에요. 참여가 어려우면 취소 요청을 이용해주세요."
-    );
-  }
-
-  const party = await loadActivePartyForUser(userId);
-  if (
-    party &&
-    party.status === "matched" &&
-    party.meetingId === meetingId &&
-    party.acceptedUserIds.length > 1
-  ) {
-    const withdrawnUserIds = await withdrawMatchedBlindMeetingParty({
-      userId,
-      partyId: party.partyId,
-      meetingId,
-      reason,
-    });
-    for (const vacantUserId of withdrawnUserIds) {
-      await handleVacancy({ meetingId, vacantUserId, urgent: false });
-    }
-    return;
-  }
-
-  await updateParticipant(meetingId, userId, {
-    status: "cancelled",
-    extra: {
-      cancelledAt: FieldValue.serverTimestamp(),
-      cancelReason: reason,
-    },
-  });
-  // 신청은 다시 열어 다음 미팅 후보로 둔다. 중복 거절이 도착했을 때
-  // 이미 재오픈되어 다른 미팅에 재클레임된 신청은 덮어쓰지 않는다.
-  await reopenApplicationIfBoundTo(userId, meetingId);
-  await handleVacancy({ meetingId, vacantUserId: userId, urgent: false });
-}
-
-async function advanceAfterAcceptance(meetingId: string): Promise<void> {
-  const meeting = await loadMeeting(meetingId);
-  const participants = await loadParticipants(meetingId);
-  const seatCount = meeting.participantIds.length;
-  const accepted = participants.filter(
-    (p) => p.status === "accepted" || p.status === "confirmed"
-  );
-  if (accepted.length < seatCount) return;
-
-  // 전원 수락이 끝나면 결제 단계를 만들지 않고 바로 단체 채팅을 연다.
-  await advanceWithoutDeposit(meetingId);
-}
-
-/** 사용자가 화면에서 재시도할 수 있는 결제 없는 채팅방 복구 진입점. */
-export async function openChatWithoutDeposit(
-  meetingId: string,
-  userId: string
-): Promise<void> {
-  const meeting = await loadMeeting(meetingId);
-  if (!meeting.participantIds.includes(userId)) {
-    throw new HttpsError("permission-denied", "참가 중인 미팅이 아니에요.");
-  }
-  const opened = await advanceWithoutDeposit(meetingId);
-  if (!opened) {
-    throw new HttpsError(
-      "failed-precondition",
-      "여섯 명의 참가 수락이 끝난 뒤 단체 채팅방을 열 수 있어요."
-    );
-  }
-}
-
-/**
- * 과거 클라이언트의 startBlindMeetingDeposit 호출과 이미 생성된
- * awaiting_deposits 문서를 안전하게 수습하기 위한 호환 경로.
- * 신규 블라인드 미팅에서는 이 함수가 결제 provider를 호출하지 않는다.
- */
-export async function beginDeposit(
-  meetingId: string,
-  userId: string
-): Promise<{
-  status: string;
-  provider: string;
-  amount: number;
-  checkoutUrl?: string;
-  sandbox: boolean;
-  message?: string;
-}> {
-  const meeting = await loadMeeting(meetingId);
-  if (!meeting.participantIds.includes(userId)) {
-    throw new HttpsError("permission-denied", "참가 중인 미팅이 아니에요.");
-  }
-  if (meeting.status === "awaiting_deposits") {
-    const opened = await advanceWithoutDeposit(meetingId);
-    if (!opened) {
-      throw new HttpsError(
-        "failed-precondition",
-        "참가자 수락 상태를 확인한 뒤 단체 채팅방을 열 수 있어요."
-      );
-    }
-    return {
-      status: DEPOSIT_STATUS_TO_APP.not_required,
-      provider: "none",
-      amount: 0,
-      sandbox: true,
-      message: "블라인드 미팅은 보증금 없이 단체 채팅방이 열려요.",
-    };
-  }
-  if (meeting.status === "awaiting_acceptance") {
-    throw new HttpsError(
-      "failed-precondition",
-      "여섯 명의 참가 수락이 끝나면 보증금 없이 단체 채팅방이 열려요."
-    );
-  }
-
-  throw new HttpsError(
-    "failed-precondition",
-    "이 블라인드 미팅은 이미 참가 확인 또는 채팅 단계예요."
-  );
-}
-
-async function advanceWithoutDeposit(meetingId: string): Promise<boolean> {
-  const meeting = await loadMeeting(meetingId);
-  // 이전 버전의 awaiting_deposits 문서를 결제 없이 복구한다.
-  if (
-    meeting.status !== "awaiting_acceptance" &&
-    meeting.status !== "awaiting_deposits" &&
-    meeting.status !== "confirmed" &&
-    meeting.status !== "chat_open"
-  ) {
-    return false;
-  }
-  const policy = await loadPolicy();
-  const participants = await loadParticipants(meetingId);
-  const seatCount = meeting.participantIds.length;
-  const participantsById = new Map(
-    participants.map((participant) => [participant.userId, participant])
-  );
-  const readyStatuses = new Set([
-    "accepted",
-    "deposit_pending",
-    "confirmed",
-  ]);
-  const allParticipantsReady =
-    seatCount > 0 &&
-    meeting.participantIds.every((userId) => {
-      const participant = participantsById.get(userId);
-      return participant != null && readyStatuses.has(participant.status);
-    });
-  if (!allParticipantsReady) return false;
-
-  const wasWaitingForConfirmation =
-    meeting.status === "awaiting_acceptance" ||
-    meeting.status === "awaiting_deposits";
-  if (wasWaitingForConfirmation) {
-    // FSM 전이를 먼저 통과시킨다. 동시 실행이면 최신 상태를 재확인한다.
-    const confirmed = await transitionMeetingStatus(meetingId, "confirmed", {
-      confirmedAt: FieldValue.serverTimestamp(),
-    });
-    if (!confirmed) {
-      const latest = await loadMeeting(meetingId);
-      if (latest.status !== "confirmed" && latest.status !== "chat_open") {
-        return false;
-      }
-    }
-  }
-
-  for (const participant of participants) {
-    const patch: {
-      status: "confirmed";
-      depositStatus?: "not_required";
-      extra: Record<string, unknown>;
-    } = {
-      status: "confirmed",
-      extra: { confirmedAt: FieldValue.serverTimestamp() },
-    };
-    // 미결제 pending/failed 상태만 not_required로 정리한다. 이미 결제된
-    // 과거 참가자의 paid/refund 상태는 환불 정산을 위해 보존한다.
-    if (
-      participant.depositStatus === "pending" ||
-      participant.depositStatus === "failed"
-    ) {
-      patch.depositStatus = "not_required";
-    }
-    await updateParticipant(meetingId, participant.userId, patch);
-    await setApplication(participant.userId, { status: "confirmed" });
-  }
-
-  if (wasWaitingForConfirmation) {
-    await notifyBlindMeeting({
-      userIds: meeting.participantIds,
-      meetingId,
-      kind: "confirmed",
-    });
-  }
-
-  const roomId = await ensureGroupChat({
-    meetingId,
-    memberIds: meeting.participantIds,
-    isAlcoholFree: meeting.isAlcoholFree,
-  });
-
-  await db()
-    .collection(BLIND_MEETING_COLLECTIONS.meetings)
-    .doc(meetingId)
-    .set(
-      {
-        groupChatId: roomId,
-        // 약속잡기 기한. 지나면 서버가 제출된 투표(없으면 기준 날짜)로 확정한다.
-        // 이 값이 없으면 시간 미확정 상태로 무기한 방치된다.
-        scheduleVoteDeadlineAt: Timestamp.fromMillis(
-          Date.now() + policy.scheduleVoteWindowMs
-        ),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-  const current = await loadMeeting(meetingId);
-  if (current.status === "confirmed") {
-    await transitionMeetingStatus(meetingId, "chat_open");
-  }
-  await recordMetUsers(meetingId, meeting.participantIds);
-
-  if (wasWaitingForConfirmation) {
-    await notifyBlindMeeting({
-      userIds: meeting.participantIds,
-      meetingId,
-      kind: "chat_created",
-      deeplinkId: roomId,
-      data: { roomId },
-    });
-    await notifyBlindMeeting({
-      userIds: meeting.participantIds,
-      meetingId,
-      kind: "schedule_vote",
-      deeplinkId: roomId,
-      data: { roomId },
-    });
-  }
-  return true;
-}
-
-/**
- * 확정된 미팅에 단체 채팅방을 열고 `chat_open` 으로 넘긴다.
- *
- * 확정 transaction 과 별개 단계라 중간에 실패하면 미팅이 `confirmed` 에서
- * 멈춘다 (채팅방도 약속잡기 기한도 없는 상태). scheduled 복구 tick 이
- * 되살릴 수 있도록 idempotent 하게 분리했다. `ensureGroupChat` 과
- * `transitionMeetingStatus` 모두 재실행에 안전하다.
- */
-export async function openGroupChatForConfirmedMeeting(
-  meetingId: string
-): Promise<boolean> {
-  const meeting = await loadMeeting(meetingId);
-  if (meeting.status !== "confirmed") return false;
-  const policy = await loadPolicy();
-
-  const roomId = await ensureGroupChat({
-    meetingId,
-    memberIds: meeting.participantIds,
-    isAlcoholFree: meeting.isAlcoholFree,
-  });
-
-  await db()
-    .collection(BLIND_MEETING_COLLECTIONS.meetings)
-    .doc(meetingId)
-    .set(
-      {
-        groupChatId: roomId,
-        // 약속잡기 기한. 지나면 서버가 제출된 투표(없으면 기준 날짜)로 확정한다.
-        // 이 값이 없으면 시간 미확정 상태로 무기한 방치된다.
-        scheduleVoteDeadlineAt: Timestamp.fromMillis(
-          Date.now() + policy.scheduleVoteWindowMs
-        ),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-  await transitionMeetingStatus(meetingId, "chat_open");
-  await recordMetUsers(meetingId, meeting.participantIds);
-
-  await notifyBlindMeeting({
-    userIds: meeting.participantIds,
-    meetingId,
-    kind: "chat_created",
-    deeplinkId: roomId,
-    data: { roomId },
-  });
-  await notifyBlindMeeting({
-    userIds: meeting.participantIds,
-    meetingId,
-    kind: "schedule_vote",
-    deeplinkId: roomId,
-    data: { roomId },
-  });
-  return true;
-}
-
 
 // -----------------------------------------------------------------------------
 // 일정 확정
@@ -1102,7 +825,7 @@ async function maybeConfirmSchedule(
     }
   }
 
-  // 후보 날짜가 모두 지났으면 확정할 수 없다. 미팅을 취소하고 전액 환급한다.
+  // 후보 날짜가 모두 지났으면 확정할 수 없다. 미팅을 취소하고 우선 재매칭을 준다.
   if (slotId == null) {
     logger.warn("blindMeeting schedule expired without confirmation", {
       meetingId,
@@ -1274,9 +997,21 @@ export async function handleVacancy(params: {
       loadCandidate(userId, policy, Date.now(), Date.now())
     )
   );
+  // recentlyMet 은 실제 도착 안전도장 이후에만 기록되므로 확정 직후 결원에는
+  // 없다. 다만 도착 도장이 시작된 뒤(긴급 대체 탐색 창)에는 이미 도착한 좌석원
+  // 끼리 이 미팅으로 기록된 관계가 생기는데, 같은 미팅 좌석원끼리의 관계는
+  // 대체 후보를 막을 이유가 아니므로 좌석 스냅샷에서만 제외한다. 후보 자신이
+  // 좌석원과 실제로 만난 이력은 그대로 pair 제약에 걸린다.
+  const seatIdSet = new Set(seatIds);
   const seatMap = new Map<string, Candidate>();
   for (const candidate of seatCandidates) {
-    if (candidate) seatMap.set(candidate.userId, candidate);
+    if (!candidate) continue;
+    seatMap.set(candidate.userId, {
+      ...candidate,
+      recentlyMetUserIds: candidate.recentlyMetUserIds.filter(
+        (id) => !seatIdSet.has(id)
+      ),
+    });
   }
 
   const teamA = meeting.teamAUserIds
@@ -1445,7 +1180,6 @@ export async function respondReplacementOffer(params: {
     );
     const replacementOpenStatuses = new Set([
       "awaiting_acceptance",
-      "awaiting_deposits",
       "confirmed",
       "chat_open",
       "schedule_confirmed",
@@ -1581,8 +1315,6 @@ export async function respondReplacementOffer(params: {
         role: "member",
         status: PARTICIPANT_STATUS_TO_APP.confirmed,
         serverStatus: "confirmed",
-        depositStatus: DEPOSIT_STATUS_TO_APP.not_required,
-        serverDepositStatus: "not_required",
         attendanceConfirmation24h: "attending",
         attendanceConfirmation3h: "pending",
         checkInStatus: "notOpen",
@@ -1676,13 +1408,21 @@ export async function respondReplacementOffer(params: {
     kind: "replacement_confirmed",
   });
 
-  // 취소자 환급 처리 (대체 성공)
+  // 취소자 좌석 정리 (대체 성공)
   await settleCancellation({
     meetingId,
     userId: vacantUserId,
     replacementFound: true,
     emergency: false,
   });
+
+  // LEGACY_COMPATIBILITY_ONLY: 수락 대기(legacy) 미팅에 대체 참가자가 합류해
+  // 여섯 좌석이 모두 찼으면 새 계약(매칭 = 확정)대로 바로 확정하고 채팅방을
+  // 연다. 신규 미팅은 confirmed 로 태어나므로 이 분기를 타지 않는다.
+  const afterJoin = await loadMeeting(meetingId);
+  if (afterJoin.status === "awaiting_acceptance") {
+    await confirmLegacyAwaitingAcceptanceMeeting(meetingId);
+  }
 
   return result;
 }
@@ -1733,7 +1473,12 @@ async function finalizeCancellationWithoutReplacement(params: {
   });
 }
 
-/** 취소자 환급/제재 처리 */
+/**
+ * 취소자 좌석 정리 / 제재 처리.
+ *
+ * 블라인드 미팅에는 금전 정산이 없으므로 이 함수는 결제 subsystem 을 전혀
+ * 호출하지 않는다. 참가자·신청서 상태, 채팅 멤버십, 노쇼 제재, 통계만 다룬다.
+ */
 export async function settleCancellation(params: {
   meetingId: string;
   userId: string;
@@ -1743,7 +1488,7 @@ export async function settleCancellation(params: {
 }): Promise<void> {
   const meeting = await loadMeeting(params.meetingId);
   const policy = await loadPolicy();
-  // null = 약속잡기 미완료로 시작 시각이 없는 구간 (전액 환급 대상)
+  // null = 약속잡기 미완료로 시작 시각이 없는 구간
   const untilMeetingMs =
     meeting.scheduledStartAtMs == null
       ? null
@@ -1758,33 +1503,20 @@ export async function settleCancellation(params: {
   });
 
   if (decision.outcome === "ops_review") {
+    // 사고·응급 상황은 운영 검토 기록만 남긴다. 금전 판단이 없으므로
+    // 좌석 정리는 아래 일반 경로와 똑같이 즉시 끝낸다 (이탈자가 limbo 에
+    // 남아 채팅 멤버십을 유지하거나 재신청이 막히지 않도록).
     await createOpsReview({
       meetingId: params.meetingId,
       userId: params.userId,
       kind: "emergency_cancellation",
-      detail: { untilMeetingMs },
+      detail: { untilMeetingMs, replacementFound: params.replacementFound },
     });
-    await updateParticipant(params.meetingId, params.userId, {
-      depositStatus: "refund_pending",
-    });
-    return;
   }
-
-  const refundAmount = refundAmountFor(
-    policy.depositAmount,
-    decision.refundBasisPoints
-  );
-  const refund = await refundDeposit({
-    meetingId: params.meetingId,
-    userId: params.userId,
-    depositAmount: policy.depositAmount,
-    refundAmount,
-    reason: decision.outcome,
-  });
 
   // 대체 성공 경로에서는 이탈자가 이미 transaction 안에서 `replaced` 로
   // 확정돼 있다. `replaced` 는 terminal 이라 FSM 이 cancelled 로의 전이를
-  // 거부하므로, 여기서 상태를 다시 밀면 환급을 끝낸 뒤 예외가 나서
+  // 거부하므로, 여기서 상태를 다시 밀면 예외가 나서
   // 신청서 분리·알림·통계가 전부 건너뛰어진다 (이탈자가 영구히 잠긴다).
   // 이미 terminal 이면 동반 필드만 갱신한다.
   const settlingParticipant = (
@@ -1801,11 +1533,9 @@ export async function settleCancellation(params: {
       : params.isNoShowWithoutContact
         ? "no_show"
         : "cancelled",
-    depositStatus: refund.status,
     extra: {
       cancelledAt: FieldValue.serverTimestamp(),
-      refundOutcome: decision.outcome,
-      refundedAmount: refund.refundedAmount,
+      settlementOutcome: decision.outcome,
     },
   });
 
@@ -1878,15 +1608,6 @@ export async function settleCancellation(params: {
   } else {
     await incrementStats(params.userId, {
       earlyCancellationCount: 1,
-    });
-  }
-
-  if (refund.refundedAmount > 0) {
-    await notifyBlindMeeting({
-      userIds: [params.userId],
-      meetingId: params.meetingId,
-      kind: "refunded",
-      bodyOverride: `보증금 ${refund.refundedAmount}원이 환급 처리됐어요.`,
     });
   }
 }
@@ -1970,7 +1691,6 @@ export async function cancelMeeting(
 ): Promise<void> {
   const meeting = await loadMeeting(meetingId);
   const participants = await loadParticipants(meetingId);
-  const policy = await loadPolicy();
 
   for (const participant of participants) {
     // terminal 상태(replaced/cancelled/completed/no_show/restricted 등)는
@@ -1978,17 +1698,10 @@ export async function cancelMeeting(
     if (!canTransitionParticipant(participant.status, "cancelled")) {
       continue;
     }
-    // 정상 참석 예정자에게는 전액 환급 + 다음 미팅 우선권
-    const refund = await refundDeposit({
-      meetingId,
-      userId: participant.userId,
-      depositAmount: policy.depositAmount,
-      refundAmount: policy.depositAmount,
-      reason: `meeting_cancelled:${reason}`,
-    });
+    // 정상 참석 예정자에게는 다음 미팅 우선권 (금전 정산 없음)
     await updateParticipant(meetingId, participant.userId, {
       status: "cancelled",
-      depositStatus: refund.status,
+      extra: { cancelledAt: FieldValue.serverTimestamp() },
     });
     // 이 미팅에 아직 귀속된 신청만 재오픈한다 (먼저 거절해 다른 미팅에
     // 재클레임된 참가자의 새 link 를 취소 정리가 덮어쓰지 않도록).
@@ -2001,6 +1714,26 @@ export async function cancelMeeting(
     cancelledAt: FieldValue.serverTimestamp(),
     cancelReason: reason,
   });
+
+  // 이 미팅에 배정됐던 친구 파티를 다시 ready 로 되돌린다. 신청서는 위에서
+  // 재오픈됐지만 파티가 matched 로 남으면 매칭 claim 이 파티 상태(ready)
+  // 검사에서 영영 실패해 팀원 전원이 재매칭되지 않는다.
+  const boundParties = await db()
+    .collection(BLIND_MEETING_COLLECTIONS.parties)
+    .where("meetingId", "==", meetingId)
+    .where("status", "==", "matched")
+    .get();
+  for (const partyDoc of boundParties.docs) {
+    await partyDoc.ref.set(
+      {
+        status: "ready",
+        meetingId: null,
+        readyAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
 
   // 미팅이 취소되면 예약된 아이스브레이킹 알림도 모두 취소한다.
   await stopBlindMeetingSessionPrompts({
@@ -2082,6 +1815,18 @@ export async function markSafetyStamp(params: {
     if (!stampParticipant.checkedIn) {
       await incrementStats(params.userId, { checkinCompleted: 1 });
     }
+    // recentlyMet(재매칭 제외 이력)는 "실제로 만난" 관계다. 매칭·확정·채팅방·
+    // 약속 확정은 만남이 아니므로 기록하지 않고, 도착 안전도장을 찍은 사람들
+    // 사이에서만 기록한다. 노쇼·취소·대체로 빠진 사람은 도장을 찍을 수 없어
+    // 자연히 제외되고, 6x6 이 아니라 실제 도착자 x 도착자 pair 만 남는다.
+    // recordMetUsers 는 문서 id 가 pair 로 고정된 merge write 라 재도장에도
+    // 관계가 중복 생성되지 않는다.
+    const arrived = (await loadParticipants(params.meetingId))
+      .filter((p) => p.checkedIn && meeting.participantIds.includes(p.userId))
+      .map((p) => p.userId);
+    if (arrived.length >= 2) {
+      await recordMetUsers(params.meetingId, arrived);
+    }
     await transitionMeetingStatus(params.meetingId, "checkin_open");
     await maybeStartMeeting(params.meetingId);
     // 시작 안전도장 완료 → 15분 뒤부터 아이스브레이킹 룰렛 알림
@@ -2157,18 +1902,10 @@ async function maybeCompleteMeeting(meetingId: string): Promise<void> {
     reason: "meeting_completed",
   });
 
-  const policy = await loadPolicy();
   for (const participant of attended) {
-    const refund = await refundDeposit({
-      meetingId,
-      userId: participant.userId,
-      depositAmount: policy.depositAmount,
-      refundAmount: policy.depositAmount,
-      reason: "attended_and_checked_out",
-    });
     await updateParticipant(meetingId, participant.userId, {
       status: "completed",
-      depositStatus: refund.status,
+      extra: { completedAt: FieldValue.serverTimestamp() },
     });
     await incrementStats(participant.userId, { completedMeetings: 1 });
     await setApplication(participant.userId, {
@@ -2176,12 +1913,6 @@ async function maybeCompleteMeeting(meetingId: string): Promise<void> {
       open: false,
     });
   }
-
-  await notifyBlindMeeting({
-    userIds: attended.map((p) => p.userId),
-    meetingId,
-    kind: "refunded",
-  });
 }
 
 export async function submitFeedback(params: {
@@ -2443,7 +2174,7 @@ async function isBlockedEitherWay(a: string, b: string): Promise<boolean> {
  * 약속잡기 기한이 지난 미팅을 서버가 확정한다.
  *
  * 날짜 전용 정책에서는 미팅 생성 시점에 `scheduledStartAt`이 없다.
- * 이 단계가 없으면 투표하지 않은 그룹은 보증금이 묶인 채로 무기한 방치되고,
+ * 이 단계가 없으면 투표하지 않은 그룹은 시간 미확정 상태로 무기한 방치되고,
  * lifecycle 스케줄러(참석 재확인·노쇼·후속)도 시작 시각이 없어 전부 건너뛴다.
  */
 export async function finalizeExpiredScheduleVotes(): Promise<number> {

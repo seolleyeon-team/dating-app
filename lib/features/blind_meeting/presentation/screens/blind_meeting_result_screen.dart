@@ -3,8 +3,10 @@
 // 경로: lib/features/blind_meeting/presentation/screens/blind_meeting_result_screen.dart
 //
 // 여섯 명을 `우리 팀 3명`과 `상대 팀 3명`으로 명확히 구분해서 보여주고,
-// 미팅 상태에 따라 수락 → 보증금 → 채팅 → 참석 확인 → 안전도장 → 후속 선택으로
-// 이어지는 다음 행동을 제시한다. 상태 전환 자체는 모두 서버가 수행한다.
+// 미팅 상태에 따라 매칭 안내 → 채팅 → 참석 확인 → 안전도장 → 후속 선택으로
+// 이어지는 다음 행동을 제시한다. 매칭이 확정되면 서버가 같은 트랜잭션에서
+// 6인 채팅방을 만든다 — 참가 수락/거절 단계는 없다 (2026-09-03).
+// 상태 전환 자체는 모두 서버가 수행한다.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -14,7 +16,6 @@ import '../../../chat/models/chat_room_data.dart';
 import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_repository.dart';
 import '../../domain/blind_meeting_enums.dart';
-import '../../domain/blind_meeting_policy.dart';
 import '../../domain/blind_meeting_public_profile.dart';
 import '../../domain/blind_meeting_session.dart';
 import '../../domain/blind_meeting_availability.dart';
@@ -281,105 +282,22 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
     final meetingId = session.meetingId;
 
     switch (session.status) {
+      // LEGACY_COMPATIBILITY_ONLY: 수락 단계가 있던 시절의 미팅 문서. 서버
+      // 스케줄러가 곧 확정하고 채팅방을 연다. 수락/거절 액션은 없다.
       case BlindMeetingStatus.awaitingAcceptance:
-        final accepted =
-            me != null &&
-            me.status != BlindMeetingParticipantStatus.invited &&
-            me.status != BlindMeetingParticipantStatus.applied;
         return BlindMeetingCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                accepted ? '수락이 완료됐어요' : '참가를 수락해주세요',
+                '3:3 미팅이 매칭됐어요!',
                 style: BlindMeetingText.sectionTitle(palette.ink),
               ),
               const SizedBox(height: 8),
               Text(
-                accepted
-                    ? '남은 참가자의 수락을 기다리고 있어요.'
-                    : '여섯 명 모두 수락하면 개인별 보증금 결제로 넘어가요.',
+                '미팅 확정을 준비하고 있어요. 잠시 후 3:3 채팅방이 열리면 알림을 보내드려요.',
                 style: BlindMeetingText.caption(palette.inkSoft),
               ),
-              if (!accepted) ...[
-                const SizedBox(height: 16),
-                BlindMeetingPrimaryButton(
-                  label: '참가할게요',
-                  loading: _busy,
-                  onPressed: _busy
-                      ? null
-                      : () => _run(() async {
-                          await _repository.acceptInvitation(meetingId);
-                          await _analytics.log(
-                            BlindMeetingAnalyticsEvent.invitationAccepted,
-                            params: {'meetingId': meetingId},
-                          );
-                        }, successNotice: '참가를 수락했어요.'),
-                ),
-                const SizedBox(height: 10),
-                BlindMeetingSecondaryButton(
-                  label: '이번에는 참가하지 않을게요',
-                  onPressed: _busy
-                      ? null
-                      : () => _run(
-                          () => _repository.declineInvitation(meetingId),
-                          successNotice: '참가하지 않기로 처리했어요.',
-                        ),
-                ),
-              ],
-            ],
-          ),
-        );
-
-      case BlindMeetingStatus.awaitingDeposits:
-        final paid = me?.depositStatus == BlindMeetingDepositStatus.paid;
-        return BlindMeetingCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                paid ? '보증금 결제가 완료됐어요' : '개인별 보증금을 결제해주세요',
-                style: BlindMeetingText.sectionTitle(palette.ink),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                paid
-                    ? '나머지 참가자의 결제를 기다리고 있어요.'
-                    : '노쇼를 막기 위한 보증금이에요. 정상 참석 후 종료 안전도장까지 완료하면 전액 환급돼요.',
-                style: BlindMeetingText.caption(palette.inkSoft),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                '보증금 ${BlindMeetingPolicy.current.depositAmount}원',
-                style: BlindMeetingText.body(palette.ink),
-              ),
-              if (!paid) ...[
-                const SizedBox(height: 16),
-                BlindMeetingPrimaryButton(
-                  label: '보증금 결제하기',
-                  loading: _busy,
-                  onPressed: _busy
-                      ? null
-                      : () => _run(() async {
-                          final intent = await _repository.startDeposit(
-                            meetingId,
-                          );
-                          await _analytics.log(
-                            BlindMeetingAnalyticsEvent.depositCompleted,
-                            params: {
-                              'meetingId': meetingId,
-                              'depositStatus': intent.status.name,
-                            },
-                          );
-                          if (!mounted) return;
-                          setState(
-                            () => _actionNotice =
-                                intent.message ??
-                                '결제 상태: ${intent.status.name}',
-                          );
-                        }),
-                ),
-              ],
             ],
           ),
         );
@@ -403,17 +321,21 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '단체 채팅에서 약속을 정해주세요',
+                session.status == BlindMeetingStatus.confirmed ||
+                        session.status == BlindMeetingStatus.chatOpen
+                    ? '3:3 미팅이 매칭됐어요!'
+                    : '단체 채팅에서 약속을 정해주세요',
                 style: BlindMeetingText.sectionTitle(palette.ink),
               ),
               const SizedBox(height: 8),
               Text(
-                '여섯 명이 모두 확정되어 단체 채팅방이 열렸어요.\n시간과 장소를 정하고, 도착 후 안전도장을 찍어주세요.',
+                '새로운 3:3 채팅방이 열렸어요.\n채팅방에서 약속을 잡고 서로 안전하게 만남을 준비해보세요.',
                 style: BlindMeetingText.caption(palette.inkSoft),
               ),
               const SizedBox(height: 16),
               BlindMeetingPrimaryButton(
-                label: '단체 채팅방 열기',
+                key: const ValueKey('blind-meeting-open-group-chat'),
+                label: '채팅방으로 이동',
                 icon: Icons.forum_outlined,
                 onPressed: session.groupChatId == null
                     ? null
@@ -551,7 +473,7 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                '정상 참석자에게는 보증금을 전액 환급하고 다음 미팅 우선권을 드려요.',
+                '정상 참석 예정이던 분께는 다음 미팅 우선 재매칭을 드려요.',
                 style: BlindMeetingText.caption(palette.inkSoft),
               ),
             ],
@@ -761,10 +683,9 @@ class _BlindMeetingResultScreenState extends State<BlindMeetingResultScreen> {
   String _statusLabel(BlindMeetingStatus status) => switch (status) {
     BlindMeetingStatus.applicationOpen => '신청 접수',
     BlindMeetingStatus.forming => '팀 구성 중',
-    BlindMeetingStatus.awaitingAcceptance => '참가 수락 대기',
-    BlindMeetingStatus.awaitingDeposits => '보증금 결제 대기',
+    BlindMeetingStatus.awaitingAcceptance => '확정 준비 중',
     BlindMeetingStatus.confirmed => '미팅 확정',
-    BlindMeetingStatus.chatOpen => '단체 채팅 진행',
+    BlindMeetingStatus.chatOpen => '3:3 채팅 진행',
     BlindMeetingStatus.scheduleConfirmed => '일정 확정',
     BlindMeetingStatus.checkinOpen => '도착 안전도장',
     BlindMeetingStatus.inProgress => '미팅 진행 중',

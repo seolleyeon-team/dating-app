@@ -1,35 +1,29 @@
 // =============================================================================
-// 3:3 블라인드 취향 미팅 — 운영 정책 (보증금 / 취소 / 노쇼 / lifecycle)
+// 3:3 블라인드 취향 미팅 — 운영 정책 (취소 / 노쇼 / lifecycle)
 // 경로: lib/features/blind_meeting/domain/blind_meeting_policy.dart
 //
-// 금액과 기간은 코드 곳곳에 흩어놓지 않고 이 설정 하나로 관리한다.
-// 서버 구현(functions/src/blindMeeting/policy.ts)이 같은 값을 사용하며,
-// 실제 환급 실행은 서버에서 idempotent 하게 수행한다.
+// 기간과 제재 값은 코드 곳곳에 흩어놓지 않고 이 설정 하나로 관리한다.
+// 서버 구현(functions/src/blindMeeting/policy.ts)이 같은 값을 사용한다.
+//
+// 블라인드 미팅에는 금전 개념도 매칭 후 수락 단계도 없다. 매칭이 commit 되면
+// 바로 확정되고, 취소·노쇼는 좌석 해제·대체 충원·참여 제한(신뢰/안전)만 결정한다.
 // =============================================================================
 
-import '../../../constants/app_constants.dart';
-
 /// 취소·노쇼 처리 결과.
-enum BlindMeetingRefundOutcome {
-  /// 전액 환급
-  fullRefund,
+enum BlindMeetingCancellationOutcome {
+  /// 좌석을 놓고 나간다. 대체 충원 대상.
+  released,
 
-  /// 일부 환급
-  partialRefund,
+  /// 연락 없는 노쇼. 참여 제한 대상.
+  noShow,
 
-  /// 미환급
-  noRefund,
-
-  /// 운영자 검토 후 예외 처리
+  /// 사고·응급 상황. 운영자 검토 기록을 남긴다.
   opsReview,
 }
 
 /// 취소 시점과 대체 성공 여부에 따른 처리 결정.
 class BlindMeetingCancellationDecision {
-  final BlindMeetingRefundOutcome outcome;
-
-  /// 환급 비율 (basis point, 10000 = 100%).
-  final int refundBasisPoints;
+  final BlindMeetingCancellationOutcome outcome;
 
   /// 대기자 충원을 시작해야 하는지.
   final bool triggersWaitlistFill;
@@ -39,16 +33,9 @@ class BlindMeetingCancellationDecision {
 
   const BlindMeetingCancellationDecision({
     required this.outcome,
-    required this.refundBasisPoints,
     required this.triggersWaitlistFill,
     required this.appliesRestriction,
   });
-
-  /// 보증금 금액에 대한 실제 환급액(원). 원 단위 내림.
-  int refundAmountFor(int depositAmount) {
-    if (depositAmount <= 0) return 0;
-    return (depositAmount * refundBasisPoints) ~/ 10000;
-  }
 }
 
 /// 반복 노쇼 제재 결정.
@@ -67,15 +54,6 @@ class BlindMeetingNoShowSanction {
 
 /// 블라인드 미팅 운영 정책.
 class BlindMeetingPolicy {
-  /// 개인별 보증금 (원). 기존 결제 설정 상수를 재사용한다.
-  final int depositAmount;
-
-  /// 매칭 완료 후 최종 수락 응답 제한 시간.
-  final Duration acceptanceWindow;
-
-  /// 수락 후 보증금 결제 제한 시간.
-  final Duration depositWindow;
-
   /// 참석 재확인 1차 시점 (미팅 전).
   final Duration firstAttendanceCheckBefore;
 
@@ -88,17 +66,8 @@ class BlindMeetingPolicy {
   /// 참석 재확인 재알림 횟수.
   final int attendanceReminderRetries;
 
-  /// 전액 환급 경계 (이 시간 이전 취소는 전액 환급).
-  final Duration fullRefundBefore;
-
-  /// 부분 환급 경계 (이 시간 이내 취소는 대체 성공 시에만 일부 환급).
+  /// 긴급 취소 경계. 미팅 시작까지 이보다 적게 남은 취소는 긴급 대체 탐색으로 처리한다.
   final Duration lateCancellationBefore;
-
-  /// 6~24시간 전 취소에서 대체 실패 시 환급 비율 (basis point).
-  final int lateCancellationReplacementFailedBasisPoints;
-
-  /// 6시간 이내 취소에서 대체 성공 시 환급 비율 (basis point).
-  final int urgentCancellationReplacementFoundBasisPoints;
 
   /// 미팅 종료 후 후속 대화 푸시까지의 지연.
   final Duration followUpPushDelay;
@@ -128,17 +97,11 @@ class BlindMeetingPolicy {
   final Duration noShowLookback;
 
   const BlindMeetingPolicy({
-    required this.depositAmount,
-    this.acceptanceWindow = const Duration(hours: 12),
-    this.depositWindow = const Duration(hours: 12),
     this.firstAttendanceCheckBefore = const Duration(hours: 24),
     this.secondAttendanceCheckBefore = const Duration(hours: 3),
     this.attendanceResponseWindow = const Duration(hours: 2),
     this.attendanceReminderRetries = 1,
-    this.fullRefundBefore = const Duration(hours: 24),
     this.lateCancellationBefore = const Duration(hours: 6),
-    this.lateCancellationReplacementFailedBasisPoints = 5000,
-    this.urgentCancellationReplacementFoundBasisPoints = 5000,
     this.followUpPushDelay = const Duration(minutes: 15),
     this.followUpWindow = const Duration(hours: 24),
     this.followUpReminderBeforeClose = const Duration(hours: 4),
@@ -151,13 +114,12 @@ class BlindMeetingPolicy {
   });
 
   /// 현재 운영 정책.
-  static const BlindMeetingPolicy current = BlindMeetingPolicy(
-    depositAmount: AppConstants.meetingDeposit,
-  );
+  static const BlindMeetingPolicy current = BlindMeetingPolicy();
 
-  /// 취소 시점에 따른 처리 결정.
+  /// 취소·노쇼 처리 결정.
   ///
-  /// [untilMeeting] 이 음수면 미팅이 이미 시작된 것으로 본다.
+  /// 금전 결과가 없으므로 [untilMeeting] 과 [replacementFound] 는 결정을
+  /// 바꾸지 않는다 (호출부의 긴급 대체 판단·로그용).
   BlindMeetingCancellationDecision resolveCancellation({
     required Duration untilMeeting,
     required bool replacementFound,
@@ -166,8 +128,7 @@ class BlindMeetingPolicy {
   }) {
     if (emergencyReviewRequested) {
       return const BlindMeetingCancellationDecision(
-        outcome: BlindMeetingRefundOutcome.opsReview,
-        refundBasisPoints: 0,
+        outcome: BlindMeetingCancellationOutcome.opsReview,
         triggersWaitlistFill: true,
         appliesRestriction: false,
       );
@@ -175,51 +136,14 @@ class BlindMeetingPolicy {
 
     if (isNoShowWithoutContact) {
       return const BlindMeetingCancellationDecision(
-        outcome: BlindMeetingRefundOutcome.noRefund,
-        refundBasisPoints: 0,
+        outcome: BlindMeetingCancellationOutcome.noShow,
         triggersWaitlistFill: false,
         appliesRestriction: true,
       );
     }
 
-    if (untilMeeting >= fullRefundBefore) {
-      return const BlindMeetingCancellationDecision(
-        outcome: BlindMeetingRefundOutcome.fullRefund,
-        refundBasisPoints: 10000,
-        triggersWaitlistFill: true,
-        appliesRestriction: false,
-      );
-    }
-
-    if (untilMeeting >= lateCancellationBefore) {
-      if (replacementFound) {
-        return const BlindMeetingCancellationDecision(
-          outcome: BlindMeetingRefundOutcome.fullRefund,
-          refundBasisPoints: 10000,
-          triggersWaitlistFill: true,
-          appliesRestriction: false,
-        );
-      }
-      return BlindMeetingCancellationDecision(
-        outcome: BlindMeetingRefundOutcome.partialRefund,
-        refundBasisPoints: lateCancellationReplacementFailedBasisPoints,
-        triggersWaitlistFill: true,
-        appliesRestriction: false,
-      );
-    }
-
-    if (replacementFound) {
-      return BlindMeetingCancellationDecision(
-        outcome: BlindMeetingRefundOutcome.partialRefund,
-        refundBasisPoints: urgentCancellationReplacementFoundBasisPoints,
-        triggersWaitlistFill: true,
-        appliesRestriction: false,
-      );
-    }
-
     return const BlindMeetingCancellationDecision(
-      outcome: BlindMeetingRefundOutcome.noRefund,
-      refundBasisPoints: 0,
+      outcome: BlindMeetingCancellationOutcome.released,
       triggersWaitlistFill: true,
       appliesRestriction: false,
     );

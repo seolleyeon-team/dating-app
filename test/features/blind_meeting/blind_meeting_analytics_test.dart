@@ -18,8 +18,8 @@ void main() {
         'blind_meeting_waitlisted',
         'blind_meeting_group_formed',
         'blind_meeting_recommendation_banner_shown',
-        'blind_meeting_invitation_accepted',
-        'blind_meeting_deposit_completed',
+        // 매칭 전 신청 취소 (수락/거절 이벤트는 없다 — 매칭 = 확정)
+        'blind_meeting_application_cancelled',
         'blind_meeting_group_chat_created',
         // 약속잡기 funnel
         'blind_meeting_schedule_vote_opened',

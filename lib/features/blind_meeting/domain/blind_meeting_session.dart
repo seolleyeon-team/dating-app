@@ -14,6 +14,7 @@
 
 import 'blind_meeting_availability.dart';
 import 'blind_meeting_enums.dart';
+import 'blind_meeting_legacy_status.dart';
 import 'blind_meeting_public_profile.dart';
 import 'blind_meeting_slot.dart';
 
@@ -27,11 +28,9 @@ allowedMeetingTransitions = {
     BlindMeetingStatus.awaitingAcceptance,
     BlindMeetingStatus.applicationOpen,
   },
+  // LEGACY_COMPATIBILITY_ONLY: 과거 수락 대기 문서가 서버 정규화로 확정되는 edge.
+  // 신규 미팅은 매칭과 동시에 confirmed 로 만들어진다.
   BlindMeetingStatus.awaitingAcceptance: {
-    BlindMeetingStatus.awaitingDeposits,
-    BlindMeetingStatus.forming,
-  },
-  BlindMeetingStatus.awaitingDeposits: {
     BlindMeetingStatus.confirmed,
     BlindMeetingStatus.forming,
   },
@@ -78,12 +77,6 @@ allowedParticipantTransitions = {
     BlindMeetingParticipantStatus.waitlisted,
   },
   BlindMeetingParticipantStatus.accepted: {
-    BlindMeetingParticipantStatus.depositPending,
-    BlindMeetingParticipantStatus.confirmed,
-    BlindMeetingParticipantStatus.cancelRequested,
-    BlindMeetingParticipantStatus.cancelled,
-  },
-  BlindMeetingParticipantStatus.depositPending: {
     BlindMeetingParticipantStatus.confirmed,
     BlindMeetingParticipantStatus.cancelRequested,
     BlindMeetingParticipantStatus.cancelled,
@@ -183,7 +176,6 @@ class BlindMeetingParticipant {
   final String userId;
   final BlindMeetingTeam team;
   final BlindMeetingParticipantStatus status;
-  final BlindMeetingDepositStatus depositStatus;
   final AttendanceConfirmation attendanceConfirmation24h;
   final AttendanceConfirmation attendanceConfirmation3h;
   final bool checkedIn;
@@ -200,7 +192,6 @@ class BlindMeetingParticipant {
     required this.userId,
     required this.team,
     required this.status,
-    this.depositStatus = BlindMeetingDepositStatus.notRequired,
     this.attendanceConfirmation24h = AttendanceConfirmation.pending,
     this.attendanceConfirmation3h = AttendanceConfirmation.pending,
     this.checkedIn = false,
@@ -216,12 +207,6 @@ class BlindMeetingParticipant {
 
   bool get holdsSeat => status.holdsChatMembership;
 
-  /// 보증금 결제가 필요한데 아직 완료되지 않은 상태인지.
-  bool get awaitsDeposit =>
-      depositStatus == BlindMeetingDepositStatus.pending ||
-      depositStatus == BlindMeetingDepositStatus.authorized ||
-      depositStatus == BlindMeetingDepositStatus.failed;
-
   static BlindMeetingParticipant fromMap(
     String userId,
     Map<String, dynamic> data,
@@ -233,15 +218,10 @@ class BlindMeetingParticipant {
         data['team'] ?? data['teamId'],
         fallback: BlindMeetingTeam.teamA,
       ),
-      status: enumFromName(
-        BlindMeetingParticipantStatus.values,
+      // legacy 결제 대기 값은 디코드 경계에서 canonical 상태로 읽는다.
+      status: decodeBlindMeetingParticipantStatus(
         data['status'],
         fallback: BlindMeetingParticipantStatus.applied,
-      ),
-      depositStatus: enumFromName(
-        BlindMeetingDepositStatus.values,
-        data['depositStatus'],
-        fallback: BlindMeetingDepositStatus.notRequired,
       ),
       attendanceConfirmation24h: enumFromName(
         AttendanceConfirmation.values,
@@ -379,8 +359,8 @@ class BlindMeetingSession {
       ),
       schemaVersion: _intOr(data['schemaVersion'], currentSchemaVersion),
       algorithmVersion: _stringOr(data['algorithmVersion'], 'unknown'),
-      status: enumFromName(
-        BlindMeetingStatus.values,
+      // legacy 결제 대기 값은 디코드 경계에서 canonical 상태로 읽는다.
+      status: decodeBlindMeetingStatus(
         data['status'],
         fallback: BlindMeetingStatus.applicationOpen,
       ),

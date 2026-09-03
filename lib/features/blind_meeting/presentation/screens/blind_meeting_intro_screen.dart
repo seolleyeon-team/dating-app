@@ -256,18 +256,24 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
     }
   }
 
-  void _resume() {
+  /// 진행 중인 신청/매칭으로 복귀한다.
+  ///
+  /// 돌아오면 반드시 Firestore 를 다시 읽는다. 대기 화면에서 신청을 취소하고
+  /// 돌아온 뒤에도 이 화면의 메모리 상태(`_application`)가 신청 중으로 남아
+  /// "이미 신청이 진행 중이에요" 를 보여주던 결함의 수정이다 — canonical
+  /// 상태는 서버 문서이며 화면 메모리가 이를 덮어쓰지 않는다.
+  Future<void> _resume() async {
     final application = _application;
     if (application == null) return;
-    final meetingId = application.meetingId;
-    if (meetingId != null && meetingId.isNotEmpty) {
-      Navigator.of(context).pushNamed(
+    if (application.isMatched) {
+      await Navigator.of(context).pushNamed(
         RouteNames.blindTasteMeetingResult,
-        arguments: BlindMeetingMeetingArgs(meetingId: meetingId),
+        arguments: BlindMeetingMeetingArgs(meetingId: application.meetingId!),
       );
-      return;
+    } else {
+      await Navigator.of(context).pushNamed(RouteNames.blindTasteMeetingWaiting);
     }
-    Navigator.of(context).pushNamed(RouteNames.blindTasteMeetingWaiting);
+    if (mounted) await _load();
   }
 
   @override
@@ -354,7 +360,7 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
                     ],
                     ['2', '가능한 날짜와 시간을 골라요', '여러 날짜를 함께 선택할 수 있어요'],
                     ['3', '설레연이 3:3 팀을 구성해요', '취향과 대화 균형을 함께 계산해요'],
-                    ['4', '전원 수락과 보증금으로 확정해요', '노쇼를 막기 위한 개인별 보증금이에요'],
+                    ['4', '매칭되면 바로 미팅이 확정돼요', '추가 절차 없이 3:3 채팅방이 바로 열려요'],
                     ['5', '단체 채팅에서 약속을 잡아요', '시간과 장소를 함께 정해요'],
                     ['6', '안전도장으로 만남을 확인해요', '도착 시 한 번, 종료 후 한 번'],
                     ['7', '미팅 후 비공개로 선택해요', '서로 선택한 경우에만 1:1 대화가 열려요'],
@@ -483,7 +489,36 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
                   ],
                 ),
               )
-            else if (application != null && application.isActive)
+            // 매칭됨: 수락/거절 없이 바로 확정 + 채팅방. 안내만 하고 진입시킨다.
+            else if (application != null && application.isMatched)
+              Column(
+                children: [
+                  BlindMeetingCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '3:3 미팅이 매칭됐어요!',
+                          style: BlindMeetingText.sectionTitle(palette.ink),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '새로운 3:3 채팅방이 열렸어요. 채팅방에서 약속을 정해보세요.',
+                          style: BlindMeetingText.caption(palette.inkSoft),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  BlindMeetingPrimaryButton(
+                    label: '매칭 결과 보기',
+                    onPressed: _resume,
+                  ),
+                ],
+              )
+            // 매칭 전 대기 중일 때만 "진행 중" 으로 본다. 취소된 신청 문서
+            // (status cancelled) 는 여기 오지 않고 아래 신규 신청 CTA 로 간다.
+            else if (application != null && application.isAwaitingMatch)
               Column(
                 children: [
                   BlindMeetingCard(
@@ -530,6 +565,16 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
             else
               Column(
                 children: [
+                  if (application != null && application.isCancelled) ...[
+                    BlindMeetingCard(
+                      background: palette.surfaceMuted,
+                      child: Text(
+                        '이전 신청은 취소됐어요. 작성했던 미팅 DNA와 날짜는 그대로 불러와요.',
+                        style: BlindMeetingText.caption(palette.inkSoft),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                   BlindMeetingPrimaryButton(
                     label: '미팅 DNA 작성하기',
                     loading: _startingDna,

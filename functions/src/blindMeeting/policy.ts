@@ -3,18 +3,22 @@
  * 경로: functions/src/blindMeeting/policy.ts
  *
  * 원본 명세: lib/features/blind_meeting/domain/blind_meeting_policy.dart
- * 환급 계산은 basis point로 하고, 실제 실행은 payments 모듈이 idempotent하게 수행한다.
+ *
+ * 블라인드 미팅에는 금전 개념이 없다. 취소·노쇼 정책은 좌석 해제, 대체 충원,
+ * 참여 제한(신뢰/안전)만 결정한다.
  */
 
-export type RefundOutcome =
-  | "full_refund"
-  | "partial_refund"
-  | "no_refund"
+/** 취소·노쇼 처리 결과 */
+export type CancellationOutcome =
+  /** 좌석을 놓고 나간다. 대체 충원 대상. */
+  | "released"
+  /** 연락 없는 노쇼. 참여 제한 대상. */
+  | "no_show"
+  /** 사고·응급 상황. 운영자 검토 기록을 남긴다. */
   | "ops_review";
 
 export type CancellationDecision = {
-  outcome: RefundOutcome;
-  refundBasisPoints: number;
+  outcome: CancellationOutcome;
   triggersWaitlistFill: boolean;
   appliesRestriction: boolean;
 };
@@ -29,17 +33,15 @@ const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
 export type BlindMeetingPolicy = {
-  depositAmount: number;
-  acceptanceWindowMs: number;
-  depositWindowMs: number;
   firstAttendanceCheckBeforeMs: number;
   secondAttendanceCheckBeforeMs: number;
   attendanceResponseWindowMs: number;
   attendanceReminderRetries: number;
-  fullRefundBeforeMs: number;
+  /**
+   * 긴급 취소 경계. 미팅 시작까지 이 시간보다 적게 남았을 때의 취소는
+   * 긴급 대체 탐색(더 큰 wave, 짧은 만료)으로 처리한다.
+   */
   lateCancellationBeforeMs: number;
-  lateCancellationReplacementFailedBasisPoints: number;
-  urgentCancellationReplacementFoundBasisPoints: number;
   followUpPushDelayMs: number;
   followUpWindowMs: number;
   followUpReminderBeforeCloseMs: number;
@@ -76,21 +78,14 @@ export type BlindMeetingPolicy = {
 /**
  * 현재 운영 정책.
  *
- * depositAmount는 앱 상수(AppConstants.meetingDeposit)와 같은 값이며,
  * 운영 설정 문서(blindMeetingConfig/current)로 override 할 수 있다.
  */
 export const DEFAULT_POLICY: BlindMeetingPolicy = {
-  depositAmount: 5000,
-  acceptanceWindowMs: 12 * HOUR,
-  depositWindowMs: 12 * HOUR,
   firstAttendanceCheckBeforeMs: 24 * HOUR,
   secondAttendanceCheckBeforeMs: 3 * HOUR,
   attendanceResponseWindowMs: 2 * HOUR,
   attendanceReminderRetries: 1,
-  fullRefundBeforeMs: 24 * HOUR,
   lateCancellationBeforeMs: 6 * HOUR,
-  lateCancellationReplacementFailedBasisPoints: 5000,
-  urgentCancellationReplacementFoundBasisPoints: 5000,
   followUpPushDelayMs: 15 * MINUTE,
   followUpWindowMs: 24 * HOUR,
   followUpReminderBeforeCloseMs: 4 * HOUR,
@@ -108,7 +103,11 @@ export const DEFAULT_POLICY: BlindMeetingPolicy = {
   legacySlotCompatEnabled: 1,
 };
 
-/** 운영 설정 문서로 정책 일부를 덮어쓴다. */
+/**
+ * 운영 설정 문서로 정책 일부를 덮어쓴다.
+ *
+ * 정책에 없는 키(과거 결제 관련 키 포함)는 무시한다.
+ */
 export function policyFromConfigDoc(
   raw: unknown,
   base: BlindMeetingPolicy = DEFAULT_POLICY
@@ -125,26 +124,23 @@ export function policyFromConfigDoc(
   return merged;
 }
 
+/**
+ * 취소·노쇼 처리 결정.
+ *
+ * 금전 결과가 없으므로 시점(untilMeetingMs)과 대체 성공 여부는 결정을
+ * 바꾸지 않는다. 두 인자는 호출부의 운영 로그·긴급 대체 판단용으로만 쓰인다.
+ */
 export function resolveCancellation(params: {
   policy: BlindMeetingPolicy;
-  /**
-   * 미팅 시작까지 남은 시간.
-   *
-   * null이면 약속잡기가 끝나지 않아 시작 시각이 아직 없다는 뜻이다.
-   * 날짜 전용 정책에서는 보증금을 낸 뒤에도 시간이 미확정인 구간이 존재하므로
-   * 이 구간의 취소는 항상 전액 환급이어야 한다. (0으로 취급하면 안 된다)
-   */
+  /** 미팅 시작까지 남은 시간. null 이면 아직 시간이 확정되지 않았다. */
   untilMeetingMs: number | null;
   replacementFound: boolean;
   isNoShowWithoutContact?: boolean;
   emergencyReviewRequested?: boolean;
 }): CancellationDecision {
-  const { policy, untilMeetingMs, replacementFound } = params;
-
   if (params.emergencyReviewRequested) {
     return {
       outcome: "ops_review",
-      refundBasisPoints: 0,
       triggersWaitlistFill: true,
       appliesRestriction: false,
     };
@@ -152,62 +148,14 @@ export function resolveCancellation(params: {
 
   if (params.isNoShowWithoutContact) {
     return {
-      outcome: "no_refund",
-      refundBasisPoints: 0,
+      outcome: "no_show",
       triggersWaitlistFill: false,
       appliesRestriction: true,
     };
   }
 
-  // 시간이 아직 확정되지 않은 구간의 취소는 전액 환급.
-  // 사용자가 알 수 없는 일정을 근거로 위약금을 물릴 수 없다.
-  if (untilMeetingMs == null) {
-    return {
-      outcome: "full_refund",
-      refundBasisPoints: 10000,
-      triggersWaitlistFill: true,
-      appliesRestriction: false,
-    };
-  }
-
-  if (untilMeetingMs >= policy.fullRefundBeforeMs) {
-    return {
-      outcome: "full_refund",
-      refundBasisPoints: 10000,
-      triggersWaitlistFill: true,
-      appliesRestriction: false,
-    };
-  }
-
-  if (untilMeetingMs >= policy.lateCancellationBeforeMs) {
-    if (replacementFound) {
-      return {
-        outcome: "full_refund",
-        refundBasisPoints: 10000,
-        triggersWaitlistFill: true,
-        appliesRestriction: false,
-      };
-    }
-    return {
-      outcome: "partial_refund",
-      refundBasisPoints: policy.lateCancellationReplacementFailedBasisPoints,
-      triggersWaitlistFill: true,
-      appliesRestriction: false,
-    };
-  }
-
-  if (replacementFound) {
-    return {
-      outcome: "partial_refund",
-      refundBasisPoints: policy.urgentCancellationReplacementFoundBasisPoints,
-      triggersWaitlistFill: true,
-      appliesRestriction: false,
-    };
-  }
-
   return {
-    outcome: "no_refund",
-    refundBasisPoints: 0,
+    outcome: "released",
     triggersWaitlistFill: true,
     appliesRestriction: false,
   };
@@ -233,12 +181,4 @@ export function resolveNoShowSanction(
     restrictedDays: policy.secondNoShowRestrictionDays * 2,
     requiresOpsReview: true,
   };
-}
-
-export function refundAmountFor(
-  depositAmount: number,
-  refundBasisPoints: number
-): number {
-  if (depositAmount <= 0 || refundBasisPoints <= 0) return 0;
-  return Math.floor((depositAmount * refundBasisPoints) / 10000);
 }

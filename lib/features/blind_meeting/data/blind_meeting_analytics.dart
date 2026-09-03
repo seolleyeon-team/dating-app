@@ -33,8 +33,9 @@ enum BlindMeetingAnalyticsEvent {
   waitlisted('blind_meeting_waitlisted'),
   groupFormed('blind_meeting_group_formed'),
   recommendationBannerShown('blind_meeting_recommendation_banner_shown'),
-  invitationAccepted('blind_meeting_invitation_accepted'),
-  depositCompleted('blind_meeting_deposit_completed'),
+
+  /// 매칭 전 신청 취소 (하트 환불 포함). 매칭 후 수락/거절 이벤트는 없다.
+  applicationCancelled('blind_meeting_application_cancelled'),
   groupChatCreated('blind_meeting_group_chat_created'),
 
   /// 약속잡기 funnel: 시트 열림 → 투표 제출 → 확정
@@ -78,7 +79,6 @@ const Set<String> blindMeetingAnalyticsAllowedParams = {
   'votedDateCount',
   'stage',
   'selectionCount',
-  'depositStatus',
   'phase',
   'urgent',
   'algorithmVersion',

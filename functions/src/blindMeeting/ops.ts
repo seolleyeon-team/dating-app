@@ -13,15 +13,12 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
-import { refundDeposit } from "./payments";
-import { loadPolicy, refundAmountForOps } from "./opsHelpers";
 import { BLIND_MEETING_CALLABLE_OPTIONS } from "./runtime";
 import {
   applyRestriction,
   db,
   loadMeeting,
   loadParticipants,
-  updateParticipant,
 } from "./store";
 import { cancelMeeting, handleVacancy, runMatchingForDate } from "./orchestrator";
 import {
@@ -94,7 +91,7 @@ async function listBlindMeetingsForOpsHandler(request: AdminRequest) {
   };
 }
 
-/** 미팅 상세: 참가자, 대기자, 대체 제안, 환급, 안전 flag, 점수 요약 */
+/** 미팅 상세: 참가자, 대기자, 대체 제안, 안전 flag, 점수 요약 */
 async function getBlindMeetingOpsDetailHandler(request: AdminRequest) {
   requireAdmin(request);
   const data = getData(request);
@@ -106,13 +103,9 @@ async function getBlindMeetingOpsDetailHandler(request: AdminRequest) {
   const meeting = await loadMeeting(meetingId);
   const participants = await loadParticipants(meetingId);
 
-  const [offers, deposits, safety, scores, feedback] = await Promise.all([
+  const [offers, safety, scores, feedback] = await Promise.all([
     db()
       .collection(BLIND_MEETING_COLLECTIONS.replacementOffers)
-      .where("meetingId", "==", meetingId)
-      .get(),
-    db()
-      .collection(BLIND_MEETING_COLLECTIONS.deposits)
       .where("meetingId", "==", meetingId)
       .get(),
     db()
@@ -147,7 +140,6 @@ async function getBlindMeetingOpsDetailHandler(request: AdminRequest) {
       userId: p.userId,
       team: p.team,
       status: p.status,
-      depositStatus: p.depositStatus,
       attendance24h: p.attendance24h,
       attendance3h: p.attendance3h,
       checkedIn: p.checkedIn,
@@ -159,13 +151,6 @@ async function getBlindMeetingOpsDetailHandler(request: AdminRequest) {
       candidateUid: asStr(doc.data().candidateUid, ""),
       offerStatus: asStr(doc.data().offerStatus, ""),
       qualityRatio: asNum(doc.data().qualityRatio, 0),
-    })),
-    deposits: deposits.docs.map((doc) => ({
-      userId: asStr(doc.data().userId, ""),
-      status: asStr(doc.data().status, ""),
-      amount: asNum(doc.data().amount, 0),
-      refundedAmount: asNum(doc.data().refundedAmount, 0),
-      sandbox: doc.data().sandbox === true,
     })),
     safetyFlags: safety.data() ?? null,
     scoreSummary: scores.data() ?? null,
@@ -189,51 +174,6 @@ async function forceBlindMeetingRematchHandler(request: AdminRequest) {
     createdMeetings: created.length,
   });
   return { ok: true, createdMeetings: created.length };
-}
-
-/** 운영자 예외 환급 */
-async function overrideBlindMeetingRefundHandler(request: AdminRequest) {
-  const adminUid = requireAdmin(request);
-  const data = getData(request);
-  const meetingId = asTrimmedOrNull(data.meetingId);
-  const userId = asTrimmedOrNull(data.userId);
-  const basisPoints = Math.floor(asNum(data.refundBasisPoints, -1));
-  if (!meetingId || !userId) {
-    throw new HttpsError("invalid-argument", "meetingId와 userId가 필요해요.");
-  }
-  if (basisPoints < 0 || basisPoints > 10000) {
-    throw new HttpsError(
-      "invalid-argument",
-      "refundBasisPoints는 0~10000 이어야 해요."
-    );
-  }
-
-  const policy = await loadPolicy();
-  const refundAmount = refundAmountForOps(policy.depositAmount, basisPoints);
-  const result = await refundDeposit({
-    meetingId,
-    userId,
-    depositAmount: policy.depositAmount,
-    refundAmount,
-    reason: `ops_override:${adminUid}`,
-  });
-
-  await updateParticipant(meetingId, userId, {
-    depositStatus: result.status,
-    extra: {
-      refundOutcome: "ops_override",
-      refundedAmount: result.refundedAmount,
-      refundOverriddenBy: adminUid,
-    },
-  });
-
-  return {
-    ok: true,
-    status: result.status,
-    refundedAmount: result.refundedAmount,
-    sandbox: result.sandbox,
-    message: result.message ?? null,
-  };
 }
 
 /** 참여 제한 부여/해제 */
@@ -334,7 +274,6 @@ const OPS_HANDLERS: Record<string, OpsHandler> = {
   listBlindMeetingsForOps: listBlindMeetingsForOpsHandler,
   getBlindMeetingOpsDetail: getBlindMeetingOpsDetailHandler,
   forceBlindMeetingRematch: forceBlindMeetingRematchHandler,
-  overrideBlindMeetingRefund: overrideBlindMeetingRefundHandler,
   setBlindMeetingRestriction: setBlindMeetingRestrictionHandler,
   triggerBlindMeetingReplacement: triggerBlindMeetingReplacementHandler,
   resolveBlindMeetingOpsReview: resolveBlindMeetingOpsReviewHandler,

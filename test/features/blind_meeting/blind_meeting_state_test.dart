@@ -12,7 +12,6 @@ void main() {
         BlindMeetingStatus.applicationOpen,
         BlindMeetingStatus.forming,
         BlindMeetingStatus.awaitingAcceptance,
-        BlindMeetingStatus.awaitingDeposits,
         BlindMeetingStatus.confirmed,
         BlindMeetingStatus.chatOpen,
         BlindMeetingStatus.scheduleConfirmed,
@@ -65,7 +64,7 @@ void main() {
     test('취소는 종료 이전 어떤 상태에서도 가능', () {
       expect(
         canTransitionMeeting(
-          BlindMeetingStatus.awaitingDeposits,
+          BlindMeetingStatus.awaitingAcceptance,
           BlindMeetingStatus.cancelled,
         ),
         isTrue,
@@ -84,17 +83,19 @@ void main() {
       expect(BlindMeetingStatus.followupOpen.allowsGroupChatWrite, isTrue);
       expect(BlindMeetingStatus.readOnly.allowsGroupChatWrite, isFalse);
       expect(BlindMeetingStatus.archived.allowsGroupChatWrite, isFalse);
-      expect(BlindMeetingStatus.awaitingDeposits.allowsGroupChatWrite, isFalse);
+      expect(
+        BlindMeetingStatus.awaitingAcceptance.allowsGroupChatWrite,
+        isFalse,
+      );
     });
   });
 
   group('참가자 상태 머신', () {
-    test('신청 → 초대 → 수락 → 결제 대기 → 확정 흐름', () {
+    test('신청 → 초대 → 수락 → 확정 흐름 (결제 단계 없음)', () {
       const pipeline = [
         BlindMeetingParticipantStatus.applied,
         BlindMeetingParticipantStatus.invited,
         BlindMeetingParticipantStatus.accepted,
-        BlindMeetingParticipantStatus.depositPending,
         BlindMeetingParticipantStatus.confirmed,
       ];
       for (var i = 0; i < pipeline.length - 1; i++) {

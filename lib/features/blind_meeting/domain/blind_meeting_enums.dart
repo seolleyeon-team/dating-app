@@ -86,7 +86,6 @@ enum BlindMeetingStatus {
   applicationOpen,
   forming,
   awaitingAcceptance,
-  awaitingDeposits,
   confirmed,
   chatOpen,
   scheduleConfirmed,
@@ -105,7 +104,6 @@ enum BlindMeetingParticipantStatus {
   waitlisted,
   invited,
   accepted,
-  depositPending,
   confirmed,
   cancelRequested,
   cancelled,
@@ -115,20 +113,6 @@ enum BlindMeetingParticipantStatus {
   attended,
   completed,
   restricted,
-}
-
-/// 개인별 보증금 상태.
-enum BlindMeetingDepositStatus {
-  notRequired,
-  pending,
-  authorized,
-  paid,
-  refundPending,
-  refunded,
-  partiallyRefunded,
-  forfeited,
-  failed,
-  cancelled,
 }
 
 /// 참석 재확인 응답.
