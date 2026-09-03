@@ -22,7 +22,9 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
 
-    await tester.pumpWidget(const CupertinoApp(home: MysteryCardScreen()));
+    await tester.pumpWidget(
+      const CupertinoApp(home: MysteryCardScreen(heartBalance: 20)),
+    );
     await tester.pumpAndSettle();
 
     final refreshFinder = find.byKey(const Key('one_to_one_refresh_button'));
@@ -34,6 +36,8 @@ void main() {
     final refreshX = tester.getCenter(refreshFinder).dx;
     final asksX = tester.getCenter(asksInboxFinder).dx;
     expect(refreshX, lessThan(asksX));
+    expect(find.byKey(const Key('main_heart_balance')), findsOneWidget);
+    expect(find.text('20'), findsOneWidget);
 
     expect(tester.takeException(), isNull);
   });

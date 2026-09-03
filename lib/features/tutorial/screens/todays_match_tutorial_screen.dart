@@ -12,6 +12,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import '../../../router/route_names.dart';
+import '../tutorial_completion.dart';
 
 // =============================================================================
 // 색상 상수
@@ -79,14 +80,12 @@ class _TodaysMatchTutorialScreenState extends State<TodaysMatchTutorialScreen>
     }
   }
 
-  void _onSkip() {
+  Future<void> _onSkip() async {
     HapticFeedback.lightImpact();
     if (widget.onSkip != null) {
       widget.onSkip!();
     } else {
-      Navigator.of(
-        context,
-      ).pushNamedAndRemoveUntil(RouteNames.main, (route) => false);
+      await completeTutorialAndEnterMain(context);
     }
   }
 
@@ -537,7 +536,7 @@ class _TitleSection extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const Text(
-            '마음에 드는 인연이 있다면\n재화를 사용하여 채팅을 진행해보세요!',
+            '마음에 드는 인연이 있다면\n하트를 사용하여 채팅을 진행해보세요!',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: 'NanumSquareRound',

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:intl/intl.dart';
 
 import '../../../services/storage_service.dart';
 import '../../shop/services/heart_products.dart';
@@ -108,9 +109,7 @@ class _HeartChargeScreenState extends State<HeartChargeScreen> {
           .snapshots(),
       builder: (context, snapshot) {
         final data = snapshot.data?.data();
-        final purchaseCount = (data?['iapPurchaseCount'] as num?)?.toInt() ?? 0;
-        final firstPurchaseEligible =
-            purchaseCount == 0 && data?['firstPurchaseOfferUsed'] != true;
+        final firstPurchaseEligible = data?['firstPurchaseOfferUsed'] != true;
         return _buildProductBody(firstPurchaseEligible: firstPurchaseEligible);
       },
     );
@@ -436,7 +435,11 @@ class _ProductCard extends StatelessWidget {
             child: isActive
                 ? const CupertinoActivityIndicator(color: CupertinoColors.white)
                 : Text(
-                    details.price,
+                    NumberFormat.currency(
+                      locale: 'ko_KR',
+                      symbol: '₩',
+                      decimalDigits: 0,
+                    ).format(heartPackage.priceWon),
                     style: const TextStyle(
                       color: CupertinoColors.white,
                       fontSize: 14,

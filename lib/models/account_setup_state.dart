@@ -130,12 +130,20 @@ AccountSetupState resolveAccountSetupState({
     return AccountSetupState.kakaoFriendSnapshotRequired;
   }
 
-  final initialSetupComplete = _isTruthy(userDoc['initialSetupComplete']);
+  // `hasSeenTutorial` is also a durable proof that onboarding was crossed:
+  // the tutorial is only reachable after onboarding. This repairs accounts
+  // created by older clients that entered the main screen but failed to save
+  // `initialSetupComplete` (commonly while avatar generation was unfinished).
+  // Without this compatibility rule those users are sent back to the photo
+  // step on every cold start even though they already finished the journey.
+  final hasSeenTutorial = userDoc['hasSeenTutorial'] == true;
+  final initialSetupComplete =
+      _isTruthy(userDoc['initialSetupComplete']) || hasSeenTutorial;
   if (!initialSetupComplete && resolveOnboardingNextRoute(userDoc) != null) {
     return AccountSetupState.onboardingRequired;
   }
 
-  if (userDoc['hasSeenTutorial'] != true) {
+  if (!hasSeenTutorial) {
     return AccountSetupState.tutorialRequired;
   }
 

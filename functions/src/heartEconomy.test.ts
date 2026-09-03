@@ -30,8 +30,13 @@ describe("heart economy contract", () => {
       assert.match(indexSource, new RegExp(entry.replace(/\./g, "\\.")));
     }
     assert.doesNotMatch(indexSource, /"seolleyeon\.heart\.(10|30)"/);
-    assert.match(indexSource, /purchaseCount > 0/);
     assert.match(indexSource, /firstPurchaseOfferUsed/);
+    assert.doesNotMatch(indexSource, /purchaseCount > 0/);
+    assert.doesNotMatch(indexSource, /priorPurchases/);
+    assert.match(
+      indexSource,
+      /isFirstPurchaseOffer\s*&&\s*userSnap\.get\("firstPurchaseOfferUsed"\) === true/
+    );
   });
 
   it("grants the server-authoritative heart amount exactly once per transaction", () => {
