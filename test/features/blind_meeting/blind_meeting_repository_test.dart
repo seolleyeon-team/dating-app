@@ -13,8 +13,11 @@ class _FakeStorageService extends StorageService {
 
   final String? _userId;
 
+  // 저장소는 canonical 이름(getAppUserId)이 실제 구현이고 getKakaoUserId 는
+  // 거기로 위임하는 legacy 별칭이다. repository 가 canonical 이름을 부르므로
+  // 별칭만 가로채면 진짜 구현이 SharedPreferences 를 건드려 테스트가 깨진다.
   @override
-  Future<String?> getKakaoUserId() async => _userId;
+  Future<String?> getAppUserId() async => _userId;
 }
 
 class _FakeAuthService extends AuthService {
@@ -112,7 +115,11 @@ void main() {
       // 서버가 Firebase Auth uid만 검증하므로 만료된 카카오 토큰 왕복이 없어야 한다.
       final auth = _FakeAuthService(sessionAttached: true);
       final repository = build(auth: auth);
-      await repository.cancelApplication().catchError((_) {});
+      try {
+        await repository.cancelApplication();
+      } catch (_) {
+        // callable 자체는 이 테스트 환경에 없다. 세션 처리만 검증한다.
+      }
       expect(auth.ensureCalls, 1);
       expect(auth.kakaoTokenCalls, 0);
     });

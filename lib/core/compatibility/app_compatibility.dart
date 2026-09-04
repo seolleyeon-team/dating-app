@@ -24,7 +24,7 @@ const Set<String> kAppCapabilities = {'bambooPrivateOwnershipV1'};
 
 /// pubspec 의 현재 build number. 기본 정책이 현재 출시본을 스스로 막지 않는지
 /// 테스트에서 확인하는 용도다. 런타임 판정은 실제 패키지 정보를 쓴다.
-const int currentKnownReleaseBuild = 16;
+const int currentKnownReleaseBuild = 21;
 
 /// bridge 게이트가 들어가기 **전** 마지막 build number.
 ///

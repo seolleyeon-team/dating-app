@@ -3,7 +3,7 @@
 // 경로: lib/features/blind_meeting/data/blind_meeting_repository.dart
 //
 // 읽기는 Firestore 구독, 쓰기와 상태 전환은 전부 Cloud Functions callable.
-// 클라이언트는 미팅 상태·팀 배열·결제 상태·참석 상태를 직접 쓰지 않는다.
+// 클라이언트는 미팅 상태·팀 배열·참석 상태를 직접 쓰지 않는다.
 // =============================================================================
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -38,52 +38,6 @@ class BlindMeetingCollections {
   static const String followUpChoices = 'followUpChoices';
   static const String replacementOffers = 'blindMeetingReplacementOffers';
   static const String feedback = 'feedback';
-}
-
-/// 보증금 결제 시도 결과.
-///
-/// 결제 provider가 아직 연결되지 않은 환경에서도 성공을 가짜로 만들지 않는다.
-class BlindMeetingDepositIntent {
-  final BlindMeetingDepositStatus status;
-  final String provider;
-  final int amount;
-
-  /// 외부 결제 페이지가 필요한 경우의 URL.
-  final String? checkoutUrl;
-
-  /// sandbox/emulator 결제인지.
-  final bool sandbox;
-
-  /// 사용자에게 보여줄 안내 문구.
-  final String? message;
-
-  const BlindMeetingDepositIntent({
-    required this.status,
-    required this.provider,
-    required this.amount,
-    this.checkoutUrl,
-    this.sandbox = false,
-    this.message,
-  });
-
-  bool get requiresExternalCheckout =>
-      checkoutUrl != null && checkoutUrl!.isNotEmpty;
-
-  static BlindMeetingDepositIntent fromMap(Map<String, dynamic> data) {
-    final amount = data['amount'];
-    return BlindMeetingDepositIntent(
-      status: enumFromName(
-        BlindMeetingDepositStatus.values,
-        data['status'],
-        fallback: BlindMeetingDepositStatus.pending,
-      ),
-      provider: data['provider']?.toString() ?? 'unknown',
-      amount: amount is num ? amount.toInt() : 0,
-      checkoutUrl: _nullableString(data['checkoutUrl']),
-      sandbox: data['sandbox'] == true,
-      message: _nullableString(data['message']),
-    );
-  }
 }
 
 /// 약속 장소 후보.
@@ -127,6 +81,64 @@ class BlindMeetingApplicationResult {
       message: _nullableString(data['message']),
     );
   }
+}
+
+/// 신청 취소 결과 (서버 `cancelBlindMeetingApplication` 응답).
+class BlindMeetingCancelResult {
+  /// `cancelled` / `already_cancelled` / `not_active` / `not_found`
+  final String outcome;
+
+  /// 이번 취소로 돌려받은 하트. 0 이면 환불 없음(이미 환불됐거나 대상 아님).
+  final int heartRefunded;
+  final int? heartBalance;
+
+  const BlindMeetingCancelResult({
+    required this.outcome,
+    this.heartRefunded = 0,
+    this.heartBalance,
+  });
+
+  bool get cancelled => outcome == 'cancelled';
+
+  static BlindMeetingCancelResult fromMap(Map<String, dynamic> data) {
+    final refunded = data['heartRefunded'];
+    final balance = data['heartBalance'];
+    return BlindMeetingCancelResult(
+      outcome: _nullableString(data['outcome']) ?? 'cancelled',
+      heartRefunded: refunded is num ? refunded.toInt() : 0,
+      heartBalance: balance is num ? balance.toInt() : null,
+    );
+  }
+}
+
+/// 신청 취소가 이미 매칭된 뒤에 도착했을 때 (서버 deterministic 코드).
+///
+/// 앱은 이 예외를 "취소 실패" 가 아니라 "매칭 결과로 복구" 로 처리한다.
+class BlindMeetingAlreadyMatchedException implements Exception {
+  static const String code = 'CANNOT_CANCEL_ALREADY_MATCHED';
+
+  /// 서버가 함께 내려준 미팅 id (없을 수 있음).
+  final String? meetingId;
+
+  const BlindMeetingAlreadyMatchedException({this.meetingId});
+
+  /// callable 오류가 이 코드를 담고 있으면 변환한다.
+  static BlindMeetingAlreadyMatchedException? fromFunctionsException(
+    FirebaseFunctionsException error,
+  ) {
+    final details = error.details;
+    final detailCode = details is Map ? details['code']?.toString() : null;
+    if (detailCode != code && !(error.message ?? '').contains(code)) {
+      return null;
+    }
+    final meetingId = details is Map ? details['meetingId']?.toString() : null;
+    return BlindMeetingAlreadyMatchedException(
+      meetingId: meetingId == null || meetingId.isEmpty ? null : meetingId,
+    );
+  }
+
+  @override
+  String toString() => '이미 매칭된 미팅이 있어 신청을 취소할 수 없어요.';
 }
 
 /// DNA 작성 진입 결제 결과.
@@ -453,8 +465,21 @@ class BlindMeetingRepository {
     return BlindMeetingApplicationResult.fromMap(result);
   }
 
-  Future<void> cancelApplication() async {
-    await _call('cancelBlindMeetingApplication', const {});
+  /// 매칭 전 신청 취소. 성공하면 서버가 신청에 쓴 하트를 정확히 한 번 돌려준다.
+  ///
+  /// 이미 매칭 tx 가 commit 된 뒤라면 [BlindMeetingAlreadyMatchedException]
+  /// 을 던진다 — 호출부는 현재 매칭 결과(채팅)로 복구해야 한다.
+  /// 매칭 후 "참가 거절" 은 존재하지 않는다.
+  Future<BlindMeetingCancelResult> cancelApplication() async {
+    try {
+      final result = await _call('cancelBlindMeetingApplication', const {});
+      return BlindMeetingCancelResult.fromMap(result);
+    } on FirebaseFunctionsException catch (error) {
+      final matched =
+          BlindMeetingAlreadyMatchedException.fromFunctionsException(error);
+      if (matched != null) throw matched;
+      rethrow;
+    }
   }
 
   /// 무알코올 조건 완화는 사용자가 직접 선택해야만 적용된다.
@@ -610,29 +635,11 @@ class BlindMeetingRepository {
   }
 
   // ---------------------------------------------------------------------------
-  // 확정 / 보증금
-  // ---------------------------------------------------------------------------
-
-  Future<void> acceptInvitation(String meetingId) async {
-    await _call('acceptBlindMeetingInvitation', {'meetingId': meetingId});
-  }
-
-  Future<void> declineInvitation(String meetingId, {String? reason}) async {
-    await _call('declineBlindMeetingInvitation', {
-      'meetingId': meetingId,
-      if (reason != null) 'reason': reason,
-    });
-  }
-
-  Future<BlindMeetingDepositIntent> startDeposit(String meetingId) async {
-    final result = await _call('startBlindMeetingDeposit', {
-      'meetingId': meetingId,
-    });
-    return BlindMeetingDepositIntent.fromMap(result);
-  }
-
-  // ---------------------------------------------------------------------------
   // 일정 / 참석 / 대체
+  //
+  // 매칭 후 참가 수락/거절 callable 은 없다 (2026-09-03). 매칭이 commit 되면
+  // 미팅은 곧바로 confirmed 이고 서버가 같은 트랜잭션에서 6인 채팅방을 만든다.
+  // 매칭 뒤 참여가 어려우면 requestCancellation(참가 취소 요청)만 존재한다.
   // ---------------------------------------------------------------------------
 
   Future<void> voteSchedule({

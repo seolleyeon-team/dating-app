@@ -10,8 +10,25 @@
 
 import 'blind_meeting_availability.dart';
 import 'blind_meeting_enums.dart';
+import 'blind_meeting_legacy_status.dart';
+
+/// 신청서의 canonical 단계 (서버 계약과 1:1).
+///
+/// 서버(functions/src/blindMeeting/types.ts)의 CANCELLABLE / MEETING_BOUND
+/// 집합과 같은 기준으로 판정한다. 화면은 이 값만 보고 분기한다.
+///
+/// - [notApplied]  : 신청 문서가 없거나 terminal(완료/노쇼/제한 등)
+/// - [active]      : 매칭 전 open pool (applied/waitlisted, meetingId 없음)
+///                    → "매칭 준비 중" + [신청 취소하기]
+/// - [matched]     : 매칭 tx 가 commit 됨 (confirmed 등, meetingId 있음)
+///                    → 수락/거절 없음, 3:3 채팅으로 진입. 신청 취소 불가.
+/// - [cancelled]   : 사용자가 매칭 전 취소함 → 재신청 가능, "진행 중" 아님
+enum BlindMeetingApplicationPhase { notApplied, active, matched, cancelled }
 
 /// 매칭 대기 화면에 표시할 단계.
+///
+/// `awaitingConfirmation` 은 LEGACY_COMPATIBILITY_ONLY (수락 단계가 있던
+/// 시절의 서버 값). 신규 문서에는 쓰이지 않으며 화면 단계 목록에도 없다.
 enum BlindMeetingMatchingStage {
   /// 같은 파티의 모든 멤버가 DNA와 날짜 신청을 마치기를 기다리는 중
   waitingForPartyMembers,
@@ -56,17 +73,20 @@ extension BlindMeetingMatchingStageLabel on BlindMeetingMatchingStage {
   };
 
   /// 진행률 표시용 순서 (0부터). 종료 단계는 -1.
+  ///
+  /// 수락 단계가 없으므로 legacy `awaitingConfirmation` 은 마지막 단계와
+  /// 같은 위치로 표시한다 (매칭이 되면 바로 확정이다).
   int get stepIndex => switch (this) {
     BlindMeetingMatchingStage.waitingForPartyMembers => 0,
     BlindMeetingMatchingStage.waitingForCommonDates => 0,
     BlindMeetingMatchingStage.searchingCandidates => 0,
     BlindMeetingMatchingStage.formingOwnTeam => 1,
     BlindMeetingMatchingStage.checkingCrossTeam => 2,
-    BlindMeetingMatchingStage.awaitingConfirmation => 3,
+    BlindMeetingMatchingStage.awaitingConfirmation => 2,
     _ => -1,
   };
 
-  static const int totalSteps = 4;
+  static const int totalSteps = 3;
 }
 
 /// 무알코올 조건 완화 선택지.
@@ -121,6 +141,9 @@ class BlindMeetingApplication {
   /// 서버가 계산한 대기 시간(분).
   final int waitedMinutes;
 
+  /// 신청 취소 시 서버가 돌려준 하트 (감사용, 서버 기록).
+  final int heartRefundedAmount;
+
   BlindMeetingApplication({
     required this.userId,
     required this.status,
@@ -137,21 +160,70 @@ class BlindMeetingApplication {
     this.heartChargeCount = 0,
     this.dnaApplicationCompleted = false,
     this.waitedMinutes = 0,
+    this.heartRefundedAmount = 0,
   }) : requestedDateKeys = BlindMeetingAvailability.normalizeDateKeys(
          requestedDateKeys,
        );
 
+  /// 매칭 tx 가 commit 된 뒤의 신청 상태 (서버 MEETING_BOUND 집합과 동일).
+  static const Set<BlindMeetingParticipantStatus> _meetingBoundStatuses = {
+    BlindMeetingParticipantStatus.invited,
+    BlindMeetingParticipantStatus.accepted,
+    BlindMeetingParticipantStatus.confirmed,
+    BlindMeetingParticipantStatus.cancelRequested,
+    BlindMeetingParticipantStatus.replacementPending,
+  };
+
+  /// 매칭 전 open pool 상태 (서버 CANCELLABLE 집합과 동일).
+  static const Set<BlindMeetingParticipantStatus> _openPoolStatuses = {
+    BlindMeetingParticipantStatus.applied,
+    BlindMeetingParticipantStatus.waitlisted,
+  };
+
+  /// canonical 단계. 문서 존재 여부가 아니라 status/meetingId 로 판정한다.
+  ///
+  /// 취소된 문서(status 또는 stage 가 cancelled)는 절대 active 가 아니다 —
+  /// 이 판정이 "이미 신청이 진행 중이에요" 오탐의 단일 방어선이다.
+  BlindMeetingApplicationPhase get phase {
+    if (status == BlindMeetingParticipantStatus.cancelled ||
+        stage == BlindMeetingMatchingStage.cancelled) {
+      return BlindMeetingApplicationPhase.cancelled;
+    }
+    final boundMeetingId = meetingId;
+    if (boundMeetingId != null &&
+        boundMeetingId.isNotEmpty &&
+        _meetingBoundStatuses.contains(status)) {
+      return BlindMeetingApplicationPhase.matched;
+    }
+    if (_openPoolStatuses.contains(status)) {
+      return BlindMeetingApplicationPhase.active;
+    }
+    // completed / noShow / restricted / replaced 등 terminal, 또는 meetingId
+    // 없이 meeting-bound 상태로 남은 손상 문서 — 진행 중으로 보지 않는다.
+    return BlindMeetingApplicationPhase.notApplied;
+  }
+
+  /// 아직 lifecycle 이 살아 있는지 (매칭 전 대기 중이거나 매칭됨).
   bool get isActive =>
-      status != BlindMeetingParticipantStatus.cancelled &&
-      stage != BlindMeetingMatchingStage.cancelled;
+      phase == BlindMeetingApplicationPhase.active ||
+      phase == BlindMeetingApplicationPhase.matched;
+
+  /// 매칭 전 대기 중 (신청 취소 가능).
+  bool get isAwaitingMatch => phase == BlindMeetingApplicationPhase.active;
+
+  /// 매칭됨 — 미팅 확정, 채팅방 존재. 신청 취소 불가.
+  bool get isMatched => phase == BlindMeetingApplicationPhase.matched;
+
+  bool get isCancelled => phase == BlindMeetingApplicationPhase.cancelled;
+
+  /// 사용자가 "신청 취소하기" 를 누를 수 있는지. 서버가 다시 검증한다.
+  bool get canCancel => isAwaitingMatch;
 
   /// DNA can be changed only while this application is still in the open
   /// candidate pool. The backend repeats this check authoritatively.
   bool get canEditDna =>
-      isActive &&
+      isAwaitingMatch &&
       meetingId == null &&
-      (status == BlindMeetingParticipantStatus.applied ||
-          status == BlindMeetingParticipantStatus.waitlisted) &&
       stage != BlindMeetingMatchingStage.matched;
 
   bool get needsRelaxationChoice =>
@@ -163,8 +235,7 @@ class BlindMeetingApplication {
   ) {
     return BlindMeetingApplication(
       userId: userId,
-      status: enumFromName(
-        BlindMeetingParticipantStatus.values,
+      status: decodeBlindMeetingParticipantStatus(
         data['status'],
         fallback: BlindMeetingParticipantStatus.applied,
       ),
@@ -189,6 +260,7 @@ class BlindMeetingApplication {
       heartChargeCount: _nonNegativeInt(data['heartChargeCount']),
       dnaApplicationCompleted: data['dnaApplicationCompleted'] == true,
       waitedMinutes: _intOr(data['waitedMinutes'], 0),
+      heartRefundedAmount: _nonNegativeInt(data['heartRefundedAmount']),
     );
   }
 }

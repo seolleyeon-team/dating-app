@@ -313,7 +313,7 @@ Future<bool> confirmBlindMeetingSafetyStamp(
       ),
       content: Text(
         isCheckout
-            ? '미팅이 정상적으로 끝났다면 종료 안전도장을 찍어주세요.\n참가자 전원이 완료하면 보증금이 환급돼요.'
+            ? '미팅이 정상적으로 끝났다면 종료 안전도장을 찍어주세요.\n안전도장으로 만남을 마무리할 수 있어요.'
             : '장소에 도착했다면 도착 안전도장을 찍어주세요.\n전원이 완료되면 미팅이 시작돼요.',
         style: BlindMeetingText.body(palette.inkSoft),
       ),
@@ -326,6 +326,52 @@ Future<bool> confirmBlindMeetingSafetyStamp(
           style: FilledButton.styleFrom(backgroundColor: palette.accent),
           onPressed: () => Navigator.of(dialogContext).pop(true),
           child: const Text('안전도장 찍기'),
+        ),
+      ],
+    ),
+  );
+  return result == true;
+}
+
+// =============================================================================
+// 신청 취소 확인 (매칭 전 전용)
+// =============================================================================
+
+/// 매칭 전 "신청 취소하기" 확인. 매칭 후 참가 거절과는 다른 기능이다.
+///
+/// [refundable] 이면 신청에 쓴 하트가 정확히 한 번 돌아온다는 점을 안내한다.
+Future<bool> showBlindMeetingCancelApplicationSheet(
+  BuildContext context, {
+  required int heartCost,
+  required bool refundable,
+}) async {
+  final palette = BlindMeetingPalette.of(context);
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: palette.surface,
+      title: Text(
+        '신청을 취소할까요?',
+        style: BlindMeetingText.sectionTitle(palette.ink),
+      ),
+      content: Text(
+        refundable
+            ? '매칭 전이라 지금 취소할 수 있어요.\n신청에 쓴 하트 $heartCost개는 바로 환불돼요.\n작성한 미팅 DNA와 날짜는 그대로 보관돼 다음 신청에 불러와요.'
+            : '매칭 전이라 지금 취소할 수 있어요.\n작성한 미팅 DNA와 날짜는 그대로 보관돼 다음 신청에 불러와요.',
+        style: BlindMeetingText.body(palette.inkSoft),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: Text(
+            '계속 기다릴게요',
+            style: BlindMeetingText.body(palette.inkSoft),
+          ),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: palette.accent),
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: const Text('신청 취소'),
         ),
       ],
     ),

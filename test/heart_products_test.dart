@@ -28,14 +28,17 @@ void main() {
     );
   });
 
-  test('50-heart offer visibility depends only on whether that offer was used', () {
-    final screenSource = File(
-      'lib/features/profile/screens/heart_charge_screen.dart',
-    ).readAsStringSync();
+  test(
+    '50-heart offer visibility depends only on whether that offer was used',
+    () {
+      final screenSource = File(
+        'lib/features/profile/screens/heart_charge_screen.dart',
+      ).readAsStringSync();
 
-    expect(screenSource, contains("data?['firstPurchaseOfferUsed'] != true"));
-    expect(screenSource, isNot(contains("data?['iapPurchaseCount']")));
-  });
+      expect(screenSource, contains("data?['firstPurchaseOfferUsed'] != true"));
+      expect(screenSource, isNot(contains("data?['iapPurchaseCount']")));
+    },
+  );
 
   test('Korean UI prices match the configured StoreKit catalog', () {
     expect(HeartProducts.all.map((product) => product.priceWon), <int>[

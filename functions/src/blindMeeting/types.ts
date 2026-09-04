@@ -26,7 +26,6 @@ export const BLIND_MEETING_COLLECTIONS = {
   replacementOffers: "blindMeetingReplacementOffers",
   restrictions: "blindMeetingRestrictions",
   matchHistory: "blindMeetingHistory",
-  deposits: "blindMeetingDeposits",
   opsReviews: "blindMeetingOpsReviews",
   safetyFlags: "blindMeetingSafetyFlags",
   slotLocks: "blindMeetingSlotLocks",
@@ -89,11 +88,22 @@ export const SMOKING_STATUSES: SmokingStatus[] = [
   "quitting",
 ];
 
+/**
+ * 미팅 상태.
+ *
+ * 신규 canonical 흐름 (2026-09-03, 수락 단계 제거):
+ *   (매칭 tx) → confirmed → chat_open → schedule_confirmed → …
+ * 매칭이 commit 되는 순간 미팅은 confirmed 로 태어나고 같은 트랜잭션에서
+ * 6인 채팅방이 만들어진다. 사용자에게 참가 수락/거절을 묻는 단계는 없다.
+ *
+ * `application_open` / `forming` / `awaiting_acceptance` 는
+ * LEGACY_COMPATIBILITY_ONLY 다: 신규 business flow 는 이 값을 쓰지 않고,
+ * 과거 문서를 읽고 legacyAcceptance.ts 가 canonical 상태로 옮길 때만 쓴다.
+ */
 export type BlindMeetingStatus =
   | "application_open"
   | "forming"
   | "awaiting_acceptance"
-  | "awaiting_deposits"
   | "confirmed"
   | "chat_open"
   | "schedule_confirmed"
@@ -105,12 +115,17 @@ export type BlindMeetingStatus =
   | "archived"
   | "cancelled";
 
+/**
+ * 참가자/신청서 상태.
+ *
+ * `invited` / `accepted` 는 LEGACY_COMPATIBILITY_ONLY 다. 신규 매칭은
+ * 참가자와 신청서를 곧바로 `confirmed` 로 쓴다 (수락 단계 없음).
+ */
 export type ParticipantStatus =
   | "applied"
   | "waitlisted"
   | "invited"
   | "accepted"
-  | "deposit_pending"
   | "confirmed"
   | "cancel_requested"
   | "cancelled"
@@ -121,18 +136,10 @@ export type ParticipantStatus =
   | "completed"
   | "restricted";
 
-export type DepositStatus =
-  | "not_required"
-  | "pending"
-  | "authorized"
-  | "paid"
-  | "refund_pending"
-  | "refunded"
-  | "partially_refunded"
-  | "forfeited"
-  | "failed"
-  | "cancelled";
-
+/**
+ * 신청서 대기 단계. `awaitingConfirmation` 은 LEGACY_COMPATIBILITY_ONLY
+ * (수락 단계가 있던 시절의 값, 신규 write 없음).
+ */
 export type MatchingStage =
   | "waitingForPartyMembers"
   | "waitingForCommonDates"
@@ -145,6 +152,41 @@ export type MatchingStage =
   | "cancelled";
 
 /**
+ * 신규 business flow 가 더 이상 쓰지 않는 상태 (LEGACY_COMPATIBILITY_ONLY).
+ * 파서/FSM 표에는 남겨 과거 문서를 읽되, 신규 write 는 소스 스캔 테스트
+ * (__tests__/noAcceptance.test.ts) 가 0건으로 고정한다.
+ */
+export const LEGACY_ONLY_MEETING_STATUSES: readonly BlindMeetingStatus[] = [
+  "application_open",
+  "forming",
+  "awaiting_acceptance",
+];
+export const LEGACY_ONLY_PARTICIPANT_STATUSES: readonly ParticipantStatus[] = [
+  "invited",
+  "accepted",
+];
+export const LEGACY_ONLY_MATCHING_STAGES: readonly MatchingStage[] = [
+  "awaitingConfirmation",
+];
+
+/**
+ * 신청 취소가 이미 매칭된 신청에 도착했을 때의 deterministic 코드.
+ * HttpsError(failed-precondition) 의 message 와 details.code 양쪽에 실린다.
+ * 앱은 이 코드를 보고 현재 매칭 결과/채팅으로 복구한다.
+ */
+export const CANCEL_ALREADY_MATCHED_CODE = "CANNOT_CANCEL_ALREADY_MATCHED";
+
+/**
+ * 사용자가 직접 "신청 취소" 할 수 있는 신청 상태 (매칭 전 open pool).
+ * 매칭 이후(confirmed 등)에는 신청 취소가 아니라 미팅 화면의
+ * 참가 취소 요청(requestCancellation) 경로만 존재한다.
+ */
+export const CANCELLABLE_APPLICATION_STATUSES: readonly ParticipantStatus[] = [
+  "applied",
+  "waitlisted",
+];
+
+/**
  * 앱 enum(camelCase)과 서버 상태(snake_case) 매핑.
  *
  * Firestore에는 앱이 읽는 camelCase 값을 저장하고, 서버 내부 로직은
@@ -154,7 +196,6 @@ export const MEETING_STATUS_TO_APP: Record<BlindMeetingStatus, string> = {
   application_open: "applicationOpen",
   forming: "forming",
   awaiting_acceptance: "awaitingAcceptance",
-  awaiting_deposits: "awaitingDeposits",
   confirmed: "confirmed",
   chat_open: "chatOpen",
   schedule_confirmed: "scheduleConfirmed",
@@ -172,7 +213,6 @@ export const PARTICIPANT_STATUS_TO_APP: Record<ParticipantStatus, string> = {
   waitlisted: "waitlisted",
   invited: "invited",
   accepted: "accepted",
-  deposit_pending: "depositPending",
   confirmed: "confirmed",
   cancel_requested: "cancelRequested",
   cancelled: "cancelled",
@@ -184,30 +224,19 @@ export const PARTICIPANT_STATUS_TO_APP: Record<ParticipantStatus, string> = {
   restricted: "restricted",
 };
 
-export const DEPOSIT_STATUS_TO_APP: Record<DepositStatus, string> = {
-  not_required: "notRequired",
-  pending: "pending",
-  authorized: "authorized",
-  paid: "paid",
-  refund_pending: "refundPending",
-  refunded: "refunded",
-  partially_refunded: "partiallyRefunded",
-  forfeited: "forfeited",
-  failed: "failed",
-  cancelled: "cancelled",
-};
-
 /** 허용된 미팅 상태 전환 (앱 도메인 정의와 동일) */
 export const ALLOWED_MEETING_TRANSITIONS: Record<
   BlindMeetingStatus,
   BlindMeetingStatus[]
 > = {
+  // application_open / forming / awaiting_acceptance 는 legacy 문서 전용
+  // edge 다. 신규 미팅은 매칭 tx 안에서 confirmed 로 생성된다.
   application_open: ["forming"],
   forming: ["awaiting_acceptance", "application_open"],
-  // 블라인드 미팅은 전원 수락 직후 보증금 없이 확정한다.
-  // awaiting_deposits는 과거 문서 호환/복구용으로만 남긴다.
-  awaiting_acceptance: ["confirmed", "awaiting_deposits", "forming"],
-  awaiting_deposits: ["confirmed", "forming"],
+  // legacy 수락 대기 미팅은 legacyAcceptance.ts 가 곧바로 확정한다
+  // (수락 단계 없음). 과거 결제 대기 상태는 legacyDepositStatus.ts 가
+  // 읽기 시점에 정규화한다.
+  awaiting_acceptance: ["confirmed", "forming"],
   confirmed: ["chat_open"],
   chat_open: ["schedule_confirmed"],
   schedule_confirmed: ["checkin_open", "chat_open"],
@@ -245,8 +274,7 @@ export const ALLOWED_PARTICIPANT_TRANSITIONS: Record<
   applied: ["waitlisted", "invited", "cancelled", "restricted"],
   waitlisted: ["invited", "cancelled", "restricted"],
   invited: ["accepted", "cancelled", "waitlisted"],
-  accepted: ["deposit_pending", "confirmed", "cancel_requested", "cancelled"],
-  deposit_pending: ["confirmed", "cancel_requested", "cancelled"],
+  accepted: ["confirmed", "cancel_requested", "cancelled"],
   confirmed: [
     "cancel_requested",
     "replacement_pending",
@@ -293,7 +321,6 @@ export const ALLOWED_APPLICATION_TRANSITIONS: Record<
   waitlisted: ["invited", "applied", "cancelled", "restricted"],
   invited: ["accepted", "applied", "cancelled", "no_show"],
   accepted: ["confirmed", "applied", "cancelled", "no_show"],
-  deposit_pending: ["confirmed", "applied", "cancelled", "no_show"],
   confirmed: ["completed", "applied", "cancelled", "no_show"],
   cancel_requested: [],
   replacement_pending: [],
@@ -326,7 +353,6 @@ export const ACTIVE_APPLICATION_STATUSES: ParticipantStatus[] = [
   "waitlisted",
   "invited",
   "accepted",
-  "deposit_pending",
   "confirmed",
   "cancel_requested",
   "replacement_pending",
@@ -336,7 +362,6 @@ export const ACTIVE_APPLICATION_STATUSES: ParticipantStatus[] = [
 export const MEETING_BOUND_APPLICATION_STATUSES: ParticipantStatus[] = [
   "invited",
   "accepted",
-  "deposit_pending",
   "confirmed",
   "cancel_requested",
   "replacement_pending",
@@ -370,8 +395,8 @@ export function isMeetingSettled(status: BlindMeetingStatus): boolean {
  * 참가자가 단체 채팅 멤버십을 가질 수 있는 상태.
  *
  * `no_show` 는 여기 없다. 이 상태는 검토 중이 아니라 최종 판정이다
- * (스케줄러가 미체크인 상태로 창을 넘긴 참가자에게 한 번 쓰고, 그 즉시 보증금
- * 몰수·제재·노쇼 카운트가 함께 적용된다). 나타나지 않은 사람이 나머지 다섯 명의
+ * (스케줄러가 미체크인 상태로 창을 넘긴 참가자에게 한 번 쓰고, 그 즉시
+ * 제재·노쇼 카운트가 함께 적용된다). 나타나지 않은 사람이 나머지 다섯 명의
  * 대화를 계속 읽고 쓸 수 있으면 안 되므로 확정과 동시에 방에서 제외한다.
  */
 export const CHAT_MEMBERSHIP_STATUSES: ParticipantStatus[] = [

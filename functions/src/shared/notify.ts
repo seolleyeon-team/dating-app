@@ -211,8 +211,6 @@ export type InAppNotificationType =
   | "blind_meeting_party_member_completed"
   | "blind_meeting_party_ready"
   | "blind_meeting_matched"
-  | "blind_meeting_acceptance_request"
-  | "blind_meeting_deposit_request"
   | "blind_meeting_confirmed"
   | "blind_meeting_chat_created"
   | "blind_meeting_schedule_vote"
@@ -226,7 +224,6 @@ export type InAppNotificationType =
   | "blind_meeting_follow_up_reminder"
   | "blind_meeting_mutual_match"
   | "blind_meeting_cancelled"
-  | "blind_meeting_refunded"
   | "meeting_icebreaker_roulette";
 
 export type InAppNotificationDeeplinkType =

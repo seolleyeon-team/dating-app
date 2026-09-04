@@ -1567,7 +1567,11 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       }
     }
 
-    // 결제/환불, 안전 flag, 운영 검토, 알림 발송 로그: 서버 전용
+    // 안전 flag, 운영 검토, 알림 발송 로그: 서버 전용
+    //
+    // blindMeetingDeposits 는 과거 결제 원장이다. 블라인드 미팅에는 더 이상
+    // 보증금이 없어 서버도 읽지도 쓰지도 않는다 (DEPRECATED_UNUSED). 기존
+    // 문서가 새로 노출되지 않도록 클라이언트 접근은 계속 전면 거부한다.
     match /blindMeetingDeposits/{depositId} {
       allow read, write: if false;
     }
@@ -1584,7 +1588,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       allow read, write: if false;
     }
 
-    // 운영 설정(보증금 금액 등)은 읽기 전용으로 공개
+    // 운영 설정(약속잡기 기한 등)은 읽기 전용으로 공개
     match /blindMeetingConfig/{docId} {
       allow get: if true;
       allow list: if false;

@@ -24,6 +24,7 @@ import '../../../shared/utils/privacy_log_utils.dart';
 import '../models/chat_room_data.dart';
 import '../services/chat_service.dart';
 import '../services/support_chat_service.dart';
+import '../utils/chat_room_tab.dart';
 
 // =============================================================================
 // 색상 상수
@@ -51,6 +52,11 @@ class _ChatItem {
   final bool isFakeAccountRoom;
   final bool isWithdrawn;
 
+  /// 3:3 단체방 (블라인드 취향 미팅 / 시즌 미팅). 상대 한 명이 아니라
+  /// 방 이름과 참가자 요약을 보여주고, 사진 대신 단체 아이콘을 쓴다.
+  final bool isGroupRoom;
+  final String? memberSummary;
+
   const _ChatItem({
     required this.id,
     required this.name,
@@ -65,6 +71,8 @@ class _ChatItem {
     this.sortOrder = 0,
     this.isFakeAccountRoom = false,
     this.isWithdrawn = false,
+    this.isGroupRoom = false,
+    this.memberSummary,
   });
 
   _ChatItem copyWith({
@@ -81,6 +89,8 @@ class _ChatItem {
     int? sortOrder,
     bool? isFakeAccountRoom,
     bool? isWithdrawn,
+    bool? isGroupRoom,
+    String? memberSummary,
   }) {
     return _ChatItem(
       id: id ?? this.id,
@@ -96,8 +106,21 @@ class _ChatItem {
       sortOrder: sortOrder ?? this.sortOrder,
       isFakeAccountRoom: isFakeAccountRoom ?? this.isFakeAccountRoom,
       isWithdrawn: isWithdrawn ?? this.isWithdrawn,
+      isGroupRoom: isGroupRoom ?? this.isGroupRoom,
+      memberSummary: memberSummary ?? this.memberSummary,
     );
   }
+
+  /// 방 열기 인자. 3:3 방은 상대 한 명이 없으므로 방 이름만 넘긴다.
+  ChatRoomData toRoomData() => ChatRoomData(
+    chatRoomId: chatRoomId ?? '',
+    partnerId: isGroupRoom ? '' : id,
+    partnerName: name,
+    partnerAvatarUrl: isGroupRoom ? null : avatarUrl,
+    partnerUniversity: isGroupRoom ? '3:3 단체 채팅' : '',
+    lastMessage: lastMessage,
+    lastMessageTime: time,
+  );
 }
 
 // =============================================================================
@@ -126,6 +149,16 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
   String? _currentKakaoUserId;
   bool _isLoading = true;
+
+  /// 현재 탭. 목업이 아니라 실제 room discriminator(chat_room_tab.dart)로
+  /// 같은 참가자 쿼리 결과를 1:1 / 3:3 으로 나눠 보여준다.
+  ChatRoomTab _tab = ChatRoomTab.direct;
+
+  void _selectTab(ChatRoomTab tab) {
+    if (_tab == tab) return;
+    setState(() => _tab = tab);
+    widget.onTabChange?.call(tab.index);
+  }
 
   @override
   void initState() {
@@ -253,6 +286,28 @@ class _ChatListScreenState extends State<ChatListScreen> {
     return '${dt.month}/${dt.day}';
   }
 
+  /// 3:3 단체방 항목. 블라인드 미팅은 얼굴·실명을 공개하지 않으므로 사진 없이
+  /// 방 이름 + 참가자 요약만 보여준다.
+  _ChatItem _mapGroupRoomDocToChatItem(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    String currentUserId,
+  ) {
+    final data = doc.data();
+    return _ChatItem(
+      id: doc.id,
+      chatRoomId: doc.id,
+      name: groupRoomDisplayName(data),
+      avatarUrl: '',
+      lastMessage: (data['lastMessage']?.toString().isNotEmpty ?? false)
+          ? data['lastMessage'].toString()
+          : '3:3 채팅방이 열렸어요. 인사를 나눠보세요!',
+      time: _formatLastMessageTime(data['lastMessageAt']),
+      sortOrder: 999999,
+      isGroupRoom: true,
+      memberSummary: groupRoomMemberSummary(data, currentUserId),
+    );
+  }
+
   _ChatItem _mapRoomDocToChatItem(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
     String currentUserId,
@@ -327,6 +382,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
     );
   }
 
+  /// 방 열기. 1:1 은 상대 정보와 함께, 3:3 은 정확한 단체방 id 로 진입한다.
+  void _openChat(_ChatItem chat) {
+    if (widget.onChatTap != null) {
+      widget.onChatTap!(chat.chatRoomId ?? chat.id);
+      return;
+    }
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).pushNamed(RouteNames.chatRoom, arguments: chat.toRoomData());
+  }
+
   @override
   Widget build(BuildContext context) {
     PushNotificationService.instance.setChatListVisible(true);
@@ -356,7 +423,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
             slivers: [
               const SliverToBoxAdapter(child: _Header()),
               SliverToBoxAdapter(
-                child: _TabBar(onTabChange: widget.onTabChange),
+                child: _TabBar(selected: _tab, onChanged: _selectTab),
               ),
               FutureBuilder<bool>(
                 future: _supportChatService.isOperations(),
@@ -395,7 +462,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
                       );
 
                       if (DevEntryPolicy.allowTestAccountEntry &&
-                          currentUserId != 'fake_user_1') {
+                          currentUserId != 'fake_user_1' &&
+                          _tab == ChatRoomTab.direct) {
                         final fallbackChats = <_ChatItem>[
                           _buildFakeRoomItem(currentUserId),
                         ];
@@ -416,28 +484,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
                               return _ChatListItem(
                                 chat: chat,
-                                onTap: () {
-                                  if (widget.onChatTap != null) {
-                                    widget.onChatTap!(
-                                      chat.chatRoomId ?? chat.id,
-                                    );
-                                  } else {
-                                    Navigator.of(
-                                      context,
-                                      rootNavigator: true,
-                                    ).pushNamed(
-                                      RouteNames.chatRoom,
-                                      arguments: ChatRoomData(
-                                        chatRoomId: chat.chatRoomId ?? '',
-                                        partnerId: chat.id,
-                                        partnerName: chat.name,
-                                        partnerAvatarUrl: chat.avatarUrl,
-                                        lastMessage: chat.lastMessage,
-                                        lastMessageTime: chat.time,
-                                      ),
-                                    );
-                                  }
-                                },
+                                onTap: () => _openChat(chat),
                               );
                             }, childCount: fallbackChats.length),
                           ),
@@ -498,7 +545,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
                     if (!snapshot.hasData) {
                       if (DevEntryPolicy.allowTestAccountEntry &&
-                          currentUserId != 'fake_user_1') {
+                          currentUserId != 'fake_user_1' &&
+                          _tab == ChatRoomTab.direct) {
                         final fallbackChats = <_ChatItem>[
                           _buildFakeRoomItem(currentUserId),
                         ];
@@ -519,28 +567,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
                               return _ChatListItem(
                                 chat: chat,
-                                onTap: () {
-                                  if (widget.onChatTap != null) {
-                                    widget.onChatTap!(
-                                      chat.chatRoomId ?? chat.id,
-                                    );
-                                  } else {
-                                    Navigator.of(
-                                      context,
-                                      rootNavigator: true,
-                                    ).pushNamed(
-                                      RouteNames.chatRoom,
-                                      arguments: ChatRoomData(
-                                        chatRoomId: chat.chatRoomId ?? '',
-                                        partnerId: chat.id,
-                                        partnerName: chat.name,
-                                        partnerAvatarUrl: chat.avatarUrl,
-                                        lastMessage: chat.lastMessage,
-                                        lastMessageTime: chat.time,
-                                      ),
-                                    );
-                                  }
-                                },
+                                onTap: () => _openChat(chat),
                               );
                             }, childCount: fallbackChats.length),
                           ),
@@ -555,7 +582,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
                       );
                     }
 
-                    final docs = [...snapshot.data!.docs];
+                    // 같은 참가자 쿼리 결과를 탭(1:1 / 3:3)으로 나눈다. 멤버십은
+                    // 쿼리(arrayContains uid)와 rules 가 서버 기준으로 보장한다.
+                    final docs = filterRoomsForTab(
+                      snapshot.data!.docs,
+                      _tab,
+                      (doc) => doc.data(),
+                    );
 
                     docs.sort((a, b) {
                       final aTs = a.data()['lastMessageAt'] as Timestamp?;
@@ -570,7 +603,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     final mappedChats = <_ChatItem>[];
                     for (final doc in docs) {
                       mappedChats.add(
-                        _mapRoomDocToChatItem(doc, currentUserId),
+                        _tab == ChatRoomTab.group
+                            ? _mapGroupRoomDocToChatItem(doc, currentUserId)
+                            : _mapRoomDocToChatItem(doc, currentUserId),
                       );
                     }
 
@@ -578,7 +613,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     final normalChats = <_ChatItem>[];
 
                     for (final chat in mappedChats) {
-                      if (chat.id == 'fake_user_1') {
+                      if (!chat.isGroupRoom && chat.id == 'fake_user_1') {
                         fakeChatRoom = chat;
                       } else {
                         normalChats.add(chat);
@@ -586,7 +621,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     }
 
                     if (DevEntryPolicy.allowTestAccountEntry &&
-                        currentUserId != 'fake_user_1') {
+                        currentUserId != 'fake_user_1' &&
+                        _tab == ChatRoomTab.direct) {
                       fakeChatRoom ??= _buildFakeRoomItem(currentUserId);
                     }
 
@@ -604,9 +640,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
                           padding: const EdgeInsets.only(top: 80),
                           child: Center(
                             child: Text(
-                              currentUserId == 'fake_user_1'
-                                  ? '아직 받은 채팅이 없어요'
-                                  : '채팅을 시작해 보세요!',
+                              _tab.emptyMessage,
+                              key: ValueKey('chat-empty-${_tab.name}'),
                               style: TextStyle(
                                 fontFamily: 'NanumSquareRound',
                                 fontSize: 15,
@@ -633,26 +668,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                               chat.chatRoomId!.isEmpty) {
                             return _ChatListItem(
                               chat: chat,
-                              onTap: () {
-                                if (widget.onChatTap != null) {
-                                  widget.onChatTap!(chat.chatRoomId ?? chat.id);
-                                } else {
-                                  Navigator.of(
-                                    context,
-                                    rootNavigator: true,
-                                  ).pushNamed(
-                                    RouteNames.chatRoom,
-                                    arguments: ChatRoomData(
-                                      chatRoomId: chat.chatRoomId ?? '',
-                                      partnerId: chat.id,
-                                      partnerName: chat.name,
-                                      partnerAvatarUrl: chat.avatarUrl,
-                                      lastMessage: chat.lastMessage,
-                                      lastMessageTime: chat.time,
-                                    ),
-                                  );
-                                }
-                              },
+                              onTap: () => _openChat(chat),
                             );
                           }
 
@@ -669,31 +685,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
                               return _ChatListItem(
                                 chat: chatWithUnread,
-                                onTap: () {
-                                  if (widget.onChatTap != null) {
-                                    widget.onChatTap!(
-                                      chatWithUnread.chatRoomId ??
-                                          chatWithUnread.id,
-                                    );
-                                  } else {
-                                    Navigator.of(
-                                      context,
-                                      rootNavigator: true,
-                                    ).pushNamed(
-                                      RouteNames.chatRoom,
-                                      arguments: ChatRoomData(
-                                        chatRoomId:
-                                            chatWithUnread.chatRoomId ?? '',
-                                        partnerId: chatWithUnread.id,
-                                        partnerName: chatWithUnread.name,
-                                        partnerAvatarUrl:
-                                            chatWithUnread.avatarUrl,
-                                        lastMessage: chatWithUnread.lastMessage,
-                                        lastMessageTime: chatWithUnread.time,
-                                      ),
-                                    );
-                                  }
-                                },
+                                onTap: () => _openChat(chatWithUnread),
                               );
                             },
                           );
@@ -781,17 +773,12 @@ class _Header extends StatelessWidget {
 // =============================================================================
 // 탭 바
 // =============================================================================
-class _TabBar extends StatefulWidget {
-  final Function(int tabIndex)? onTabChange;
+/// 1:1 / 3:3 탭. 상태는 화면이 소유하고(실제 목록 필터), 여기서는 표시만 한다.
+class _TabBar extends StatelessWidget {
+  final ChatRoomTab selected;
+  final ValueChanged<ChatRoomTab> onChanged;
 
-  const _TabBar({this.onTabChange});
-
-  @override
-  State<_TabBar> createState() => _TabBarState();
-}
-
-class _TabBarState extends State<_TabBar> {
-  int _selectedIndex = 0;
+  const _TabBar({required this.selected, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -801,23 +788,15 @@ class _TabBarState extends State<_TabBar> {
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
       child: Row(
         children: [
-          _TabChip(
-            label: '1:1',
-            isSelected: _selectedIndex == 0,
-            onTap: () {
-              setState(() => _selectedIndex = 0);
-              widget.onTabChange?.call(0);
-            },
-          ),
-          const SizedBox(width: 12),
-          _TabChip(
-            label: '3:3',
-            isSelected: _selectedIndex == 1,
-            onTap: () {
-              setState(() => _selectedIndex = 1);
-              widget.onTabChange?.call(1);
-            },
-          ),
+          for (final tab in ChatRoomTab.values) ...[
+            if (tab != ChatRoomTab.values.first) const SizedBox(width: 12),
+            _TabChip(
+              key: ValueKey('chat-tab-${tab.name}'),
+              label: tab.label,
+              isSelected: selected == tab,
+              onTap: () => onChanged(tab),
+            ),
+          ],
         ],
       ),
     );
@@ -829,7 +808,12 @@ class _TabChip extends StatelessWidget {
   final bool isSelected;
   final VoidCallback? onTap;
 
-  const _TabChip({required this.label, this.isSelected = false, this.onTap});
+  const _TabChip({
+    super.key,
+    required this.label,
+    this.isSelected = false,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -900,15 +884,18 @@ class _ChatListItem extends StatelessWidget {
         ),
         child: Row(
           children: [
-            _Avatar(
-              imageUrl: chat.avatarUrl,
-              chatRoomId: chat.chatRoomId,
-              targetUid: chat.id,
-              useChatRealPhoto: !chat.isFakeAccountRoom,
-              isOnline: chat.isOnline,
-              hasGradientBorder: chat.hasGradientBorder,
-              isGrayscale: chat.isGrayscale,
-            ),
+            if (chat.isGroupRoom)
+              _GroupAvatar(key: ValueKey('chat-group-avatar-${chat.id}'))
+            else
+              _Avatar(
+                imageUrl: chat.avatarUrl,
+                chatRoomId: chat.chatRoomId,
+                targetUid: chat.id,
+                useChatRealPhoto: !chat.isFakeAccountRoom,
+                isOnline: chat.isOnline,
+                hasGradientBorder: chat.hasGradientBorder,
+                isGrayscale: chat.isGrayscale,
+              ),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -941,6 +928,20 @@ class _ChatListItem extends StatelessWidget {
                         ),
                     ],
                   ),
+                  if (chat.memberSummary != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      chat.memberSummary!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: 'NanumSquareRound',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: seol.gray400,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 4),
                   Row(
                     children: [
@@ -987,6 +988,30 @@ class _ChatListItem extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// =============================================================================
+// 3:3 단체방 아바타 (사진 없음 — 블라인드 미팅은 얼굴을 공개하지 않는다)
+// =============================================================================
+class _GroupAvatar extends StatelessWidget {
+  const _GroupAvatar({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final seol = Theme.of(context).extension<SeolThemeColors>()!;
+    final primary = Theme.of(context).colorScheme.primary;
+    return Container(
+      width: 60,
+      height: 60,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: seol.gray100),
+        color: primary.withValues(alpha: 0.10),
+      ),
+      alignment: Alignment.center,
+      child: Icon(CupertinoIcons.person_3_fill, color: primary, size: 26),
     );
   }
 }

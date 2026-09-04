@@ -4,78 +4,33 @@ import 'package:seolleyeon/features/blind_meeting/domain/blind_meeting_policy.da
 void main() {
   const policy = BlindMeetingPolicy.current;
 
-  group('보증금 설정', () {
-    test('금액은 코드에 고정되지 않고 앱 결제 설정에서 온다', () {
-      expect(policy.depositAmount, greaterThan(0));
+  group('취소 정책 (금전 개념 없음)', () {
+    test('취소 시점과 대체 성공 여부는 결과를 바꾸지 않는다', () {
+      for (final until in const [
+        Duration(hours: 30),
+        Duration(hours: 10),
+        Duration(hours: 2),
+        Duration.zero,
+      ]) {
+        for (final replacementFound in const [true, false]) {
+          final decision = policy.resolveCancellation(
+            untilMeeting: until,
+            replacementFound: replacementFound,
+          );
+          expect(decision.outcome, BlindMeetingCancellationOutcome.released);
+          expect(decision.triggersWaitlistFill, isTrue);
+          expect(decision.appliesRestriction, isFalse);
+        }
+      }
     });
 
-    test('환급 비율은 basis point로 계산된다', () {
-      const half = BlindMeetingCancellationDecision(
-        outcome: BlindMeetingRefundOutcome.partialRefund,
-        refundBasisPoints: 5000,
-        triggersWaitlistFill: true,
-        appliesRestriction: false,
-      );
-      expect(half.refundAmountFor(5000), 2500);
-      expect(half.refundAmountFor(0), 0);
-    });
-  });
-
-  group('취소 및 환급 정책', () {
-    test('24시간 이전 취소는 전액 환급 + 대기자 충원', () {
-      final decision = policy.resolveCancellation(
-        untilMeeting: const Duration(hours: 30),
-        replacementFound: false,
-      );
-      expect(decision.outcome, BlindMeetingRefundOutcome.fullRefund);
-      expect(decision.refundBasisPoints, 10000);
-      expect(decision.triggersWaitlistFill, isTrue);
-      expect(decision.appliesRestriction, isFalse);
-    });
-
-    test('6~24시간 전 취소는 대체 성공 시 전액 환급', () {
-      final decision = policy.resolveCancellation(
-        untilMeeting: const Duration(hours: 10),
-        replacementFound: true,
-      );
-      expect(decision.outcome, BlindMeetingRefundOutcome.fullRefund);
-    });
-
-    test('6~24시간 전 취소는 대체 실패 시 일부 차감', () {
-      final decision = policy.resolveCancellation(
-        untilMeeting: const Duration(hours: 10),
-        replacementFound: false,
-      );
-      expect(decision.outcome, BlindMeetingRefundOutcome.partialRefund);
-      expect(decision.refundBasisPoints, lessThan(10000));
-      expect(decision.refundBasisPoints, greaterThan(0));
-    });
-
-    test('6시간 이내 취소는 대체 성공 시 일부 환급', () {
-      final decision = policy.resolveCancellation(
-        untilMeeting: const Duration(hours: 2),
-        replacementFound: true,
-      );
-      expect(decision.outcome, BlindMeetingRefundOutcome.partialRefund);
-    });
-
-    test('6시간 이내 취소는 대체 실패 시 원칙적으로 미환급', () {
-      final decision = policy.resolveCancellation(
-        untilMeeting: const Duration(hours: 2),
-        replacementFound: false,
-      );
-      expect(decision.outcome, BlindMeetingRefundOutcome.noRefund);
-      expect(decision.refundBasisPoints, 0);
-      expect(decision.appliesRestriction, isFalse);
-    });
-
-    test('연락 없는 노쇼는 미환급 + 참여 제한', () {
+    test('연락 없는 노쇼는 참여 제한 + 대기자 충원 없음', () {
       final decision = policy.resolveCancellation(
         untilMeeting: Duration.zero,
         replacementFound: false,
         isNoShowWithoutContact: true,
       );
-      expect(decision.outcome, BlindMeetingRefundOutcome.noRefund);
+      expect(decision.outcome, BlindMeetingCancellationOutcome.noShow);
       expect(decision.appliesRestriction, isTrue);
       expect(decision.triggersWaitlistFill, isFalse);
     });
@@ -86,8 +41,14 @@ void main() {
         replacementFound: false,
         emergencyReviewRequested: true,
       );
-      expect(decision.outcome, BlindMeetingRefundOutcome.opsReview);
+      expect(decision.outcome, BlindMeetingCancellationOutcome.opsReview);
       expect(decision.appliesRestriction, isFalse);
+      expect(decision.triggersWaitlistFill, isTrue);
+    });
+
+    test('긴급 취소 경계는 유지되고 수락 제한 시간은 존재하지 않는다', () {
+      // 매칭 = 확정. 수락 창(acceptance window)은 정책에 없다.
+      expect(policy.lateCancellationBefore, const Duration(hours: 6));
     });
   });
 

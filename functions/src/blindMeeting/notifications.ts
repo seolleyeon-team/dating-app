@@ -20,8 +20,7 @@ export type BlindMeetingNotificationKind =
   | "party_member_completed"
   | "party_ready"
   | "matched"
-  | "acceptance_request"
-  | "deposit_request"
+  /** LEGACY_COMPATIBILITY_ONLY: legacy 수락 대기 미팅을 서버가 확정할 때만 */
   | "confirmed"
   | "chat_created"
   | "schedule_vote"
@@ -35,8 +34,7 @@ export type BlindMeetingNotificationKind =
   | "follow_up"
   | "follow_up_reminder"
   | "mutual_match"
-  | "cancelled"
-  | "refunded";
+  | "cancelled";
 
 type NotificationTemplate = {
   type: InAppNotificationType;
@@ -49,7 +47,14 @@ type NotificationTemplate = {
     | "chat";
 };
 
-const TEMPLATES: Record<BlindMeetingNotificationKind, NotificationTemplate> = {
+/**
+ * 알림 템플릿. 블라인드 미팅에는 금전 개념이 없으므로 결제 안내가 없다.
+ * (테스트가 문구 회귀를 검사할 수 있도록 export 한다.)
+ */
+export const BLIND_MEETING_NOTIFICATION_TEMPLATES: Record<
+  BlindMeetingNotificationKind,
+  NotificationTemplate
+> = {
   party_invite: {
     type: "blind_meeting_party_invite",
     title: "친구가 취향 미팅에 초대했어요",
@@ -80,34 +85,23 @@ const TEMPLATES: Record<BlindMeetingNotificationKind, NotificationTemplate> = {
     body: "함께 가능한 날짜로 같은 편 매칭을 시작했어요.",
     deeplinkType: "blind_meeting_party",
   },
+  // 매칭 = 확정. 수락/거절을 요청하는 알림은 없다 (acceptance_request 제거).
   matched: {
     type: "blind_meeting_matched",
-    title: "블라인드 취향 미팅 구성 완료",
-    body: "취향이 잘 맞을 가능성이 높은 여섯 명을 구성했어요.",
-    deeplinkType: "blind_meeting",
-  },
-  acceptance_request: {
-    type: "blind_meeting_acceptance_request",
-    title: "참가를 수락해주세요",
-    body: "시간과 장소를 확인하고 참가 여부를 알려주세요.",
-    deeplinkType: "blind_meeting",
-  },
-  deposit_request: {
-    type: "blind_meeting_deposit_request",
-    title: "보증금 결제를 완료해주세요",
-    body: "정상 참석 후 종료 안전도장까지 완료하면 전액 환급돼요.",
+    title: "3:3 미팅이 매칭됐어요!",
+    body: "취향이 맞는 여섯 명의 미팅이 확정됐어요. 새로운 3:3 채팅방이 열렸어요.",
     deeplinkType: "blind_meeting",
   },
   confirmed: {
     type: "blind_meeting_confirmed",
-    title: "미팅이 확정됐어요",
-    body: "여섯 명 모두 참가가 확정됐어요.",
+    title: "3:3 미팅이 확정됐어요",
+    body: "매칭된 여섯 명의 미팅이 확정됐어요. 3:3 채팅방이 곧 열려요.",
     deeplinkType: "blind_meeting",
   },
   chat_created: {
     type: "blind_meeting_chat_created",
-    title: "단체 채팅방이 열렸어요",
-    body: "시간과 장소를 함께 정해보세요.",
+    title: "3:3 채팅방이 열렸어요",
+    body: "여섯 명이 모인 채팅방에서 시간과 장소를 함께 정해보세요.",
     deeplinkType: "chat",
   },
   schedule_vote: {
@@ -155,7 +149,7 @@ const TEMPLATES: Record<BlindMeetingNotificationKind, NotificationTemplate> = {
   checkout: {
     type: "blind_meeting_checkout",
     title: "종료 안전도장을 찍어주세요",
-    body: "미팅이 끝나면 종료 안전도장을 찍어주세요. 보증금 환급 조건이에요.",
+    body: "미팅이 끝나면 종료 안전도장으로 만남을 마무리해주세요.",
     deeplinkType: "blind_meeting",
   },
   follow_up: {
@@ -179,13 +173,7 @@ const TEMPLATES: Record<BlindMeetingNotificationKind, NotificationTemplate> = {
   cancelled: {
     type: "blind_meeting_cancelled",
     title: "미팅이 취소됐어요",
-    body: "정상 참석 예정이던 분께는 보증금을 환급하고 우선 재매칭을 드려요.",
-    deeplinkType: "blind_meeting",
-  },
-  refunded: {
-    type: "blind_meeting_refunded",
-    title: "보증금 환급이 완료됐어요",
-    body: "환급 내역을 확인해주세요.",
+    body: "정상 참석 예정이던 분께는 다음 미팅 우선 재매칭을 드려요.",
     deeplinkType: "blind_meeting",
   },
 };
@@ -205,7 +193,7 @@ export async function notifyBlindMeeting(params: {
   dedupeSuffix?: string;
   data?: Record<string, string>;
 }): Promise<void> {
-  const template = TEMPLATES[params.kind];
+  const template = BLIND_MEETING_NOTIFICATION_TEMPLATES[params.kind];
   const body = params.bodyOverride ?? template.body;
   const deeplinkId = params.deeplinkId ?? params.meetingId;
 
@@ -269,7 +257,7 @@ export async function notifyBlindMeetingParty(params: {
     | "party_ready";
   dedupeSuffix?: string;
 }): Promise<void> {
-  const template = TEMPLATES[params.kind];
+  const template = BLIND_MEETING_NOTIFICATION_TEMPLATES[params.kind];
   for (const userId of params.userIds) {
     if (!userId) continue;
     const notificationId = buildNotificationIdempotencyKey([

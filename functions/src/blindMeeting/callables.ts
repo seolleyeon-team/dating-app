@@ -14,15 +14,11 @@ import * as logger from "firebase-functions/logger";
 import { hasRequiredInterests } from "./eligibility";
 import { requiresAlcoholFreeGroup } from "./matching";
 import {
-  acceptInvitation,
   applyRelaxationChoice,
-  beginDeposit,
   confirmAttendance,
-  declineInvitation,
   loadMyMutualMatches,
   loadSelectableTargets,
   markSafetyStamp,
-  openChatWithoutDeposit,
   requestCancellation,
   respondReplacementOffer,
   runMatchingForDate,
@@ -351,16 +347,38 @@ async function saveBlindMeetingDnaDraftHandler(request: BlindMeetingRequest) {
   return { ok: true };
 }
 
+/**
+ * 신청 취소 (매칭 전 전용).
+ *
+ * 매칭 후 "참가 거절" 은 존재하지 않는다. 매칭 tx 가 이미 commit 된 신청은
+ * store 가 CANNOT_CANCEL_ALREADY_MATCHED 로 거부하고, 앱은 현재 매칭
+ * 결과/채팅으로 복구한다. 성공 시 신청에 쓴 하트를 정확히 한 번 돌려준다.
+ */
 async function cancelBlindMeetingApplicationHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const party = await loadActivePartyForUser(user.userId);
   if (party && party.status !== "matched") {
-    await cancelBlindMeetingParty(user.userId, party.partyId);
-    return { ok: true };
+    const summary = await cancelBlindMeetingParty(user.userId, party.partyId);
+    const mine = summary.find((entry) => entry.userId === user.userId);
+    return {
+      ok: true,
+      outcome: "cancelled",
+      heartRefunded: mine?.heartRefunded ?? 0,
+      heartBalance: mine?.heartBalance ?? null,
+    };
   }
   // 미팅에 배정된 신청은 여기서 취소할 수 없다 (store가 transaction으로 게이트).
-  await cancelOpenApplication(user.userId);
-  return { ok: true };
+  const result = await cancelOpenApplication(user.userId);
+  logger.info("blindMeeting application cancelled", {
+    outcome: result.outcome,
+    heartRefunded: result.heartRefunded,
+  });
+  return {
+    ok: true,
+    outcome: result.outcome,
+    heartRefunded: result.heartRefunded,
+    heartBalance: result.heartBalance,
+  };
 }
 
 async function ensureBlindMeetingPartyHandler(request: BlindMeetingRequest) {
@@ -428,34 +446,10 @@ async function relaxBlindMeetingConditionsHandler(request: BlindMeetingRequest) 
   return { ok: true };
 }
 
-async function acceptBlindMeetingInvitationHandler(request: BlindMeetingRequest) {
-  const user = await requireVerifiedUser(request);
-  const meetingId = requireMeetingId(getData(request));
-  await acceptInvitation(meetingId, user.userId);
-  return { ok: true };
-}
-
-async function declineBlindMeetingInvitationHandler(request: BlindMeetingRequest) {
-  const user = await requireVerifiedUser(request);
-  const data = getData(request);
-  const meetingId = requireMeetingId(data);
-  await declineInvitation(meetingId, user.userId, asTrimmedOrNull(data.reason));
-  return { ok: true };
-}
-
-async function startBlindMeetingDepositHandler(request: BlindMeetingRequest) {
-  const user = await requireVerifiedUser(request);
-  const meetingId = requireMeetingId(getData(request));
-  const intent = await beginDeposit(meetingId, user.userId);
-  return intent;
-}
-
-async function openBlindMeetingChatHandler(request: BlindMeetingRequest) {
-  const user = await requireVerifiedUser(request);
-  const meetingId = requireMeetingId(getData(request));
-  await openChatWithoutDeposit(meetingId, user.userId);
-  return { ok: true };
-}
+// 매칭 후 참가 수락/거절 callable(acceptBlindMeetingInvitation /
+// declineBlindMeetingInvitation / openBlindMeetingChat)은 2026-09-03 정책
+// 변경으로 제거됐다. 매칭이 commit 되면 미팅은 곧바로 confirmed 이고 같은
+// 트랜잭션에서 채팅방이 만들어지므로 사용자 응답 단계가 없다.
 
 async function voteBlindMeetingScheduleHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
@@ -631,10 +625,6 @@ const HANDLERS: Record<string, BlindMeetingHandler> = {
   saveBlindMeetingDnaDraft: saveBlindMeetingDnaDraftHandler,
   cancelBlindMeetingApplication: cancelBlindMeetingApplicationHandler,
   relaxBlindMeetingConditions: relaxBlindMeetingConditionsHandler,
-  acceptBlindMeetingInvitation: acceptBlindMeetingInvitationHandler,
-  declineBlindMeetingInvitation: declineBlindMeetingInvitationHandler,
-  startBlindMeetingDeposit: startBlindMeetingDepositHandler,
-  openBlindMeetingChat: openBlindMeetingChatHandler,
   voteBlindMeetingSchedule: voteBlindMeetingScheduleHandler,
   confirmBlindMeetingAttendance: confirmBlindMeetingAttendanceHandler,
   respondBlindMeetingReplacementOffer:

@@ -16,14 +16,15 @@ import { Timestamp } from "firebase-admin/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as logger from "firebase-functions/logger";
 
+import { repairLegacyAwaitingAcceptanceMeetings } from "./legacyAcceptance";
+import { repairLegacyMeetingStatuses } from "./legacyDepositNormalizer";
+import { repairConfirmedMeetingGroupChat } from "./meetingConfirmation";
 import { notifyBlindMeeting } from "./notifications";
 import {
   applyChatLifecycle,
-  cancelMeeting,
   finalizeExpiredScheduleVotes,
   handleVacancy,
   openFollowUp,
-  openGroupChatForConfirmedMeeting,
   runMatchingForAllDates,
   settleCancellation,
 } from "./orchestrator";
@@ -71,100 +72,41 @@ async function runBlindMeetingMatchingStep(): Promise<void> {
     });
 }
 
-/** 문서에서 밀리초 타임스탬프를 읽는다 (없으면 null). */
-function readMillis(raw: unknown): number | null {
-  return raw instanceof Timestamp ? raw.toMillis() : null;
-}
-
 /**
- * 수락/보증금 마감 창이 지난 미팅을 정리한다.
- *
- * 초대 한 명이 응답하지 않으면 나머지 다섯 명의 신청서가 `open: false`,
- * `meetingId` 로 묶인 채 남아 재신청도 못 하고 보증금도 잡혀 있다.
- * 정책에 창(acceptanceWindowMs / depositWindowMs)이 정의돼 있는데도
- * 이를 적용하는 곳이 없어 사실상 무기한 대기였다.
- *
- * 창이 지나면 미팅을 취소한다. cancelMeeting 이 전원 환급 + 우선 재매칭으로
- * 신청서를 다시 열어준다.
+ * 이 변경 이전에 만들어진 결제 대기 상태의 미팅 문서를 canonical 비결제
+ * 상태로 복구한다 (LEGACY_STATE_NORMALIZATION). 결제를 요구하거나 결제
+ * 화면으로 보내지 않는다. 손상된 문서는 repair 표시만 하고 건너뛴다.
  */
-async function expireBlindMeetingResponseWindowsStep(): Promise<void> {
-  const policy = await loadPolicy();
-  const now = Date.now();
-  const meetings = await loadMeetingsByStatuses([
-    "awaiting_acceptance",
-    "awaiting_deposits",
-  ]);
-
-  for (const meeting of meetings) {
-    const raw = meeting.raw as Record<string, unknown>;
-    const isDepositStage = meeting.status === "awaiting_deposits";
-    // 보증금 창은 보증금 단계에 진입한 시점부터 센다.
-    // depositsOpenedAt 은 이 변경 이후에 만들어진 미팅에만 있으므로,
-    // 없으면 createdAt 으로 대체하지 않고 건너뛴다. 대체하면 이미 수락
-    // 단계에서 시간을 다 쓴 기존 미팅이 첫 실행에 한꺼번에 취소된다
-    // (보증금까지 낸 살아 있는 미팅을 없애는 쪽이 더 위험하다).
-    // 대신 기준 시각을 지금으로 찍어두면 다음 창부터 정상 적용된다.
-    const startedAtMs = isDepositStage
-      ? readMillis(raw.depositsOpenedAt)
-      : readMillis(raw.createdAt);
-    if (startedAtMs == null) {
-      if (isDepositStage) {
-        await db()
-          .collection(BLIND_MEETING_COLLECTIONS.meetings)
-          .doc(meeting.meetingId)
-          .set(
-            { depositsOpenedAt: Timestamp.fromMillis(now) },
-            { merge: true }
-          );
-        logger.info("blindMeeting deposit window backfilled", {
-          meetingId: meeting.meetingId,
-        });
-      }
-      continue;
-    }
-
-    const windowMs = isDepositStage
-      ? policy.depositWindowMs
-      : policy.acceptanceWindowMs;
-    if (windowMs <= 0) continue;
-    if (now - startedAtMs < windowMs) continue;
-
-    logger.info("blindMeeting response window expired", {
-      meetingId: meeting.meetingId,
-      stage: meeting.status,
-      waitedMs: now - startedAtMs,
-    });
-    // 한 미팅이 실패해도 나머지 미팅 정리는 계속한다.
-    try {
-      // loadMeetingsByStatuses 스냅샷은 이 루프가 도는 동안 낡을 수 있다.
-      // 그 사이 마지막 보증금이 들어와 confirmed/chat_open 으로 넘어간
-      // 살아 있는 미팅을 취소하지 않도록 확정 직전에 다시 읽는다.
-      const fresh = await loadMeeting(meeting.meetingId);
-      if (fresh.status !== meeting.status) {
-        logger.info("blindMeeting response window skipped: status moved", {
-          meetingId: meeting.meetingId,
-        });
-        continue;
-      }
-      await cancelMeeting(
-        meeting.meetingId,
-        isDepositStage ? "deposit_window_expired" : "acceptance_window_expired"
-      );
-    } catch (error) {
-      logger.error("blindMeeting response window cleanup failed", {
-        meetingId: meeting.meetingId,
-        error,
-      });
-    }
+async function normalizeLegacyBlindMeetingsStep(): Promise<void> {
+  const outcomes = await repairLegacyMeetingStatuses();
+  if (outcomes.length > 0) {
+    logger.info("blindMeeting legacy statuses normalized", { outcomes });
   }
 }
 
 /**
- * 확정됐지만 단체 채팅방이 열리지 않은 미팅을 되살린다.
+ * LEGACY_COMPATIBILITY_ONLY — 수락 단계가 있던 시절에 만들어져 아직
+ * `awaiting_acceptance` 로 남은 미팅을 새 계약(매칭 = 확정)으로 옮긴다.
+ * 온전한 canonical match 는 확정, 대체 충원이 진행 중이면 replacement FSM 에
+ * 맡기고, 그 외(빈 좌석·손상)는 repair 표시 1회. 수락 응답 창 만료로 미팅을
+ * 취소하는 단계는 존재하지 않는다 (acceptance timeout 완전 제거).
+ */
+async function normalizeLegacyAcceptanceStep(): Promise<void> {
+  const outcomes = await repairLegacyAwaitingAcceptanceMeetings();
+  if (outcomes.length > 0) {
+    logger.info("blindMeeting legacy acceptance meetings normalized", {
+      outcomes,
+    });
+  }
+}
+
+/**
+ * confirmed 에서 멈춘 미팅을 chat_open 으로 되살린다.
  *
- * 확정과 채팅방 개설은 별개 단계라, 사이에서 실패하면 미팅이 `confirmed`
- * 에서 멈춘다. 이 상태를 집어가는 스케줄이 하나도 없어서 보증금이 잡힌 채
- * 영구히 방치됐다. openGroupChatForConfirmedMeeting 은 idempotent 다.
+ * 신규 매칭은 채팅방을 미팅과 같은 트랜잭션에서 만들지만, 그 뒤의
+ * chat_open 전이·만남 이력·알림은 별개 단계라 사이에서 실패하면 미팅이
+ * `confirmed` 에서 멈춘다. 이 상태를 집어가는 스케줄이 없으면 영구히
+ * 방치된다. openGroupChatForConfirmedMeeting 은 idempotent 다.
  */
 async function repairBlindMeetingGroupChatsStep(): Promise<void> {
   const meetings = await loadMeetingsByStatuses(["confirmed"]);
@@ -172,14 +114,20 @@ async function repairBlindMeetingGroupChatsStep(): Promise<void> {
     // groupChatId 유무로 거르지 않는다. 방 id 를 쓴 뒤 chat_open 전이
     // 직전에 죽으면 confirmed + groupChatId 인 채로 멈추는데, 그 문서를
     // 건너뛰면 영영 복구되지 않는다.
-    // openGroupChatForConfirmedMeeting 은 idempotent 하고 status 로 self-gate 한다.
+    // 이미 repair 표시된 미팅은 repairConfirmedMeetingGroupChat 이 곧바로
+    // repair_pending 을 돌려줘 같은 오류/write 를 반복하지 않는다.
+    if (meeting.raw.groupChatRepairRequired === true) continue;
     logger.warn("blindMeeting confirmed without open chat, repairing", {
       meetingId: meeting.meetingId,
     });
-    // 구성이 손상된 미팅(3남+3녀가 아닌 경우 등)은 채팅방 생성이 거부된다.
-    // 그런 미팅 하나 때문에 나머지 복구가 막히면 안 되므로 개별로 격리한다.
+    // 한 미팅의 실패(근거 부족 → repair 표시, 일시 오류 → 재시도)가 나머지
+    // 복구를 막지 않도록 개별로 격리한다.
     try {
-      await openGroupChatForConfirmedMeeting(meeting.meetingId);
+      const outcome = await repairConfirmedMeetingGroupChat(meeting.meetingId);
+      logger.info("blindMeeting group chat repair outcome", {
+        meetingId: meeting.meetingId,
+        outcome,
+      });
     } catch (error) {
       logger.error("blindMeeting group chat repair failed", {
         meetingId: meeting.meetingId,
@@ -458,7 +406,8 @@ export const blindMeetingMatchingTick = onSchedule(
 export const blindMeetingLifecycleTick = onSchedule(
   { schedule: "every 5 minutes", ...BLIND_MEETING_SCHEDULE_OPTIONS },
   async () => {
-    await runStep("responseWindows", expireBlindMeetingResponseWindowsStep);
+    await runStep("legacyNormalize", normalizeLegacyBlindMeetingsStep);
+    await runStep("legacyAcceptance", normalizeLegacyAcceptanceStep);
     await runStep("groupChatRepair", repairBlindMeetingGroupChatsStep);
     await runStep("scheduleVotes", finalizeBlindMeetingScheduleVotesStep);
     await runStep("attendance", dispatchBlindMeetingAttendanceChecksStep);

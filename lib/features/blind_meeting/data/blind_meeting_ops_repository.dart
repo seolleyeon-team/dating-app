@@ -104,7 +104,7 @@ class BlindMeetingOpsRepository {
         .toList();
   }
 
-  /// 참가자, 대기자, 대체 제안, 환급, 안전 flag, 점수 요약, 알림 상태.
+  /// 참가자, 대기자, 대체 제안, 안전 flag, 점수 요약, 알림 상태.
   Future<Map<String, dynamic>> loadDetail(String meetingId) {
     return _call('getBlindMeetingOpsDetail', {'meetingId': meetingId});
   }
@@ -114,18 +114,6 @@ class BlindMeetingOpsRepository {
       'meetingId': meetingId,
     });
     return (result['createdMeetings'] as num?)?.toInt() ?? 0;
-  }
-
-  Future<Map<String, dynamic>> overrideRefund({
-    required String meetingId,
-    required String userId,
-    required int refundBasisPoints,
-  }) {
-    return _call('overrideBlindMeetingRefund', {
-      'meetingId': meetingId,
-      'userId': userId,
-      'refundBasisPoints': refundBasisPoints,
-    });
   }
 
   Future<void> setRestriction({

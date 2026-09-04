@@ -18,6 +18,7 @@ import '../../../../router/route_names.dart';
 import '../../data/blind_meeting_analytics.dart';
 import '../../data/blind_meeting_profile_snapshot.dart';
 import '../../data/blind_meeting_repository.dart';
+import '../../domain/blind_meeting_dna.dart';
 import '../../domain/blind_meeting_enums.dart';
 import '../blind_meeting_route_args.dart';
 import '../theme/blind_meeting_palette.dart';
@@ -70,7 +71,50 @@ class _BlindMeetingDnaWizardScreenState
       _restoreExistingDna();
     } else if (widget.mode == BlindMeetingDnaMode.resumePaidDraft) {
       _restorePaidDraft();
+    } else {
+      _prefillFromStoredDna();
     }
+  }
+
+  /// 신규 작성 진입 시 이전 신청의 재사용 DNA(blindMeetingDna)를 미리 채운다.
+  ///
+  /// 취소·완료된 신청의 답변도 Firestore 에 그대로 남아 있으므로 빈 form 부터
+  /// 다시 쓰게 하지 않는다. 값은 모두 수정 가능하고, 최종 신청 시 사용자가
+  /// 확인한 값으로 서버가 다시 저장한다. 이전 DNA 가 없거나 읽기에 실패하면
+  /// 조용히 빈 form 으로 시작한다 (prefill 은 편의이지 게이트가 아니다).
+  Future<void> _prefillFromStoredDna() async {
+    if (_loadingExistingDna) return;
+    setState(() => _loadingExistingDna = true);
+    try {
+      final dna = await _repository.loadMyDna();
+      if (!mounted) return;
+      setState(() {
+        if (dna != null) _applyStoredAnswers(dna);
+        _loadingExistingDna = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      debugPrint(
+        '[BlindMeeting] 이전 미팅 DNA 를 불러오지 못했어요 (빈 form 으로 시작): ${PrivacyLogUtils.errorSummary(error)}',
+      );
+      setState(() => _loadingExistingDna = false);
+    }
+  }
+
+  /// 저장된 DNA 답변을 form 에 적용한다 (아직 비어 있는 항목만).
+  void _applyStoredAnswers(BlindMeetingDna dna) {
+    _atmosphere ??= dna.conversationAtmosphere;
+    _initiative ??= dna.conversationInitiative;
+    _purpose ??= dna.meetingPurpose;
+    // 전원 비음주는 현재 프로필이 비음주일 때만 선택 가능하다.
+    if (_alcohol == null) {
+      final stored = dna.alcoholCompanionPreference;
+      _alcohol =
+          stored == AlcoholCompanionPreference.allSober && !_canChooseAllSober
+          ? null
+          : stored;
+    }
+    _smoking ??= dna.smokingCompanionPreference;
   }
 
   bool get _shouldPersistProgress =>
@@ -136,12 +180,21 @@ class _BlindMeetingDnaWizardScreenState
       if (progress == null || !progress.isInProgress) {
         throw StateError('진행 중인 미팅 DNA를 찾을 수 없어요.');
       }
+      // 작성 중 답변이 우선, 비어 있는 항목은 이전 신청의 재사용 DNA 로 채운다.
+      BlindMeetingDna? stored;
+      try {
+        stored = await _repository.loadMyDna();
+      } catch (_) {
+        stored = null;
+      }
+      if (!mounted) return;
       setState(() {
         _atmosphere = progress.atmosphere;
         _initiative = progress.initiative;
         _purpose = progress.purpose;
         _alcohol = progress.alcoholPreference;
         _smoking = progress.smokingPreference;
+        if (stored != null) _applyStoredAnswers(stored);
         _loadingExistingDna = false;
       });
     } catch (error) {
