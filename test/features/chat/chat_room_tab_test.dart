@@ -56,7 +56,10 @@ void main() {
         ChatRoomTab.group,
       );
       expect(
-        classifyChatRoom({'type': 'three_vs_three', 'threeVsThreeMatchId': 'x'}),
+        classifyChatRoom({
+          'type': 'three_vs_three',
+          'threeVsThreeMatchId': 'x',
+        }),
         ChatRoomTab.group,
       );
     });

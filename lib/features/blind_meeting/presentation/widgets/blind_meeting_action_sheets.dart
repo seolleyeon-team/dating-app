@@ -363,7 +363,10 @@ Future<bool> showBlindMeetingCancelApplicationSheet(
       actions: [
         TextButton(
           onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: Text('계속 기다릴게요', style: BlindMeetingText.body(palette.inkSoft)),
+          child: Text(
+            '계속 기다릴게요',
+            style: BlindMeetingText.body(palette.inkSoft),
+          ),
         ),
         FilledButton(
           style: FilledButton.styleFrom(backgroundColor: palette.accent),

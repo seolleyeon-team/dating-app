@@ -516,7 +516,10 @@ void main() {
 
     // 6) 매칭 = 확정. 수락/거절 UI 없이 "매칭됐어요" 안내와 채팅방 진입만 있다.
     expect(find.text('3:3 미팅이 매칭됐어요!'), findsOneWidget);
-    expect(find.byKey(const ValueKey('blind-meeting-open-group-chat')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('blind-meeting-open-group-chat')),
+      findsOneWidget,
+    );
     expect(find.text('채팅방으로 이동'), findsOneWidget);
     expect(find.text('참가할게요'), findsNothing);
     expect(find.text('이번에는 참가하지 않을게요'), findsNothing);
@@ -621,7 +624,9 @@ void main() {
     expect(find.text('매칭 준비 중'), findsOneWidget);
 
     // 취소 확인 시트 → 취소
-    await tester.tap(find.byKey(const ValueKey('blind-meeting-cancel-application')));
+    await tester.tap(
+      find.byKey(const ValueKey('blind-meeting-cancel-application')),
+    );
     await pumpFrames(tester);
     expect(find.text('신청을 취소할까요?'), findsOneWidget);
     expect(find.textContaining('하트 30개는 바로 환불'), findsOneWidget);
@@ -633,7 +638,10 @@ void main() {
     expect(find.textContaining('하트 30개를 환불했어요'), findsOneWidget);
     // 취소 상태에서는 대기 UI/취소 버튼이 다시 보이지 않는다.
     expect(find.text('매칭 준비 중'), findsNothing);
-    expect(find.byKey(const ValueKey('blind-meeting-cancel-application')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('blind-meeting-cancel-application')),
+      findsNothing,
+    );
     expect(sink.events, contains('blind_meeting_application_cancelled'));
 
     // 재신청 CTA → 소개 화면은 canonical 문서(cancelled)를 다시 읽는다.
@@ -668,7 +676,9 @@ void main() {
       initialRoute: RouteNames.blindTasteMeetingWaiting,
       settle: false,
     );
-    await tester.tap(find.byKey(const ValueKey('blind-meeting-cancel-application')));
+    await tester.tap(
+      find.byKey(const ValueKey('blind-meeting-cancel-application')),
+    );
     await pumpFrames(tester);
     await tester.tap(find.text('신청 취소'));
     await pumpFrames(tester);
@@ -722,7 +732,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('4/4'), findsOneWidget);
     // 값은 수정할 수 있다: 흡연 조건을 바꾼다.
-    await tester.tap(find.text(SmokingCompanionPreference.nonSmokersOnly.label));
+    await tester.tap(
+      find.text(SmokingCompanionPreference.nonSmokersOnly.label),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('일정 선택하기'));
     await tester.pumpAndSettle();
@@ -737,8 +749,14 @@ void main() {
     expect(dna.conversationAtmosphere, ConversationAtmosphere.lively);
     expect(dna.conversationInitiative, ConversationInitiative.listener);
     expect(dna.meetingPurpose, MeetingPurpose.friendship);
-    expect(dna.alcoholCompanionPreference, AlcoholCompanionPreference.lightOkay);
-    expect(dna.smokingCompanionPreference, SmokingCompanionPreference.nonSmokersOnly);
+    expect(
+      dna.alcoholCompanionPreference,
+      AlcoholCompanionPreference.lightOkay,
+    );
+    expect(
+      dna.smokingCompanionPreference,
+      SmokingCompanionPreference.nonSmokersOnly,
+    );
     expect(dna.availableDateKeys, ['2026-08-02', '2026-08-05']);
     expect(find.byType(BlindMeetingWaitingScreen), findsOneWidget);
   });

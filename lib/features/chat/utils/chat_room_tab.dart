@@ -53,7 +53,11 @@ const Set<String> kGroupRoomTypes = {
 };
 
 /// 3:3 로 분류되는 legacy `type` 값 (시즌 미팅 문서).
-const Set<String> kGroupRoomKinds = {'group', 'three_vs_three', 'event_team_group'};
+const Set<String> kGroupRoomKinds = {
+  'group',
+  'three_vs_three',
+  'event_team_group',
+};
 
 /// room 문서의 discriminator 만 보고 탭을 정한다.
 ///
@@ -98,16 +102,15 @@ String groupRoomDisplayName(Map<String, dynamic> data) {
   final explicit = (data['name'] ?? data['title'])?.toString().trim() ?? '';
   if (explicit.isNotEmpty) return explicit;
   if (isBlindMeetingGroupRoom(data)) {
-    return data['isAlcoholFree'] == true ? '무알코올 3:3 블라인드 미팅' : '3:3 블라인드 취향 미팅';
+    return data['isAlcoholFree'] == true
+        ? '무알코올 3:3 블라인드 미팅'
+        : '3:3 블라인드 취향 미팅';
   }
   return '3:3 시즌 미팅';
 }
 
 /// 3:3 방의 부제 (참가 인원 요약). 닉네임만 쓰고 사진은 쓰지 않는다.
-String groupRoomMemberSummary(
-  Map<String, dynamic> data,
-  String currentUserId,
-) {
+String groupRoomMemberSummary(Map<String, dynamic> data, String currentUserId) {
   final participantIds = List<String>.from(data['participantIds'] ?? const []);
   final info = Map<String, dynamic>.from(data['participantInfo'] ?? const {});
   final names = <String>[];
@@ -120,5 +123,7 @@ String groupRoomMemberSummary(
   final count = participantIds.length;
   if (names.isEmpty) return '참가자 $count명';
   final shown = names.take(3).join(', ');
-  return names.length > 3 ? '$shown 외 ${names.length - 3}명 · 총 $count명' : '$shown · 총 $count명';
+  return names.length > 3
+      ? '$shown 외 ${names.length - 3}명 · 총 $count명'
+      : '$shown · 총 $count명';
 }

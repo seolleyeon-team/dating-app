@@ -13,8 +13,11 @@ class _FakeStorageService extends StorageService {
 
   final String? _userId;
 
+  // 저장소는 canonical 이름(getAppUserId)이 실제 구현이고 getKakaoUserId 는
+  // 거기로 위임하는 legacy 별칭이다. repository 가 canonical 이름을 부르므로
+  // 별칭만 가로채면 진짜 구현이 SharedPreferences 를 건드려 테스트가 깨진다.
   @override
-  Future<String?> getKakaoUserId() async => _userId;
+  Future<String?> getAppUserId() async => _userId;
 }
 
 class _FakeAuthService extends AuthService {

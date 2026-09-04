@@ -36,9 +36,7 @@ bool _isDepositOffence(String line) {
 }
 
 /// legacy 문서 디코드 경계. 여기에만 과거 상태 문자열이 남을 수 있다.
-const Set<String> _legacyAdapterFiles = {
-  'blind_meeting_legacy_status.dart',
-};
+const Set<String> _legacyAdapterFiles = {'blind_meeting_legacy_status.dart'};
 
 Iterable<File> _blindMeetingSources() {
   final dir = Directory('lib/features/blind_meeting');
@@ -70,10 +68,10 @@ void main() {
         ),
         isTrue,
       );
-      expect(
-        allowedMeetingTransitions[BlindMeetingStatus.awaitingAcceptance],
-        {BlindMeetingStatus.confirmed, BlindMeetingStatus.forming},
-      );
+      expect(allowedMeetingTransitions[BlindMeetingStatus.awaitingAcceptance], {
+        BlindMeetingStatus.confirmed,
+        BlindMeetingStatus.forming,
+      });
     });
 
     test('수락한 참가자는 바로 확정으로 간다', () {

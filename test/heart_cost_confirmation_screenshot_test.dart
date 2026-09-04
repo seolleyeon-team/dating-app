@@ -10,14 +10,12 @@ void main() {
     await (FontLoader(
       'Pretendard',
     )..addFont(rootBundle.load('assets/fonts/PretendardVariable.ttf'))).load();
-    await (FontLoader('CupertinoSystemText')..addFont(
-          rootBundle.load('assets/fonts/PretendardVariable.ttf'),
-        ))
-        .load();
-    await (FontLoader('CupertinoSystemDisplay')..addFont(
-          rootBundle.load('assets/fonts/PretendardVariable.ttf'),
-        ))
-        .load();
+    await (FontLoader(
+      'CupertinoSystemText',
+    )..addFont(rootBundle.load('assets/fonts/PretendardVariable.ttf'))).load();
+    await (FontLoader(
+      'CupertinoSystemDisplay',
+    )..addFont(rootBundle.load('assets/fonts/PretendardVariable.ttf'))).load();
     await (FontLoader(
       'NanumSquareRound',
     )..addFont(rootBundle.load('assets/fonts/NanumSquareRoundR.ttf'))).load();

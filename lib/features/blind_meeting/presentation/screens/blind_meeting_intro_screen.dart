@@ -271,7 +271,9 @@ class _BlindMeetingIntroScreenState extends State<BlindMeetingIntroScreen> {
         arguments: BlindMeetingMeetingArgs(meetingId: application.meetingId!),
       );
     } else {
-      await Navigator.of(context).pushNamed(RouteNames.blindTasteMeetingWaiting);
+      await Navigator.of(
+        context,
+      ).pushNamed(RouteNames.blindTasteMeetingWaiting);
     }
     if (mounted) await _load();
   }
