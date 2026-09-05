@@ -5,6 +5,7 @@ import '../data/promise_campus_places.dart';
 import '../models/promise_place.dart';
 import '../services/promise_place_service.dart';
 import '../utils/promise_map_launch.dart';
+import '../../../constants/campus_life_zones.dart';
 
 class _PickerColors {
   static const Color primary = Color(0xFF9B7FD8);
@@ -41,19 +42,25 @@ class PromisePlacePickerSheet extends StatelessWidget {
   const PromisePlacePickerSheet({
     super.key,
     this.initialPlaceId,
+    this.campusLifeZones = const <String>{},
     this.showcase = false,
   });
 
   final String? initialPlaceId;
+  final Set<String> campusLifeZones;
   final bool showcase;
 
   static Future<PromisePlace?> show(
     BuildContext context, {
     String? initialPlaceId,
+    required Set<String> campusLifeZones,
   }) {
     return showCupertinoModalPopup<PromisePlace>(
       context: context,
-      builder: (ctx) => PromisePlacePickerSheet(initialPlaceId: initialPlaceId),
+      builder: (ctx) => PromisePlacePickerSheet(
+        initialPlaceId: initialPlaceId,
+        campusLifeZones: campusLifeZones,
+      ),
     );
   }
 
@@ -99,6 +106,7 @@ class PromisePlacePickerSheet extends StatelessWidget {
             top: false,
             child: _PromisePlaceListBody(
               initialPlaceId: initialPlaceId,
+              campusLifeZones: campusLifeZones,
               showcase: showcase,
             ),
           ),
@@ -109,9 +117,14 @@ class PromisePlacePickerSheet extends StatelessWidget {
 }
 
 class _PromisePlaceListBody extends StatefulWidget {
-  const _PromisePlaceListBody({this.initialPlaceId, this.showcase = false});
+  const _PromisePlaceListBody({
+    this.initialPlaceId,
+    required this.campusLifeZones,
+    this.showcase = false,
+  });
 
   final String? initialPlaceId;
+  final Set<String> campusLifeZones;
   final bool showcase;
 
   @override
@@ -143,7 +156,9 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
       _error = null;
     });
     try {
-      final list = await _service!.loadPlaces();
+      final list = await _service!.loadPlaces(
+        campusLifeZones: widget.campusLifeZones,
+      );
       if (!mounted) return;
       setState(() {
         _places = list;
@@ -160,15 +175,24 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
   }
 
   List<PromisePlace> get _visiblePlaces {
-    final allPlaces = [...PromiseCampusPlaces.options, ..._places];
+    final allPlaces = [..._campusPlaces, ..._places];
     return allPlaces.where((e) => _placeMatchesFilter(e, _filter)).toList();
+  }
+
+  List<PromisePlace> get _campusPlaces {
+    final zones = widget.showcase
+        ? const <String>{CampusLifeZones.songdo}
+        : widget.campusLifeZones;
+    return PromiseCampusPlaces.options
+        .where((place) => zones.contains(place.campusLifeZone))
+        .toList();
   }
 
   void _setFilter(_PlaceCategoryFilter f) {
     setState(() {
       _filter = f;
       final visible = [
-        ...PromiseCampusPlaces.options,
+        ..._campusPlaces,
         ..._places,
       ].where((e) => _placeMatchesFilter(e, f)).toList();
       if (_expandedPlaceId != null &&
@@ -190,7 +214,7 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
       return const Center(child: CupertinoActivityIndicator());
     }
 
-    if (_places.isEmpty && PromiseCampusPlaces.options.isEmpty) {
+    if (_places.isEmpty && _campusPlaces.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -252,7 +276,9 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
                 minimumSize: Size.zero,
                 onPressed: () async {
                   setState(() => _loading = true);
-                  await _service!.refreshFromRemote();
+                  await _service!.refreshFromRemote(
+                    campusLifeZones: widget.campusLifeZones,
+                  );
                   await _load();
                 },
                 child: const Text(
@@ -275,6 +301,11 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
             runSpacing: 8,
             children: [
               _FilterChip(
+                label: '캠퍼스 안',
+                selected: _filter == _PlaceCategoryFilter.campus,
+                onTap: () => _setFilter(_PlaceCategoryFilter.campus),
+              ),
+              _FilterChip(
                 label: '전체',
                 selected: _filter == _PlaceCategoryFilter.all,
                 onTap: () => _setFilter(_PlaceCategoryFilter.all),
@@ -293,11 +324,6 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
                 label: '술집/바',
                 selected: _filter == _PlaceCategoryFilter.bar,
                 onTap: () => _setFilter(_PlaceCategoryFilter.bar),
-              ),
-              _FilterChip(
-                label: '캠퍼스 안',
-                selected: _filter == _PlaceCategoryFilter.campus,
-                onTap: () => _setFilter(_PlaceCategoryFilter.campus),
               ),
               _FilterChip(
                 label: '그 외 장소',
@@ -330,7 +356,13 @@ class _PromisePlaceListBodyState extends State<_PromisePlaceListBody> {
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
               itemCount:
                   visible.length +
-                  (_filter == _PlaceCategoryFilter.campus ? 1 : 0),
+                  (_filter == _PlaceCategoryFilter.campus &&
+                          (widget.showcase ||
+                              widget.campusLifeZones.contains(
+                                CampusLifeZones.songdo,
+                              ))
+                      ? 1
+                      : 0),
               itemBuilder: (context, i) {
                 if (i == visible.length) {
                   return Padding(
@@ -660,6 +692,7 @@ class _InlinePlaceDetailState extends State<_InlinePlaceDetail> {
   @override
   Widget build(BuildContext context) {
     final p = widget.place;
+    final showDetails = p.category != PromisePlaceCategory.campus;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: Column(
@@ -667,42 +700,44 @@ class _InlinePlaceDetailState extends State<_InlinePlaceDetail> {
         children: [
           Container(height: 1, color: _PickerColors.stone100),
           const SizedBox(height: 14),
-          Text(
-            p.description.isNotEmpty ? p.description : '설명이 아직 없어요.',
-            style: const TextStyle(
-              fontFamily: 'NanumSquareRound',
-              fontSize: 14,
-              height: 1.45,
-              color: _PickerColors.textMain,
+          if (showDetails) ...[
+            Text(
+              p.description.isNotEmpty ? p.description : '설명이 아직 없어요.',
+              style: const TextStyle(
+                fontFamily: 'NanumSquareRound',
+                fontSize: 14,
+                height: 1.45,
+                color: _PickerColors.textMain,
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          if (!p.isCustomInput)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.only(top: 2),
-                  child: Icon(
-                    CupertinoIcons.placemark,
-                    size: 18,
-                    color: _PickerColors.textSubtle,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    p.address.isNotEmpty ? p.address : '주소 정보 없음',
-                    style: const TextStyle(
-                      fontFamily: 'NanumSquareRound',
-                      fontSize: 14,
-                      height: 1.4,
-                      color: _PickerColors.textMain,
+            const SizedBox(height: 12),
+            if (!p.isCustomInput)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 2),
+                    child: Icon(
+                      CupertinoIcons.placemark,
+                      size: 18,
+                      color: _PickerColors.textSubtle,
                     ),
                   ),
-                ),
-              ],
-            ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      p.address.isNotEmpty ? p.address : '주소 정보 없음',
+                      style: const TextStyle(
+                        fontFamily: 'NanumSquareRound',
+                        fontSize: 14,
+                        height: 1.4,
+                        color: _PickerColors.textMain,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+          ],
           if (!p.isCustomInput &&
               p.category != PromisePlaceCategory.campus) ...[
             const SizedBox(height: 12),

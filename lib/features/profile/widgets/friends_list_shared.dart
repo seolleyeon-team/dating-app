@@ -1,5 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+
+import '../../../core/constants/app_colors.dart';
 
 import '../../../services/friend_service.dart';
 
@@ -177,6 +180,18 @@ class FriendListTileWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final surface = dark
+        ? AppColorsDark.surface
+        : FriendsListSharedColors.surface;
+    final text = dark
+        ? AppColorsDark.textPrimary
+        : FriendsListSharedColors.textMain;
+    final subtext = dark
+        ? AppColorsDark.textSecondary
+        : FriendsListSharedColors.textSub;
+    final line = dark ? AppColorsDark.border : FriendsListSharedColors.line;
+    final muted = dark ? AppColorsDark.textHint : FriendsListSharedColors.empty;
     final subtitleParts = <String>[
       if (item.universityName.isNotEmpty) item.universityName,
       if (item.major.isNotEmpty) item.major,
@@ -192,12 +207,12 @@ class FriendListTileWidget extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: FriendsListSharedColors.surface,
+            color: surface,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
               color: selected && isPicker
                   ? FriendsListSharedColors.primary
-                  : FriendsListSharedColors.line,
+                  : line,
               width: selected && isPicker ? 1.5 : 1,
             ),
           ),
@@ -216,11 +231,11 @@ class FriendListTileWidget extends StatelessWidget {
                       item.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: 'NanumSquareRound',
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
-                        color: FriendsListSharedColors.textMain,
+                        color: text,
                       ),
                     ),
                     if (subtitleParts.isNotEmpty) ...[
@@ -239,10 +254,10 @@ class FriendListTileWidget extends StatelessWidget {
                     const SizedBox(height: 6),
                     Text(
                       addedAtText,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: 'NanumSquareRound',
                         fontSize: 12,
-                        color: FriendsListSharedColors.textSub,
+                        color: subtext,
                       ),
                     ),
                   ],
@@ -255,17 +270,11 @@ class FriendListTileWidget extends StatelessWidget {
                       ? CupertinoIcons.checkmark_circle_fill
                       : CupertinoIcons.circle,
                   size: 24,
-                  color: selected
-                      ? FriendsListSharedColors.primary
-                      : FriendsListSharedColors.empty,
+                  color: selected ? FriendsListSharedColors.primary : muted,
                 ),
               ] else ...[
                 const SizedBox(width: 8),
-                const Icon(
-                  CupertinoIcons.chevron_right,
-                  size: 18,
-                  color: FriendsListSharedColors.empty,
-                ),
+                Icon(CupertinoIcons.chevron_right, size: 18, color: muted),
               ],
             ],
           ),
@@ -301,7 +310,7 @@ class FriendAvatarWidget extends StatelessWidget {
         alignment: Alignment.center,
         child: Text(
           initial,
-          style: const TextStyle(
+          style: TextStyle(
             fontFamily: 'NanumSquareRound',
             fontSize: 20,
             fontWeight: FontWeight.w700,
@@ -355,6 +364,9 @@ class FriendsListEmptyMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final subtext = Theme.of(context).brightness == Brightness.dark
+        ? AppColorsDark.textSecondary
+        : FriendsListSharedColors.textSub;
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 28),
@@ -366,7 +378,7 @@ class FriendsListEmptyMessage extends StatelessWidget {
             Text(
               title,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'NanumSquareRound',
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
@@ -377,11 +389,11 @@ class FriendsListEmptyMessage extends StatelessWidget {
             Text(
               subtitle,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'NanumSquareRound',
                 fontSize: 13,
                 height: 1.5,
-                color: FriendsListSharedColors.textSub,
+                color: subtext,
               ),
             ),
           ],

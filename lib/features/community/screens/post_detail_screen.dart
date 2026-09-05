@@ -7,6 +7,7 @@
 
 import 'dart:math' as math;
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,7 +15,8 @@ import 'package:flutter/services.dart';
 import '../../../data/models/community/post_model.dart';
 import '../../../data/repositories/firestore_community_repository.dart';
 import '../../../data/repositories/community_repository.dart';
-import '../../../services/storage_service.dart';
+import '../../../core/constants/app_colors.dart';
+import '../widgets/community_post_delete_flow.dart';
 
 // =============================================================================
 // 색상 상수
@@ -44,7 +46,6 @@ class PostDetailScreen extends StatefulWidget {
 class _PostDetailScreenState extends State<PostDetailScreen> {
   final FirestoreCommunityRepository _repository =
       FirestoreCommunityRepository();
-  final StorageService _storageService = StorageService();
   final TextEditingController _commentController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   Map<String, bool> _likedComments = {};
@@ -75,7 +76,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   Future<void> _initialize() async {
     try {
-      final userId = await _storageService.getKakaoUserId();
+      final firebaseUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+      final userId = firebaseUid.isEmpty ? null : firebaseUid;
       final post = await _repository.fetchPostDetail(widget.postId);
 
       if (post == null) {
@@ -203,6 +205,35 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('좋아요 처리에 실패했어요: $e')));
+    }
+  }
+
+  Future<void> _deletePost() async {
+    final post = _post;
+    final currentUserId = _currentUserId;
+    if (post == null ||
+        !isCommunityPostOwner(
+          currentUserId: currentUserId,
+          authorId: post.authorId,
+        )) {
+      return;
+    }
+
+    final confirmed = await confirmCommunityPostDeletion(context);
+    if (!confirmed || !mounted) return;
+
+    try {
+      await _repository.softDeletePost(
+        postId: post.postId,
+        authorId: currentUserId!,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('게시글을 삭제하지 못했어요. 잠시 후 다시 시도해주세요.')),
+      );
     }
   }
 
@@ -377,9 +408,10 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final bottomSafe = MediaQuery.of(context).padding.bottom;
+    final dark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: dark ? AppColorsDark.background : Colors.white,
       body: Stack(
         children: [
           const _BackgroundDecoration(),
@@ -419,6 +451,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                             children: [
                               _DetailPostCard(
                                 post: _post!,
+                                isOwner: isCommunityPostOwner(
+                                  currentUserId: _currentUserId,
+                                  authorId: _post!.authorId,
+                                ),
+                                onDelete: _deletePost,
                                 categoryColor: _getCategoryColor(
                                   _post!.category,
                                 ),
@@ -508,17 +545,18 @@ class _BackgroundDecoration extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Stack(
       children: [
         Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                _AppColors.softPink,
-                Colors.white,
-                _AppColors.softLavender,
+                dark ? const Color(0xFF281923) : _AppColors.softPink,
+                dark ? AppColorsDark.background : Colors.white,
+                dark ? const Color(0xFF241C30) : _AppColors.softLavender,
               ],
             ),
           ),
@@ -576,6 +614,9 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final surface = dark ? AppColorsDark.surface : Colors.white;
+    final text = dark ? AppColorsDark.textPrimary : _AppColors.textMain;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       child: Row(
@@ -591,17 +632,13 @@ class _Header extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.75),
+                color: surface.withValues(alpha: 0.88),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
-                CupertinoIcons.back,
-                color: _AppColors.textMain,
-                size: 20,
-              ),
+              child: Icon(CupertinoIcons.back, color: text, size: 20),
             ),
           ),
-          const Expanded(
+          Expanded(
             child: Text(
               '대나무숲',
               textAlign: TextAlign.center,
@@ -609,7 +646,7 @@ class _Header extends StatelessWidget {
                 fontFamily: 'NanumSquareRound',
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
-                color: _AppColors.textMain,
+                color: text,
               ),
             ),
           ),
@@ -625,6 +662,8 @@ class _Header extends StatelessWidget {
 // =============================================================================
 class _DetailPostCard extends StatelessWidget {
   final PostModel post;
+  final bool isOwner;
+  final Future<void> Function() onDelete;
   final Color categoryColor;
   final Color categoryTextColor;
   final bool isLiked;
@@ -633,6 +672,8 @@ class _DetailPostCard extends StatelessWidget {
 
   const _DetailPostCard({
     required this.post,
+    required this.isOwner,
+    required this.onDelete,
     required this.categoryColor,
     required this.categoryTextColor,
     required this.isLiked,
@@ -642,12 +683,18 @@ class _DetailPostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _AppColors.cardBg,
+        color: dark
+            ? AppColorsDark.surface.withValues(alpha: 0.94)
+            : _AppColors.cardBg,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white, width: 1.5),
+        border: Border.all(
+          color: dark ? AppColorsDark.border : Colors.white,
+          width: 1.5,
+        ),
         boxShadow: [
           BoxShadow(
             color: _AppColors.primary.withValues(alpha: 0.05),
@@ -699,6 +746,20 @@ class _DetailPostCard extends StatelessWidget {
                   color: _AppColors.textMain,
                 ),
               ),
+              if (isOwner) ...[
+                const SizedBox(width: 4),
+                CupertinoButton(
+                  key: ValueKey('community-post-detail-more-${post.postId}'),
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(40, 40),
+                  onPressed: onDelete,
+                  child: const Icon(
+                    CupertinoIcons.ellipsis,
+                    color: _AppColors.textSub,
+                    size: 20,
+                  ),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 16),
@@ -1005,6 +1066,8 @@ class _CommentInputBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final bottomSafe = MediaQuery.of(context).padding.bottom;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final surface = dark ? AppColorsDark.surface : Colors.white;
 
     return Container(
       padding: EdgeInsets.fromLTRB(
@@ -1014,9 +1077,13 @@ class _CommentInputBar extends StatelessWidget {
         bottomInset > 0 ? bottomInset + 10 : bottomSafe + 10,
       ),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.92),
+        color: surface.withValues(alpha: 0.92),
         border: Border(
-          top: BorderSide(color: Colors.white.withValues(alpha: 0.8)),
+          top: BorderSide(
+            color: (dark ? AppColorsDark.border : Colors.white).withValues(
+              alpha: 0.8,
+            ),
+          ),
         ),
       ),
       child: Column(
@@ -1062,7 +1129,7 @@ class _CommentInputBar extends StatelessWidget {
               Expanded(
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: surface,
                     borderRadius: BorderRadius.circular(22),
                     border: Border.all(
                       color: _AppColors.primary.withValues(alpha: 0.15),

@@ -346,6 +346,7 @@ class CommunityProvider extends ChangeNotifier {
       debugPrint(
         'CommunityProvider deletePost error: ${PrivacyLogUtils.errorSummary(e)}',
       );
+      rethrow;
     }
   }
 

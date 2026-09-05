@@ -198,6 +198,14 @@ describe("친구 파티", () => {
         )
       )
     );
+    await assertFails(
+      getDocs(
+        query(
+          collection(authed(A2), "blindMeetingParties"),
+          where("acceptedUserIds", "array-contains", A1)
+        )
+      )
+    );
     await assertFails(getDocs(collection(authed(A1), "blindMeetingParties")));
   });
 
@@ -210,6 +218,30 @@ describe("친구 파티", () => {
     );
     await assertFails(
       getDoc(doc(authed(A2), "blindMeetingPartyInvites", "partyInvite1"))
+    );
+  });
+
+  it("inviteeUserId 조건을 건 본인 대기 초대 목록만 허용한다", async () => {
+    await assertSucceeds(
+      getDocs(
+        query(
+          collection(authed(B1), "blindMeetingPartyInvites"),
+          where("inviteeUserId", "==", B1),
+          where("status", "==", "pending")
+        )
+      )
+    );
+    await assertFails(
+      getDocs(
+        query(
+          collection(authed(A2), "blindMeetingPartyInvites"),
+          where("inviteeUserId", "==", B1),
+          where("status", "==", "pending")
+        )
+      )
+    );
+    await assertFails(
+      getDocs(collection(authed(B1), "blindMeetingPartyInvites"))
     );
   });
 

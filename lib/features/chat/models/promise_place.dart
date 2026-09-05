@@ -77,6 +77,7 @@ class PromisePlace {
   static const String customCampusPlaceId = 'campus_custom_input';
 
   final String placeId;
+  final String campusLifeZone;
   final String name;
   final String category;
   final String description;
@@ -98,6 +99,7 @@ class PromisePlace {
 
   const PromisePlace({
     required this.placeId,
+    required this.campusLifeZone,
     required this.name,
     required this.category,
     required this.description,
@@ -153,6 +155,7 @@ class PromisePlace {
 
     return PromisePlace(
       placeId: placeId,
+      campusLifeZone: _campusLifeZoneFrom(data, placeId),
       name: data['name']?.toString() ?? '',
       category: PromisePlaceCategory.normalize(data['category']?.toString()),
       description: data['description']?.toString() ?? '',
@@ -176,6 +179,7 @@ class PromisePlace {
 
   Map<String, dynamic> toJsonMap() => {
     'placeId': placeId,
+    'campusLifeZone': campusLifeZone,
     'name': name,
     'category': category,
     'description': description,
@@ -189,6 +193,19 @@ class PromisePlace {
     'tags': tags,
     'externalLinks': externalLinks.toMap(),
   };
+
+  static String _campusLifeZoneFrom(Map<String, dynamic> data, String placeId) {
+    final raw = (data['campusLifeZone'] ?? data['region'])
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    if (raw == 'sinchon' || raw == 'songdo') return raw!;
+
+    // 기존 카탈로그는 생활권 필드 없이 지역 접두사로 저장돼 있다.
+    if (placeId.startsWith('sinchon_')) return 'sinchon';
+    if (placeId.startsWith('songdo_')) return 'songdo';
+    return '';
+  }
 
   /// 로컬 캐시 / JSON 복원용 (placeId 필수).
   static List<PromisePlace> listFromJsonList(List<dynamic>? raw) {

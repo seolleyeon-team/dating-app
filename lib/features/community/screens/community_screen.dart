@@ -7,6 +7,7 @@
 
 import 'dart:ui';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -16,9 +17,9 @@ import '../../../core/constants/app_colors.dart';
 import '../../../data/models/community/post_model.dart';
 import '../../chat/services/chat_service.dart';
 import '../../../router/route_names.dart';
-import '../../../services/storage_service.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 import '../providers/community_provider.dart';
+import '../widgets/community_post_delete_flow.dart';
 import '../widgets/falling_leaves_overlay.dart';
 
 // =============================================================================
@@ -44,7 +45,6 @@ class CommunityScreen extends StatefulWidget {
 
 class _CommunityScreenState extends State<CommunityScreen> {
   final ScrollController _scrollController = ScrollController();
-  final StorageService _storageService = StorageService();
   final ChatService _chatService = ChatService();
   String? _currentUserId;
 
@@ -60,10 +60,37 @@ class _CommunityScreenState extends State<CommunityScreen> {
     });
   }
 
-  Future<void> _loadCurrentUser() async {
-    final kakaoUserId = await _storageService.getKakaoUserId();
-    if (!mounted) return;
-    setState(() => _currentUserId = kakaoUserId);
+  void _loadCurrentUser() {
+    final firebaseUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    _currentUserId = firebaseUid.isEmpty ? null : firebaseUid;
+  }
+
+  Future<void> _deletePost(PostModel post) async {
+    if (!isCommunityPostOwner(
+      currentUserId: _currentUserId,
+      authorId: post.authorId,
+    )) {
+      return;
+    }
+
+    final confirmed = await confirmCommunityPostDeletion(context);
+    if (!confirmed || !mounted) return;
+
+    try {
+      await context.read<CommunityProvider>().deletePost(
+        postId: post.postId,
+        authorId: _currentUserId!,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('게시글을 삭제했어요.')));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('게시글을 삭제하지 못했어요. 잠시 후 다시 시도해주세요.')),
+      );
+    }
   }
 
   @override
@@ -145,6 +172,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final headerHeight = 110 + MediaQuery.paddingOf(context).top;
 
     return Consumer<CommunityProvider>(
       builder: (context, provider, _) {
@@ -160,134 +188,136 @@ class _CommunityScreenState extends State<CommunityScreen> {
             children: [
               FallingLeavesOverlay(isDark: isDark),
 
-              SafeArea(
-                bottom: false,
-                child: NestedScrollView(
-                  controller: _scrollController,
-                  headerSliverBuilder: (context, innerBoxIsScrolled) {
-                    return [
-                      SliverPersistentHeader(
-                        pinned: true,
-                        delegate: _StickyHeaderDelegate(
-                          minHeight: 110,
-                          maxHeight: 110,
-                          child: _HeaderArea(
-                            selectedCategory: selectedCategory,
-                            categories: categories,
-                            onCategorySelected: (category) async {
-                              HapticFeedback.selectionClick();
-                              await provider.changeTab(category);
-                            },
-                          ),
+              NestedScrollView(
+                controller: _scrollController,
+                headerSliverBuilder: (context, innerBoxIsScrolled) {
+                  return [
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _StickyHeaderDelegate(
+                        minHeight: headerHeight,
+                        maxHeight: headerHeight,
+                        child: _HeaderArea(
+                          selectedCategory: selectedCategory,
+                          categories: categories,
+                          onCategorySelected: (category) async {
+                            HapticFeedback.selectionClick();
+                            await provider.changeTab(category);
+                          },
                         ),
                       ),
-                    ];
-                  },
-                  body: provider.isLoading && posts.isEmpty
-                      ? const Center(child: CupertinoActivityIndicator())
-                      : RefreshIndicator.adaptive(
-                          onRefresh: provider.refreshCurrentTab,
-                          child: ListView(
-                            padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-                            physics: const BouncingScrollPhysics(
-                              parent: AlwaysScrollableScrollPhysics(),
-                            ),
-                            children: [
-                              if (posts.isEmpty) ...[
-                                const SizedBox(height: 80),
-                                const _EmptyState(),
-                              ] else ...[
-                                for (int i = 0; i < posts.length; i++) ...[
-                                  _PostCard(
-                                    post: posts[i],
-                                    categoryColor: _getCategoryColor(
-                                      context,
-                                      posts[i].category,
-                                    ),
-                                    categoryTextColor: _getCategoryTextColor(
-                                      context,
-                                      posts[i].category,
-                                    ),
+                    ),
+                  ];
+                },
+                body: provider.isLoading && posts.isEmpty
+                    ? const Center(child: CupertinoActivityIndicator())
+                    : RefreshIndicator.adaptive(
+                        onRefresh: provider.refreshCurrentTab,
+                        child: ListView(
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+                          physics: const BouncingScrollPhysics(
+                            parent: AlwaysScrollableScrollPhysics(),
+                          ),
+                          children: [
+                            if (posts.isEmpty) ...[
+                              const SizedBox(height: 80),
+                              const _EmptyState(),
+                            ] else ...[
+                              for (int i = 0; i < posts.length; i++) ...[
+                                _PostCard(
+                                  post: posts[i],
+                                  isOwner: isCommunityPostOwner(
+                                    currentUserId: _currentUserId,
+                                    authorId: posts[i].authorId,
                                   ),
-                                  if (i < posts.length - 1)
-                                    const SizedBox(height: 16),
-                                ],
+                                  onDelete: () => _deletePost(posts[i]),
+                                  categoryColor: _getCategoryColor(
+                                    context,
+                                    posts[i].category,
+                                  ),
+                                  categoryTextColor: _getCategoryTextColor(
+                                    context,
+                                    posts[i].category,
+                                  ),
+                                ),
+                                if (i < posts.length - 1)
+                                  const SizedBox(height: 16),
+                              ],
 
-                                const SizedBox(height: 20),
+                              const SizedBox(height: 20),
 
-                                if (provider.isLoadingMore)
-                                  const Padding(
-                                    padding: EdgeInsets.symmetric(vertical: 16),
-                                    child: Center(
-                                      child: CupertinoActivityIndicator(),
-                                    ),
-                                  )
-                                else if (provider.hasMore)
-                                  Builder(
-                                    builder: (context) {
-                                      final isDark =
-                                          Theme.of(context).brightness ==
-                                          Brightness.dark;
-                                      final seol = Theme.of(
-                                        context,
-                                      ).extension<SeolThemeColors>()!;
-                                      final moreBg = isDark
-                                          ? seol.cardSurface.withValues(
-                                              alpha: 0.9,
-                                            )
-                                          : Colors.white.withValues(
-                                              alpha: 0.85,
-                                            );
-                                      final moreBorder = isDark
-                                          ? seol.gray200
-                                          : Colors.white;
-                                      final moreText = isDark
-                                          ? AppColorsDark.textPrimary
-                                          : _AppColors.textMain;
-                                      return Center(
-                                        child: CupertinoButton(
-                                          padding: EdgeInsets.zero,
-                                          onPressed: provider.loadMore,
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 20,
-                                              vertical: 10,
+                              if (provider.isLoadingMore)
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 16),
+                                  child: Center(
+                                    child: CupertinoActivityIndicator(),
+                                  ),
+                                )
+                              else if (provider.hasMore)
+                                Builder(
+                                  builder: (context) {
+                                    final isDark =
+                                        Theme.of(context).brightness ==
+                                        Brightness.dark;
+                                    final seol = Theme.of(
+                                      context,
+                                    ).extension<SeolThemeColors>()!;
+                                    final moreBg = isDark
+                                        ? seol.cardSurface.withValues(
+                                            alpha: 0.9,
+                                          )
+                                        : Colors.white.withValues(alpha: 0.85);
+                                    final moreBorder = isDark
+                                        ? seol.gray200
+                                        : Colors.white;
+                                    final moreText = isDark
+                                        ? AppColorsDark.textPrimary
+                                        : _AppColors.textMain;
+                                    return Center(
+                                      child: CupertinoButton(
+                                        padding: EdgeInsets.zero,
+                                        onPressed: provider.loadMore,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 20,
+                                            vertical: 10,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: moreBg,
+                                            borderRadius: BorderRadius.circular(
+                                              20,
                                             ),
-                                            decoration: BoxDecoration(
-                                              color: moreBg,
-                                              borderRadius:
-                                                  BorderRadius.circular(20),
-                                              border: Border.all(
-                                                color: moreBorder,
-                                              ),
-                                              boxShadow: [
-                                                BoxShadow(
-                                                  color: Colors.black
-                                                      .withValues(alpha: 0.05),
-                                                  blurRadius: 8,
-                                                  offset: const Offset(0, 2),
+                                            border: Border.all(
+                                              color: moreBorder,
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withValues(
+                                                  alpha: 0.05,
                                                 ),
-                                              ],
-                                            ),
-                                            child: Text(
-                                              '더보기',
-                                              style: TextStyle(
-                                                fontFamily: 'NanumSquareRound',
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.w700,
-                                                color: moreText,
+                                                blurRadius: 8,
+                                                offset: const Offset(0, 2),
                                               ),
+                                            ],
+                                          ),
+                                          child: Text(
+                                            '더보기',
+                                            style: TextStyle(
+                                              fontFamily: 'NanumSquareRound',
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w700,
+                                              color: moreText,
                                             ),
                                           ),
                                         ),
-                                      );
-                                    },
-                                  ),
-                              ],
+                                      ),
+                                    );
+                                  },
+                                ),
                             ],
-                          ),
+                          ],
                         ),
-                ),
+                      ),
               ),
 
               if (_currentUserId == null || _currentUserId!.isEmpty)
@@ -536,11 +566,15 @@ class _StickyHeaderDelegate extends SliverPersistentHeaderDelegate {
 // =============================================================================
 class _PostCard extends StatelessWidget {
   final PostModel post;
+  final bool isOwner;
+  final Future<void> Function() onDelete;
   final Color categoryColor;
   final Color categoryTextColor;
 
   const _PostCard({
     required this.post,
+    required this.isOwner,
+    required this.onDelete,
     required this.categoryColor,
     required this.categoryTextColor,
   });
@@ -558,12 +592,15 @@ class _PostCard extends StatelessWidget {
     final textSub = isDark ? AppColorsDark.textSecondary : _AppColors.textSub;
 
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         HapticFeedback.selectionClick();
-        Navigator.of(
+        final result = await Navigator.of(
           context,
           rootNavigator: true,
         ).pushNamed(RouteNames.postDetail, arguments: post.postId);
+        if (result == true && context.mounted) {
+          await context.read<CommunityProvider>().refreshCurrentTab();
+        }
       },
       child: Container(
         padding: const EdgeInsets.all(20),
@@ -618,7 +655,18 @@ class _PostCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                Icon(Icons.more_horiz, color: seol.gray300),
+                if (isOwner)
+                  IconButton(
+                    key: ValueKey('community-post-more-${post.postId}'),
+                    tooltip: '게시글 관리',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 40,
+                      minHeight: 40,
+                    ),
+                    onPressed: onDelete,
+                    icon: Icon(Icons.more_horiz, color: seol.gray300),
+                  ),
               ],
             ),
             const SizedBox(height: 16),

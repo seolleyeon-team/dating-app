@@ -1426,7 +1426,6 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
 
     function canReadBlindMeetingParty(data) {
       return request.auth != null &&
-          data.acceptedUserIds is list &&
           request.auth.uid in data.acceptedUserIds;
     }
 
@@ -1439,7 +1438,12 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     // 친구 파티의 roster와 진행률은 수락한 멤버만 읽는다. 생성·초대·잠금·
     // 취소와 보수적 취향 집계는 모두 callable 트랜잭션만 수행한다.
     match /blindMeetingParties/{partyId} {
-      allow get, list: if canReadBlindMeetingParty(resource.data);
+      // 단건 조회에서는 서버 문서의 배열 타입까지 확인한다. 목록 조회에서는
+      // 앱의 acceptedUserIds array-contains UID 조건을 Rules 엔진이 증명할 수
+      // 있도록 멤버십 조건만 사용한다. 무필터·타인 UID 쿼리는 계속 거부된다.
+      allow get: if resource.data.acceptedUserIds is list &&
+          canReadBlindMeetingParty(resource.data);
+      allow list: if canReadBlindMeetingParty(resource.data);
       allow create, update, delete: if false;
     }
 

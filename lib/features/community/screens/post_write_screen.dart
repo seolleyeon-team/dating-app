@@ -16,6 +16,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 
+import '../../../core/constants/app_colors.dart';
 import '../providers/community_provider.dart';
 
 // =============================================================================
@@ -149,7 +150,12 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
     return '게시글을 등록하지 못했어요. 잠시 후 다시 시도해주세요.';
   }
 
-  Color _getCategoryBackgroundColor(String category, bool isSelected) {
+  Color _getCategoryBackgroundColor(
+    BuildContext context,
+    String category,
+    bool isSelected,
+  ) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     if (isSelected) {
       switch (category) {
         case '설렘':
@@ -165,19 +171,23 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
 
     switch (category) {
       case '설렘':
-        return _AppColors.categoryRomanceBg;
+        return isDark ? const Color(0xFF33212C) : _AppColors.categoryRomanceBg;
       case '고민':
-        return _AppColors.categoryWorryBg;
+        return isDark ? const Color(0xFF332D20) : _AppColors.categoryWorryBg;
       case '일상':
-        return _AppColors.categoryDailyBg;
+        return isDark ? const Color(0xFF1F3028) : _AppColors.categoryDailyBg;
       case '질문':
-        return _AppColors.categoryQuestionBg;
+        return isDark ? const Color(0xFF202B3B) : _AppColors.categoryQuestionBg;
       default:
-        return Colors.white;
+        return isDark ? AppColorsDark.surface : Colors.white;
     }
   }
 
-  Color _getCategoryTextColor(String category, bool isSelected) {
+  Color _getCategoryTextColor(
+    BuildContext context,
+    String category,
+    bool isSelected,
+  ) {
     if (isSelected) return Colors.white;
 
     switch (category) {
@@ -211,8 +221,14 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surface = isDark ? AppColorsDark.surface : Colors.white;
+    final textMain = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final muted = isDark ? AppColorsDark.textHint : Colors.grey[400]!;
     return Scaffold(
-      backgroundColor: _AppColors.backgroundLight,
+      backgroundColor: isDark
+          ? AppColorsDark.background
+          : _AppColors.backgroundLight,
       body: Stack(
         children: [
           const _BackgroundDecoration(),
@@ -227,14 +243,14 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Padding(
+                        Padding(
                           padding: EdgeInsets.symmetric(horizontal: 24),
                           child: Text(
                             '어떤 카테고리의 글인가요?',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
-                              color: _AppColors.textMain,
+                              color: textMain,
                               height: 1.2,
                             ),
                           ),
@@ -267,6 +283,7 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                                     ),
                                     decoration: BoxDecoration(
                                       color: _getCategoryBackgroundColor(
+                                        context,
                                         category,
                                         isSelected,
                                       ),
@@ -275,6 +292,7 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                                         color: isSelected
                                             ? Colors.transparent
                                             : _getCategoryTextColor(
+                                                context,
                                                 category,
                                                 false,
                                               ).withValues(alpha: 0.18),
@@ -288,6 +306,7 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                                             ? FontWeight.bold
                                             : FontWeight.w600,
                                         color: _getCategoryTextColor(
+                                          context,
                                           category,
                                           isSelected,
                                         ),
@@ -315,7 +334,7 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                                 ),
                                 padding: const EdgeInsets.all(24),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.7),
+                                  color: surface.withValues(alpha: 0.82),
                                   borderRadius: BorderRadius.circular(24),
                                 ),
                                 child: Column(
@@ -327,20 +346,22 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                                       maxLength: _maxLength,
                                       decoration: InputDecoration(
                                         hintText: _getHintText(),
-                                        hintStyle: const TextStyle(
+                                        hintStyle: TextStyle(
                                           fontFamily: 'Pretendard',
-                                          color: Colors.grey,
+                                          color: isDark
+                                              ? AppColorsDark.textHint
+                                              : Colors.grey,
                                           height: 1.6,
                                           fontSize: 16,
                                         ),
                                         border: InputBorder.none,
                                         counterText: '',
                                       ),
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontFamily: 'Pretendard',
                                         fontSize: 16,
                                         height: 1.6,
-                                        color: _AppColors.textMain,
+                                        color: textMain,
                                         fontWeight: FontWeight.w500,
                                       ),
                                     ),
@@ -354,14 +375,14 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                                             Icon(
                                               Icons.lock_outline_rounded,
                                               size: 16,
-                                              color: Colors.grey[400],
+                                              color: muted,
                                             ),
                                             const SizedBox(width: 4),
                                             Text(
                                               '익명 보장',
                                               style: TextStyle(
                                                 fontSize: 12,
-                                                color: Colors.grey[400],
+                                                color: muted,
                                               ),
                                             ),
                                           ],
@@ -370,7 +391,7 @@ class _PostWriteScreenState extends State<PostWriteScreen> {
                                           '${_currentText.length}/$_maxLength자',
                                           style: TextStyle(
                                             fontSize: 12,
-                                            color: Colors.grey[400],
+                                            color: muted,
                                           ),
                                         ),
                                       ],
@@ -450,12 +471,15 @@ class _BackgroundDecoration extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [_AppColors.gradientStart, _AppColors.gradientEnd],
+          colors: isDark
+              ? const [Color(0xFF281923), AppColorsDark.background]
+              : const [_AppColors.gradientStart, _AppColors.gradientEnd],
         ),
       ),
     );
@@ -472,6 +496,8 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final text = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
@@ -479,14 +505,14 @@ class _Header extends StatelessWidget {
         children: [
           IconButton(
             onPressed: onClose,
-            icon: const Icon(Icons.close_rounded, size: 28),
+            icon: Icon(Icons.close_rounded, size: 28, color: text),
           ),
-          const Text(
+          Text(
             '대나무숲 글쓰기',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: _AppColors.textMain,
+              color: text,
             ),
           ),
           const SizedBox(width: 48),
