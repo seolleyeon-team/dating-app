@@ -136,9 +136,12 @@ test("uploadAvatarSourcePhoto admission enforces the photo requirement", () => {
     resolve(__dirname, "../src/avatarMedia.ts"),
     "utf16le",
   );
+  // Canonical admission (2026-09-05): the legacy single-photo start is gated
+  // closed right after the kill switches; the photo-evidence requirement is
+  // still enforced immediately after that gate in the rollback mode.
   assert.match(
     avatarMediaSrc,
-    /enforceAvatarUploadAllowlist\(uid\);\s*throwIfAvatarGenerationDisabled\(\);\s*await assertMinimumOnboardingPhotoEvidence\(\{ userId: uid \}\);/,
+    /enforceAvatarUploadAllowlist\(uid\);\s*throwIfAvatarGenerationDisabled\(\);\s*(?:\/\/[^\r\n]*\s*)*assertLegacyAvatarGenerationStartAllowed\(\);\s*await assertMinimumOnboardingPhotoEvidence\(\{ userId: uid \}\);/,
   );
   assert.match(
     avatarMediaSrc,

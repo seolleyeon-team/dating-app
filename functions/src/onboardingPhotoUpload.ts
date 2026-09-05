@@ -6,6 +6,10 @@ import {
   type CallableOptions,
 } from "firebase-functions/v2/https";
 import sharp from "sharp";
+import {
+  AVATAR_ONBOARDING_SOURCE_SET_VERSION,
+  buildOnboardingPhotoUploadResponse,
+} from "./onboardingPhotoSourceSet";
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_INPUT_PIXELS = 40_000_000;
@@ -117,14 +121,25 @@ export function createUploadOnboardingPhotoFunction(
             firebaseStorageDownloadTokens: token,
             ownerUid: user.userId,
             uploadKind: "onboarding_profile_photo",
+            uploadState: "ready",
+            normalization: AVATAR_ONBOARDING_SOURCE_SET_VERSION,
+            slotIndex: String(slotIndex),
           },
         },
       });
 
-      return {
+      const [storedMetadata] = await file.getMetadata();
+      const objectGeneration = String(storedMetadata.generation ?? "").trim();
+      if (!objectGeneration) {
+        throw new HttpsError("internal", "onboarding_photo_generation_missing");
+      }
+
+      return buildOnboardingPhotoUploadResponse({
         photoUrl: buildDownloadUrl(bucket.name, storagePath, token),
+        photoId,
         slotIndex,
-      };
+        objectGeneration,
+      });
     },
   );
 }
