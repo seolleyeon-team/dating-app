@@ -10,7 +10,7 @@ import logging
 import os
 import re
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -28,6 +28,9 @@ from avatar_generation.adaptive_generation import (
     plan_generation_round,
 )
 from avatar_generation.analysis.source_analyzer import analyze_avatar_source_image
+from avatar_generation.analysis.avatar_source_quality import source_quality_signals_from_analysis
+from avatar_generation.analysis.config import SourceSafetyConfig
+from avatar_generation.analysis.small_face import SmallFacePipelineConfig, SmallFaceSourcePipeline
 from avatar_generation.analysis.visual_risk import (
     STATUS_CRITICAL_UNAVAILABLE,
     unavailable_visual_risk_analysis,
@@ -105,6 +108,18 @@ from avatar_generation.seolleyeon_avatar_prompt_builder_v4 import (
     build_avatar_prompt,
 )
 from avatar_generation.storage import build_temp_candidate_ref, build_temp_candidate_path
+from avatar_generation.source_selection_runtime import (
+    LEGACY_FIRST_PHOTO_MODE,
+    NO_ELIGIBLE_SOURCE_ERROR,
+    QUALITY_SELECTOR_MODE,
+    SOURCE_ANALYSIS_INFRA_ERROR,
+    AvatarSourceCandidate,
+    SourceSelectionError,
+    analysis_has_infrastructure_failure,
+    candidate_set_from_payload,
+    select_best_source,
+    selected_source_from_job,
+)
 from avatar_generation.trait_card import (
     TraitCardValidationResult,
     merge_trait_card_with_broad_hints,
@@ -123,6 +138,7 @@ except Exception:  # pragma: no cover - optional in pure unit tests
 
 DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-final-private-source-photos"
 DEFAULT_AVATAR_TEMP_BUCKET = "seolleyeon-final-avatar-temp"
+DEFAULT_CHAT_PROFILE_PHOTO_BUCKET = "seolleyeon-final-chat-profile-photos"
 BRIDGE_ENVIRONMENT = "production_bridge"
 FESTIVAL_DATA_PROJECT = "seolleyeon-festival"
 FORBIDDEN_BRIDGE_BUCKET_PREFIX = "seolleyeon-final-"
@@ -321,6 +337,8 @@ class AvatarGenerationPayload:
     schema_version: str
     idempotency_key: str = ""
     avatar_presentation_gender: str = "unknown"
+    source_photo_object_generations: List[str] = field(default_factory=list)
+    source_selection_mode: str = ""
 
 
 @dataclass(frozen=True)
@@ -465,6 +483,13 @@ def source_photo_bucket() -> str:
 
 def avatar_temp_bucket() -> str:
     return env_value("AVATAR_TEMP_BUCKET", DEFAULT_AVATAR_TEMP_BUCKET)
+
+
+def chat_profile_photo_bucket() -> str:
+    return env_value(
+        "CHAT_PROFILE_PHOTO_BUCKET",
+        DEFAULT_CHAT_PROFILE_PHOTO_BUCKET,
+    )
 
 
 def _explicit_data_project_from_env() -> Optional[str]:
@@ -1143,6 +1168,28 @@ def parse_avatar_generation_payload(raw_payload: Mapping[str, Any]) -> AvatarGen
     parsed_source_refs = validate_private_source_refs(source_photo_refs)
     validate_source_refs_belong_to_uid(parsed_source_refs, uid)
 
+    source_selection_mode = str(payload.get("sourceSelectionMode") or "").strip()
+    source_photo_object_generations = [
+        str(value).strip()
+        for value in payload.get("sourcePhotoObjectGenerations", [])
+        if str(value).strip()
+    ]
+    if source_selection_mode:
+        if source_selection_mode not in {
+            QUALITY_SELECTOR_MODE,
+            LEGACY_FIRST_PHOTO_MODE,
+        }:
+            raise AvatarGenerationError("Unsupported sourceSelectionMode.")
+        try:
+            candidate_set_from_payload(
+                source_photo_ids,
+                source_photo_refs,
+                source_photo_object_generations,
+                allow_locked_singleton=len(source_photo_ids) == 1,
+            )
+        except SourceSelectionError as exc:
+            raise AvatarGenerationError(exc.error_code) from exc
+
     candidate_count = int(payload.get("candidateCount") or DEFAULT_MAX_CANDIDATES)
     if candidate_count < 1 or candidate_count > max_candidates():
         raise AvatarGenerationError("candidateCount must be between 1 and MAX_CANDIDATES.")
@@ -1164,6 +1211,8 @@ def parse_avatar_generation_payload(raw_payload: Mapping[str, Any]) -> AvatarGen
         avatar_presentation_gender=normalize_avatar_presentation_gender(
             payload.get("avatarPresentationGender")
         ),
+        source_photo_object_generations=source_photo_object_generations,
+        source_selection_mode=source_selection_mode,
     )
 
 
@@ -1358,11 +1407,30 @@ def _blob_for(storage_client: Any, ref: GcsRef) -> Any:
 def load_source_image_bytes_from_gcs(
     storage_client: Any,
     source_ref: GcsRef,
+    expected_generation: str = "",
 ) -> Tuple[bytes, str]:
     blob = _blob_for(storage_client, source_ref)
     if hasattr(blob, "exists") and not blob.exists():
         raise AvatarGenerationError("Private source photo does not exist.")
-    data = bytes(blob.download_as_bytes())
+    normalized_generation = str(expected_generation or "").strip()
+    if normalized_generation:
+        if not normalized_generation.isdigit():
+            raise AvatarGenerationError("avatar_selected_source_generation_invalid")
+        if hasattr(blob, "reload"):
+            blob.reload()
+        observed_generation = str(getattr(blob, "generation", "") or "").strip()
+        if observed_generation != normalized_generation:
+            raise AvatarGenerationError("avatar_selected_source_generation_mismatch")
+        try:
+            data = bytes(
+                blob.download_as_bytes(
+                    if_generation_match=int(normalized_generation)
+                )
+            )
+        except TypeError:
+            data = bytes(blob.download_as_bytes())
+    else:
+        data = bytes(blob.download_as_bytes())
     _validate_stored_source_image_bytes(data)
     declared_content_type = str(getattr(blob, "content_type", "") or "").lower().split(";", 1)[0].strip()
     content_type = declared_content_type if declared_content_type in {
@@ -1766,6 +1834,61 @@ def _upload_candidate(storage_client: Any, artifact: CandidateArtifact) -> None:
         blob.patch()
 
 
+def _persist_chat_real_photo_if_consented(
+    firestore_client: Any,
+    storage_client: Any,
+    payload: AvatarGenerationPayload,
+    job_doc: Mapping[str, Any],
+    source_image_bytes: bytes,
+) -> None:
+    if job_doc.get("chatPartnerRealPhotoDisclosure") is not True:
+        return
+    if len(payload.source_photo_ids) != 1:
+        raise AvatarGenerationError("avatar_chat_real_photo_source_not_locked")
+    _assert_azure_source_bytes_are_normalized_jpeg(
+        source_image_bytes,
+        "image/jpeg",
+    )
+    photo_id = payload.source_photo_ids[0]
+    storage_path = f"users/{payload.uid}/chat-profile/{photo_id}.jpg"
+    bucket_name = chat_profile_photo_bucket()
+    image_sha256 = hashlib.sha256(source_image_bytes).hexdigest()
+    blob = storage_client.bucket(bucket_name).blob(storage_path)
+    blob.metadata = {
+        "sha256": image_sha256,
+        "exifStripped": "true",
+        "purpose": "chat_partner_real_profile_photo",
+    }
+    blob.cache_control = "private, max-age=0, no-store"
+    blob.upload_from_string(
+        source_image_bytes,
+        content_type="image/jpeg",
+        predefined_acl=None,
+    )
+    if hasattr(blob, "patch"):
+        blob.patch()
+    _set_doc(
+        _doc_ref(firestore_client, "userPrivateMedia", payload.uid),
+        {
+            "chatRealPhoto": {
+                "photoId": photo_id,
+                "enabled": True,
+                "consentVersion": "chat_real_photo_visibility_v1",
+                "sourcePhotoId": photo_id,
+                "storageBucket": bucket_name,
+                "storagePath": storage_path,
+                "gcsUri": f"gs://{bucket_name}/{storage_path}",
+                "contentType": "image/jpeg",
+                "sizeBytes": len(source_image_bytes),
+                "exifStripped": True,
+                "updatedAt": SERVER_TIMESTAMP,
+            },
+            "updatedAt": SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+
+
 def _write_fixture_file(output_dir: Path, artifact: CandidateArtifact) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / f"{artifact.candidate_id}.png").write_bytes(artifact.image_bytes)
@@ -2050,6 +2173,444 @@ def _ensure_source_refs_match_private_media(
     missing = [ref for ref in payload.source_photo_refs if ref not in active_refs]
     if missing:
         raise AvatarGenerationError("Payload sourcePhotoRefs do not match active private media refs.")
+
+
+def _source_selection_event_hook(
+    metrics_hook: Optional[MetricHook],
+) -> Callable[[str, Mapping[str, Any]], None]:
+    def emit(name: str, payload: Mapping[str, Any]) -> None:
+        safe_payload = dict(payload)
+        _emit_metric(metrics_hook, name, safe_payload)
+        logger.info("%s %s", name, json.dumps(safe_payload, sort_keys=True))
+
+    return emit
+
+
+def _load_pinned_source_for_selection(
+    storage_client: Any,
+    candidate: AvatarSourceCandidate,
+) -> bytes:
+    parsed = parse_gcs_uri(candidate.source_ref)
+    data, content_type = load_source_image_bytes_from_gcs(
+        storage_client,
+        parsed,
+        candidate.object_generation,
+    )
+    _assert_azure_source_bytes_are_normalized_jpeg(data, content_type)
+    return data
+
+
+def _persist_selected_avatar_source(
+    firestore_client: Any,
+    payload: AvatarGenerationPayload,
+    candidate: AvatarSourceCandidate,
+    selection_document: Mapping[str, Any],
+) -> None:
+    job_ref = _doc_ref(firestore_client, "avatarJobs", payload.job_id)
+    private_ref = _doc_ref(firestore_client, "userPrivateMedia", payload.uid)
+    user_ref = _doc_ref(firestore_client, "users", payload.uid)
+
+    def persist(transaction: Any) -> None:
+        current_job = _doc_to_dict(job_ref.get(transaction=transaction)) or {}
+        current_private = _doc_to_dict(private_ref.get(transaction=transaction)) or {}
+        candidates = candidate_set_from_payload(
+            [str(value) for value in current_job.get("sourcePhotoIds", [])],
+            [str(value) for value in current_job.get("sourcePhotoRefs", [])],
+            [
+                str(value)
+                for value in current_job.get("sourcePhotoObjectGenerations", [])
+            ],
+        )
+        locked = selected_source_from_job(current_job, candidates)
+        if locked is not None:
+            if locked != candidate:
+                raise SourceSelectionError("avatar_selected_source_id_mismatch")
+            return
+        if str(current_private.get("currentAvatarJobId") or "") != payload.job_id:
+            raise SourceSelectionError("avatar_selected_source_job_mismatch")
+        job_version = _selection_version(
+            current_job.get("avatarSourceSelectionVersion")
+        )
+        private_version = _selection_version(
+            current_private.get("avatarSourceSelectionVersion")
+        )
+        if job_version is None or job_version != private_version:
+            raise SourceSelectionError("avatar_selected_source_version_mismatch")
+
+        source_photos = current_private.get("sourcePhotos")
+        updated_sources = []
+        found = False
+        if isinstance(source_photos, Sequence) and not isinstance(source_photos, str):
+            for entry in source_photos:
+                if not isinstance(entry, Mapping):
+                    continue
+                updated = dict(entry)
+                photo_id = str(updated.get("photoId") or "")
+                if photo_id == candidate.photo_id:
+                    found = True
+                    if str(updated.get("gcsUri") or "") != candidate.source_ref:
+                        raise SourceSelectionError("avatar_selected_source_ref_mismatch")
+                    if (
+                        str(updated.get("objectGeneration") or "")
+                        != candidate.object_generation
+                    ):
+                        raise SourceSelectionError(
+                            "avatar_selected_source_generation_mismatch"
+                        )
+                    updated["avatarGenerationState"] = "current"
+                elif updated.get("avatarGenerationState") == "selection_candidate":
+                    updated["avatarGenerationState"] = "selection_not_selected"
+                updated_sources.append(updated)
+        if not found:
+            raise SourceSelectionError("avatar_selected_source_id_mismatch")
+
+        persisted_selection = {
+            **dict(selection_document),
+            "selectedAt": SERVER_TIMESTAMP,
+        }
+        selected_source = {
+            "photoId": candidate.photo_id,
+            "gcsUri": candidate.source_ref,
+            "objectGeneration": candidate.object_generation,
+            "selectionVersion": job_version,
+            "selectedAt": SERVER_TIMESTAMP,
+            "qualityScore": selection_document.get("top1Score"),
+            "selectionConfidence": selection_document.get(
+                "selectionConfidence"
+            ),
+        }
+        transaction.set(
+            job_ref,
+            {
+                "sourcePhotoIds": [candidate.photo_id],
+                "sourcePhotoRefs": [candidate.source_ref],
+                "sourcePhotoObjectGenerations": [candidate.object_generation],
+                "selectedSource": selected_source,
+                "sourceSelection": persisted_selection,
+                "updatedAt": SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+        transaction.set(
+            private_ref,
+            {
+                "sourcePhotos": updated_sources,
+                "currentAvatarSourcePhotoId": candidate.photo_id,
+                "avatarSourceSelection": persisted_selection,
+                "updatedAt": SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+        user_update = {
+            "avatar.status": "queued",
+            "avatar.sourcePhotoId": candidate.photo_id,
+            "avatar.updatedAt": SERVER_TIMESTAMP,
+            "onboarding.sourcePhotoUploadStatus": "avatar_source_selected",
+            "updatedAt": SERVER_TIMESTAMP,
+        }
+        if hasattr(transaction, "update"):
+            transaction.update(user_ref, user_update)
+        else:  # Lightweight local test doubles do not expose update().
+            user_ref.update(user_update)
+
+    transaction_factory = getattr(firestore_client, "transaction", None)
+    if not callable(transaction_factory):
+        raise AvatarGenerationError("avatar_source_selection_transaction_unavailable")
+    transaction = transaction_factory()
+    if (
+        firestore is not None
+        and hasattr(firestore, "transactional")
+        and not getattr(transaction, "_codex_fake_transaction", False)
+    ):
+        firestore.transactional(persist)(transaction)
+    else:
+        persist(transaction)
+
+
+def _resolve_avatar_source_selection(
+    firestore_client: Any,
+    storage_client: Any,
+    payload: AvatarGenerationPayload,
+    job_doc: Mapping[str, Any],
+    metrics_hook: Optional[MetricHook],
+) -> AvatarGenerationPayload:
+    if not payload.source_selection_mode:
+        return payload
+    try:
+        candidates = candidate_set_from_payload(
+            payload.source_photo_ids,
+            payload.source_photo_refs,
+            payload.source_photo_object_generations,
+            allow_locked_singleton=(
+                isinstance(job_doc.get("sourceSelection"), Mapping)
+                and job_doc["sourceSelection"].get("status") == "selected"
+            ),
+        )
+        selection_state = job_doc.get("sourceSelection")
+        if isinstance(selection_state, Mapping) and selection_state.get("status") == "failed":
+            raise SourceSelectionError(
+                str(selection_state.get("failureCode") or "avatar_source_selection_failed")
+            )
+        selected_candidate = selected_source_from_job(job_doc, candidates)
+        if selected_candidate is None:
+            if payload.source_selection_mode == LEGACY_FIRST_PHOTO_MODE:
+                event_hook = _source_selection_event_hook(metrics_hook)
+                event_hook(
+                    "avatar_source_selection_started",
+                    {
+                        "selectorVersion": LEGACY_FIRST_PHOTO_MODE,
+                        "evaluatedCount": len(candidates),
+                    },
+                )
+                selected_candidate = candidates[0]
+                selection_document: Dict[str, Any] = {
+                    "status": "selected",
+                    "selectorVersion": LEGACY_FIRST_PHOTO_MODE,
+                    "confidencePolicyVersion": None,
+                    "selectedPhotoId": selected_candidate.photo_id,
+                    "top1Score": None,
+                    "top2Score": None,
+                    "scoreMargin": None,
+                    "selectionConfidence": "legacy",
+                    "evaluatedCount": len(candidates),
+                    "eligibleCount": len(candidates),
+                    "reasonHistogram": {},
+                    "failureCode": None,
+                }
+                event_hook(
+                    "avatar_source_selected",
+                    {
+                        "selectorVersion": LEGACY_FIRST_PHOTO_MODE,
+                        "evaluatedCount": len(candidates),
+                        "eligibleCount": len(candidates),
+                        "selectionConfidence": "legacy",
+                    },
+                )
+            else:
+                source_config = SourceSafetyConfig.from_env()
+                pipeline_config = replace(
+                    SmallFacePipelineConfig.from_env(),
+                    enabled=True,
+                    fail_closed_without_model=True,
+                )
+                pipeline = SmallFaceSourcePipeline(
+                    config=pipeline_config,
+                    source_config=source_config,
+                    landmarker_model_path=(
+                        source_config.mediapipe_face_landmarker_model_path
+                    ),
+                )
+
+                def analyze(candidate: AvatarSourceCandidate):
+                    analysis = analyze_avatar_source_image(
+                        _load_pinned_source_for_selection(
+                            storage_client,
+                            candidate,
+                        ),
+                        source_ref=candidate.source_ref,
+                        config=source_config,
+                        small_face_pipeline=pipeline,
+                        small_face_config=pipeline_config,
+                    )
+                    if analysis_has_infrastructure_failure(analysis):
+                        raise SourceSelectionError(SOURCE_ANALYSIS_INFRA_ERROR)
+                    return source_quality_signals_from_analysis(
+                        photo_id=candidate.photo_id,
+                        stable_order=candidate.stable_order,
+                        analysis=analysis,
+                    )
+
+                selected = select_best_source(
+                    candidates,
+                    analyze_signals=analyze,
+                    event_hook=_source_selection_event_hook(metrics_hook),
+                )
+                selected_candidate = selected.candidate
+                selection_document = {
+                    "status": "selected",
+                    **selected.selection.to_private_document(),
+                }
+            _persist_selected_avatar_source(
+                firestore_client,
+                payload,
+                selected_candidate,
+                selection_document,
+            )
+        return replace(
+            payload,
+            source_photo_ids=[selected_candidate.photo_id],
+            source_photo_refs=[selected_candidate.source_ref],
+            source_photo_object_generations=[
+                selected_candidate.object_generation
+            ],
+        )
+    except SourceSelectionError:
+        raise
+    except AvatarGenerationError as exc:
+        message = str(exc)
+        if "generation_mismatch" in message:
+            raise SourceSelectionError(
+                "avatar_selected_source_generation_mismatch"
+            ) from exc
+        if "does not exist" in message:
+            raise SourceSelectionError("avatar_selected_source_disappeared") from exc
+        raise SourceSelectionError(SOURCE_ANALYSIS_INFRA_ERROR) from exc
+
+
+def _finalize_source_selection_failure(
+    firestore_client: Any,
+    payload: AvatarGenerationPayload,
+    error: SourceSelectionError,
+    *,
+    storage_client: Any = None,
+) -> AvatarGenerationResult:
+    retryable = error.error_code == SOURCE_ANALYSIS_INFRA_ERROR
+    selection_failure = {
+        "status": "failed",
+        "selectorVersion": "avatar_source_quality_selector_v1",
+        "failureCode": error.error_code,
+        "updatedAt": SERVER_TIMESTAMP,
+    }
+    _update_job_status(
+        firestore_client,
+        payload.job_id,
+        {
+            "status": "retryable_failed" if retryable else "failed",
+            "candidateIds": [],
+            "errorCode": error.error_code,
+            "errorMessage": "Avatar source selection failed.",
+            "retryable": retryable,
+            "sourceSelection": selection_failure,
+        },
+    )
+    private_ref = _doc_ref(firestore_client, "userPrivateMedia", payload.uid)
+    private_doc = _doc_to_dict(private_ref.get()) or {}
+    deleted_source_ids: set[str] = set()
+    if (
+        error.error_code == NO_ELIGIBLE_SOURCE_ERROR
+        and storage_client is not None
+        and not _source_photo_retention_requested(private_doc)
+    ):
+        deleted_source_ids = _delete_rejected_private_source_copies(
+            storage_client,
+            payload,
+        )
+    private_update: Dict[str, Any] = {
+        "avatarSourceSelection": selection_failure,
+        "updatedAt": SERVER_TIMESTAMP,
+    }
+    if error.error_code == NO_ELIGIBLE_SOURCE_ERROR:
+        source_photos = private_doc.get("sourcePhotos")
+        rejected_sources = []
+        if isinstance(source_photos, Sequence) and not isinstance(source_photos, str):
+            candidate_ids = set(payload.source_photo_ids)
+            for entry in source_photos:
+                if not isinstance(entry, Mapping):
+                    continue
+                updated = dict(entry)
+                if str(updated.get("photoId") or "") in candidate_ids:
+                    updated["avatarGenerationState"] = "selection_rejected"
+                    if str(updated.get("photoId") or "") in deleted_source_ids:
+                        updated["status"] = "source_deleted"
+                        updated["sourceDeleted"] = True
+                        updated["sourceDeletedAt"] = SERVER_TIMESTAMP
+                        for sensitive_field in (
+                            "gcsUri",
+                            "storagePath",
+                            "storageBucket",
+                            "objectGeneration",
+                        ):
+                            updated.pop(sensitive_field, None)
+                rejected_sources.append(updated)
+        private_update.update(
+            {
+                "currentAvatarJobId": "",
+                "currentAvatarSourcePhotoId": "",
+                "sourcePhotos": rejected_sources,
+            }
+        )
+    _set_doc(private_ref, private_update, merge=True)
+
+    user_update: Dict[str, Any] = {
+        "avatar.status": "retryable_failed" if retryable else "failed",
+        "avatar.errorCode": error.error_code,
+        "avatar.updatedAt": SERVER_TIMESTAMP,
+        "onboarding.sourcePhotoUploadStatus": "avatar_source_selection_failed",
+        "updatedAt": SERVER_TIMESTAMP,
+    }
+    if error.error_code == NO_ELIGIBLE_SOURCE_ERROR:
+        user_update.update(
+            {
+                "avatar.status": "source_rejected",
+                "avatar.sourceJobId": "",
+                "avatar.sourcePhotoId": "",
+                "onboarding.avatarGenerationJobId": "",
+            }
+        )
+    _update_doc(_doc_ref(firestore_client, "users", payload.uid), user_update)
+    return AvatarGenerationResult(
+        job_id=payload.job_id,
+        uid=payload.uid,
+        status="retryable_failed" if retryable else "failed",
+        candidate_ids=[],
+        preview_ready_count=0,
+        rejected_count=0,
+        needs_review_count=0,
+    )
+
+
+def _source_photo_retention_requested(private_doc: Mapping[str, Any]) -> bool:
+    consent = private_doc.get("photoConsent")
+    if not isinstance(consent, Mapping):
+        return False
+    purposes = consent.get("purposes")
+    return consent.get("sourcePhotoRetention") is True or (
+        isinstance(purposes, Mapping)
+        and purposes.get("sourcePhotoRetention") is True
+    )
+
+
+def _delete_rejected_private_source_copies(
+    storage_client: Any,
+    payload: AvatarGenerationPayload,
+) -> set[str]:
+    deleted: set[str] = set()
+    for photo_id, source_ref, generation in zip(
+        payload.source_photo_ids,
+        payload.source_photo_refs,
+        payload.source_photo_object_generations,
+    ):
+        try:
+            parsed = parse_gcs_uri(source_ref)
+            if (
+                parsed.bucket != source_photo_bucket()
+                or not parsed.path.startswith(f"users/{payload.uid}/source/")
+            ):
+                continue
+            blob = _blob_for(storage_client, parsed)
+            if hasattr(blob, "exists") and not blob.exists():
+                deleted.add(photo_id)
+                continue
+            if hasattr(blob, "reload"):
+                blob.reload()
+            observed_generation = str(
+                getattr(blob, "generation", "") or ""
+            ).strip()
+            if observed_generation and observed_generation != generation:
+                continue
+            if not hasattr(blob, "delete"):
+                continue
+            try:
+                blob.delete(if_generation_match=int(generation))
+            except TypeError:
+                blob.delete()
+            deleted.add(photo_id)
+        except Exception as exc:
+            logger.warning(
+                "avatar_source_rejected_copy_delete_failed errorType=%s",
+                type(exc).__name__,
+            )
+    return deleted
 
 
 def _current_source_entry(
@@ -2830,6 +3391,36 @@ def process_avatar_generation_payload(
     _assert_job_can_run(job_doc, payload)
     if run_mode == CANONICAL_AZURE_WORKER_MODE and _azure_generation_claim_active(job_doc):
         return _result_for_active_azure_generation(payload, job_doc or {})
+    private_doc = _load_private_media_doc(fs, payload.uid)
+    if payload.source_selection_mode:
+        _assert_avatar_generation_consent(private_doc)
+        _ensure_source_refs_match_private_media(private_doc, payload)
+        try:
+            payload = _resolve_avatar_source_selection(
+                fs,
+                st,
+                payload,
+                job_doc or {},
+                metrics_hook,
+            )
+        except SourceSelectionError as exc:
+            if exc.error_code != NO_ELIGIBLE_SOURCE_ERROR:
+                _source_selection_event_hook(metrics_hook)(
+                    "avatar_source_selection_failed",
+                    {
+                        "selectorVersion": "avatar_source_quality_selector_v1",
+                        "evaluatedCount": len(payload.source_photo_ids),
+                        "errorCode": exc.error_code,
+                    },
+                )
+            return _finalize_source_selection_failure(
+                fs,
+                payload,
+                exc,
+                storage_client=st,
+            )
+        job_doc = _load_job_doc(fs, payload.job_id)
+        private_doc = _load_private_media_doc(fs, payload.uid)
     _run_qa_runtime_preflight_if_required(
         fs,
         payload,
@@ -2857,7 +3448,6 @@ def process_avatar_generation_payload(
         payload,
         job_doc,
     )
-    private_doc = _load_private_media_doc(fs, payload.uid)
     _assert_avatar_generation_consent(private_doc)
     _ensure_source_refs_match_private_media(private_doc, payload)
     source_refs = validate_private_source_refs(payload.source_photo_refs)
@@ -2900,8 +3490,20 @@ def process_avatar_generation_payload(
         source_image_bytes, source_content_type = load_source_image_bytes_from_gcs(
             st,
             source_refs[0],
+            (
+                payload.source_photo_object_generations[0]
+                if payload.source_photo_object_generations
+                else ""
+            ),
         )
         source_image = image_from_stored_source_bytes(source_image_bytes)
+        _persist_chat_real_photo_if_consented(
+            fs,
+            st,
+            payload,
+            job_doc or {},
+            source_image_bytes,
+        )
         source_selection_version = _selection_version(
             (job_doc or {}).get("avatarSourceSelectionVersion")
         )
@@ -3650,6 +4252,21 @@ def _payload_with_source_refs_from_job_doc(
     source_photo_ids = job_doc.get("sourcePhotoIds")
     if not enriched.get("sourcePhotoIds") and isinstance(source_photo_ids, Sequence) and not isinstance(source_photo_ids, str):
         enriched["sourcePhotoIds"] = [str(value) for value in source_photo_ids if str(value).strip()]
+    source_generations = job_doc.get("sourcePhotoObjectGenerations")
+    if not enriched.get("sourcePhotoObjectGenerations") and isinstance(
+        source_generations, Sequence
+    ) and not isinstance(source_generations, str):
+        enriched["sourcePhotoObjectGenerations"] = [
+            str(value) for value in source_generations if str(value).strip()
+        ]
+    if not enriched.get("sourceSelectionMode"):
+        enriched["sourceSelectionMode"] = str(
+            job_doc.get("sourceSelectionMode") or ""
+        )
+    if not enriched.get("avatarPresentationGender"):
+        enriched["avatarPresentationGender"] = str(
+            job_doc.get("avatarPresentationGender") or "unknown"
+        )
     return enriched
 
 

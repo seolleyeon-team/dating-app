@@ -85,11 +85,11 @@ IAM/OIDC, warmup, queue, and cost gates pass.
 | `AVATAR_SAM_ENABLED` | `false` | `false` initially | Optional mask refinement only. |
 | `AVATAR_SAM_MODEL_ID` | `facebook/sam-vit-base` conceptually | optional | Use only with lazy loading and memory review. |
 | `AVATAR_SAM_LOAD_ON_DEMAND` | `true` conceptually | `true` | Do not load SAM at worker startup. |
-| `AVATAR_INITIAL_CANDIDATE_COUNT` | `4` | `4` | Initial generation count. |
-| `AVATAR_EXTRA_CANDIDATE_COUNT` | `4` | `4` | Extra generation when safe candidates are too low. |
+| `AVATAR_INITIAL_CANDIDATE_COUNT` | `2` | `2` | Initial generation count. |
+| `AVATAR_EXTRA_CANDIDATE_COUNT` | `2` | `2` | Extra generation when safe candidates are too low. |
 | `AVATAR_MIN_SAFE_CANDIDATES_BEFORE_EXTRA` | `2` | `2` | Extra generation threshold. |
-| `AVATAR_MAX_TOTAL_CANDIDATES` | `8` | `8` | Max generated candidates per job. |
-| `AVATAR_PREVIEW_COUNT` | `4` | `4` | Final preview selection target. |
+| `AVATAR_MAX_TOTAL_CANDIDATES` | `4` | `4` | Max generated candidates per job. |
+| `AVATAR_PREVIEW_COUNT` | `2` | `2` | Final preview selection target. |
 | `AVATAR_MIN_PREVIEW_CANDIDATES` | `1` | `1` | Minimum safe/soft candidate count required for `preview_ready`. |
 | `AVATAR_PREVIEW_REQUIRE_FOUR` | `false` | `false` until QA calibration proves four safe candidates are consistently available | When true, jobs do not become `preview_ready` with fewer than `AVATAR_PREVIEW_COUNT` selected candidates. Privacy/safety is stricter than showing exactly four. |
 | `AVATAR_PREVIEW_FILL_WITH_SOFT_PASS` | `true` | `true` after QA review | Uses low-risk soft pass to fill preview. |

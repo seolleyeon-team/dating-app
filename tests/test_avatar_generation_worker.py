@@ -47,6 +47,11 @@ from avatar_generation.worker import (
     resolve_worker_mode,
 )
 from avatar_generation.job_lease import AvatarJobLeaseConfig, ClaimDeadline
+from avatar_generation.analysis.avatar_source_quality import SourceQualitySignals
+from avatar_generation.source_selection_runtime import (
+    NO_ELIGIBLE_SOURCE_ERROR,
+    SourceSelectionError,
+)
 
 
 def test_worker_deadline_exposes_absolute_provider_deadline():
@@ -204,6 +209,9 @@ class FakeBlob:
 
     def patch(self):
         return None
+
+    def delete(self, **_kwargs):
+        self.data = b""
 
 
 class FakeBucket:
@@ -437,6 +445,363 @@ def test_payload_rejects_source_ref_for_different_uid():
         parse_avatar_generation_payload(payload)
 
 
+def test_quality_selector_payload_preserves_candidate_generation_pins():
+    payload = _payload()
+    payload.update(
+        {
+            "sourcePhotoIds": ["src_001", "src_002"],
+            "sourcePhotoRefs": [
+                f"gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_001.jpg",
+                f"gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_002.jpg",
+            ],
+            "sourcePhotoObjectGenerations": ["101", "102"],
+            "sourceSelectionMode": "quality_selector_v1",
+            "candidateCount": 2,
+            "modelId": "azure_gpt_image_2",
+        }
+    )
+
+    parsed = parse_avatar_generation_payload(payload)
+
+    assert parsed.source_photo_object_generations == ["101", "102"]
+    assert parsed.source_selection_mode == "quality_selector_v1"
+
+
+def test_quality_selector_locks_best_source_once_before_generation(monkeypatch):
+    payload_data = _payload(job_id="avatar_job_select_once")
+    refs = [
+        f"gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_001.jpg",
+        f"gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_002.jpg",
+    ]
+    payload_data.update({
+        "sourcePhotoIds": ["src_001", "src_002"],
+        "sourcePhotoRefs": refs,
+        "sourcePhotoObjectGenerations": ["101", "102"],
+        "sourceSelectionMode": "quality_selector_v1",
+        "candidateCount": 2,
+        "modelId": "azure_gpt_image_2",
+    })
+    private_sources = [
+        {
+            "photoId": photo_id,
+            "gcsUri": ref,
+            "objectGeneration": generation,
+            "status": "active",
+            "avatarGenerationState": "selection_candidate",
+            "purpose": {"avatarGeneration": True},
+        }
+        for photo_id, ref, generation in zip(
+            payload_data["sourcePhotoIds"], refs, ["101", "102"]
+        )
+    ]
+    fs = AtomicFakeFirestore({
+        "avatarJobs": {payload_data["jobId"]: {
+            **payload_data,
+            "status": "queued",
+            "avatarSourceSelectionVersion": 1,
+            "sourceSelection": {"status": "pending"},
+        }},
+        "userPrivateMedia": {"u1": {
+            "currentAvatarJobId": payload_data["jobId"],
+            "avatarSourceSelectionVersion": 1,
+            "sourcePhotos": private_sources,
+        }},
+        "users": {"u1": {"avatar": {"status": "queued"}}},
+    })
+
+    class PinnedBlob(FakeBlob):
+        def __init__(self, data, generation):
+            super().__init__(data)
+            self.generation = generation
+            self.content_type = "image/jpeg"
+
+        def reload(self):
+            return None
+
+        def download_as_bytes(self, **_kwargs):
+            return self.data
+
+    bucket = FakeBucket({
+        "users/u1/source/src_001.jpg": PinnedBlob(_jpeg_bytes(), "101"),
+        "users/u1/source/src_002.jpg": PinnedBlob(_jpeg_bytes(), "102"),
+    })
+    st = FakeStorage({DEFAULT_SOURCE_PHOTO_BUCKET: bucket})
+    monkeypatch.setattr(worker_module, "SmallFaceSourcePipeline", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        worker_module,
+        "analyze_avatar_source_image",
+        lambda *_args, **_kwargs: types.SimpleNamespace(detector_metadata={}),
+    )
+
+    def signals(*, photo_id, stable_order, analysis):
+        del analysis
+        return SourceQualitySignals(
+            photo_id=photo_id,
+            stable_order=stable_order,
+            image_width=1200,
+            image_height=1600,
+            primary_face_confidence=0.96,
+            primary_bbox=(0.28, 0.18, 0.44, 0.42),
+            face_short_side_px=520,
+            face_sharpness=0.40 if photo_id == "src_001" else 0.95,
+            yaw_degrees=4.0,
+            pitch_degrees=2.0,
+            roll_degrees=1.0,
+            illumination_quality=0.9,
+            face_luminance=128.0,
+            face_visibility=0.95,
+            landmarks_reliable=True,
+        )
+
+    monkeypatch.setattr(worker_module, "source_quality_signals_from_analysis", signals)
+    parsed = parse_avatar_generation_payload(payload_data)
+    selected = worker_module._resolve_avatar_source_selection(
+        fs, st, parsed, fs.data["avatarJobs"][payload_data["jobId"]], None
+    )
+
+    assert selected.source_photo_ids == ["src_002"]
+    assert fs.data["avatarJobs"][payload_data["jobId"]]["selectedSource"]["photoId"] == "src_002"
+    assert "selectedAt" in fs.data["avatarJobs"][payload_data["jobId"]]["selectedSource"]
+    assert "selectedAt" in fs.data["avatarJobs"][payload_data["jobId"]]["sourceSelection"]
+    assert fs.data["userPrivateMedia"]["u1"]["currentAvatarSourcePhotoId"] == "src_002"
+
+    monkeypatch.setattr(
+        worker_module,
+        "analyze_avatar_source_image",
+        lambda *_args, **_kwargs: pytest.fail("selector reran after source lock"),
+    )
+    selected_again = worker_module._resolve_avatar_source_selection(
+        fs, st, parsed, fs.data["avatarJobs"][payload_data["jobId"]], None
+    )
+    assert selected_again.source_photo_ids == ["src_002"]
+
+
+def test_no_eligible_source_failure_releases_server_source_lock():
+    payload_data = _payload(job_id="avatar_job_no_eligible")
+    payload_data.update(
+        {
+            "sourcePhotoIds": ["src_001", "src_002"],
+            "sourcePhotoRefs": [
+                f"gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_001.jpg",
+                f"gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_002.jpg",
+            ],
+            "sourcePhotoObjectGenerations": ["101", "102"],
+            "sourceSelectionMode": "quality_selector_v1",
+            "candidateCount": 2,
+            "modelId": "azure_gpt_image_2",
+        }
+    )
+    source_photos = [
+        {
+            "photoId": photo_id,
+            "gcsUri": source_ref,
+            "objectGeneration": generation,
+            "status": "active",
+            "avatarGenerationState": "selection_candidate",
+            "purpose": {"avatarGeneration": True},
+        }
+        for photo_id, source_ref, generation in zip(
+            payload_data["sourcePhotoIds"],
+            payload_data["sourcePhotoRefs"],
+            payload_data["sourcePhotoObjectGenerations"],
+        )
+    ]
+    fs = FakeFirestore(
+        {
+            "avatarJobs": {
+                payload_data["jobId"]: {
+                    **payload_data,
+                    "status": "queued",
+                    "sourceSelection": {"status": "pending"},
+                }
+            },
+            "userPrivateMedia": {
+                "u1": {
+                    "currentAvatarJobId": payload_data["jobId"],
+                    "sourcePhotos": source_photos,
+                }
+            },
+            "users": {"u1": {"avatar": {"status": "queued"}}},
+        }
+    )
+    payload = parse_avatar_generation_payload(payload_data)
+
+    result = worker_module._finalize_source_selection_failure(
+        fs,
+        payload,
+        SourceSelectionError(NO_ELIGIBLE_SOURCE_ERROR),
+    )
+
+    assert result.status == "failed"
+    job = fs.data["avatarJobs"][payload.job_id]
+    assert job["errorCode"] == NO_ELIGIBLE_SOURCE_ERROR
+    assert job["retryable"] is False
+    private = fs.data["userPrivateMedia"][payload.uid]
+    assert private["currentAvatarJobId"] == ""
+    assert private["avatarSourceSelection"]["failureCode"] == NO_ELIGIBLE_SOURCE_ERROR
+    assert {
+        source["avatarGenerationState"] for source in private["sourcePhotos"]
+    } == {"selection_rejected"}
+    user = fs.data["users"][payload.uid]
+    assert user["avatar.status"] == "source_rejected"
+    assert user["avatar.errorCode"] == NO_ELIGIBLE_SOURCE_ERROR
+    assert user["onboarding.avatarGenerationJobId"] == ""
+
+
+def test_selected_source_populates_consented_chat_real_photo_asset():
+    payload = parse_avatar_generation_payload(_payload())
+    fs = _fake_firestore()
+    st = _fake_storage()
+    source_bytes = _jpeg_bytes()
+
+    worker_module._persist_chat_real_photo_if_consented(
+        fs,
+        st,
+        payload,
+        {"chatPartnerRealPhotoDisclosure": True},
+        source_bytes,
+    )
+
+    path = "users/u1/chat-profile/src_001.jpg"
+    chat_blob = st.bucket(worker_module.DEFAULT_CHAT_PROFILE_PHOTO_BUCKET).blob(path)
+    assert chat_blob.data == source_bytes
+    chat_real_photo = fs.data["userPrivateMedia"]["u1"]["chatRealPhoto"]
+    assert chat_real_photo["enabled"] is True
+    assert chat_real_photo["sourcePhotoId"] == "src_001"
+    assert chat_real_photo["storagePath"] == path
+    assert chat_real_photo["contentType"] == "image/jpeg"
+
+
+def test_all_ineligible_source_set_stops_before_azure_provider(monkeypatch):
+    payload_data = _payload(job_id="avatar_job_all_sources_ineligible")
+    refs = [
+        f"gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_001.jpg",
+        f"gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_002.jpg",
+    ]
+    payload_data.update(
+        {
+            "sourcePhotoIds": ["src_001", "src_002"],
+            "sourcePhotoRefs": refs,
+            "sourcePhotoObjectGenerations": ["101", "102"],
+            "sourceSelectionMode": "quality_selector_v1",
+            "candidateCount": 2,
+            "modelId": "azure_gpt_image_2",
+        }
+    )
+    private_sources = [
+        {
+            "photoId": photo_id,
+            "gcsUri": source_ref,
+            "objectGeneration": generation,
+            "status": "active",
+            "avatarGenerationState": "selection_candidate",
+            "purpose": {"avatarGeneration": True},
+        }
+        for photo_id, source_ref, generation in zip(
+            payload_data["sourcePhotoIds"], refs, ["101", "102"]
+        )
+    ]
+    fs = AtomicFakeFirestore(
+        {
+            "avatarJobs": {
+                payload_data["jobId"]: {
+                    **payload_data,
+                    "status": "queued",
+                    "avatarSourceSelectionVersion": 1,
+                    "sourceSelection": {"status": "pending"},
+                }
+            },
+            "userPrivateMedia": {
+                "u1": {
+                    "currentAvatarJobId": payload_data["jobId"],
+                    "avatarSourceSelectionVersion": 1,
+                    "photoConsent": {
+                        "avatarGeneration": True,
+                        "profileDisplayOriginalPhoto": False,
+                    },
+                    "sourcePhotos": private_sources,
+                }
+            },
+            "users": {"u1": {"avatar": {"status": "queued"}}},
+            "avatarCandidates": {},
+        }
+    )
+
+    class PinnedBlob(FakeBlob):
+        def __init__(self, generation):
+            super().__init__(_jpeg_bytes())
+            self.generation = generation
+            self.content_type = "image/jpeg"
+
+        def reload(self):
+            return None
+
+        def download_as_bytes(self, **_kwargs):
+            return self.data
+
+    st = FakeStorage(
+        {
+            DEFAULT_SOURCE_PHOTO_BUCKET: FakeBucket(
+                {
+                    "users/u1/source/src_001.jpg": PinnedBlob("101"),
+                    "users/u1/source/src_002.jpg": PinnedBlob("102"),
+                }
+            )
+        }
+    )
+    monkeypatch.setattr(worker_module, "SmallFaceSourcePipeline", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        worker_module,
+        "analyze_avatar_source_image",
+        lambda *_args, **_kwargs: types.SimpleNamespace(detector_metadata={}),
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "source_quality_signals_from_analysis",
+        lambda *, photo_id, stable_order, analysis: SourceQualitySignals(
+            photo_id=photo_id,
+            stable_order=stable_order,
+            image_width=1200,
+            image_height=1600,
+            primary_face_confidence=None,
+            primary_bbox=None,
+            corrupt=True,
+        ),
+    )
+    provider_calls = []
+    monkeypatch.setattr(
+        worker_module,
+        "get_azure_gpt_image2_provider",
+        lambda: provider_calls.append("constructed") or pytest.fail(
+            "Azure provider must not be constructed for ineligible sources"
+        ),
+    )
+
+    result = process_avatar_generation_payload(
+        payload_data,
+        firestore_client=fs,
+        storage_client=st,
+        mode=worker_module.CANONICAL_AZURE_WORKER_MODE,
+    )
+
+    assert result.status == "failed"
+    assert provider_calls == []
+    assert (
+        fs.data["avatarJobs"][payload_data["jobId"]]["errorCode"]
+        == NO_ELIGIBLE_SOURCE_ERROR
+    )
+    assert not st.bucket(DEFAULT_SOURCE_PHOTO_BUCKET).blob(
+        "users/u1/source/src_001.jpg"
+    ).exists()
+    assert not st.bucket(DEFAULT_SOURCE_PHOTO_BUCKET).blob(
+        "users/u1/source/src_002.jpg"
+    ).exists()
+    for source in fs.data["userPrivateMedia"]["u1"]["sourcePhotos"]:
+        assert source["status"] == "source_deleted"
+        assert "gcsUri" not in source
+        assert "storagePath" not in source
+
+
 def test_candidate_seed_and_id_are_deterministic():
     assert candidate_id_for("avatar_job_1", 0) == "cand_avatar_job_1_01"
     assert deterministic_seed("avatar_job_1", 0) == deterministic_seed("avatar_job_1", 0)
@@ -657,7 +1022,7 @@ def test_production_rejects_dry_run_mode(monkeypatch):
         resolve_worker_mode(None)
 
 
-def test_worker_dry_run_writes_four_preview_ready_candidates():
+def test_worker_dry_run_writes_two_preview_ready_candidates():
     payload = _payload()
     fs = _fake_firestore(payload)
     fs.data["avatarJobs"][payload["jobId"]]["errorCode"] = "avatar_worker_deadline_exceeded"
@@ -673,13 +1038,13 @@ def test_worker_dry_run_writes_four_preview_ready_candidates():
     )
 
     assert result.status == "preview_ready"
-    assert result.preview_ready_count == 4
-    assert len(fs.data["avatarCandidates"]) == 4
+    assert result.preview_ready_count == 2
+    assert len(fs.data["avatarCandidates"]) == 2
     assert fs.data["avatarJobs"][payload["jobId"]]["status"] == "preview_ready"
     assert fs.data["avatarJobs"][payload["jobId"]]["errorCode"] == ""
     assert fs.data["avatarJobs"][payload["jobId"]]["errorMessage"] == ""
     assert all(doc["qa"]["previewAllowed"] is True for doc in fs.data["avatarCandidates"].values())
-    assert len(st.buckets[DEFAULT_AVATAR_TEMP_BUCKET].blobs) == 4
+    assert len(st.buckets[DEFAULT_AVATAR_TEMP_BUCKET].blobs) == 2
 
 
 def test_worker_direct_terminal_guard_rejects_no_preview_and_review_statuses():
@@ -1056,7 +1421,7 @@ def test_worker_adds_candidate_eyewear_trait_to_qa_metadata(monkeypatch):
     )
 
     assert result.status == "preview_ready"
-    assert FakeTraitAdapter.calls == 1 + payload["candidateCount"]
+    assert FakeTraitAdapter.calls == 3
     assert captured_metadata
     first = captured_metadata[0]
     assert first["sourceTraitCard"]["eyewear_present"] is False
@@ -1089,7 +1454,7 @@ def test_worker_uses_env_avatar_temp_bucket(monkeypatch):
     )
 
     assert result.status == "preview_ready"
-    assert len(st.buckets[DEFAULT_AVATAR_TEMP_BUCKET].blobs) == 4
+    assert len(st.buckets[DEFAULT_AVATAR_TEMP_BUCKET].blobs) == 2
     assert all(
         doc["imageRef"].startswith(f"gs://{DEFAULT_AVATAR_TEMP_BUCKET}/")
         for doc in fs.data["avatarCandidates"].values()
@@ -1115,7 +1480,7 @@ def test_worker_records_job_cost_after_successful_dry_run(monkeypatch):
     )
 
     job = fs.data["avatarJobs"][payload["jobId"]]
-    assert job["cost"]["candidateCount"] == 4
+    assert job["cost"]["candidateCount"] == 2
     assert job["cost"]["totalWorkerSeconds"] >= 0
     assert job["cost"]["estimatedUsd"] >= 0
     assert job["cost"]["pricingVersion"] == "worker-test-pricing"
@@ -1198,7 +1563,7 @@ def test_worker_batch_result_metrics_include_aggregate_cost(monkeypatch):
     )
 
     cost = result.metrics["cost"]
-    assert cost["candidateCount"] == 8
+    assert cost["candidateCount"] == 6
     assert cost["jobCount"] == 2
     assert cost["totalWorkerSeconds"] >= 0
     assert cost["estimatedUsd"] >= 0
@@ -1383,17 +1748,55 @@ def test_worker_marks_job_failed_when_all_candidates_rejected():
     )
 
     assert result.status == "no_previewable_candidates"
-    assert result.rejected_count == 8
+    assert result.rejected_count == 4
     job = fs.data["avatarJobs"][payload["jobId"]]
     assert job["status"] == "no_previewable_candidates"
     assert job["errorCode"] == "too_identifiable_candidates"
-    assert job["generationPlan"]["initialCount"] == 4
-    assert job["generationPlan"]["extraCount"] == 4
-    assert job["generationPlan"]["totalGenerated"] == 8
+    assert job["generationPlan"]["initialCount"] == 2
+    assert job["generationPlan"]["extraCount"] == 2
+    assert job["generationPlan"]["totalGenerated"] == 4
+
+
+def test_worker_exposes_one_safe_candidate_without_filling_with_rejected_candidates():
+    payload = _payload(job_id="avatar_job_one_safe_preview")
+    fs = _fake_firestore(payload)
+    st = _fake_storage()
+    qa_calls = []
+
+    def only_first_candidate_passes(source_ref, candidate_ref, metadata):
+        qa_calls.append(metadata["candidateId"])
+        if len(qa_calls) == 1:
+            return _passing_qa(source_ref, candidate_ref, metadata)
+        return _rejecting_qa(source_ref, candidate_ref, metadata)
+
+    result = process_avatar_generation_payload(
+        payload,
+        firestore_client=fs,
+        storage_client=st,
+        qa_runner=only_first_candidate_passes,
+        mode="dry_run",
+    )
+
+    assert result.status == "preview_ready"
+    assert result.preview_ready_count == 1
+    assert result.rejected_count == 3
+    job = fs.data["avatarJobs"][payload["jobId"]]
+    assert job["generationPlan"]["initialCount"] == 2
+    assert job["generationPlan"]["extraCount"] == 2
+    assert job["generationPlan"]["previewCount"] == 1
+    selected = [
+        candidate
+        for candidate in fs.data["avatarCandidates"].values()
+        if candidate["rerank"]["selectedForPreview"] is True
+    ]
+    assert len(selected) == 1
+    assert selected[0]["status"] == "preview_ready"
+    assert selected[0]["qa"]["rejectReasons"] == []
 
 
 def test_worker_requires_full_preview_count_when_policy_requires_four(monkeypatch):
     monkeypatch.setenv("AVATAR_PREVIEW_REQUIRE_FOUR", "true")
+    monkeypatch.setenv("AVATAR_PREVIEW_COUNT", "4")
     payload = _payload(job_id="avatar_job_partial_preview")
     fs = _fake_firestore(payload)
     st = _fake_storage()
@@ -1415,7 +1818,7 @@ def test_worker_requires_full_preview_count_when_policy_requires_four(monkeypatc
 
     assert result.status == "needs_review"
     assert result.preview_ready_count == 0
-    assert result.needs_review_count == 4
+    assert result.needs_review_count == 2
     job = fs.data["avatarJobs"][payload["jobId"]]
     assert job["status"] == "needs_review"
     assert job["errorCode"] == "requires_more_preview_candidates"
@@ -1448,10 +1851,10 @@ def test_worker_allows_soft_pass_preview_when_min_preview_count_met(monkeypatch)
     )
 
     assert result.status == "preview_ready"
-    assert result.preview_ready_count == 4
+    assert result.preview_ready_count == 2
     job = fs.data["avatarJobs"][payload["jobId"]]
     assert job["status"] == "preview_ready"
-    assert job["generationPlan"]["softPassCount"] == 4
+    assert job["generationPlan"]["softPassCount"] == 2
     assert job["generationPlan"]["filledWithSoftPass"] is True
     assert set(job["cost"]["secondsByStage"]) >= {
         "model_load_seconds",
@@ -1559,10 +1962,6 @@ def test_worker_does_not_write_preview_ready_before_final_selection(monkeypatch)
     assert "preview_ready" in written_statuses
     first_preview_ready = written_statuses.index("preview_ready")
     assert written_statuses[:first_preview_ready] == [
-        "qa_pending",
-        "hard_pass",
-        "qa_pending",
-        "hard_pass",
         "qa_pending",
         "hard_pass",
         "qa_pending",
@@ -1730,7 +2129,7 @@ def test_worker_marks_candidates_needs_review_after_qa():
     )
 
     assert result.status == "no_previewable_candidates"
-    assert result.needs_review_count == 8
+    assert result.needs_review_count == 4
     assert all(
         doc["status"] == "needs_review"
         for doc in fs.data["avatarCandidates"].values()
@@ -1738,8 +2137,8 @@ def test_worker_marks_candidates_needs_review_after_qa():
     job = fs.data["avatarJobs"][payload["jobId"]]
     assert job["status"] == "no_previewable_candidates"
     assert job["errorCode"] == "qa_requires_review"
-    assert job["generationPlan"]["initialCount"] == 4
-    assert job["generationPlan"]["extraCount"] == 4
+    assert job["generationPlan"]["initialCount"] == 2
+    assert job["generationPlan"]["extraCount"] == 2
 
 
 def test_worker_service_rejects_unauthenticated_production_request(monkeypatch):
