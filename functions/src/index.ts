@@ -86,7 +86,6 @@ import {
   kstDateKey,
   nextKstDateKey,
 } from "./profileVisibility";
-import { nextAcceptedUserIds } from "./eventTeamInviteAcceptPolicy";
 import {
   createSeasonMeetingCancelFunction,
   createSeasonMeetingClaimReplacementFunction,
@@ -153,13 +152,21 @@ import {
   createSetKakaoFriendAvoidanceEnabledFunction,
 } from "./kakaoFriendPairs";
 import { createDepartmentRecommendationPrivacyTrigger } from "./departmentRecommendationPrivacy";
+import {
+  acceptFriendInviteByToken,
+  createFriendInviteRecord,
+  createTeamInviteRecord,
+  previewInviteByToken,
+  redeemTeamInviteByToken,
+} from "./friendInvites";
+import {
+  assertNotBlockedEitherWay,
+  respondTeamInviteCore,
+} from "./eventTeamMembership";
 
 // Firebase Admin 초기화
 initializeApp();
 const db = getFirestore();
-const FRIEND_INVITE_HOST = "seolleyeon-final.web.app";
-const FRIEND_INVITE_PATH = "/invite/friend";
-const FRIEND_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 // 가입 허용 기준: 연 나이 20세 이상. 예를 들어 2026년에는 2006년생까지 허용한다.
 const MINIMUM_SERVICE_AGE = 20;
 const PORTONE_STORE_ID = "store-ec95a751-307e-4b85-97bd-7c6fa0bbe0e2";
@@ -1166,21 +1173,6 @@ type ResolvedAppUser = {
   profileSnapshot: Record<string, unknown>;
 };
 
-function buildFriendPairId(userA: string, userB: string): string {
-  const ids = [userA, userB].sort();
-  return `${ids[0]}_${ids[1]}`;
-}
-
-function hashInviteToken(rawToken: string): string {
-  return createHash("sha256").update(rawToken).digest("hex");
-}
-
-function buildFriendInviteUrl(rawToken: string): string {
-  const url = new URL(`https://${FRIEND_INVITE_HOST}${FRIEND_INVITE_PATH}`);
-  url.searchParams.set("token", rawToken);
-  return url.toString();
-}
-
 function buildFriendProfileSnapshot(
   userId: string,
   data: Record<string, unknown>
@@ -1991,56 +1983,15 @@ export const unlockDirectChat = onCall(withAppCheck(), async (request) => {
 });
 
 /** Firebase Auth 없이 호출될 때: 클라이언트가 검증된 카카오 액세스 토큰을 넘김 */
-async function resolveVerifiedUserByKakaoId(
-  kakaoUserId: string
-): Promise<ResolvedAppUser> {
-  const doc = await db.collection("users").doc(kakaoUserId).get();
-  if (!doc.exists) {
-    throw new HttpsError(
-      "failed-precondition",
-      "가입 정보를 찾을 수 없어 친구 초대를 처리할 수 없어요."
-    );
-  }
-  const data = (doc.data() ?? {}) as Record<string, unknown>;
-  const studentEmail = asNonEmptyString(data.studentEmail)?.toLowerCase() ?? "";
-  const isStudentVerified = data.isStudentVerified === true;
-  if (!isStudentVerified || !studentEmail.endsWith("@yonsei.ac.kr")) {
-    throw new HttpsError(
-      "failed-precondition",
-      "학생 인증이 완료된 계정으로 다시 로그인해주세요."
-    );
-  }
-  return {
-    userId: kakaoUserId,
-    email: studentEmail,
-    data,
-    profileSnapshot: buildFriendProfileSnapshot(kakaoUserId, data),
-  };
-}
-
 /**
- * 친구 초대 Callable: Firebase 세션(request.auth) 또는 카카오 액세스 토큰으로 본인 확인
+ * Callable identity for social / team actions: Firebase canonical session
+ * ONLY. The former Kakao access-token fallback was removed — a Kakao SDK
+ * session must never authenticate a team, meeting, or block action.
  */
-async function resolveUserForFriendCallable(request: {
+async function resolveCallableUserFirebaseOnly(request: {
   auth?: { uid?: string; token?: Record<string, unknown> } | null;
-  data?: unknown;
-  rawRequest?: { body?: unknown } | null;
 }): Promise<ResolvedAppUser> {
-  if (request.auth?.uid) {
-    return await resolveAuthedAppUser(request.auth);
-  }
-  const data = getCallableData(request);
-  const accessToken = asNonEmptyString(data.kakaoAccessToken);
-  logger.info("resolveUserForFriendCallable fallback auth", {
-    hasAuthUid: !!request.auth?.uid,
-    dataKeys: Object.keys(data),
-    hasKakaoAccessToken: !!accessToken,
-  });
-  if (!accessToken) {
-    throw new HttpsError("unauthenticated", "로그인이 필요해요.");
-  }
-  const kakaoUser = await verifyKakaoAccessToken(accessToken);
-  return await resolveVerifiedUserByKakaoId(kakaoUser.userId);
+  return await resolveAuthedAppUser(request.auth);
 }
 
 export const uploadAvatarSourcePhoto =
@@ -2198,25 +2149,18 @@ export const onUserRecommendationPrivacyBootstrap = onDocumentCreated(
 
 export const createTeamMeetingRequest = createTeamMeetingRequestFunction(
   db,
-  resolveUserForFriendCallable
+  resolveCallableUserFirebaseOnly
 );
 
 export const respondTeamMeetingRequest = createRespondTeamMeetingRequestFunction(
   db,
-  resolveUserForFriendCallable
+  resolveCallableUserFirebaseOnly
 );
 
 export const reportAndBlockUser = createReportAndBlockUserFunction(
   db,
-  resolveUserForFriendCallable
+  resolveCallableUserFirebaseOnly
 );
-
-function readFriendName(
-  snapshot: Record<string, unknown>,
-  fallback: string
-): string {
-  return asString(snapshot.nickname ?? fallback, fallback);
-}
 
 // LEGACY_KAKAO_AUTH_BACKEND_STILL_REQUIRED_FOR_OLD_CLIENTS
 export const createFirebaseCustomToken = onCall(withAppCheck(), async (request) => {
@@ -3003,43 +2947,53 @@ export const verifyAdultIdentityAfterLogin = onCall(
 // Yonsei 이메일 세션 + 단일 사용 토큰을 트랜잭션으로 소비) 경로만 사용한다.
 // -----------------------------------------------------------------------------
 
+// -----------------------------------------------------------------------------
+// Share-link invitations (friend / 3:3 team). See friendInvites.ts.
+//
+// AUTH CONTRACT: every callable below resolves the caller from the Firebase
+// session only (resolveAuthedAppUser). There is deliberately NO Kakao
+// access-token fallback on this path: the app's invariant is that a Kakao SDK
+// session never authenticates an account, and a share link must never be able
+// to bind a friendship to an identity that Firebase did not verify.
+// -----------------------------------------------------------------------------
+
 export const createFriendInvite = onCall(withAppCheck(), async (request) => {
   const requestData = getCallableData(request);
   logger.info("createFriendInvite request", {
     hasAuthUid: !!request.auth?.uid,
     dataKeys: Object.keys(requestData),
-    hasKakaoAccessToken: !!asNonEmptyString(requestData.kakaoAccessToken),
   });
-  const inviter = await resolveUserForFriendCallable(request);
-  const inviteRef = db.collection("friendInvites").doc();
-  const inviteToken = randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + FRIEND_INVITE_EXPIRY_MS);
-  const shareChannel = asStringOrNull(requestData.shareChannel) ?? "kakaotalk";
-
-  await inviteRef.set({
+  const inviter = await resolveAuthedAppUser(request.auth);
+  const created = await createFriendInviteRecord({
+    db,
+    inviter,
+    shareChannel: asStringOrNull(requestData.shareChannel),
+  });
+  logger.info("createFriendInvite issued", {
+    inviteId: created.inviteId,
     inviterUserId: inviter.userId,
-    inviterProfileSnapshot: inviter.profileSnapshot,
-    tokenHash: hashInviteToken(inviteToken),
-    status: "pending",
-    shareChannel,
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
-    expiresAt: Timestamp.fromDate(expiresAt),
-    acceptedByUserId: null,
-    acceptedAt: null,
-    friendshipPairId: null,
-    metadata: {
-      inviterEmail: inviter.email,
-    },
   });
+  return created;
+});
 
-  return {
-    inviteId: inviteRef.id,
-    inviteToken,
-    inviteUrl: buildFriendInviteUrl(inviteToken),
-    deepLinkPath: FRIEND_INVITE_PATH,
-    expiresAt: expiresAt.toISOString(),
-  };
+/**
+ * Read-only preview for the in-app confirmation step. Returns the server
+ * record's purpose so the app routes on it — never on the link's own hints.
+ */
+export const previewInviteToken = onCall(withAppCheck(), async (request) => {
+  const data = getCallableData(request);
+  const viewer = await resolveAuthedAppUser(request.auth);
+  const preview = await previewInviteByToken({
+    db,
+    rawToken: asNonEmptyString(data.token),
+    viewer,
+  });
+  logger.info("previewInviteToken", {
+    viewerUserId: viewer.userId,
+    status: preview.status,
+    purpose: preview.purpose ?? null,
+  });
+  return preview;
 });
 
 export const acceptFriendInvite = onCall(withAppCheck(), async (request) => {
@@ -3049,7 +3003,6 @@ export const acceptFriendInvite = onCall(withAppCheck(), async (request) => {
     hasAuthUid: !!request.auth?.uid,
     dataKeys: Object.keys(data),
     hasToken: !!rawToken,
-    hasKakaoAccessToken: !!asNonEmptyString(data.kakaoAccessToken),
   });
   if (!rawToken) {
     return {
@@ -3058,220 +3011,62 @@ export const acceptFriendInvite = onCall(withAppCheck(), async (request) => {
     };
   }
 
-  const acceptor = await resolveUserForFriendCallable(request);
-  logger.info("acceptFriendInvite resolved acceptor", {
-    acceptorUserId: acceptor.userId,
-  });
-  const tokenHash = hashInviteToken(rawToken);
-  const inviteQuery = await db
-    .collection("friendInvites")
-    .where("tokenHash", "==", tokenHash)
-    .limit(1)
-    .get();
-
-  if (inviteQuery.empty) {
-    return {
-      status: "invalid",
-      message: "유효하지 않은 친구 초대 링크예요.",
-    };
-  }
-
-  const inviteRef = inviteQuery.docs[0].ref;
-  const inviteId = inviteQuery.docs[0].id;
-  const inviteData = (inviteQuery.docs[0].data() ?? {}) as Record<string, unknown>;
-  const inviterUserId = asString(inviteData.inviterUserId ?? "");
-
-  if (!inviterUserId) {
-    return {
-      status: "invalid",
-      message: "친구 초대 정보가 올바르지 않아요.",
-    };
-  }
-
-  if (inviterUserId === acceptor.userId) {
-    return {
-      status: "self_invite",
-      message: "내가 만든 초대 링크로는 친구를 추가할 수 없어요.",
-    };
-  }
-
-  const inviterSnapshotRaw = inviteData.inviterProfileSnapshot;
-  const inviterSnapshot = isRecord(inviterSnapshotRaw)
-    ? inviterSnapshotRaw
-    : {};
-  const otherUserName = readFriendName(inviterSnapshot, inviterUserId);
-  const pairId = buildFriendPairId(inviterUserId, acceptor.userId);
-  const friendshipRef = db.collection("friendships").doc(pairId);
-  const inviterFriendRef = db
-    .collection("users")
-    .doc(inviterUserId)
-    .collection("friends")
-    .doc(acceptor.userId);
-  const acceptorFriendRef = db
-    .collection("users")
-    .doc(acceptor.userId)
-    .collection("friends")
-    .doc(inviterUserId);
-
-  const transactionResult = await db.runTransaction(async (transaction) => {
-    const freshInviteSnap = await transaction.get(inviteRef);
-    if (!freshInviteSnap.exists) {
-      return {
-        status: "invalid",
-        message: "유효하지 않은 친구 초대 링크예요.",
-      };
-    }
-
-    const freshInvite = (freshInviteSnap.data() ?? {}) as Record<string, unknown>;
-    const currentStatus = asString(freshInvite.status ?? "pending", "pending");
-    const acceptedByUserId = asStringOrNull(freshInvite.acceptedByUserId);
-    const expiresAtRaw = freshInvite.expiresAt;
-    const expiresAt =
-      expiresAtRaw instanceof Timestamp ? expiresAtRaw.toDate() : null;
-    const now = new Date();
-    const existingFriendshipSnap = await transaction.get(friendshipRef);
-
-    if (existingFriendshipSnap.exists) {
-      if (currentStatus === "pending") {
-        transaction.set(
-          inviteRef,
-          {
-            status: "accepted",
-            updatedAt: FieldValue.serverTimestamp(),
-            acceptedByUserId: acceptor.userId,
-            acceptedAt: FieldValue.serverTimestamp(),
-            friendshipPairId: pairId,
-          },
-          { merge: true }
-        );
-      }
-
-      return {
-        status: "already_friends",
-        pairId,
-        otherUserId: inviterUserId,
-        otherUserName,
-      };
-    }
-
-    if (expiresAt && expiresAt.getTime() <= now.getTime()) {
-      if (currentStatus === "pending") {
-        transaction.set(
-          inviteRef,
-          {
-            status: "expired",
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
-      }
-      return {
-        status: "expired",
-        message: "친구 초대 링크가 만료되었어요.",
-      };
-    }
-
-    if (currentStatus !== "pending") {
-      if (currentStatus === "accepted" && acceptedByUserId === acceptor.userId) {
-        return {
-          status: "already_friends",
-          pairId,
-          otherUserId: inviterUserId,
-          otherUserName,
-        };
-      }
-
-      if (currentStatus === "expired") {
-        return {
-          status: "expired",
-          message: "친구 초대 링크가 만료되었어요.",
-        };
-      }
-
-      return {
-        status: "invalid",
-        message: "이미 사용된 친구 초대 링크예요.",
-      };
-    }
-
-    const sortedUserIds = [inviterUserId, acceptor.userId].sort();
-    const inviterUserRef = db.collection("users").doc(inviterUserId);
-    const acceptorUserRef = db.collection("users").doc(acceptor.userId);
-
-    transaction.set(friendshipRef, {
-      pairId,
-      userIds: sortedUserIds,
-      createdAt: FieldValue.serverTimestamp(),
-      createdFrom: "invite",
-      inviteId,
-      status: "active",
-      createdByUserId: acceptor.userId,
-    });
-
-    transaction.set(inviterFriendRef, {
-      friendUserId: acceptor.userId,
-      pairId,
-      createdAt: FieldValue.serverTimestamp(),
-      source: "invite",
-      friendProfileSnapshot: acceptor.profileSnapshot,
-      inviteId,
-    });
-
-    transaction.set(acceptorFriendRef, {
-      friendUserId: inviterUserId,
-      pairId,
-      createdAt: FieldValue.serverTimestamp(),
-      source: "invite",
-      friendProfileSnapshot: inviterSnapshot,
-      inviteId,
-    });
-
-    transaction.set(
-      inviteRef,
-      {
-        status: "accepted",
-        updatedAt: FieldValue.serverTimestamp(),
-        acceptedByUserId: acceptor.userId,
-        acceptedAt: FieldValue.serverTimestamp(),
-        friendshipPairId: pairId,
-      },
-      { merge: true }
-    );
-
-    transaction.set(
-      inviterUserRef,
-      {
-        friendsCount: FieldValue.increment(1),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-    transaction.set(
-      acceptorUserRef,
-      {
-        friendsCount: FieldValue.increment(1),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-    return {
-      status: "accepted",
-      pairId,
-      otherUserId: inviterUserId,
-      otherUserName,
-    };
+  // The acceptor is ALWAYS the Firebase-authenticated caller. The inviter
+  // comes from the stored invite document. No uid in the request body is
+  // ever trusted, and the invite must carry purpose FRIEND_INVITE.
+  const acceptor = await resolveAuthedAppUser(request.auth);
+  const result = await acceptFriendInviteByToken({
+    db,
+    rawToken,
+    acceptor,
   });
 
   logger.info("Friend invite processed", {
-    inviteId,
-    inviterUserId,
     acceptorUserId: acceptor.userId,
-    pairId,
-    status: transactionResult.status,
+    otherUserId: result.otherUserId ?? null,
+    pairId: result.pairId ?? null,
+    status: result.status,
   });
 
-  return transactionResult;
+  return result;
+});
+
+/** Leader-only share link for the 3:3 team (purpose TEAM_INVITE). */
+export const createEventTeamShareInvite = onCall(withAppCheck(), async (request) => {
+  const data = getCallableData(request);
+  const leader = await resolveAuthedAppUser(request.auth);
+  const created = await createTeamInviteRecord({
+    db,
+    leader,
+    teamSetupId: asNonEmptyString(data.teamSetupId),
+    shareChannel: asStringOrNull(data.shareChannel),
+  });
+  logger.info("createEventTeamShareInvite issued", {
+    inviteId: created.inviteId,
+    leaderUserId: leader.userId,
+  });
+  return created;
+});
+
+/**
+ * TEAM_INVITE token → canonical pending eventTeamInvites record. Membership
+ * is granted only by respondEventTeamInvite after the user accepts in-app.
+ * Never touches the friend graph.
+ */
+export const redeemEventTeamShareInvite = onCall(withAppCheck(), async (request) => {
+  const data = getCallableData(request);
+  const redeemer = await resolveAuthedAppUser(request.auth);
+  const result = await redeemTeamInviteByToken({
+    db,
+    rawToken: asNonEmptyString(data.token),
+    redeemer,
+  });
+  logger.info("redeemEventTeamShareInvite", {
+    redeemerUserId: redeemer.userId,
+    status: result.status,
+    teamSetupId: result.teamSetupId ?? null,
+  });
+  return result;
 });
 
 // =============================================================================
@@ -3330,7 +3125,8 @@ export const ensureEventTeamSetup = onCall(
   }),
   async (request) => {
   const data = getCallableData(request);
-  const leader = await resolveUserForFriendCallable(request);
+  // Team setup/membership: Firebase canonical auth only (no Kakao fallback).
+  const leader = await resolveAuthedAppUser(request.auth);
   let teamSetupId = asNonEmptyString(data.teamSetupId);
   if (!teamSetupId) {
     const existingTeam = await resolveEventTeamSetupForUser(leader.userId, null);
@@ -3369,7 +3165,7 @@ export const ensureEventTeamSetup = onCall(
 
 export const createEventTeamInvite = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
-  const inviter = await resolveUserForFriendCallable(request);
+  const inviter = await resolveAuthedAppUser(request.auth);
   const teamSetupId = asNonEmptyString(data.teamSetupId);
   const inviteeUserId = asNonEmptyString(data.inviteeUserId);
   if (!teamSetupId || !inviteeUserId) {
@@ -3428,6 +3224,8 @@ export const createEventTeamInvite = onCall(withAppCheck(), async (request) => {
       "친구로 연결된 사용자만 초대할 수 있어요."
     );
   }
+  // A block in either direction: no invitation, no pending slot.
+  await assertNotBlockedEitherWay(db, inviter.userId, inviteeUserId);
 
   const dup = await db
     .collection("eventTeamInvites")
@@ -3503,135 +3301,25 @@ export const createEventTeamInvite = onCall(withAppCheck(), async (request) => {
 
 export const respondEventTeamInvite = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
-  const user = await resolveUserForFriendCallable(request);
-  const inviteId = asNonEmptyString(data.inviteId);
-  const accept = data.accept === true;
-  if (!inviteId) {
-    throw new HttpsError("invalid-argument", "inviteId가 필요해요.");
+  // Membership authority: Firebase canonical auth only. The transaction in
+  // eventTeamMembership.ts re-validates friendship, blocks (both
+  // directions), invite state and capacity at commit time.
+  const user = await resolveAuthedAppUser(request.auth);
+  if (typeof data.accept !== "boolean") {
+    // Never turn a malformed request into a silent decline.
+    throw new HttpsError("invalid-argument", "accept 값이 필요해요.");
   }
-
-  const inviteRef = db.collection("eventTeamInvites").doc(inviteId);
-  const invitePreview = await inviteRef.get();
-  if (!invitePreview.exists) {
-    return { ok: false, code: "not_found" };
-  }
-  const invPre = (invitePreview.data() ?? {}) as Record<string, unknown>;
-  const inviterUid = asString(invPre.inviterUserId ?? "");
-  const inviteeUserId = asString(invPre.inviteeUserId ?? "");
-  if (inviteeUserId !== user.userId) {
-    throw new HttpsError("permission-denied", "초대를 받은 본인만 응답할 수 있어요.");
-  }
-  let friendsStill = true;
-  if (accept && inviterUid.length > 0) {
-    friendsStill = await assertUsersAreFriends(inviterUid, inviteeUserId);
-  }
-
-  const result = await db.runTransaction(async (tx) => {
-    const invSnap = await tx.get(inviteRef);
-    if (!invSnap.exists) {
-      return { ok: false as const, code: "not_found" as const };
-    }
-    const inv = (invSnap.data() ?? {}) as Record<string, unknown>;
-    const status = asString(inv.status ?? "", "pending");
-    const invitee = asString(inv.inviteeUserId ?? "");
-    const teamSetupId = asString(inv.teamSetupId ?? "");
-
-    if (invitee !== user.userId) {
-      throw new HttpsError("permission-denied", "초대를 받은 본인만 응답할 수 있어요.");
-    }
-    if (status !== "pending") {
-      return { ok: false as const, code: "already_responded" as const };
-    }
-
-    const teamRef = db.collection("eventTeamSetups").doc(teamSetupId);
-    const teamSnap = await tx.get(teamRef);
-    if (!teamSnap.exists) {
-      return { ok: false as const, code: "team_missing" as const };
-    }
-
-    if (!accept) {
-      tx.update(inviteRef, {
-        status: "declined",
-        respondedAt: FieldValue.serverTimestamp(),
-      });
-      tx.update(teamRef, {
-        pendingInviteeIds: FieldValue.arrayRemove(inviteeUserId),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-      return { ok: true as const, status: "declined" as const };
-    }
-
-    if (!friendsStill) {
-      tx.update(inviteRef, {
-        status: "cancelled",
-        respondedAt: FieldValue.serverTimestamp(),
-      });
-      tx.update(teamRef, {
-        pendingInviteeIds: FieldValue.arrayRemove(inviteeUserId),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-      return { ok: false as const, code: "not_friends" as const };
-    }
-
-    const team = (teamSnap.data() ?? {}) as Record<string, unknown>;
-    const acc = Array.isArray(team.acceptedUserIds)
-      ? team.acceptedUserIds.map((u) => asString(u))
-      : [];
-    const pend = Array.isArray(team.pendingInviteeIds)
-      ? team.pendingInviteeIds.map((u) => asString(u))
-      : [];
-
-    if (!pend.includes(inviteeUserId)) {
-      tx.update(inviteRef, {
-        status: "cancelled",
-        respondedAt: FieldValue.serverTimestamp(),
-      });
-      return { ok: false as const, code: "stale_invite" as const };
-    }
-
-    const acceptGate = nextAcceptedUserIds({
-      acceptedUserIds: acc,
-      inviteeUserId,
-    });
-    if (!acceptGate.ok && acceptGate.reason === "already_accepted") {
-      tx.update(inviteRef, {
-        status: "accepted",
-        respondedAt: FieldValue.serverTimestamp(),
-      });
-      tx.update(teamRef, {
-        pendingInviteeIds: FieldValue.arrayRemove(inviteeUserId),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-      return { ok: true as const, status: "accepted" as const };
-    }
-    if (!acceptGate.ok) {
-      tx.update(inviteRef, {
-        status: "expired",
-        respondedAt: FieldValue.serverTimestamp(),
-      });
-      tx.update(teamRef, {
-        pendingInviteeIds: FieldValue.arrayRemove(inviteeUserId),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-      return { ok: false as const, code: "team_full" as const };
-    }
-
-    // Write the exact membership array inside the transaction so capacity is a
-    // hard postcondition. Concurrent accepts retry via Firestore OCC.
-    tx.update(inviteRef, {
-      status: "accepted",
-      respondedAt: FieldValue.serverTimestamp(),
-    });
-    tx.update(teamRef, {
-      acceptedUserIds: acceptGate.acceptedUserIds,
-      memberCount: acceptGate.memberCount,
-      pendingInviteeIds: FieldValue.arrayRemove(inviteeUserId),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-
-    return { ok: true as const, status: "accepted" as const };
+  const result = await respondTeamInviteCore({
+    db,
+    user,
+    inviteId: asNonEmptyString(data.inviteId),
+    accept: data.accept,
   });
-
+  logger.info("respondEventTeamInvite", {
+    userId: user.userId,
+    ok: result.ok,
+    outcome: result.ok ? result.status : result.code,
+  });
   return result;
 });
 
@@ -3654,7 +3342,7 @@ export const onEventTeamSetupWritten = onDocumentWritten(
 
 export const spinSeasonMeetingRoulette = onCall(withAppCheck(), async (request) => {
   const data = getCallableData(request);
-  const user = await resolveUserForFriendCallable(request);
+  const user = await resolveAuthedAppUser(request.auth);
   const requestedTeamSetupId = asNonEmptyString(data.teamSetupId);
 
   const resolvedTeam = await resolveEventTeamSetupForUser(
