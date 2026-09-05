@@ -66,14 +66,39 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- 카카오링크(공유 메시지 버튼): 스킴은 kakao + 네이티브 앱키 전체 (cb… 포함) -->
+            <!-- 카카오링크(공유 메시지 "친구 추가하기" 버튼):
+                 KakaoTalk 은 androidExecutionParams 를
+                 kakao{NATIVE_APP_KEY}://kakaolink?target=friend_invite&token=... 로 전달한다.
+                 스킴은 반드시 kakao + 네이티브 앱키 전체(cb08e2… — lib/main.dart 와 동일).
+                 test/friend_invite_app_link_contract_test.dart 가 이 값을 고정한다. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:scheme="kakao08e2aea50a58b7d0c5e610e0c5a644"
+                    android:scheme="kakaocb08e2aea50a58b7d0c5e610e0c5a644"
                     android:host="kakaolink" />
+            </intent-filter>
+            <!-- 친구 초대 App Link: production 커스텀 도메인(seolleyeon.com) +
+                 이전에 발급된 링크의 Hosting 기본 도메인. 두 호스트 모두
+                 /.well-known/assetlinks.json 을 같은 Hosting 사이트에서 제공한다. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="seolleyeon.com"
+                    android:pathPrefix="/invite/friend" />
+            </intent-filter>
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="seolleyeon.com"
+                    android:pathPrefix="/invite/team" />
             </intent-filter>
             <intent-filter android:autoVerify="true">
               <action android:name="android.intent.action.VIEW" />
@@ -113,6 +138,15 @@
                     android:scheme="seolleyeon"
                     android:host="invite"
                     android:pathPrefix="/friend" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="seolleyeon"
+                    android:host="invite"
+                    android:pathPrefix="/team" />
             </intent-filter>
             <!-- 메일 앱 내장 브라우저가 HTTPS App Link를 가로챈 경우 Hosting의
                  "앱에서 계속하기" 버튼이 원래 Firebase action query를 전달한다. -->

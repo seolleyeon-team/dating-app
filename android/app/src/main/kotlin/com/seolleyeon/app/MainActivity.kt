@@ -31,7 +31,8 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
         applyScreenSecurityPolicy()
         try {
-            Log.d("MainActivity", "onCreate data=" + intent?.dataString)
+            // Never log intent data: a share link carries a bearer invite token.
+            Log.d("MainActivity", "onCreate hasLinkData=" + (intent?.data != null))
         } catch (_: Exception) {
         }
     }
@@ -72,7 +73,7 @@ class MainActivity : FlutterActivity() {
         // app_links가 새 인텐트의 data를 읽을 수 있게 업데이트
         setIntent(intent)
         try {
-            Log.d("MainActivity", "onNewIntent data=" + intent.dataString)
+            Log.d("MainActivity", "onNewIntent hasLinkData=" + (intent.data != null))
         } catch (_: Exception) {
         }
     }
@@ -87,17 +88,20 @@ class MainActivity : FlutterActivity() {
         if (token.isNullOrBlank()) return
 
         val target = intent.getStringExtra("target") ?: "friend_invite"
+        // The Dart parser fails closed when the path and the target
+        // disagree, so the path must follow the target.
+        val path = if (target == "team_invite") "/team" else "/friend"
         val normalizedUri = Uri.Builder()
             .scheme("seolleyeon")
             .authority("invite")
-            .path("/friend")
+            .path(path)
             .appendQueryParameter("target", target)
             .appendQueryParameter("token", token)
             .build()
 
         intent.data = normalizedUri
         try {
-            Log.d("MainActivity", "normalized data=" + normalizedUri.toString())
+            Log.d("MainActivity", "normalized intent extras into invite scheme target=" + target)
         } catch (_: Exception) {
         }
     }
