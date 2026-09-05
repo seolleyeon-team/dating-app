@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/features/onboarding/widgets/avatar_generation_messages.dart';
 import 'package:seolleyeon/features/onboarding/widgets/avatar_generation_models.dart';
 import 'package:seolleyeon/services/avatar_generation_client.dart';
-import 'package:seolleyeon/services/avatar_source_photo_service.dart';
 
 void main() {
   group('AvatarCandidate', () {

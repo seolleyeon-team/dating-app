@@ -28,11 +28,23 @@ def _payload(model_id: str) -> dict:
     }
 
 
-def test_only_canonical_azure_model_is_accepted():
-    parsed = parse_avatar_generation_payload(_payload(AZURE_GPT_IMAGE_2_MODEL_ID))
+def test_only_canonical_azure_model_is_accepted_after_server_source_selection():
+    payload = _payload(AZURE_GPT_IMAGE_2_MODEL_ID)
+    payload.update({
+        "sourcePhotoObjectGenerations": ["101"],
+        "sourceSelectionMode": "quality_selector_v1",
+    })
+    parsed = parse_avatar_generation_payload(payload)
     assert parsed.model_id == AZURE_GPT_IMAGE_2_MODEL_ID
+    stale_model_payload = dict(payload)
+    stale_model_payload["modelId"] = "black-forest-labs/FLUX.2-klein-4B"
     with pytest.raises(AvatarGenerationError, match="canonical_azure_model_required"):
-        parse_avatar_generation_payload(_payload("black-forest-labs/FLUX.2-klein-4B"))
+        parse_avatar_generation_payload(stale_model_payload)
+
+
+def test_missing_source_selection_mode_fails_closed_before_azure_generation():
+    with pytest.raises(AvatarGenerationError, match="Unsupported sourceSelectionMode"):
+        parse_avatar_generation_payload(_payload(AZURE_GPT_IMAGE_2_MODEL_ID))
 
 
 def test_retired_model_adapter_is_not_importable():

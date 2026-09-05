@@ -30,7 +30,7 @@ export function assertAvatarSourceSetQueuePayload(
 ): void {
   const count = payload.sourcePhotoIds.length;
   if (
-    count < 1 ||
+    count < 2 ||
     count > 6 ||
     payload.sourcePhotoRefs.length !== count ||
     payload.sourcePhotoObjectGenerations.length !== count

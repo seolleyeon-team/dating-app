@@ -72,14 +72,18 @@ class FakeFirestore:
 
 
 class FakeBlob:
-    def __init__(self, data: bytes = b"") -> None:
+    def __init__(self, data: bytes = b"", generation: str = "") -> None:
         self.data = data
+        self.generation = generation
         self.cache_control: Optional[str] = None
 
     def exists(self) -> bool:
         return bool(self.data)
 
-    def download_as_bytes(self) -> bytes:
+    def reload(self) -> None:
+        return None
+
+    def download_as_bytes(self, **_kwargs: Any) -> bytes:
         return self.data
 
     def upload_from_string(self, data: bytes, **_kwargs: Any) -> None:
@@ -145,6 +149,8 @@ def _build_payload(args: argparse.Namespace) -> Dict[str, Any]:
             "uid": args.uid,
             "sourcePhotoIds": ["smoke_source_001"],
             "sourcePhotoRefs": [args.source_gcs_uri],
+            "sourcePhotoObjectGenerations": ["101"],
+            "sourceSelectionMode": "quality_selector_v1",
             "candidateCount": args.candidate_count,
             "modelId": AZURE_GPT_IMAGE_2_MODEL_ID,
             "jobType": "avatar_generation",
@@ -182,6 +188,14 @@ def _fake_firestore(payload: Mapping[str, Any]) -> FakeFirestore:
                     "status": "queued",
                     "sourcePhotoIds": [source_photo_id],
                     "sourcePhotoRefs": [source_ref],
+                    "sourcePhotoObjectGenerations": ["101"],
+                    "sourceSelectionMode": "quality_selector_v1",
+                    "sourceSelection": {"status": "selected"},
+                    "selectedSource": {
+                        "photoId": source_photo_id,
+                        "gcsUri": source_ref,
+                        "objectGeneration": "101",
+                    },
                 }
             },
             "userPrivateMedia": {
@@ -211,7 +225,13 @@ def _fake_firestore(payload: Mapping[str, Any]) -> FakeFirestore:
 
 def _fake_storage(payload: Mapping[str, Any]) -> FakeStorage:
     source_ref = parse_gcs_uri(str(payload["sourcePhotoRefs"][0]))
-    return FakeStorage({source_ref.bucket: FakeBucket({source_ref.path: FakeBlob(_png_bytes())})})
+    return FakeStorage(
+        {
+            source_ref.bucket: FakeBucket(
+                {source_ref.path: FakeBlob(_png_bytes(), generation="101")}
+            )
+        }
+    )
 
 
 def _smoke_qa(source_ref: str, candidate_ref: str, metadata: Dict[str, Any]):
@@ -245,7 +265,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--source_gcs_uri",
         default="gs://seolleyeon-final-private-source-photos/users/avatar_smoke_user/source/smoke_source_001.jpg",
     )
-    parser.add_argument("--candidate_count", type=int, default=4)
+    parser.add_argument("--candidate_count", type=int, default=2)
     parser.add_argument("--dry_run", action="store_true")
     parser.add_argument("--real_gpu", action="store_true")
     parser.add_argument("--output_report_json")

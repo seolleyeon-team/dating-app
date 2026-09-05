@@ -1096,18 +1096,17 @@ def parse_avatar_generation_payload(raw_payload: Mapping[str, Any]) -> AvatarGen
         for value in payload.get("sourcePhotoObjectGenerations", [])
         if str(value).strip()
     ]
-    if source_selection_mode:
-        if source_selection_mode != QUALITY_SELECTOR_MODE:
-            raise AvatarGenerationError("Unsupported sourceSelectionMode.")
-        try:
-            candidate_set_from_payload(
-                source_photo_ids,
-                source_photo_refs,
-                source_photo_object_generations,
-                allow_locked_singleton=len(source_photo_ids) == 1,
-            )
-        except SourceSelectionError as exc:
-            raise AvatarGenerationError(exc.error_code) from exc
+    if source_selection_mode != QUALITY_SELECTOR_MODE:
+        raise AvatarGenerationError("Unsupported sourceSelectionMode.")
+    try:
+        candidate_set_from_payload(
+            source_photo_ids,
+            source_photo_refs,
+            source_photo_object_generations,
+            allow_locked_singleton=len(source_photo_ids) == 1,
+        )
+    except SourceSelectionError as exc:
+        raise AvatarGenerationError(exc.error_code) from exc
 
     candidate_count = int(payload.get("candidateCount") or DEFAULT_MAX_CANDIDATES)
     if candidate_count < 1 or candidate_count > max_candidates():
@@ -2094,8 +2093,6 @@ def _resolve_avatar_source_selection(
     job_doc: Mapping[str, Any],
     metrics_hook: Optional[MetricHook],
 ) -> AvatarGenerationPayload:
-    if not payload.source_selection_mode:
-        return payload
     try:
         candidates = candidate_set_from_payload(
             payload.source_photo_ids,
@@ -3108,35 +3105,34 @@ def process_avatar_generation_payload(
     if run_mode == CANONICAL_AZURE_WORKER_MODE and _azure_generation_claim_active(job_doc):
         return _result_for_active_azure_generation(payload, job_doc or {})
     private_doc = _load_private_media_doc(fs, payload.uid)
-    if payload.source_selection_mode:
-        _assert_avatar_generation_consent(private_doc)
-        _ensure_source_refs_match_private_media(private_doc, payload)
-        try:
-            payload = _resolve_avatar_source_selection(
-                fs,
-                st,
-                payload,
-                job_doc or {},
-                metrics_hook,
+    _assert_avatar_generation_consent(private_doc)
+    _ensure_source_refs_match_private_media(private_doc, payload)
+    try:
+        payload = _resolve_avatar_source_selection(
+            fs,
+            st,
+            payload,
+            job_doc or {},
+            metrics_hook,
+        )
+    except SourceSelectionError as exc:
+        if exc.error_code != NO_ELIGIBLE_SOURCE_ERROR:
+            _source_selection_event_hook(metrics_hook)(
+                "avatar_source_selection_failed",
+                {
+                    "selectorVersion": "avatar_source_quality_selector_v1",
+                    "evaluatedCount": len(payload.source_photo_ids),
+                    "errorCode": exc.error_code,
+                },
             )
-        except SourceSelectionError as exc:
-            if exc.error_code != NO_ELIGIBLE_SOURCE_ERROR:
-                _source_selection_event_hook(metrics_hook)(
-                    "avatar_source_selection_failed",
-                    {
-                        "selectorVersion": "avatar_source_quality_selector_v1",
-                        "evaluatedCount": len(payload.source_photo_ids),
-                        "errorCode": exc.error_code,
-                    },
-                )
-            return _finalize_source_selection_failure(
-                fs,
-                payload,
-                exc,
-                storage_client=st,
-            )
-        job_doc = _load_job_doc(fs, payload.job_id)
-        private_doc = _load_private_media_doc(fs, payload.uid)
+        return _finalize_source_selection_failure(
+            fs,
+            payload,
+            exc,
+            storage_client=st,
+        )
+    job_doc = _load_job_doc(fs, payload.job_id)
+    private_doc = _load_private_media_doc(fs, payload.uid)
     _run_qa_runtime_preflight_if_required(
         fs,
         payload,

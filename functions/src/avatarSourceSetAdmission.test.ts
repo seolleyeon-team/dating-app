@@ -459,6 +459,14 @@ test("task name is deterministic from the idempotency key (duplicate enqueue is 
 test("source-set payload contract fails closed on malformed sets", () => {
   assert.doesNotThrow(() => assertAvatarSourceSetQueuePayload(samplePayload()));
   assert.throws(() =>
+    assertAvatarSourceSetQueuePayload({
+      ...samplePayload(),
+      sourcePhotoIds: ["src_a"],
+      sourcePhotoRefs: ["gs://b/users/u/source/src_a.jpg"],
+      sourcePhotoObjectGenerations: ["11"],
+    }),
+  );
+  assert.throws(() =>
     assertAvatarSourceSetQueuePayload({ ...samplePayload(), sourcePhotoObjectGenerations: ["11"] }),
   );
   assert.throws(() =>

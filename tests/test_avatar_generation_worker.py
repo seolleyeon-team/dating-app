@@ -185,14 +185,18 @@ class RecordingAtomicFakeFirestore(AtomicFakeFirestore):
 
 
 class FakeBlob:
-    def __init__(self, data=b""):
+    def __init__(self, data=b"", generation=""):
         self.data = data
+        self.generation = generation
         self.cache_control = None
 
     def exists(self):
         return bool(self.data)
 
-    def download_as_bytes(self):
+    def reload(self):
+        return None
+
+    def download_as_bytes(self, **_kwargs):
         return self.data
 
     def upload_from_string(self, data, **_kwargs):
@@ -241,6 +245,8 @@ def _payload(job_id="avatar_job_1", uid="u1"):
         "sourcePhotoRefs": [
             f"gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_001.jpg"
         ],
+        "sourcePhotoObjectGenerations": ["101"],
+        "sourceSelectionMode": "quality_selector_v1",
         "candidateCount": 4,
         "modelId": worker_module.CANONICAL_AZURE_WORKER_MODE,
         "jobType": "avatar_generation",
@@ -260,6 +266,18 @@ def _fake_firestore(payload=None):
                     "status": "queued",
                     "sourcePhotoIds": list(payload["sourcePhotoIds"]),
                     "sourcePhotoRefs": list(payload["sourcePhotoRefs"]),
+                    "sourcePhotoObjectGenerations": list(
+                        payload["sourcePhotoObjectGenerations"]
+                    ),
+                    "sourceSelectionMode": payload["sourceSelectionMode"],
+                    "sourceSelection": {"status": "selected"},
+                    "selectedSource": {
+                        "photoId": payload["sourcePhotoIds"][0],
+                        "gcsUri": payload["sourcePhotoRefs"][0],
+                        "objectGeneration": payload[
+                            "sourcePhotoObjectGenerations"
+                        ][0],
+                    },
                     "candidateCount": payload["candidateCount"],
                     "modelId": payload["modelId"],
                     "jobType": payload["jobType"],
@@ -304,7 +322,11 @@ def _fake_storage():
     return FakeStorage(
         {
             DEFAULT_SOURCE_PHOTO_BUCKET: FakeBucket(
-                {"users/u1/source/src_001.jpg": FakeBlob(_jpeg_bytes())}
+                {
+                    "users/u1/source/src_001.jpg": FakeBlob(
+                        _jpeg_bytes(), generation="101"
+                    )
+                }
             ),
             DEFAULT_AVATAR_TEMP_BUCKET: FakeBucket({}),
         }
@@ -1034,7 +1056,11 @@ def test_worker_persists_lineage_without_prompt_trait_or_image_hash_observabilit
     st = FakeStorage(
         {
             DEFAULT_SOURCE_PHOTO_BUCKET: FakeBucket(
-                {"users/u1/source/src_001.jpg": FakeBlob(_png_bytes((120, 64, 48)))}
+                    {
+                        "users/u1/source/src_001.jpg": FakeBlob(
+                            _png_bytes((120, 64, 48)), generation="101"
+                        )
+                    }
             ),
             DEFAULT_AVATAR_TEMP_BUCKET: FakeBucket({}),
         }
@@ -1079,7 +1105,11 @@ def test_worker_uses_env_avatar_temp_bucket(monkeypatch):
     st = FakeStorage(
         {
             DEFAULT_SOURCE_PHOTO_BUCKET: FakeBucket(
-                {"users/u1/source/src_001.jpg": FakeBlob(_png_bytes())}
+                {
+                    "users/u1/source/src_001.jpg": FakeBlob(
+                        _png_bytes(), generation="101"
+                    )
+                }
             ),
             DEFAULT_AVATAR_TEMP_BUCKET: FakeBucket({}),
         }
