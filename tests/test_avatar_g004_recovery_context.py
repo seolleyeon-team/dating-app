@@ -60,6 +60,8 @@ def _worker_azure_metadata() -> dict:
             "sourcePhotoRefs": [
                 "gs://seolleyeon-final-private-source-photos/users/u_ctx/source/src_1.jpg"
             ],
+            "sourcePhotoObjectGenerations": ["101"],
+            "sourceSelectionMode": "quality_selector_v1",
             "candidateCount": 1,
             "modelId": "azure_gpt_image_2",
         }
