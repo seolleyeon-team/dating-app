@@ -12,6 +12,7 @@ import '../../../shared/utils/avatar_lock_policy.dart';
 import '../../../shared/widgets/mbti_choice_grid.dart';
 import '../../../shared/widgets/profile_photo_mosaic.dart';
 import '../../../router/route_names.dart';
+import '../../../core/constants/app_colors.dart';
 import '../../matching/models/profile_card_args.dart';
 
 class _AppColors {
@@ -1299,26 +1300,26 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final background = dark
+        ? AppColorsDark.background
+        : _AppColors.backgroundLight;
+    final surface = dark ? AppColorsDark.surface : Colors.white;
+    final text = dark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final divider = dark ? AppColorsDark.divider : const Color(0xFFF2F4F6);
     return CupertinoPageScaffold(
-      backgroundColor: _AppColors.backgroundLight,
+      backgroundColor: background,
       navigationBar: CupertinoNavigationBar(
-        backgroundColor: Colors.white.withValues(alpha: 0.9),
-        border: const Border(bottom: BorderSide(color: Color(0xFFF2F4F6))),
+        backgroundColor: surface.withValues(alpha: 0.9),
+        border: Border(bottom: BorderSide(color: divider)),
         leading: CupertinoButton(
           padding: EdgeInsets.zero,
           onPressed: () => Navigator.of(context).pop(),
-          child: const Icon(
-            CupertinoIcons.clear,
-            color: _AppColors.textMain,
-            size: 24,
-          ),
+          child: Icon(CupertinoIcons.clear, color: text, size: 24),
         ),
-        middle: const Text(
+        middle: Text(
           '프로필 수정',
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-            color: _AppColors.textMain,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w700, color: text),
         ),
         trailing: CupertinoButton(
           padding: EdgeInsets.zero,
@@ -1340,7 +1341,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
             : Column(
                 children: [
                   Container(
-                    color: Colors.white,
+                    color: surface,
                     child: Row(
                       children: [
                         Expanded(

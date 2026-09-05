@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,9 +18,8 @@ import '../../../services/user_service.dart';
 import '../../../shared/constants/photo_blur_constants.dart';
 import '../../../shared/utils/privacy_log_utils.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
+import '../../../shared/widgets/campus_life_zone_prerequisite.dart';
 import '../../../shared/widgets/recommendation_load_failure.dart';
-import '../../shop/services/heart_economy.dart';
-import '../../shop/widgets/heart_spend_confirmation.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 import '../../chat/services/chat_service.dart';
 import '../../notifications/services/notification_service.dart';
@@ -30,10 +30,6 @@ import '../widgets/recommendation_refresh_dialog.dart';
 
 Color _postItColor(int index) =>
     const [Color(0xFFFFF1A8), Color(0xFFF7CDD9), Color(0xFFCDE9F3)][index % 3];
-
-// Temporary: keep the locker recommendation UI visible while the feed is
-// loading or empty so the in-progress surface can be reviewed in the app.
-const bool _temporarilyShowLockerPreview = true;
 
 class MysteryCardScreen extends StatefulWidget {
   final int notificationCount;
@@ -364,7 +360,6 @@ class _LockerRecommendationContentState
   final _userService = UserService();
   final _aiService = AiRecommendationService();
   final _refreshService = RecommendationRefreshService();
-  final _heartEconomyService = HeartEconomyService();
 
   /// 필터 통과한 후보 rank 순 (최대 window 2개 분량 = 6명).
   List<AiRecommendedProfile> _eligibleProfiles = [];
@@ -378,8 +373,7 @@ class _LockerRecommendationContentState
   bool _isReloading = false;
   bool _reloadRequested = false;
   bool _recommendationLoadFailed = false;
-  bool _isPaidRefreshing = false;
-  String? _paidRefreshError;
+  RecommendationFeedStatus _feedStatus = RecommendationFeedStatus.notGenerated;
   String? _privacyWatchedUid;
   StreamSubscription<void>? _privacySubscription;
   StreamSubscription<void>? _candidateSubscription;
@@ -400,29 +394,36 @@ class _LockerRecommendationContentState
     _isReloading = true;
     _reloadRequested = false;
     try {
-      final userId = await _storageService.getKakaoUserId();
-      if (userId == null || userId.isEmpty) {
-        // 아직 세션을 읽지 못한 것은 로드 실패가 아니다. 실패로 분류하면
-        // 로그인 정보가 준비되기 전 순간에 재시도 화면이 떠 버린다.
+      final firebaseUserId = FirebaseAuth.instance.currentUser?.uid.trim();
+      final cachedUserId = (await _storageService.getKakaoUserId())?.trim();
+      if (firebaseUserId == null || firebaseUserId.isEmpty) {
         if (!mounted) return;
         setState(() {
           _profiles = [];
+          _eligibleProfiles = [];
+          _feedDateKey = null;
+          _feedStatus = RecommendationFeedStatus.signedOut;
           _recommendationLoadFailed = false;
           _isLoading = false;
         });
         return;
       }
+      // SharedPreferences는 UX 캐시일 뿐 인증 근거가 아니다. 오래된 캐시가
+      // 남아 있더라도 Firebase Auth uid를 canonical id로 사용한다.
+      if (cachedUserId != firebaseUserId) {
+        await _storageService.saveAppUserId(firebaseUserId);
+      }
+      final userId = firebaseUserId;
       _watchRecommendationPrivacy(userId);
       // initial(1~3위)과 refreshed(4~6위) window 를 한 번에 hydrate 한다.
-      final eligibleProfiles = await _aiService.fetchMysteryFeed(
+      final feedResult = await _aiService.fetchMysteryFeedResult(
         limit: RecommendationRefreshService.windowSize * 2,
         userId: userId,
       );
+      final eligibleProfiles = feedResult.profiles;
       // 유료 새로고침 자격은 서버(entitlement 문서)가 source of truth 다.
       // 앱을 껐다 켜도 같은 dateKey 면 결제 시점에 확정된 3명이 복원된다.
-      final dateKey = eligibleProfiles.isNotEmpty
-          ? eligibleProfiles.first.dateKey
-          : null;
+      final dateKey = feedResult.dateKey;
       final entitlement = dateKey != null
           ? await _refreshService.fetchEntitlement(userId, dateKey)
           : null;
@@ -436,6 +437,11 @@ class _LockerRecommendationContentState
             refreshed: refreshed,
             purchasedCandidateUids: purchasedUids,
           );
+      final displayStatus =
+          profiles.isEmpty &&
+              feedResult.status == RecommendationFeedStatus.ready
+          ? RecommendationFeedStatus.noEligibleCandidates
+          : feedResult.status;
       final userProfile = await _userService.getUserProfile(userId);
       final onboarding = await _storageService.getOnboardingDraft(userId);
       final nickname = userProfile?['nickname']?.toString().trim();
@@ -446,6 +452,7 @@ class _LockerRecommendationContentState
         _profiles = profiles;
         _isRefreshedWindow = refreshed;
         _feedDateKey = dateKey;
+        _feedStatus = displayStatus;
         _userNickname = nickname?.isNotEmpty == true
             ? nickname!
             : (onboarding['nickname']?.toString().trim().isNotEmpty == true
@@ -491,37 +498,6 @@ class _LockerRecommendationContentState
     await _loadRecommendations();
   }
 
-  Future<void> _paidRefreshRecommendations() async {
-    if (_isPaidRefreshing) return;
-
-    final confirmed = await confirmHeartSpend(
-      context,
-      action: '정말로 추천을 새로고침하시겠습니까?',
-      amount: HeartFeatureCosts.recommendationRefresh,
-    );
-    if (!confirmed || !mounted) return;
-
-    setState(() {
-      _isPaidRefreshing = true;
-      _paidRefreshError = null;
-    });
-    try {
-      await _heartEconomyService.spendForRecommendationRefresh();
-      if (!mounted) return;
-      setState(() => _isLoading = true);
-      await _loadRecommendations();
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _paidRefreshError = error.toString().contains('하트가 부족')
-            ? '하트가 부족해요. 충전 후 다시 시도해주세요.'
-            : '새로고침을 완료하지 못했어요.';
-      });
-    } finally {
-      if (mounted) setState(() => _isPaidRefreshing = false);
-    }
-  }
-
   void _watchCandidateEligibility(List<AiRecommendedProfile> profiles) {
     final ids = profiles.map((profile) => profile.candidateUid).toList()
       ..sort();
@@ -544,6 +520,7 @@ class _LockerRecommendationContentState
       _profiles = [];
       _eligibleProfiles = [];
       _feedDateKey = null;
+      _feedStatus = RecommendationFeedStatus.noEligibleCandidates;
       _isLoading = false;
     });
   }
@@ -554,6 +531,7 @@ class _LockerRecommendationContentState
       _profiles = [];
       _eligibleProfiles = [];
       _feedDateKey = null;
+      _feedStatus = RecommendationFeedStatus.notGenerated;
       _isLoading = true;
     });
     _privacyReloadDebounce?.cancel();
@@ -977,50 +955,14 @@ class _LockerRecommendationContentState
         Expanded(
           child: _recommendationLoadFailed
               ? RecommendationLoadFailure(onRetry: _retryRecommendations)
-              : _temporarilyShowLockerPreview &&
-                    (_isLoading || _profiles.isEmpty)
-              ? _LockerBoard(
-                  profiles: const [],
-                  onOpen: _openNote,
-                  showPreviewNotes: true,
-                )
               : _isLoading
               ? const Center(child: CupertinoActivityIndicator())
               : _profiles.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '오늘의 추천을 모두 확인했어요.',
-                        style: TextStyle(color: mutedColor),
-                      ),
-                      const SizedBox(height: 14),
-                      CupertinoButton.filled(
-                        onPressed: _isPaidRefreshing
-                            ? null
-                            : _paidRefreshRecommendations,
-                        child: _isPaidRefreshing
-                            ? const CupertinoActivityIndicator(
-                                color: CupertinoColors.white,
-                              )
-                            : Text(
-                                '새로고침 · ${HeartFeatureCosts.label(HeartFeatureCosts.recommendationRefresh)}',
-                              ),
-                      ),
-                      if (_paidRefreshError != null) ...[
-                        const SizedBox(height: 10),
-                        Text(
-                          _paidRefreshError!,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: CupertinoColors.systemRed,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+              ? _RecommendationEmptyState(
+                  status: _feedStatus,
+                  mutedColor: mutedColor,
+                  onRetry: _retryRecommendations,
+                  onCampusLifeZoneCompleted: _retryRecommendations,
                 )
               : _LockerBoard(profiles: _profiles, onOpen: _openNote),
         ),
@@ -1033,13 +975,7 @@ class _LockerRecommendationContentState
 class _LockerBoard extends StatelessWidget {
   final List<AiRecommendedProfile> profiles;
   final void Function(AiRecommendedProfile profile, int index) onOpen;
-  final bool showPreviewNotes;
-
-  const _LockerBoard({
-    required this.profiles,
-    required this.onOpen,
-    this.showPreviewNotes = false,
-  });
+  const _LockerBoard({required this.profiles, required this.onOpen});
 
   @override
   Widget build(BuildContext context) {
@@ -1081,16 +1017,6 @@ class _LockerBoard extends StatelessWidget {
                       onTap: () => onOpen(profiles[index], index),
                     ),
                   ),
-                if (showPreviewNotes)
-                  for (var index = 0; index < positions.length; index++)
-                    _positionedNote(
-                      positions[index],
-                      _LockerPreviewPostIt(
-                        width: noteWidth,
-                        angle: positions[index].angle,
-                        colorIndex: index,
-                      ),
-                    ),
               ],
             ),
           ),
@@ -1106,6 +1032,76 @@ class _LockerBoard extends StatelessWidget {
     right: position.right,
     child: child,
   );
+}
+
+class _RecommendationEmptyState extends StatelessWidget {
+  const _RecommendationEmptyState({
+    required this.status,
+    required this.mutedColor,
+    required this.onRetry,
+    required this.onCampusLifeZoneCompleted,
+  });
+
+  final RecommendationFeedStatus status;
+  final Color mutedColor;
+  final Future<void> Function() onRetry;
+  final Future<void> Function() onCampusLifeZoneCompleted;
+
+  @override
+  Widget build(BuildContext context) {
+    if (status == RecommendationFeedStatus.campusLifeZoneRequired) {
+      return CampusLifeZonePrerequisite(onCompleted: onCampusLifeZoneCompleted);
+    }
+
+    final (title, description, showRetry) = switch (status) {
+      RecommendationFeedStatus.signedOut => (
+        '로그인이 필요해요.',
+        '다시 로그인하면 오늘의 추천을 확인할 수 있어요.',
+        false,
+      ),
+      RecommendationFeedStatus.notGenerated => (
+        '오늘의 추천을 준비하고 있어요.',
+        '추천 생성이 완료되면 이곳에 새로운 쪽지가 도착해요.',
+        true,
+      ),
+      RecommendationFeedStatus.noEligibleCandidates => (
+        '오늘 소개할 수 있는 인연을 찾지 못했어요.',
+        '새로운 인연이 준비되면 다시 알려드릴게요.',
+        true,
+      ),
+      _ => ('오늘의 추천을 확인할 수 없어요.', '잠시 후 다시 시도해주세요.', true),
+    };
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: mutedColor,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              description,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: mutedColor, height: 1.5),
+            ),
+            if (showRetry) ...[
+              const SizedBox(height: 16),
+              CupertinoButton(onPressed: onRetry, child: const Text('다시 확인')),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _NotePosition {
@@ -1299,71 +1295,6 @@ class _LockerPostIt extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _LockerPreviewPostIt extends StatelessWidget {
-  final double width;
-  final double angle;
-  final int colorIndex;
-
-  const _LockerPreviewPostIt({
-    required this.width,
-    required this.angle,
-    required this.colorIndex,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _postItColor(colorIndex);
-    return Transform.rotate(
-      angle: angle,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            width: width,
-            height: width * 0.86,
-            padding: const EdgeInsets.fromLTRB(8, 15, 8, 8),
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(5),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.12),
-                  blurRadius: 7,
-                  offset: const Offset(1, 4),
-                ),
-              ],
-            ),
-            child: const Center(
-              child: Text(
-                '추천 준비 중',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: 'Pretendard',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF9B596B),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: -7,
-            left: width * 0.29,
-            child: Transform.rotate(
-              angle: -0.018,
-              child: Container(
-                width: width * 0.40,
-                height: 14,
-                color: const Color(0xFFF6E9D2).withValues(alpha: 0.66),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

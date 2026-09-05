@@ -1,20 +1,23 @@
 import '../models/promise_place.dart';
+import '../../../constants/campus_life_zones.dart';
 
-/// 송도캠퍼스 안에서 약속 장소로 바로 고를 수 있는 기본 항목.
+/// 신촌·송도 캠퍼스 안에서 약속 장소로 바로 고를 수 있는 기본 항목.
 abstract final class PromiseCampusPlaces {
-  static const String campusAddress = '인천광역시 연수구 아카데미로 119 인천대학교 송도캠퍼스';
-  static const double _latitude = 37.3769;
-  static const double _longitude = 126.6341;
+  static const double _songdoLatitude = 37.3769;
+  static const double _songdoLongitude = 126.6341;
+  static const double _sinchonLatitude = 37.5642;
+  static const double _sinchonLongitude = 126.9368;
 
   static const List<PromisePlace> options = [
     PromisePlace(
       placeId: 'campus_yeondol',
+      campusLifeZone: CampusLifeZones.songdo,
       name: '연돌',
       category: PromisePlaceCategory.campus,
-      description: '인천대학교 송도캠퍼스 안 만남 장소',
-      address: campusAddress,
-      lat: _latitude,
-      lng: _longitude,
+      description: '',
+      address: '',
+      lat: _songdoLatitude,
+      lng: _songdoLongitude,
       thumbnailUrl: '',
       imageUrls: [],
       isActive: true,
@@ -24,12 +27,13 @@ abstract final class PromiseCampusPlaces {
     ),
     PromisePlace(
       placeId: 'campus_jina_entrance',
+      campusLifeZone: CampusLifeZones.songdo,
       name: '진A 입구 앞',
       category: PromisePlaceCategory.campus,
-      description: '인천대학교 송도캠퍼스 안 만남 장소',
-      address: campusAddress,
-      lat: _latitude,
-      lng: _longitude,
+      description: '',
+      address: '',
+      lat: _songdoLatitude,
+      lng: _songdoLongitude,
       thumbnailUrl: '',
       imageUrls: [],
       isActive: true,
@@ -39,12 +43,61 @@ abstract final class PromiseCampusPlaces {
     ),
     PromisePlace(
       placeId: 'campus_dorm_b_woori',
+      campusLifeZone: CampusLifeZones.songdo,
       name: '기숙사 B동 우리은행 앞',
       category: PromisePlaceCategory.campus,
-      description: '인천대학교 송도캠퍼스 안 만남 장소',
-      address: campusAddress,
-      lat: _latitude,
-      lng: _longitude,
+      description: '',
+      address: '',
+      lat: _songdoLatitude,
+      lng: _songdoLongitude,
+      thumbnailUrl: '',
+      imageUrls: [],
+      isActive: true,
+      sortOrder: -28,
+      tags: ['캠퍼스 안'],
+      externalLinks: PromisePlaceExternalLinks(),
+    ),
+    PromisePlace(
+      placeId: 'sinchon_main_gate',
+      campusLifeZone: CampusLifeZones.sinchon,
+      name: '연세대학교 정문 앞',
+      category: PromisePlaceCategory.campus,
+      description: '',
+      address: '',
+      lat: _sinchonLatitude,
+      lng: _sinchonLongitude,
+      thumbnailUrl: '',
+      imageUrls: [],
+      isActive: true,
+      sortOrder: -30,
+      tags: ['캠퍼스 안'],
+      externalLinks: PromisePlaceExternalLinks(),
+    ),
+    PromisePlace(
+      placeId: 'sinchon_student_union',
+      campusLifeZone: CampusLifeZones.sinchon,
+      name: '학생회관 앞',
+      category: PromisePlaceCategory.campus,
+      description: '',
+      address: '',
+      lat: _sinchonLatitude,
+      lng: _sinchonLongitude,
+      thumbnailUrl: '',
+      imageUrls: [],
+      isActive: true,
+      sortOrder: -29,
+      tags: ['캠퍼스 안'],
+      externalLinks: PromisePlaceExternalLinks(),
+    ),
+    PromisePlace(
+      placeId: 'sinchon_baekyang_ro',
+      campusLifeZone: CampusLifeZones.sinchon,
+      name: '백양로',
+      category: PromisePlaceCategory.campus,
+      description: '',
+      address: '',
+      lat: _sinchonLatitude,
+      lng: _sinchonLongitude,
       thumbnailUrl: '',
       imageUrls: [],
       isActive: true,
@@ -64,12 +117,13 @@ abstract final class PromiseCampusPlaces {
   static PromisePlace custom(String name) {
     return PromisePlace(
       placeId: PromisePlace.customCampusPlaceId,
+      campusLifeZone: CampusLifeZones.songdo,
       name: name.trim(),
       category: PromisePlaceCategory.campus,
-      description: '직접 입력한 캠퍼스 안 장소',
-      address: campusAddress,
-      lat: _latitude,
-      lng: _longitude,
+      description: '',
+      address: '',
+      lat: _songdoLatitude,
+      lng: _songdoLongitude,
       thumbnailUrl: '',
       imageUrls: const [],
       isActive: true,

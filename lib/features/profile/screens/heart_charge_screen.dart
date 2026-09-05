@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart' show Brightness, Theme;
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:intl/intl.dart';
 
 import '../../../services/storage_service.dart';
+import '../../../core/constants/app_colors.dart';
 import '../../shop/services/heart_products.dart';
 import '../../shop/services/iap_service.dart';
 import '../../../shared/utils/in_app_purchase_policy.dart';
@@ -70,8 +72,11 @@ class _HeartChargeScreenState extends State<HeartChargeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return CupertinoPageScaffold(
-      backgroundColor: _AppColors.backgroundLight,
+      backgroundColor: isDark
+          ? AppColorsDark.background
+          : _AppColors.backgroundLight,
       child: SafeArea(
         child: AnimatedBuilder(
           animation: _iapService,
@@ -191,18 +196,23 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final text = isDark ? AppColorsDark.textPrimary : _AppColors.textPrimary;
+    final surfaceVariant = isDark
+        ? AppColorsDark.surfaceVariant
+        : _AppColors.backgroundLight;
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 16, 16, 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text(
+          Text(
             '하트 충전',
             style: TextStyle(
               fontFamily: 'Pretendard',
               fontSize: 24,
               fontWeight: FontWeight.w700,
-              color: _AppColors.textPrimary,
+              color: text,
               letterSpacing: -0.5,
             ),
           ),
@@ -212,11 +222,11 @@ class _Header extends StatelessWidget {
             onPressed: onClose,
             child: Container(
               padding: const EdgeInsets.all(8),
-              decoration: const BoxDecoration(
-                color: _AppColors.backgroundLight,
+              decoration: BoxDecoration(
+                color: surfaceVariant,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(CupertinoIcons.xmark, color: Color(0xFF424242)),
+              child: Icon(CupertinoIcons.xmark, color: text),
             ),
           ),
         ],
@@ -256,16 +266,20 @@ class _BalanceRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final subtext = isDark
+        ? AppColorsDark.textSecondary
+        : _AppColors.textSecondary;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text(
+          Text(
             '현재 보유 하트',
             style: TextStyle(
               fontSize: 14,
-              color: _AppColors.textSecondary,
+              color: subtext,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -288,17 +302,24 @@ class _PromoBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final title = isDark ? AppColorsDark.textPrimary : _AppColors.textPrimary;
+    final subtitle = isDark
+        ? AppColorsDark.textSecondary
+        : const Color(0xFF616161);
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.symmetric(horizontal: 24),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFCE4EC), Color(0xFFF3E5F5)],
+        gradient: LinearGradient(
+          colors: isDark
+              ? const [Color(0xFF3A2532), Color(0xFF2E263A)]
+              : const [Color(0xFFFCE4EC), Color(0xFFF3E5F5)],
         ),
       ),
-      child: const Row(
+      child: Row(
         children: [
           Icon(CupertinoIcons.heart_fill, color: _AppColors.primary, size: 28),
           SizedBox(width: 14),
@@ -311,13 +332,13 @@ class _PromoBanner extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
-                    color: _AppColors.textPrimary,
+                    color: title,
                   ),
                 ),
                 SizedBox(height: 4),
                 Text(
                   '채팅, 3:3 미팅, 추천 새로고침에 사용할 수 있어요.',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF616161)),
+                  style: TextStyle(fontSize: 12, color: subtitle),
                 ),
               ],
             ),
@@ -336,12 +357,15 @@ class _PurchaseNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(20, 0, 20, 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isError ? const Color(0xFFFFE8EA) : const Color(0xFFE8F7EE),
+        color: isError
+            ? (isDark ? const Color(0xFF3D2830) : const Color(0xFFFFE8EA))
+            : (isDark ? const Color(0xFF203429) : const Color(0xFFE8F7EE)),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
@@ -372,10 +396,16 @@ class _ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surface = isDark ? AppColorsDark.surface : _AppColors.surfaceLight;
+    final text = isDark ? AppColorsDark.textPrimary : _AppColors.textPrimary;
+    final subtext = isDark
+        ? AppColorsDark.textSecondary
+        : _AppColors.textSecondary;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: _AppColors.surfaceLight,
+        color: surface,
         borderRadius: BorderRadius.circular(16),
         boxShadow: const [
           BoxShadow(
@@ -390,8 +420,8 @@ class _ProductCard extends StatelessWidget {
           Container(
             width: 48,
             height: 48,
-            decoration: const BoxDecoration(
-              color: Color(0xFFFCE4EC),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF3A2532) : const Color(0xFFFCE4EC),
               shape: BoxShape.circle,
             ),
             child: const Icon(
@@ -407,10 +437,10 @@ class _ProductCard extends StatelessWidget {
               children: [
                 Text(
                   heartPackage.displayName,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w700,
-                    color: _AppColors.textPrimary,
+                    color: text,
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -418,10 +448,7 @@ class _ProductCard extends StatelessWidget {
                   heartPackage.isFirstPurchaseOffer
                       ? '${heartPackage.hearts}하트 · 계정당 1회'
                       : '${heartPackage.hearts}하트',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: _AppColors.textSecondary,
-                  ),
+                  style: TextStyle(fontSize: 12, color: subtext),
                 ),
               ],
             ),
@@ -459,14 +486,21 @@ class _CenteredMessage extends StatelessWidget {
   const _CenteredMessage(this.message);
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Text(
-        message,
-        textAlign: TextAlign.center,
-        style: const TextStyle(color: _AppColors.textSecondary),
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          message,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: isDark
+                ? AppColorsDark.textSecondary
+                : _AppColors.textSecondary,
+          ),
+        ),
       ),
-    ),
-  );
+    );
+  }
 }

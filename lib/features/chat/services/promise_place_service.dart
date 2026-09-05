@@ -18,6 +18,23 @@ class PromisePlaceService {
   static const _metaDocPath = 'place_catalog_meta/current';
   static const _itemsCollection = 'place_catalog_items';
 
+  static Set<String> _normalizedZones(Iterable<String> campusLifeZones) =>
+      campusLifeZones
+          .map((zone) => zone.trim().toLowerCase())
+          .where((zone) => zone == 'sinchon' || zone == 'songdo')
+          .toSet();
+
+  static List<PromisePlace> _forCampusLifeZones(
+    Iterable<PromisePlace> places,
+    Iterable<String> campusLifeZones,
+  ) {
+    final zones = _normalizedZones(campusLifeZones);
+    if (zones.isEmpty) return const <PromisePlace>[];
+    return places
+        .where((place) => zones.contains(place.campusLifeZone))
+        .toList();
+  }
+
   /// 메타 문서 `version`만 네트워크에서 읽는다 (항목 전체 목록보다 가벼움).
   Future<PlaceCatalogMeta?> fetchMetaRemote() async {
     try {
@@ -74,7 +91,9 @@ class PromisePlaceService {
   /// 3) 다르면 항목 컬렉션을 한 번 읽고 캐시 갱신.
   /// 4) 메타가 없거나 네트워크 실패 시: 마지막으로 성공한 캐시가 있으면 사용, 없으면 `[]`.
   /// 앱에 넣은 예시 장소(fallback)는 사용하지 않는다.
-  Future<List<PromisePlace>> loadPlaces() async {
+  Future<List<PromisePlace>> loadPlaces({
+    required Iterable<String> campusLifeZones,
+  }) async {
     final remoteMeta = await fetchMetaRemote();
     final cachedVersion = await _readCachedVersion();
     final cached = await _readCache();
@@ -83,9 +102,9 @@ class PromisePlaceService {
       try {
         final remoteItems = await _fetchItemsRemote();
         await _saveCache(cachedVersion >= 0 ? cachedVersion : 0, remoteItems);
-        return remoteItems;
+        return _forCampusLifeZones(remoteItems, campusLifeZones);
       } catch (_) {
-        return cached ?? [];
+        return _forCampusLifeZones(cached ?? [], campusLifeZones);
       }
     }
 
@@ -97,37 +116,39 @@ class PromisePlaceService {
         cached.isNotEmpty;
 
     if (useCacheOnly) {
-      return cached;
+      return _forCampusLifeZones(cached, campusLifeZones);
     }
 
     try {
       final remoteItems = await _fetchItemsRemote();
       await _saveCache(remoteMeta.version, remoteItems);
-      return remoteItems;
+      return _forCampusLifeZones(remoteItems, campusLifeZones);
     } catch (_) {
-      return cached ?? [];
+      return _forCampusLifeZones(cached ?? [], campusLifeZones);
     }
   }
 
   /// 메타·항목을 다시 읽어 캐시를 덮어쓴다(새로고침 버튼).
-  Future<List<PromisePlace>> refreshFromRemote() async {
+  Future<List<PromisePlace>> refreshFromRemote({
+    required Iterable<String> campusLifeZones,
+  }) async {
     final remoteMeta = await fetchMetaRemote();
     if (remoteMeta == null) {
       try {
         final remoteItems = await _fetchItemsRemote();
         final cachedVersion = await _readCachedVersion();
         await _saveCache(cachedVersion >= 0 ? cachedVersion : 0, remoteItems);
-        return remoteItems;
+        return _forCampusLifeZones(remoteItems, campusLifeZones);
       } catch (_) {
-        return (await _readCache()) ?? [];
+        return _forCampusLifeZones((await _readCache()) ?? [], campusLifeZones);
       }
     }
     try {
       final remoteItems = await _fetchItemsRemote();
       await _saveCache(remoteMeta.version, remoteItems);
-      return remoteItems;
+      return _forCampusLifeZones(remoteItems, campusLifeZones);
     } catch (_) {
-      return (await _readCache()) ?? [];
+      return _forCampusLifeZones((await _readCache()) ?? [], campusLifeZones);
     }
   }
 }

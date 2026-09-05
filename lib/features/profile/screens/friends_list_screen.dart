@@ -1,11 +1,14 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../services/auth_service.dart';
 import '../../../services/friend_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
+import '../../../core/constants/app_colors.dart';
+import '../../matching/models/profile_card_args.dart';
 import '../widgets/friends_list_shared.dart';
 
 class FriendsListScreen extends StatefulWidget {
@@ -81,21 +84,28 @@ class _FriendsListScreenState extends State<FriendsListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final background = dark
+        ? AppColorsDark.background
+        : FriendsListSharedColors.background;
+    final surface = dark
+        ? AppColorsDark.surface
+        : FriendsListSharedColors.surface;
+    final text = dark
+        ? AppColorsDark.textPrimary
+        : FriendsListSharedColors.textMain;
+    final line = dark ? AppColorsDark.divider : FriendsListSharedColors.line;
     return CupertinoPageScaffold(
-      backgroundColor: FriendsListSharedColors.background,
+      backgroundColor: background,
       navigationBar: CupertinoNavigationBar(
-        backgroundColor: FriendsListSharedColors.surface.withValues(
-          alpha: 0.92,
-        ),
-        border: const Border(
-          bottom: BorderSide(color: FriendsListSharedColors.line, width: 0.5),
-        ),
-        middle: const Text(
+        backgroundColor: surface.withValues(alpha: 0.92),
+        border: Border(bottom: BorderSide(color: line, width: 0.5)),
+        middle: Text(
           '친구 목록',
           style: TextStyle(
             fontFamily: 'NanumSquareRound',
             fontWeight: FontWeight.w700,
-            color: FriendsListSharedColors.textMain,
+            color: text,
           ),
         ),
         leading: CupertinoButton(
@@ -108,10 +118,7 @@ class _FriendsListScreenState extends State<FriendsListScreen> {
             }
             Navigator.of(context).maybePop();
           },
-          child: const Icon(
-            CupertinoIcons.back,
-            color: FriendsListSharedColors.textMain,
-          ),
+          child: Icon(CupertinoIcons.back, color: text),
         ),
       ),
       child: SafeArea(

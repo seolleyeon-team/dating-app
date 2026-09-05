@@ -1,7 +1,10 @@
 import 'package:seolleyeon/shared/utils/privacy_log_utils.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import '../../../core/constants/app_colors.dart';
 
 import '../../../services/ask_service.dart';
 import '../../../services/storage_service.dart';
@@ -54,8 +57,12 @@ class _AsksInboxScreenState extends State<AsksInboxScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final background = dark ? AppColorsDark.background : _C.bg;
+    final surface = dark ? AppColorsDark.surface : _C.white;
+    final divider = dark ? AppColorsDark.divider : _C.gray200;
     return CupertinoPageScaffold(
-      backgroundColor: _C.bg,
+      backgroundColor: background,
       navigationBar: CupertinoNavigationBar(
         middle: const Text(
           '무물함',
@@ -64,9 +71,9 @@ class _AsksInboxScreenState extends State<AsksInboxScreen> {
             fontWeight: FontWeight.w700,
           ),
         ),
-        backgroundColor: _C.white.withValues(alpha: 0.9),
+        backgroundColor: surface.withValues(alpha: 0.9),
         border: Border(
-          bottom: BorderSide(color: _C.gray200.withValues(alpha: 0.5)),
+          bottom: BorderSide(color: divider.withValues(alpha: 0.5)),
         ),
       ),
       child: SafeArea(
@@ -115,12 +122,13 @@ class _AsksInboxScreenState extends State<AsksInboxScreen> {
   }
 
   Widget _buildSegmentedControl() {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: CupertinoSlidingSegmentedControl<int>(
         groupValue: _tabIndex,
-        backgroundColor: _C.gray100,
-        thumbColor: _C.white,
+        backgroundColor: dark ? AppColorsDark.surfaceVariant : _C.gray100,
+        thumbColor: dark ? AppColorsDark.surface : _C.white,
         children: const {
           0: Padding(
             padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -258,6 +266,10 @@ class _AskCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final surface = dark ? AppColorsDark.surface : _C.white;
+    final unreadSurface = dark ? const Color(0xFF33212C) : _C.pink50;
+    final border = dark ? AppColorsDark.border : _C.gray200;
     final text = data['text']?.toString() ?? '';
     final status = data['status']?.toString() ?? 'sent';
     final isUnread = isReceived && status == 'sent';
@@ -284,12 +296,12 @@ class _AskCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: isUnread ? _C.pink50 : _C.white,
+          color: isUnread ? unreadSurface : surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isUnread
                 ? _C.primary.withValues(alpha: 0.15)
-                : _C.gray200.withValues(alpha: 0.6),
+                : border.withValues(alpha: 0.6),
           ),
           boxShadow: [
             BoxShadow(
@@ -441,15 +453,18 @@ class _Avatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return ChatUnlockedProfileAvatar(
       currentUserId: currentUserId,
       targetUserId: targetUserId,
       imageUrl: url,
       size: 48,
       borderWidth: 1,
-      borderColor: _C.gray200.withValues(alpha: 0.5),
-      backgroundColor: _C.gray100,
-      placeholderIconColor: _C.gray300,
+      borderColor: (dark ? AppColorsDark.border : _C.gray200).withValues(
+        alpha: 0.5,
+      ),
+      backgroundColor: dark ? AppColorsDark.surfaceVariant : _C.gray100,
+      placeholderIconColor: dark ? AppColorsDark.textHint : _C.gray300,
       placeholderIconSize: 24,
     );
   }
@@ -471,6 +486,9 @@ class _AskDetailSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final surface = dark ? AppColorsDark.surface : _C.white;
+    final softSurface = dark ? const Color(0xFF33212C) : _C.pink50;
     final text = data['text']?.toString() ?? '';
     final snapshotKey = isReceived
         ? 'fromUserProfileSnapshot'
@@ -491,8 +509,8 @@ class _AskDetailSheet extends StatelessWidget {
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.6,
       ),
-      decoration: const BoxDecoration(
-        color: _C.white,
+      decoration: BoxDecoration(
+        color: surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
@@ -553,7 +571,7 @@ class _AskDetailSheet extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: _C.pink50,
+              color: softSurface,
               borderRadius: BorderRadius.circular(16),
             ),
             child: Text(

@@ -5,7 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
-import 'storage_service.dart';
 import '../shared/utils/privacy_log_utils.dart';
 import '../shared/utils/recommendation_eligibility.dart';
 import 'campus_life_zone_repair_service.dart';
@@ -49,6 +48,28 @@ class AiRecommendedProfile {
   });
 }
 
+enum RecommendationFeedStatus {
+  ready,
+  notGenerated,
+  noEligibleCandidates,
+  campusLifeZoneRequired,
+  signedOut,
+}
+
+class RecommendationFeedResult {
+  const RecommendationFeedResult({
+    required this.status,
+    this.profiles = const <AiRecommendedProfile>[],
+    this.dateKey,
+    this.source,
+  });
+
+  final RecommendationFeedStatus status;
+  final List<AiRecommendedProfile> profiles;
+  final String? dateKey;
+  final String? source;
+}
+
 // =============================================================================
 // 실제 AI 추천 피드 패치 및 프로필 병합 서비스
 // =============================================================================
@@ -56,7 +77,6 @@ class AiRecommendationService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final CampusLifeZoneRepairService _campusLifeZoneRepairService =
       CampusLifeZoneRepairService();
-  final StorageService _storageService = StorageService();
 
   /// blocks/{uid}/targets/* 에서 차단된 UID 세트를 가져온다.
   Future<Set<String>> _fetchBlockedUids(String uid) async {
@@ -314,6 +334,8 @@ class AiRecommendationService {
     required String viewerUid,
     Set<String> blockedUids = const {},
     String? documentPolicyState,
+    Map<String, dynamic>? prefetchedViewerProfile,
+    CampusLifeZoneActivation? prefetchedActivation,
   }) async {
     final List<AiRecommendedProfile> results = [];
     final uuid = const Uuid();
@@ -330,7 +352,9 @@ class AiRecommendationService {
       // 이후에 정책을 되돌리지 못하게 기록한다.
       CampusLifeZoneRepairService.latchEnforcedObserved();
     }
-    final activation = await _campusLifeZoneRepairService.loadActivation();
+    final activation =
+        prefetchedActivation ??
+        await _campusLifeZoneRepairService.loadActivation();
     final enforceCampusLifeZone = shouldEnforceCampusLifeZone(
       documentPolicyState: documentPolicyState,
       activation: activation,
@@ -340,11 +364,13 @@ class AiRecommendationService {
     // here gives the viewer-side guard zero trigger latency when the toggle is
     // switched on; the server materialized pair collection protects the other
     // direction without exposing another user's privacySettings.
-    final viewerSnapshot = await _firestore
-        .collection('users')
-        .doc(viewerUid)
-        .get(const GetOptions(source: Source.server));
-    final viewerProfile = viewerSnapshot.data();
+    final viewerProfile =
+        prefetchedViewerProfile ??
+        (await _firestore
+                .collection('users')
+                .doc(viewerUid)
+                .get(const GetOptions(source: Source.server)))
+            .data();
     final viewerZones = enforceCampusLifeZone
         ? RecommendationEligibility.campusLifeZonesOf(viewerProfile)
         : const <String>{};
@@ -501,10 +527,58 @@ class AiRecommendationService {
     int limit = 3,
     String? userId,
   }) async {
+    final result = await fetchMysteryFeedResult(limit: limit, userId: userId);
+    return result.profiles;
+  }
+
+  /// Mystery Card 피드와 빈 결과의 원인을 함께 반환한다.
+  ///
+  /// 빈 List 하나만 반환하면 아직 배치가 생성되지 않은 상태, 정책 필터로
+  /// 후보가 모두 제외된 상태, 로그인 세션이 없는 상태를 화면에서 구분할 수
+  /// 없다. 결제 CTA 역시 이 상태를 근거로 안전하게 숨겨야 한다.
+  Future<RecommendationFeedResult> fetchMysteryFeedResult({
+    int limit = 3,
+    String? userId,
+  }) async {
     final uid = userId ?? await _resolveUid();
-    if (uid == null || uid.isEmpty) return [];
+    if (uid == null || uid.isEmpty) {
+      return const RecommendationFeedResult(
+        status: RecommendationFeedStatus.signedOut,
+      );
+    }
 
     try {
+      // Firebase Auth uid가 Firestore users/{uid}의 canonical id다. 호출자가
+      // 넘긴 캐시 id가 현재 인증 세션과 다르면 다른 사용자의 추천 문서를
+      // 조회하지 않고 signedOut 상태로 닫는다.
+      final firebaseUid = FirebaseAuth.instance.currentUser?.uid.trim();
+      if (firebaseUid == null || firebaseUid.isEmpty || firebaseUid != uid) {
+        return const RecommendationFeedResult(
+          status: RecommendationFeedStatus.signedOut,
+        );
+      }
+
+      final activation = await _campusLifeZoneRepairService.loadActivation();
+      final viewerProfile =
+          (await _firestore
+                  .collection('users')
+                  .doc(uid)
+                  .get(const GetOptions(source: Source.server)))
+              .data();
+      final viewerZones = RecommendationEligibility.campusLifeZonesOf(
+        viewerProfile,
+      );
+      if (shouldEnforceCampusLifeZone(
+            documentPolicyState: null,
+            activation: activation,
+            enforcedObserved: CampusLifeZoneRepairService.enforcedObserved,
+          ) &&
+          viewerZones.isEmpty) {
+        return const RecommendationFeedResult(
+          status: RecommendationFeedStatus.campusLifeZoneRequired,
+        );
+      }
+
       final blockedUids = <String>{
         ...await _fetchBlockedUids(uid),
         ...await _fetchRecommendationExcludedUids(uid),
@@ -525,19 +599,43 @@ class AiRecommendationService {
       if (result != null) {
         final data = result['data'] as Map<String, dynamic>;
         final dateKey = result['dateKey'] as String;
-        var items = data['items'] as List<dynamic>? ?? [];
+        final items = data['items'] as List<dynamic>? ?? [];
+        final documentPolicyState = policyStateOf(data);
+        if (shouldEnforceCampusLifeZone(
+              documentPolicyState: documentPolicyState,
+              activation: activation,
+              enforcedObserved: CampusLifeZoneRepairService.enforcedObserved,
+            ) &&
+            viewerZones.isEmpty) {
+          return const RecommendationFeedResult(
+            status: RecommendationFeedStatus.campusLifeZoneRequired,
+          );
+        }
 
-        return await _hydrateProfiles(
+        final profiles = await _hydrateProfiles(
           rawItems: items,
           algo: algoUsed,
           dateKey: dateKey,
           limit: limit,
           viewerUid: uid,
           blockedUids: blockedUids,
-          documentPolicyState: policyStateOf(data),
+          documentPolicyState: documentPolicyState,
+          prefetchedViewerProfile: viewerProfile,
+          prefetchedActivation: activation,
+        );
+        return RecommendationFeedResult(
+          status: profiles.isEmpty
+              ? RecommendationFeedStatus.noEligibleCandidates
+              : RecommendationFeedStatus.ready,
+          profiles: profiles,
+          dateKey: dateKey,
+          source: algoUsed,
         );
       }
-      return await _emptyFeedBecauseNoModelRecs('mystery_feed_no_modelRecs');
+      await _emptyFeedBecauseNoModelRecs('mystery_feed_no_modelRecs');
+      return const RecommendationFeedResult(
+        status: RecommendationFeedStatus.notGenerated,
+      );
     } catch (e) {
       debugPrint('fetchMysteryFeed Error: ${PrivacyLogUtils.errorSummary(e)}');
       rethrow;
@@ -545,10 +643,10 @@ class AiRecommendationService {
   }
 
   Future<String?> _resolveUid() async {
-    final kakaoUid = await _storageService.getKakaoUserId();
-    if (kakaoUid != null && kakaoUid.isNotEmpty) return kakaoUid;
     final firebaseUid = FirebaseAuth.instance.currentUser?.uid;
     if (firebaseUid != null && firebaseUid.isNotEmpty) return firebaseUid;
+    // The cached appUserId is not authentication proof and must never be used
+    // to read owner-scoped recommendation documents without a Firebase session.
     return null;
   }
 }

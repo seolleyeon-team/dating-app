@@ -17,6 +17,7 @@ import '../../../services/chat_profile_photo_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
 import '../../../services/push_notification_service.dart';
+import '../../../services/campus_life_zone_repair_service.dart';
 import '../../../router/route_names.dart';
 import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
@@ -215,6 +216,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   String? _currentUserId;
   String _currentUserName = '나';
   String? _currentUserAvatarUrl;
+  Set<String> _currentUserCampusLifeZones = const <String>{};
   String _roomId = '';
   String? _partnerDisplayAvatarUrl;
   String? _initError;
@@ -427,6 +429,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       _currentUserName = (onboarding is Map && onboarding['nickname'] != null)
           ? onboarding['nickname'].toString()
           : (user?['nickname']?.toString() ?? '나');
+      _currentUserCampusLifeZones =
+          CampusLifeZoneRepairService.zonesFromProfile(user);
 
       final resolvedAvatarUrl = ProfileDisplayImageResolver.resolve(user);
       _currentUserAvatarUrl = resolvedAvatarUrl.isEmpty
@@ -541,6 +545,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         initialCategory: initialCategory,
         initialPlace: initialPlace,
         initialPlaceId: initialPlaceId,
+        campusLifeZones: _currentUserCampusLifeZones,
       ),
     );
 
@@ -1227,145 +1232,147 @@ class _Header extends StatelessWidget {
         ? AppColorsDark.textSecondary
         : _AppColors.textSubtle;
 
-    return SafeArea(
-      bottom: false,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
-        decoration: BoxDecoration(
-          color: bgColor,
-          border: Border(bottom: BorderSide(color: borderColor)),
-        ),
-        child: SizedBox(
-          height: 52,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              CupertinoButton(
-                padding: EdgeInsets.zero,
-                onPressed: () {
-                  HapticFeedback.lightImpact();
-                  if (onBack != null) {
-                    onBack!();
-                  } else {
-                    Navigator.of(context).pop();
-                  }
-                },
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: buttonBg,
-                  ),
-                  child: Icon(
-                    CupertinoIcons.back,
-                    size: 24,
-                    color: textMainColor,
+    return Container(
+      decoration: BoxDecoration(
+        color: bgColor,
+        border: Border(bottom: BorderSide(color: borderColor)),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+          child: SizedBox(
+            height: 52,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    if (onBack != null) {
+                      onBack!();
+                    } else {
+                      Navigator.of(context).pop();
+                    }
+                  },
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: buttonBg,
+                    ),
+                    child: Icon(
+                      CupertinoIcons.back,
+                      size: 24,
+                      color: textMainColor,
+                    ),
                   ),
                 ),
-              ),
-              Expanded(
-                child: Align(
-                  alignment: Alignment.center,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.deferToChild,
-                    onTap: onProfileTap,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxWidth: MediaQuery.sizeOf(context).width * 0.42,
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.center,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.deferToChild,
+                      onTap: onProfileTap,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
                         ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontFamily: 'Pretendard',
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                                height: 1.1,
-                                letterSpacing: -0.3,
-                                color: textMainColor,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: MediaQuery.sizeOf(context).width * 0.42,
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontFamily: 'Pretendard',
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.1,
+                                  letterSpacing: -0.3,
+                                  color: textMainColor,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              university,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontFamily: 'Pretendard',
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                height: 1.1,
-                                color: textSubColor,
+                              const SizedBox(height: 2),
+                              Text(
+                                university,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontFamily: 'Pretendard',
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.1,
+                                  color: textSubColor,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              CupertinoButton(
-                padding: EdgeInsets.zero,
-                minimumSize: Size.zero,
-                onPressed: onPromiseTap,
-                child: Container(
-                  height: 40,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _AppColors.primarySoft.withValues(
-                      alpha: _AppColors.promiseFillAlpha,
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  minimumSize: Size.zero,
+                  onPressed: onPromiseTap,
+                  child: Container(
+                    height: 40,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
                     ),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Center(
-                    child: Text(
-                      '약속잡기',
-                      style: TextStyle(
-                        fontFamily: 'Pretendard',
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: _AppColors.primary,
+                    decoration: BoxDecoration(
+                      color: _AppColors.primarySoft.withValues(
+                        alpha: _AppColors.promiseFillAlpha,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Center(
+                      child: Text(
+                        '약속잡기',
+                        style: TextStyle(
+                          fontFamily: 'Pretendard',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: _AppColors.primary,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              CupertinoButton(
-                padding: EdgeInsets.zero,
-                onPressed: onMore,
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: buttonBg,
-                  ),
-                  child: Icon(
-                    CupertinoIcons.ellipsis,
-                    size: 24,
-                    color: textMainColor,
+                const SizedBox(width: 8),
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  onPressed: onMore,
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: buttonBg,
+                    ),
+                    child: Icon(
+                      CupertinoIcons.ellipsis,
+                      size: 24,
+                      color: textMainColor,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -2229,12 +2236,14 @@ class _PromiseCreateBottomSheet extends StatefulWidget {
   final String? initialCategory;
   final String? initialPlace;
   final String? initialPlaceId;
+  final Set<String> campusLifeZones;
 
   const _PromiseCreateBottomSheet({
     this.initialDateTime,
     this.initialCategory,
     this.initialPlace,
     this.initialPlaceId,
+    required this.campusLifeZones,
   });
 
   @override
@@ -2282,7 +2291,9 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
   }
 
   Future<void> _bootstrapSelectedPlace() async {
-    final list = await _placeService.loadPlaces();
+    final list = await _placeService.loadPlaces(
+      campusLifeZones: widget.campusLifeZones,
+    );
     if (!mounted) return;
 
     PromisePlace? selected;
@@ -2707,7 +2718,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                         ),
                         const SizedBox(height: 20),
                         const Text(
-                          '만날 장소 (송도)',
+                          '만날 장소',
                           style: TextStyle(
                             fontFamily: 'Pretendard',
                             fontSize: 15,
@@ -2728,6 +2739,7 @@ class _PromiseCreateBottomSheetState extends State<_PromiseCreateBottomSheet> {
                               final picked = await PromisePlacePickerSheet.show(
                                 context,
                                 initialPlaceId: _selectedPlace?.placeId,
+                                campusLifeZones: widget.campusLifeZones,
                               );
                               if (picked != null && mounted) {
                                 setState(() => _selectedPlace = picked);

@@ -1,8 +1,10 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart' show Brightness, Theme;
 import 'package:flutter/services.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 
 import '../../../services/contact_block_service.dart';
+import '../../../core/constants/app_colors.dart';
 import '../../../services/kakao_friend_connection_service.dart';
 import '../../../shared/utils/privacy_log_utils.dart';
 import '../../../utils/helpers.dart';
@@ -151,10 +153,16 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final background = isDark
+        ? AppColorsDark.background
+        : _AppColors.backgroundLight;
+    final surface = isDark ? AppColorsDark.surface : _AppColors.surfaceLight;
+    final text = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
     return CupertinoPageScaffold(
-      backgroundColor: _AppColors.backgroundLight,
+      backgroundColor: background,
       navigationBar: CupertinoNavigationBar(
-        backgroundColor: _AppColors.surfaceLight.withValues(alpha: 0.8),
+        backgroundColor: surface.withValues(alpha: 0.8),
         border: null,
         leading: CupertinoButton(
           padding: EdgeInsets.zero,
@@ -167,22 +175,22 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
             height: 40,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: CupertinoColors.black.withValues(alpha: 0.05),
+              color:
+                  (isDark
+                          ? AppColorsDark.surfaceVariant
+                          : CupertinoColors.black)
+                      .withValues(alpha: isDark ? 0.9 : 0.05),
             ),
-            child: const Icon(
-              CupertinoIcons.back,
-              size: 20,
-              color: _AppColors.textMain,
-            ),
+            child: Icon(CupertinoIcons.back, size: 20, color: text),
           ),
         ),
-        middle: const Text(
+        middle: Text(
           '연락처 차단',
           style: TextStyle(
             fontFamily: 'NanumSquareRound',
             fontSize: 18,
             fontWeight: FontWeight.w700,
-            color: _AppColors.textMain,
+            color: text,
           ),
         ),
       ),
@@ -193,20 +201,20 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildExplanationCard(),
+              _buildExplanationCard(context),
               const SizedBox(height: 24),
-              _buildPrivacyInfo(),
+              _buildPrivacyInfo(context),
               const SizedBox(height: 24),
-              _buildKakaoFriendLookupCard(),
+              _buildKakaoFriendLookupCard(context),
               const SizedBox(height: 32),
               _buildSyncButton(),
               if (_lastSyncTime != null) ...[
                 const SizedBox(height: 16),
-                _buildLastSyncInfo(),
+                _buildLastSyncInfo(context),
               ],
               if (_result != null) ...[
                 const SizedBox(height: 24),
-                _buildResultCard(),
+                _buildResultCard(context),
               ],
               if (_error != null) ...[
                 const SizedBox(height: 24),
@@ -219,11 +227,14 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
     );
   }
 
-  Widget _buildExplanationCard() {
+  Widget _buildExplanationCard(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surface = isDark ? AppColorsDark.surface : _AppColors.surfaceLight;
+    final text = isDark ? AppColorsDark.textPrimary : _AppColors.textMain;
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: _AppColors.surfaceLight,
+        color: surface,
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
@@ -252,14 +263,14 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
                 ),
               ),
               const SizedBox(width: 16),
-              const Expanded(
+              Expanded(
                 child: Text(
                   '내 연락처의 지인이\n설레연에서 추천되지 않도록',
                   style: TextStyle(
                     fontFamily: 'NanumSquareRound',
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
-                    color: _AppColors.textMain,
+                    color: text,
                     height: 1.4,
                   ),
                 ),
@@ -268,31 +279,36 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
           ),
           const SizedBox(height: 20),
           _infoRow(
+            context,
             CupertinoIcons.shield_lefthalf_fill,
             '연락처에 저장된 지인과 서로 추천되지 않아요.',
           ),
           const SizedBox(height: 12),
-          _infoRow(CupertinoIcons.chat_bubble, '기존 매치나 채팅은 그대로 유지돼요.'),
+          _infoRow(context, CupertinoIcons.chat_bubble, '기존 매치나 채팅은 그대로 유지돼요.'),
           const SizedBox(height: 12),
-          _infoRow(CupertinoIcons.eye_slash, '상대방에게 차단 사실이 알려지지 않아요.'),
+          _infoRow(context, CupertinoIcons.eye_slash, '상대방에게 차단 사실이 알려지지 않아요.'),
         ],
       ),
     );
   }
 
-  Widget _infoRow(IconData icon, String text) {
+  Widget _infoRow(BuildContext context, IconData icon, String text) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final secondary = isDark
+        ? AppColorsDark.textSecondary
+        : _AppColors.textSecondary;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 18, color: _AppColors.textSecondary),
+        Icon(icon, size: 18, color: secondary),
         const SizedBox(width: 10),
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'NanumSquareRound',
               fontSize: 14,
-              color: _AppColors.textSecondary,
+              color: secondary,
               height: 1.4,
             ),
           ),
@@ -301,11 +317,12 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
     );
   }
 
-  Widget _buildPrivacyInfo() {
+  Widget _buildPrivacyInfo(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0F9FF),
+        color: isDark ? const Color(0xFF1F2D38) : const Color(0xFFF0F9FF),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFBAE6FD)),
       ),
@@ -349,11 +366,13 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
     );
   }
 
-  Widget _buildKakaoFriendLookupCard() {
+  Widget _buildKakaoFriendLookupCard(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surface = isDark ? AppColorsDark.surface : _AppColors.surfaceLight;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _AppColors.surfaceLight,
+        color: surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: _AppColors.primary.withValues(alpha: 0.18)),
         boxShadow: [
@@ -525,28 +544,30 @@ class _ContactBlockScreenState extends State<ContactBlockScreen> {
     );
   }
 
-  Widget _buildLastSyncInfo() {
+  Widget _buildLastSyncInfo(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final timeStr = _lastSyncTime != null
         ? Helpers.getRelativeTime(_lastSyncTime!)
         : '';
     return Center(
       child: Text(
         '마지막 동기화: $timeStr',
-        style: const TextStyle(
+        style: TextStyle(
           fontFamily: 'NanumSquareRound',
           fontSize: 13,
-          color: _AppColors.gray400,
+          color: isDark ? AppColorsDark.textHint : _AppColors.gray400,
         ),
       ),
     );
   }
 
-  Widget _buildResultCard() {
+  Widget _buildResultCard(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final r = _result!;
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: _AppColors.surfaceLight,
+        color: isDark ? AppColorsDark.surface : _AppColors.surfaceLight,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: _AppColors.emerald500.withValues(alpha: 0.3)),
         boxShadow: [

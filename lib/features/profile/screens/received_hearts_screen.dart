@@ -9,9 +9,11 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../router/route_names.dart';
+import '../../../core/constants/app_colors.dart';
 import '../../../services/interaction_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
@@ -192,9 +194,13 @@ class _ReceivedHeartsScreenState extends State<ReceivedHeartsScreen> {
   @override
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final background = dark
+        ? AppColorsDark.background
+        : _AppColors.surfaceLight;
 
     return CupertinoPageScaffold(
-      backgroundColor: _AppColors.surfaceLight,
+      backgroundColor: background,
       child: Stack(
         children: [
           // 배경 그라데이션
@@ -210,7 +216,8 @@ class _ReceivedHeartsScreenState extends State<ReceivedHeartsScreen> {
                   end: Alignment.bottomCenter,
                   colors: [
                     _AppColors.primary.withValues(alpha: 0.1),
-                    CupertinoColors.white.withValues(alpha: 0),
+                    (dark ? AppColorsDark.background : CupertinoColors.white)
+                        .withValues(alpha: 0),
                   ],
                 ),
               ),
@@ -334,6 +341,8 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final text = dark ? AppColorsDark.textPrimary : _AppColors.textMain;
     return SafeArea(
       bottom: false,
       child: Container(
@@ -355,25 +364,25 @@ class _Header extends StatelessWidget {
                 height: 40,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: CupertinoColors.black.withValues(alpha: 0.05),
+                  color:
+                      (dark
+                              ? AppColorsDark.surfaceVariant
+                              : CupertinoColors.black)
+                          .withValues(alpha: dark ? 0.9 : 0.05),
                 ),
-                child: const Icon(
-                  CupertinoIcons.back,
-                  size: 20,
-                  color: _AppColors.textMain,
-                ),
+                child: Icon(CupertinoIcons.back, size: 20, color: text),
               ),
             ),
             Expanded(
               child: Text(
                 '받은 좋아요 ($count)',
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: _kFontFamily,
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                   letterSpacing: -0.3,
-                  color: _AppColors.textMain,
+                  color: text,
                 ),
               ),
             ),
@@ -403,6 +412,10 @@ class _ReceivedHeartCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final surface = dark ? AppColorsDark.surface : _AppColors.surfaceLight;
+    final text = dark ? AppColorsDark.textPrimary : _AppColors.textMain;
+    final subtext = dark ? AppColorsDark.textSecondary : _AppColors.textSub;
     return CupertinoButton(
       padding: EdgeInsets.zero,
       onPressed: () {
@@ -412,7 +425,7 @@ class _ReceivedHeartCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: _AppColors.surfaceLight,
+          color: surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: _AppColors.primary.withValues(alpha: 0.08)),
           boxShadow: [
@@ -447,11 +460,11 @@ class _ReceivedHeartCard extends StatelessWidget {
                             Flexible(
                               child: Text(
                                 item.name,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontFamily: _kFontFamily,
                                   fontSize: 16,
                                   fontWeight: FontWeight.w700,
-                                  color: _AppColors.textMain,
+                                  color: text,
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -468,12 +481,12 @@ class _ReceivedHeartCard extends StatelessWidget {
                       if (dateText.isNotEmpty)
                         Text(
                           dateText,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'NanumSquareRound',
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
                             letterSpacing: -0.3,
-                            color: _AppColors.textMain,
+                            color: text,
                           ),
                         ),
                     ],
@@ -485,10 +498,10 @@ class _ReceivedHeartCard extends StatelessWidget {
                       if (item.age > 0) '${item.age}세',
                       if (item.university.isNotEmpty) item.university,
                     ].join(' • '),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'NanumSquareRound',
                       fontSize: 12,
-                      color: _AppColors.textSub,
+                      color: subtext,
                     ),
                     overflow: TextOverflow.ellipsis,
                     maxLines: 1,
@@ -525,6 +538,7 @@ class _ProfileAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return ChatUnlockedProfileAvatar(
       currentUserId: currentUserId,
       targetUserId: targetUserId,
@@ -532,8 +546,8 @@ class _ProfileAvatar extends StatelessWidget {
       size: 72,
       borderWidth: 2,
       borderColor: _AppColors.primary.withValues(alpha: 0.15),
-      backgroundColor: _AppColors.gray100,
-      placeholderIconColor: _AppColors.gray400,
+      backgroundColor: dark ? AppColorsDark.surfaceVariant : _AppColors.gray100,
+      placeholderIconColor: dark ? AppColorsDark.textHint : _AppColors.gray400,
       placeholderIconSize: 32,
     );
   }
