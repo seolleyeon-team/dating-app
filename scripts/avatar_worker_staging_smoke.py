@@ -35,6 +35,8 @@ def _payload(args: argparse.Namespace) -> Dict[str, Any]:
         "uid": args.uid,
         "sourcePhotoIds": ["smoke_source_001"],
         "sourcePhotoRefs": [args.source_gcs_uri],
+        "sourcePhotoObjectGenerations": ["101"],
+        "sourceSelectionMode": "quality_selector_v1",
         "candidateCount": args.candidate_count,
         "modelId": AZURE_GPT_IMAGE_2_MODEL_ID,
         "jobType": "avatar_generation",
@@ -177,7 +179,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--source_gcs_uri",
         default="gs://seolleyeon-final-private-source-photos/users/avatar_staging_smoke_user/source/smoke_source_001.jpg",
     )
-    parser.add_argument("--candidate_count", type=int, default=4)
+    parser.add_argument("--candidate_count", type=int, default=2)
     parser.add_argument("--skip_trait_extraction", action="store_true")
     parser.add_argument("--force_mock_trait", action="store_true")
     args = parser.parse_args(argv)
