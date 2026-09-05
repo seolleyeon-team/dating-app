@@ -2,11 +2,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:seolleyeon/features/onboarding/widgets/avatar_generation_messages.dart';
 import 'package:seolleyeon/features/onboarding/widgets/avatar_generation_models.dart';
 import 'package:seolleyeon/services/avatar_generation_client.dart';
-import 'package:seolleyeon/services/avatar_source_photo_service.dart';
 
 void main() {
   group('AvatarCandidate', () {
@@ -226,7 +224,6 @@ void main() {
       () async {
         final client = MockAvatarGenerationClient(
           firstPollDelay: Duration.zero,
-          uploadDelay: Duration.zero,
           approveDelay: Duration.zero,
         );
         final result = await client.pollUntilPreviewReady(
@@ -245,7 +242,6 @@ void main() {
       () async {
         final client = MockAvatarGenerationClient(
           firstPollDelay: Duration.zero,
-          uploadDelay: Duration.zero,
           approveDelay: Duration.zero,
         );
         final r = await client.approveCandidate('cand_xyz');
@@ -258,7 +254,6 @@ void main() {
     test('pollUntilPreviewReady honors shouldContinue cancellation', () async {
       final client = MockAvatarGenerationClient(
         firstPollDelay: const Duration(milliseconds: 50),
-        uploadDelay: Duration.zero,
         approveDelay: Duration.zero,
         simulatedJobStatus: AvatarJobStatus.running,
       );
@@ -318,22 +313,6 @@ void main() {
       },
     );
 
-    test('uploadSourcePhoto returns queued status without throwing', () async {
-      final client = MockAvatarGenerationClient(
-        firstPollDelay: Duration.zero,
-        uploadDelay: Duration.zero,
-        approveDelay: Duration.zero,
-      );
-      final r = await client.uploadSourcePhoto(
-        file: XFile.fromData(
-          Uint8List.fromList([0, 0, 0, 0]),
-          name: 'mock.jpg',
-        ),
-        uid: 'kakao_test',
-      );
-      expect(r.jobId, isNotEmpty);
-      expect(r.avatarStatus, 'queued');
-    });
   });
 }
 
@@ -361,17 +340,6 @@ class _FlakyPollClient extends AvatarGenerationClient {
         AvatarCandidate(candidateId: 'cand_1', previewUrl: 'https://x/a.png'),
       ],
     );
-  }
-
-  @override
-  Future<AvatarSourcePhotoUploadResult> uploadSourcePhoto({
-    required XFile file,
-    required String uid,
-    int? slotIndex,
-    String? clientRequestId,
-    bool chatPartnerRealPhotoDisclosure = false,
-  }) async {
-    throw UnimplementedError();
   }
 
   @override

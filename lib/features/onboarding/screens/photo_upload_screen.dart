@@ -810,7 +810,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     }
   }
 
-  // legacy 단일 사진 generation 시작(_uploadPrimarySourcePhoto)은 제거됐다.
+  // 단일 사진 legacy generation 경로는 존재하지 않는다.
   // canonical 경로는 beginAvatarGenerationFromOnboardingPhotos 하나뿐이다.
 
   String _sourceUploadFailureMessage(FirebaseFunctionsException error) {

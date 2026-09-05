@@ -46,16 +46,19 @@ test("new jobs use server-controlled quality selector mode and 2 candidate initi
   assert.equal(job.selectedSource, undefined);
 });
 
-test("only server environment can choose rollback mode", () => {
+test("the retired rollback mode is a configuration error, never reinterpreted", () => {
   assert.equal(resolveServerSourceSelectionMode({}), QUALITY_SELECTOR_MODE);
   assert.equal(
-    resolveServerSourceSelectionMode({ AVATAR_SOURCE_SELECTION_MODE: "legacy_first_photo" }),
-    "legacy_first_photo",
+    resolveServerSourceSelectionMode({ AVATAR_SOURCE_SELECTION_MODE: "quality_selector_v1" }),
+    QUALITY_SELECTOR_MODE,
   );
-  assert.throws(
-    () => resolveServerSourceSelectionMode({ AVATAR_SOURCE_SELECTION_MODE: "client_choice" }),
-    /AVATAR_SOURCE_SELECTION_MODE/,
-  );
+  for (const stale of ["legacy_first_photo", "client_choice", "flux"]) {
+    assert.throws(
+      () => resolveServerSourceSelectionMode({ AVATAR_SOURCE_SELECTION_MODE: stale }),
+      /avatar_source_selection_mode_invalid/,
+      `${stale} must fail closed`,
+    );
+  }
 });
 
 test("duplicate admission only re-dispatches a job whose queue write never completed", () => {

@@ -3,100 +3,93 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import {
-  assertLegacyAvatarGenerationStartAllowed,
-  legacyAvatarGenerationStartAllowed,
-} from "./avatarMedia";
-
 /**
- * CANONICAL ADMISSION CONTRACT (product decision, 2026-09-05)
+ * CANONICAL ADMISSION CONTRACT (final, 2026-09-05)
  *
  *   photo upload      -> no generation source lock, no job, no task
- *   generation submit -> source selection -> source lock -> job -> task
+ *   generation submit -> exactly one admission authority
+ *                        (beginAvatarGenerationFromOnboardingPhotos)
+ *                        -> selection -> lock -> job -> task
  *
- * These assertions are real (no todo): the legacy single-photo callable is
- * gated closed before any Storage/Firestore/Tasks write unless the explicit
- * rollback mode is configured, so exactly one callable can own generation
- * admission at runtime.
+ * The legacy single-photo callable `uploadAvatarSourcePhoto` is RETIRED:
+ * not exported, not registered, no factory in the tree, no rollback mode.
+ * Existing legacy jobs stay readable; they can never spawn a new legacy
+ * lock/job/task (their retry is refused; recovery is a new source set).
  */
 
 const SRC = path.join(__dirname, "..", "src");
 
 function readSource(file: string): string {
   const raw = readFileSync(path.join(SRC, file));
-  // avatarMedia.ts is stored as UTF-16LE.
   if (raw[0] === 0xff && raw[1] === 0xfe) return raw.toString("utf16le");
   return raw.toString("utf8");
 }
 
-const LOCK_FIELD_MARKERS = ["currentAvatarSourcePhotoId", "currentAvatarJobId"];
-
-function uploadFactoryBody(): string {
-  const source = readSource("avatarMedia.ts");
-  const start = source.indexOf("export function createUploadAvatarSourcePhotoFunction");
-  const end = source.indexOf("export function createGetCurrentAvatarGenerationStatusFunction");
-  assert.ok(start > 0 && end > start, "upload factory boundaries must be locatable");
-  return source.slice(start, end);
+function exportedCallableNames(source: string): string[] {
+  return [...source.matchAll(/export const ([A-Za-z0-9_]+)\s*=/g)].map((m) => m[1]);
 }
 
-test("legacy upload path cannot acquire a new-generation source lock under canonical mode", () => {
-  // Behavioural: the gate is closed by default and in the canonical mode.
-  assert.equal(legacyAvatarGenerationStartAllowed({}), false);
-  assert.equal(
-    legacyAvatarGenerationStartAllowed({ AVATAR_SOURCE_SELECTION_MODE: "quality_selector_v1" }),
-    false,
-  );
-  assert.throws(() => assertLegacyAvatarGenerationStartAllowed({}));
-
-  // Structural: the gate runs before the first Storage/Firestore mutation in
-  // the factory, so no lock field can be written when it throws.
-  const body = uploadFactoryBody();
-  const gateAt = body.indexOf("assertLegacyAvatarGenerationStartAllowed();");
-  assert.ok(gateAt > 0, "the legacy gate must be invoked inside the upload factory");
-  const firstMutation = Math.min(
-    ...["savePrivateSourceObject(", "runTransaction(", ...LOCK_FIELD_MARKERS]
-      .map((marker) => body.indexOf(marker))
-      .filter((index) => index >= 0),
-  );
-  assert.ok(gateAt < firstMutation, "the gate must precede every lock/storage write");
-});
-
-test("legacy upload path cannot enqueue generation for new onboarding under canonical mode", () => {
-  const body = uploadFactoryBody();
-  const gateAt = body.indexOf("assertLegacyAvatarGenerationStartAllowed();");
-  const enqueueAt = body.indexOf("enqueueUploadQueuePayloads(");
-  assert.ok(enqueueAt > 0, "legacy enqueue must still exist for the rollback mode");
-  assert.ok(gateAt > 0 && gateAt < enqueueAt, "the gate must precede the legacy enqueue");
-});
-
-test("exactly one un-gated generation admission entry point is registered", () => {
+test("uploadAvatarSourcePhoto is not exported and not registered", () => {
   const index = readSource("index.ts");
-  assert.ok(
-    index.includes("createBeginAvatarGenerationFromOnboardingPhotosFunction("),
-    "the source-set admission callable must be registered",
-  );
-  // The legacy callable may stay registered for in-flight compatibility, but
-  // only behind the gate proven above.
-  const legacyRegistered = index.includes("createUploadAvatarSourcePhotoFunction(db");
-  if (legacyRegistered) {
-    assert.ok(
-      uploadFactoryBody().includes("assertLegacyAvatarGenerationStartAllowed();"),
-      "a registered legacy callable must be gated",
-    );
+  assert.ok(!exportedCallableNames(index).includes("uploadAvatarSourcePhoto"));
+  assert.ok(!index.includes("createUploadAvatarSourcePhotoFunction"));
+  assert.ok(!index.includes("uploadAvatarSourcePhoto"));
+});
+
+test("the legacy single-photo factory and its upload-only helpers no longer exist", () => {
+  const media = readSource("avatarMedia.ts");
+  for (const symbol of [
+    "createUploadAvatarSourcePhotoFunction",
+    "enqueueUploadQueuePayloads",
+    "savePrivateSourceObject",
+    "planAvatarUploadState",
+    "decideAvatarUploadRequest",
+    "buildRetryAvatarJobPlan",
+    "buildAvatarPayload(",
+    "legacyAvatarGenerationStartAllowed",
+    "legacy_first_photo",
+  ]) {
+    assert.ok(!media.includes(symbol), `${symbol} must be gone from avatarMedia.ts`);
   }
 });
 
-test("per-photo upload never creates a job or takes a lock", () => {
+test("legacy jobs are read-only: retry of a non source-set job is refused, never re-dispatched", () => {
+  const media = readSource("avatarMedia.ts");
+  const start = media.indexOf("export function createRetryCurrentAvatarGenerationFunction");
+  const end = media.indexOf("export function", start + 10);
+  const retry = media.slice(start, end > 0 ? end : undefined);
+  assert.ok(retry.includes("avatar_legacy_job_retry_retired"));
+  assert.ok(retry.includes("isSourceSetAvatarJob(currentJobData)"));
+  // The only dispatch in the retry callable is the source-set re-dispatch.
+  assert.equal((retry.match(/enqueueQueuePayload\(/g) ?? []).length, 1);
+  assert.ok(!retry.includes("buildRetryAvatarPayload"));
+});
+
+test("exactly one new-generation admission authority is registered", () => {
+  const index = readSource("index.ts");
+  const authorities = exportedCallableNames(index).filter(
+    (name) => name === "beginAvatarGenerationFromOnboardingPhotos" || name === "uploadAvatarSourcePhoto",
+  );
+  assert.deepEqual(authorities, ["beginAvatarGenerationFromOnboardingPhotos"]);
+  assert.equal((index.match(/createBeginAvatarGenerationFromOnboardingPhotosFunction\(/g) ?? []).length, 1);
+});
+
+test("per-photo onboarding upload never creates a job or takes a lock", () => {
   const source = readSource("onboardingPhotoUpload.ts");
-  for (const marker of [...LOCK_FIELD_MARKERS, "avatarJobs", "createTask", "enqueue"]) {
+  for (const marker of ["currentAvatarSourcePhotoId", "currentAvatarJobId", "avatarJobs", "createTask", "enqueue"]) {
     assert.ok(!source.includes(marker), `uploadOnboardingPhoto must not reference ${marker}`);
   }
 });
 
-test("the source-set admission does not lock a source before the worker selects one", () => {
-  // Phase A writes the job pointer only; the source pointer is written by the
-  // worker in the same transaction that records the selection.
+test("source-set admission waits for server selection before locking a source", () => {
   const source = readSource("avatarSourceSetAdmission.ts");
-  assert.ok(!source.includes("currentAvatarSourcePhotoId:"), "Phase A must not write the source pointer");
-  assert.ok(source.includes('status: "pending"'), "Phase A must declare the pending selection state");
+  assert.ok(!source.includes("currentAvatarSourcePhotoId:"));
+  assert.ok(source.includes('status: "pending"'));
+  assert.ok(source.includes("parseOnboardingPhotoSourceSet(data.sourcePhotos)"));
+});
+
+test("no rollback selection mode survives in Functions sources", () => {
+  for (const file of ["avatarSourceSelectionAdmission.ts", "avatarSourceSetAdmission.ts", "avatarSourceSetQueue.ts", "avatarMedia.ts"]) {
+    assert.ok(!readSource(file).includes("legacy_first_photo"), `${file} must not mention legacy_first_photo`);
+  }
 });

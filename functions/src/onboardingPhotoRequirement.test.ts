@@ -130,21 +130,13 @@ test("evidence read failure fails closed, not open", async () => {
   );
 });
 
-test("uploadAvatarSourcePhoto admission enforces the photo requirement", () => {
-  // avatarMedia.ts is stored as UTF-16 LE.
-  const avatarMediaSrc = readFileSync(
-    resolve(__dirname, "../src/avatarMedia.ts"),
-    "utf16le",
-  );
-  // Canonical admission (2026-09-05): the legacy single-photo start is gated
-  // closed right after the kill switches; the photo-evidence requirement is
-  // still enforced immediately after that gate in the rollback mode.
-  assert.match(
-    avatarMediaSrc,
-    /enforceAvatarUploadAllowlist\(uid\);\s*throwIfAvatarGenerationDisabled\(\);\s*(?:\/\/[^\r\n]*\s*)*assertLegacyAvatarGenerationStartAllowed\(\);\s*await assertMinimumOnboardingPhotoEvidence\(\{ userId: uid \}\);/,
-  );
-  assert.match(
-    avatarMediaSrc,
-    /import \{ assertMinimumOnboardingPhotoEvidence \} from "\.\/onboardingPhotoRequirement";/,
-  );
+test("canonical source-set admission enforces the 2-6 photo requirement server-side", () => {
+  const admission = readFileSync(resolve(__dirname, "../src/avatarSourceSetAdmission.ts"), "utf8");
+  const sourceSet = readFileSync(resolve(__dirname, "../src/onboardingPhotoSourceSet.ts"), "utf8");
+  assert.match(admission, /parseOnboardingPhotoSourceSet\(data\.sourcePhotos\)/);
+  assert.match(sourceSet, /export const MIN_AVATAR_SOURCE_PHOTOS = 2;/);
+  assert.match(sourceSet, /export const MAX_AVATAR_SOURCE_PHOTOS = 6;/);
+  // The retired single-photo factory no longer exists in the tree.
+  const media = readFileSync(resolve(__dirname, "../src/avatarMedia.ts"), "utf16le");
+  assert.ok(!media.includes("createUploadAvatarSourcePhotoFunction"));
 });

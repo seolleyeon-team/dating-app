@@ -71,7 +71,6 @@ export { submitSafetyStamp, submitSafetyStampFollowUp } from "./safetyStamp";
 import {
   createGetCurrentAvatarGenerationStatusFunction,
   createRetryCurrentAvatarGenerationFunction,
-  createUploadAvatarSourcePhotoFunction,
 } from "./avatarMedia";
 import {
   createApproveAvatarCandidateFunction,
@@ -1992,8 +1991,6 @@ async function resolveCallableUserFirebaseOnly(request: {
   return await resolveAuthedAppUser(request.auth);
 }
 
-export const uploadAvatarSourcePhoto =
-  createUploadAvatarSourcePhotoFunction(db, resolveAuthedAppUser);
 
 export const uploadOnboardingPhoto = createUploadOnboardingPhotoFunction(
   resolveAuthedAppUser,

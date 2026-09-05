@@ -10,7 +10,7 @@ import {
 export type AvatarSourceSetQueuePayload = QueueDispatchPayload & {
   jobId: string;
   sourcePhotoObjectGenerations: string[];
-  sourceSelectionMode: "quality_selector_v1" | "legacy_first_photo";
+  sourceSelectionMode: "quality_selector_v1";
   consentPurposes: {
     avatarGeneration: true;
     clipRecommendation: boolean;

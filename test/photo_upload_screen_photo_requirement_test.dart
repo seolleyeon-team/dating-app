@@ -20,7 +20,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// - 승인된 아바타 보유(재방문) → 사진 재등록 없이 진행 가능
 /// - "사진은 나중에 추가할 수 있어요" 류의 우회 카피는 존재하지 않는다
 class _CountingAvatarClient extends AvatarGenerationClient {
-  int uploadCalls = 0;
   int beginCalls = 0;
   final List<String> polledJobIds = <String>[];
 
@@ -39,24 +38,6 @@ class _CountingAvatarClient extends AvatarGenerationClient {
       message: 'avatar_generation_queued',
       duplicate: false,
       sourceSelectionVersion: 1,
-    );
-  }
-
-  @override
-  Future<AvatarSourcePhotoUploadResult> uploadSourcePhoto({
-    required XFile file,
-    required String uid,
-    int? slotIndex,
-    String? clientRequestId,
-    bool chatPartnerRealPhotoDisclosure = false,
-  }) async {
-    uploadCalls += 1;
-    return const AvatarSourcePhotoUploadResult(
-      jobId: 'avatar_job_fresh_000000001',
-      photoId: 'photo_fresh',
-      avatarStatus: 'queued',
-      message: 'avatar_generation_queued',
-      duplicate: false,
     );
   }
 
@@ -306,7 +287,6 @@ void main() {
 
       // canonical: source-set admission 한 번, legacy 단일 사진 업로드 0회.
       expect(client.beginCalls, 1);
-      expect(client.uploadCalls, 0);
       expect(client.polledJobIds, ['avatar_job_fresh_000000001']);
       expect(find.byType(AvatarCandidateSelectionDialog), findsOneWidget);
     });
@@ -340,7 +320,6 @@ void main() {
       _drainExpectedImageLoadException(tester);
 
       expect(client.beginCalls, 1);
-      expect(client.uploadCalls, 0);
     });
 
     testWidgets('서버 source ref 가 없으면 legacy 생성을 시작하지 않고 멈춘다', (
@@ -371,7 +350,6 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       _drainExpectedImageLoadException(tester);
 
-      expect(client.uploadCalls, 0, reason: 'legacy generation must never start');
       expect(client.beginCalls, 0);
       expect(advancedPhotos, isNull);
       expect(find.text(avatarBackendIncompatibleMessage), findsWidgets);

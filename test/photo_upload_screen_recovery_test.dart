@@ -5,7 +5,6 @@
 // photo_upload_screen_avatar_flow_test.dart.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:seolleyeon/features/onboarding/screens/photo_upload_screen.dart';
 import 'package:seolleyeon/features/onboarding/services/avatar_resume_policy.dart';
 import 'package:seolleyeon/features/onboarding/widgets/avatar_generation_error_banner.dart';
@@ -36,15 +35,6 @@ class _RecoveryClient extends AvatarGenerationClient {
   int replaceCalls = 0;
   int retryCalls = 0;
   int pollCount = 0;
-
-  @override
-  Future<AvatarSourcePhotoUploadResult> uploadSourcePhoto({
-    required XFile file,
-    required String uid,
-    int? slotIndex,
-    String? clientRequestId,
-    bool chatPartnerRealPhotoDisclosure = false,
-  }) async => throw UnsupportedError('legacy path removed');
 
   @override
   Future<AvatarCandidatesResult> getCandidates(String jobId) async {

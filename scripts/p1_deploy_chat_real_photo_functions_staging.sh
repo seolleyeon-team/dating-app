@@ -17,7 +17,7 @@ prepare_firebase_deploy_project "$PROJECT" "$FIREBASE_PROJECT_EFFECTIVE"
 npm --prefix functions run build
 npm --prefix functions test
 
-TARGETS="functions:getChatRealProfilePhoto,functions:uploadAvatarSourcePhoto"
+TARGETS="functions:getChatRealProfilePhoto,functions:beginAvatarGenerationFromOnboardingPhotos"
 if [ -n "${CHAT_REAL_PHOTO_CLEANUP_FUNCTION:-}" ]; then
   TARGETS="$TARGETS,functions:$CHAT_REAL_PHOTO_CLEANUP_FUNCTION"
 fi
