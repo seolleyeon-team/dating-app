@@ -1,14 +1,22 @@
 import 'package:flutter/material.dart';
 
+import 'avatar_generation_messages.dart';
+
 class AvatarGenerationErrorBanner extends StatelessWidget {
   const AvatarGenerationErrorBanner({
     super.key,
     required this.message,
     this.onRetry,
+    this.onStartOver,
   });
 
   final String message;
+
+  /// 같은 generation 재시도. 서버가 허용할 때만 non-null.
   final VoidCallback? onRetry;
+
+  /// 새 사진 세트로 새 generation 시작. needs_review/최종 실패에서만 non-null.
+  final VoidCallback? onStartOver;
 
   @override
   Widget build(BuildContext context) {
@@ -59,6 +67,26 @@ class AvatarGenerationErrorBanner extends StatelessWidget {
                         fontFamily: 'Pretendard',
                         fontSize: 13,
                         fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+                if (onStartOver != null) ...[
+                  const SizedBox(height: 6),
+                  TextButton(
+                    onPressed: onStartOver,
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 32),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      foregroundColor: const Color(0xFF7A1D3A),
+                    ),
+                    child: const Text(
+                      avatarStartOverButtonLabel,
+                      style: TextStyle(
+                        fontFamily: 'Pretendard',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),

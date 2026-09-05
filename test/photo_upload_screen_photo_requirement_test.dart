@@ -6,7 +6,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:seolleyeon/features/onboarding/screens/photo_upload_screen.dart';
 import 'package:seolleyeon/features/onboarding/widgets/avatar_candidate_selection_dialog.dart';
 import 'package:seolleyeon/features/onboarding/widgets/avatar_generation_models.dart';
+import 'package:seolleyeon/features/onboarding/widgets/avatar_generation_messages.dart';
 import 'package:seolleyeon/services/avatar_generation_client.dart';
+import 'package:seolleyeon/services/onboarding_photo_source_ref.dart';
 import 'package:seolleyeon/services/avatar_source_photo_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -19,7 +21,26 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// - "사진은 나중에 추가할 수 있어요" 류의 우회 카피는 존재하지 않는다
 class _CountingAvatarClient extends AvatarGenerationClient {
   int uploadCalls = 0;
+  int beginCalls = 0;
   final List<String> polledJobIds = <String>[];
+
+  @override
+  Future<AvatarSourcePhotoUploadResult> beginFromOnboardingPhotos({
+    required List<OnboardingPhotoSourceRef> sourcePhotos,
+    required String uid,
+    String? clientRequestId,
+    bool chatPartnerRealPhotoDisclosure = false,
+  }) async {
+    beginCalls += 1;
+    return const AvatarSourcePhotoUploadResult(
+      jobId: 'avatar_job_fresh_000000001',
+      photoId: '',
+      avatarStatus: 'queued',
+      message: 'avatar_generation_queued',
+      duplicate: false,
+      sourceSelectionVersion: 1,
+    );
+  }
 
   @override
   Future<AvatarSourcePhotoUploadResult> uploadSourcePhoto({
@@ -50,6 +71,8 @@ class _CountingAvatarClient extends AvatarGenerationClient {
     Duration pollInterval = const Duration(seconds: 2),
     Duration timeout = const Duration(seconds: 150),
     bool Function()? shouldContinue,
+    int maxConsecutiveErrors =
+        AvatarGenerationClient.defaultMaxConsecutivePollErrors,
   }) async {
     polledJobIds.add(jobId);
     return _previewReady(jobId);
@@ -89,11 +112,25 @@ Future<void> _useMobileSurface(WidgetTester tester) async {
   });
 }
 
+const _verifiedRefs = <OnboardingPhotoSourceRef?>[
+  OnboardingPhotoSourceRef(
+    photoId: 'photo_0001_verified',
+    slotIndex: 0,
+    objectGeneration: '101',
+  ),
+  OnboardingPhotoSourceRef(
+    photoId: 'photo_0002_verified',
+    slotIndex: 1,
+    objectGeneration: '102',
+  ),
+];
+
 Widget _harness({
   required AvatarGenerationClient client,
   required void Function(List<String>) onNext,
   List<String?>? initialPhotos,
   List<XFile?>? initialPickedFiles,
+  List<OnboardingPhotoSourceRef?>? initialSourceRefs,
   String? lockedApprovedAvatarUrl,
 }) {
   return MaterialApp(
@@ -101,6 +138,7 @@ Widget _harness({
       avatarGenerationClient: client,
       initialPhotosForTesting: initialPhotos ?? const <String?>[],
       initialPickedFilesForTesting: initialPickedFiles,
+      initialSourceRefsForTesting: initialSourceRefs,
       lockedApprovedAvatarUrlForTesting: lockedApprovedAvatarUrl,
       onNext: onNext,
     ),
@@ -240,7 +278,9 @@ void main() {
       expect(advancedPhotos, [approvedUrl]);
     });
 
-    testWidgets('다음을 누르면 대표 사진으로 아바타 생성이 시작된다', (tester) async {
+    testWidgets('다음을 누르면 검증된 사진 세트로 서버 선택 생성이 한 번 시작된다', (
+      tester,
+    ) async {
       await _useMobileSurface(tester);
       final client = _CountingAvatarClient();
 
@@ -252,6 +292,7 @@ void main() {
             'https://photo.example/p2.jpg',
           ],
           initialPickedFiles: [_fakePickedFile('p1.jpg'), null],
+          initialSourceRefs: _verifiedRefs,
           onNext: (_) {},
         ),
       );
@@ -263,12 +304,16 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       _drainExpectedImageLoadException(tester);
 
-      expect(client.uploadCalls, 1);
+      // canonical: source-set admission 한 번, legacy 단일 사진 업로드 0회.
+      expect(client.beginCalls, 1);
+      expect(client.uploadCalls, 0);
       expect(client.polledJobIds, ['avatar_job_fresh_000000001']);
       expect(find.byType(AvatarCandidateSelectionDialog), findsOneWidget);
     });
 
-    testWidgets('다음 버튼 연타에도 아바타 소스 업로드는 한 번만 발생한다', (tester) async {
+    testWidgets('다음 버튼 연타에도 source-set admission 은 한 번만 발생한다', (
+      tester,
+    ) async {
       await _useMobileSurface(tester);
       final client = _CountingAvatarClient();
 
@@ -280,6 +325,7 @@ void main() {
             'https://photo.example/p2.jpg',
           ],
           initialPickedFiles: [_fakePickedFile('p1.jpg'), null],
+          initialSourceRefs: _verifiedRefs,
           onNext: (_) {},
         ),
       );
@@ -293,10 +339,15 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       _drainExpectedImageLoadException(tester);
 
-      expect(client.uploadCalls, 1);
+      expect(client.beginCalls, 1);
+      expect(client.uploadCalls, 0);
     });
 
-    testWidgets('대표 사진 원본이 없으면 진행하지 않고 재선택을 안내한다', (tester) async {
+    testWidgets('서버 source ref 가 없으면 legacy 생성을 시작하지 않고 멈춘다', (
+      tester,
+    ) async {
+      // NEW CLIENT + OLD FUNCTIONS: 사진은 있지만 서버가 source ref 를 돌려주지
+      // 않았다. 첫 사진으로 몰래 legacy generation 을 시작하면 안 된다.
       await _useMobileSurface(tester);
       final client = _CountingAvatarClient();
       List<String>? advancedPhotos;
@@ -308,6 +359,7 @@ void main() {
             'https://photo.example/p1.jpg',
             'https://photo.example/p2.jpg',
           ],
+          initialPickedFiles: [_fakePickedFile('p1.jpg'), _fakePickedFile('p2.jpg')],
           onNext: (photos) => advancedPhotos = photos,
         ),
       );
@@ -319,9 +371,11 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       _drainExpectedImageLoadException(tester);
 
-      expect(client.uploadCalls, 0);
+      expect(client.uploadCalls, 0, reason: 'legacy generation must never start');
+      expect(client.beginCalls, 0);
       expect(advancedPhotos, isNull);
-      expect(find.textContaining('다시 선택'), findsWidgets);
+      expect(find.text(avatarBackendIncompatibleMessage), findsWidgets);
+      expect(find.text('다시 시도'), findsNothing);
     });
   });
 }

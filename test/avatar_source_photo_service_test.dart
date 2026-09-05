@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/services/avatar_source_photo_service.dart';
+import 'package:seolleyeon/services/onboarding_photo_source_ref.dart';
 
 void main() {
   test('upload metadata matches the backend request contract', () {
@@ -80,5 +81,22 @@ void main() {
       const AvatarSourceLockedException().toString(),
       '아바타 생성이 시작되어 사진을 변경할 수 없어요.',
     );
+  });
+
+  test('onboarding source ref exposes only opaque server-issued fields', () {
+    const ref = OnboardingPhotoSourceRef(
+      photoId: 'photo_12345678',
+      slotIndex: 2,
+      objectGeneration: '123456789',
+    );
+
+    expect(ref.isValid, isTrue);
+    expect(ref.toMap(), {
+      'photoId': 'photo_12345678',
+      'slotIndex': 2,
+      'objectGeneration': '123456789',
+    });
+    expect(ref.toMap().containsKey('url'), isFalse);
+    expect(ref.toMap().containsKey('path'), isFalse);
   });
 }

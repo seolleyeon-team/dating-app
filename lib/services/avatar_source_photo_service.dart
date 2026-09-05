@@ -6,6 +6,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
 
+import 'onboarding_photo_source_ref.dart';
+
 class AvatarSourcePhotoUploadResult {
   final String jobId;
   final String photoId;
@@ -119,6 +121,59 @@ class AvatarSourcePhotoService {
       clientRequestId: clientRequestId,
       chatPartnerRealPhotoDisclosure: chatPartnerRealPhotoDisclosure,
     );
+  }
+
+  Future<AvatarSourcePhotoUploadResult> beginFromOnboardingPhotos({
+    required List<OnboardingPhotoSourceRef> sourcePhotos,
+    String? uid,
+    String? clientRequestId,
+    bool chatPartnerRealPhotoDisclosure = false,
+  }) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) {
+      throw Exception('Firebase login session is required for private upload.');
+    }
+    if (sourcePhotos.length < 2 ||
+        sourcePhotos.length > 6 ||
+        sourcePhotos.any((source) => !source.isValid)) {
+      throw ArgumentError.value(sourcePhotos, 'sourcePhotos');
+    }
+    await currentUser.getIdToken(true);
+    final stableClientRequestId = clientRequestId?.trim().isNotEmpty == true
+        ? clientRequestId!.trim()
+        : createClientRequestId();
+    final HttpsCallableResult<dynamic> result;
+    try {
+      result = await _functions
+          .httpsCallable('beginAvatarGenerationFromOnboardingPhotos')
+          .call(<String, dynamic>{
+            ...buildUploadMetadata(clientRequestId: stableClientRequestId),
+            'sourcePhotos': sourcePhotos
+                .map((source) => source.toMap())
+                .toList(),
+            if (uid != null && uid.trim().isNotEmpty) 'uid': uid,
+            'chatPartnerRealPhotoDisclosure': chatPartnerRealPhotoDisclosure,
+          });
+    } on FirebaseFunctionsException catch (error) {
+      if (error.code == 'failed-precondition' &&
+          (error.message ?? '').contains('avatar_already_approved')) {
+        throw const AvatarAlreadyApprovedException();
+      }
+      if (error.code == 'failed-precondition' &&
+          (error.message ?? '').contains('avatar_source_locked')) {
+        throw const AvatarSourceLockedException();
+      }
+      rethrow;
+    }
+    final raw = result.data;
+    final map = raw is Map
+        ? raw.map((key, value) => MapEntry(key.toString(), value))
+        : <String, dynamic>{};
+    final parsed = AvatarSourcePhotoUploadResult.fromMap(map);
+    if (parsed.jobId.isEmpty) {
+      throw Exception('Private source-set response was incomplete.');
+    }
+    return parsed;
   }
 
   Future<AvatarSourcePhotoUploadResult> uploadBytes({
