@@ -16,6 +16,7 @@ const String sourceLockedAvatarFailureMessage =
 
 const Set<String> sourceLockedAvatarStatuses = {
   'queued',
+  'source_selecting',
   'generating',
   'running',
   'qa_pending',
@@ -23,6 +24,10 @@ const Set<String> sourceLockedAvatarStatuses = {
   'needs_review',
   'no_previewable_candidates',
   'failed',
+  // 서버가 실제로 기록하는 종료 상태. 빠지면 jobId 가 버려져 복구가 끊긴다.
+  'retryable_failed',
+  'terminal_failed',
+  'reconciliation_required',
 };
 
 AvatarLockState avatarLockStateFromUserProfile(Map<String, dynamic>? data) {
