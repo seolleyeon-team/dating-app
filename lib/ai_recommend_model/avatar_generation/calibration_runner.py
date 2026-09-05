@@ -17,7 +17,15 @@ from .calibration_evaluator import redact_calibration_report
 CALIBRATION_PURPOSE = "g004_quality_calibration"
 EXPECTED_STAGING_PROJECT = "seolleyeon-final"
 MAX_CANDIDATES_PER_PARTICIPANT = 4
-MAX_VERIFIED_PROVIDER_RPM = 2.0
+# provider quota 는 endpoint 별 단일 authority 에서만 온다.
+# calibration 과 runtime generation 이 서로 다른 env 를 읽어 상대를 무시하던
+# 문제를 막는다(2026-09-05).
+from avatar_generation.model_adapters.azure_endpoint_quota import (
+    declared_endpoint_quota,
+    resolve_endpoint_rpm,
+)
+
+MAX_VERIFIED_PROVIDER_RPM = declared_endpoint_quota().rpm_limit
 
 
 class CalibrationRunnerError(RuntimeError):
@@ -63,8 +71,10 @@ class CalibrationRunnerConfig:
             raise ValueError("Calibration candidate count must be between 1 and 4.")
         if not math.isfinite(float(self.quota_rpm)) or float(self.quota_rpm) <= 0:
             raise ValueError("Calibration quota RPM must be positive.")
-        if float(self.quota_rpm) > MAX_VERIFIED_PROVIDER_RPM:
-            raise ValueError("Calibration quota RPM cannot exceed the verified 2 RPM provider quota.")
+        if float(self.quota_rpm) > declared_endpoint_quota().rpm_limit:
+            raise ValueError(
+                "Calibration quota RPM cannot exceed the verified 2 RPM provider quota."
+            )
         if int(self.max_retries) < 0 or int(self.max_retries) > 3:
             raise ValueError("Calibration retry count is outside the allowed range.")
         object.__setattr__(self, "enabled", bool(self.enabled))
@@ -90,10 +100,7 @@ class CalibrationRunnerConfig:
         )
         purpose = _env_text("AVATAR_CALIBRATION_PURPOSE")
         enabled = _env_bool("AVATAR_CALIBRATION_RUN_ENABLED")
-        rpm = _env_float(
-            "AVATAR_AZURE_QUOTA_RPM",
-            _env_float("AZURE_OPENAI_QUOTA_RPM", _env_float("AVATAR_PROVIDER_RPM", 2.0)),
-        )
+        rpm = resolve_endpoint_rpm()
         run_id = _env_text("AVATAR_CALIBRATION_RUN_ID") or _default_run_id()
         return cls(
             enabled=enabled,

@@ -47,7 +47,12 @@ BASE_QUEUES = {"avatar-generation"}
 CLIP_QUEUES = {"clip-embedding"}
 REQUIRED_WORKER_SERVICES = {"seolleyeon-avatar-worker"}
 OPTIONAL_WORKER_SERVICES = {"seolleyeon-clip-worker"}
-REQUIRED_SECRETS: set[str] = set()
+REQUIRED_SECRETS: set[str] = {
+    # Azure 자격증명은 Secret Manager 에만 존재해야 한다. 이 시크릿이 없으면
+    # 워커는 첫 생성에서 azure_provider_configuration_missing_ 로 실패한다.
+    # 값은 여기에도, 배포 스크립트에도 남기지 않는다(참조 이름만).
+    "seolleyeon-avatar-azure-openai-api-key",
+}
 REQUIRED_BUCKETS = {
     "seolleyeon-final-private-source-photos",
     "seolleyeon-final-avatar-temp",

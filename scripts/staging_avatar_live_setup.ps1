@@ -6,6 +6,8 @@ param(
   [string]$Tag = "staging-avatar-worker",
   [string]$ExpectedAccount = "seolleyeon.official@gmail.com",
   [string]$FunctionsEnvFile = "functions/.env.seolleyeon-final",
+  # Secret Manager 시크릿 "이름"만 받는다. 값은 절대 인자로 받지 않는다.
+  [string]$AzureApiKeySecret = "seolleyeon-avatar-azure-openai-api-key",
   [switch]$PrepareOnly,
   [switch]$UpdateFunctionsEnv,
   [switch]$DeployUploadFunction,
@@ -354,11 +356,11 @@ if (-not $PrepareOnly) {
       "AVATAR_BACKGROUND_TEXT_LOGO_BLUR=true"
       "AVATAR_SAM_ENABLED=false"
       "AVATAR_SAM_LOAD_ON_DEMAND=true"
-      "AVATAR_INITIAL_CANDIDATE_COUNT=4"
-      "AVATAR_EXTRA_CANDIDATE_COUNT=4"
+      "AVATAR_INITIAL_CANDIDATE_COUNT=2"
+      "AVATAR_EXTRA_CANDIDATE_COUNT=2"
       "AVATAR_MIN_SAFE_CANDIDATES_BEFORE_EXTRA=2"
-      "AVATAR_MAX_TOTAL_CANDIDATES=8"
-      "AVATAR_PREVIEW_COUNT=4"
+      "AVATAR_MAX_TOTAL_CANDIDATES=4"
+      "AVATAR_PREVIEW_COUNT=2"
       "AVATAR_MIN_PREVIEW_CANDIDATES=1"
       "AVATAR_PREVIEW_REQUIRE_FOUR=false"
       "AVATAR_PREVIEW_FILL_WITH_SOFT_PASS=true"
@@ -383,6 +385,11 @@ if (-not $PrepareOnly) {
       "AVATAR_COST_KILL_SWITCH_ENABLED=false"
     ) -join ","
 
+    # Azure 자격증명은 평문 env 로 넣지 않는다. Secret Manager 참조로만 주입하고
+    # Cloud Run 이 런타임에 해석한다. 값은 이 저장소 어디에도 남기지 않는다.
+    # 참조 대상: seolleyeon-avatar-azure-openai-api-key (프로젝트 Secret Manager)
+    $azureSecretBinding = "AZURE_OPENAI_API_KEY=${AzureApiKeySecret}:latest"
+
     gcloud run deploy seolleyeon-avatar-worker `
       --image=$image `
       --region=$WorkerRegion `
@@ -398,7 +405,8 @@ if (-not $PrepareOnly) {
       --timeout=1800s `
       --no-allow-unauthenticated `
       --service-account=$avatarWorkerSa `
-      --set-env-vars=$workerEnv
+      --set-env-vars=$workerEnv `
+      --set-secrets=$azureSecretBinding
   }
 
   Invoke-Step "Grant post-deploy IAM for avatar worker and task invoker" {
