@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
+import importlib.util
 import io
 import json
 import sys
@@ -116,21 +118,18 @@ def _png_bytes() -> bytes:
 
 
 def _detect_dependencies() -> Dict[str, Any]:
-    deps: Dict[str, Any] = {
-        "torch": {"available": False, "cudaAvailable": False},
-    }
+    available = importlib.util.find_spec("torch") is not None
     try:
-        import torch
-
-        deps["torch"] = {
-            "available": True,
-            "version": getattr(torch, "__version__", "unknown"),
-            "cudaAvailable": bool(torch.cuda.is_available()),
+        version = importlib.metadata.version("torch") if available else ""
+    except importlib.metadata.PackageNotFoundError:
+        version = "unknown"
+    return {
+        "torch": {
+            "available": available,
+            "version": version,
+            "cudaAvailable": "not_probed_in_dry_run",
         }
-    except Exception as exc:
-        deps["torch"]["error"] = exc.__class__.__name__
-
-    return deps
+    }
 
 
 def _load_payload(path: str) -> Dict[str, Any]:
