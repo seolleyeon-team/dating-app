@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:seolleyeon/features/onboarding/screens/photo_upload_screen.dart';
 import 'package:seolleyeon/features/onboarding/services/avatar_resume_policy.dart';
 import 'package:seolleyeon/features/onboarding/widgets/avatar_candidate_selection_dialog.dart';
@@ -23,23 +22,6 @@ class _ReadyAvatarClient extends AvatarGenerationClient {
   String? approvedCandidateId;
   final List<String> polledJobIds = <String>[];
   List<OnboardingPhotoSourceRef>? admittedSources;
-
-  @override
-  Future<AvatarSourcePhotoUploadResult> uploadSourcePhoto({
-    required XFile file,
-    required String uid,
-    int? slotIndex,
-    String? clientRequestId,
-    bool chatPartnerRealPhotoDisclosure = false,
-  }) async {
-    return const AvatarSourcePhotoUploadResult(
-      jobId: 'job_ready',
-      photoId: 'photo_ready',
-      avatarStatus: 'queued',
-      message: 'avatar_generation_queued',
-      duplicate: false,
-    );
-  }
 
   @override
   Future<AvatarSourcePhotoUploadResult> beginFromOnboardingPhotos({
@@ -295,15 +277,6 @@ class _StatusOnlyAvatarClient extends AvatarGenerationClient {
       candidates: const [],
     );
   }
-
-  @override
-  Future<AvatarSourcePhotoUploadResult> uploadSourcePhoto({
-    required XFile file,
-    required String uid,
-    int? slotIndex,
-    String? clientRequestId,
-    bool chatPartnerRealPhotoDisclosure = false,
-  }) async => throw UnimplementedError();
 
   @override
   Future<AvatarApprovalResult> approveCandidate(String candidateId) async =>

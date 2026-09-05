@@ -15,7 +15,7 @@ AI_MODEL_DIR = REPO_ROOT / "lib" / "ai_recommend_model"
 if str(AI_MODEL_DIR) not in sys.path:
     sys.path.insert(0, str(AI_MODEL_DIR))
 
-from avatar_generation import FLUX2_KLEIN_MODEL_ID
+from avatar_generation.model_adapters.azure_contracts import AZURE_GPT_IMAGE_2_MODEL_ID
 from avatar_generation.qa import run_avatar_candidate_qa
 from avatar_generation.worker import (
     AvatarGenerationError,
@@ -114,7 +114,6 @@ def _png_bytes() -> bytes:
 def _detect_dependencies() -> Dict[str, Any]:
     deps: Dict[str, Any] = {
         "torch": {"available": False, "cudaAvailable": False},
-        "diffusersFlux2KleinPipeline": {"available": False},
     }
     try:
         import torch
@@ -127,14 +126,6 @@ def _detect_dependencies() -> Dict[str, Any]:
     except Exception as exc:
         deps["torch"]["error"] = exc.__class__.__name__
 
-    try:
-        from diffusers import Flux2KleinPipeline
-
-        deps["diffusersFlux2KleinPipeline"] = {
-            "available": Flux2KleinPipeline is not None,
-        }
-    except Exception as exc:
-        deps["diffusersFlux2KleinPipeline"]["error"] = exc.__class__.__name__
     return deps
 
 
@@ -155,7 +146,7 @@ def _build_payload(args: argparse.Namespace) -> Dict[str, Any]:
             "sourcePhotoIds": ["smoke_source_001"],
             "sourcePhotoRefs": [args.source_gcs_uri],
             "candidateCount": args.candidate_count,
-            "modelId": FLUX2_KLEIN_MODEL_ID,
+            "modelId": AZURE_GPT_IMAGE_2_MODEL_ID,
             "jobType": "avatar_generation",
             "schemaVersion": "avatar_job_v1",
             "idempotencyKey": f"{args.uid}:smoke_source_001:avatar_generation_v1",
@@ -264,7 +255,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         parser.error("--dry_run and --real_gpu are mutually exclusive.")
 
     payload = _build_payload(args)
-    mode = "flux" if args.real_gpu else "dry_run"
+    if args.real_gpu:
+        parser.error("local model generation is retired; use the staging smoke against the Azure worker")
+    mode = "dry_run"
     dependencies = _detect_dependencies()
     report: Dict[str, Any] = {
         "status": "started",
@@ -275,12 +268,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "candidateCount": int(payload.get("candidateCount") or 0),
         "dependencies": dependencies,
     }
-
-    if args.real_gpu and not dependencies["diffusersFlux2KleinPipeline"]["available"]:
-        report["status"] = "failed"
-        report["error"] = "Flux2KleinPipeline is unavailable in diffusers."
-        _write_report(report, args.output_report_json)
-        return 1
 
     try:
         if mode == "dry_run":

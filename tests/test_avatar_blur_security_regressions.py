@@ -70,7 +70,7 @@ def _pipeline_config(**overrides):
     return SmallFacePipelineConfig(**values)
 
 
-def test_production_flux_is_rejected_before_analysis_or_generation(monkeypatch):
+def test_retired_provider_is_rejected_before_analysis_or_generation(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production_bridge")
     monkeypatch.setenv("AVATAR_DATA_PROJECT", "seolleyeon-festival")
     monkeypatch.setenv("AVATAR_FACE_DETECTOR_ENABLED", "false")
@@ -104,7 +104,7 @@ def test_production_flux_is_rejected_before_analysis_or_generation(monkeypatch):
 
     with pytest.raises(
         worker_module.AvatarGenerationError,
-        match="legacy_flux_is_not_a_production_generation_backend",
+        match="unsupported_avatar_worker_mode",
     ):
         worker_module.process_avatar_generation_payload(
             payload,

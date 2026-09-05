@@ -1,9 +1,5 @@
-import 'dart:convert';
-import 'dart:typed_data';
-
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
 
 import 'onboarding_photo_source_ref.dart';
@@ -99,30 +95,6 @@ class AvatarSourcePhotoService {
     return value!.substring(_queuedTokenPrefix.length);
   }
 
-  Future<AvatarSourcePhotoUploadResult> uploadPickedImage({
-    required XFile file,
-    int? slotIndex,
-    String? uid,
-    String? clientRequestId,
-    bool chatPartnerRealPhotoDisclosure = false,
-  }) async {
-    final currentUser = _auth.currentUser;
-    if (currentUser == null) {
-      throw Exception('Firebase login session is required for private upload.');
-    }
-
-    await currentUser.getIdToken(true);
-    final bytes = await file.readAsBytes();
-    return uploadBytes(
-      bytes: bytes,
-      fileName: file.name,
-      slotIndex: slotIndex,
-      uid: uid,
-      clientRequestId: clientRequestId,
-      chatPartnerRealPhotoDisclosure: chatPartnerRealPhotoDisclosure,
-    );
-  }
-
   Future<AvatarSourcePhotoUploadResult> beginFromOnboardingPhotos({
     required List<OnboardingPhotoSourceRef> sourcePhotos,
     String? uid,
@@ -176,67 +148,4 @@ class AvatarSourcePhotoService {
     return parsed;
   }
 
-  Future<AvatarSourcePhotoUploadResult> uploadBytes({
-    required Uint8List bytes,
-    String? fileName,
-    int? slotIndex,
-    String? uid,
-    String? clientRequestId,
-    bool chatPartnerRealPhotoDisclosure = false,
-  }) async {
-    if (bytes.isEmpty) {
-      throw Exception('Image file is empty.');
-    }
-
-    final callable = _functions.httpsCallable('uploadAvatarSourcePhoto');
-    final stableClientRequestId = clientRequestId?.trim().isNotEmpty == true
-        ? clientRequestId!.trim()
-        : createClientRequestId();
-    final HttpsCallableResult<dynamic> result;
-    try {
-      result = await callable.call(<String, dynamic>{
-        ...buildUploadMetadata(clientRequestId: stableClientRequestId),
-        'imageBase64': base64Encode(bytes),
-        'contentType': _contentTypeForFileName(fileName ?? ''),
-        if (fileName != null && fileName.trim().isNotEmpty)
-          'fileName': fileName,
-        if (slotIndex != null) 'slotIndex': slotIndex,
-        if (uid != null && uid.trim().isNotEmpty) 'uid': uid,
-        'chatPartnerRealPhotoDisclosure': chatPartnerRealPhotoDisclosure,
-      });
-    } on FirebaseFunctionsException catch (error) {
-      if (error.code == 'failed-precondition' &&
-          (error.message ?? '').contains('avatar_already_approved')) {
-        throw const AvatarAlreadyApprovedException();
-      }
-      if (error.code == 'failed-precondition' &&
-          (error.message ?? '').contains('avatar_source_locked')) {
-        throw const AvatarSourceLockedException();
-      }
-      rethrow;
-    }
-
-    final raw = result.data;
-    final map = raw is Map
-        ? raw.map((key, value) => MapEntry(key.toString(), value))
-        : <String, dynamic>{};
-    final parsed = AvatarSourcePhotoUploadResult.fromMap(map);
-    if (parsed.jobId.isEmpty) {
-      throw Exception('Private upload response was incomplete.');
-    }
-    return parsed;
-  }
-
-  String _contentTypeForFileName(String fileName) {
-    final lower = fileName.toLowerCase().trim();
-    if (lower.endsWith('.png')) return 'image/png';
-    if (lower.endsWith('.webp')) return 'image/webp';
-    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
-      return 'image/jpeg';
-    }
-    if (lower.endsWith('.heic') || lower.endsWith('.heif')) {
-      return 'image/heic';
-    }
-    return 'image/jpeg';
-  }
 }

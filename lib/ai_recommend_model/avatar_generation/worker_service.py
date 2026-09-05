@@ -87,8 +87,7 @@ def _release_posture() -> Dict[str, Any]:
         "uploadNormalization": "existing_avatar_media_ingestion",
         "preGenerationTransform": "none",
         "azureConfig": azure_config.safe_dict(),
-        "legacyGenerationPrerequisites": {
-            "flux": False,
+        "generationPrerequisites": {
             "referencePreprocessing": False,
             "traitExtraction": False,
         },

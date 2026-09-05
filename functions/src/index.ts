@@ -71,7 +71,6 @@ export { submitSafetyStamp, submitSafetyStampFollowUp } from "./safetyStamp";
 import {
   createGetCurrentAvatarGenerationStatusFunction,
   createRetryCurrentAvatarGenerationFunction,
-  createUploadAvatarSourcePhotoFunction,
 } from "./avatarMedia";
 import {
   createApproveAvatarCandidateFunction,
@@ -2047,9 +2046,6 @@ async function resolveUserForFriendCallable(request: {
   const kakaoUser = await verifyKakaoAccessToken(accessToken);
   return await resolveVerifiedUserByKakaoId(kakaoUser.userId);
 }
-
-export const uploadAvatarSourcePhoto =
-  createUploadAvatarSourcePhotoFunction(db, resolveAuthedAppUser);
 
 export const uploadOnboardingPhoto = createUploadOnboardingPhotoFunction(
   resolveAuthedAppUser,

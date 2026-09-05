@@ -10,7 +10,7 @@ import {
 export type AvatarSourceSetQueuePayload = QueueDispatchPayload & {
   jobId: string;
   sourcePhotoObjectGenerations: string[];
-  sourceSelectionMode: "quality_selector_v1" | "legacy_first_photo";
+  sourceSelectionMode: "quality_selector_v1";
   consentPurposes: {
     avatarGeneration: true;
     clipRecommendation: boolean;
@@ -62,7 +62,7 @@ export function assertAvatarSourceSetQueuePayload(
   }
 }
 
-/// Dispatches through the SAME helper the legacy path uses. Queue name, target
+/// Dispatches through the shared queue helper. Queue name, target
 /// URL, OIDC token, dispatch deadline, deterministic task name, ALREADY_EXISTS
 /// idempotency, dry_run/pubsub modes and log redaction are therefore identical
 /// by construction rather than by copy.

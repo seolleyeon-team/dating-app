@@ -37,9 +37,7 @@ _CANONICAL_AZURE_MODE = "azure_gpt_image_2"
 _DIRECT_SOURCE_INPUT_MODES = frozenset(
     {"original_direct", "storage_normalized_original_direct"}
 )
-_TRAIT_ENABLED_PIPELINE_MODES = frozenset(
-    {"flux", "dry_run", "legacy", "trait_enabled"}
-)
+_TRAIT_ENABLED_PIPELINE_MODES = frozenset({"dry_run", "trait_enabled"})
 _MISSING_EVIDENCE_STATUSES = frozenset(
     {"", "missing", "unavailable", "critical_unavailable", "failed", "review", "unknown"}
 )

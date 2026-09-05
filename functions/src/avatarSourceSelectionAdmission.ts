@@ -1,11 +1,8 @@
 export const QUALITY_SELECTOR_MODE = "quality_selector_v1" as const;
-export const LEGACY_FIRST_PHOTO_MODE = "legacy_first_photo" as const;
 export const AVATAR_SOURCE_SELECTOR_VERSION =
   "avatar_source_quality_selector_v1" as const;
 
-export type AvatarSourceSelectionMode =
-  | typeof QUALITY_SELECTOR_MODE
-  | typeof LEGACY_FIRST_PHOTO_MODE;
+export type AvatarSourceSelectionMode = typeof QUALITY_SELECTOR_MODE;
 
 export type AvatarSourceCandidate = {
   photoId: string;
@@ -38,11 +35,8 @@ export function resolveServerSourceSelectionMode(
   if (!configured || configured === QUALITY_SELECTOR_MODE) {
     return QUALITY_SELECTOR_MODE;
   }
-  if (configured === LEGACY_FIRST_PHOTO_MODE) {
-    return LEGACY_FIRST_PHOTO_MODE;
-  }
   throw new Error(
-    "AVATAR_SOURCE_SELECTION_MODE must be quality_selector_v1 or legacy_first_photo",
+    "AVATAR_SOURCE_SELECTION_MODE must be quality_selector_v1",
   );
 }
 

@@ -14,7 +14,6 @@ from avatar_generation.analysis.avatar_source_quality import (
 
 
 QUALITY_SELECTOR_MODE = "quality_selector_v1"
-LEGACY_FIRST_PHOTO_MODE = "legacy_first_photo"
 SOURCE_ANALYSIS_INFRA_ERROR = "avatar_source_analysis_infra_failure"
 
 
@@ -181,7 +180,6 @@ def _emit(
 
 
 __all__ = [
-    "LEGACY_FIRST_PHOTO_MODE",
     "NO_ELIGIBLE_SOURCE_ERROR",
     "QUALITY_SELECTOR_MODE",
     "SOURCE_ANALYSIS_INFRA_ERROR",

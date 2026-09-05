@@ -2,11 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  assertLegacyAvatarGenerationStartAllowed,
   buildCurrentAvatarGenerationStatusResponse,
   buildRetryAvatarJobPlan,
   buildSourceSetRetryPlan,
-  legacyAvatarGenerationStartAllowed,
   readCurrentAvatarContract,
   buildAvatarPayload,
   avatarPresentationGenderFromUserData,
@@ -900,24 +898,6 @@ test("the source-set dispatch failure code reaches the client", () => {
 // CANONICAL ADMISSION (2026-09-05 product decision)
 //   photo upload -> no generation lock; generation submit -> selection -> lock
 // ---------------------------------------------------------------------------
-
-test("legacy single-photo generation start is disabled under the canonical selector mode", () => {
-  assert.equal(legacyAvatarGenerationStartAllowed({}), false);
-  assert.equal(
-    legacyAvatarGenerationStartAllowed({ AVATAR_SOURCE_SELECTION_MODE: "quality_selector_v1" }),
-    false,
-  );
-  assert.equal(
-    legacyAvatarGenerationStartAllowed({ AVATAR_SOURCE_SELECTION_MODE: "legacy_first_photo" }),
-    true,
-  );
-  assert.throws(
-    () => assertLegacyAvatarGenerationStartAllowed({}),
-    (error: unknown) =>
-      error instanceof Error &&
-      error.message.includes("avatar_legacy_generation_start_disabled"),
-  );
-});
 
 test("a pending source selection is a legal intermediate contract, not an inconsistency", () => {
   // Phase A (Functions) writes the job pointer; Phase B (worker) chooses the

@@ -4,7 +4,6 @@ import 'package:cloud_functions/cloud_functions.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../features/onboarding/services/avatar_resume_policy.dart';
 import '../features/onboarding/widgets/avatar_generation_models.dart';
@@ -24,18 +23,6 @@ import 'onboarding_photo_source_ref.dart';
 abstract class AvatarGenerationClient {
   /// 폴링 호출이 연속으로 이만큼 실패하기 전까지는 생성 흐름을 중단하지 않는다.
   static const int defaultMaxConsecutivePollErrors = 3;
-
-  /// 사용자가 선택한 사진 파일을 백엔드 콜러블로 업로드한다.
-  ///
-  /// [clientRequestId]는 재시도 시에도 동일하게 유지해 서버가 중복 생성 대신
-  /// 멱등 재생(replay)을 수행할 수 있게 한다.
-  Future<AvatarSourcePhotoUploadResult> uploadSourcePhoto({
-    required XFile file,
-    required String uid,
-    int? slotIndex,
-    String? clientRequestId,
-    bool chatPartnerRealPhotoDisclosure = false,
-  });
 
   Future<AvatarSourcePhotoUploadResult> beginFromOnboardingPhotos({
     required List<OnboardingPhotoSourceRef> sourcePhotos,
@@ -197,7 +184,8 @@ class AvatarPollingCancelled implements Exception {
 
 /// Firebase Functions(`asia-northeast3`) 콜러블을 호출하는 기본 구현.
 ///
-/// `uploadAvatarSourcePhoto`, `getAvatarJobCandidates`, `approveAvatarCandidate`
+/// `beginAvatarGenerationFromOnboardingPhotos`, `getAvatarJobCandidates`,
+/// `approveAvatarCandidate`
 /// 콜러블 이름은 백엔드 구현과 일치합니다.
 class BackendAvatarGenerationClient extends AvatarGenerationClient {
   BackendAvatarGenerationClient({
@@ -210,23 +198,6 @@ class BackendAvatarGenerationClient extends AvatarGenerationClient {
 
   final AvatarSourcePhotoService _sourcePhotoService;
   final FirebaseFunctions _functions;
-
-  @override
-  Future<AvatarSourcePhotoUploadResult> uploadSourcePhoto({
-    required XFile file,
-    required String uid,
-    int? slotIndex,
-    String? clientRequestId,
-    bool chatPartnerRealPhotoDisclosure = false,
-  }) {
-    return _sourcePhotoService.uploadPickedImage(
-      file: file,
-      slotIndex: slotIndex,
-      uid: uid,
-      clientRequestId: clientRequestId,
-      chatPartnerRealPhotoDisclosure: chatPartnerRealPhotoDisclosure,
-    );
-  }
 
   @override
   Future<AvatarSourcePhotoUploadResult> beginFromOnboardingPhotos({
@@ -368,24 +339,6 @@ class MockAvatarGenerationClient extends AvatarGenerationClient {
   final bool failApproval;
 
   int _pollCount = 0;
-
-  @override
-  Future<AvatarSourcePhotoUploadResult> uploadSourcePhoto({
-    required XFile file,
-    required String uid,
-    int? slotIndex,
-    String? clientRequestId,
-    bool chatPartnerRealPhotoDisclosure = false,
-  }) async {
-    await Future<void>.delayed(uploadDelay);
-    return const AvatarSourcePhotoUploadResult(
-      jobId: 'mock_job_id',
-      photoId: 'mock_photo_id',
-      avatarStatus: 'queued',
-      message: 'avatar_generation_queued',
-      duplicate: false,
-    );
-  }
 
   @override
   Future<AvatarCandidatesResult> getCandidates(String jobId) async {

@@ -43,24 +43,6 @@ class _CountingAvatarClient extends AvatarGenerationClient {
   }
 
   @override
-  Future<AvatarSourcePhotoUploadResult> uploadSourcePhoto({
-    required XFile file,
-    required String uid,
-    int? slotIndex,
-    String? clientRequestId,
-    bool chatPartnerRealPhotoDisclosure = false,
-  }) async {
-    uploadCalls += 1;
-    return const AvatarSourcePhotoUploadResult(
-      jobId: 'avatar_job_fresh_000000001',
-      photoId: 'photo_fresh',
-      avatarStatus: 'queued',
-      message: 'avatar_generation_queued',
-      duplicate: false,
-    );
-  }
-
-  @override
   Future<AvatarCandidatesResult> getCandidates(String jobId) async {
     return _previewReady(jobId);
   }

@@ -46,11 +46,11 @@ test("new jobs use server-controlled quality selector mode and 2 candidate initi
   assert.equal(job.selectedSource, undefined);
 });
 
-test("only server environment can choose rollback mode", () => {
+test("stale source-selection modes fail closed", () => {
   assert.equal(resolveServerSourceSelectionMode({}), QUALITY_SELECTOR_MODE);
-  assert.equal(
-    resolveServerSourceSelectionMode({ AVATAR_SOURCE_SELECTION_MODE: "legacy_first_photo" }),
-    "legacy_first_photo",
+  assert.throws(
+    () => resolveServerSourceSelectionMode({ AVATAR_SOURCE_SELECTION_MODE: "legacy_first_photo" }),
+    /must be quality_selector_v1/,
   );
   assert.throws(
     () => resolveServerSourceSelectionMode({ AVATAR_SOURCE_SELECTION_MODE: "client_choice" }),

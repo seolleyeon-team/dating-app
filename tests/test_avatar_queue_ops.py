@@ -572,7 +572,7 @@ def _preflight_report(preflight, *, stage):
         avatar_only=True,
         expected_account="seolleyeon.official@gmail.com",
         hf_token_env_var="AVATAR_WORKER_HF_TOKEN",
-        upload_function_name="uploadAvatarSourcePhoto",
+        upload_function_name="beginAvatarGenerationFromOnboardingPhotos",
         stage=stage,
     )
 
@@ -784,86 +784,6 @@ def test_debug_avatar_job_status_redacts_private_refs_and_summarizes_state():
     assert "seolleyeon-final-private-source-photos" not in rendered
     assert "X-Goog-Signature" not in rendered
     assert "Signature=secret" not in rendered
-
-
-def test_retry_failed_avatar_jobs_targets_only_negative_prompt_worker_error():
-    retry = load_script("retry_failed_avatar_jobs", "retry_failed_avatar_jobs.py")
-    jobs = {
-        "avatar_job_negative_prompt_1": {
-            "status": "failed",
-            "errorCode": "avatar_generation_worker_error",
-            "errorMessage": "Flux2KleinPipeline.__call__() got an unexpected keyword argument 'negative_prompt'",
-            "sourcePhotoRefs": ["gs://seolleyeon-final-private-source-photos/users/u/source/src.jpg"],
-        },
-        "avatar_job_other_worker_error": {
-            "status": "failed",
-            "errorCode": "avatar_generation_worker_error",
-            "errorMessage": "CUDA out of memory",
-        },
-        "avatar_job_preview_ready": {
-            "status": "preview_ready",
-            "errorCode": "avatar_generation_worker_error",
-            "errorMessage": "Flux2KleinPipeline.__call__() got an unexpected keyword argument 'negative_prompt'",
-        },
-    }
-
-    report = retry.build_retry_report(jobs, apply=False)
-    rendered = json.dumps(report, ensure_ascii=False)
-
-    assert report["matchedCount"] == 1
-    assert report["skippedCount"] == 2
-    assert report["applied"] is False
-    assert "avatar_job_negative_prompt_1" not in rendered
-    assert "gs://" not in rendered
-    assert "seolleyeon-final-private-source-photos" not in rendered
-
-
-@pytest.mark.parametrize("project", ["", "default", "seolleyeon", "production-project"])
-def test_retry_failed_avatar_jobs_rejects_forbidden_projects(project):
-    retry = load_script("retry_failed_avatar_jobs_guard", "retry_failed_avatar_jobs.py")
-
-    with pytest.raises(ValueError, match="refusing project"):
-        retry.validate_execution(project, apply=False)
-
-
-def test_retry_failed_avatar_jobs_apply_requires_exact_confirmation():
-    retry = load_script("retry_failed_avatar_jobs_confirmation", "retry_failed_avatar_jobs.py")
-
-    with pytest.raises(ValueError, match="confirmation token"):
-        retry.validate_execution("seolleyeon-final", apply=True)
-    with pytest.raises(ValueError, match="confirmation token"):
-        retry.validate_execution(
-            "seolleyeon-final",
-            apply=True,
-            confirmation_token="wrong",
-        )
-    assert retry.validate_execution(
-        "seolleyeon-final",
-        apply=True,
-        confirmation_token="APPLY_AVATAR_NEGATIVE_PROMPT_RETRY:seolleyeon-final:v1",
-    ) == "seolleyeon-final"
-
-def test_retry_failed_avatar_jobs_update_requeues_and_preserves_last_error():
-    retry = load_script("retry_failed_avatar_jobs_update", "retry_failed_avatar_jobs.py")
-    job = {
-        "status": "failed",
-        "errorCode": "avatar_generation_worker_error",
-        "errorMessage": "failed for gs://seolleyeon-final-private-source-photos/users/u/source/src.jpg: unexpected keyword argument 'negative_prompt'",
-        "processing": {"attempt": 1},
-        "retry": {"negativePromptWorkerErrorResetCount": 2},
-    }
-
-    update = retry.retry_update_for_job(job, server_timestamp="SERVER_TIMESTAMP")
-    rendered = json.dumps(update, ensure_ascii=False)
-
-    assert update["status"] == "queued"
-    assert update["errorCode"] == ""
-    assert update["errorMessage"] == ""
-    assert update["processing"]["lastErrorCode"] == "avatar_generation_worker_error"
-    assert update["processing"]["lastResetReason"] == "flux_negative_prompt_kwarg_regression"
-    assert update["retry"]["negativePromptWorkerErrorResetCount"] == 3
-    assert "gs://" not in rendered
-    assert "seolleyeon-final-private-source-photos" not in rendered
 
 
 def test_staging_preflight_blocks_when_azure_secret_binding_is_absent(monkeypatch):

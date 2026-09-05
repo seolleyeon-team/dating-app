@@ -16,7 +16,7 @@ info "Checking Functions readiness for Firebase project=$FIREBASE_PROJECT_EFFECT
 npm --prefix functions run build
 npm --prefix functions test
 
-rg -n "export const getChatRealProfilePhoto|createGetChatRealProfilePhotoFunction|export const uploadAvatarSourcePhoto" functions/src/index.ts functions/src/chatRealPhoto.ts functions/src/avatarMedia.ts
+rg -n "export const getChatRealProfilePhoto|createGetChatRealProfilePhotoFunction|export const uploadOnboardingPhoto|export const beginAvatarGenerationFromOnboardingPhotos" functions/src/index.ts functions/src/chatRealPhoto.ts functions/src/onboardingPhotoUpload.ts functions/src/avatarSourceSetAdmission.ts
 rg -n -- "private_key|-----BEGIN PRIVATE KEY-----" functions/src && fail "Potential private key literal found in functions/src" || true
 rg -n "imageUrl|expiresAt|getSignedUrl|logger.info" functions/src/chatRealPhoto.ts
 
@@ -28,7 +28,11 @@ python - "$TMP_FUNCTIONS_JSON" <<'PY'
 import json, sys
 with open(sys.argv[1], "r", encoding="utf-8") as f:
     data = json.load(f)
-selected = {"getChatRealProfilePhoto", "uploadAvatarSourcePhoto"}
+selected = {
+    "getChatRealProfilePhoto",
+    "uploadOnboardingPhoto",
+    "beginAvatarGenerationFromOnboardingPhotos",
+}
 rows = []
 for item in data.get("result", []):
     if item.get("id") in selected:

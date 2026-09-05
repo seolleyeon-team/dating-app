@@ -121,9 +121,7 @@ def test_canonical_azure_worker_uses_storage_bytes_and_skips_legacy_generation_c
         "_analyze_source_visual_risk",
         "_prepare_reference_preprocess_for_generation",
         "_extract_trait_card_for_generation",
-        "build_avatar_prompt",
         "prepare_privacy_reference_image",
-        "get_flux2_klein_generator",
     ):
         monkeypatch.setattr(worker_module, name, forbidden)
 
@@ -448,7 +446,7 @@ def test_azure_post_send_unknown_outcome_is_review_and_never_blindly_retried(mon
     assert job["providerUsage"]["unknownOutcomeCount"] == 1
 
 
-def test_legacy_local_dry_run_does_not_emit_azure_provider_usage(monkeypatch):
+def test_local_fixture_does_not_emit_azure_provider_usage(monkeypatch):
     payload = _payload(job_id="legacy_dry_run_no_azure_usage")
     fs = _fake_firestore(payload)
     monkeypatch.setenv("SOURCE_PHOTO_BUCKET", DEFAULT_SOURCE_PHOTO_BUCKET)
@@ -465,7 +463,7 @@ def test_legacy_local_dry_run_does_not_emit_azure_provider_usage(monkeypatch):
 
     job = fs.data["avatarJobs"][payload["jobId"]]
     assert "providerUsage" not in job
-    assert job["generationBackend"] == "black-forest-labs/FLUX.2-klein-4B"
+    assert job["generationBackend"] == AZURE_GPT_IMAGE_2_MODEL_ID
 
 
 def test_existing_avatar_media_normalized_jpeg_is_the_direct_azure_source(monkeypatch):

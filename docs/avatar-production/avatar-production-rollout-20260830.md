@@ -1,3 +1,6 @@
+> **HISTORICAL / RETIRED — NOT A CURRENT DEPLOYMENT AUTHORITY.** The current Azure-only, source-set architecture is defined in [avatar-production/CURRENT_ARCHITECTURE.md](CURRENT_ARCHITECTURE.md).
+>
+
 # Avatar production onboarding restoration — audit & rollout status (2026-08-30)
 
 Verdict: **BLOCKED_PRODUCTION_AVATAR_G004_GATE** (source-side restoration

@@ -6,9 +6,8 @@
 # - For local CPU smoke tests, install the torch wheel appropriate for the host.
 torch==2.8.0
 
-# FLUX.2-klein support is currently ahead of the latest PyPI diffusers release.
-# Pin a known main commit that provides diffusers.Flux2KleinPipeline.
-diffusers @ https://github.com/huggingface/diffusers/archive/37467de2b6c1a3e3e07efa223fb8eb410d41744e.zip
+# Retained for CLIP, Florence, similarity QA, and diagnostics; image generation
+# is performed exclusively by the Azure HTTP provider.
 transformers>=4.45.0,<5.0.0
 accelerate>=0.31.0,<1.0.0
 huggingface-hub>=0.34.0,<1.0.0

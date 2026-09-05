@@ -1,14 +1,4 @@
-"""Canonical generation provider contract.
-
-Locks the reconciled production provider decision:
-- Azure GPT-Image-2 is the only canonical production generation backend.
-- Legacy FLUX is local-only and can never run in a production environment.
-- dry_run can never run in a production environment.
-- The canonical prompt is the approved single-line contract.
-
-These replace the retired "gpt-image must never appear" policy test that
-encoded the superseded FLUX-only architecture.
-"""
+"""Canonical Azure-only generation provider contract."""
 
 import os
 import sys
@@ -46,13 +36,13 @@ def test_production_defaults_to_canonical_azure_mode(production_env):
     assert CANONICAL_AZURE_WORKER_MODE == AZURE_GPT_IMAGE_2_MODEL_ID
 
 
-def test_production_refuses_legacy_flux_backend(production_env):
-    with pytest.raises(AvatarGenerationError, match="legacy_flux"):
+def test_retired_provider_mode_is_rejected_in_every_environment(production_env):
+    with pytest.raises(AvatarGenerationError, match="unsupported_avatar_worker_mode"):
         resolve_worker_mode("flux")
 
     os.environ["AVATAR_WORKER_MODE"] = "flux"
     try:
-        with pytest.raises(AvatarGenerationError, match="legacy_flux"):
+        with pytest.raises(AvatarGenerationError, match="unsupported_avatar_worker_mode"):
             resolve_worker_mode()
     finally:
         del os.environ["AVATAR_WORKER_MODE"]

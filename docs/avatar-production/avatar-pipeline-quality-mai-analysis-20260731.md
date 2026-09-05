@@ -1,3 +1,6 @@
+> **HISTORICAL / RETIRED — NOT A CURRENT DEPLOYMENT AUTHORITY.** The current Azure-only, source-set architecture is defined in [avatar-production/CURRENT_ARCHITECTURE.md](CURRENT_ARCHITECTURE.md).
+>
+
 # 아바타 이미지 생성 파이프라인 품질·MAI Image 2.5 도입 분석 보고서
 
 Date: 2026-07-31  
