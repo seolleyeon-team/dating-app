@@ -3,7 +3,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../router/route_names.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/friend_service.dart';
 import '../../../services/storage_service.dart';
@@ -71,10 +70,7 @@ class _FriendsListScreenState extends State<FriendsListScreen> {
 
   void _openFriendProfile(FriendListItem item) {
     HapticFeedback.selectionClick();
-    Navigator.of(context, rootNavigator: true).pushNamed(
-      RouteNames.profileSpecificDetail,
-      arguments: ProfileCardArgs.fromChat(userId: item.friendUserId),
-    );
+    openFriendProfile(context, item);
   }
 
   String _formatAddedAt(DateTime? dateTime) {

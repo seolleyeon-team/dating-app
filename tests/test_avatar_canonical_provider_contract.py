@@ -46,18 +46,6 @@ def test_production_defaults_to_canonical_azure_mode(production_env):
     assert CANONICAL_AZURE_WORKER_MODE == AZURE_GPT_IMAGE_2_MODEL_ID
 
 
-def test_production_refuses_legacy_flux_backend(production_env):
-    with pytest.raises(AvatarGenerationError, match="legacy_flux"):
-        resolve_worker_mode("flux")
-
-    os.environ["AVATAR_WORKER_MODE"] = "flux"
-    try:
-        with pytest.raises(AvatarGenerationError, match="legacy_flux"):
-            resolve_worker_mode()
-    finally:
-        del os.environ["AVATAR_WORKER_MODE"]
-
-
 def test_production_refuses_dry_run(production_env):
     with pytest.raises(AvatarGenerationError):
         resolve_worker_mode("dry_run")
@@ -88,3 +76,28 @@ def test_client_side_code_has_no_azure_credentials_or_endpoints():
             if token in text:
                 offenders.append(f"{path}:{token}")
     assert offenders == []
+
+
+@pytest.mark.parametrize("environment", ["production", "staging", "local"])
+def test_flux_worker_mode_is_retired_in_every_environment(monkeypatch, environment):
+    # Not just "not in production": the local-model backend no longer exists,
+    # so the stale value is a configuration error everywhere.
+    monkeypatch.delenv("AVATAR_WORKER_MODE", raising=False)
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    with pytest.raises(AvatarGenerationError, match="avatar_worker_mode_retired"):
+        resolve_worker_mode("flux")
+    monkeypatch.setenv("AVATAR_WORKER_MODE", "flux")
+    with pytest.raises(AvatarGenerationError, match="avatar_worker_mode_retired"):
+        resolve_worker_mode()
+
+
+def test_flux_runtime_modules_do_not_exist():
+    import importlib
+
+    for module in (
+        "avatar_generation.flux_config",
+        "avatar_generation.model_adapters.flux2_klein",
+        "avatar_generation.seolleyeon_avatar_prompt_builder_v4",
+    ):
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(module)

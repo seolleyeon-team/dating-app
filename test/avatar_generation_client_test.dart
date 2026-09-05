@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:seolleyeon/features/onboarding/widgets/avatar_generation_messages.dart';
 import 'package:seolleyeon/features/onboarding/widgets/avatar_generation_models.dart';
 import 'package:seolleyeon/services/avatar_generation_client.dart';
@@ -137,6 +136,24 @@ void main() {
       expect(noPreviewable.errorCode, 'avatar_source_multi_face');
     });
 
+    test('maps server terminal failure statuses instead of unknown', () {
+      // 회귀: 서버가 실제로 기록하는 retryable_failed / terminal_failed /
+      // no_previewable 이 unknown 으로 떨어지면 클라이언트가 이미 끝난 작업을
+      // 폴링 데드라인까지 계속 기다린다.
+      expect(
+        avatarJobStatusFromString('retryable_failed'),
+        AvatarJobStatus.failed,
+      );
+      expect(
+        avatarJobStatusFromString('terminal_failed'),
+        AvatarJobStatus.failed,
+      );
+      expect(
+        avatarJobStatusFromString('no_previewable'),
+        AvatarJobStatus.noPreviewableCandidates,
+      );
+    });
+
     test('maps source reject error codes to Korean guidance', () {
       expect(
         avatarGenerationFailureMessage(
@@ -158,6 +175,13 @@ void main() {
           errorCode: 'avatar_background_text_logo_risky',
         ),
         '배경의 글자나 로고가 크게 보여요. 다른 사진을 권장해요.',
+      );
+      expect(
+        avatarGenerationFailureMessage(
+          status: AvatarJobStatus.failed,
+          errorCode: 'avatar_no_eligible_source_photo',
+        ),
+        '얼굴이 잘 보이는 사진을 추가하거나 변경해 주세요.',
       );
     });
 
@@ -196,11 +220,10 @@ void main() {
 
   group('MockAvatarGenerationClient', () {
     test(
-      'pollUntilPreviewReady returns 4 mock candidates by default',
+      'pollUntilPreviewReady returns 2 mock candidates by default',
       () async {
         final client = MockAvatarGenerationClient(
           firstPollDelay: Duration.zero,
-          uploadDelay: Duration.zero,
           approveDelay: Duration.zero,
         );
         final result = await client.pollUntilPreviewReady(
@@ -209,7 +232,7 @@ void main() {
           timeout: const Duration(seconds: 2),
         );
         expect(result.status, AvatarJobStatus.previewReady);
-        expect(result.candidates.length, 4);
+        expect(result.candidates.length, 2);
         expect(result.candidates.first.previewUrl.startsWith('http'), isTrue);
       },
     );
@@ -219,7 +242,6 @@ void main() {
       () async {
         final client = MockAvatarGenerationClient(
           firstPollDelay: Duration.zero,
-          uploadDelay: Duration.zero,
           approveDelay: Duration.zero,
         );
         final r = await client.approveCandidate('cand_xyz');
@@ -232,7 +254,6 @@ void main() {
     test('pollUntilPreviewReady honors shouldContinue cancellation', () async {
       final client = MockAvatarGenerationClient(
         firstPollDelay: const Duration(milliseconds: 50),
-        uploadDelay: Duration.zero,
         approveDelay: Duration.zero,
         simulatedJobStatus: AvatarJobStatus.running,
       );
@@ -252,21 +273,76 @@ void main() {
       );
     });
 
-    test('uploadSourcePhoto returns queued status without throwing', () async {
-      final client = MockAvatarGenerationClient(
-        firstPollDelay: Duration.zero,
-        uploadDelay: Duration.zero,
-        approveDelay: Duration.zero,
-      );
-      final r = await client.uploadSourcePhoto(
-        file: XFile.fromData(
-          Uint8List.fromList([0, 0, 0, 0]),
-          name: 'mock.jpg',
-        ),
-        uid: 'kakao_test',
-      );
-      expect(r.jobId, isNotEmpty);
-      expect(r.avatarStatus, 'queued');
-    });
+    test(
+      'transient poll errors do not abort an in-progress generation',
+      () async {
+        // 회귀: 폴링 중 일시적인 네트워크 오류 1회가 진행 중인 서버 작업을
+        // 클라이언트에서 최종 실패로 확정시키면 안 된다.
+        final client = _FlakyPollClient(
+          failuresBeforeSuccess: 2,
+          eventualStatus: AvatarJobStatus.previewReady,
+        );
+
+        final result = await client.pollUntilPreviewReady(
+          jobId: 'job_flaky',
+          pollInterval: const Duration(milliseconds: 1),
+          timeout: const Duration(seconds: 5),
+        );
+
+        expect(result.status, AvatarJobStatus.previewReady);
+        expect(client.callCount, 3);
+      },
+    );
+
+    test(
+      'persistent poll errors still surface after the retry budget',
+      () async {
+        final client = _FlakyPollClient(
+          failuresBeforeSuccess: 999,
+          eventualStatus: AvatarJobStatus.previewReady,
+        );
+
+        await expectLater(
+          client.pollUntilPreviewReady(
+            jobId: 'job_dead',
+            pollInterval: const Duration(milliseconds: 1),
+            timeout: const Duration(seconds: 5),
+          ),
+          throwsA(isA<StateError>()),
+        );
+      },
+    );
   });
+}
+
+/// 폴링 중 처음 [failuresBeforeSuccess]회는 예외를 던지고 이후 성공하는 테스트 클라이언트.
+class _FlakyPollClient extends AvatarGenerationClient {
+  _FlakyPollClient({
+    required this.failuresBeforeSuccess,
+    required this.eventualStatus,
+  });
+
+  final int failuresBeforeSuccess;
+  final AvatarJobStatus eventualStatus;
+  int callCount = 0;
+
+  @override
+  Future<AvatarCandidatesResult> getCandidates(String jobId) async {
+    callCount += 1;
+    if (callCount <= failuresBeforeSuccess) {
+      throw StateError('transient_network_error');
+    }
+    return AvatarCandidatesResult(
+      jobId: jobId,
+      status: eventualStatus,
+      candidates: const [
+        AvatarCandidate(candidateId: 'cand_1', previewUrl: 'https://x/a.png'),
+      ],
+    );
+  }
+
+  @override
+  Future<AvatarApprovalResult> approveCandidate(String candidateId) async {
+    throw UnimplementedError();
+  }
 }

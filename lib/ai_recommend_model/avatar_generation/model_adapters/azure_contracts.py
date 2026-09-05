@@ -8,6 +8,8 @@ from avatar_generation.avatar_prompt_contract import (
     AVATAR_GENERAL_PROMPT_VERSION,
 )
 
+from .azure_endpoint_quota import declared_endpoint_quota
+
 
 AZURE_GPT_IMAGE_2_MODEL_ID = "azure_gpt_image_2"
 AZURE_GPT_IMAGE_2_VERSION = "gpt-image-2"
@@ -125,11 +127,14 @@ class AzureGptImage2Config:
                 1,
                 8,
             ),
+            # quota 는 endpoint 별 단일 authority 에서만 온다. calibration 과
+            # 동일한 선언을 읽으므로 두 경로가 서로를 무시할 수 없다.
+            # 런타임은 fail-closed 대신 선언 quota 로 clamp 한다(기존 동작 보존).
             requests_per_minute=_bounded_int(
                 os.environ.get("AZURE_OPENAI_REQUESTS_PER_MINUTE"),
-                2,
+                int(declared_endpoint_quota().rpm_limit),
                 1,
-                2,
+                int(declared_endpoint_quota().rpm_limit),
             ),
             backoff_base_seconds=_bounded_float(
                 os.environ.get("AZURE_OPENAI_RETRY_BASE_SECONDS"),

@@ -118,6 +118,14 @@
         "destination": "/invite-friend.html"
       },
       {
+        "source": "/invite/team",
+        "destination": "/invite-team.html"
+      },
+      {
+        "source": "/invite/team/**",
+        "destination": "/invite-team.html"
+      },
+      {
         "source": "/privacy",
         "destination": "/privacy.html"
       },

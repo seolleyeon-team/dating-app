@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -17,6 +18,8 @@ import '../services/navigation_service.dart';
 import '../services/storage_service.dart';
 import '../services/push_notification_service.dart';
 import '../features/auth/utils/email_link_continue_url.dart';
+import '../features/event/models/event_team_route_args.dart';
+import '../features/profile/widgets/friend_invite_confirmation_sheet.dart';
 import '../router/route_names.dart';
 import '../shared/layouts/main_scaffold_args.dart';
 
@@ -29,6 +32,11 @@ class AuthProvider with ChangeNotifier {
   final AuthService _authService = AuthService();
   final StorageService _storageService = StorageService();
   final FriendInviteService _friendInviteService = FriendInviteService();
+
+  // One KakaoTalk hand-off reaches us through app_links (cold start + stream)
+  // AND the Kakao SDK scheme stream. Accept each token once per hand-off.
+  final FriendInviteDeepLinkDeduper _friendInviteDeduper =
+      FriendInviteDeepLinkDeduper();
 
   // ✅ 앱 초기화 완료 여부 (router에서 splash 고정에 사용)
   bool _isInitialized = false;
@@ -291,23 +299,28 @@ class AuthProvider with ChangeNotifier {
     debugPrint(
       '[DeepLink] incoming ${PrivacyLogUtils.pathFingerprint(uri.toString())}',
     );
-    if (_friendInviteService.isFriendInviteUri(uri)) {
-      final token = _friendInviteService.extractInviteToken(uri);
-      if (token == null || token.isEmpty) {
-        await _showFriendInviteResult(
-          const FriendInviteAcceptResult(
-            status: FriendInviteAcceptStatus.invalid,
-          ),
-        );
+    // A share link (Kakao button, App Link, custom scheme) is a ROUTING
+    // event only. It is persisted and turned into a confirmation step; no
+    // friendship or team mutation happens on link open.
+    final pendingInvite = FriendInviteService.parseInviteUri(uri);
+    if (pendingInvite != null) {
+      debugPrint(
+        '[DeepLink] ${pendingInvite.purpose.name} invite detected '
+        '${PrivacyLogUtils.idFingerprint(pendingInvite.token)}',
+      );
+      if (!_friendInviteDeduper.shouldProcess(pendingInvite.token)) {
+        debugPrint('[DeepLink] duplicate invite hand-off ignored');
         return;
       }
-
-      debugPrint(
-        '[DeepLink] friend invite detected ${PrivacyLogUtils.idFingerprint(token)}',
-      );
-      await _friendInviteService.savePendingInviteToken(token);
-      debugPrint('[DeepLink] saved pending friend invite token');
-      await _processPendingFriendInvite();
+      // Persist FIRST so login or an app restart cannot lose the context.
+      await _friendInviteService.savePendingInvite(pendingInvite);
+      debugPrint('[DeepLink] saved pending invite');
+      await resumePendingInvite();
+      if (await _friendInviteService.getPendingInvite() != null) {
+        // Still pending (login/verification needed): a later hand-off of the
+        // same link (the user taps the Kakao button again) must run again.
+        _friendInviteDeduper.release(pendingInvite.token);
+      }
       return;
     }
 
@@ -364,6 +377,10 @@ class AuthProvider with ChangeNotifier {
       await _storageService.clearPendingStudentEmailRequestId();
       await applyPrimaryEmailAuthCompletion(completion);
 
+      // A friend invite tapped before this login must not wait for the next
+      // cold start: the canonical appUserId now exists, so accept it here.
+      await _processPendingFriendInvite();
+
       debugPrint(
         'Email link verification complete '
         '${PrivacyLogUtils.idFingerprint(completion.normalizedEmail)}',
@@ -386,10 +403,261 @@ class AuthProvider with ChangeNotifier {
     super.dispose();
   }
 
-  Future<void> _processPendingFriendInvite() async {
-    final result = await _friendInviteService.processPendingInviteIfPossible();
-    if (result == null) return;
+  /// Bootstrap / warm-start entry point. See [resumePendingInvite].
+  Future<void> _processPendingFriendInvite() => resumePendingInvite();
+
+  bool _inviteResumeInFlight = false;
+
+  // A confirmation that closed WITHOUT a decision (route reset on a cold
+  // start) is re-presented a bounded number of times per pending invite.
+  int _inviteConfirmationRetries = 0;
+  static const int _maxInviteConfirmationRetries = 2;
+  static const Duration _inviteConfirmationRetryDelay = Duration(
+    milliseconds: 700,
+  );
+
+  void _scheduleInviteConfirmationRetry() {
+    if (_inviteConfirmationRetries >= _maxInviteConfirmationRetries) {
+      debugPrint('[FriendInvite] confirmation retry budget exhausted');
+      return;
+    }
+    _inviteConfirmationRetries += 1;
+    Future<void>.delayed(_inviteConfirmationRetryDelay, () {
+      // The in-flight flag was released in resumePendingInvite's finally.
+      unawaited(resumePendingInvite());
+    });
+  }
+
+  /// Restores a pending share invite into its confirmation step.
+  ///
+  /// This NEVER accepts anything by itself:
+  /// - friend invites open [FriendInviteConfirmationSheet]; only an explicit
+  ///   [친구 추가] tap calls acceptFriendInvite.
+  /// - team invites are redeemed into the canonical pending team invitation
+  ///   and shown in the existing team response screen (accept / decline).
+  /// The server preview's purpose is authoritative; the link's own hint is
+  /// only used for logging.
+  Future<void> resumePendingInvite() async {
+    if (_inviteResumeInFlight) return;
+    final pending = await _friendInviteService.getPendingInvite();
+    if (pending == null) return;
+    _inviteResumeInFlight = true;
+    try {
+      debugPrint('[FriendInvite] resume purpose=${pending.purpose.name}');
+
+      // Gate 1: a canonical Firebase session. A cached id never counts.
+      if (!_friendInviteService.hasCanonicalFirebaseSession) {
+        await _authService.ensureCanonicalAppSession();
+      }
+      if (!_friendInviteService.hasCanonicalFirebaseSession ||
+          !_isAuthenticated) {
+        await _showFriendInviteResult(
+          const FriendInviteAcceptResult(
+            status: FriendInviteAcceptStatus.pendingLogin,
+          ),
+        );
+        return; // the invite stays pending until the user logs in
+      }
+      if (!_isStudentVerified) {
+        await _showFriendInviteResult(
+          const FriendInviteAcceptResult(
+            status: FriendInviteAcceptStatus.pendingVerification,
+          ),
+        );
+        return;
+      }
+
+      // Gate 2: the server decides what the token is (purpose) and whether
+      // it is still usable. Read-only — nothing is consumed here.
+      InvitePreview preview;
+      final inviteTitle = pending.purpose == InvitePurpose.team
+          ? '3:3 팀 초대'
+          : '친구 초대';
+      try {
+        preview = await _friendInviteService.previewInvite(pending.token);
+      } on FirebaseFunctionsException catch (e) {
+        if (e.code == 'unauthenticated' || e.code == 'failed-precondition') {
+          await _showFriendInviteResult(
+            FriendInviteAcceptResult(
+              status: FriendInviteAcceptStatus.pendingVerification,
+              message: e.message,
+            ),
+          );
+          return; // stays pending until the account is eligible
+        }
+        // Network / server / deployment failure: the token was not judged
+        // by the server, so it stays pending and is retried at the next
+        // hand-off or bootstrap instead of being silently dropped.
+        debugPrint(
+          '[FriendInvite] preview unavailable (${e.code}); invite kept pending',
+        );
+        await _showInviteNotice(
+          inviteTitle,
+          _friendInviteService.describeFunctionsError(e),
+        );
+        return;
+      }
+
+      final purpose = preview.purpose;
+      if (!preview.isValid || purpose == null) {
+        _inviteConfirmationRetries = 0;
+        await _friendInviteService.clearPendingInvite();
+        await _showInviteNotice(inviteTitle, preview.displayMessage);
+        return;
+      }
+      if (purpose != pending.purpose) {
+        debugPrint(
+          '[FriendInvite] link hint ${pending.purpose.name} disagrees with '
+          'server purpose ${purpose.name}; routing on the server value',
+        );
+      }
+
+      switch (purpose) {
+        case InvitePurpose.friend:
+          await _confirmAndAcceptFriendInvite(pending.token, preview);
+        case InvitePurpose.team:
+          await _confirmAndRedeemTeamInvite(pending.token, preview);
+      }
+    } finally {
+      _inviteResumeInFlight = false;
+    }
+  }
+
+  Future<void> _confirmAndAcceptFriendInvite(
+    String token,
+    InvitePreview preview,
+  ) async {
+    await _waitForResumedLifecycle();
+    final context = NavigationService.navigatorKey.currentContext;
+    if (context == null || !context.mounted) {
+      debugPrint('[FriendInvite] skip confirmation: navigator not ready');
+      return; // stays pending; retried at the next bootstrap
+    }
+
+    final confirmed = await showFriendInviteConfirmationSheet(
+      context,
+      inviterName: preview.inviterName ?? '',
+      inviterImageUrl: preview.inviterImageUrl,
+    );
+    if (confirmed == null) {
+      // The sheet is not barrier-dismissible, so `null` means the route was
+      // removed underneath it (splash → main reset on a cold start). No
+      // decision was made: keep the invite pending and re-present it.
+      debugPrint('[FriendInvite] confirmation interrupted; re-presenting');
+      _scheduleInviteConfirmationRetry();
+      return;
+    }
+    _inviteConfirmationRetries = 0;
+    if (confirmed != true) {
+      // Explicit "나중에": no mutation, and no re-prompt.
+      debugPrint('[FriendInvite] confirmation declined');
+      await _friendInviteService.clearPendingInvite();
+      return;
+    }
+
+    final result = await _friendInviteService.acceptFriendInvite(token);
+    if (result.isTerminal) {
+      await _friendInviteService.clearPendingInvite();
+    }
     await _showFriendInviteResult(result);
+  }
+
+  Future<void> _confirmAndRedeemTeamInvite(
+    String token,
+    InvitePreview preview,
+  ) async {
+    await _waitForResumedLifecycle();
+    final context = NavigationService.navigatorKey.currentContext;
+    if (context == null || !context.mounted) {
+      debugPrint('[FriendInvite] skip team confirmation: navigator not ready');
+      return; // stays pending; retried at the next bootstrap
+    }
+
+    // Even though redemption grants no membership, it occupies a pending
+    // team slot and consumes the one-time token — so it, too, only happens
+    // after an explicit in-app tap.
+    final proceed = await _confirmTeamInviteOpen(context, preview.inviterName);
+    if (proceed == null) {
+      // Dialog removed by a route reset, not answered: keep pending.
+      debugPrint('[FriendInvite] team confirmation interrupted; re-presenting');
+      _scheduleInviteConfirmationRetry();
+      return;
+    }
+    _inviteConfirmationRetries = 0;
+    if (proceed != true) {
+      debugPrint('[FriendInvite] team invite confirmation declined');
+      await _friendInviteService.clearPendingInvite();
+      return;
+    }
+
+    final result = await _friendInviteService.redeemTeamShareInvite(token);
+    if (result.isTerminal) {
+      await _friendInviteService.clearPendingInvite();
+    }
+    await _waitForResumedLifecycle();
+    final navigator = NavigationService.navigatorKey.currentState;
+    final teamInviteId = result.teamInviteId;
+    if (result.opensResponseScreen &&
+        navigator != null &&
+        teamInviteId != null) {
+      // The existing team response screen is the explicit accept/decline.
+      navigator.pushNamed(
+        RouteNames.eventTeamInviteResponse,
+        arguments: EventTeamInviteResponseArgs(inviteId: teamInviteId),
+      );
+      return;
+    }
+    await _showInviteNotice('3:3 팀 초대', result.displayMessage);
+  }
+
+  Future<bool?> _confirmTeamInviteOpen(
+    BuildContext context,
+    String? inviterName,
+  ) {
+    final name = (inviterName ?? '').trim();
+    final who = name.isEmpty ? '설레연 친구' : name;
+    return showCupertinoDialog<bool>(
+      context: context,
+      useRootNavigator: true,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('3:3 팀 초대'),
+        content: Text('$who님이 3:3 미팅 팀 참여를 요청했어요.\n초대를 확인할까요?'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () =>
+                Navigator.of(dialogContext, rootNavigator: true).pop(false),
+            child: const Text('나중에'),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () =>
+                Navigator.of(dialogContext, rootNavigator: true).pop(true),
+            child: const Text('초대 확인'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showInviteNotice(String title, String message) async {
+    await _waitForResumedLifecycle();
+    final context = NavigationService.navigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    await showCupertinoDialog<void>(
+      context: context,
+      useRootNavigator: true,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () =>
+                Navigator.of(dialogContext, rootNavigator: true).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _waitForResumedLifecycle({
@@ -486,6 +754,7 @@ class AuthProvider with ChangeNotifier {
       FriendInviteAcceptStatus.expired => '링크 만료',
       FriendInviteAcceptStatus.invalid => '잘못된 링크',
       FriendInviteAcceptStatus.selfInvite => '초대 링크 확인',
+      FriendInviteAcceptStatus.blockedRelationship => '친구 추가 불가',
       FriendInviteAcceptStatus.error => '처리 실패',
       _ => '친구 초대',
     };
@@ -664,7 +933,7 @@ class AuthProvider with ChangeNotifier {
       // Firebase sign-out + Kakao SDK logout: the next user on this device
       // must not inherit a stale Kakao friend-connection session.
       await _authService.signOutAll();
-      await _friendInviteService.clearPendingInviteToken();
+      await _friendInviteService.clearPendingInvite();
       if (appUserId != null && appUserId.isNotEmpty) {
         await _storageService.clearUserScopedSession(appUserId);
       } else {

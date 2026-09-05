@@ -152,6 +152,8 @@ enum AvatarJobStatus {
 AvatarJobStatus avatarJobStatusFromString(String? raw) {
   switch ((raw ?? '').trim()) {
     case 'queued':
+    // 서버가 2~6장 중 최적 소스를 고르는 중. 작업은 살아 있다.
+    case 'source_selecting':
       return AvatarJobStatus.queued;
     case 'running':
     case 'generating':
@@ -162,6 +164,7 @@ AvatarJobStatus avatarJobStatusFromString(String? raw) {
     case 'preview_ready':
       return AvatarJobStatus.previewReady;
     case 'no_previewable_candidates':
+    case 'no_previewable':
       return AvatarJobStatus.noPreviewableCandidates;
     case 'needs_review':
       return AvatarJobStatus.needsReview;
@@ -170,6 +173,10 @@ AvatarJobStatus avatarJobStatusFromString(String? raw) {
     case 'completed':
       return AvatarJobStatus.approved;
     case 'failed':
+    // 서버/워커가 실제로 기록하는 종료 상태들. unknown 으로 떨어뜨리면
+    // 클라이언트가 이미 끝난 작업을 폴링 데드라인까지 계속 기다린다.
+    case 'retryable_failed':
+    case 'terminal_failed':
       return AvatarJobStatus.failed;
     case 'superseded':
       return AvatarJobStatus.superseded;

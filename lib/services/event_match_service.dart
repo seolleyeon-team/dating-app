@@ -32,13 +32,12 @@ class EventMatchService {
       throw StateError('로그인이 필요해요.');
     }
 
-    await _authService.ensureCanonicalAppSession();
-    final token = await _authService.getKakaoAccessTokenForFunctions();
-    final payload = Map<String, dynamic>.from(extra);
-    if (token != null && token.isNotEmpty) {
-      payload['kakaoAccessToken'] = token;
+    // Firebase canonical session only — no Kakao access token is attached.
+    final attached = await _authService.ensureCanonicalAppSession();
+    if (!attached) {
+      throw StateError('로그인이 필요해요. 연세 메일 로그인 후 다시 시도해주세요.');
     }
-    return payload;
+    return Map<String, dynamic>.from(extra);
   }
 
   Future<EventTeamMatchSpinResponse> spinSeasonMeetingRoulette({

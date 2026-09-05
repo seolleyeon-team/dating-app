@@ -13,6 +13,7 @@ import {
 } from "./accountDeletionEventTeamCleanup";
 import {
   DELETED_USER_DISPLAY_NAME,
+  applySocialCleanupOperation,
   buildFriendPairId,
   planAccountDeletionSocialOperations,
   socialCountsFromDocs,
@@ -276,4 +277,116 @@ test("SEC-04 매핑 삭제 건수는 글/댓글 매핑을 합산한다", () => {
     })
   );
   assert.equal(counts.bambooOwnershipMappingsDeleted, 3);
+});
+
+// -----------------------------------------------------------------------------
+// deleteFriendEdge keeps the survivor's users.friendsCount in step with the
+// canonical users/{uid}/friends edges (minimal in-memory Firestore double).
+// -----------------------------------------------------------------------------
+
+class EdgeFakeFirestore {
+  readonly store = new Map<string, Record<string, unknown>>();
+
+  seed(path: string, data: Record<string, unknown>): void {
+    this.store.set(path, { ...data });
+  }
+
+  private ref(path: string): FakeRef {
+    return new FakeRef(this, path);
+  }
+
+  collection(name: string): { doc(id: string): FakeRef } {
+    return { doc: (id: string) => this.ref(`${name}/${id}`) };
+  }
+
+  async runTransaction<T>(
+    fn: (tx: {
+      get(ref: FakeRef): Promise<FakeSnap>;
+      delete(ref: FakeRef): void;
+      set(ref: FakeRef, data: Record<string, unknown>, opts?: unknown): void;
+    }) => Promise<T>
+  ): Promise<T> {
+    const writes: Array<() => void> = [];
+    const result = await fn({
+      get: async (ref) => new FakeSnap(this.store.get(ref.path)),
+      delete: (ref) => writes.push(() => this.store.delete(ref.path)),
+      set: (ref, data) =>
+        writes.push(() =>
+          this.store.set(ref.path, { ...(this.store.get(ref.path) ?? {}), ...data })
+        ),
+    });
+    for (const write of writes) write();
+    return result;
+  }
+}
+
+class FakeRef {
+  constructor(private readonly db: EdgeFakeFirestore, readonly path: string) {}
+  collection(name: string): { doc(id: string): FakeRef } {
+    return { doc: (id: string) => new FakeRef(this.db, `${this.path}/${name}/${id}`) };
+  }
+}
+
+class FakeSnap {
+  constructor(private readonly data_: Record<string, unknown> | undefined) {}
+  get exists(): boolean {
+    return this.data_ !== undefined;
+  }
+  get(field: string): unknown {
+    return this.data_?.[field];
+  }
+  data(): Record<string, unknown> | undefined {
+    return this.data_;
+  }
+}
+
+function friendGraph(): EdgeFakeFirestore {
+  const db = new EdgeFakeFirestore();
+  db.seed("users/alice", { friendsCount: 2 });
+  db.seed("users/bob", { friendsCount: 1 });
+  db.seed("users/alice/friends/bob", { friendUserId: "bob" });
+  db.seed("users/bob/friends/alice", { friendUserId: "alice" });
+  db.seed("users/alice/friends/carol", { friendUserId: "carol" });
+  return db;
+}
+
+async function deleteEdge(db: EdgeFakeFirestore, uid: string, otherUid: string) {
+  await applySocialCleanupOperation(
+    db as unknown as Parameters<typeof applySocialCleanupOperation>[0],
+    uid,
+    { kind: "deleteFriendEdge", otherUid }
+  );
+}
+
+test("deleteFriendEdge removes both edges and decrements the survivor's friendsCount once", async () => {
+  const db = friendGraph();
+  await deleteEdge(db, "bob", "alice");
+
+  assert.equal(db.store.has("users/bob/friends/alice"), false);
+  assert.equal(db.store.has("users/alice/friends/bob"), false);
+  assert.equal(db.store.get("users/alice")?.friendsCount, 1);
+  // The deleted account's own counter is irrelevant (the doc is purged) and
+  // the unrelated edge alice→carol is untouched.
+  assert.equal(db.store.has("users/alice/friends/carol"), true);
+});
+
+test("deleteFriendEdge is idempotent: a retry never decrements twice or below zero", async () => {
+  const db = friendGraph();
+  await deleteEdge(db, "bob", "alice");
+  await deleteEdge(db, "bob", "alice");
+  assert.equal(db.store.get("users/alice")?.friendsCount, 1);
+
+  db.seed("users/dave", { friendsCount: 0 });
+  db.seed("users/dave/friends/bob", { friendUserId: "bob" });
+  await deleteEdge(db, "bob", "dave");
+  assert.equal(db.store.get("users/dave")?.friendsCount, 0);
+});
+
+test("deleteFriendEdge tolerates a survivor without a friendsCount field", async () => {
+  const db = friendGraph();
+  db.seed("users/erin", {});
+  db.seed("users/erin/friends/bob", { friendUserId: "bob" });
+  await deleteEdge(db, "bob", "erin");
+  assert.equal(db.store.has("users/erin/friends/bob"), false);
+  assert.equal(db.store.get("users/erin")?.friendsCount, 0);
 });

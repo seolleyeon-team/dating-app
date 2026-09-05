@@ -160,12 +160,30 @@ function publicAvatarContractOk(params: {
   return true;
 }
 
-function mapTerminalJobStatus(jobStatus: string): {
+/// 워커는 "요청은 나갔고 결과를 모른다"를 needs_review 로 기록한다. QA 추가
+/// 검토와 의미가 다르므로(전자는 유료 생성이 이미 존재할 수 있음) 공개 상태에서
+/// 반드시 분리한다.
+const PROVIDER_OUTCOME_UNKNOWN_ERROR_CODES = new Set([
+  "azure_unknown_post_send_outcome",
+]);
+
+export function mapTerminalJobStatus(
+  jobStatus: string,
+  jobErrorCode = "",
+): {
   avatarStatus: string;
   onboardingStatus: string;
   avatarErrorCode: string | null;
   clearAvatarError: boolean;
   } | null {
+  if (PROVIDER_OUTCOME_UNKNOWN_ERROR_CODES.has(jobErrorCode.toLowerCase())) {
+    return {
+      avatarStatus: "reconciliation_required",
+      onboardingStatus: "avatar_generation_reconciliation_required",
+      avatarErrorCode: "avatar_provider_outcome_unknown",
+      clearAvatarError: false,
+    };
+  }
   switch (jobStatus) {
     case "preview_ready":
       return {
@@ -259,9 +277,15 @@ export function planAvatarGenerationStateSync(params: {
   jobData: RecordData;
   privateData: RecordData;
   userData: RecordData;
+  userExists?: boolean;
 }): AvatarGenerationStateSyncPlan {
   const uid = asString(params.jobData.uid);
   if (!uid) return { action: "skip", reason: "missing_uid" };
+  // tx.update 는 존재하지 않는 문서에서 NOT_FOUND 로 던진다. 재배달해도
+  // 계속 실패하므로 계획 단계에서 걸러 트리거를 무한 재시도시키지 않는다.
+  if (params.userExists === false) {
+    return { action: "skip", reason: "user_document_missing" };
+  }
   if (asString(params.jobData.jobId) && asString(params.jobData.jobId) !== params.jobId) {
     return { action: "skip", reason: "job_id_mismatch" };
   }
@@ -297,7 +321,10 @@ export function planAvatarGenerationStateSync(params: {
     return { action: "skip", reason: "public_avatar_contract_mismatch" };
   }
 
-  const mapped = mapTerminalJobStatus(jobStatus);
+  const mapped = mapTerminalJobStatus(
+    jobStatus,
+    asString(jobData.errorCode).toLowerCase(),
+  );
   if (!mapped) return { action: "skip", reason: "terminal_status_not_public" };
   const plan: AvatarGenerationStateSyncPlan = {
     action: "update_user_avatar",
@@ -338,6 +365,7 @@ export async function syncAvatarGenerationStateForJob(params: {
       jobData,
       privateData: readMap(privateSnap.data()),
       userData: readMap(userSnap.data()),
+      userExists: userSnap.exists,
     });
     if (plan.action !== "update_user_avatar") return "skipped";
 
@@ -358,8 +386,16 @@ export async function syncAvatarGenerationStateForJob(params: {
   });
 }
 
+/// 이 트리거는 non-terminal -> terminal 전이에서만 발화한다. 한 번 실패하면
+/// 같은 작업은 다시 발화하지 않으므로, 재배달 없이는 일시적 실패 한 번으로
+/// users/{uid}.avatar 가 avatarJobs 와 영구히 어긋난다.
+export const AVATAR_STATE_SYNC_TRIGGER_OPTIONS = {
+  document: "avatarJobs/{jobId}",
+  retry: true,
+} as const;
+
 export function createAvatarGenerationStateSyncTrigger(firestore: Firestore) {
-  return onDocumentWritten("avatarJobs/{jobId}", async (event) => {
+  return onDocumentWritten(AVATAR_STATE_SYNC_TRIGGER_OPTIONS, async (event) => {
     const after = event.data?.after;
     if (!after?.exists) return;
     const before = event.data?.before;

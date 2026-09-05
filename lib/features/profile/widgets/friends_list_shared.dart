@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
 
+import '../../../router/route_names.dart';
 import '../../../services/friend_service.dart';
+import '../../matching/models/profile_card_args.dart';
 
 /// 친구 목록 / 친구 피커 공통 색상
 class FriendsListSharedColors {
@@ -64,8 +66,11 @@ class FriendsListStreamBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: friendService.friendsStream(currentUserId),
+    // One live stream over the canonical friend edges (users/{uid}/friends),
+    // hydrated by FriendService. An accepted invite shows up here without a
+    // restart, on both sides of the friendship.
+    return StreamBuilder<List<FriendListItem>>(
+      stream: friendService.watchFriendItems(currentUserId),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           if (emptyOnPermissionDeniedWhenNoFriendsHint &&
@@ -88,8 +93,8 @@ class FriendsListStreamBody extends StatelessWidget {
         if (!snapshot.hasData) {
           return const Center(child: CupertinoActivityIndicator());
         }
-        final docs = snapshot.data!.docs;
-        if (docs.isEmpty) {
+        final all = snapshot.data!;
+        if (all.isEmpty) {
           return const FriendsListEmptyMessage(
             icon: CupertinoIcons.person_2,
             title: '아직 추가된 친구가 없어요',
@@ -97,60 +102,55 @@ class FriendsListStreamBody extends StatelessWidget {
           );
         }
 
-        return FutureBuilder<List<FriendListItem>>(
-          future: friendService.hydrateFriends(docs),
-          builder: (context, friendsSnapshot) {
-            if (friendsSnapshot.connectionState == ConnectionState.waiting &&
-                !friendsSnapshot.hasData) {
-              return const Center(child: CupertinoActivityIndicator());
-            }
-            var friends = friendsSnapshot.data ?? const <FriendListItem>[];
-            friends = friends
-                .where((f) => !excludedFriendUserIds.contains(f.friendUserId))
-                .toList();
-            if (friends.isEmpty) {
-              return const FriendsListEmptyMessage(
-                icon: CupertinoIcons.person_crop_circle_badge_xmark,
-                title: '선택할 수 있는 친구가 없어요',
-                subtitle: '팀에 포함되지 않은 친구만 여기에서 고를 수 있어요',
-              );
-            }
-
-            return ListView.separated(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-              itemCount: friends.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final item = friends[index];
-                final addedAtText = formatAddedAt(item.createdAt);
-                final isPicker = mode == FriendsListStreamMode.picker;
-                final selected = selectedFriendUserIds.contains(
-                  item.friendUserId,
+        final isPicker = mode == FriendsListStreamMode.picker;
+        final friends = all
+            .where((f) => !excludedFriendUserIds.contains(f.friendUserId))
+            .toList();
+        if (friends.isEmpty) {
+          return isPicker
+              ? const FriendsListEmptyMessage(
+                  icon: CupertinoIcons.person_crop_circle_badge_xmark,
+                  title: '선택할 수 있는 친구가 없어요',
+                  subtitle: '팀에 포함되지 않은 친구만 여기에서 고를 수 있어요',
+                )
+              : const FriendsListEmptyMessage(
+                  icon: CupertinoIcons.person_2,
+                  title: '아직 추가된 친구가 없어요',
+                  subtitle: '친구 초대 링크를 보내 설레연 친구를 만들어보세요',
                 );
-                final atPickLimit =
-                    isPicker &&
-                    pickerMaxAdditionalSelections >= 0 &&
-                    !selected &&
-                    pickerSelectedCount >= pickerMaxAdditionalSelections;
-                final disabled =
-                    disabledFriendUserIds.contains(item.friendUserId) ||
-                    atPickLimit;
+        }
 
-                return FriendListTileWidget(
-                  item: item,
-                  addedAtText: addedAtText,
-                  mode: mode,
-                  selected: selected,
-                  disabled: disabled,
-                  onTap: () {
-                    if (isPicker) {
-                      if (disabled) return;
-                      onPickerToggle?.call(item, !selected);
-                    } else {
-                      onBrowseTap?.call(item);
-                    }
-                  },
-                );
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          itemCount: friends.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final item = friends[index];
+            final addedAtText = formatAddedAt(item.createdAt);
+            final selected = selectedFriendUserIds.contains(item.friendUserId);
+            final atPickLimit =
+                isPicker &&
+                pickerMaxAdditionalSelections >= 0 &&
+                !selected &&
+                pickerSelectedCount >= pickerMaxAdditionalSelections;
+            final disabled =
+                disabledFriendUserIds.contains(item.friendUserId) ||
+                atPickLimit;
+
+            return FriendListTileWidget(
+              key: ValueKey('friend_tile_${item.friendUserId}'),
+              item: item,
+              addedAtText: addedAtText,
+              mode: mode,
+              selected: selected,
+              disabled: disabled,
+              onTap: () {
+                if (isPicker) {
+                  if (disabled) return;
+                  onPickerToggle?.call(item, !selected);
+                } else {
+                  onBrowseTap?.call(item);
+                }
               },
             );
           },
@@ -158,6 +158,16 @@ class FriendsListStreamBody extends StatelessWidget {
       },
     );
   }
+}
+
+/// Opens the counterpart's profile from a friend tile. Friends are looked up
+/// through the same canonical public-profile screen as chat partners; the
+/// friend edge itself never carries private data.
+void openFriendProfile(BuildContext context, FriendListItem item) {
+  Navigator.of(context, rootNavigator: true).pushNamed(
+    RouteNames.profileSpecificDetail,
+    arguments: ProfileCardArgs.fromChat(userId: item.friendUserId),
+  );
 }
 
 class FriendListTileWidget extends StatelessWidget {

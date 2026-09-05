@@ -108,3 +108,6 @@ analyze_output.txt
 
 # 실 UID↔사진 동의 증빙 — 로컬 보존, Git 추적 금지 (SEC-01)
 mini_calibration_uid_photo_map.txt
+
+# Release signing config (passwords) — root copy; android/key.properties is ignored by android/.gitignore
+/key.properties

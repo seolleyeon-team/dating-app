@@ -36,11 +36,13 @@ def test_each_production_alias_closes_privacy_and_qa_bypasses(
 
     with pytest.raises(ValueError, match="production"):
         validate_reference_preprocess_enabled_for_environment()
-    with pytest.raises(ValueError, match="production"):
-        worker_module._prepare_reference_preprocess_for_generation(
-            Image.new("RGB", (64, 64), "white"),
-            run_mode="flux",
-        )
+    # No remaining worker mode builds a model-conditioning reference image, so
+    # the worker never hands a generation reference to a local model at all.
+    context = worker_module._prepare_reference_preprocess_for_generation(
+        Image.new("RGB", (64, 64), "white"),
+        run_mode="dry_run",
+    )
+    assert context.generation_image is None
 
     assert qa_module._is_production_environment() is True
     assert qa_module._dev_bypass_allowed() is False
@@ -60,11 +62,13 @@ def test_conflicting_environment_aliases_fail_closed_for_privacy_and_qa(
 
     with pytest.raises(ValueError, match="production"):
         validate_reference_preprocess_enabled_for_environment()
-    with pytest.raises(ValueError, match="production"):
-        worker_module._prepare_reference_preprocess_for_generation(
-            Image.new("RGB", (64, 64), "white"),
-            run_mode="flux",
-        )
+    # No remaining worker mode builds a model-conditioning reference image, so
+    # the worker never hands a generation reference to a local model at all.
+    context = worker_module._prepare_reference_preprocess_for_generation(
+        Image.new("RGB", (64, 64), "white"),
+        run_mode="dry_run",
+    )
+    assert context.generation_image is None
 
     assert qa_module._is_production_environment() is True
     assert qa_module._dev_bypass_allowed() is False

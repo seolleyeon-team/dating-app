@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'auth_service.dart';
 import 'friend_service.dart';
@@ -153,20 +154,21 @@ class EventTeamService {
   final FriendService _friendService;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  /// Team setup / invitation / membership callables authenticate with the
+  /// Firebase canonical session ONLY. No Kakao access token is ever attached:
+  /// a Kakao SDK session must never be able to grant team membership.
   Future<Map<String, dynamic>> _callablePayload(
     Map<String, dynamic> extra,
   ) async {
-    final kakaoUserId = await _storageService.getKakaoUserId();
-    if (kakaoUserId == null || kakaoUserId.isEmpty) {
+    final appUserId = await _storageService.getAppUserId();
+    if (appUserId == null || appUserId.isEmpty) {
       throw StateError('로그인이 필요해요.');
     }
     await _authService.ensureCanonicalAppSession();
-    final token = await _authService.getKakaoAccessTokenForFunctions();
-    final map = Map<String, dynamic>.from(extra);
-    if (token != null && token.isNotEmpty) {
-      map['kakaoAccessToken'] = token;
+    if (FirebaseAuth.instance.currentUser == null) {
+      throw StateError('로그인이 필요해요. 연세 메일 로그인 후 다시 시도해주세요.');
     }
-    return map;
+    return Map<String, dynamic>.from(extra);
   }
 
   Future<String> ensureTeamSetup({String? existingTeamSetupId}) async {

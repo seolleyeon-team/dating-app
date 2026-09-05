@@ -16,7 +16,7 @@ import '../../../router/route_names.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/event_team_service.dart';
 import '../../../services/team_meeting_request_service.dart';
-import '../../../services/kakao_friend_invite_helper.dart';
+import '../../../services/friend_invite_service.dart';
 import '../../../services/kakao_talk_friend_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
@@ -46,6 +46,8 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
   final UserService _userService = UserService();
   final EventTeamService _eventTeam = EventTeamService();
   final KakaoTalkFriendService _kakaoFriendService = KakaoTalkFriendService();
+  // 3:3 팀 공유 링크는 TEAM_INVITE 토큰만 사용한다 (친구 초대 토큰 금지).
+  final FriendInviteService _inviteService = FriendInviteService();
 
   String? _kakaoUserId;
   bool _sessionOk = false;
@@ -255,11 +257,18 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
       final selectedFriend = await _selectKakaoFriend(eligibleFriends);
       if (selectedFriend == null || !mounted) return;
 
-      final invite = await KakaoFriendInviteHelper.createKakaoInvitePayload();
-      final messageResult = await _kakaoFriendService.sendMeetingInviteMessage(
+      final teamSetupId = _teamSetupId;
+      if (teamSetupId == null || teamSetupId.isEmpty) {
+        _briefAlert('팀을 먼저 만든 뒤 초대할 수 있어요.');
+        return;
+      }
+      final invite = await _inviteService.createTeamShareInvite(
+        teamSetupId: teamSetupId,
+      );
+      final messageResult = await _kakaoFriendService.sendTeamInviteMessage(
         receiverUuid: selectedFriend.uuid,
         inviterName: _kakaoShareName,
-        inviteUrl: Uri.parse(invite.inviteUrl),
+        invite: invite,
       );
       if (!mounted) return;
 
@@ -328,8 +337,17 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
       ),
     );
     if (shouldShare != true) return;
-    await KakaoFriendInviteHelper.createAndShareKakaoInvite(
-      inviterDisplayName: _kakaoShareName,
+    final teamSetupId = _teamSetupId;
+    if (teamSetupId == null || teamSetupId.isEmpty) {
+      _briefAlert('팀을 먼저 만든 뒤 초대할 수 있어요.');
+      return;
+    }
+    final payload = await _inviteService.createTeamShareInvite(
+      teamSetupId: teamSetupId,
+    );
+    await _inviteService.shareInviteViaKakao(
+      payload: payload,
+      inviterName: _kakaoShareName,
     );
   }
 

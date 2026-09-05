@@ -4,19 +4,25 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'onboarding_photo_source_ref.dart';
+
 class OnboardingPhotoUploadResult {
   const OnboardingPhotoUploadResult({
     required this.photoUrl,
     required this.slotIndex,
+    this.sourceRef,
   });
 
   final String photoUrl;
   final int? slotIndex;
+  final OnboardingPhotoSourceRef? sourceRef;
 
   factory OnboardingPhotoUploadResult.fromMap(Map<String, dynamic> data) {
+    final sourceRef = OnboardingPhotoSourceRef.tryParse(data);
     return OnboardingPhotoUploadResult(
       photoUrl: data['photoUrl']?.toString().trim() ?? '',
       slotIndex: int.tryParse(data['slotIndex']?.toString() ?? ''),
+      sourceRef: sourceRef,
     );
   }
 }

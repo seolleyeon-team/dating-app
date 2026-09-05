@@ -44,7 +44,7 @@ def _systemic_candidate(candidate_id):
 
 
 def test_first_round_systemic_unavailable_keeps_existing_suppression():
-    candidates = [_systemic_candidate(f"unavailable_{idx}") for idx in range(4)]
+    candidates = [_systemic_candidate(f"unavailable_{idx}") for idx in range(2)]
 
     plan = plan_generation_round(candidates, policy=AdaptiveGenerationPolicy())
 

@@ -23,11 +23,18 @@ class FriendListItem {
 }
 
 class FriendService {
-  FriendService({UserService? userService})
-    : _userService = userService ?? UserService();
+  FriendService({UserService? userService, FirebaseFirestore? firestore})
+    : _userServiceOverride = userService,
+      _firestoreOverride = firestore;
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final UserService _userService;
+  // Resolved lazily so a test double (subclass overriding the watch*
+  // streams) can exist without an initialised Firebase app.
+  final FirebaseFirestore? _firestoreOverride;
+  UserService? _userServiceOverride;
+
+  FirebaseFirestore get _firestore =>
+      _firestoreOverride ?? FirebaseFirestore.instance;
+  UserService get _userService => _userServiceOverride ??= UserService();
 
   Stream<QuerySnapshot<Map<String, dynamic>>> friendsStream(String userId) {
     return _firestore
@@ -45,6 +52,23 @@ class FriendService {
         .collection('friends')
         .get();
     return snapshot.size;
+  }
+
+  /// Live count of the caller's canonical friend edges
+  /// (`users/{uid}/friends`). This is what the profile "친구" stat shows, so
+  /// an accepted invite moves it without a restart. Overridable for tests.
+  Stream<int> watchFriendsCount(String userId) {
+    return friendsStream(userId).map((snapshot) => snapshot.size);
+  }
+
+  /// Live, hydrated friend list from the canonical friend edges. Each edge
+  /// carries the server-written profile snapshot; when that is empty the
+  /// public profile (`publicProfiles/{uid}`) fills it in. Overridable for
+  /// tests (no Firestore needed).
+  Stream<List<FriendListItem>> watchFriendItems(String userId) {
+    return friendsStream(
+      userId,
+    ).asyncMap((snapshot) => hydrateFriends(snapshot.docs));
   }
 
   Future<List<FriendListItem>> hydrateFriends(
@@ -143,8 +167,13 @@ class FriendService {
     required String fallbackUserId,
   }) {
     final nickname = snapshot['nickname']?.toString().trim() ?? '';
-    return nickname.isNotEmpty ? nickname : fallbackUserId;
+    // A friend whose public profile is gone (withdrawn / login disabled)
+    // must not surface as a raw uid on the tile.
+    return nickname.isNotEmpty ? nickname : withdrawnFriendDisplayName;
   }
+
+  /// Shown for a friend edge whose profile can no longer be resolved.
+  static const String withdrawnFriendDisplayName = '설레연 친구';
 
   String _readImageUrl(Map<String, dynamic> snapshot) {
     return snapshot['profileImageUrl']?.toString().trim() ?? '';

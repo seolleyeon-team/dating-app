@@ -131,7 +131,7 @@ def test_metric_payload_construction_is_redacted_and_log_metric_ready():
         value=1,
         labels={
             "status": "preview_ready",
-            "modelId": "black-forest-labs/FLUX.2-klein-4B",
+            "modelId": "azure_gpt_image_2",
             "sourceRef": PRIVATE_GCS_REF,
         },
         resource={"jobId": "job_123", "uid": "u1"},
