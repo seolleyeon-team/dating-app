@@ -101,10 +101,7 @@ void main() {
     });
 
     test('an unreadable status leaves local state untouched', () {
-      expect(
-        planAvatarResume(null).action,
-        AvatarResumeAction.unavailable,
-      );
+      expect(planAvatarResume(null).action, AvatarResumeAction.unavailable);
       final plan = planAvatarResume(snap('something_unknown'));
       expect(plan.action, AvatarResumeAction.unavailable);
       expect(plan.message, isEmpty);

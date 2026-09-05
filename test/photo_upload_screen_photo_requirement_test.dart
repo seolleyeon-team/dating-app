@@ -259,9 +259,7 @@ void main() {
       expect(advancedPhotos, [approvedUrl]);
     });
 
-    testWidgets('다음을 누르면 검증된 사진 세트로 서버 선택 생성이 한 번 시작된다', (
-      tester,
-    ) async {
+    testWidgets('다음을 누르면 검증된 사진 세트로 서버 선택 생성이 한 번 시작된다', (tester) async {
       await _useMobileSurface(tester);
       final client = _CountingAvatarClient();
 
@@ -291,9 +289,7 @@ void main() {
       expect(find.byType(AvatarCandidateSelectionDialog), findsOneWidget);
     });
 
-    testWidgets('다음 버튼 연타에도 source-set admission 은 한 번만 발생한다', (
-      tester,
-    ) async {
+    testWidgets('다음 버튼 연타에도 source-set admission 은 한 번만 발생한다', (tester) async {
       await _useMobileSurface(tester);
       final client = _CountingAvatarClient();
 
@@ -322,9 +318,7 @@ void main() {
       expect(client.beginCalls, 1);
     });
 
-    testWidgets('서버 source ref 가 없으면 legacy 생성을 시작하지 않고 멈춘다', (
-      tester,
-    ) async {
+    testWidgets('서버 source ref 가 없으면 legacy 생성을 시작하지 않고 멈춘다', (tester) async {
       // NEW CLIENT + OLD FUNCTIONS: 사진은 있지만 서버가 source ref 를 돌려주지
       // 않았다. 첫 사진으로 몰래 legacy generation 을 시작하면 안 된다.
       await _useMobileSurface(tester);
@@ -338,7 +332,10 @@ void main() {
             'https://photo.example/p1.jpg',
             'https://photo.example/p2.jpg',
           ],
-          initialPickedFiles: [_fakePickedFile('p1.jpg'), _fakePickedFile('p2.jpg')],
+          initialPickedFiles: [
+            _fakePickedFile('p1.jpg'),
+            _fakePickedFile('p2.jpg'),
+          ],
           onNext: (photos) => advancedPhotos = photos,
         ),
       );
