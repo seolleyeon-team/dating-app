@@ -9,11 +9,25 @@ if str(AI_MODEL_DIR) not in sys.path:
     sys.path.insert(0, str(AI_MODEL_DIR))
 
 from avatar_generation.admission_policy import (
+    DEFAULT_EXTRA_CANDIDATE_COUNT,
+    DEFAULT_INITIAL_CANDIDATE_COUNT,
+    DEFAULT_MAX_TOTAL_CANDIDATES,
     AdmissionPolicy,
     AdmissionRequest,
     CumulativeUsage,
     evaluate_admission,
 )
+
+
+def test_admission_defaults_follow_canonical_two_two_four_policy():
+    policy = AdmissionPolicy()
+
+    assert DEFAULT_INITIAL_CANDIDATE_COUNT == 2
+    assert DEFAULT_EXTRA_CANDIDATE_COUNT == 2
+    assert DEFAULT_MAX_TOTAL_CANDIDATES == 4
+    assert policy.initial_candidate_count == 2
+    assert policy.extra_candidate_count == 2
+    assert policy.max_total_candidates == 4
 
 
 def _policy(**overrides):

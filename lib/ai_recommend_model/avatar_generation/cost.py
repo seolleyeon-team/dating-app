@@ -18,7 +18,7 @@ DEFAULT_HARD_DAILY_GENERATION_LIMIT = 500
 DEFAULT_HARD_MONTHLY_GENERATION_LIMIT = 10000
 DEFAULT_SCENARIO_USERS = 1000
 DEFAULT_SCENARIO_CANDIDATES_PER_USER = 4
-DEFAULT_GENERATION_BACKEND = "local_cloud_run_flux"
+DEFAULT_GENERATION_BACKEND = "azure_gpt_image_2"
 AZURE_GENERATION_BACKEND = "azure_gpt_image_2"
 
 GENERATED_STATUSES = {"preview_ready", "approved", "needs_review", "failed", "no_previewable_candidates"}
@@ -505,10 +505,14 @@ def _job_generation_backend(job: Mapping[str, Any]) -> str:
 
 
 def _batch_generation_backend(jobs: Iterable[Mapping[str, Any]]) -> str:
+    # The only live backend is Azure (no GPU). Historical local-GPU jobs still
+    # carry their own backend label, and a batch that contains any of them is
+    # priced with the GPU charge instead of being silently re-priced as Azure.
     backends = {_job_generation_backend(job) for job in jobs}
-    if backends == {AZURE_GENERATION_BACKEND}:
-        return AZURE_GENERATION_BACKEND
-    return DEFAULT_GENERATION_BACKEND
+    gpu_backends = sorted(backend for backend in backends if backend != AZURE_GENERATION_BACKEND)
+    if gpu_backends:
+        return gpu_backends[0]
+    return AZURE_GENERATION_BACKEND
 
 
 def _duration_seconds(job: Mapping[str, Any]) -> Optional[float]:

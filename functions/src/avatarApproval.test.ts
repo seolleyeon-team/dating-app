@@ -8,6 +8,7 @@ import {
   checkCurrentAvatarJobContract,
   planAvatarApprovalState,
   resolveAvatarCandidateSource,
+  planApprovalFailureRecovery,
 } from "./avatarApproval";
 import * as avatarApprovalModule from "./avatarApproval";
 
@@ -565,4 +566,64 @@ test("unapproved candidate still requires the preview-ready admission state", ()
     ),
     false,
   );
+});
+
+
+test("approval failure releases the job and candidate back to preview_ready", () => {
+  // 회귀: 승인 복사가 실패하면 avatarJobs/avatarCandidates 가
+  // approval_copying 에 영구히 남아 같은 후보 재승인이 불가능해진다.
+  const plan = planApprovalFailureRecovery({
+    superseded: false,
+    canonicalObjectSurvives: false,
+  });
+  assert.equal(plan.revertCandidateToPreviewReady, true);
+  assert.equal(plan.revertJobToPreviewReady, true);
+  assert.equal(plan.recordUserFailure, true);
+});
+
+test("approval failure that leaves a canonical object does not release the job", () => {
+  const plan = planApprovalFailureRecovery({
+    superseded: false,
+    canonicalObjectSurvives: true,
+  });
+  assert.equal(plan.revertJobToPreviewReady, false);
+  assert.equal(plan.revertCandidateToPreviewReady, false);
+  assert.equal(plan.recordUserFailure, true);
+});
+
+test("superseded approval failure releases the candidate but not the job", () => {
+  const plan = planApprovalFailureRecovery({
+    superseded: true,
+    canonicalObjectSurvives: false,
+  });
+  assert.equal(plan.revertCandidateToPreviewReady, true);
+  assert.equal(plan.revertJobToPreviewReady, false);
+  assert.equal(plan.recordUserFailure, false);
+});
+
+test("a failed approval no longer locks the user out of other candidates", () => {
+  // approval_copy_failed 는 진행 중 잠금이 아니라 실패 기록이어야 한다.
+  const plan = planAvatarApprovalState(
+    {
+      avatar: {
+        status: "approval_copy_failed",
+        selectedCandidateId: "cand_first",
+      },
+    },
+    "cand_second",
+  );
+  assert.equal(plan.action, "reserve");
+});
+
+test("an in-progress approval still conflicts for a different candidate", () => {
+  const plan = planAvatarApprovalState(
+    {
+      avatar: {
+        status: "approval_copying",
+        selectedCandidateId: "cand_first",
+      },
+    },
+    "cand_second",
+  );
+  assert.equal(plan.action, "conflict");
 });

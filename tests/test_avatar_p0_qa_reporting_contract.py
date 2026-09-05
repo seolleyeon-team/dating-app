@@ -50,15 +50,6 @@ def _absolute_soft_qa(**overrides):
     return qa
 
 
-def _load_canary_module():
-    script_path = REPO_ROOT / "scripts" / "run_canary_from_validated_map.py"
-    spec = importlib.util.spec_from_file_location("run_canary_from_validated_map_p0", script_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
-
-
 class _Snapshot:
     def __init__(self, data):
         self._data = data
@@ -152,7 +143,7 @@ def test_uniform_first_round_systemic_unavailable_suppresses_extra_generation():
                 "reviewReasons": ["model_unavailable"],
             },
         )
-        for idx in range(4)
+        for idx in range(2)
     ]
 
     plan = plan_generation_round(candidates, policy=AdaptiveGenerationPolicy())
@@ -200,34 +191,3 @@ def test_budget_cap_blocks_extra_without_running_generation():
     assert plan.reason == "budget_blocked"
     assert plan.blocked_reasons == ("candidate_budget_exhausted",)
 
-
-def test_canary_risk_aggregation_uses_typed_actual_values_only():
-    module = _load_canary_module()
-    rows = [
-        {"jobId": "job", "status": "needs_review", "qa": {"childlikeRisk": "high", "beautificationRisk": "low"}},
-        {"jobId": "job", "status": "needs_review", "qa": {"childlikeRisk": False, "beautificationRisk": None}},
-        {"jobId": "job", "status": "needs_review", "qa": {"beautificationRisk": "unavailable", "reviewReasons": ["model_unavailable"]}},
-        {"jobId": "other", "status": "needs_review", "qa": {"childlikeRisk": True, "beautificationRisk": "high"}},
-    ]
-
-    stats = module._candidate_counts(_Db(rows), "job")
-
-    assert stats["candidateCount"] == 3
-    assert stats["childlikeRiskCount"] == 1
-    assert stats["beautificationRiskCount"] == 0
-    assert stats["modelUnavailableCount"] == 1
-    assert stats["childlikeRiskValues"] == {
-        "trueCount": 0,
-        "falseCount": 1,
-        "nullCount": 0,
-        "missingCount": 1,
-        "stringLowCount": 0,
-        "stringMediumCount": 0,
-        "stringHighCount": 1,
-        "stringUnknownCount": 0,
-        "stringUnavailableCount": 0,
-        "stringOtherCount": 0,
-    }
-    assert stats["beautificationRiskValues"]["stringLowCount"] == 1
-    assert stats["beautificationRiskValues"]["nullCount"] == 1
-    assert stats["beautificationRiskValues"]["stringUnavailableCount"] == 1

@@ -14,7 +14,11 @@
         "buckets": "asia-northeast3"
       },
       "selectedFunctions": [
-        "uploadAvatarSourcePhoto",
+        "uploadOnboardingPhoto",
+        "beginAvatarGenerationFromOnboardingPhotos",
+        "replaceAvatarGeneration",
+        "onAvatarGenerationStateSync",
+        "onAvatarClipAfterSelection",
         "getCurrentAvatarGenerationStatus",
         "retryCurrentAvatarGeneration",
         "getAvatarJobCandidates",
@@ -91,7 +95,11 @@
         "buckets": "asia-northeast3"
       },
       "selectedFunctions": [
-        "uploadAvatarSourcePhoto",
+        "uploadOnboardingPhoto",
+        "beginAvatarGenerationFromOnboardingPhotos",
+        "replaceAvatarGeneration",
+        "onAvatarGenerationStateSync",
+        "onAvatarClipAfterSelection",
         "getCurrentAvatarGenerationStatus",
         "retryCurrentAvatarGeneration",
         "getAvatarJobCandidates",

@@ -519,11 +519,39 @@ type AvatarApprovalStatePlan =
       approvalDownloadToken?: string;
     };
 
-const APPROVAL_LOCK_STATUSES = new Set([
-  "approved",
-  "approval_copying",
-  "approval_copy_failed",
-]);
+// 진행 중(in-progress) 승인만 다른 후보 선택을 막는다.
+// approval_copy_failed 는 "승인이 일어나지 않았다"는 기록일 뿐이므로
+// 잠금으로 취급하면 사용자가 어떤 후보도 고를 수 없는 교착이 된다.
+const APPROVAL_LOCK_STATUSES = new Set(["approved", "approval_copying"]);
+
+export type ApprovalFailureRecoveryPlan = {
+  revertCandidateToPreviewReady: boolean;
+  revertJobToPreviewReady: boolean;
+  recordUserFailure: boolean;
+};
+
+/// 승인 복사 실패 시 어떤 문서를 승인 이전 상태로 되돌릴지 결정한다.
+///
+/// canonical 객체가 남아 있으면(정리 실패) 되돌리지 않는다. 되돌리면 이미
+/// 존재하는 canonical 객체와 provenance 가 충돌하는 재승인을 유도하게 된다.
+export function planApprovalFailureRecovery(params: {
+  superseded: boolean;
+  canonicalObjectSurvives: boolean;
+}): ApprovalFailureRecoveryPlan {
+  if (params.canonicalObjectSurvives) {
+    return {
+      revertCandidateToPreviewReady: false,
+      revertJobToPreviewReady: false,
+      recordUserFailure: true,
+    };
+  }
+  return {
+    revertCandidateToPreviewReady: true,
+    // superseded 인 경우 job 문서는 교체 작업이 소유하므로 건드리지 않는다.
+    revertJobToPreviewReady: !params.superseded,
+    recordUserFailure: !params.superseded,
+  };
+}
 
 export function planAvatarApprovalState(
   userData: Record<string, unknown>,
@@ -1134,6 +1162,7 @@ export function createApproveAvatarCandidateFunction(
           );
         });
       } catch (error) {
+        let canonicalObjectSurvives = false;
         if (
           shouldCleanupCopiedApprovalObject({
             copiedApprovedObject,
@@ -1143,6 +1172,7 @@ export function createApproveAvatarCandidateFunction(
           try {
             await destinationFile.delete({ ignoreNotFound: true });
           } catch (deleteError) {
+            canonicalObjectSurvives = true;
             logger.error(
               "Failed to delete orphaned approved avatar after approval failure",
               {
@@ -1158,7 +1188,39 @@ export function createApproveAvatarCandidateFunction(
             );
           }
         }
-        if (!isAvatarJobSupersededError(error)) {
+        // 승인이 실제로 일어나지 않았다면 job/candidate 를 승인 이전 상태로
+        // 되돌려야 한다. 그러지 않으면 approval_copying 에 영구히 갇힌다.
+        const recovery = planApprovalFailureRecovery({
+          superseded: isAvatarJobSupersededError(error),
+          canonicalObjectSurvives,
+        });
+        for (const [shouldRevert, ref, label] of [
+          [recovery.revertCandidateToPreviewReady, candidateRef, "candidate"],
+          [recovery.revertJobToPreviewReady, jobRef, "job"],
+        ] as const) {
+          if (!shouldRevert) continue;
+          try {
+            await ref.set(
+              {
+                status: "preview_ready",
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true },
+            );
+          } catch (revertError) {
+            logger.error("Failed to release avatar approval reservation", {
+              uid: logIdentifier("uid", uid),
+              jobId: logIdentifier("job", jobId),
+              candidateId: logIdentifier("candidate", candidateId),
+              target: label,
+              error:
+                revertError instanceof Error
+                  ? revertError.message
+                  : String(revertError),
+            });
+          }
+        }
+        if (recovery.recordUserFailure) {
           await userRef.set(
             {
               avatar: {

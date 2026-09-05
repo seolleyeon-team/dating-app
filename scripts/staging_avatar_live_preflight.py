@@ -22,7 +22,7 @@ DEFAULT_WORKER_LOCATION = "asia-southeast1"
 DEFAULT_REPOSITORY = "seolleyeon-repo"
 DEFAULT_ACCOUNT = "seolleyeon.official@gmail.com"
 DEFAULT_HF_TOKEN_ENV_VAR = "AVATAR_WORKER_HF_TOKEN"
-DEFAULT_UPLOAD_FUNCTION = "uploadAvatarSourcePhoto"
+DEFAULT_UPLOAD_FUNCTION = "beginAvatarGenerationFromOnboardingPhotos"
 
 REQUIRED_SERVICES = {
     "artifactregistry.googleapis.com",
@@ -47,7 +47,12 @@ BASE_QUEUES = {"avatar-generation"}
 CLIP_QUEUES = {"clip-embedding"}
 REQUIRED_WORKER_SERVICES = {"seolleyeon-avatar-worker"}
 OPTIONAL_WORKER_SERVICES = {"seolleyeon-clip-worker"}
-REQUIRED_SECRETS: set[str] = set()
+REQUIRED_SECRETS: set[str] = {
+    # Azure 자격증명은 Secret Manager 에만 존재해야 한다. 이 시크릿이 없으면
+    # 워커는 첫 생성에서 azure_provider_configuration_missing_ 로 실패한다.
+    # 값은 여기에도, 배포 스크립트에도 남기지 않는다(참조 이름만).
+    "seolleyeon-avatar-azure-openai-api-key",
+}
 REQUIRED_BUCKETS = {
     "seolleyeon-final-private-source-photos",
     "seolleyeon-final-avatar-temp",
@@ -109,8 +114,6 @@ REQUIRED_AVATAR_WORKER_ENV_KEYS = {
     "AVATAR_REFERENCE_NONFACE_BLUR_RADIUS",
     "AVATAR_SAM_ENABLED",
     "AVATAR_SAM_LOAD_ON_DEMAND",
-    "AVATAR_FLUX_NUM_INFERENCE_STEPS",
-    "AVATAR_FLUX_GUIDANCE_SCALE",
     "AVATAR_INITIAL_CANDIDATE_COUNT",
     "AVATAR_EXTRA_CANDIDATE_COUNT",
     "AVATAR_MIN_SAFE_CANDIDATES_BEFORE_EXTRA",

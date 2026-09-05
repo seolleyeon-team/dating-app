@@ -141,7 +141,7 @@ def build_avatar_job_payload(uid: str, source_photo_ids: Iterable[str], *, candi
         "uid": uid,
         "sourcePhotoIds": ids,
         "candidateCount": int(candidate_count),
-        "modelId": "black-forest-labs/FLUX.2-klein-4B",
+        "modelId": "azure_gpt_image_2",
         "idempotencyKey": f"avatar:{uid}:{','.join(ids)}:{int(candidate_count)}",
     }
 

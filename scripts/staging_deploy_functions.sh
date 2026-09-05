@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/staging_common.sh"
 
 APPLY=false
-FUNCTION_TARGETS="${FUNCTION_TARGETS:-functions:getChatRealProfilePhoto,functions:uploadAvatarSourcePhoto,functions:getAvatarJobCandidates,functions:approveAvatarCandidate}"
+FUNCTION_TARGETS="${FUNCTION_TARGETS:-functions:getChatRealProfilePhoto,functions:beginAvatarGenerationFromOnboardingPhotos,functions:getAvatarJobCandidates,functions:approveAvatarCandidate}"
 
 for arg in "$@"; do
   case "$arg" in
