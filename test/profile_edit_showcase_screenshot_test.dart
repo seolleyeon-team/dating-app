@@ -3,11 +3,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:seolleyeon/features/profile/screens/profile_edit_screen.dart';
 import 'package:seolleyeon/shared/widgets/mbti_choice_grid.dart';
+import 'package:seolleyeon/shared/widgets/profile_photo_mosaic.dart';
+
+import 'support/profile_edit_golden_comparator.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
+    goldenFileComparator = ProfileEditGoldenComparator(
+      Uri.parse('test/profile_edit_showcase_screenshot_test.dart'),
+    );
     await (FontLoader(
       'Pretendard',
     )..addFont(rootBundle.load('assets/fonts/PretendardVariable.ttf'))).load();
@@ -54,6 +60,11 @@ void main() {
 
     final scrollView = find.byType(SingleChildScrollView);
     expect(scrollView, findsOneWidget);
+    expect(
+      tester.getSize(find.byType(ProfilePhotoMosaic)),
+      const Size(318, 318),
+    );
+    expect(find.text('자기소개 꿀팁'), findsOneWidget);
 
     await expectLater(
       find.byKey(showcaseKey),

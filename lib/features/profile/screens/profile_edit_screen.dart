@@ -2101,6 +2101,15 @@ class _SelfIntroSection extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+            const Text(
+              '자기소개 꿀팁',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: _AppColors.primary,
+              ),
+            ),
           ],
         ),
       ),

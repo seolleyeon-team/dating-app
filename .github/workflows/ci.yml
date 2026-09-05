@@ -75,7 +75,7 @@ jobs:
           flutter-version: '3.47.2'
           channel: stable
           cache: true
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
       - run: flutter test
@@ -92,7 +92,7 @@ jobs:
           flutter-version: '3.47.2'
           channel: stable
           cache: true
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
       # applicationId 는 flavor 가 정하므로 flavor 없는 빌드는 성립하지 않는다.
       # Play 에 나가는 패키지가 production 이므로 그쪽을 먼저 확인하고,
       # staging 도 함께 돌려 개발용 flavor 가 조용히 깨지지 않게 한다.
@@ -113,7 +113,7 @@ jobs:
           flutter-version: '3.47.2'
           channel: stable
           cache: true
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
       # 목적: 스토어에 실제로 나가는 산출물(release AAB)의 컴파일/R8/리소스/
       # 패키징 검증. build.gradle.kts 는 key.properties 없는 release 빌드를
       # fail-closed 로 거부하므로(sec04 keystore hardening), CI 는 업로드에
@@ -145,7 +145,7 @@ jobs:
           flutter-version: '3.47.2'
           channel: stable
           cache: true
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
       - run: flutter build web --release
 
   python-recsys:
