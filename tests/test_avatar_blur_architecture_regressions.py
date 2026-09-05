@@ -183,7 +183,6 @@ def test_all_environment_aliases_force_production_source_analysis(
     assert resolve_environment_name() == "production"
     assert is_production_like_environment() is True
     assert worker_module.is_production_environment() is True
-    assert worker_module._source_analysis_enabled("flux") is True
 
 
 @pytest.mark.parametrize(
@@ -231,7 +230,6 @@ def test_environment_alias_display_precedence_but_conflicts_fail_closed(
     assert resolve_environment_name() == expected_name
     assert is_production_like_environment() is expected_production
     assert is_local_or_dev_environment() is False
-    assert worker_module._source_analysis_enabled("flux") is expected_production
 
 
 def test_production_legacy_detector_injection_cannot_bypass_small_face(monkeypatch):

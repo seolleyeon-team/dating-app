@@ -1,4 +1,4 @@
 """Backend-only avatar generation interfaces for Seolleyeon."""
 
-FLUX2_KLEIN_MODEL_ID = "black-forest-labs/FLUX.2-klein-4B"
-FLUX2_KLEIN_VERSION = "flux2_klein_4b_v1"
+# Local-model (FLUX) generation is retired. The only generation backend is
+# Azure GPT Image 2; see model_adapters/azure_contracts.py.

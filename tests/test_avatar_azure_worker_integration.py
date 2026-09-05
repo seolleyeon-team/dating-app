@@ -121,9 +121,7 @@ def test_canonical_azure_worker_uses_storage_bytes_and_skips_legacy_generation_c
         "_analyze_source_visual_risk",
         "_prepare_reference_preprocess_for_generation",
         "_extract_trait_card_for_generation",
-        "build_avatar_prompt",
         "prepare_privacy_reference_image",
-        "get_flux2_klein_generator",
     ):
         monkeypatch.setattr(worker_module, name, forbidden)
 
@@ -465,7 +463,7 @@ def test_legacy_local_dry_run_does_not_emit_azure_provider_usage(monkeypatch):
 
     job = fs.data["avatarJobs"][payload["jobId"]]
     assert "providerUsage" not in job
-    assert job["generationBackend"] == "black-forest-labs/FLUX.2-klein-4B"
+    assert job["generationBackend"] == "dry_run_fixture"
 
 
 def test_existing_avatar_media_normalized_jpeg_is_the_direct_azure_source(monkeypatch):

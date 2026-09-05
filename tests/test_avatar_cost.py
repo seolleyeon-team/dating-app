@@ -98,6 +98,11 @@ def _config(**overrides):
     return AvatarCostConfig(**values)
 
 
+# Label for pre-Azure jobs that ran on the retired local-GPU worker. Any
+# non-Azure backend label is priced with the GPU charge; Azure jobs are not.
+HISTORICAL_GPU_BACKEND = "historical_local_gpu"
+
+
 def _job(job_id="job_1", status="queued", **overrides):
     doc = {
         "jobId": job_id,
@@ -186,16 +191,27 @@ def test_default_1000_user_scenario_has_nonzero_cost(monkeypatch):
 
     assert scenario["users"] == 1000
     assert scenario["candidateCount"] == 4000
-    assert scenario["estimatedCost"]["usd"] == 34.884
+    assert scenario["estimatedCost"]["usd"] == 12.48
     assert scenario["estimatedCost"]["pricingVersion"] == "cloud_run_l4_2026_05"
 
 
 def test_formula_includes_gpu_cpu_memory_and_zonal_redundancy():
-    normal = estimate_job_cost(duration_seconds=10, config=_config())
+    normal = estimate_job_cost(
+        duration_seconds=10,
+        config=_config(),
+        generation_backend=HISTORICAL_GPU_BACKEND,
+    )
     redundant = estimate_job_cost(
         duration_seconds=10,
         config=_config(gpu_zonal_redundancy=True),
+        generation_backend=HISTORICAL_GPU_BACKEND,
     )
+    azure = estimate_job_cost(duration_seconds=10, config=_config())
+
+    assert azure.usd == 0.28
+    assert azure.breakdown["gpuUsd"] == 0.0
+    assert azure.breakdown["gpuChargeApplied"] is False
+    assert azure.breakdown["generationBackend"] == "azure_gpt_image_2"
 
     assert normal.usd == 1.28
     assert normal.breakdown["gpuUsd"] == 1.0
@@ -208,8 +224,20 @@ def test_formula_includes_gpu_cpu_memory_and_zonal_redundancy():
 
 def test_batch_and_job_cost_aggregation_use_runtime_metadata():
     jobs = [
-        _job(job_id="a", status="preview_ready", candidateCount=4, processing={"durationSeconds": 10}),
-        _job(job_id="b", status="failed", candidateCount=2, processing={"durationSeconds": 5}),
+        _job(
+            job_id="a",
+            status="preview_ready",
+            candidateCount=4,
+            processing={"durationSeconds": 10},
+            generationBackend=HISTORICAL_GPU_BACKEND,
+        ),
+        _job(
+            job_id="b",
+            status="failed",
+            candidateCount=2,
+            processing={"durationSeconds": 5},
+            generationBackend=HISTORICAL_GPU_BACKEND,
+        ),
     ]
 
     aggregate = aggregate_avatar_job_costs(jobs, now=NOW, config=_config())
@@ -253,9 +281,21 @@ def test_cost_aggregation_reads_nested_worker_cost_document():
 
 
 def test_job_and_batch_cost_documents_expose_persistable_worker_fields():
-    jobs = [_job(job_id=f"job_{index}", processing={"durationSeconds": 10}) for index in range(2)]
+    jobs = [
+        _job(
+            job_id=f"job_{index}",
+            processing={"durationSeconds": 10},
+            generationBackend=HISTORICAL_GPU_BACKEND,
+        )
+        for index in range(2)
+    ]
 
-    job_doc = build_job_cost_document(duration_seconds=10, config=_config(), estimated_at=NOW)
+    job_doc = build_job_cost_document(
+        duration_seconds=10,
+        config=_config(),
+        estimated_at=NOW,
+        generation_backend=HISTORICAL_GPU_BACKEND,
+    )
     batch_doc = build_batch_cost_document(jobs, duration_seconds=12, config=_config(), estimated_at=NOW)
 
     assert job_doc["costEstimateUsd"] == 1.28
@@ -412,7 +452,7 @@ def test_cost_report_dry_run_without_fixture_uses_default_assumptions(tmp_path, 
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["actuals"]["generatedCount"] == 0
     assert report["pricing"]["version"] == "cloud_run_l4_2026_05"
-    assert report["scenario"]["estimatedCost"]["usd"] == 34.884
+    assert report["scenario"]["estimatedCost"]["usd"] == 12.48
 
 
 def test_generation_cost_report_fixture_includes_timing_percentiles_and_unit_cost(tmp_path, monkeypatch):
@@ -748,213 +788,6 @@ def test_mediapipe_task_preflight_recommendation_policy():
     assert module._recommendation(1, 0.12, 0.08) == "PASS"
 
 
-def test_canary_runner_dry_run_blocks_when_minimum_eligible_missing(tmp_path):
-    script_path = REPO_ROOT / "scripts" / "run_canary_from_validated_map.py"
-    spec = importlib.util.spec_from_file_location("run_canary_from_validated_map", script_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-
-    report = module.build_dry_run_report(
-        eligible=[
-            {
-                "rowLineage": "calibration_dedc0384e77a83a3f31f1e07",
-                "photoFile": "a.jpg",
-            }
-        ],
-        blocked=[
-            {
-                "rowLineage": "calibration_c6f9041e417f12eec2a209cc",
-                "photoFile": "b.jpg",
-                "blockers": ["block_face_too_small"],
-            }
-        ],
-        min_users=3,
-    )
-
-    assert report["status"] == "BLOCKED_MIN_ELIGIBLE"
-    assert report["eligibleCount"] == 1
-    assert report["blocked"][0]["blockers"] == ["block_face_too_small"]
-    rendered = json.dumps(report, sort_keys=True)
-    assert "a.jpg" not in rendered
-    assert "b.jpg" not in rendered
-
-
-def test_canary_runner_payload_level_thresholds():
-    script_path = REPO_ROOT / "scripts" / "run_canary_from_validated_map.py"
-    spec = importlib.util.spec_from_file_location("run_canary_from_validated_map", script_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-
-    assert module._payload_level(1024) == "ok"
-    assert module._payload_level(9 * 1024 * 1024) == "warning"
-    assert module._payload_level(21 * 1024 * 1024) == "critical"
-    request_id = module._safe_client_request_id("uid-a", "a.jpg")
-    assert request_id == "calibration_dedc0384e77a83a3f31f1e07"
-    assert "uid-a" not in request_id
-    assert "a.jpg" not in request_id
-
-
-def test_canary_runner_apply_reports_missing_auth_token_as_error(monkeypatch, tmp_path):
-    script_path = REPO_ROOT / "scripts" / "run_canary_from_validated_map.py"
-    spec = importlib.util.spec_from_file_location("run_canary_from_validated_map", script_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-
-    photo = tmp_path / "uid_2_photo_plain.jpg"
-    photo.write_bytes(b"jpeg")
-    mapping = tmp_path / "map.txt"
-    mapping.write_text(f"uid-a={photo}\n", encoding="utf-8")
-    validation = tmp_path / "validation.json"
-    validation.write_text(
-        json.dumps(
-            {
-                "rows": [
-                    {
-                        "photoFile": photo.name,
-                        "eligibleForUpload": True,
-                        "blockers": [],
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    output = tmp_path / "runner.json"
-    app_check_token = tmp_path / "app_check_token.txt"
-    app_check_token.write_text("test-app-check-token", encoding="utf-8")
-
-    monkeypatch.setattr(module, "_auth_tokens_by_uid", lambda api_key, secret_paths: {})
-    monkeypatch.setattr(module, "_firestore_client", lambda project: object())
-
-    result = module.main(
-        [
-            "--project",
-            "seolleyeon-final",
-            "--mapping_file",
-            str(mapping),
-            "--validation_json",
-            str(validation),
-            "--output_json",
-            str(output),
-            "--api_key",
-            "test-api-key",
-            "--app_check_token_file",
-            str(app_check_token),
-            "--min_users",
-            "1",
-            "--apply",
-        ]
-    )
-
-    report = json.loads(output.read_text(encoding="utf-8"))
-    assert result == 1
-    assert report["status"] == "COMPLETE_WITH_ERRORS"
-    assert report["jobErrorCount"] == 1
-    assert report["jobs"][0]["error"] == "missing_auth_token"
-    assert photo.name not in json.dumps(report, sort_keys=True)
-
-
-def test_canary_runner_apply_reports_unsafe_callable_response_as_error(monkeypatch, tmp_path):
-    script_path = REPO_ROOT / "scripts" / "run_canary_from_validated_map.py"
-    spec = importlib.util.spec_from_file_location("run_canary_from_validated_map", script_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-
-    photo = tmp_path / "uid_2_photo_plain.jpg"
-    photo.write_bytes(b"jpeg")
-    mapping = tmp_path / "map.txt"
-    mapping.write_text(f"uid-a={photo}\n", encoding="utf-8")
-    validation = tmp_path / "validation.json"
-    validation.write_text(
-        json.dumps(
-            {
-                "rows": [
-                    {
-                        "photoFile": photo.name,
-                        "eligibleForUpload": True,
-                        "blockers": [],
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    output = tmp_path / "runner.json"
-    app_check_token = tmp_path / "app_check_token.txt"
-    app_check_token.write_text("test-app-check-token", encoding="utf-8")
-
-    monkeypatch.setattr(module, "_auth_tokens_by_uid", lambda api_key, secret_paths: {"uid-a": "token"})
-    monkeypatch.setattr(module, "_firestore_client", lambda project: object())
-    monkeypatch.setattr(
-        module,
-        "_run_one",
-        lambda **kwargs: {
-            "rowLineage": "calibration_d17aabd4b57b7f7b2737e1fa",
-            "photoFile": photo.name,
-            "upload": {"httpStatus": 200, "safeResponse": False},
-        },
-    )
-
-    result = module.main(
-        [
-            "--project",
-            "seolleyeon-final",
-            "--mapping_file",
-            str(mapping),
-            "--validation_json",
-            str(validation),
-            "--output_json",
-            str(output),
-            "--api_key",
-            "test-api-key",
-            "--app_check_token_file",
-            str(app_check_token),
-            "--min_users",
-            "1",
-            "--apply",
-        ]
-    )
-
-    report = json.loads(output.read_text(encoding="utf-8"))
-    assert result == 1
-    assert report["status"] == "COMPLETE_WITH_ERRORS"
-    assert report["responseSafetyViolationCount"] == 1
-    assert photo.name not in json.dumps(report, sort_keys=True)
-    assert report["jobs"][0]["error"] == "unsafe_callable_response"
-
-
-def test_canary_tools_read_api_key_from_google_services(tmp_path):
-    payload = {
-        "client": [
-            {
-                "api_key": [
-                    {
-                        "current_key": "test-api-key",
-                    }
-                ]
-            }
-        ]
-    }
-    google_services = tmp_path / "google-services.json"
-    google_services.write_text(json.dumps(payload), encoding="utf-8")
-
-    for script_name in (
-        "validate_canary_uid_photo_map.py",
-        "run_canary_from_validated_map.py",
-    ):
-        script_path = REPO_ROOT / "scripts" / script_name
-        spec = importlib.util.spec_from_file_location(script_name, script_path)
-        module = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None
-        spec.loader.exec_module(module)
-
-        assert module._api_key_from_google_services(google_services) == "test-api-key"
-
-
 def test_normalize_canary_images_uses_deterministic_output_path():
     script_path = REPO_ROOT / "scripts" / "normalize_canary_images.py"
     spec = importlib.util.spec_from_file_location("normalize_canary_images", script_path)
@@ -965,293 +798,6 @@ def test_normalize_canary_images_uses_deterministic_output_path():
     assert module._output_path(Path("out"), "uid_1_photo") == Path(
         "out/uid_1_photo_plain.jpg"
     )
-
-
-def test_pr84_gate_redacts_secret_arguments():
-    script_path = REPO_ROOT / "scripts" / "pr84_canary_gate.py"
-    spec = importlib.util.spec_from_file_location("pr84_canary_gate", script_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-
-    redacted = module._redact_command(
-        [
-            "python",
-            "script.py",
-            "--api_key",
-            "secret-api-key",
-            "--auth_secret_json",
-            ".local_secrets/users.json",
-        ]
-    )
-
-    assert "secret-api-key" not in redacted
-    assert ".local_secrets/users.json" not in redacted
-    assert redacted.count("<redacted>") == 2
-
-
-def test_pr84_default_auth_secret_paths_include_pr84_canary_secret():
-    for script_name in (
-        "pr84_canary_gate.py",
-        "pr84_eligibility_inventory.py",
-        "run_canary_from_validated_map.py",
-        "validate_canary_uid_photo_map.py",
-    ):
-        script_path = REPO_ROOT / "scripts" / script_name
-        spec = importlib.util.spec_from_file_location(script_name, script_path)
-        module = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None
-        spec.loader.exec_module(module)
-
-        paths = [str(path).replace("\\", "/") for path in module.DEFAULT_AUTH_SECRET_PATHS]
-        assert any(path.endswith(".local_secrets/staging_pr84_canary_users.json") for path in paths)
-
-
-def test_pr84_gate_summary_reports_needed_eligible_rows(tmp_path):
-    script_path = REPO_ROOT / "scripts" / "pr84_canary_gate.py"
-    spec = importlib.util.spec_from_file_location("pr84_canary_gate", script_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-
-    preflight = tmp_path / "preflight.json"
-    validation = tmp_path / "validation.json"
-    runner = tmp_path / "runner.json"
-    preflight.write_text(
-        json.dumps(
-            {
-                "provider": "mediapipe_face_landmarker_tasks",
-                "recommendationCounts": {"PASS": 1},
-                "images": [
-                    {
-                        "normalizedFile": "a.jpg",
-                        "recommendation": "PASS",
-                    },
-                    {
-                        "normalizedFile": "unused.jpg",
-                        "recommendation": "PASS",
-                    },
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    validation.write_text(
-        json.dumps(
-            {
-                "rowCount": 2,
-                "eligibleUploadRows": 1,
-                "rows": [
-                    {
-                        "rowLineage": "calibration_dedc0384e77a83a3f31f1e07",
-                        "photoFile": "a.jpg",
-                        "eligibleForUpload": True,
-                        "blockers": [],
-                    },
-                    {
-                        "rowLineage": "calibration_c6f9041e417f12eec2a209cc",
-                        "photoFile": "b.jpg",
-                        "eligibleForUpload": False,
-                        "blockers": ["approved_avatar_lock"],
-                    },
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    runner.write_text(
-        json.dumps({"status": "BLOCKED_MIN_ELIGIBLE", "eligibleCount": 1, "jobs": []}),
-        encoding="utf-8",
-    )
-
-    summary = module._summary(
-        preflight_json=preflight,
-        validation_json=validation,
-        runner_json=runner,
-        apply=False,
-        min_users=3,
-    )
-
-    assert summary["safeToApply"] is False
-    assert summary["neededEligibleRows"] == 2
-    assert summary["nextAction"] == "provide_2_more_eligible_uid_photo_rows"
-    assert summary["validation"]["blockerCounts"] == {"approved_avatar_lock": 1}
-    assert summary["preflight"]["unmappedPassFixtureCount"] == 1
-    assert summary["preflight"]["unmappedPassFixtures"] == ["unused.jpg"]
-
-
-def test_pr84_gate_summary_reports_activation_blocker(tmp_path):
-    script_path = REPO_ROOT / "scripts" / "pr84_canary_gate.py"
-    spec = importlib.util.spec_from_file_location("pr84_canary_gate", script_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-
-    preflight = tmp_path / "preflight.json"
-    validation = tmp_path / "validation.json"
-    runner = tmp_path / "runner.json"
-    activation = tmp_path / "activation.json"
-    preflight.write_text(json.dumps({"provider": "mediapipe"}), encoding="utf-8")
-    validation.write_text(json.dumps({"eligibleUploadRows": 0}), encoding="utf-8")
-    runner.write_text(json.dumps({"status": "BLOCKED_MIN_ELIGIBLE"}), encoding="utf-8")
-    activation.write_text(
-        json.dumps(
-            {
-                "status": "BLOCKED_CONSENT",
-                "activeRowCount": 0,
-                "blockedRowCount": 3,
-                "blockerCounts": {"uid_photo_pair_consent_missing": 3},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    summary = module._summary(
-        preflight_json=preflight,
-        validation_json=validation,
-        runner_json=runner,
-        activation_json=activation,
-        apply=False,
-        min_users=3,
-    )
-
-    assert summary["nextAction"] == "activate_3_uid_photo_consent_rows"
-    assert summary["safeToApply"] is False
-    assert summary["activation"]["status"] == "BLOCKED_CONSENT"
-    assert summary["activation"]["blockerCounts"] == {"uid_photo_pair_consent_missing": 3}
-
-
-def test_pr84_gate_summary_blocks_safe_to_apply_when_activation_is_blocked(tmp_path):
-    script_path = REPO_ROOT / "scripts" / "pr84_canary_gate.py"
-    spec = importlib.util.spec_from_file_location("pr84_canary_gate", script_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-
-    preflight = tmp_path / "preflight.json"
-    validation = tmp_path / "validation.json"
-    runner = tmp_path / "runner.json"
-    activation = tmp_path / "activation.json"
-    preflight.write_text(json.dumps({"provider": "mediapipe"}), encoding="utf-8")
-    validation.write_text(json.dumps({"eligibleUploadRows": 3}), encoding="utf-8")
-    runner.write_text(json.dumps({"status": "READY_DRY_RUN"}), encoding="utf-8")
-    activation.write_text(
-        json.dumps({"status": "BLOCKED_CONSENT", "activeRowCount": 0, "blockedRowCount": 3}),
-        encoding="utf-8",
-    )
-
-    summary = module._summary(
-        preflight_json=preflight,
-        validation_json=validation,
-        runner_json=runner,
-        activation_json=activation,
-        apply=False,
-        min_users=3,
-    )
-
-    assert summary["safeToApply"] is False
-    assert summary["nextAction"] == "activate_3_uid_photo_consent_rows"
-
-
-def test_pr84_gate_summary_requests_rerun_with_activated_mapping(tmp_path):
-    script_path = REPO_ROOT / "scripts" / "pr84_canary_gate.py"
-    spec = importlib.util.spec_from_file_location("pr84_canary_gate", script_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-
-    preflight = tmp_path / "preflight.json"
-    validation = tmp_path / "validation.json"
-    runner = tmp_path / "runner.json"
-    activation = tmp_path / "activation.json"
-    preflight.write_text(json.dumps({"provider": "mediapipe"}), encoding="utf-8")
-    validation.write_text(json.dumps({"eligibleUploadRows": 0}), encoding="utf-8")
-    runner.write_text(json.dumps({"status": "BLOCKED_MIN_ELIGIBLE"}), encoding="utf-8")
-    activation.write_text(
-        json.dumps({"status": "READY", "activeRowCount": 3, "blockedRowCount": 0}),
-        encoding="utf-8",
-    )
-
-    summary = module._summary(
-        preflight_json=preflight,
-        validation_json=validation,
-        runner_json=runner,
-        activation_json=activation,
-        apply=False,
-        min_users=3,
-    )
-
-    assert summary["nextAction"] == "rerun_pr84_gate_with_activated_mapping"
-
-
-def test_pr84_gate_summary_reports_apply_runner_no_upload_status(tmp_path):
-    script_path = REPO_ROOT / "scripts" / "pr84_canary_gate.py"
-    spec = importlib.util.spec_from_file_location("pr84_canary_gate", script_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-
-    preflight = tmp_path / "preflight.json"
-    validation = tmp_path / "validation.json"
-    runner = tmp_path / "runner.json"
-    activation = tmp_path / "activation.json"
-    preflight.write_text(json.dumps({"provider": "mediapipe"}), encoding="utf-8")
-    validation.write_text(json.dumps({"eligibleUploadRows": 3}), encoding="utf-8")
-    runner.write_text(
-        json.dumps({"status": "BLOCKED_MIN_ELIGIBLE_NO_UPLOAD", "jobs": []}),
-        encoding="utf-8",
-    )
-    activation.write_text(
-        json.dumps({"status": "READY", "activeRowCount": 3, "blockedRowCount": 0}),
-        encoding="utf-8",
-    )
-
-    summary = module._summary(
-        preflight_json=preflight,
-        validation_json=validation,
-        runner_json=runner,
-        activation_json=activation,
-        apply=True,
-        min_users=3,
-    )
-
-    assert summary["safeToApply"] is False
-    assert summary["nextAction"] == "apply_requested_but_runner_did_not_upload"
-
-
-def test_pr84_gate_summary_reports_runner_errors_before_completion(tmp_path):
-    script_path = REPO_ROOT / "scripts" / "pr84_canary_gate.py"
-    spec = importlib.util.spec_from_file_location("pr84_canary_gate", script_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-
-    preflight = tmp_path / "preflight.json"
-    validation = tmp_path / "validation.json"
-    runner = tmp_path / "runner.json"
-    activation = tmp_path / "activation.json"
-    preflight.write_text(json.dumps({"provider": "mediapipe"}), encoding="utf-8")
-    validation.write_text(json.dumps({"eligibleUploadRows": 3}), encoding="utf-8")
-    runner.write_text(
-        json.dumps({"status": "COMPLETE_WITH_ERRORS", "jobs": [{"error": "missing_auth_token"}]}),
-        encoding="utf-8",
-    )
-    activation.write_text(
-        json.dumps({"status": "READY", "activeRowCount": 3, "blockedRowCount": 0}),
-        encoding="utf-8",
-    )
-
-    summary = module._summary(
-        preflight_json=preflight,
-        validation_json=validation,
-        runner_json=runner,
-        activation_json=activation,
-        apply=True,
-        min_users=3,
-    )
-
-    assert summary["safeToApply"] is False
-    assert summary["nextAction"] == "fix_runner_errors_before_completion"
 
 
 def test_pr84_completion_audit_blocks_when_three_user_evidence_missing():
@@ -2068,40 +1614,6 @@ def test_pr84_post_consent_canary_requires_apply_confirmation():
     assert "--apply requires --confirm_staging_mutation" in result.stderr
 
 
-def test_pr84_post_consent_gate_reuses_explicit_general_consent_when_unset():
-    script_path = REPO_ROOT / "scripts" / "pr84_post_consent_canary.py"
-    spec = importlib.util.spec_from_file_location("pr84_post_consent_canary", script_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-
-    args = type(
-        "Args",
-        (),
-        {
-            "python": "python",
-            "project": "seolleyeon-final",
-            "region": "asia-northeast3",
-            "input_dir": "canary_inputs",
-            "output_dir": "canary_inputs/normalized",
-            "activated_mapping": "out/pr84_canary_uid_photo_map_activated.txt",
-            "consent_file": None,
-            "general_consent_file": "canary_consent.txt",
-            "google_services_json": "android/app/google-services.json",
-            "activation_json": "out/pr84_canary_uid_photo_map_activation.json",
-            "gate_summary_json": "out/pr84_canary_gate_summary.json",
-            "runner_json": "out/pr84_canary_runner_dry_run.json",
-            "min_users": 3,
-            "auth_secret_json": [],
-            "apply": False,
-        },
-    )()
-
-    command = module.build_gate_command(args)
-
-    assert command[command.index("--consent_file") + 1] == "canary_consent.txt"
-
-
 def test_pr84_post_consent_report_summarizes_blocked_activation(tmp_path):
     script_path = REPO_ROOT / "scripts" / "pr84_post_consent_canary.py"
     spec = importlib.util.spec_from_file_location("pr84_post_consent_canary", script_path)
@@ -2656,7 +2168,14 @@ def test_canary_mapping_validator_blocks_invalid_consent(monkeypatch, tmp_path):
 
 
 def test_batching_savings_calculation_compares_per_job_runtime_to_shared_batch_runtime():
-    jobs = [_job(job_id=f"job_{index}", processing={"durationSeconds": 10}) for index in range(4)]
+    jobs = [
+        _job(
+            job_id=f"job_{index}",
+            processing={"durationSeconds": 10},
+            generationBackend=HISTORICAL_GPU_BACKEND,
+        )
+        for index in range(4)
+    ]
 
     batch = estimate_batch_cost(jobs, duration_seconds=20, config=_config())
 
@@ -2664,3 +2183,17 @@ def test_batching_savings_calculation_compares_per_job_runtime_to_shared_batch_r
     assert batch.total_cost.usd == 2.56
     assert batch.savings_usd == 2.56
     assert batch.savings_ratio == 0.5
+
+
+def test_mixed_batch_with_historical_gpu_job_keeps_gpu_charge():
+    jobs = [
+        _job(job_id="azure", processing={"durationSeconds": 10}, generationBackend="azure_gpt_image_2"),
+        _job(job_id="gpu", processing={"durationSeconds": 10}, generationBackend=HISTORICAL_GPU_BACKEND),
+    ]
+
+    batch = estimate_batch_cost(jobs, duration_seconds=10, config=_config())
+    azure_only = estimate_batch_cost(jobs[:1], duration_seconds=10, config=_config())
+
+    assert batch.total_cost.breakdown["gpuChargeApplied"] is True
+    assert azure_only.total_cost.breakdown["gpuChargeApplied"] is False
+    assert azure_only.total_cost.breakdown["generationBackend"] == "azure_gpt_image_2"

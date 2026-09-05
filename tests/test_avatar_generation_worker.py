@@ -16,24 +16,16 @@ if str(AI_MODEL_DIR) not in sys.path:
     sys.path.insert(0, str(AI_MODEL_DIR))
 
 from avatar_generation.model_adapters.base import AvatarGenerationRequest
-from avatar_generation.model_adapters.flux2_klein import Flux2KleinAdapter
 from avatar_generation.trait_card import validate_trait_card_response
 import avatar_generation.worker as worker_module
 from avatar_generation.jobs import build_candidate_doc
 from avatar_generation.qa import AvatarQAResult
-from avatar_generation.seolleyeon_avatar_prompt_builder_v4 import (
-    AvatarTraitCard as PromptAvatarTraitCard,
-    build_avatar_prompt,
-)
 from avatar_generation.worker import (
     AvatarGenerationError,
     AvatarWorkerDeadline,
     DEFAULT_AVATAR_TEMP_BUCKET,
     DEFAULT_SOURCE_PHOTO_BUCKET,
-    Flux2KleinImageGenerator,
-    build_flux_prompt_with_avoid,
     candidate_id_for,
-    call_flux_pipeline_safely,
     decode_task_payload,
     deterministic_seed,
     generate_candidate_artifacts,
@@ -251,7 +243,7 @@ def _payload(job_id="avatar_job_1", uid="u1"):
             f"gs://{DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_001.jpg"
         ],
         "candidateCount": 4,
-        "modelId": "black-forest-labs/FLUX.2-klein-4B",
+        "modelId": "azure_gpt_image_2",
         "jobType": "avatar_generation",
         "schemaVersion": "avatar_job_v1",
         "idempotencyKey": "u1:src_001:avatar_generation_v1",
@@ -406,22 +398,6 @@ def test_worker_source_reject_codes_map_to_user_guidance():
         assert message == expected_message
         assert "?" not in message
         assert "\ufffd" not in message
-
-class FakeFluxGenerator:
-    def __init__(self):
-        self.calls = []
-
-    def generate(self, *, source_image, prompt, avoid_prompt, seed):
-        self.calls.append(
-            {
-                "source_size": source_image.size,
-                "prompt": prompt,
-                "avoid_prompt": avoid_prompt,
-                "seed": seed,
-            }
-        )
-        return Image.new("RGB", (16, 16), color=(seed % 255, 80, 120))
-
 
 def test_decode_pubsub_avatar_generation_payload():
     encoded = base64.b64encode(json.dumps(_payload()).encode("utf-8")).decode("ascii")
@@ -808,172 +784,6 @@ def test_candidate_seed_and_id_are_deterministic():
     assert deterministic_seed("avatar_job_1", 0) != deterministic_seed("avatar_job_1", 1)
 
 
-def test_prompt_contains_privacy_and_not_beautified_constraints():
-    prompt = build_avatar_prompt()
-    positive = prompt.positive.lower()
-    negative = prompt.negative.lower()
-    assert "privacy-preserving" in positive
-    assert "not exact identity" in positive
-    assert "ordinary adult university student" in positive
-    assert "not beautified" in positive
-    assert "use simple neutral background" in positive
-    assert "do not preserve or recreate the original background" in positive
-    assert "exact biometric face copy" in negative
-    assert "beauty upgrade" in negative
-
-
-def test_prompt_uses_user_provided_gender_as_broad_presentation_only():
-    prompt = build_avatar_prompt(
-        trait_card=PromptAvatarTraitCard(avatar_presentation_gender="female")
-    )
-    positive = prompt.positive.lower()
-
-    assert "user-provided onboarding gender" in positive
-    assert "ordinary adult female university student" in positive
-    assert "do not infer gender from the face" in positive
-
-
-def test_flux_prompt_folds_negative_terms_into_avoid_block():
-    prompt = build_avatar_prompt()
-
-    final_prompt = build_flux_prompt_with_avoid(prompt.positive, prompt.negative)
-    lowered = final_prompt.lower()
-
-    assert "privacy-preserving adult 3d avatar" in lowered
-    assert "ordinary adult university student" in lowered
-    assert "not beautified" in lowered
-    assert "\navoid:\n" in lowered
-    assert "photorealistic clone" in lowered
-    assert "exact biometric face copy" in lowered
-    assert "face-recognition likeness" in lowered
-    assert "idol" in lowered
-    assert "beauty upgrade" in lowered
-    assert "babyface" in lowered
-    assert "logo" in lowered
-    assert "watermark" in lowered
-
-
-def test_call_flux_pipeline_safely_filters_unsupported_kwargs():
-    calls = []
-
-    class FakePipeline:
-        def __call__(self, *, prompt, image, width, height, generator):
-            calls.append(
-                {
-                    "prompt": prompt,
-                    "image": image,
-                    "width": width,
-                    "height": height,
-                    "generator": generator,
-                }
-            )
-            return "ok"
-
-    result = call_flux_pipeline_safely(
-        FakePipeline(),
-        prompt="prompt",
-        image=object(),
-        width=1024,
-        height=1024,
-        generator=object(),
-        negative_prompt="must be dropped",
-        unsupported_private_ref="gs://private/source.jpg",
-    )
-
-    assert result == "ok"
-    assert calls
-    assert "negative_prompt" not in calls[0]
-    assert "unsupported_private_ref" not in calls[0]
-
-
-def test_flux_adapter_generate_candidates_uses_real_generation_path():
-    payload = _payload()
-    generator = FakeFluxGenerator()
-    adapter = Flux2KleinAdapter(
-        storage_client=_fake_storage(),
-        image_generator=generator,
-    )
-
-    candidates = adapter.generate_candidates(
-        AvatarGenerationRequest(
-            job_id=payload["jobId"],
-            uid=payload["uid"],
-            source_photo_refs=payload["sourcePhotoRefs"],
-        )
-    )
-
-    assert [candidate.candidate_id for candidate in candidates] == [
-        "cand_01",
-        "cand_02",
-        "cand_03",
-        "cand_04",
-    ]
-    assert len(generator.calls) == 4
-    assert all("Preserve broad resemblance" in call["prompt"] for call in generator.calls)
-    assert all("beauty upgrade" in call["avoid_prompt"] for call in generator.calls)
-    assert candidates[0].image_ref.startswith(f"gs://{DEFAULT_AVATAR_TEMP_BUCKET}/")
-
-
-def test_missing_flux2_klein_pipeline_fails_fast(monkeypatch):
-    fake_torch = types.ModuleType("torch")
-    fake_torch.bfloat16 = object()
-    fake_torch.float32 = object()
-    fake_torch.cuda = types.SimpleNamespace(is_available=lambda: False)
-    monkeypatch.setitem(sys.modules, "torch", fake_torch)
-    monkeypatch.setitem(sys.modules, "diffusers", types.ModuleType("diffusers"))
-
-    with pytest.raises(AvatarGenerationError, match="Flux2KleinPipeline is unavailable"):
-        Flux2KleinImageGenerator()._load_pipeline()
-
-
-def test_flux2_klein_generate_does_not_pass_text_negative_prompt(monkeypatch):
-    class FakeGenerator:
-        def __init__(self, device):
-            self.device = device
-
-        def manual_seed(self, seed):
-            self.seed = seed
-            return self
-
-    fake_torch = types.ModuleType("torch")
-    fake_torch.Generator = FakeGenerator
-    fake_torch.cuda = types.SimpleNamespace(is_available=lambda: False)
-    monkeypatch.setitem(sys.modules, "torch", fake_torch)
-
-    calls = []
-
-    class FakePipeline:
-        def __call__(self, *, prompt, image, width, height, num_inference_steps, guidance_scale, generator):
-            kwargs = {
-                "prompt": prompt,
-                "image": image,
-                "width": width,
-                "height": height,
-                "num_inference_steps": num_inference_steps,
-                "guidance_scale": guidance_scale,
-                "generator": generator,
-            }
-            calls.append(kwargs)
-            return types.SimpleNamespace(images=[Image.new("RGB", (16, 16))])
-
-    generator = Flux2KleinImageGenerator()
-    monkeypatch.setattr(generator, "_load_pipeline", lambda: FakePipeline())
-
-    image = generator.generate(
-        source_image=Image.new("RGB", (16, 16)),
-        prompt="positive prompt",
-        avoid_prompt="must not be passed as text",
-        seed=123,
-    )
-
-    assert image.size == (16, 16)
-    assert calls
-    assert "negative_prompt" not in calls[0]
-    assert calls[0]["prompt"].startswith("positive prompt")
-    assert "Avoid:" in calls[0]["prompt"]
-    assert "must not be passed as text" in calls[0]["prompt"]
-
-
 def test_privacy_reference_preprocess_reduces_exact_detail(monkeypatch):
     monkeypatch.delenv("AVATAR_REFERENCE_PRIVACY_PREPROCESS", raising=False)
     monkeypatch.setenv("AVATAR_REFERENCE_FACE_EQUIVALENT_SIZE", "32")
@@ -1185,101 +995,6 @@ def test_worker_trait_card_uses_job_onboarding_gender(monkeypatch):
     assert trait_card["traitCard"]["avatar_presentation_gender"] == "female"
 
 
-def test_worker_trait_and_flux_use_privacy_processed_references(monkeypatch):
-    monkeypatch.setenv("AVATAR_TRAIT_EXTRACTION_ENABLED", "true")
-    monkeypatch.setenv("AVATAR_FACE_DETECTOR_ENABLED", "true")
-    captured = []
-    generated_refs = []
-    qa_metadata = []
-
-    class FakeSourceAnalysis:
-        hard_reject = False
-        broad_trait_hints = {}
-        primary_face = types.SimpleNamespace(bbox=(0.25, 0.25, 0.5, 0.5), confidence=0.98)
-
-        def to_document(self):
-            return {
-                "status": "accepted",
-                "hardReject": False,
-                "rejectReasons": [],
-                "primaryFaceBbox": [0.25, 0.25, 0.5, 0.5],
-                "backgroundNeutralizationRequired": True,
-            }
-
-    class FakeTraitAdapter:
-        def __init__(self, **_kwargs):
-            pass
-
-        def extract_traits(self, *, image, avatar_presentation_gender):
-            captured.append(image.copy())
-            return validate_trait_card_response(
-                json.dumps(
-                    {
-                        "schemaVersion": "seolleyeon_avatar_trait_card_v3",
-                        "privacySafe": True,
-                        "confidence": 0.9,
-                        "traitCard": {
-                            "visible_crop": "head_and_shoulders",
-                            "avatar_presentation_gender": avatar_presentation_gender,
-                        },
-                    }
-                )
-            )
-
-    class FakeGenerator:
-        def __init__(self, _model_id):
-            pass
-
-        def generate(self, *, source_image, prompt, avoid_prompt, seed):
-            generated_refs.append(source_image.copy())
-            return Image.new("RGB", (16, 16), color=(seed % 255, 80, 120))
-
-    monkeypatch.setattr(worker_module, "analyze_avatar_source_image", lambda *_args, **_kwargs: FakeSourceAnalysis())
-    monkeypatch.setattr(worker_module, "Florence2TraitExtractionAdapter", FakeTraitAdapter)
-    monkeypatch.setattr(worker_module, "Flux2KleinImageGenerator", FakeGenerator)
-    worker_module._TRAIT_ADAPTER_CACHE.clear()
-    worker_module._FLUX_GENERATOR_CACHE.clear()
-    payload = _payload(job_id="avatar_job_trait_privacy_ref")
-    fs = _fake_firestore(payload)
-
-    def passing_qa_with_metadata(source_ref, candidate_ref, metadata):
-        qa_metadata.append(dict(metadata))
-        return _passing_qa(source_ref, candidate_ref, metadata)
-
-    result = process_avatar_generation_payload(
-        payload,
-        firestore_client=fs,
-        storage_client=_fake_storage(),
-        qa_runner=passing_qa_with_metadata,
-        mode="flux",
-    )
-
-    job = fs.data["avatarJobs"][payload["jobId"]]
-    assert result.status == "preview_ready"
-    assert captured
-    corner = captured[0].getpixel((0, 0))
-    assert all(
-        abs(actual - expected) <= 5
-        for actual, expected in zip(corner, (247, 242, 236))
-    )
-    assert generated_refs
-    generation_corner = generated_refs[0].getpixel((0, 0))
-    assert all(
-        abs(actual - expected) <= 5
-        for actual, expected in zip(generation_corner, (247, 242, 236))
-    )
-    assert job["referencePreprocess"]["backgroundNeutralized"] is True
-    assert job["traitExtraction"]["input"] == "analysis_reference_image"
-    assert job["traitExtraction"]["backgroundNeutralized"] is True
-    assert qa_metadata
-    assert qa_metadata[0]["sourceAnalysis"]["backgroundNeutralizationRequired"] is True
-    assert qa_metadata[0]["referencePreprocess"]["backgroundNeutralized"] is True
-    persisted_metadata = {
-        key: value for key, value in qa_metadata[0].items() if not key.startswith("_")
-    }
-    assert "sourcePhotoRefs" not in json.dumps(persisted_metadata)
-
-
 def _assert_forbidden_observability_fields_absent(value):
     serialized = json.dumps(value, sort_keys=True, default=str)
     forbidden = {
@@ -1424,8 +1139,10 @@ def test_worker_adds_candidate_eyewear_trait_to_qa_metadata(monkeypatch):
     assert FakeTraitAdapter.calls == 3
     assert captured_metadata
     first = captured_metadata[0]
-    assert first["sourceTraitCard"]["eyewear_present"] is False
-    assert first["sourceTraitCard"]["eyewear_confidence"] == "high"
+    # The source trait card only gates the candidate check (3 adapter calls =
+    # 1 source + 2 candidates); the canonical QA metadata contract publishes
+    # the candidate card, not the source card.
+    assert "sourceTraitCard" not in first
     assert first["candidateTraitCard"]["eyewear_present"] is True
     assert first["candidateTraitCard"]["eyewear_confidence"] == "high"
     assert first["candidateTraitExtraction"]["status"] == "available"
@@ -1693,45 +1410,6 @@ def test_batch_partial_failure_does_not_duplicate_completed_jobs():
     completed_ids = [job["jobId"] for job in result.job_results if job["status"] == "preview_ready"]
     assert result.status == "partial_failure"
     assert completed_ids == ["avatar_job_partial_1"]
-
-
-def test_flux_model_generator_is_cached_once(monkeypatch):
-    monkeypatch.setenv("AVATAR_FACE_DETECTOR_ENABLED", "false")
-    monkeypatch.setenv("AVATAR_TRAIT_EXTRACTION_ENABLED", "false")
-
-    class FakeCachedGenerator:
-        def __init__(self, _model_id):
-            self.calls = 0
-
-        def generate(self, *, source_image, prompt, avoid_prompt, seed):
-            self.calls += 1
-            return Image.new("RGB", (16, 16), color=(seed % 255, 80, 120))
-
-    reset_model_cache_for_tests()
-    monkeypatch.setattr("avatar_generation.worker.Flux2KleinImageGenerator", FakeCachedGenerator)
-    first = _payload(job_id="avatar_job_flux_cache_1")
-    second = _payload(job_id="avatar_job_flux_cache_2")
-    first["candidateCount"] = 1
-    second["candidateCount"] = 1
-    fs = _fake_firestore(first)
-    fs.data["avatarJobs"][first["jobId"]]["candidateCount"] = 1
-    fs.data["avatarJobs"][second["jobId"]] = dict(fs.data["avatarJobs"][first["jobId"]], jobId=second["jobId"])
-
-    result = process_avatar_generation_batch_payload(
-        {
-            "schemaVersion": "avatar_batch_job_v1",
-            "jobType": "avatar_generation_batch",
-            "jobs": [first, second],
-        },
-        firestore_client=fs,
-        storage_client=_fake_storage(),
-        qa_runner=_passing_qa,
-        mode="flux",
-    )
-
-    assert result.status == "ok"
-    assert model_cache_metrics()["modelLoadCalls"] == 1
-    reset_model_cache_for_tests()
 
 
 def test_worker_marks_job_failed_when_all_candidates_rejected():
@@ -2065,7 +1743,7 @@ def test_worker_failure_error_message_is_redacted(monkeypatch):
             firestore_client=fs,
             storage_client=_fake_storage(),
             qa_runner=_passing_qa,
-            mode="flux",
+            mode="dry_run",
         )
 
     job = fs.data["avatarJobs"][payload["jobId"]]
@@ -2324,133 +2002,6 @@ def test_avatar_generation_code_does_not_use_external_image_api_strings():
     assert not [token for token in forbidden if token in code]
 
 
-def test_flux_generator_resolves_config_once_and_loads_pinned_revision(monkeypatch):
-    from avatar_generation.flux_config import FLUX2_KLEIN_ARTIFACT_REVISION, Flux2KleinExecutionConfig
-
-    fake_config = Flux2KleinExecutionConfig(width=640, height=768, num_inference_steps=5, guidance_scale=1.25)
-    resolve_calls = []
-    monkeypatch.setattr(worker_module, "resolve_flux2_klein_execution_config", lambda: resolve_calls.append("resolve") or fake_config)
-
-    fake_torch = types.ModuleType("torch")
-    fake_torch.bfloat16 = object()
-    fake_torch.float32 = object()
-    fake_torch.cuda = types.SimpleNamespace(is_available=lambda: False)
-    fake_torch.Generator = lambda device: types.SimpleNamespace(manual_seed=lambda seed: (device, seed))
-    monkeypatch.setitem(sys.modules, "torch", fake_torch)
-
-    pretrained_calls = []
-
-    class FakePipeline:
-        @classmethod
-        def from_pretrained(cls, model_id, **kwargs):
-            pretrained_calls.append({"model_id": model_id, **kwargs})
-            return cls()
-
-        def __call__(self, *, prompt, image, width, height, num_inference_steps, guidance_scale, generator):
-            return types.SimpleNamespace(images=[Image.new("RGB", (16, 16))])
-
-    fake_diffusers = types.ModuleType("diffusers")
-    fake_diffusers.Flux2KleinPipeline = FakePipeline
-    monkeypatch.setitem(sys.modules, "diffusers", fake_diffusers)
-
-    generator = Flux2KleinImageGenerator()
-    generator.generate(source_image=Image.new("RGB", (16, 16)), prompt="p", avoid_prompt="n", seed=7)
-    generator.generate(source_image=Image.new("RGB", (16, 16)), prompt="p", avoid_prompt="n", seed=8)
-
-    assert resolve_calls == ["resolve"]
-    assert len(pretrained_calls) == 1
-    assert pretrained_calls[0]["revision"] == FLUX2_KLEIN_ARTIFACT_REVISION
-    assert generator.config is fake_config
-
-
-def test_flux_generator_call_uses_config_without_unsupported_knobs(monkeypatch):
-    from avatar_generation.flux_config import Flux2KleinExecutionConfig
-
-    fake_torch = types.ModuleType("torch")
-    fake_torch.Generator = lambda device: types.SimpleNamespace(manual_seed=lambda seed: {"device": device, "seed": seed})
-    fake_torch.cuda = types.SimpleNamespace(is_available=lambda: False)
-    monkeypatch.setitem(sys.modules, "torch", fake_torch)
-
-    calls = []
-
-    class FakePipeline:
-        def __call__(self, **kwargs):
-            calls.append(kwargs)
-            return types.SimpleNamespace(images=[Image.new("RGB", (16, 16))])
-
-    config = Flux2KleinExecutionConfig(width=704, height=832, num_inference_steps=6, guidance_scale=1.5)
-    generator = Flux2KleinImageGenerator(config)
-    monkeypatch.setattr(generator, "_load_pipeline", lambda: FakePipeline())
-
-    generator.generate(source_image=Image.new("RGB", (16, 16)), prompt="positive", avoid_prompt="avoid", seed=99)
-
-    call = calls[0]
-    assert call["width"] == 704
-    assert call["height"] == 832
-    assert call["num_inference_steps"] == 6
-    assert call["guidance_scale"] == 1.5
-    assert call["generator"]["seed"] == 99
-    assert "negative_prompt" not in call
-    assert "scheduler" not in call
-    assert "strength" not in call
-
-
-def test_flux_candidate_audit_uses_generator_config_and_seed(monkeypatch):
-    from avatar_generation.flux_config import FLUX2_KLEIN_ARTIFACT_REVISION, Flux2KleinExecutionConfig
-
-    config = Flux2KleinExecutionConfig(width=640, height=704, num_inference_steps=5, guidance_scale=1.25)
-
-    class FakeGenerator:
-        def __init__(self):
-            self.config = config
-            self.calls = []
-            self.model_load_seconds_total = 0.0
-
-        def generate(self, *, source_image, prompt, avoid_prompt, seed):
-            self.calls.append(seed)
-            return Image.new("RGB", (16, 16), color=(seed % 255, 80, 120))
-
-    fake_generator = FakeGenerator()
-    monkeypatch.setattr(worker_module, "get_flux2_klein_generator", lambda *_a, **_k: fake_generator)
-    payload = parse_avatar_generation_payload(_payload(job_id="avatar_job_flux_config_audit"))
-
-    artifacts = generate_candidate_artifacts(
-        payload,
-        Image.new("RGB", (32, 32)),
-        mode="flux",
-        privacy_reference_image=Image.new("RGB", (32, 32)),
-        candidate_count=1,
-    )
-
-    params = artifacts[0].generation_params
-    assert fake_generator.calls == [artifacts[0].seed]
-    assert params["seed"] == artifacts[0].seed
-    assert params["candidateSeed"] == artifacts[0].seed
-    assert params["width"] == 640
-    assert params["height"] == 704
-    assert params["numInferenceSteps"] == 5
-    assert params["guidanceScale"] == 1.25
-    assert params["modelArtifactRevision"] == FLUX2_KLEIN_ARTIFACT_REVISION
-    assert "promptHash" not in params
-    assert "sourceReferenceAudit" not in params
-
-
-def test_flux_generator_cache_key_uses_model_revision_and_config_only():
-    from avatar_generation.flux_config import Flux2KleinExecutionConfig
-
-    base = Flux2KleinExecutionConfig(width=640, height=704, num_inference_steps=5, guidance_scale=1.25)
-    same = Flux2KleinExecutionConfig(width=640, height=704, num_inference_steps=5, guidance_scale=1.25)
-    changed = Flux2KleinExecutionConfig(width=768, height=704, num_inference_steps=5, guidance_scale=1.25)
-
-    assert worker_module._flux_generator_cache_key(base) == worker_module._flux_generator_cache_key(same)
-    assert worker_module._flux_generator_cache_key(base) != worker_module._flux_generator_cache_key(changed)
-    serialized = json.dumps(worker_module._flux_generator_cache_key(base), default=str)
-    assert "prompt" not in serialized.lower()
-    assert "source" not in serialized.lower()
-    assert "image" not in serialized.lower()
-    assert "hash" not in serialized.lower()
-
-
 def test_generate_initial_deadline_is_common_path_after_trait_block():
     source = (REPO_ROOT / "lib" / "ai_recommend_model" / "avatar_generation" / "worker.py").read_text(
         encoding="utf-8",
@@ -2466,10 +2017,6 @@ def test_worker_reference_profile_and_readyz_release_posture_contract(monkeypatc
     import avatar_generation.worker_service as worker_service
 
     monkeypatch.setenv("AVATAR_REFERENCE_PROFILE", "fidelity_balanced")
-    monkeypatch.setenv(
-        "AVATAR_FLUX_MODEL_ARTIFACT_REVISION",
-        "e7b7dc27f91deacad38e78976d1f2b499d76a294",
-    )
     monkeypatch.setenv("AVATAR_FIDELITY_CORRIDOR_MODE", "shadow")
     monkeypatch.setenv(
         "AVATAR_FIDELITY_CORRIDOR_CALIBRATION_VERSION",

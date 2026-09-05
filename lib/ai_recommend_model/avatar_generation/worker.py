@@ -17,7 +17,6 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
-from avatar_generation import FLUX2_KLEIN_MODEL_ID, FLUX2_KLEIN_VERSION
 from avatar_generation.avatar_prompt_contract import (
     AVATAR_GENERAL_PROMPT_V0_TEMP,
     AVATAR_GENERAL_PROMPT_VERSION,
@@ -73,11 +72,6 @@ from avatar_generation.fidelity_shadow import (
     build_shadow_corridor_evidence,
     build_shadow_ranking_document,
 )
-from avatar_generation.flux_config import (
-    Flux2KleinExecutionConfig,
-    build_flux2_klein_execution_audit,
-    resolve_flux2_klein_execution_config,
-)
 from avatar_generation.model_adapters.florence2 import Florence2TraitExtractionAdapter
 from avatar_generation.preprocessing import (
     ReferencePreprocessConfig,
@@ -103,13 +97,8 @@ from avatar_generation.qa_preflight import (
     get_qa_runtime_readiness,
 )
 from avatar_generation.rerank import rerank_preview_candidates
-from avatar_generation.seolleyeon_avatar_prompt_builder_v4 import (
-    AvatarTraitCard as PromptAvatarTraitCard,
-    build_avatar_prompt,
-)
 from avatar_generation.storage import build_temp_candidate_ref, build_temp_candidate_path
 from avatar_generation.source_selection_runtime import (
-    LEGACY_FIRST_PHOTO_MODE,
     NO_ELIGIBLE_SOURCE_ERROR,
     QUALITY_SELECTOR_MODE,
     SOURCE_ANALYSIS_INFRA_ERROR,
@@ -259,66 +248,6 @@ class AvatarWorkerDeadline:
             )
 
 
-_FLUX_ALWAYS_DROPPED_KWARGS = frozenset({"negative_prompt"})
-
-
-def build_flux_prompt_with_avoid(prompt: str, negative_prompt: str = "") -> str:
-    """Fold text-only negative constraints into the FLUX prompt.
-
-    Flux2KleinPipeline does not accept a normal `
-egative_prompt`` string
-    kwarg. Keeping the constraints in the prompt preserves the policy without
-    relying on unsupported provider parameters.
-    """
-
-    positive = str(prompt or "").strip()
-    negative = str(negative_prompt or "").strip()
-    if not negative:
-        return positive
-    if "\navoid:" in positive.lower() or positive.lower().startswith("avoid:"):
-        return positive
-    return f"{positive}\n\nAvoid:\n{negative}"
-
-
-def call_flux_pipeline_safely(pipe: Any, **kwargs: Any) -> Any:
-    """Call a FLUX pipeline after dropping unsupported kwargs by name only."""
-
-    remaining = {
-        key: value
-        for key, value in kwargs.items()
-        if key not in _FLUX_ALWAYS_DROPPED_KWARGS
-    }
-    dropped = set(kwargs) - set(remaining)
-
-    try:
-        signature = inspect.signature(pipe.__call__)
-    except (TypeError, ValueError):  # pragma: no cover - depends on provider object
-        safe_kwargs = remaining
-    else:
-        parameters = signature.parameters
-        accepts_var_kwargs = any(
-            parameter.kind == inspect.Parameter.VAR_KEYWORD
-            for parameter in parameters.values()
-        )
-        if accepts_var_kwargs:
-            safe_kwargs = remaining
-        else:
-            supported = set(parameters)
-            safe_kwargs = {
-                key: value
-                for key, value in remaining.items()
-                if key in supported
-             }
-            dropped.update(set(remaining) - set(safe_kwargs))
-
-    if dropped:
-        logger.warning(
-            "Dropped unsupported FLUX pipeline kwargs: %s",
-            sorted(dropped),
-        )
-    return pipe(**safe_kwargs)
-
-
 @dataclass(frozen=True)
 class GcsRef:
     bucket: str
@@ -401,7 +330,6 @@ class AvatarBatchRunResult:
 QARunner = Callable[[str, str, Dict[str, Any]], AvatarQAResult]
 MetricHook = Callable[[str, Mapping[str, Any]], None]
 
-_FLUX_GENERATOR_CACHE: Dict[tuple[str, str, int, int, int, float], "Flux2KleinImageGenerator"] = {}
 _MODEL_METRICS: Dict[str, int] = {
     "modelCacheHits": 0,
     "modelCacheMisses": 0,
@@ -464,12 +392,17 @@ def resolve_worker_mode(mode: Optional[str] = None) -> str:
 
     if run_mode == "azure":
         run_mode = CANONICAL_AZURE_WORKER_MODE
-    if run_mode not in {"dry_run", "flux", CANONICAL_AZURE_WORKER_MODE}:
+    if run_mode == "flux":
+        # Local-model generation is retired in every environment. A stale
+        # configuration value is an explicit error, never a silent fallback.
         raise AvatarGenerationError(
-            "AVATAR_WORKER_MODE must be dry_run, flux (local legacy only), or azure_gpt_image_2."
+            "avatar_worker_mode_retired: the local-model worker mode is retired; "
+            "the only generation backend is azure_gpt_image_2."
         )
-    if production and run_mode == "flux":
-        raise AvatarGenerationError("legacy_flux_is_not_a_production_generation_backend")
+    if run_mode not in {"dry_run", CANONICAL_AZURE_WORKER_MODE}:
+        raise AvatarGenerationError(
+            "AVATAR_WORKER_MODE must be dry_run (local/dev only) or azure_gpt_image_2."
+        )
     if production and run_mode == "dry_run":
         raise AvatarGenerationError("dry_run is not allowed when ENVIRONMENT=production.")
     if run_mode == "dry_run" and not is_local_or_dev_environment():
@@ -600,23 +533,24 @@ def _env_bool_any_default(names: Sequence[str], default: bool) -> bool:
     return False if found_explicit else default
 
 def _source_analysis_enabled(run_mode: str) -> bool:
+    # The canonical Azure path selects and validates the source in the
+    # source-set selector; the legacy per-job analysis stays a dry-run-only
+    # fixture path behind an explicit flag.
     if run_mode == CANONICAL_AZURE_WORKER_MODE:
         return False
-    if run_mode == "flux" and is_production_environment():
-        return True
-    return _bool_env_default("AVATAR_FACE_DETECTOR_ENABLED", run_mode == "flux")
+    return _bool_env_default("AVATAR_FACE_DETECTOR_ENABLED", False)
 
 
 def _trait_extraction_enabled(run_mode: str) -> bool:
     if run_mode == CANONICAL_AZURE_WORKER_MODE:
         return False
-    return _bool_env_default("AVATAR_TRAIT_EXTRACTION_ENABLED", run_mode == "flux")
+    return _bool_env_default("AVATAR_TRAIT_EXTRACTION_ENABLED", False)
 
 
 def _candidate_trait_qa_enabled(run_mode: str) -> bool:
     if run_mode == CANONICAL_AZURE_WORKER_MODE:
         return False
-    return _bool_env_default("AVATAR_CANDIDATE_TRAIT_QA_ENABLED", run_mode == "flux")
+    return _bool_env_default("AVATAR_CANDIDATE_TRAIT_QA_ENABLED", False)
 
 
 def _trait_extraction_uses_privacy_reference() -> bool:
@@ -630,8 +564,6 @@ def _trait_require_validated() -> bool:
 def _source_visual_risk_enabled(run_mode: str) -> bool:
     if run_mode == CANONICAL_AZURE_WORKER_MODE:
         return False
-    if run_mode == "flux" and is_production_environment():
-        return True
     parsed = _bool_env("AVATAR_SOURCE_VISUAL_RISK_ENABLED")
     return bool(parsed) if parsed is not None else False
 
@@ -890,7 +822,10 @@ def _blocked_extra_round(extra_plan: Any, decision: AdmissionDecision, candidate
 
 
 def _trait_input_uses_analysis_reference(run_mode: str, quality_context: Optional[AvatarQualityContext]) -> bool:
-    return run_mode == "flux" and quality_context is not None and quality_context.analysis_image is not None
+    # The analysis-reference input existed only for the retired local-model
+    # prompt adaptation. Trait extraction (dry-run fixtures) uses the source.
+    del run_mode, quality_context
+    return False
 
 
 def _merge_region_color_traits(
@@ -1175,11 +1110,12 @@ def parse_avatar_generation_payload(raw_payload: Mapping[str, Any]) -> AvatarGen
         if str(value).strip()
     ]
     if source_selection_mode:
-        if source_selection_mode not in {
-            QUALITY_SELECTOR_MODE,
-            LEGACY_FIRST_PHOTO_MODE,
-        }:
-            raise AvatarGenerationError("Unsupported sourceSelectionMode.")
+        if source_selection_mode != QUALITY_SELECTOR_MODE:
+            # The former first-photo rollback mode is retired. A stale value is a
+            # configuration error and is never reinterpreted as the selector.
+            raise AvatarGenerationError(
+                "avatar_source_selection_mode_retired: Unsupported sourceSelectionMode."
+            )
         try:
             candidate_set_from_payload(
                 source_photo_ids,
@@ -1195,8 +1131,10 @@ def parse_avatar_generation_payload(raw_payload: Mapping[str, Any]) -> AvatarGen
         raise AvatarGenerationError("candidateCount must be between 1 and MAX_CANDIDATES.")
 
     model_id = str(payload.get("modelId") or AZURE_GPT_IMAGE_2_MODEL_ID).strip()
-    if model_id not in {FLUX2_KLEIN_MODEL_ID, AZURE_GPT_IMAGE_2_MODEL_ID}:
-        raise AvatarGenerationError("Unsupported avatar generation modelId.")
+    if model_id != AZURE_GPT_IMAGE_2_MODEL_ID:
+        raise AvatarGenerationError(
+            "Unsupported avatar generation modelId (only azure_gpt_image_2 is accepted)."
+        )
 
     return AvatarGenerationPayload(
         job_id=job_id,
@@ -1509,76 +1447,6 @@ def build_fixture_avatar_image(source_image: Image.Image, *, seed: int, index: i
     return image
 
 
-class Flux2KleinImageGenerator:
-    def __init__(self, config: Flux2KleinExecutionConfig | None = None) -> None:
-        self.config = config or resolve_flux2_klein_execution_config()
-        self.model_id = self.config.logical_model_id
-        self.model_artifact_revision = self.config.model_artifact_revision
-        self._pipeline: Any = None
-        self.model_load_seconds_total = 0.0
-
-    def _load_pipeline(self) -> Any:
-        if self._pipeline is not None:
-            return self._pipeline
-        started_at = time.perf_counter()
-        try:
-            import torch
-            from diffusers import Flux2KleinPipeline
-        except Exception as exc:  # pragma: no cover - expensive dependency path
-            raise AvatarGenerationError(
-                "Flux2KleinPipeline is unavailable. Install a diffusers version that "
-                "supports black-forest-labs/FLUX.2-klein-4B in the GPU worker image."
-            ) from exc
-
-        dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-        pipe = Flux2KleinPipeline.from_pretrained(
-            self.model_id,
-            revision=self.model_artifact_revision,
-            torch_dtype=dtype,
-        )
-        if torch.cuda.is_available():
-            pipe = pipe.to("cuda")
-        elif hasattr(pipe, "enable_model_cpu_offload"):
-            pipe.enable_model_cpu_offload()
-        self._pipeline = pipe
-        self.model_load_seconds_total = round(
-            self.model_load_seconds_total + _elapsed_seconds(started_at),
-            3,
-        )
-        return pipe
-
-    def generate(
-        self,
-        *,
-        source_image: Image.Image,
-        prompt: str,
-        avoid_prompt: str = "",
-        seed: int,
-    ) -> Image.Image:
-        try:
-            import torch
-        except Exception as exc:  # pragma: no cover - expensive dependency path
-            raise AvatarGenerationError("PyTorch is required for FLUX generation.") from exc
-
-        pipe = self._load_pipeline()
-        generator = torch.Generator(device="cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
-        final_prompt = build_flux_prompt_with_avoid(prompt, avoid_prompt)
-        result = call_flux_pipeline_safely(
-            pipe,
-            prompt=final_prompt,
-            image=source_image,
-            width=int(self.config.width),
-            height=int(self.config.height),
-            num_inference_steps=int(self.config.num_inference_steps),
-            guidance_scale=float(self.config.guidance_scale),
-            generator=generator,
-        )
-        images = getattr(result, "images", None)
-        if not images:
-            raise AvatarGenerationError("FLUX generation returned no images.")
-        return images[0].convert("RGB")
-
-
 def get_azure_gpt_image2_provider() -> AzureGptImage2Provider:
     global _AZURE_PROVIDER_CACHE
     if _AZURE_PROVIDER_CACHE is None:
@@ -1588,7 +1456,6 @@ def get_azure_gpt_image2_provider() -> AzureGptImage2Provider:
 
 def reset_model_cache_for_tests() -> None:
     global _AZURE_PROVIDER_CACHE
-    _FLUX_GENERATOR_CACHE.clear()
     _AZURE_PROVIDER_CACHE = None
     for key in _MODEL_METRICS:
         _MODEL_METRICS[key] = 0
@@ -1596,44 +1463,19 @@ def reset_model_cache_for_tests() -> None:
 
 def model_cache_metrics() -> Dict[str, int]:
     metrics = dict(_MODEL_METRICS)
-    metrics["modelCacheSize"] = len(_FLUX_GENERATOR_CACHE)
+    metrics["modelCacheSize"] = 1 if _AZURE_PROVIDER_CACHE is not None else 0
     return metrics
 
 
-def _flux_generator_cache_key(config: Flux2KleinExecutionConfig) -> tuple[str, str, int, int, int, float]:
-    return (
-        config.logical_model_id,
-        config.model_artifact_revision,
-        int(config.width),
-        int(config.height),
-        int(config.num_inference_steps),
-        float(config.guidance_scale),
-    )
 
 
-def get_flux2_klein_generator(
-    model_id: str = FLUX2_KLEIN_MODEL_ID,
-    *,
-    config: Flux2KleinExecutionConfig | None = None,
-) -> Flux2KleinImageGenerator:
-    resolved_config = config or resolve_flux2_klein_execution_config()
-    if model_id != resolved_config.logical_model_id:
-        resolved_config = replace(resolved_config, logical_model_id=model_id)
-    cache_key = _flux_generator_cache_key(resolved_config)
-    generator = _FLUX_GENERATOR_CACHE.get(cache_key)
-    if generator is not None:
-        _MODEL_METRICS["modelCacheHits"] += 1
-        return generator
-    _MODEL_METRICS["modelCacheMisses"] += 1
-    _MODEL_METRICS["modelLoadCalls"] += 1
-    generator = Flux2KleinImageGenerator(resolved_config)
-    _FLUX_GENERATOR_CACHE[cache_key] = generator
-    return generator
 def warmup_avatar_model(*, mode: Optional[str] = None) -> Dict[str, Any]:
     run_mode = resolve_worker_mode(mode)
     warmed = False
-    if run_mode == "flux":
-        get_flux2_klein_generator(FLUX2_KLEIN_MODEL_ID)._load_pipeline()
+    if run_mode == CANONICAL_AZURE_WORKER_MODE:
+        # Azure needs no model download; warming means building the provider
+        # (config + rate limiter). No request is sent.
+        get_azure_gpt_image2_provider()
         warmed = True
     return {
         "status": "ok",
@@ -1643,21 +1485,19 @@ def warmup_avatar_model(*, mode: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
+DRY_RUN_FIXTURE_BACKEND = "dry_run_fixture"
+DRY_RUN_FIXTURE_VERSION = "dry_run_fixture_v1"
+
+
 def _candidate_generation_execution_audit(
     payload: AvatarGenerationPayload,
     *,
     mode: str,
     seed: int,
-    generator: Any,
 ) -> Dict[str, Any]:
-    if mode == "flux" and generator is not None:
-        config = getattr(generator, "config", None)
-        if isinstance(config, Flux2KleinExecutionConfig):
-            audit = build_flux2_klein_execution_audit(config, seed=seed)
-            return {**audit, "mode": mode, "candidateSeed": int(seed)}
     return {
         "modelId": payload.model_id,
-        "modelVersion": FLUX2_KLEIN_VERSION,
+        "modelVersion": DRY_RUN_FIXTURE_VERSION,
         "mode": mode,
         "width": DEFAULT_WIDTH,
         "height": DEFAULT_HEIGHT,
@@ -1673,7 +1513,6 @@ def generate_candidate_artifacts(
     *,
     mode: str,
     source_analysis: Any = None,
-    trait_card: PromptAvatarTraitCard | None = None,
     privacy_reference_image: Optional[Image.Image] = None,
     reference_preprocess_metadata: Optional[Mapping[str, Any]] = None,
     candidate_start_index: int = 0,
@@ -1686,7 +1525,7 @@ def generate_candidate_artifacts(
     provider_usage_doc: Optional[Dict[str, Any]] = None,
 ) -> List[CandidateArtifact]:
     artifacts: List[CandidateArtifact] = []
-    generator = get_flux2_klein_generator(payload.model_id) if mode == "flux" else None
+    del privacy_reference_image, reference_preprocess_metadata, source_analysis
     if mode == CANONICAL_AZURE_WORKER_MODE:
         _assert_azure_source_bytes_are_normalized_jpeg(source_image_bytes, source_content_type)
     provider = (
@@ -1694,49 +1533,13 @@ def generate_candidate_artifacts(
         if mode == CANONICAL_AZURE_WORKER_MODE
         else None
     )
-    model_load_seconds_before = _generator_model_load_seconds(generator)
-    generation_reference = (
-        privacy_reference_image
-        or prepare_privacy_reference_image(source_image, source_analysis=source_analysis)
-        if mode == "flux"
-        else source_image
-    )
     round_count = int(candidate_count or payload.candidate_count)
     total_count = max(payload.candidate_count, candidate_start_index + round_count)
     for index in range(candidate_start_index, candidate_start_index + round_count):
         candidate_id = candidate_id_for(payload.job_id, index)
         seed = deterministic_seed(payload.job_id, index)
-        prompt = None
         generation_audit: Dict[str, Any]
-        if mode == "flux":
-            assert generator is not None
-            prompt = build_avatar_prompt(
-                trait_card=trait_card,
-                candidate_index=index,
-                candidate_count=total_count,
-                seed=seed,
-            )
-            image = generator.generate(
-                source_image=generation_reference,
-                prompt=prompt.positive,
-                avoid_prompt=prompt.provider_negative or prompt.negative,
-                seed=seed,
-            )
-            candidate_image_bytes = image_to_png_bytes(image)
-            generation_audit = {
-                **_candidate_generation_execution_audit(
-                    payload,
-                    mode=mode,
-                    seed=seed,
-                    generator=generator,
-                ),
-                "referencePrivacyPreprocess": _reference_privacy_preprocess_enabled(),
-                "referencePreprocess": dict(reference_preprocess_metadata or {}),
-                "promptVersion": str(prompt.meta.get("prompt_version") or "seolleyeon_avatar_v4"),
-                "promptBuilder": "seolleyeon_avatar_prompt_builder_v4",
-                "candidateSeed": seed,
-            }
-        elif mode == CANONICAL_AZURE_WORKER_MODE:
+        if mode == CANONICAL_AZURE_WORKER_MODE:
             if provider is None or source_image_bytes is None:
                 raise AvatarGenerationError("Azure generation requires stored source bytes.")
             provider_key = (
@@ -1775,12 +1578,7 @@ def generate_candidate_artifacts(
             image = build_fixture_avatar_image(source_image, seed=seed, index=index)
             candidate_image_bytes = image_to_png_bytes(image)
             generation_audit = {
-                **_candidate_generation_execution_audit(
-                    payload,
-                    mode=mode,
-                    seed=seed,
-                    generator=generator,
-                ),
+                **_candidate_generation_execution_audit(payload, mode=mode, seed=seed),
                 "candidateSeed": seed,
             }
         image_ref = build_temp_candidate_ref(
@@ -1797,12 +1595,7 @@ def generate_candidate_artifacts(
                 generation_params=generation_audit,
             )
         )
-    if seconds_by_stage is not None and generator is not None:
-        _add_stage_seconds(
-            seconds_by_stage,
-            "model_load_seconds",
-            _generator_model_load_seconds(generator) - model_load_seconds_before,
-        )
+    del seconds_by_stage  # no local model to load; Azure latency is in providerUsage
     return artifacts
 
 
@@ -1928,11 +1721,7 @@ def _candidate_doc(
         "uid": payload.uid,
         "imageRef": artifact.image_ref,
         "modelId": payload.model_id,
-        "modelVersion": (
-            AZURE_GPT_IMAGE_2_VERSION
-            if payload.model_id == AZURE_GPT_IMAGE_2_MODEL_ID
-            else FLUX2_KLEIN_VERSION
-        ),
+        "modelVersion": AZURE_GPT_IMAGE_2_VERSION,
         "seed": artifact.seed,
         "generationParams": artifact.generation_params,
         "status": status,
@@ -2073,7 +1862,7 @@ def _cost_document_for_job(
     duration_seconds: float,
     candidate_count: int,
     seconds_by_stage: Mapping[str, float],
-    generation_backend: str = "local_cloud_run_flux",
+    generation_backend: str = DRY_RUN_FIXTURE_BACKEND,
     provider_usage_document: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     estimate = build_job_cost_document(
@@ -2353,83 +2142,49 @@ def _resolve_avatar_source_selection(
             )
         selected_candidate = selected_source_from_job(job_doc, candidates)
         if selected_candidate is None:
-            if payload.source_selection_mode == LEGACY_FIRST_PHOTO_MODE:
-                event_hook = _source_selection_event_hook(metrics_hook)
-                event_hook(
-                    "avatar_source_selection_started",
-                    {
-                        "selectorVersion": LEGACY_FIRST_PHOTO_MODE,
-                        "evaluatedCount": len(candidates),
-                    },
-                )
-                selected_candidate = candidates[0]
-                selection_document: Dict[str, Any] = {
-                    "status": "selected",
-                    "selectorVersion": LEGACY_FIRST_PHOTO_MODE,
-                    "confidencePolicyVersion": None,
-                    "selectedPhotoId": selected_candidate.photo_id,
-                    "top1Score": None,
-                    "top2Score": None,
-                    "scoreMargin": None,
-                    "selectionConfidence": "legacy",
-                    "evaluatedCount": len(candidates),
-                    "eligibleCount": len(candidates),
-                    "reasonHistogram": {},
-                    "failureCode": None,
-                }
-                event_hook(
-                    "avatar_source_selected",
-                    {
-                        "selectorVersion": LEGACY_FIRST_PHOTO_MODE,
-                        "evaluatedCount": len(candidates),
-                        "eligibleCount": len(candidates),
-                        "selectionConfidence": "legacy",
-                    },
-                )
-            else:
-                source_config = SourceSafetyConfig.from_env()
-                pipeline_config = replace(
-                    SmallFacePipelineConfig.from_env(),
-                    enabled=True,
-                    fail_closed_without_model=True,
-                )
-                pipeline = SmallFaceSourcePipeline(
-                    config=pipeline_config,
-                    source_config=source_config,
-                    landmarker_model_path=(
-                        source_config.mediapipe_face_landmarker_model_path
+            source_config = SourceSafetyConfig.from_env()
+            pipeline_config = replace(
+                SmallFacePipelineConfig.from_env(),
+                enabled=True,
+                fail_closed_without_model=True,
+            )
+            pipeline = SmallFaceSourcePipeline(
+                config=pipeline_config,
+                source_config=source_config,
+                landmarker_model_path=(
+                    source_config.mediapipe_face_landmarker_model_path
+                ),
+            )
+
+            def analyze(candidate: AvatarSourceCandidate):
+                analysis = analyze_avatar_source_image(
+                    _load_pinned_source_for_selection(
+                        storage_client,
+                        candidate,
                     ),
+                    source_ref=candidate.source_ref,
+                    config=source_config,
+                    small_face_pipeline=pipeline,
+                    small_face_config=pipeline_config,
+                )
+                if analysis_has_infrastructure_failure(analysis):
+                    raise SourceSelectionError(SOURCE_ANALYSIS_INFRA_ERROR)
+                return source_quality_signals_from_analysis(
+                    photo_id=candidate.photo_id,
+                    stable_order=candidate.stable_order,
+                    analysis=analysis,
                 )
 
-                def analyze(candidate: AvatarSourceCandidate):
-                    analysis = analyze_avatar_source_image(
-                        _load_pinned_source_for_selection(
-                            storage_client,
-                            candidate,
-                        ),
-                        source_ref=candidate.source_ref,
-                        config=source_config,
-                        small_face_pipeline=pipeline,
-                        small_face_config=pipeline_config,
-                    )
-                    if analysis_has_infrastructure_failure(analysis):
-                        raise SourceSelectionError(SOURCE_ANALYSIS_INFRA_ERROR)
-                    return source_quality_signals_from_analysis(
-                        photo_id=candidate.photo_id,
-                        stable_order=candidate.stable_order,
-                        analysis=analysis,
-                    )
-
-                selected = select_best_source(
-                    candidates,
-                    analyze_signals=analyze,
-                    event_hook=_source_selection_event_hook(metrics_hook),
-                )
-                selected_candidate = selected.candidate
-                selection_document = {
-                    "status": "selected",
-                    **selected.selection.to_private_document(),
-                }
+            selected = select_best_source(
+                candidates,
+                analyze_signals=analyze,
+                event_hook=_source_selection_event_hook(metrics_hook),
+            )
+            selected_candidate = selected.candidate
+            selection_document = {
+                "status": "selected",
+                **selected.selection.to_private_document(),
+            }
             _persist_selected_avatar_source(
                 firestore_client,
                 payload,
@@ -2950,7 +2705,7 @@ def _extract_trait_card_for_generation(
     run_mode: str,
     avatar_presentation_gender: str = "unknown",
     broad_trait_hints: Optional[Mapping[str, Any]] = None,
-) -> tuple[Optional[TraitCardValidationResult], Optional[PromptAvatarTraitCard]]:
+) -> tuple[Optional[TraitCardValidationResult], Optional[Dict[str, Any]]]:
     if not _trait_extraction_enabled(run_mode):
         return None, None
 
@@ -2962,10 +2717,7 @@ def _extract_trait_card_for_generation(
     validation = merge_trait_card_with_broad_hints(validation, broad_trait_hints)
     if _trait_require_validated() and not validation.privacy_safe:
         raise AvatarGenerationError("avatar trait card did not pass privacy validation.")
-    prompt_card = PromptAvatarTraitCard(
-        **validation.trait_card.to_prompt_builder_dict()
-    )
-    return validation, prompt_card
+    return validation, dict(validation.trait_card.to_prompt_builder_dict())
 
 
 def _source_eyewear_needs_candidate_check(
@@ -2994,9 +2746,7 @@ def _extract_candidate_trait_card_for_qa(
                 image=_resize_for_trait_extraction(image.convert("RGB")),
                 avatar_presentation_gender=avatar_presentation_gender,
             )
-        return PromptAvatarTraitCard(
-            **validation.trait_card.to_prompt_builder_dict()
-        ).to_prompt_dict()
+        return dict(validation.trait_card.to_prompt_builder_dict())
     except Exception as exc:
         logger.warning(
             "Candidate trait QA extraction failed: %s: %s",
@@ -3098,7 +2848,7 @@ def _candidate_qa_metadata(
                 "pipelineMode": effective_run_mode,
                 "traitQaMode": (
                     "enabled"
-                    if effective_run_mode in {"flux", "dry_run"}
+                    if effective_run_mode == "dry_run"
                     else "unknown"
                 ),
                 "traitQaAuthority": "server",
@@ -3138,44 +2888,14 @@ def _prepare_reference_preprocess_for_generation(
     visual_risk_regions: Sequence[Any] = (),
     run_mode: str,
 ) -> AvatarQualityContext:
-    if run_mode != "flux":
-        return AvatarQualityContext(
-            generation_image=None,
-            analysis_image=source_image.convert("RGB"),
-            metadata={},
-        )
-    if not _reference_privacy_preprocess_enabled():
-        validate_reference_preprocess_enabled_for_environment(
-            preprocess_enabled=False,
-        )
-        image = source_image.convert("RGB")
-        return AvatarQualityContext(
-            generation_image=image,
-            analysis_image=image,
-            metadata={"enabled": False},
-        )
-    pipeline_analysis_reference = getattr(
-        source_analysis, "analysis_reference_image", None
-    )
-    result = preprocess_reference_image(
-        source_image,
-        source_analysis=source_analysis,
-        visual_risk_regions=visual_risk_regions,
-        config=_reference_preprocess_config_from_env(),
-    )
-    analysis_image = result.analysis_image
-    if pipeline_analysis_reference is not None:
-        # Prefer small-face pipeline analysis reference (crop + neutralized).
-        analysis_image = pipeline_analysis_reference.convert("RGB")
+    # Reference privacy preprocessing existed only for the retired local-model
+    # generation path (a reference image conditioned that model). The remaining
+    # modes never build a generation reference; they analyze the source directly.
+    del source_analysis, visual_risk_regions, run_mode
     return AvatarQualityContext(
-        generation_image=result.image,
-        analysis_image=analysis_image,
-        foreground_mask=result.foreground_mask,
-        face_hints=result.face_hints,
-        metadata={
-            **result.metadata,
-            "smallFaceAnalysisReferenceUsed": pipeline_analysis_reference is not None,
-         },
+        generation_image=None,
+        analysis_image=source_image.convert("RGB"),
+        metadata={},
     )
 
 
@@ -3580,7 +3300,7 @@ def process_avatar_generation_payload(
                         generation_backend=(
                             AZURE_GPT_IMAGE_2_MODEL_ID
                             if run_mode == CANONICAL_AZURE_WORKER_MODE
-                            else "local_cloud_run_flux"
+                            else DRY_RUN_FIXTURE_BACKEND
                         ),
                         provider_usage_document=provider_usage_doc,
                     )
@@ -3660,8 +3380,8 @@ def process_avatar_generation_payload(
                         quality_context=quality_context,
                         avatar_presentation_gender=avatar_presentation_gender,
                     )
-                    prompt_trait_card = PromptAvatarTraitCard(
-                        **trait_validation.trait_card.to_prompt_builder_dict()
+                    prompt_trait_card = dict(
+                        trait_validation.trait_card.to_prompt_builder_dict()
                     )
                 seconds_by_stage["trait_extract_seconds"] += _elapsed_seconds(stage_started_at)
             except Exception as exc:
@@ -3691,11 +3411,7 @@ def process_avatar_generation_payload(
                 if trait_validation is not None
                 else None
             )
-            source_trait_card_doc = (
-                prompt_trait_card.to_prompt_dict()
-                if prompt_trait_card is not None
-                else {}
-            )
+            source_trait_card_doc = dict(prompt_trait_card or {})
             _update_job_status(
                 fs,
                 payload.job_id,
@@ -3749,7 +3465,6 @@ def process_avatar_generation_payload(
             source_image,
             mode=run_mode,
             source_analysis=source_analysis,
-            trait_card=prompt_trait_card,
             privacy_reference_image=privacy_reference_image,
             reference_preprocess_metadata=reference_preprocess_doc,
             candidate_start_index=0,
@@ -3773,7 +3488,7 @@ def process_avatar_generation_payload(
                 "generationBackend": (
                     AZURE_GPT_IMAGE_2_MODEL_ID
                     if run_mode == CANONICAL_AZURE_WORKER_MODE
-                    else payload.model_id
+                    else DRY_RUN_FIXTURE_BACKEND
                 ),
             },
         )
@@ -3894,8 +3609,7 @@ def process_avatar_generation_payload(
                 source_image,
                 mode=run_mode,
                 source_analysis=source_analysis,
-                trait_card=prompt_trait_card,
-                privacy_reference_image=privacy_reference_image,
+                    privacy_reference_image=privacy_reference_image,
                 reference_preprocess_metadata=reference_preprocess_doc,
                 candidate_start_index=len(candidate_summaries),
                 candidate_count=extra_count,
@@ -4147,7 +3861,7 @@ def process_avatar_generation_payload(
                 generation_backend=(
                     AZURE_GPT_IMAGE_2_MODEL_ID
                     if run_mode == CANONICAL_AZURE_WORKER_MODE
-                    else "local_cloud_run_flux"
+                    else DRY_RUN_FIXTURE_BACKEND
                 ),
                 provider_usage_document=provider_usage_doc,
             )
@@ -4528,7 +4242,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--payload_json", help="Path to avatar_job_v1 JSON payload.")
     parser.add_argument(
         "--mode",
-        choices=["dry_run", "flux", "azure", CANONICAL_AZURE_WORKER_MODE],
+        choices=["dry_run", "azure", CANONICAL_AZURE_WORKER_MODE],
         default=None,
     )
     parser.add_argument("--fixture_output_dir", help="Optional local directory for generated fixture PNGs.")

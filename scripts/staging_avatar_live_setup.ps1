@@ -178,7 +178,7 @@ $clipWorkerSa = "clip-worker@$Project.iam.gserviceaccount.com"
 $taskInvokerSa = "task-invoker@$Project.iam.gserviceaccount.com"
 $projectNumber = (& gcloud projects describe $Project --format="value(projectNumber)").Trim()
 $cloudTasksServiceAgent = "service-$projectNumber@gcp-sa-cloudtasks.iam.gserviceaccount.com"
-$functionsRuntimeSa = (& gcloud functions describe uploadAvatarSourcePhoto `
+$functionsRuntimeSa = (& gcloud functions describe beginAvatarGenerationFromOnboardingPhotos `
   --gen2 `
   --region=$Region `
   --project=$Project `
@@ -285,7 +285,7 @@ if (-not $PrepareOnly) {
   Invoke-Step "Deploy Cloud Run GPU avatar worker" {
     $workerEnv = @(
       "ENVIRONMENT=staging"
-      "AVATAR_WORKER_MODE=flux"
+      "AVATAR_WORKER_MODE=azure_gpt_image_2"
       "AVATAR_WORKER_AUTH_MODE=cloud_run_iam"
       "AVATAR_WORKER_CLOUD_RUN_IAM_ENFORCED=true"
       "AVATAR_GPU_WORKER_ENABLED=true"
@@ -304,7 +304,6 @@ if (-not $PrepareOnly) {
       "SOURCE_PHOTO_BUCKET=seolleyeon-final-private-source-photos"
       "AVATAR_TEMP_BUCKET=seolleyeon-final-avatar-temp"
       "APPROVED_AVATAR_BUCKET=seolleyeon-final-approved-avatars"
-      "AVATAR_FLUX_MODEL_ARTIFACT_REVISION=e7b7dc27f91deacad38e78976d1f2b499d76a294"
       "AVATAR_REFERENCE_PROFILE=fidelity_balanced"
       "AVATAR_FIDELITY_CORRIDOR_MODE=shadow"
       "AVATAR_FIDELITY_CORRIDOR_CALIBRATION_VERSION=uncalibrated"
@@ -315,8 +314,6 @@ if (-not $PrepareOnly) {
       "AVATAR_GENERATION_HEIGHT=1024"
       "AVATAR_GENERATION_STEPS=4"
       "AVATAR_GENERATION_GUIDANCE_SCALE=1.0"
-      "AVATAR_FLUX_NUM_INFERENCE_STEPS=4"
-      "AVATAR_FLUX_GUIDANCE_SCALE=1.0"
       "AVATAR_FACE_DETECTOR_ENABLED=true"
       "AVATAR_FACE_DETECTOR_PROVIDER=mediapipe"
       "AVATAR_MEDIAPIPE_ENABLED=true"
@@ -457,8 +454,8 @@ if ($UpdateFunctionsEnv) {
 }
 
 if ($DeployUploadFunction) {
-  Invoke-Step "Redeploy uploadAvatarSourcePhoto with current Functions env" {
-    firebase deploy --only functions:uploadAvatarSourcePhoto --project $Project --non-interactive
+  Invoke-Step "Redeploy the canonical source-set admission with current Functions env" {
+    firebase deploy --only functions:beginAvatarGenerationFromOnboardingPhotos --project $Project --non-interactive
   }
 }
 
@@ -482,7 +479,7 @@ Write-Host "  Add -PrepareOnly to prepare APIs, service accounts, queue, image, 
   Write-Host "  Before worker deploy, check: .venv\Scripts\python.exe scripts\staging_avatar_live_preflight.py --avatar_only --stage deploy"
 Write-Host "  Add -UpdateFunctionsEnv to write the non-secret queue env locally."
 Write-Host "  Validate local queue env: .venv\Scripts\python.exe scripts\avatar_queue_config_check.py --env_file $FunctionsEnvFile"
-Write-Host "  Add -DeployUploadFunction to redeploy uploadAvatarSourcePhoto."
+Write-Host "  Add -DeployUploadFunction to redeploy beginAvatarGenerationFromOnboardingPhotos."
 Write-Host "  Add -EnableClipWorker only after CLIP embedding/rerank is enabled and verified."
 Write-Host "  Existing queued dry-run jobs can be recovered by duplicate upload retry or an IAM-protected worker drain call after deploy."
 Write-Host "  Drain dry-run: .venv\Scripts\python.exe scripts\avatar_worker_drain_once.py --worker_url $workerUrl"
