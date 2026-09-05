@@ -592,7 +592,11 @@ def test_staging_preflight_prepare_allows_secret_worker_and_env_as_warnings(monk
 
 def test_staging_preflight_deploy_requires_hf_secret_but_not_worker_env(monkeypatch):
     preflight = load_script("staging_avatar_live_preflight", "staging_avatar_live_preflight.py")
-    _install_preflight_fakes(monkeypatch, preflight)
+    _install_preflight_fakes(
+        monkeypatch,
+        preflight,
+        secrets=("seolleyeon-avatar-azure-openai-api-key",),
+    )
 
     report = _preflight_report(preflight, stage="deploy")
 
@@ -608,7 +612,7 @@ def test_staging_preflight_live_requires_worker_and_functions_env(monkeypatch):
     _install_preflight_fakes(
         monkeypatch,
         preflight,
-        secrets=("avatar-worker-hf-token",),
+        secrets=("avatar-worker-hf-token", "seolleyeon-avatar-azure-openai-api-key"),
         env_keys=(
             "JOB_QUEUE_MODE",
             "CLOUD_TASKS_PROJECT",
@@ -637,7 +641,7 @@ def test_staging_preflight_live_passes_with_avatar_only_infra_ready(monkeypatch)
     _install_preflight_fakes(
         monkeypatch,
         preflight,
-        secrets=("avatar-worker-hf-token",),
+        secrets=("avatar-worker-hf-token", "seolleyeon-avatar-azure-openai-api-key"),
         run_services=("seolleyeon-avatar-worker",),
         env_keys=(
             "JOB_QUEUE_MODE",
@@ -671,7 +675,7 @@ def test_staging_preflight_live_requires_worker_env_keys(monkeypatch):
     _install_preflight_fakes(
         monkeypatch,
         preflight,
-        secrets=("avatar-worker-hf-token",),
+        secrets=("avatar-worker-hf-token", "seolleyeon-avatar-azure-openai-api-key"),
         run_services=("seolleyeon-avatar-worker",),
         env_keys=(
             "JOB_QUEUE_MODE",
@@ -860,3 +864,21 @@ def test_retry_failed_avatar_jobs_update_requeues_and_preserves_last_error():
     assert update["retry"]["negativePromptWorkerErrorResetCount"] == 3
     assert "gs://" not in rendered
     assert "seolleyeon-final-private-source-photos" not in rendered
+
+
+def test_staging_preflight_blocks_when_azure_secret_binding_is_absent(monkeypatch):
+    # Azure 키는 Secret Manager 참조로만 주입된다. 시크릿이 없으면 워커는
+    # 첫 생성에서 실패하므로 배포/라이브 단계에서 blocker 여야 한다.
+    preflight = load_script("staging_avatar_live_preflight", "staging_avatar_live_preflight.py")
+    _install_preflight_fakes(monkeypatch, preflight, secrets=("avatar-worker-hf-token",))
+
+    report = _preflight_report(preflight, stage="deploy")
+
+    assert report["ok"] is False
+    issue_map = {
+        (issue["kind"], issue["value"]): issue["severity"] for issue in report["issues"]
+    }
+    assert (
+        issue_map[("secret_missing", "seolleyeon-avatar-azure-openai-api-key")]
+        == "blocker"
+    )
