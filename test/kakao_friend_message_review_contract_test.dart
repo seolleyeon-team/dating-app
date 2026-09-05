@@ -70,7 +70,7 @@ void main() {
     expect(teamSetupSource, contains('_kakaoFriendService.fetchFriends()'));
     expect(
       teamSetupSource,
-      contains('_kakaoFriendService.sendMeetingInviteMessage('),
+      contains('_kakaoFriendService.sendTeamInviteMessage('),
     );
     expect(routerSource, contains('case RouteNames.kakaoFriendMessageTest:'));
   });

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:kakao_flutter_sdk_talk/kakao_flutter_sdk_talk.dart';
 
 import '../shared/utils/privacy_log_utils.dart';
+import 'friend_invite_service.dart';
 
 class KakaoTalkFriendItem {
   final String uuid;
@@ -279,8 +280,9 @@ class KakaoTalkFriendService {
   Future<KakaoTalkMemoResult> sendTestMessageToMe({Uri? appUrl}) async {
     try {
       await ensureRequiredConsents(requireTalkMessage: true);
-      final linkUrl = appUrl ?? Uri.parse('https://seolleyeon-final.web.app');
-      final link = Link(webUrl: linkUrl, mobileWebUrl: linkUrl);
+      final linkUrl =
+          appUrl ?? Uri.parse('https://${FriendInviteService.inviteWebHost}');
+      final link = FriendInviteService.buildPlainKakaoLink(linkUrl);
       await TalkApi.instance.sendDefaultMemo(
         TextTemplate(
           text: '설레연 카카오 Message API 나에게 보내기 테스트입니다.',
@@ -306,12 +308,42 @@ class KakaoTalkFriendService {
     }
   }
 
-  /// 실제 Message API (`TalkApi.sendDefaultMessage`)를 호출합니다.
-  /// `inviteUrl`은 기존 설레연 초대 링크를 사용하며 수신 UUID는 로그에 노출하지 않습니다.
-  Future<KakaoTalkMessageResult> sendMeetingInviteMessage({
+  /// 3:3 팀 초대 Message API. 버튼 "3:3 미팅 참여하기"는 서버가 발급한
+  /// TEAM_INVITE 토큰만 가리키며, 친구 초대 토큰은 절대 사용하지 않는다.
+  Future<KakaoTalkMessageResult> sendTeamInviteMessage({
     required String receiverUuid,
     required String inviterName,
-    required Uri inviteUrl,
+    required FriendInviteSharePayload invite,
+  }) {
+    return _sendInviteMessage(
+      receiverUuid: receiverUuid,
+      template: FriendInviteService.buildKakaoTeamInviteTemplate(
+        payload: invite,
+        inviterName: inviterName,
+      ),
+    );
+  }
+
+  /// 친구 초대 Message API. 버튼 "친구 추가하기"는 FRIEND_INVITE 토큰만 가리킨다.
+  Future<KakaoTalkMessageResult> sendFriendInviteMessage({
+    required String receiverUuid,
+    required String inviterName,
+    required FriendInviteSharePayload invite,
+  }) {
+    return _sendInviteMessage(
+      receiverUuid: receiverUuid,
+      template: FriendInviteService.buildKakaoInviteTemplate(
+        payload: invite,
+        inviterName: inviterName,
+      ),
+    );
+  }
+
+  /// 실제 Message API (`TalkApi.sendDefaultMessage`)를 호출합니다.
+  /// 수신 UUID는 로그에 노출하지 않습니다.
+  Future<KakaoTalkMessageResult> _sendInviteMessage({
+    required String receiverUuid,
+    required TextTemplate template,
   }) async {
     final hasReceiverUuid = receiverUuid.trim().isNotEmpty;
     if (!hasReceiverUuid) {
@@ -329,14 +361,6 @@ class KakaoTalkFriendService {
 
     try {
       await ensureRequiredConsents(requireTalkMessage: true);
-      final sender = _displayName(inviterName);
-      final link = Link(webUrl: inviteUrl, mobileWebUrl: inviteUrl);
-      final template = TextTemplate(
-        text: '$sender님이 설레연 3:3 미팅 팀에 함께 참여하자고 초대했어요.',
-        link: link,
-        buttons: [Button(title: '3:3 미팅 참여하기', link: link)],
-        buttonTitle: '3:3 미팅 참여하기',
-      );
       final result = await TalkApi.instance.sendDefaultMessage(
         receiverUuids: [receiverUuid],
         template: template,
@@ -433,11 +457,6 @@ class KakaoTalkFriendService {
     return text.contains('insufficient scopes') ||
         text.contains('required_scopes') ||
         text.contains('-402');
-  }
-
-  String _displayName(String value) {
-    final trimmed = value.trim();
-    return trimmed.isEmpty ? '친구' : trimmed;
   }
 
   int? _kakaoErrorCode(Object error) {

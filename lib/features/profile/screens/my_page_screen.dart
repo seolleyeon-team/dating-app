@@ -72,12 +72,14 @@ class _MyPageScreenState extends State<MyPageScreen> {
         : false;
 
     if (canReadFriends) {
+      // Live count from the canonical friend edges: an accepted invite moves
+      // the "친구" stat on both profiles without leaving the screen.
       _friendsCountSubscription = _friendService
-          .friendsStream(kakaoUserId)
+          .watchFriendsCount(kakaoUserId)
           .listen(
-            (snapshot) {
+            (count) {
               if (!mounted) return;
-              setState(() => friendsCount = snapshot.size);
+              setState(() => friendsCount = count);
             },
             onError: (error) {
               debugPrint(
