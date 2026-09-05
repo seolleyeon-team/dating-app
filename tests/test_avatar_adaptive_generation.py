@@ -107,18 +107,18 @@ def _needs_review_low_risk(candidate_id):
 
 
 def test_policy_defaults_and_env_overrides(monkeypatch):
-    assert DEFAULT_INITIAL_CANDIDATE_COUNT == 4
-    assert DEFAULT_EXTRA_CANDIDATE_COUNT == 4
-    assert DEFAULT_MAX_CANDIDATE_COUNT == 8
-    assert DEFAULT_PREVIEW_CANDIDATE_COUNT == 4
+    assert DEFAULT_INITIAL_CANDIDATE_COUNT == 2
+    assert DEFAULT_EXTRA_CANDIDATE_COUNT == 2
+    assert DEFAULT_MAX_CANDIDATE_COUNT == 4
+    assert DEFAULT_PREVIEW_CANDIDATE_COUNT == 2
     assert DEFAULT_MIN_SAFE_BEFORE_EXTRA == 2
     assert DEFAULT_MIN_PREVIEW_CANDIDATE_COUNT == 1
 
     default_policy = AdaptiveGenerationPolicy.from_env()
-    assert default_policy.initial_candidate_count == 4
-    assert default_policy.extra_candidate_count == 4
-    assert default_policy.max_candidate_count == 8
-    assert default_policy.preview_candidate_count == 4
+    assert default_policy.initial_candidate_count == 2
+    assert default_policy.extra_candidate_count == 2
+    assert default_policy.max_candidate_count == 4
+    assert default_policy.preview_candidate_count == 2
     assert default_policy.min_safe_before_extra == 2
     assert default_policy.min_preview_candidate_count == 1
     assert default_policy.require_four_preview is False
@@ -153,13 +153,13 @@ def test_generation_plan_initial_and_extra_decision():
 
     initial = plan_generation_round([], policy=policy)
     assert initial.should_generate is True
-    assert initial.candidate_count == 4
+    assert initial.candidate_count == 2
     assert initial.reason == "initial"
 
     one_safe = [_candidate("pass_1")]
     extra = plan_generation_round(one_safe, policy=policy)
     assert extra.should_generate is True
-    assert extra.candidate_count == 4
+    assert extra.candidate_count == 2
     assert extra.reason == "extra_insufficient_safe"
 
     enough_safe = [_candidate("pass_1"), _candidate("pass_2")]
@@ -171,16 +171,16 @@ def test_generation_plan_initial_and_extra_decision():
 
 def test_regenerate_adds_extra_and_stops_at_max_total():
     policy = AdaptiveGenerationPolicy()
-    existing = [_candidate(f"pass_{idx}") for idx in range(4)]
+    existing = [_candidate("pass_1"), _hard_reject("reject_1")]
 
     regenerate = plan_generation_round(existing, policy=policy, regenerate_requested=True)
     assert regenerate.should_generate is True
-    assert regenerate.candidate_count == 4
+    assert regenerate.candidate_count == 2
     assert regenerate.reason == "regenerate_extra"
-    assert regenerate.total_after_generation == 8
+    assert regenerate.total_after_generation == 4
 
     capped = plan_generation_round(
-        [_candidate(f"pass_{idx}") for idx in range(8)],
+        [_candidate(f"pass_{idx}") for idx in range(4)],
         policy=policy,
         regenerate_requested=True,
     )
@@ -227,9 +227,9 @@ def test_soft_pass_candidates_fill_preview_only_when_enabled():
         candidates,
         policy=AdaptiveGenerationPolicy(soft_pass_fill_enabled=True),
     )
-    assert enabled.selected_candidate_ids == ["pass_1", "pass_2", "soft_1", "soft_2"]
+    assert enabled.selected_candidate_ids == ["pass_1", "pass_2"]
     assert enabled.metadata_by_candidate_id["soft_1"]["selectionTier"] == "soft_pass"
-    assert enabled.metadata_by_candidate_id["soft_1"]["selectedForPreview"] is True
+    assert enabled.metadata_by_candidate_id["soft_1"]["selectedForPreview"] is False
 
 
 def test_needs_review_low_risk_requires_configuration():
