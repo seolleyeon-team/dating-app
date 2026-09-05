@@ -1,3 +1,6 @@
+> **HISTORICAL / RETIRED — NOT A CURRENT DEPLOYMENT AUTHORITY.** The current Azure-only, source-set architecture is defined in [avatar-production/CURRENT_ARCHITECTURE.md](CURRENT_ARCHITECTURE.md).
+>
+
 # Avatar Fidelity Corridor root-cause plan
 
 Date: 2026-07-29  
@@ -721,4 +724,3 @@ copies; childlike, severe beautification, background-person, text/logo,
 malformed, and too-identifiable candidates remain blocked; unavailable signals
 fail closed; and one-user staging evidence reaches preview, approval, lock,
 retention, and terminal user-state consistency.
-

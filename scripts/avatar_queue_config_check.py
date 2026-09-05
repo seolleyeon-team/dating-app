@@ -271,7 +271,7 @@ def _validate_retry_controls(
             _issue(
                 "warning",
                 "AVATAR_QUEUE_DISPATCH_DEADLINE_SECONDS",
-                "Avatar FLUX jobs usually need a deadline near 900 seconds.",
+                "Avatar generation jobs require the configured provider deadline.",
             )
         )
     if max_attempts is not None and max_attempts > 3:

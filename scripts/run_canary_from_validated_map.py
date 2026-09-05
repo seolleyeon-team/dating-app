@@ -560,6 +560,20 @@ def _run_one(
     lock_retest: bool,
     poll_timeout_seconds: int,
 ) -> dict[str, Any]:
+    # This historical runner cannot satisfy the canonical 2–6-photo source-set
+    # admission contract. Keep apply mode side-effect free until it is replaced.
+    del db, project, region, token, app_check_token, approve, lock_retest
+    del poll_timeout_seconds
+    uid = str(row["uid"])
+    photo_path = Path(str(row["photoPath"]))
+    return {
+        "startedAt": _now(),
+        "completedAt": _now(),
+        "rowIndex": int(row.get("rowIndex") or 0),
+        "rowLineage": _safe_client_request_id(uid, photo_path.name),
+        "error": "legacy_single_photo_canary_retired",
+    }
+
     uid = str(row["uid"])
     photo_path = Path(str(row["photoPath"]))
     image_bytes = photo_path.read_bytes()
@@ -587,7 +601,7 @@ def _run_one(
     status, parsed, _ = _callable(
         project=project,
         region=region,
-        name="uploadAvatarSourcePhoto",
+        name="beginAvatarGenerationFromOnboardingPhotos",
         data=payload,
         token=token,
         app_check_token=app_check_token,
@@ -684,7 +698,7 @@ def _run_one(
                 lock_status, lock_parsed, _ = _callable(
                     project=project,
                     region=region,
-                    name="uploadAvatarSourcePhoto",
+                    name="beginAvatarGenerationFromOnboardingPhotos",
                     data=payload,
                     token=token,
                     app_check_token=app_check_token,

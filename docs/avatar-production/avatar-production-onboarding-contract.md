@@ -1,3 +1,6 @@
+> **HISTORICAL / RETIRED — NOT A CURRENT DEPLOYMENT AUTHORITY.** The current Azure-only, source-set architecture is defined in [avatar-production/CURRENT_ARCHITECTURE.md](CURRENT_ARCHITECTURE.md).
+>
+
 # Avatar production onboarding contract — photo requirement v1
 
 Status: implemented in source, not yet deployed (see

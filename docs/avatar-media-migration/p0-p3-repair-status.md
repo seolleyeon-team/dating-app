@@ -1,3 +1,6 @@
+> **HISTORICAL / RETIRED — NOT A CURRENT DEPLOYMENT AUTHORITY.** The current Azure-only, source-set architecture is defined in [avatar-production/CURRENT_ARCHITECTURE.md](../avatar-production/CURRENT_ARCHITECTURE.md).
+>
+
 # PR6.5 Avatar Media Privacy Repair Evidence
 
 Status: complete for PR6.5 redo scope as of 2026-05-14.

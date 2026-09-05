@@ -720,11 +720,21 @@ def _claim_payload(
     if isinstance(source_photo_ids, str) or not isinstance(source_photo_ids, Sequence):
         source_photo_ids = []
     candidate_count = job_doc.get("candidateCount") or config.candidates_per_user
+    source_generations = job_doc.get("sourcePhotoObjectGenerations")
+    if isinstance(source_generations, str) or not isinstance(source_generations, Sequence):
+        source_generations = []
     return {
         "jobId": str(job_doc.get("jobId") or job_id),
         "uid": str(job_doc.get("uid") or ""),
         "sourcePhotoIds": [str(value) for value in source_photo_ids if str(value).strip()],
         "sourcePhotoRefCount": len(source_refs),
+        "sourcePhotoObjectGenerations": [
+            str(value) for value in source_generations if str(value).strip()
+        ],
+        "sourceSelectionMode": str(job_doc.get("sourceSelectionMode") or ""),
+        "avatarPresentationGender": str(
+            job_doc.get("avatarPresentationGender") or "unknown"
+        ),
         "candidateCount": int(candidate_count),
         "modelId": str(job_doc.get("modelId") or ""),
         "jobType": str(job_doc.get("jobType") or "avatar_generation"),

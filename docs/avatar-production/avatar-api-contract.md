@@ -1,3 +1,6 @@
+> **HISTORICAL / RETIRED — NOT A CURRENT DEPLOYMENT AUTHORITY.** The current Azure-only, source-set architecture is defined in [avatar-production/CURRENT_ARCHITECTURE.md](CURRENT_ARCHITECTURE.md).
+>
+
 # Avatar API Contract
 
 Version: `avatar_api_v2`

@@ -1,3 +1,6 @@
+> **HISTORICAL / RETIRED — NOT A CURRENT DEPLOYMENT AUTHORITY.** The current Azure-only, source-set architecture is defined in [avatar-production/CURRENT_ARCHITECTURE.md](../avatar-production/CURRENT_ARCHITECTURE.md).
+>
+
 # Avatar Generation V3 Staging Smoke
 
 Status: safe staging commands for AV3-G. Commands default to dry-run or

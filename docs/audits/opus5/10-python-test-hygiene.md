@@ -65,3 +65,5 @@ PYTHON_FULL = PASS
 NEW_FAILURE = 0
 PRODUCTION_POLICY_WEAKENING = NO
 ```
+> **HISTORICAL / RETIRED — NOT A CURRENT DEPLOYMENT AUTHORITY.** See [the current avatar architecture](../../avatar-production/CURRENT_ARCHITECTURE.md).
+>

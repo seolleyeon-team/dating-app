@@ -18,7 +18,7 @@ AI_MODEL_DIR = REPO_ROOT / "lib" / "ai_recommend_model"
 if str(AI_MODEL_DIR) not in sys.path:
     sys.path.insert(0, str(AI_MODEL_DIR))
 
-from avatar_generation import FLUX2_KLEIN_MODEL_ID
+from avatar_generation.model_adapters.azure_contracts import AZURE_GPT_IMAGE_2_MODEL_ID
 from avatar_generation.worker import (
     AvatarGenerationError,
     parse_gcs_uri,
@@ -35,8 +35,10 @@ def _payload(args: argparse.Namespace) -> Dict[str, Any]:
         "uid": args.uid,
         "sourcePhotoIds": ["smoke_source_001"],
         "sourcePhotoRefs": [args.source_gcs_uri],
+        "sourcePhotoObjectGenerations": ["101"],
+        "sourceSelectionMode": "quality_selector_v1",
         "candidateCount": args.candidate_count,
-        "modelId": FLUX2_KLEIN_MODEL_ID,
+        "modelId": AZURE_GPT_IMAGE_2_MODEL_ID,
         "jobType": "avatar_generation",
         "schemaVersion": "avatar_job_v1",
         "idempotencyKey": f"{args.uid}:smoke_source_001:avatar_generation_v1",
@@ -177,7 +179,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--source_gcs_uri",
         default="gs://seolleyeon-final-private-source-photos/users/avatar_staging_smoke_user/source/smoke_source_001.jpg",
     )
-    parser.add_argument("--candidate_count", type=int, default=4)
+    parser.add_argument("--candidate_count", type=int, default=2)
     parser.add_argument("--skip_trait_extraction", action="store_true")
     parser.add_argument("--force_mock_trait", action="store_true")
     args = parser.parse_args(argv)
@@ -225,7 +227,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     timeout_seconds=args.task_timeout_seconds,
                 )
         else:
-            mode = "flux" if args.real_gpu else "dry_run"
+            if args.real_gpu:
+                raise AvatarGenerationError(
+                    "canonical provider smoke requires --worker_url; local model generation is retired"
+                )
+            mode = "dry_run"
             with tempfile.TemporaryDirectory(prefix="avatar-staging-smoke-") as temp_dir:
                 fake_storage = _fake_storage(payload)
 

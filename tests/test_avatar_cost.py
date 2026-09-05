@@ -186,22 +186,22 @@ def test_default_1000_user_scenario_has_nonzero_cost(monkeypatch):
 
     assert scenario["users"] == 1000
     assert scenario["candidateCount"] == 4000
-    assert scenario["estimatedCost"]["usd"] == 34.884
+    assert scenario["estimatedCost"]["usd"] == 12.48
     assert scenario["estimatedCost"]["pricingVersion"] == "cloud_run_l4_2026_05"
 
 
-def test_formula_includes_gpu_cpu_memory_and_zonal_redundancy():
+def test_azure_formula_charges_cpu_and_memory_but_not_retired_generation_gpu():
     normal = estimate_job_cost(duration_seconds=10, config=_config())
     redundant = estimate_job_cost(
         duration_seconds=10,
         config=_config(gpu_zonal_redundancy=True),
     )
 
-    assert normal.usd == 1.28
-    assert normal.breakdown["gpuUsd"] == 1.0
+    assert normal.usd == 0.28
+    assert normal.breakdown["gpuUsd"] == 0.0
     assert normal.breakdown["cpuUsd"] == 0.2
     assert normal.breakdown["memoryUsd"] == 0.08
-    assert redundant.usd == 2.28
+    assert redundant.usd == 0.28
     assert redundant.breakdown["gpuZonalRedundancy"] is True
     assert redundant.pricing_version == "test-pricing"
 
@@ -217,12 +217,12 @@ def test_batch_and_job_cost_aggregation_use_runtime_metadata():
 
     assert aggregate.generated_count == 2
     assert aggregate.candidate_count == 6
-    assert aggregate.total_usd == 1.92
+    assert aggregate.total_usd == 0.42
     assert aggregate.daily_count == 2
     assert aggregate.monthly_count == 2
     assert batch.job_count == 2
     assert batch.candidate_count == 6
-    assert batch.total_cost.usd == 1.536
+    assert batch.total_cost.usd == 0.336
 
 
 def test_cost_aggregation_reads_nested_worker_cost_document():
@@ -258,13 +258,13 @@ def test_job_and_batch_cost_documents_expose_persistable_worker_fields():
     job_doc = build_job_cost_document(duration_seconds=10, config=_config(), estimated_at=NOW)
     batch_doc = build_batch_cost_document(jobs, duration_seconds=12, config=_config(), estimated_at=NOW)
 
-    assert job_doc["costEstimateUsd"] == 1.28
+    assert job_doc["costEstimateUsd"] == 0.28
     assert job_doc["costEstimate"]["durationSeconds"] == 10
     assert job_doc["costEstimate"]["pricingVersion"] == "test-pricing"
     assert job_doc["costEstimate"]["estimatedAt"] == NOW
-    assert batch_doc["batchCostEstimateUsd"] == 1.536
+    assert batch_doc["batchCostEstimateUsd"] == 0.336
     assert batch_doc["batchCostEstimate"]["jobCount"] == 2
-    assert batch_doc["batchCostEstimate"]["savingsUsd"] == 1.024
+    assert batch_doc["batchCostEstimate"]["savingsUsd"] == 0.224
     assert batch_doc["batchCostEstimate"]["pricingVersion"] == "test-pricing"
 
 
@@ -412,7 +412,7 @@ def test_cost_report_dry_run_without_fixture_uses_default_assumptions(tmp_path, 
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["actuals"]["generatedCount"] == 0
     assert report["pricing"]["version"] == "cloud_run_l4_2026_05"
-    assert report["scenario"]["estimatedCost"]["usd"] == 34.884
+    assert report["scenario"]["estimatedCost"]["usd"] == 12.48
 
 
 def test_generation_cost_report_fixture_includes_timing_percentiles_and_unit_cost(tmp_path, monkeypatch):
@@ -2660,7 +2660,7 @@ def test_batching_savings_calculation_compares_per_job_runtime_to_shared_batch_r
 
     batch = estimate_batch_cost(jobs, duration_seconds=20, config=_config())
 
-    assert batch.unbatched_cost.usd == 5.12
-    assert batch.total_cost.usd == 2.56
-    assert batch.savings_usd == 2.56
+    assert batch.unbatched_cost.usd == 1.12
+    assert batch.total_cost.usd == 0.56
+    assert batch.savings_usd == 0.56
     assert batch.savings_ratio == 0.5

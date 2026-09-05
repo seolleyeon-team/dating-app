@@ -242,8 +242,36 @@ def test_azure_worker_blocks_before_provider_when_qa_preflight_is_not_ready(monk
             job_id: {
                 "uid": "u1",
                 "status": "queued",
+                "sourceSelection": {"status": "selected"},
+                "selectedSource": {
+                    "photoId": "src_001",
+                    "gcsUri": (
+                        f"gs://{worker.DEFAULT_SOURCE_PHOTO_BUCKET}"
+                        "/users/u1/source/src_001.jpg"
+                    ),
+                    "objectGeneration": "101",
+                },
             }
-        }
+        },
+        "userPrivateMedia": {
+            "u1": {
+                "photoConsent": {
+                    "avatarGeneration": True,
+                    "profileDisplayOriginalPhoto": False,
+                },
+                "sourcePhotos": [
+                    {
+                        "photoId": "src_001",
+                        "gcsUri": (
+                            f"gs://{worker.DEFAULT_SOURCE_PHOTO_BUCKET}"
+                            "/users/u1/source/src_001.jpg"
+                        ),
+                        "status": "active",
+                        "purpose": {"avatarGeneration": True},
+                    }
+                ],
+            }
+        },
     }
     payload = {
         "schemaVersion": "avatar_job_v1",
@@ -254,6 +282,8 @@ def test_azure_worker_blocks_before_provider_when_qa_preflight_is_not_ready(monk
         "sourcePhotoRefs": [
             f"gs://{worker.DEFAULT_SOURCE_PHOTO_BUCKET}/users/u1/source/src_001.jpg"
         ],
+        "sourcePhotoObjectGenerations": ["101"],
+        "sourceSelectionMode": "quality_selector_v1",
         "candidateCount": 1,
         "modelId": worker.AZURE_GPT_IMAGE_2_MODEL_ID,
     }

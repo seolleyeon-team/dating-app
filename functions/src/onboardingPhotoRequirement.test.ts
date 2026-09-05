@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import test from "node:test";
 
 import { HttpsError } from "firebase-functions/v2/https";
@@ -127,21 +125,5 @@ test("evidence read failure fails closed, not open", async () => {
       assert.equal(error.message, AVATAR_PHOTO_EVIDENCE_UNAVAILABLE_ERROR);
       return true;
     },
-  );
-});
-
-test("uploadAvatarSourcePhoto admission enforces the photo requirement", () => {
-  // avatarMedia.ts is stored as UTF-16 LE.
-  const avatarMediaSrc = readFileSync(
-    resolve(__dirname, "../src/avatarMedia.ts"),
-    "utf16le",
-  );
-  assert.match(
-    avatarMediaSrc,
-    /enforceAvatarUploadAllowlist\(uid\);\s*throwIfAvatarGenerationDisabled\(\);\s*await assertMinimumOnboardingPhotoEvidence\(\{ userId: uid \}\);/,
-  );
-  assert.match(
-    avatarMediaSrc,
-    /import \{ assertMinimumOnboardingPhotoEvidence \} from "\.\/onboardingPhotoRequirement";/,
   );
 });

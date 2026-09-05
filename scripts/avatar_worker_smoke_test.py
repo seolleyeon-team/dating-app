@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
+import importlib.util
 import io
 import json
 import sys
@@ -15,7 +17,7 @@ AI_MODEL_DIR = REPO_ROOT / "lib" / "ai_recommend_model"
 if str(AI_MODEL_DIR) not in sys.path:
     sys.path.insert(0, str(AI_MODEL_DIR))
 
-from avatar_generation import FLUX2_KLEIN_MODEL_ID
+from avatar_generation.model_adapters.azure_contracts import AZURE_GPT_IMAGE_2_MODEL_ID
 from avatar_generation.qa import run_avatar_candidate_qa
 from avatar_generation.worker import (
     AvatarGenerationError,
@@ -72,14 +74,18 @@ class FakeFirestore:
 
 
 class FakeBlob:
-    def __init__(self, data: bytes = b"") -> None:
+    def __init__(self, data: bytes = b"", generation: str = "") -> None:
         self.data = data
+        self.generation = generation
         self.cache_control: Optional[str] = None
 
     def exists(self) -> bool:
         return bool(self.data)
 
-    def download_as_bytes(self) -> bytes:
+    def reload(self) -> None:
+        return None
+
+    def download_as_bytes(self, **_kwargs: Any) -> bytes:
         return self.data
 
     def upload_from_string(self, data: bytes, **_kwargs: Any) -> None:
@@ -112,30 +118,18 @@ def _png_bytes() -> bytes:
 
 
 def _detect_dependencies() -> Dict[str, Any]:
-    deps: Dict[str, Any] = {
-        "torch": {"available": False, "cudaAvailable": False},
-        "diffusersFlux2KleinPipeline": {"available": False},
+    available = importlib.util.find_spec("torch") is not None
+    try:
+        version = importlib.metadata.version("torch") if available else ""
+    except importlib.metadata.PackageNotFoundError:
+        version = "unknown"
+    return {
+        "torch": {
+            "available": available,
+            "version": version,
+            "cudaAvailable": "not_probed_in_dry_run",
+        }
     }
-    try:
-        import torch
-
-        deps["torch"] = {
-            "available": True,
-            "version": getattr(torch, "__version__", "unknown"),
-            "cudaAvailable": bool(torch.cuda.is_available()),
-        }
-    except Exception as exc:
-        deps["torch"]["error"] = exc.__class__.__name__
-
-    try:
-        from diffusers import Flux2KleinPipeline
-
-        deps["diffusersFlux2KleinPipeline"] = {
-            "available": Flux2KleinPipeline is not None,
-        }
-    except Exception as exc:
-        deps["diffusersFlux2KleinPipeline"]["error"] = exc.__class__.__name__
-    return deps
 
 
 def _load_payload(path: str) -> Dict[str, Any]:
@@ -154,8 +148,10 @@ def _build_payload(args: argparse.Namespace) -> Dict[str, Any]:
             "uid": args.uid,
             "sourcePhotoIds": ["smoke_source_001"],
             "sourcePhotoRefs": [args.source_gcs_uri],
+            "sourcePhotoObjectGenerations": ["101"],
+            "sourceSelectionMode": "quality_selector_v1",
             "candidateCount": args.candidate_count,
-            "modelId": FLUX2_KLEIN_MODEL_ID,
+            "modelId": AZURE_GPT_IMAGE_2_MODEL_ID,
             "jobType": "avatar_generation",
             "schemaVersion": "avatar_job_v1",
             "idempotencyKey": f"{args.uid}:smoke_source_001:avatar_generation_v1",
@@ -191,6 +187,14 @@ def _fake_firestore(payload: Mapping[str, Any]) -> FakeFirestore:
                     "status": "queued",
                     "sourcePhotoIds": [source_photo_id],
                     "sourcePhotoRefs": [source_ref],
+                    "sourcePhotoObjectGenerations": ["101"],
+                    "sourceSelectionMode": "quality_selector_v1",
+                    "sourceSelection": {"status": "selected"},
+                    "selectedSource": {
+                        "photoId": source_photo_id,
+                        "gcsUri": source_ref,
+                        "objectGeneration": "101",
+                    },
                 }
             },
             "userPrivateMedia": {
@@ -220,7 +224,13 @@ def _fake_firestore(payload: Mapping[str, Any]) -> FakeFirestore:
 
 def _fake_storage(payload: Mapping[str, Any]) -> FakeStorage:
     source_ref = parse_gcs_uri(str(payload["sourcePhotoRefs"][0]))
-    return FakeStorage({source_ref.bucket: FakeBucket({source_ref.path: FakeBlob(_png_bytes())})})
+    return FakeStorage(
+        {
+            source_ref.bucket: FakeBucket(
+                {source_ref.path: FakeBlob(_png_bytes(), generation="101")}
+            )
+        }
+    )
 
 
 def _smoke_qa(source_ref: str, candidate_ref: str, metadata: Dict[str, Any]):
@@ -254,7 +264,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--source_gcs_uri",
         default="gs://seolleyeon-final-private-source-photos/users/avatar_smoke_user/source/smoke_source_001.jpg",
     )
-    parser.add_argument("--candidate_count", type=int, default=4)
+    parser.add_argument("--candidate_count", type=int, default=2)
     parser.add_argument("--dry_run", action="store_true")
     parser.add_argument("--real_gpu", action="store_true")
     parser.add_argument("--output_report_json")
@@ -264,7 +274,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         parser.error("--dry_run and --real_gpu are mutually exclusive.")
 
     payload = _build_payload(args)
-    mode = "flux" if args.real_gpu else "dry_run"
+    if args.real_gpu:
+        parser.error("local model generation is retired; use the staging smoke against the Azure worker")
+    mode = "dry_run"
     dependencies = _detect_dependencies()
     report: Dict[str, Any] = {
         "status": "started",
@@ -275,12 +287,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "candidateCount": int(payload.get("candidateCount") or 0),
         "dependencies": dependencies,
     }
-
-    if args.real_gpu and not dependencies["diffusersFlux2KleinPipeline"]["available"]:
-        report["status"] = "failed"
-        report["error"] = "Flux2KleinPipeline is unavailable in diffusers."
-        _write_report(report, args.output_report_json)
-        return 1
 
     try:
         if mode == "dry_run":

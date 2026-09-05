@@ -3,21 +3,19 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
-import inspect
 import io
 import json
 import logging
 import os
 import re
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
-from avatar_generation import FLUX2_KLEIN_MODEL_ID, FLUX2_KLEIN_VERSION
 from avatar_generation.avatar_prompt_contract import (
     AVATAR_GENERAL_PROMPT_V0_TEMP,
     AVATAR_GENERAL_PROMPT_VERSION,
@@ -28,6 +26,9 @@ from avatar_generation.adaptive_generation import (
     plan_generation_round,
 )
 from avatar_generation.analysis.source_analyzer import analyze_avatar_source_image
+from avatar_generation.analysis.avatar_source_quality import source_quality_signals_from_analysis
+from avatar_generation.analysis.config import SourceSafetyConfig
+from avatar_generation.analysis.small_face import SmallFacePipelineConfig, SmallFaceSourcePipeline
 from avatar_generation.analysis.visual_risk import (
     STATUS_CRITICAL_UNAVAILABLE,
     unavailable_visual_risk_analysis,
@@ -70,11 +71,6 @@ from avatar_generation.fidelity_shadow import (
     build_shadow_corridor_evidence,
     build_shadow_ranking_document,
 )
-from avatar_generation.flux_config import (
-    Flux2KleinExecutionConfig,
-    build_flux2_klein_execution_audit,
-    resolve_flux2_klein_execution_config,
-)
 from avatar_generation.model_adapters.florence2 import Florence2TraitExtractionAdapter
 from avatar_generation.preprocessing import (
     ReferencePreprocessConfig,
@@ -100,11 +96,18 @@ from avatar_generation.qa_preflight import (
     get_qa_runtime_readiness,
 )
 from avatar_generation.rerank import rerank_preview_candidates
-from avatar_generation.seolleyeon_avatar_prompt_builder_v4 import (
-    AvatarTraitCard as PromptAvatarTraitCard,
-    build_avatar_prompt,
-)
 from avatar_generation.storage import build_temp_candidate_ref, build_temp_candidate_path
+from avatar_generation.source_selection_runtime import (
+    NO_ELIGIBLE_SOURCE_ERROR,
+    QUALITY_SELECTOR_MODE,
+    SOURCE_ANALYSIS_INFRA_ERROR,
+    AvatarSourceCandidate,
+    SourceSelectionError,
+    analysis_has_infrastructure_failure,
+    candidate_set_from_payload,
+    select_best_source,
+    selected_source_from_job,
+)
 from avatar_generation.trait_card import (
     TraitCardValidationResult,
     merge_trait_card_with_broad_hints,
@@ -123,6 +126,7 @@ except Exception:  # pragma: no cover - optional in pure unit tests
 
 DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-final-private-source-photos"
 DEFAULT_AVATAR_TEMP_BUCKET = "seolleyeon-final-avatar-temp"
+DEFAULT_CHAT_PROFILE_PHOTO_BUCKET = "seolleyeon-final-chat-profile-photos"
 BRIDGE_ENVIRONMENT = "production_bridge"
 FESTIVAL_DATA_PROJECT = "seolleyeon-festival"
 FORBIDDEN_BRIDGE_BUCKET_PREFIX = "seolleyeon-final-"
@@ -243,66 +247,6 @@ class AvatarWorkerDeadline:
             )
 
 
-_FLUX_ALWAYS_DROPPED_KWARGS = frozenset({"negative_prompt"})
-
-
-def build_flux_prompt_with_avoid(prompt: str, negative_prompt: str = "") -> str:
-    """Fold text-only negative constraints into the FLUX prompt.
-
-    Flux2KleinPipeline does not accept a normal `
-egative_prompt`` string
-    kwarg. Keeping the constraints in the prompt preserves the policy without
-    relying on unsupported provider parameters.
-    """
-
-    positive = str(prompt or "").strip()
-    negative = str(negative_prompt or "").strip()
-    if not negative:
-        return positive
-    if "\navoid:" in positive.lower() or positive.lower().startswith("avoid:"):
-        return positive
-    return f"{positive}\n\nAvoid:\n{negative}"
-
-
-def call_flux_pipeline_safely(pipe: Any, **kwargs: Any) -> Any:
-    """Call a FLUX pipeline after dropping unsupported kwargs by name only."""
-
-    remaining = {
-        key: value
-        for key, value in kwargs.items()
-        if key not in _FLUX_ALWAYS_DROPPED_KWARGS
-    }
-    dropped = set(kwargs) - set(remaining)
-
-    try:
-        signature = inspect.signature(pipe.__call__)
-    except (TypeError, ValueError):  # pragma: no cover - depends on provider object
-        safe_kwargs = remaining
-    else:
-        parameters = signature.parameters
-        accepts_var_kwargs = any(
-            parameter.kind == inspect.Parameter.VAR_KEYWORD
-            for parameter in parameters.values()
-        )
-        if accepts_var_kwargs:
-            safe_kwargs = remaining
-        else:
-            supported = set(parameters)
-            safe_kwargs = {
-                key: value
-                for key, value in remaining.items()
-                if key in supported
-             }
-            dropped.update(set(remaining) - set(safe_kwargs))
-
-    if dropped:
-        logger.warning(
-            "Dropped unsupported FLUX pipeline kwargs: %s",
-            sorted(dropped),
-        )
-    return pipe(**safe_kwargs)
-
-
 @dataclass(frozen=True)
 class GcsRef:
     bucket: str
@@ -321,6 +265,8 @@ class AvatarGenerationPayload:
     schema_version: str
     idempotency_key: str = ""
     avatar_presentation_gender: str = "unknown"
+    source_photo_object_generations: List[str] = field(default_factory=list)
+    source_selection_mode: str = ""
 
 
 @dataclass(frozen=True)
@@ -383,7 +329,6 @@ class AvatarBatchRunResult:
 QARunner = Callable[[str, str, Dict[str, Any]], AvatarQAResult]
 MetricHook = Callable[[str, Mapping[str, Any]], None]
 
-_FLUX_GENERATOR_CACHE: Dict[tuple[str, str, int, int, int, float], "Flux2KleinImageGenerator"] = {}
 _MODEL_METRICS: Dict[str, int] = {
     "modelCacheHits": 0,
     "modelCacheMisses": 0,
@@ -446,12 +391,11 @@ def resolve_worker_mode(mode: Optional[str] = None) -> str:
 
     if run_mode == "azure":
         run_mode = CANONICAL_AZURE_WORKER_MODE
-    if run_mode not in {"dry_run", "flux", CANONICAL_AZURE_WORKER_MODE}:
+    if run_mode not in {"dry_run", CANONICAL_AZURE_WORKER_MODE}:
         raise AvatarGenerationError(
-            "AVATAR_WORKER_MODE must be dry_run, flux (local legacy only), or azure_gpt_image_2."
+            "unsupported_avatar_worker_mode: AVATAR_WORKER_MODE must be azure_gpt_image_2 "
+            "(dry_run is allowed only for local tests)."
         )
-    if production and run_mode == "flux":
-        raise AvatarGenerationError("legacy_flux_is_not_a_production_generation_backend")
     if production and run_mode == "dry_run":
         raise AvatarGenerationError("dry_run is not allowed when ENVIRONMENT=production.")
     if run_mode == "dry_run" and not is_local_or_dev_environment():
@@ -465,6 +409,13 @@ def source_photo_bucket() -> str:
 
 def avatar_temp_bucket() -> str:
     return env_value("AVATAR_TEMP_BUCKET", DEFAULT_AVATAR_TEMP_BUCKET)
+
+
+def chat_profile_photo_bucket() -> str:
+    return env_value(
+        "CHAT_PROFILE_PHOTO_BUCKET",
+        DEFAULT_CHAT_PROFILE_PHOTO_BUCKET,
+    )
 
 
 def _explicit_data_project_from_env() -> Optional[str]:
@@ -577,21 +528,19 @@ def _env_bool_any_default(names: Sequence[str], default: bool) -> bool:
 def _source_analysis_enabled(run_mode: str) -> bool:
     if run_mode == CANONICAL_AZURE_WORKER_MODE:
         return False
-    if run_mode == "flux" and is_production_environment():
-        return True
-    return _bool_env_default("AVATAR_FACE_DETECTOR_ENABLED", run_mode == "flux")
+    return _bool_env_default("AVATAR_FACE_DETECTOR_ENABLED", False)
 
 
 def _trait_extraction_enabled(run_mode: str) -> bool:
     if run_mode == CANONICAL_AZURE_WORKER_MODE:
         return False
-    return _bool_env_default("AVATAR_TRAIT_EXTRACTION_ENABLED", run_mode == "flux")
+    return _bool_env_default("AVATAR_TRAIT_EXTRACTION_ENABLED", False)
 
 
 def _candidate_trait_qa_enabled(run_mode: str) -> bool:
     if run_mode == CANONICAL_AZURE_WORKER_MODE:
         return False
-    return _bool_env_default("AVATAR_CANDIDATE_TRAIT_QA_ENABLED", run_mode == "flux")
+    return _bool_env_default("AVATAR_CANDIDATE_TRAIT_QA_ENABLED", False)
 
 
 def _trait_extraction_uses_privacy_reference() -> bool:
@@ -605,8 +554,6 @@ def _trait_require_validated() -> bool:
 def _source_visual_risk_enabled(run_mode: str) -> bool:
     if run_mode == CANONICAL_AZURE_WORKER_MODE:
         return False
-    if run_mode == "flux" and is_production_environment():
-        return True
     parsed = _bool_env("AVATAR_SOURCE_VISUAL_RISK_ENABLED")
     return bool(parsed) if parsed is not None else False
 
@@ -865,7 +812,7 @@ def _blocked_extra_round(extra_plan: Any, decision: AdmissionDecision, candidate
 
 
 def _trait_input_uses_analysis_reference(run_mode: str, quality_context: Optional[AvatarQualityContext]) -> bool:
-    return run_mode == "flux" and quality_context is not None and quality_context.analysis_image is not None
+    return False
 
 
 def _merge_region_color_traits(
@@ -1143,13 +1090,31 @@ def parse_avatar_generation_payload(raw_payload: Mapping[str, Any]) -> AvatarGen
     parsed_source_refs = validate_private_source_refs(source_photo_refs)
     validate_source_refs_belong_to_uid(parsed_source_refs, uid)
 
+    source_selection_mode = str(payload.get("sourceSelectionMode") or "").strip()
+    source_photo_object_generations = [
+        str(value).strip()
+        for value in payload.get("sourcePhotoObjectGenerations", [])
+        if str(value).strip()
+    ]
+    if source_selection_mode != QUALITY_SELECTOR_MODE:
+        raise AvatarGenerationError("Unsupported sourceSelectionMode.")
+    try:
+        candidate_set_from_payload(
+            source_photo_ids,
+            source_photo_refs,
+            source_photo_object_generations,
+            allow_locked_singleton=len(source_photo_ids) == 1,
+        )
+    except SourceSelectionError as exc:
+        raise AvatarGenerationError(exc.error_code) from exc
+
     candidate_count = int(payload.get("candidateCount") or DEFAULT_MAX_CANDIDATES)
     if candidate_count < 1 or candidate_count > max_candidates():
         raise AvatarGenerationError("candidateCount must be between 1 and MAX_CANDIDATES.")
 
     model_id = str(payload.get("modelId") or AZURE_GPT_IMAGE_2_MODEL_ID).strip()
-    if model_id not in {FLUX2_KLEIN_MODEL_ID, AZURE_GPT_IMAGE_2_MODEL_ID}:
-        raise AvatarGenerationError("Unsupported avatar generation modelId.")
+    if model_id != AZURE_GPT_IMAGE_2_MODEL_ID:
+        raise AvatarGenerationError("canonical_azure_model_required")
 
     return AvatarGenerationPayload(
         job_id=job_id,
@@ -1164,6 +1129,8 @@ def parse_avatar_generation_payload(raw_payload: Mapping[str, Any]) -> AvatarGen
         avatar_presentation_gender=normalize_avatar_presentation_gender(
             payload.get("avatarPresentationGender")
         ),
+        source_photo_object_generations=source_photo_object_generations,
+        source_selection_mode=source_selection_mode,
     )
 
 
@@ -1358,11 +1325,30 @@ def _blob_for(storage_client: Any, ref: GcsRef) -> Any:
 def load_source_image_bytes_from_gcs(
     storage_client: Any,
     source_ref: GcsRef,
+    expected_generation: str = "",
 ) -> Tuple[bytes, str]:
     blob = _blob_for(storage_client, source_ref)
     if hasattr(blob, "exists") and not blob.exists():
         raise AvatarGenerationError("Private source photo does not exist.")
-    data = bytes(blob.download_as_bytes())
+    normalized_generation = str(expected_generation or "").strip()
+    if normalized_generation:
+        if not normalized_generation.isdigit():
+            raise AvatarGenerationError("avatar_selected_source_generation_invalid")
+        if hasattr(blob, "reload"):
+            blob.reload()
+        observed_generation = str(getattr(blob, "generation", "") or "").strip()
+        if observed_generation != normalized_generation:
+            raise AvatarGenerationError("avatar_selected_source_generation_mismatch")
+        try:
+            data = bytes(
+                blob.download_as_bytes(
+                    if_generation_match=int(normalized_generation)
+                )
+            )
+        except TypeError:
+            data = bytes(blob.download_as_bytes())
+    else:
+        data = bytes(blob.download_as_bytes())
     _validate_stored_source_image_bytes(data)
     declared_content_type = str(getattr(blob, "content_type", "") or "").lower().split(";", 1)[0].strip()
     content_type = declared_content_type if declared_content_type in {
@@ -1441,76 +1427,6 @@ def build_fixture_avatar_image(source_image: Image.Image, *, seed: int, index: i
     return image
 
 
-class Flux2KleinImageGenerator:
-    def __init__(self, config: Flux2KleinExecutionConfig | None = None) -> None:
-        self.config = config or resolve_flux2_klein_execution_config()
-        self.model_id = self.config.logical_model_id
-        self.model_artifact_revision = self.config.model_artifact_revision
-        self._pipeline: Any = None
-        self.model_load_seconds_total = 0.0
-
-    def _load_pipeline(self) -> Any:
-        if self._pipeline is not None:
-            return self._pipeline
-        started_at = time.perf_counter()
-        try:
-            import torch
-            from diffusers import Flux2KleinPipeline
-        except Exception as exc:  # pragma: no cover - expensive dependency path
-            raise AvatarGenerationError(
-                "Flux2KleinPipeline is unavailable. Install a diffusers version that "
-                "supports black-forest-labs/FLUX.2-klein-4B in the GPU worker image."
-            ) from exc
-
-        dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-        pipe = Flux2KleinPipeline.from_pretrained(
-            self.model_id,
-            revision=self.model_artifact_revision,
-            torch_dtype=dtype,
-        )
-        if torch.cuda.is_available():
-            pipe = pipe.to("cuda")
-        elif hasattr(pipe, "enable_model_cpu_offload"):
-            pipe.enable_model_cpu_offload()
-        self._pipeline = pipe
-        self.model_load_seconds_total = round(
-            self.model_load_seconds_total + _elapsed_seconds(started_at),
-            3,
-        )
-        return pipe
-
-    def generate(
-        self,
-        *,
-        source_image: Image.Image,
-        prompt: str,
-        avoid_prompt: str = "",
-        seed: int,
-    ) -> Image.Image:
-        try:
-            import torch
-        except Exception as exc:  # pragma: no cover - expensive dependency path
-            raise AvatarGenerationError("PyTorch is required for FLUX generation.") from exc
-
-        pipe = self._load_pipeline()
-        generator = torch.Generator(device="cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
-        final_prompt = build_flux_prompt_with_avoid(prompt, avoid_prompt)
-        result = call_flux_pipeline_safely(
-            pipe,
-            prompt=final_prompt,
-            image=source_image,
-            width=int(self.config.width),
-            height=int(self.config.height),
-            num_inference_steps=int(self.config.num_inference_steps),
-            guidance_scale=float(self.config.guidance_scale),
-            generator=generator,
-        )
-        images = getattr(result, "images", None)
-        if not images:
-            raise AvatarGenerationError("FLUX generation returned no images.")
-        return images[0].convert("RGB")
-
-
 def get_azure_gpt_image2_provider() -> AzureGptImage2Provider:
     global _AZURE_PROVIDER_CACHE
     if _AZURE_PROVIDER_CACHE is None:
@@ -1520,57 +1436,21 @@ def get_azure_gpt_image2_provider() -> AzureGptImage2Provider:
 
 def reset_model_cache_for_tests() -> None:
     global _AZURE_PROVIDER_CACHE
-    _FLUX_GENERATOR_CACHE.clear()
     _AZURE_PROVIDER_CACHE = None
     for key in _MODEL_METRICS:
         _MODEL_METRICS[key] = 0
 
 
 def model_cache_metrics() -> Dict[str, int]:
-    metrics = dict(_MODEL_METRICS)
-    metrics["modelCacheSize"] = len(_FLUX_GENERATOR_CACHE)
-    return metrics
+    return {**_MODEL_METRICS, "modelCacheSize": 0}
 
 
-def _flux_generator_cache_key(config: Flux2KleinExecutionConfig) -> tuple[str, str, int, int, int, float]:
-    return (
-        config.logical_model_id,
-        config.model_artifact_revision,
-        int(config.width),
-        int(config.height),
-        int(config.num_inference_steps),
-        float(config.guidance_scale),
-    )
-
-
-def get_flux2_klein_generator(
-    model_id: str = FLUX2_KLEIN_MODEL_ID,
-    *,
-    config: Flux2KleinExecutionConfig | None = None,
-) -> Flux2KleinImageGenerator:
-    resolved_config = config or resolve_flux2_klein_execution_config()
-    if model_id != resolved_config.logical_model_id:
-        resolved_config = replace(resolved_config, logical_model_id=model_id)
-    cache_key = _flux_generator_cache_key(resolved_config)
-    generator = _FLUX_GENERATOR_CACHE.get(cache_key)
-    if generator is not None:
-        _MODEL_METRICS["modelCacheHits"] += 1
-        return generator
-    _MODEL_METRICS["modelCacheMisses"] += 1
-    _MODEL_METRICS["modelLoadCalls"] += 1
-    generator = Flux2KleinImageGenerator(resolved_config)
-    _FLUX_GENERATOR_CACHE[cache_key] = generator
-    return generator
 def warmup_avatar_model(*, mode: Optional[str] = None) -> Dict[str, Any]:
     run_mode = resolve_worker_mode(mode)
-    warmed = False
-    if run_mode == "flux":
-        get_flux2_klein_generator(FLUX2_KLEIN_MODEL_ID)._load_pipeline()
-        warmed = True
     return {
         "status": "ok",
         "mode": run_mode,
-        "warmed": warmed,
+        "warmed": run_mode == CANONICAL_AZURE_WORKER_MODE,
         "metrics": model_cache_metrics(),
     }
 
@@ -1582,14 +1462,9 @@ def _candidate_generation_execution_audit(
     seed: int,
     generator: Any,
 ) -> Dict[str, Any]:
-    if mode == "flux" and generator is not None:
-        config = getattr(generator, "config", None)
-        if isinstance(config, Flux2KleinExecutionConfig):
-            audit = build_flux2_klein_execution_audit(config, seed=seed)
-            return {**audit, "mode": mode, "candidateSeed": int(seed)}
     return {
         "modelId": payload.model_id,
-        "modelVersion": FLUX2_KLEIN_VERSION,
+        "modelVersion": AZURE_GPT_IMAGE_2_VERSION,
         "mode": mode,
         "width": DEFAULT_WIDTH,
         "height": DEFAULT_HEIGHT,
@@ -1605,7 +1480,7 @@ def generate_candidate_artifacts(
     *,
     mode: str,
     source_analysis: Any = None,
-    trait_card: PromptAvatarTraitCard | None = None,
+    trait_card: Any = None,
     privacy_reference_image: Optional[Image.Image] = None,
     reference_preprocess_metadata: Optional[Mapping[str, Any]] = None,
     candidate_start_index: int = 0,
@@ -1618,7 +1493,6 @@ def generate_candidate_artifacts(
     provider_usage_doc: Optional[Dict[str, Any]] = None,
 ) -> List[CandidateArtifact]:
     artifacts: List[CandidateArtifact] = []
-    generator = get_flux2_klein_generator(payload.model_id) if mode == "flux" else None
     if mode == CANONICAL_AZURE_WORKER_MODE:
         _assert_azure_source_bytes_are_normalized_jpeg(source_image_bytes, source_content_type)
     provider = (
@@ -1626,49 +1500,12 @@ def generate_candidate_artifacts(
         if mode == CANONICAL_AZURE_WORKER_MODE
         else None
     )
-    model_load_seconds_before = _generator_model_load_seconds(generator)
-    generation_reference = (
-        privacy_reference_image
-        or prepare_privacy_reference_image(source_image, source_analysis=source_analysis)
-        if mode == "flux"
-        else source_image
-    )
     round_count = int(candidate_count or payload.candidate_count)
-    total_count = max(payload.candidate_count, candidate_start_index + round_count)
     for index in range(candidate_start_index, candidate_start_index + round_count):
         candidate_id = candidate_id_for(payload.job_id, index)
         seed = deterministic_seed(payload.job_id, index)
-        prompt = None
         generation_audit: Dict[str, Any]
-        if mode == "flux":
-            assert generator is not None
-            prompt = build_avatar_prompt(
-                trait_card=trait_card,
-                candidate_index=index,
-                candidate_count=total_count,
-                seed=seed,
-            )
-            image = generator.generate(
-                source_image=generation_reference,
-                prompt=prompt.positive,
-                avoid_prompt=prompt.provider_negative or prompt.negative,
-                seed=seed,
-            )
-            candidate_image_bytes = image_to_png_bytes(image)
-            generation_audit = {
-                **_candidate_generation_execution_audit(
-                    payload,
-                    mode=mode,
-                    seed=seed,
-                    generator=generator,
-                ),
-                "referencePrivacyPreprocess": _reference_privacy_preprocess_enabled(),
-                "referencePreprocess": dict(reference_preprocess_metadata or {}),
-                "promptVersion": str(prompt.meta.get("prompt_version") or "seolleyeon_avatar_v4"),
-                "promptBuilder": "seolleyeon_avatar_prompt_builder_v4",
-                "candidateSeed": seed,
-            }
-        elif mode == CANONICAL_AZURE_WORKER_MODE:
+        if mode == CANONICAL_AZURE_WORKER_MODE:
             if provider is None or source_image_bytes is None:
                 raise AvatarGenerationError("Azure generation requires stored source bytes.")
             provider_key = (
@@ -1711,7 +1548,7 @@ def generate_candidate_artifacts(
                     payload,
                     mode=mode,
                     seed=seed,
-                    generator=generator,
+                    generator=None,
                 ),
                 "candidateSeed": seed,
             }
@@ -1728,12 +1565,6 @@ def generate_candidate_artifacts(
                 seed=seed,
                 generation_params=generation_audit,
             )
-        )
-    if seconds_by_stage is not None and generator is not None:
-        _add_stage_seconds(
-            seconds_by_stage,
-            "model_load_seconds",
-            _generator_model_load_seconds(generator) - model_load_seconds_before,
         )
     return artifacts
 
@@ -1764,6 +1595,61 @@ def _upload_candidate(storage_client: Any, artifact: CandidateArtifact) -> None:
     if hasattr(blob, "patch"):
         blob.cache_control = "private, max-age=0, no-store"
         blob.patch()
+
+
+def _persist_chat_real_photo_if_consented(
+    firestore_client: Any,
+    storage_client: Any,
+    payload: AvatarGenerationPayload,
+    job_doc: Mapping[str, Any],
+    source_image_bytes: bytes,
+) -> None:
+    if job_doc.get("chatPartnerRealPhotoDisclosure") is not True:
+        return
+    if len(payload.source_photo_ids) != 1:
+        raise AvatarGenerationError("avatar_chat_real_photo_source_not_locked")
+    _assert_azure_source_bytes_are_normalized_jpeg(
+        source_image_bytes,
+        "image/jpeg",
+    )
+    photo_id = payload.source_photo_ids[0]
+    storage_path = f"users/{payload.uid}/chat-profile/{photo_id}.jpg"
+    bucket_name = chat_profile_photo_bucket()
+    image_sha256 = hashlib.sha256(source_image_bytes).hexdigest()
+    blob = storage_client.bucket(bucket_name).blob(storage_path)
+    blob.metadata = {
+        "sha256": image_sha256,
+        "exifStripped": "true",
+        "purpose": "chat_partner_real_profile_photo",
+    }
+    blob.cache_control = "private, max-age=0, no-store"
+    blob.upload_from_string(
+        source_image_bytes,
+        content_type="image/jpeg",
+        predefined_acl=None,
+    )
+    if hasattr(blob, "patch"):
+        blob.patch()
+    _set_doc(
+        _doc_ref(firestore_client, "userPrivateMedia", payload.uid),
+        {
+            "chatRealPhoto": {
+                "photoId": photo_id,
+                "enabled": True,
+                "consentVersion": "chat_real_photo_visibility_v1",
+                "sourcePhotoId": photo_id,
+                "storageBucket": bucket_name,
+                "storagePath": storage_path,
+                "gcsUri": f"gs://{bucket_name}/{storage_path}",
+                "contentType": "image/jpeg",
+                "sizeBytes": len(source_image_bytes),
+                "exifStripped": True,
+                "updatedAt": SERVER_TIMESTAMP,
+            },
+            "updatedAt": SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
 
 
 def _write_fixture_file(output_dir: Path, artifact: CandidateArtifact) -> None:
@@ -1805,11 +1691,7 @@ def _candidate_doc(
         "uid": payload.uid,
         "imageRef": artifact.image_ref,
         "modelId": payload.model_id,
-        "modelVersion": (
-            AZURE_GPT_IMAGE_2_VERSION
-            if payload.model_id == AZURE_GPT_IMAGE_2_MODEL_ID
-            else FLUX2_KLEIN_VERSION
-        ),
+        "modelVersion": AZURE_GPT_IMAGE_2_VERSION,
         "seed": artifact.seed,
         "generationParams": artifact.generation_params,
         "status": status,
@@ -1950,7 +1832,7 @@ def _cost_document_for_job(
     duration_seconds: float,
     candidate_count: int,
     seconds_by_stage: Mapping[str, float],
-    generation_backend: str = "local_cloud_run_flux",
+    generation_backend: str = AZURE_GPT_IMAGE_2_MODEL_ID,
     provider_usage_document: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     estimate = build_job_cost_document(
@@ -2050,6 +1932,405 @@ def _ensure_source_refs_match_private_media(
     missing = [ref for ref in payload.source_photo_refs if ref not in active_refs]
     if missing:
         raise AvatarGenerationError("Payload sourcePhotoRefs do not match active private media refs.")
+
+
+def _source_selection_event_hook(
+    metrics_hook: Optional[MetricHook],
+) -> Callable[[str, Mapping[str, Any]], None]:
+    def emit(name: str, payload: Mapping[str, Any]) -> None:
+        safe_payload = dict(payload)
+        _emit_metric(metrics_hook, name, safe_payload)
+        logger.info("%s %s", name, json.dumps(safe_payload, sort_keys=True))
+
+    return emit
+
+
+def _load_pinned_source_for_selection(
+    storage_client: Any,
+    candidate: AvatarSourceCandidate,
+) -> bytes:
+    parsed = parse_gcs_uri(candidate.source_ref)
+    data, content_type = load_source_image_bytes_from_gcs(
+        storage_client,
+        parsed,
+        candidate.object_generation,
+    )
+    _assert_azure_source_bytes_are_normalized_jpeg(data, content_type)
+    return data
+
+
+def _persist_selected_avatar_source(
+    firestore_client: Any,
+    payload: AvatarGenerationPayload,
+    candidate: AvatarSourceCandidate,
+    selection_document: Mapping[str, Any],
+) -> None:
+    job_ref = _doc_ref(firestore_client, "avatarJobs", payload.job_id)
+    private_ref = _doc_ref(firestore_client, "userPrivateMedia", payload.uid)
+    user_ref = _doc_ref(firestore_client, "users", payload.uid)
+
+    def persist(transaction: Any) -> None:
+        current_job = _doc_to_dict(job_ref.get(transaction=transaction)) or {}
+        current_private = _doc_to_dict(private_ref.get(transaction=transaction)) or {}
+        candidates = candidate_set_from_payload(
+            [str(value) for value in current_job.get("sourcePhotoIds", [])],
+            [str(value) for value in current_job.get("sourcePhotoRefs", [])],
+            [
+                str(value)
+                for value in current_job.get("sourcePhotoObjectGenerations", [])
+            ],
+        )
+        locked = selected_source_from_job(current_job, candidates)
+        if locked is not None:
+            if locked != candidate:
+                raise SourceSelectionError("avatar_selected_source_id_mismatch")
+            return
+        if str(current_private.get("currentAvatarJobId") or "") != payload.job_id:
+            raise SourceSelectionError("avatar_selected_source_job_mismatch")
+        job_version = _selection_version(
+            current_job.get("avatarSourceSelectionVersion")
+        )
+        private_version = _selection_version(
+            current_private.get("avatarSourceSelectionVersion")
+        )
+        if job_version is None or job_version != private_version:
+            raise SourceSelectionError("avatar_selected_source_version_mismatch")
+
+        source_photos = current_private.get("sourcePhotos")
+        updated_sources = []
+        found = False
+        if isinstance(source_photos, Sequence) and not isinstance(source_photos, str):
+            for entry in source_photos:
+                if not isinstance(entry, Mapping):
+                    continue
+                updated = dict(entry)
+                photo_id = str(updated.get("photoId") or "")
+                if photo_id == candidate.photo_id:
+                    found = True
+                    if str(updated.get("gcsUri") or "") != candidate.source_ref:
+                        raise SourceSelectionError("avatar_selected_source_ref_mismatch")
+                    if (
+                        str(updated.get("objectGeneration") or "")
+                        != candidate.object_generation
+                    ):
+                        raise SourceSelectionError(
+                            "avatar_selected_source_generation_mismatch"
+                        )
+                    updated["avatarGenerationState"] = "current"
+                elif updated.get("avatarGenerationState") == "selection_candidate":
+                    updated["avatarGenerationState"] = "selection_not_selected"
+                updated_sources.append(updated)
+        if not found:
+            raise SourceSelectionError("avatar_selected_source_id_mismatch")
+
+        persisted_selection = {
+            **dict(selection_document),
+            "selectedAt": SERVER_TIMESTAMP,
+        }
+        selected_source = {
+            "photoId": candidate.photo_id,
+            "gcsUri": candidate.source_ref,
+            "objectGeneration": candidate.object_generation,
+            "selectionVersion": job_version,
+            "selectedAt": SERVER_TIMESTAMP,
+            "qualityScore": selection_document.get("top1Score"),
+            "selectionConfidence": selection_document.get(
+                "selectionConfidence"
+            ),
+        }
+        transaction.set(
+            job_ref,
+            {
+                "sourcePhotoIds": [candidate.photo_id],
+                "sourcePhotoRefs": [candidate.source_ref],
+                "sourcePhotoObjectGenerations": [candidate.object_generation],
+                "selectedSource": selected_source,
+                "sourceSelection": persisted_selection,
+                "updatedAt": SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+        transaction.set(
+            private_ref,
+            {
+                "sourcePhotos": updated_sources,
+                "currentAvatarSourcePhotoId": candidate.photo_id,
+                "avatarSourceSelection": persisted_selection,
+                "updatedAt": SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+        user_update = {
+            "avatar.status": "queued",
+            "avatar.sourcePhotoId": candidate.photo_id,
+            "avatar.updatedAt": SERVER_TIMESTAMP,
+            "onboarding.sourcePhotoUploadStatus": "avatar_source_selected",
+            "updatedAt": SERVER_TIMESTAMP,
+        }
+        if hasattr(transaction, "update"):
+            transaction.update(user_ref, user_update)
+        else:  # Lightweight local test doubles do not expose update().
+            user_ref.update(user_update)
+
+    transaction_factory = getattr(firestore_client, "transaction", None)
+    if not callable(transaction_factory):
+        raise AvatarGenerationError("avatar_source_selection_transaction_unavailable")
+    transaction = transaction_factory()
+    if (
+        firestore is not None
+        and hasattr(firestore, "transactional")
+        and not getattr(transaction, "_codex_fake_transaction", False)
+    ):
+        firestore.transactional(persist)(transaction)
+    else:
+        persist(transaction)
+
+
+def _resolve_avatar_source_selection(
+    firestore_client: Any,
+    storage_client: Any,
+    payload: AvatarGenerationPayload,
+    job_doc: Mapping[str, Any],
+    metrics_hook: Optional[MetricHook],
+) -> AvatarGenerationPayload:
+    try:
+        candidates = candidate_set_from_payload(
+            payload.source_photo_ids,
+            payload.source_photo_refs,
+            payload.source_photo_object_generations,
+            allow_locked_singleton=(
+                isinstance(job_doc.get("sourceSelection"), Mapping)
+                and job_doc["sourceSelection"].get("status") == "selected"
+            ),
+        )
+        selection_state = job_doc.get("sourceSelection")
+        if isinstance(selection_state, Mapping) and selection_state.get("status") == "failed":
+            raise SourceSelectionError(
+                str(selection_state.get("failureCode") or "avatar_source_selection_failed")
+            )
+        selected_candidate = selected_source_from_job(job_doc, candidates)
+        if selected_candidate is None:
+            source_config = SourceSafetyConfig.from_env()
+            pipeline_config = replace(
+                SmallFacePipelineConfig.from_env(),
+                enabled=True,
+                fail_closed_without_model=True,
+            )
+            pipeline = SmallFaceSourcePipeline(
+                config=pipeline_config,
+                source_config=source_config,
+                landmarker_model_path=(
+                    source_config.mediapipe_face_landmarker_model_path
+                ),
+            )
+
+            def analyze(candidate: AvatarSourceCandidate):
+                analysis = analyze_avatar_source_image(
+                    _load_pinned_source_for_selection(storage_client, candidate),
+                    source_ref=candidate.source_ref,
+                    config=source_config,
+                    small_face_pipeline=pipeline,
+                    small_face_config=pipeline_config,
+                )
+                if analysis_has_infrastructure_failure(analysis):
+                    raise SourceSelectionError(SOURCE_ANALYSIS_INFRA_ERROR)
+                return source_quality_signals_from_analysis(
+                    photo_id=candidate.photo_id,
+                    stable_order=candidate.stable_order,
+                    analysis=analysis,
+                )
+
+            selected = select_best_source(
+                candidates,
+                analyze_signals=analyze,
+                event_hook=_source_selection_event_hook(metrics_hook),
+            )
+            selected_candidate = selected.candidate
+            selection_document = {
+                "status": "selected",
+                **selected.selection.to_private_document(),
+            }
+            _persist_selected_avatar_source(
+                firestore_client,
+                payload,
+                selected_candidate,
+                selection_document,
+            )
+        return replace(
+            payload,
+            source_photo_ids=[selected_candidate.photo_id],
+            source_photo_refs=[selected_candidate.source_ref],
+            source_photo_object_generations=[
+                selected_candidate.object_generation
+            ],
+        )
+    except SourceSelectionError:
+        raise
+    except AvatarGenerationError as exc:
+        message = str(exc)
+        if "generation_mismatch" in message:
+            raise SourceSelectionError(
+                "avatar_selected_source_generation_mismatch"
+            ) from exc
+        if "does not exist" in message:
+            raise SourceSelectionError("avatar_selected_source_disappeared") from exc
+        raise SourceSelectionError(SOURCE_ANALYSIS_INFRA_ERROR) from exc
+
+
+def _finalize_source_selection_failure(
+    firestore_client: Any,
+    payload: AvatarGenerationPayload,
+    error: SourceSelectionError,
+    *,
+    storage_client: Any = None,
+) -> AvatarGenerationResult:
+    retryable = error.error_code == SOURCE_ANALYSIS_INFRA_ERROR
+    selection_failure = {
+        "status": "failed",
+        "selectorVersion": "avatar_source_quality_selector_v1",
+        "failureCode": error.error_code,
+        "updatedAt": SERVER_TIMESTAMP,
+    }
+    _update_job_status(
+        firestore_client,
+        payload.job_id,
+        {
+            "status": "retryable_failed" if retryable else "failed",
+            "candidateIds": [],
+            "errorCode": error.error_code,
+            "errorMessage": "Avatar source selection failed.",
+            "retryable": retryable,
+            "sourceSelection": selection_failure,
+        },
+    )
+    private_ref = _doc_ref(firestore_client, "userPrivateMedia", payload.uid)
+    private_doc = _doc_to_dict(private_ref.get()) or {}
+    deleted_source_ids: set[str] = set()
+    if (
+        error.error_code == NO_ELIGIBLE_SOURCE_ERROR
+        and storage_client is not None
+        and not _source_photo_retention_requested(private_doc)
+    ):
+        deleted_source_ids = _delete_rejected_private_source_copies(
+            storage_client,
+            payload,
+        )
+    private_update: Dict[str, Any] = {
+        "avatarSourceSelection": selection_failure,
+        "updatedAt": SERVER_TIMESTAMP,
+    }
+    if error.error_code == NO_ELIGIBLE_SOURCE_ERROR:
+        source_photos = private_doc.get("sourcePhotos")
+        rejected_sources = []
+        if isinstance(source_photos, Sequence) and not isinstance(source_photos, str):
+            candidate_ids = set(payload.source_photo_ids)
+            for entry in source_photos:
+                if not isinstance(entry, Mapping):
+                    continue
+                updated = dict(entry)
+                if str(updated.get("photoId") or "") in candidate_ids:
+                    updated["avatarGenerationState"] = "selection_rejected"
+                    if str(updated.get("photoId") or "") in deleted_source_ids:
+                        updated["status"] = "source_deleted"
+                        updated["sourceDeleted"] = True
+                        updated["sourceDeletedAt"] = SERVER_TIMESTAMP
+                        for sensitive_field in (
+                            "gcsUri",
+                            "storagePath",
+                            "storageBucket",
+                            "objectGeneration",
+                        ):
+                            updated.pop(sensitive_field, None)
+                rejected_sources.append(updated)
+        private_update.update(
+            {
+                "currentAvatarJobId": "",
+                "currentAvatarSourcePhotoId": "",
+                "sourcePhotos": rejected_sources,
+            }
+        )
+    _set_doc(private_ref, private_update, merge=True)
+
+    user_update: Dict[str, Any] = {
+        "avatar.status": "retryable_failed" if retryable else "failed",
+        "avatar.errorCode": error.error_code,
+        "avatar.updatedAt": SERVER_TIMESTAMP,
+        "onboarding.sourcePhotoUploadStatus": "avatar_source_selection_failed",
+        "updatedAt": SERVER_TIMESTAMP,
+    }
+    if error.error_code == NO_ELIGIBLE_SOURCE_ERROR:
+        user_update.update(
+            {
+                "avatar.status": "source_rejected",
+                "avatar.sourceJobId": "",
+                "avatar.sourcePhotoId": "",
+                "onboarding.avatarGenerationJobId": "",
+            }
+        )
+    _update_doc(_doc_ref(firestore_client, "users", payload.uid), user_update)
+    return AvatarGenerationResult(
+        job_id=payload.job_id,
+        uid=payload.uid,
+        status="retryable_failed" if retryable else "failed",
+        candidate_ids=[],
+        preview_ready_count=0,
+        rejected_count=0,
+        needs_review_count=0,
+    )
+
+
+def _source_photo_retention_requested(private_doc: Mapping[str, Any]) -> bool:
+    consent = private_doc.get("photoConsent")
+    if not isinstance(consent, Mapping):
+        return False
+    purposes = consent.get("purposes")
+    return consent.get("sourcePhotoRetention") is True or (
+        isinstance(purposes, Mapping)
+        and purposes.get("sourcePhotoRetention") is True
+    )
+
+
+def _delete_rejected_private_source_copies(
+    storage_client: Any,
+    payload: AvatarGenerationPayload,
+) -> set[str]:
+    deleted: set[str] = set()
+    for photo_id, source_ref, generation in zip(
+        payload.source_photo_ids,
+        payload.source_photo_refs,
+        payload.source_photo_object_generations,
+    ):
+        try:
+            parsed = parse_gcs_uri(source_ref)
+            if (
+                parsed.bucket != source_photo_bucket()
+                or not parsed.path.startswith(f"users/{payload.uid}/source/")
+            ):
+                continue
+            blob = _blob_for(storage_client, parsed)
+            if hasattr(blob, "exists") and not blob.exists():
+                deleted.add(photo_id)
+                continue
+            if hasattr(blob, "reload"):
+                blob.reload()
+            observed_generation = str(
+                getattr(blob, "generation", "") or ""
+            ).strip()
+            if observed_generation and observed_generation != generation:
+                continue
+            if not hasattr(blob, "delete"):
+                continue
+            try:
+                blob.delete(if_generation_match=int(generation))
+            except TypeError:
+                blob.delete()
+            deleted.add(photo_id)
+        except Exception as exc:
+            logger.warning(
+                "avatar_source_rejected_copy_delete_failed errorType=%s",
+                type(exc).__name__,
+            )
+    return deleted
 
 
 def _current_source_entry(
@@ -2389,7 +2670,7 @@ def _extract_trait_card_for_generation(
     run_mode: str,
     avatar_presentation_gender: str = "unknown",
     broad_trait_hints: Optional[Mapping[str, Any]] = None,
-) -> tuple[Optional[TraitCardValidationResult], Optional[PromptAvatarTraitCard]]:
+) -> tuple[Optional[TraitCardValidationResult], Optional[Dict[str, Any]]]:
     if not _trait_extraction_enabled(run_mode):
         return None, None
 
@@ -2401,10 +2682,7 @@ def _extract_trait_card_for_generation(
     validation = merge_trait_card_with_broad_hints(validation, broad_trait_hints)
     if _trait_require_validated() and not validation.privacy_safe:
         raise AvatarGenerationError("avatar trait card did not pass privacy validation.")
-    prompt_card = PromptAvatarTraitCard(
-        **validation.trait_card.to_prompt_builder_dict()
-    )
-    return validation, prompt_card
+    return validation, validation.trait_card.to_prompt_builder_dict()
 
 
 def _source_eyewear_needs_candidate_check(
@@ -2433,9 +2711,7 @@ def _extract_candidate_trait_card_for_qa(
                 image=_resize_for_trait_extraction(image.convert("RGB")),
                 avatar_presentation_gender=avatar_presentation_gender,
             )
-        return PromptAvatarTraitCard(
-            **validation.trait_card.to_prompt_builder_dict()
-        ).to_prompt_dict()
+        return validation.trait_card.to_prompt_builder_dict()
     except Exception as exc:
         logger.warning(
             "Candidate trait QA extraction failed: %s: %s",
@@ -2536,9 +2812,7 @@ def _candidate_qa_metadata(
                 "sourceTraitCard": dict(source_trait_card or {}),
                 "pipelineMode": effective_run_mode,
                 "traitQaMode": (
-                    "enabled"
-                    if effective_run_mode in {"flux", "dry_run"}
-                    else "unknown"
+                    "enabled" if effective_run_mode == "dry_run" else "unknown"
                 ),
                 "traitQaAuthority": "server",
                 "uniqueMarkQaMode": "unknown",
@@ -2577,7 +2851,7 @@ def _prepare_reference_preprocess_for_generation(
     visual_risk_regions: Sequence[Any] = (),
     run_mode: str,
 ) -> AvatarQualityContext:
-    if run_mode != "flux":
+    if run_mode == CANONICAL_AZURE_WORKER_MODE:
         return AvatarQualityContext(
             generation_image=None,
             analysis_image=source_image.convert("RGB"),
@@ -2830,6 +3104,35 @@ def process_avatar_generation_payload(
     _assert_job_can_run(job_doc, payload)
     if run_mode == CANONICAL_AZURE_WORKER_MODE and _azure_generation_claim_active(job_doc):
         return _result_for_active_azure_generation(payload, job_doc or {})
+    private_doc = _load_private_media_doc(fs, payload.uid)
+    _assert_avatar_generation_consent(private_doc)
+    _ensure_source_refs_match_private_media(private_doc, payload)
+    try:
+        payload = _resolve_avatar_source_selection(
+            fs,
+            st,
+            payload,
+            job_doc or {},
+            metrics_hook,
+        )
+    except SourceSelectionError as exc:
+        if exc.error_code != NO_ELIGIBLE_SOURCE_ERROR:
+            _source_selection_event_hook(metrics_hook)(
+                "avatar_source_selection_failed",
+                {
+                    "selectorVersion": "avatar_source_quality_selector_v1",
+                    "evaluatedCount": len(payload.source_photo_ids),
+                    "errorCode": exc.error_code,
+                },
+            )
+        return _finalize_source_selection_failure(
+            fs,
+            payload,
+            exc,
+            storage_client=st,
+        )
+    job_doc = _load_job_doc(fs, payload.job_id)
+    private_doc = _load_private_media_doc(fs, payload.uid)
     _run_qa_runtime_preflight_if_required(
         fs,
         payload,
@@ -2857,7 +3160,6 @@ def process_avatar_generation_payload(
         payload,
         job_doc,
     )
-    private_doc = _load_private_media_doc(fs, payload.uid)
     _assert_avatar_generation_consent(private_doc)
     _ensure_source_refs_match_private_media(private_doc, payload)
     source_refs = validate_private_source_refs(payload.source_photo_refs)
@@ -2900,8 +3202,20 @@ def process_avatar_generation_payload(
         source_image_bytes, source_content_type = load_source_image_bytes_from_gcs(
             st,
             source_refs[0],
+            (
+                payload.source_photo_object_generations[0]
+                if payload.source_photo_object_generations
+                else ""
+            ),
         )
         source_image = image_from_stored_source_bytes(source_image_bytes)
+        _persist_chat_real_photo_if_consented(
+            fs,
+            st,
+            payload,
+            job_doc or {},
+            source_image_bytes,
+        )
         source_selection_version = _selection_version(
             (job_doc or {}).get("avatarSourceSelectionVersion")
         )
@@ -2978,7 +3292,7 @@ def process_avatar_generation_payload(
                         generation_backend=(
                             AZURE_GPT_IMAGE_2_MODEL_ID
                             if run_mode == CANONICAL_AZURE_WORKER_MODE
-                            else "local_cloud_run_flux"
+                            else "local_fixture"
                         ),
                         provider_usage_document=provider_usage_doc,
                     )
@@ -3058,9 +3372,7 @@ def process_avatar_generation_payload(
                         quality_context=quality_context,
                         avatar_presentation_gender=avatar_presentation_gender,
                     )
-                    prompt_trait_card = PromptAvatarTraitCard(
-                        **trait_validation.trait_card.to_prompt_builder_dict()
-                    )
+                    prompt_trait_card = trait_validation.trait_card.to_prompt_builder_dict()
                 seconds_by_stage["trait_extract_seconds"] += _elapsed_seconds(stage_started_at)
             except Exception as exc:
                 detail = str(exc).splitlines()[0][:200]
@@ -3089,11 +3401,7 @@ def process_avatar_generation_payload(
                 if trait_validation is not None
                 else None
             )
-            source_trait_card_doc = (
-                prompt_trait_card.to_prompt_dict()
-                if prompt_trait_card is not None
-                else {}
-            )
+            source_trait_card_doc = dict(prompt_trait_card or {})
             _update_job_status(
                 fs,
                 payload.job_id,
@@ -3545,7 +3853,7 @@ def process_avatar_generation_payload(
                 generation_backend=(
                     AZURE_GPT_IMAGE_2_MODEL_ID
                     if run_mode == CANONICAL_AZURE_WORKER_MODE
-                    else "local_cloud_run_flux"
+                    else "local_fixture"
                 ),
                 provider_usage_document=provider_usage_doc,
             )
@@ -3650,6 +3958,21 @@ def _payload_with_source_refs_from_job_doc(
     source_photo_ids = job_doc.get("sourcePhotoIds")
     if not enriched.get("sourcePhotoIds") and isinstance(source_photo_ids, Sequence) and not isinstance(source_photo_ids, str):
         enriched["sourcePhotoIds"] = [str(value) for value in source_photo_ids if str(value).strip()]
+    source_generations = job_doc.get("sourcePhotoObjectGenerations")
+    if not enriched.get("sourcePhotoObjectGenerations") and isinstance(
+        source_generations, Sequence
+    ) and not isinstance(source_generations, str):
+        enriched["sourcePhotoObjectGenerations"] = [
+            str(value) for value in source_generations if str(value).strip()
+        ]
+    if not enriched.get("sourceSelectionMode"):
+        enriched["sourceSelectionMode"] = str(
+            job_doc.get("sourceSelectionMode") or ""
+        )
+    if not enriched.get("avatarPresentationGender"):
+        enriched["avatarPresentationGender"] = str(
+            job_doc.get("avatarPresentationGender") or "unknown"
+        )
     return enriched
 
 
@@ -3911,7 +4234,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--payload_json", help="Path to avatar_job_v1 JSON payload.")
     parser.add_argument(
         "--mode",
-        choices=["dry_run", "flux", "azure", CANONICAL_AZURE_WORKER_MODE],
+        choices=["dry_run", "azure", CANONICAL_AZURE_WORKER_MODE],
         default=None,
     )
     parser.add_argument("--fixture_output_dir", help="Optional local directory for generated fixture PNGs.")

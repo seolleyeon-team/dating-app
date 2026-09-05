@@ -121,9 +121,7 @@ def test_canonical_azure_worker_uses_storage_bytes_and_skips_legacy_generation_c
         "_analyze_source_visual_risk",
         "_prepare_reference_preprocess_for_generation",
         "_extract_trait_card_for_generation",
-        "build_avatar_prompt",
         "prepare_privacy_reference_image",
-        "get_flux2_klein_generator",
     ):
         monkeypatch.setattr(worker_module, name, forbidden)
 
@@ -153,6 +151,86 @@ def test_canonical_azure_worker_uses_storage_bytes_and_skips_legacy_generation_c
     assert generation_params["legacyFlux"] is False
     assert generation_params["legacyReferencePreprocessing"] is False
     assert generation_params["legacyTraitExtraction"] is False
+
+
+def test_canonical_azure_initial_success_makes_exactly_two_provider_calls(monkeypatch):
+    payload = _payload(job_id="azure_job_initial_two")
+    payload.update(
+        {
+            "modelId": AZURE_GPT_IMAGE_2_MODEL_ID,
+            "candidateCount": 2,
+        }
+    )
+    fs = _fake_firestore(payload)
+    st = _fake_storage()
+    provider = FakeAzureProvider()
+    source_bytes = st.buckets[DEFAULT_SOURCE_PHOTO_BUCKET].blobs[
+        "users/u1/source/src_001.jpg"
+    ].data
+    monkeypatch.setenv("ENVIRONMENT", "local")
+    monkeypatch.setattr(worker_module, "get_azure_gpt_image2_provider", lambda: provider)
+
+    result = process_avatar_generation_payload(
+        payload,
+        firestore_client=fs,
+        storage_client=st,
+        qa_runner=_passing_qa,
+        mode=AZURE_GPT_IMAGE_2_MODEL_ID,
+    )
+
+    assert result.status == "preview_ready"
+    assert len(provider.calls) == 2
+    assert all(call["source_image_bytes"] == source_bytes for call in provider.calls)
+
+
+def test_canonical_azure_extra_round_stops_at_four_using_same_source(monkeypatch):
+    payload = _payload(job_id="azure_job_extra_two")
+    payload.update(
+        {
+            "modelId": AZURE_GPT_IMAGE_2_MODEL_ID,
+            "candidateCount": 2,
+        }
+    )
+    fs = _fake_firestore(payload)
+    st = _fake_storage()
+    provider = FakeAzureProvider()
+    source_bytes = st.buckets[DEFAULT_SOURCE_PHOTO_BUCKET].blobs[
+        "users/u1/source/src_001.jpg"
+    ].data
+    qa_calls = []
+
+    def only_one_initial_candidate_is_safe(source_ref, candidate_ref, metadata):
+        qa_calls.append(metadata["candidateId"])
+        if len(qa_calls) == 2:
+            return AvatarQAResult(
+                adultQa="fail",
+                privacyQa="fail",
+                brandQa="fail",
+                previewAllowed=False,
+                requiresHumanReview=False,
+                rejectReasons=["simulation_rejected"],
+                qaVersion="azure_contract_test_reject",
+            )
+        return _passing_qa(source_ref, candidate_ref, metadata)
+
+    monkeypatch.setenv("ENVIRONMENT", "local")
+    monkeypatch.setattr(worker_module, "get_azure_gpt_image2_provider", lambda: provider)
+
+    result = process_avatar_generation_payload(
+        payload,
+        firestore_client=fs,
+        storage_client=st,
+        qa_runner=only_one_initial_candidate_is_safe,
+        mode=AZURE_GPT_IMAGE_2_MODEL_ID,
+    )
+
+    assert result.status == "preview_ready"
+    assert len(provider.calls) == 4
+    assert all(call["source_image_bytes"] == source_bytes for call in provider.calls)
+    plan = fs.data["avatarJobs"][payload["jobId"]]["generationPlan"]
+    assert plan["initialCount"] == 2
+    assert plan["extraCount"] == 2
+    assert plan["totalGenerated"] == 4
 
 
 def test_azure_canonical_qa_compares_storage_source_directly_without_reference_placeholder(monkeypatch):
@@ -368,7 +446,7 @@ def test_azure_post_send_unknown_outcome_is_review_and_never_blindly_retried(mon
     assert job["providerUsage"]["unknownOutcomeCount"] == 1
 
 
-def test_legacy_local_dry_run_does_not_emit_azure_provider_usage(monkeypatch):
+def test_local_fixture_does_not_emit_azure_provider_usage(monkeypatch):
     payload = _payload(job_id="legacy_dry_run_no_azure_usage")
     fs = _fake_firestore(payload)
     monkeypatch.setenv("SOURCE_PHOTO_BUCKET", DEFAULT_SOURCE_PHOTO_BUCKET)
@@ -385,7 +463,7 @@ def test_legacy_local_dry_run_does_not_emit_azure_provider_usage(monkeypatch):
 
     job = fs.data["avatarJobs"][payload["jobId"]]
     assert "providerUsage" not in job
-    assert job["generationBackend"] == "black-forest-labs/FLUX.2-klein-4B"
+    assert job["generationBackend"] == AZURE_GPT_IMAGE_2_MODEL_ID
 
 
 def test_existing_avatar_media_normalized_jpeg_is_the_direct_azure_source(monkeypatch):

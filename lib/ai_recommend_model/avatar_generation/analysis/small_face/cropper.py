@@ -41,7 +41,7 @@ class HeadShouldersCropper:
         y0 = int(round(cy - fh * (0.5 + expand_top)))
         y1 = int(round(cy + fh * (0.5 + expand_bottom)))
 
-        # Force square crop aligned to FLUX reference contract.
+        # Force a square crop aligned to the shared analysis contract.
         side = max(x1 - x0, y1 - y0, 1)
         x0 = int(round(cx - side / 2.0))
         y0 = int(round(cy - side / 2.0))

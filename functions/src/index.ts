@@ -26,6 +26,8 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { withAppCheck } from "./appCheckPolicy";
 import { loadCampusLifeZoneActivation } from "./campusLifeZoneActivation";
 import { readPersistedCampusLifeZones } from "./campusLifeZones";
+import "./secureSharp";
+
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onTaskDispatched } from "firebase-functions/v2/tasks";
 import * as logger from "firebase-functions/logger";
@@ -69,7 +71,6 @@ export { submitSafetyStamp, submitSafetyStampFollowUp } from "./safetyStamp";
 import {
   createGetCurrentAvatarGenerationStatusFunction,
   createRetryCurrentAvatarGenerationFunction,
-  createUploadAvatarSourcePhotoFunction,
 } from "./avatarMedia";
 import {
   createApproveAvatarCandidateFunction,
@@ -100,6 +101,9 @@ import {
   createClipEmbeddingSourceRetentionTrigger,
 } from "./avatarSourceRetention";
 import { createAvatarGenerationStateSyncTrigger } from "./avatarGenerationStateSync";
+import { createBeginAvatarGenerationFromOnboardingPhotosFunction } from "./avatarSourceSetAdmission";
+import { createReplaceAvatarGenerationFunction } from "./avatarGenerationRecovery";
+import { createAvatarClipAfterSelectionTrigger } from "./avatarClipAfterSelection";
 import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
 import {
   appleAppAccountTokenForUserId,
@@ -2036,12 +2040,27 @@ async function resolveUserForFriendCallable(request: {
   return await resolveVerifiedUserByKakaoId(kakaoUser.userId);
 }
 
-export const uploadAvatarSourcePhoto =
-  createUploadAvatarSourcePhotoFunction(db, resolveAuthedAppUser);
-
 export const uploadOnboardingPhoto = createUploadOnboardingPhotoFunction(
   resolveAuthedAppUser,
 );
+
+export const beginAvatarGenerationFromOnboardingPhotos =
+  createBeginAvatarGenerationFromOnboardingPhotosFunction(
+    db,
+    resolveAuthedAppUser,
+  );
+
+// needs_review / terminal failure recovery: end the current logical
+// generation and release the source lock so a NEW source set can be admitted.
+export const replaceAvatarGeneration = createReplaceAvatarGenerationFunction(
+  db,
+  resolveAuthedAppUser,
+);
+
+// CLIP recommendation is decoupled from avatar admission: the embedding job
+// is enqueued only once the worker has locked the selected source.
+export const onAvatarClipAfterSelection =
+  createAvatarClipAfterSelectionTrigger();
 
 export const getCurrentAvatarGenerationStatus =
   createGetCurrentAvatarGenerationStatusFunction(db, resolveAuthedAppUser);

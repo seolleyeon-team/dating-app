@@ -72,3 +72,5 @@ Deletion requires these surfaces to be checked for every file, not just the impo
 ## Phase 2 impact check
 
 Batch 001 contains only ten local pytest *current pointer files. The post-removal reference check found no changed route, Firebase export, native registration, asset declaration, workflow label, test fixture contract, or operational path. The pytest_tmp_avatar_qa_escalated analyzer/editor directory exclusions remain harmless when the exact pointer files are absent. The remaining 35 generated image/report files stay outside the deletion diff.
+> **HISTORICAL / RETIRED — NOT A CURRENT DEPLOYMENT AUTHORITY.** See [the current avatar architecture](../avatar-production/CURRENT_ARCHITECTURE.md).
+>

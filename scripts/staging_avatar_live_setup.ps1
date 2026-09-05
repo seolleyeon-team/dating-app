@@ -6,9 +6,11 @@ param(
   [string]$Tag = "staging-avatar-worker",
   [string]$ExpectedAccount = "seolleyeon.official@gmail.com",
   [string]$FunctionsEnvFile = "functions/.env.seolleyeon-final",
+  # Secret Manager 시크릿 "이름"만 받는다. 값은 절대 인자로 받지 않는다.
+  [string]$AzureApiKeySecret = "seolleyeon-avatar-azure-openai-api-key",
   [switch]$PrepareOnly,
   [switch]$UpdateFunctionsEnv,
-  [switch]$DeployUploadFunction,
+  [switch]$DeployAdmissionFunction,
   [switch]$EnableClipWorker,
   [switch]$Apply
 )
@@ -77,8 +79,8 @@ function Assert-PreApplyPrerequisites {
     return
   }
 
-  if ($PrepareOnly -and ($UpdateFunctionsEnv -or $DeployUploadFunction)) {
-    throw "-PrepareOnly cannot be combined with -UpdateFunctionsEnv or -DeployUploadFunction."
+  if ($PrepareOnly -and ($UpdateFunctionsEnv -or $DeployAdmissionFunction)) {
+    throw "-PrepareOnly cannot be combined with -UpdateFunctionsEnv or -DeployAdmissionFunction."
   }
 
   if (-not (Test-Path "cloudbuild.avatar-worker.yaml")) {
@@ -176,7 +178,7 @@ $clipWorkerSa = "clip-worker@$Project.iam.gserviceaccount.com"
 $taskInvokerSa = "task-invoker@$Project.iam.gserviceaccount.com"
 $projectNumber = (& gcloud projects describe $Project --format="value(projectNumber)").Trim()
 $cloudTasksServiceAgent = "service-$projectNumber@gcp-sa-cloudtasks.iam.gserviceaccount.com"
-$functionsRuntimeSa = (& gcloud functions describe uploadAvatarSourcePhoto `
+$functionsRuntimeSa = (& gcloud functions describe beginAvatarGenerationFromOnboardingPhotos `
   --gen2 `
   --region=$Region `
   --project=$Project `
@@ -283,7 +285,7 @@ if (-not $PrepareOnly) {
   Invoke-Step "Deploy Cloud Run GPU avatar worker" {
     $workerEnv = @(
       "ENVIRONMENT=staging"
-      "AVATAR_WORKER_MODE=flux"
+      "AVATAR_WORKER_MODE=azure_gpt_image_2"
       "AVATAR_WORKER_AUTH_MODE=cloud_run_iam"
       "AVATAR_WORKER_CLOUD_RUN_IAM_ENFORCED=true"
       "AVATAR_GPU_WORKER_ENABLED=true"
@@ -302,19 +304,12 @@ if (-not $PrepareOnly) {
       "SOURCE_PHOTO_BUCKET=seolleyeon-final-private-source-photos"
       "AVATAR_TEMP_BUCKET=seolleyeon-final-avatar-temp"
       "APPROVED_AVATAR_BUCKET=seolleyeon-final-approved-avatars"
-      "AVATAR_FLUX_MODEL_ARTIFACT_REVISION=e7b7dc27f91deacad38e78976d1f2b499d76a294"
       "AVATAR_REFERENCE_PROFILE=fidelity_balanced"
       "AVATAR_FIDELITY_CORRIDOR_MODE=shadow"
       "AVATAR_FIDELITY_CORRIDOR_CALIBRATION_VERSION=uncalibrated"
       "AVATAR_PUBLIC_ROLLOUT_ENABLED=false"
       "MAX_CANDIDATES=4"
       "AVATAR_CANDIDATE_TTL_HOURS=72"
-      "AVATAR_GENERATION_WIDTH=1024"
-      "AVATAR_GENERATION_HEIGHT=1024"
-      "AVATAR_GENERATION_STEPS=4"
-      "AVATAR_GENERATION_GUIDANCE_SCALE=1.0"
-      "AVATAR_FLUX_NUM_INFERENCE_STEPS=4"
-      "AVATAR_FLUX_GUIDANCE_SCALE=1.0"
       "AVATAR_FACE_DETECTOR_ENABLED=true"
       "AVATAR_FACE_DETECTOR_PROVIDER=mediapipe"
       "AVATAR_MEDIAPIPE_ENABLED=true"
@@ -325,7 +320,7 @@ if (-not $PrepareOnly) {
       "AVATAR_MEDIAPIPE_MIN_PRESENCE_CONFIDENCE=0.6"
       "AVATAR_FACE_DETECTOR_MIN_CONFIDENCE=0.6"
       "AVATAR_FACE_MIN_RELATIVE_SIZE=0.08"
-      "AVATAR_TRAIT_EXTRACTION_ENABLED=true"
+      "AVATAR_TRAIT_EXTRACTION_ENABLED=false"
       "AVATAR_TRAIT_MODEL_ID=microsoft/Florence-2-large-ft"
       "AVATAR_TRAIT_MAX_IMAGE_EDGE=768"
       "AVATAR_TRAIT_LOCAL_FILES_ONLY=false"
@@ -335,7 +330,7 @@ if (-not $PrepareOnly) {
       "AVATAR_TRAIT_REQUIRE_VALIDATED=true"
       "AVATAR_TRAIT_QWEN_FALLBACK_ENABLED=false"
       "AVATAR_TRAIT_USE_PRIVACY_REFERENCE=false"
-      "AVATAR_CANDIDATE_TRAIT_QA_ENABLED=true"
+      "AVATAR_CANDIDATE_TRAIT_QA_ENABLED=false"
       "AVATAR_REFERENCE_PRIVACY_PREPROCESS=true"
       "AVATAR_REFERENCE_PREPROCESS_MODE=region_aware_v1"
       "AVATAR_REFERENCE_FACE_EQUIVALENT_SIZE=64"
@@ -354,11 +349,11 @@ if (-not $PrepareOnly) {
       "AVATAR_BACKGROUND_TEXT_LOGO_BLUR=true"
       "AVATAR_SAM_ENABLED=false"
       "AVATAR_SAM_LOAD_ON_DEMAND=true"
-      "AVATAR_INITIAL_CANDIDATE_COUNT=4"
-      "AVATAR_EXTRA_CANDIDATE_COUNT=4"
+      "AVATAR_INITIAL_CANDIDATE_COUNT=2"
+      "AVATAR_EXTRA_CANDIDATE_COUNT=2"
       "AVATAR_MIN_SAFE_CANDIDATES_BEFORE_EXTRA=2"
-      "AVATAR_MAX_TOTAL_CANDIDATES=8"
-      "AVATAR_PREVIEW_COUNT=4"
+      "AVATAR_MAX_TOTAL_CANDIDATES=4"
+      "AVATAR_PREVIEW_COUNT=2"
       "AVATAR_MIN_PREVIEW_CANDIDATES=1"
       "AVATAR_PREVIEW_REQUIRE_FOUR=false"
       "AVATAR_PREVIEW_FILL_WITH_SOFT_PASS=true"
@@ -383,6 +378,11 @@ if (-not $PrepareOnly) {
       "AVATAR_COST_KILL_SWITCH_ENABLED=false"
     ) -join ","
 
+    # Azure 자격증명은 평문 env 로 넣지 않는다. Secret Manager 참조로만 주입하고
+    # Cloud Run 이 런타임에 해석한다. 값은 이 저장소 어디에도 남기지 않는다.
+    # 참조 대상: seolleyeon-avatar-azure-openai-api-key (프로젝트 Secret Manager)
+    $azureSecretBinding = "AZURE_OPENAI_API_KEY=${AzureApiKeySecret}:latest"
+
     gcloud run deploy seolleyeon-avatar-worker `
       --image=$image `
       --region=$WorkerRegion `
@@ -398,7 +398,8 @@ if (-not $PrepareOnly) {
       --timeout=1800s `
       --no-allow-unauthenticated `
       --service-account=$avatarWorkerSa `
-      --set-env-vars=$workerEnv
+      --set-env-vars=$workerEnv `
+      --set-secrets=$azureSecretBinding
   }
 
   Invoke-Step "Grant post-deploy IAM for avatar worker and task invoker" {
@@ -448,9 +449,9 @@ if ($UpdateFunctionsEnv) {
   }
 }
 
-if ($DeployUploadFunction) {
-  Invoke-Step "Redeploy uploadAvatarSourcePhoto with current Functions env" {
-    firebase deploy --only functions:uploadAvatarSourcePhoto --project $Project --non-interactive
+if ($DeployAdmissionFunction) {
+  Invoke-Step "Redeploy canonical avatar admission with current Functions env" {
+    firebase deploy --only functions:beginAvatarGenerationFromOnboardingPhotos --project $Project --non-interactive
   }
 }
 
@@ -474,7 +475,7 @@ Write-Host "  Add -PrepareOnly to prepare APIs, service accounts, queue, image, 
   Write-Host "  Before worker deploy, check: .venv\Scripts\python.exe scripts\staging_avatar_live_preflight.py --avatar_only --stage deploy"
 Write-Host "  Add -UpdateFunctionsEnv to write the non-secret queue env locally."
 Write-Host "  Validate local queue env: .venv\Scripts\python.exe scripts\avatar_queue_config_check.py --env_file $FunctionsEnvFile"
-Write-Host "  Add -DeployUploadFunction to redeploy uploadAvatarSourcePhoto."
+Write-Host "  Add -DeployAdmissionFunction to redeploy the canonical source-set admission."
 Write-Host "  Add -EnableClipWorker only after CLIP embedding/rerank is enabled and verified."
 Write-Host "  Existing queued dry-run jobs can be recovered by duplicate upload retry or an IAM-protected worker drain call after deploy."
 Write-Host "  Drain dry-run: .venv\Scripts\python.exe scripts\avatar_worker_drain_once.py --worker_url $workerUrl"

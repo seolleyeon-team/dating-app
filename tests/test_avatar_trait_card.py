@@ -8,11 +8,6 @@ if str(AI_MODEL_DIR) not in sys.path:
     sys.path.insert(0, str(AI_MODEL_DIR))
 
 from avatar_generation.model_adapters.florence2 import Florence2TraitExtractionAdapter
-from avatar_generation.seolleyeon_avatar_prompt_builder_v4 import (
-    AvatarTraitCard as PromptAvatarTraitCard,
-    avatar_trait_card_from_dict as prompt_builder_trait_card_from_dict,
-    build_avatar_prompt,
-)
 from avatar_generation.trait_card import (
     FLORENCE2_TRAIT_EXTRACTION_PROMPT,
     TRAIT_CARD_ALLOWED_ENUMS,
@@ -320,55 +315,6 @@ def test_trait_extraction_prompt_contains_privacy_constraints():
     assert "hair_bangs" in lowered
     assert "facial_hair_present" in lowered
     assert "mouth_fullness_category" in lowered
-
-
-def test_prompt_builder_includes_expanded_fields_as_broad_guidance():
-    result = validate_trait_card_response(json.dumps(_payload()))
-    prompt_trait_card = prompt_builder_trait_card_from_dict(
-        result.trait_card.to_prompt_builder_dict()
-    )
-
-    prompt = build_avatar_prompt(
-        trait_card=prompt_trait_card,
-        reference_mode="trait_card_only",
-        candidate_count=1,
-    )
-    positive = prompt.positive.lower()
-
-    assert "hair_bangs" in positive
-    assert "facial_hair_present" in positive
-    assert "facial_feature_balance" in positive
-    assert "nose_bridge_impression" in positive
-    assert "mouth_fullness_category" in positive
-    assert "broad impression categories" in positive
-    assert "without copying exact geometry" in positive
-    assert "bare visible eyes" in positive
-    assert "no eye accessory detail" in positive
-    assert "do not add any accessory around the eyes" in positive
-    assert "do not add glasses or eyewear" not in positive
-    assert "eyeglasses" not in positive
-    assert "lens reflections" not in positive
-    assert '"eyewear_present"' not in positive
-    assert positive.startswith("critical eye-area constraint: draw clear bare eyes")
-
-
-def test_prompt_builder_hard_instructs_confirmed_eyewear_present():
-    prompt = build_avatar_prompt(
-        trait_card=PromptAvatarTraitCard(
-            eyewear_present=True,
-            eyewear_style="rectangular",
-            eyewear_confidence="high",
-        ),
-        reference_mode="trait_card_only",
-        candidate_count=1,
-    )
-
-    positive = prompt.positive.lower()
-    assert "eyewear: present" in positive
-    assert "must wear eyewear" in positive
-    assert "do not omit glasses" in positive
-    assert "eyeglass rims" not in positive
-    assert positive.startswith("critical eyewear constraint: the source shows eyewear")
 
 
 def test_florence2_adapter_dry_run_validates_mock_response():

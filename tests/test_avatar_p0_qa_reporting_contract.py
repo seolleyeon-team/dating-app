@@ -152,7 +152,7 @@ def test_uniform_first_round_systemic_unavailable_suppresses_extra_generation():
                 "reviewReasons": ["model_unavailable"],
             },
         )
-        for idx in range(4)
+        for idx in range(2)
     ]
 
     plan = plan_generation_round(candidates, policy=AdaptiveGenerationPolicy())

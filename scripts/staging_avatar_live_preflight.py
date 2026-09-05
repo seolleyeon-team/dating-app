@@ -22,7 +22,7 @@ DEFAULT_WORKER_LOCATION = "asia-southeast1"
 DEFAULT_REPOSITORY = "seolleyeon-repo"
 DEFAULT_ACCOUNT = "seolleyeon.official@gmail.com"
 DEFAULT_HF_TOKEN_ENV_VAR = "AVATAR_WORKER_HF_TOKEN"
-DEFAULT_UPLOAD_FUNCTION = "uploadAvatarSourcePhoto"
+DEFAULT_ADMISSION_FUNCTION = "beginAvatarGenerationFromOnboardingPhotos"
 
 REQUIRED_SERVICES = {
     "artifactregistry.googleapis.com",
@@ -47,7 +47,12 @@ BASE_QUEUES = {"avatar-generation"}
 CLIP_QUEUES = {"clip-embedding"}
 REQUIRED_WORKER_SERVICES = {"seolleyeon-avatar-worker"}
 OPTIONAL_WORKER_SERVICES = {"seolleyeon-clip-worker"}
-REQUIRED_SECRETS: set[str] = set()
+REQUIRED_SECRETS: set[str] = {
+    # Azure 자격증명은 Secret Manager 에만 존재해야 한다. 이 시크릿이 없으면
+    # 워커는 첫 생성에서 azure_provider_configuration_missing_ 로 실패한다.
+    # 값은 여기에도, 배포 스크립트에도 남기지 않는다(참조 이름만).
+    "seolleyeon-avatar-azure-openai-api-key",
+}
 REQUIRED_BUCKETS = {
     "seolleyeon-final-private-source-photos",
     "seolleyeon-final-avatar-temp",
@@ -109,8 +114,6 @@ REQUIRED_AVATAR_WORKER_ENV_KEYS = {
     "AVATAR_REFERENCE_NONFACE_BLUR_RADIUS",
     "AVATAR_SAM_ENABLED",
     "AVATAR_SAM_LOAD_ON_DEMAND",
-    "AVATAR_FLUX_NUM_INFERENCE_STEPS",
-    "AVATAR_FLUX_GUIDANCE_SCALE",
     "AVATAR_INITIAL_CANDIDATE_COUNT",
     "AVATAR_EXTRA_CANDIDATE_COUNT",
     "AVATAR_MIN_SAFE_CANDIDATES_BEFORE_EXTRA",
@@ -132,6 +135,81 @@ REQUIRED_AVATAR_WORKER_ENV_KEYS = {
     "AVATAR_QA_FACE_SIMILARITY_REJECT_THRESHOLD",
 }
 STAGES = {"prepare", "deploy", "live"}
+
+
+def validate_local_avatar_worker_mode(env: Mapping[str, str]) -> None:
+    """Reject stale provider settings before any deployment inspection starts."""
+    configured = str(env.get("AVATAR_WORKER_MODE") or "").strip().lower()
+    if configured and configured not in {"azure", "azure_gpt_image_2"}:
+        raise ValueError(
+            "AVATAR_WORKER_MODE must select the canonical Azure image provider"
+        )
+
+
+def validate_repository_avatar_contract(repo_root: Path) -> list[str]:
+    """Return local release blockers without contacting cloud services."""
+    blockers: list[str] = []
+    required_files = (
+        "functions/src/avatarSourceSetAdmission.ts",
+        "lib/ai_recommend_model/avatar_generation/analysis/avatar_source_quality.py",
+        "lib/ai_recommend_model/avatar_generation/source_selection_runtime.py",
+        "lib/ai_recommend_model/avatar_generation/model_adapters/azure_gpt_image_2.py",
+        "lib/ai_recommend_model/avatar_generation/model_adapters/azure_endpoint_quota.py",
+    )
+    for relative in required_files:
+        if not (repo_root / relative).is_file():
+            blockers.append(f"required_source_missing:{relative}")
+
+    index_source = (repo_root / "functions/src/index.ts").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    if "export const beginAvatarGenerationFromOnboardingPhotos" not in index_source:
+        blockers.append("canonical_admission_export_missing")
+    retired_export = "export const upload" + "AvatarSourcePhoto"
+    if retired_export in index_source:
+        blockers.append("retired_single_photo_admission_exported")
+
+    docker_source = (repo_root / "lib/ai_recommend_model/avatar_generation/Dockerfile").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    for expected in (
+        "AVATAR_WORKER_MODE=azure_gpt_image_2",
+        "AVATAR_INITIAL_CANDIDATE_COUNT=2",
+        "AVATAR_EXTRA_CANDIDATE_COUNT=2",
+        "AVATAR_MAX_TOTAL_CANDIDATES=4",
+        "AVATAR_PREVIEW_COUNT=2",
+        "face_landmarker.task",
+        "blaze_face_full_range.tflite",
+    ):
+        if expected not in docker_source:
+            blockers.append(f"worker_contract_missing:{expected}")
+
+    requirements = (repo_root / "requirements_avatar_worker.txt").read_text(
+        encoding="utf-8", errors="replace"
+    ).lower()
+    if "diffusers" in requirements:
+        blockers.append("retired_generation_dependency_present")
+
+    production_roots = (
+        repo_root / "functions/src",
+        repo_root / "lib/ai_recommend_model/avatar_generation",
+        repo_root / "scripts",
+    )
+    retired_source_mode = "legacy_" + "first_photo"
+    for root in production_roots:
+        for path in root.rglob("*"):
+            if not path.is_file() or path.suffix not in {".ts", ".py", ".sh", ".ps1"}:
+                continue
+            if path.name.endswith(".test.ts") or path.name.startswith("test_"):
+                continue
+            if path.name == Path(__file__).name:
+                continue
+            source = path.read_text(encoding="utf-8", errors="ignore")
+            if retired_source_mode in source:
+                blockers.append(
+                    f"retired_source_selection_mode_present:{path.relative_to(repo_root)}"
+                )
+    return blockers
 
 
 def _gcloud_executable() -> str:
@@ -262,6 +340,10 @@ def build_report(
     upload_function_name: str,
     stage: str,
 ) -> dict[str, Any]:
+    validate_local_avatar_worker_mode(os.environ)
+    repository_blockers = validate_repository_avatar_contract(
+        Path(__file__).resolve().parents[1]
+    )
     if stage not in STAGES:
         raise ValueError(f"stage must be one of {sorted(STAGES)}")
 
@@ -398,6 +480,8 @@ def build_report(
     require_deployed_env_keys = stage == "live"
 
     issues: list[dict[str, str]] = []
+    for blocker in repository_blockers:
+        issues.append(_prefixed_issue("repository_contract_failed", blocker))
     if expected_account and account != expected_account:
         issues.append(_prefixed_issue("account_mismatch", account or "<unset>"))
     if active_project != project:
@@ -517,7 +601,7 @@ def main() -> int:
     parser.add_argument("--repository", default=DEFAULT_REPOSITORY)
     parser.add_argument("--expected_account", default=DEFAULT_ACCOUNT)
     parser.add_argument("--hf_token_env_var", default=DEFAULT_HF_TOKEN_ENV_VAR)
-    parser.add_argument("--upload_function_name", default=DEFAULT_UPLOAD_FUNCTION)
+    parser.add_argument("--upload_function_name", default=DEFAULT_ADMISSION_FUNCTION)
     parser.add_argument(
         "--stage",
         choices=sorted(STAGES),
