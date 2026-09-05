@@ -28,6 +28,7 @@ class StorageService {
       'student_verification_welcome_';
   static const String _onboardingDraftKeyPrefix = 'onboarding_draft_';
   static const String _pendingFriendInviteTokenKey = 'pending_friend_invite';
+  static const String _pendingInvitePurposeKey = 'pending_invite_purpose';
   static const String _eventTeamSetupIdKeyPrefix = 'event_team_setup_id_';
   static const String _pendingLegalConsentsKey = 'pending_legal_consents';
   static const String _pendingAdultVerificationResultKey =
@@ -381,6 +382,19 @@ class StorageService {
   Future<void> clearPendingFriendInviteToken() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_pendingFriendInviteTokenKey);
+    await prefs.remove(_pendingInvitePurposeKey);
+  }
+
+  /// Routing hint only (FRIEND_INVITE / TEAM_INVITE). The server record's
+  /// purpose is re-checked before anything is accepted.
+  Future<void> savePendingInvitePurpose(String purpose) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_pendingInvitePurposeKey, purpose);
+  }
+
+  Future<String?> getPendingInvitePurpose() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_pendingInvitePurposeKey);
   }
 
   Future<void> clearAll() async {

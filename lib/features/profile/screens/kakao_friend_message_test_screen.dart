@@ -120,10 +120,11 @@ class _KakaoFriendMessageTestScreenState
       }
 
       final invite = await KakaoFriendInviteHelper.createKakaoInvitePayload();
-      final result = await _service.sendMeetingInviteMessage(
+      // Kakao 검수용 자가 테스트: 친구 초대 메시지("친구 추가하기")를 보낸다.
+      final result = await _service.sendFriendInviteMessage(
         receiverUuid: friend.uuid,
         inviterName: '설레연 팀원',
-        inviteUrl: Uri.parse(invite.inviteUrl),
+        invite: invite,
       );
       if (!mounted) return;
       setState(() {

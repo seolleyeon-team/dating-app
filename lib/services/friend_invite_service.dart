@@ -10,15 +10,178 @@ import 'auth_service.dart';
 import 'storage_service.dart';
 import '../shared/utils/privacy_log_utils.dart';
 
+// =============================================================================
+// Share-link invitations (friend / 3:3 team)
+//
+// A share link carries ONLY an opaque token plus a routing hint
+// (`target=friend_invite` / `target=team_invite`, or the /invite/friend vs
+// /invite/team path). The hint decides which screen the app opens; the
+// server record's `purpose` (returned by previewInviteToken) decides what the
+// token may do. Nothing in this file mutates the friend graph without an
+// explicit in-app confirmation followed by acceptFriendInvite.
+//
+// AUTH CONTRACT: every callable here requires a Firebase-authenticated
+// canonical app session. There is no Kakao access-token fallback.
+// =============================================================================
+
+/// Routing purpose of a share link. Mirrors the server's invite `purpose`.
+enum InvitePurpose { friend, team }
+
+extension InvitePurposeWire on InvitePurpose {
+  /// Value persisted locally and matched against the server preview.
+  String get wire => switch (this) {
+    InvitePurpose.friend => 'FRIEND_INVITE',
+    InvitePurpose.team => 'TEAM_INVITE',
+  };
+
+  /// Kakao execution-param / custom-scheme `target` value.
+  String get target => switch (this) {
+    InvitePurpose.friend => FriendInviteService.inviteTarget,
+    InvitePurpose.team => FriendInviteService.teamInviteTarget,
+  };
+
+  static InvitePurpose? fromWire(String? raw) {
+    switch (raw) {
+      case 'FRIEND_INVITE':
+        return InvitePurpose.friend;
+      case 'TEAM_INVITE':
+        return InvitePurpose.team;
+      default:
+        return null;
+    }
+  }
+}
+
+/// A share link the app received but has not acted on yet. Only the opaque
+/// token and the routing purpose are kept — never inviter identity.
+class PendingInvite {
+  final String token;
+  final InvitePurpose purpose;
+
+  const PendingInvite({required this.token, required this.purpose});
+
+  @override
+  bool operator ==(Object other) =>
+      other is PendingInvite &&
+      other.token == token &&
+      other.purpose == purpose;
+
+  @override
+  int get hashCode => Object.hash(token, purpose);
+
+  @override
+  String toString() => 'PendingInvite(purpose: ${purpose.name})';
+}
+
+enum InvitePreviewStatus {
+  valid,
+  invalid,
+  expired,
+  used,
+  selfInvite,
+  alreadyFriends,
+}
+
+/// What the confirmation UI shows before any mutation. The [purpose] is the
+/// server's, and is the only value the app routes on after preview.
+class InvitePreview {
+  final InvitePreviewStatus status;
+  final InvitePurpose? purpose;
+  final String? message;
+  final String? inviterUserId;
+  final String? inviterName;
+  final String? inviterImageUrl;
+  final String? teamSetupId;
+
+  const InvitePreview({
+    required this.status,
+    this.purpose,
+    this.message,
+    this.inviterUserId,
+    this.inviterName,
+    this.inviterImageUrl,
+    this.teamSetupId,
+  });
+
+  bool get isValid => status == InvitePreviewStatus.valid;
+
+  factory InvitePreview.fromMap(Map<String, dynamic> data) {
+    final status = switch (data['status']?.toString()) {
+      'valid' => InvitePreviewStatus.valid,
+      'expired' => InvitePreviewStatus.expired,
+      'used' => InvitePreviewStatus.used,
+      'self_invite' => InvitePreviewStatus.selfInvite,
+      'already_friends' => InvitePreviewStatus.alreadyFriends,
+      _ => InvitePreviewStatus.invalid,
+    };
+    return InvitePreview(
+      status: status,
+      purpose: InvitePurposeWire.fromWire(data['purpose']?.toString()),
+      message: data['message']?.toString(),
+      inviterUserId: data['inviterUserId']?.toString(),
+      inviterName: data['inviterName']?.toString(),
+      inviterImageUrl: data['inviterImageUrl']?.toString(),
+      teamSetupId: data['teamSetupId']?.toString(),
+    );
+  }
+
+  String get displayMessage {
+    final m = message?.trim();
+    if (m != null && m.isNotEmpty) return m;
+    return switch (status) {
+      InvitePreviewStatus.valid => '',
+      InvitePreviewStatus.invalid => '유효하지 않은 초대 링크예요.',
+      InvitePreviewStatus.expired => '초대 링크가 만료되었어요.',
+      InvitePreviewStatus.used => '이미 사용된 초대 링크예요.',
+      InvitePreviewStatus.selfInvite => '내가 만든 초대 링크는 사용할 수 없어요.',
+      InvitePreviewStatus.alreadyFriends => '이미 친구로 연결되어 있어요.',
+    };
+  }
+}
+
 enum FriendInviteAcceptStatus {
   accepted,
   alreadyFriends,
   expired,
   invalid,
   selfInvite,
+  blockedRelationship,
   pendingLogin,
   pendingVerification,
   error,
+}
+
+/// Collapses the same invite token arriving through several deep-link
+/// listeners (app_links cold start, app_links stream, and the Kakao SDK scheme
+/// stream all observe one KakaoTalk hand-off) into a single handling.
+///
+/// Pure and injectable so the policy is unit-testable without Firebase.
+class FriendInviteDeepLinkDeduper {
+  FriendInviteDeepLinkDeduper({
+    this.window = const Duration(seconds: 15),
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now;
+
+  final Duration window;
+  final DateTime Function() _now;
+  final Map<String, DateTime> _seenAt = <String, DateTime>{};
+
+  /// Returns true when [token] should be processed, false when the same token
+  /// was already accepted for processing inside [window].
+  bool shouldProcess(String token) {
+    final now = _now();
+    _seenAt.removeWhere((_, seen) => now.difference(seen) > window);
+    final previous = _seenAt[token];
+    if (previous != null) return false;
+    _seenAt[token] = now;
+    return true;
+  }
+
+  /// Forget a token so a later, genuinely new hand-off is processed again
+  /// (used after a non-terminal result such as "login first").
+  void release(String token) {
+    _seenAt.remove(token);
+  }
 }
 
 enum FriendInviteShareSurface { kakaoTalkApp, webSharePage, desktopSharePage }
@@ -35,23 +198,25 @@ class FriendInviteShareResult {
   String get successMessage {
     switch (surface) {
       case FriendInviteShareSurface.kakaoTalkApp:
-        return '\uCE74\uCE74\uC624\uD1A1 \uACF5\uC720 \uD654\uBA74\uC744 \uC5F4\uC5C8\uC5B4\uC694.';
+        return '카카오톡 공유 화면을 열었어요.';
       case FriendInviteShareSurface.webSharePage:
-        return '\uCE74\uCE74\uC624 \uACF5\uC720 \uD398\uC774\uC9C0\uB97C \uC5F4\uC5C8\uC5B4\uC694.';
+        return '카카오 공유 페이지를 열었어요.';
       case FriendInviteShareSurface.desktopSharePage:
         return inviteLinkCopied
-            ? '\uB370\uC2A4\uD06C\uD1B1\uC5D0\uC11C \uCE74\uCE74\uC624 \uACF5\uC720 \uD398\uC774\uC9C0\uB97C \uC5F4\uACE0 \uCD08\uB300 \uB9C1\uD06C\uB97C \uBCF5\uC0AC\uD588\uC5B4\uC694.'
-            : '\uB370\uC2A4\uD06C\uD1B1\uC5D0\uC11C \uCE74\uCE74\uC624 \uACF5\uC720 \uD398\uC774\uC9C0\uB97C \uC5F4\uC5C8\uC5B4\uC694.';
+            ? '데스크톱에서 카카오 공유 페이지를 열고 초대 링크를 복사했어요.'
+            : '데스크톱에서 카카오 공유 페이지를 열었어요.';
     }
   }
 }
 
+/// A server-issued share link (friend or team). The token is opaque.
 class FriendInviteSharePayload {
   final String inviteId;
   final String inviteToken;
   final String inviteUrl;
   final String deepLinkPath;
   final DateTime? expiresAt;
+  final InvitePurpose purpose;
 
   const FriendInviteSharePayload({
     required this.inviteId,
@@ -59,15 +224,22 @@ class FriendInviteSharePayload {
     required this.inviteUrl,
     required this.deepLinkPath,
     required this.expiresAt,
+    this.purpose = InvitePurpose.friend,
   });
 
-  factory FriendInviteSharePayload.fromMap(Map<String, dynamic> data) {
+  factory FriendInviteSharePayload.fromMap(
+    Map<String, dynamic> data, {
+    InvitePurpose fallbackPurpose = InvitePurpose.friend,
+  }) {
     return FriendInviteSharePayload(
       inviteId: data['inviteId']?.toString() ?? '',
       inviteToken: data['inviteToken']?.toString() ?? '',
       inviteUrl: data['inviteUrl']?.toString() ?? '',
       deepLinkPath: data['deepLinkPath']?.toString() ?? '/invite/friend',
       expiresAt: DateTime.tryParse(data['expiresAt']?.toString() ?? ''),
+      purpose:
+          InvitePurposeWire.fromWire(data['purpose']?.toString()) ??
+          fallbackPurpose,
     );
   }
 }
@@ -105,26 +277,110 @@ class FriendInviteAcceptResult {
       case FriendInviteAcceptStatus.accepted:
         final name = otherUserName?.trim();
         return (name != null && name.isNotEmpty)
-            ? '$name\uACFC \uCE5C\uAD6C\uAC00 \uB418\uC5C8\uC5B4\uC694.'
-            : '\uCE5C\uAD6C\uAC00 \uCD94\uAC00\uB418\uC5C8\uC5B4\uC694.';
+            ? '$name과 친구가 되었어요.'
+            : '친구가 추가되었어요.';
       case FriendInviteAcceptStatus.alreadyFriends:
         final name = otherUserName?.trim();
         return (name != null && name.isNotEmpty)
-            ? '$name\uB2D8\uACFC \uC774\uBBF8 \uCE5C\uAD6C\uC608\uC694.'
-            : '\uC774\uBBF8 \uCE5C\uAD6C\uB85C \uC5F0\uACB0\uB418\uC5B4 \uC788\uC5B4\uC694.';
+            ? '$name님과 이미 친구예요.'
+            : '이미 친구로 연결되어 있어요.';
       case FriendInviteAcceptStatus.expired:
-        return '\uCE5C\uAD6C \uCD08\uB300 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB418\uC5C8\uC5B4\uC694.';
+        return '친구 초대 링크가 만료되었어요.';
       case FriendInviteAcceptStatus.invalid:
-        return '\uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 \uCE5C\uAD6C \uCD08\uB300 \uB9C1\uD06C\uC608\uC694.';
+        return '유효하지 않은 친구 초대 링크예요.';
       case FriendInviteAcceptStatus.selfInvite:
-        return '\uB0B4\uAC00 \uB9CC\uB4E0 \uCD08\uB300 \uB9C1\uD06C\uB85C\uB294 \uCE5C\uAD6C\uB97C \uCD94\uAC00\uD560 \uC218 \uC5C6\uC5B4\uC694.';
+        return '내가 만든 초대 링크로는 친구를 추가할 수 없어요.';
+      case FriendInviteAcceptStatus.blockedRelationship:
+        return '지금은 이 사용자와 친구를 맺을 수 없어요.';
       case FriendInviteAcceptStatus.pendingLogin:
-        return '\uB85C\uADF8\uC778\uD558\uBA74 \uC790\uB3D9\uC73C\uB85C \uCE5C\uAD6C \uCD94\uAC00\uB97C \uC774\uC5B4\uC11C \uC9C4\uD589\uD560\uAC8C\uC694.';
+        return '로그인하면 친구 초대를 이어서 확인할 수 있어요.';
       case FriendInviteAcceptStatus.pendingVerification:
-        return '\uD559\uAD50 \uC774\uBA54\uC77C \uC778\uC99D\uC744 \uB9C8\uCE58\uBA74 \uC790\uB3D9\uC73C\uB85C \uCE5C\uAD6C \uCD94\uAC00\uB97C \uC774\uC5B4\uC11C \uC9C4\uD589\uD560\uAC8C\uC694.';
+        return '학교 이메일 인증을 마치면 친구 초대를 이어서 확인할 수 있어요.';
       case FriendInviteAcceptStatus.error:
-        return '\uCE5C\uAD6C \uCD08\uB300\uB97C \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.';
+        return '친구 초대를 처리하지 못했어요. 잠시 후 다시 시도해주세요.';
     }
+  }
+}
+
+enum TeamInviteRedeemStatus {
+  invited,
+  alreadyInvited,
+  alreadyMember,
+  notFriends,
+  teamFull,
+  teamMissing,
+  expired,
+  invalid,
+  selfInvite,
+  blocked,
+  error,
+}
+
+class TeamInviteRedeemResult {
+  final TeamInviteRedeemStatus status;
+  final String? teamInviteId;
+  final String? teamSetupId;
+  final String? inviterName;
+  final String? message;
+
+  const TeamInviteRedeemResult({
+    required this.status,
+    this.teamInviteId,
+    this.teamSetupId,
+    this.inviterName,
+    this.message,
+  });
+
+  /// The canonical team invitation exists; open the existing response screen.
+  bool get opensResponseScreen =>
+      (status == TeamInviteRedeemStatus.invited ||
+          status == TeamInviteRedeemStatus.alreadyInvited) &&
+      (teamInviteId?.isNotEmpty ?? false);
+
+  bool get isTerminal => status != TeamInviteRedeemStatus.error;
+
+  factory TeamInviteRedeemResult.fromMap(Map<String, dynamic> data) {
+    final status = switch (data['status']?.toString()) {
+      'invited' => TeamInviteRedeemStatus.invited,
+      'already_invited' => TeamInviteRedeemStatus.alreadyInvited,
+      'already_member' => TeamInviteRedeemStatus.alreadyMember,
+      'not_friends' => TeamInviteRedeemStatus.notFriends,
+      'team_full' => TeamInviteRedeemStatus.teamFull,
+      'team_missing' => TeamInviteRedeemStatus.teamMissing,
+      'expired' => TeamInviteRedeemStatus.expired,
+      'invalid' => TeamInviteRedeemStatus.invalid,
+      'self_invite' => TeamInviteRedeemStatus.selfInvite,
+      'blocked' => TeamInviteRedeemStatus.blocked,
+      _ => TeamInviteRedeemStatus.error,
+    };
+    return TeamInviteRedeemResult(
+      status: status,
+      teamInviteId: data['teamInviteId']?.toString(),
+      teamSetupId: data['teamSetupId']?.toString(),
+      inviterName: data['inviterName']?.toString(),
+      message: data['message']?.toString(),
+    );
+  }
+
+  String get displayMessage {
+    final m = message?.trim();
+    if (m != null && m.isNotEmpty) return m;
+    final name = inviterName?.trim();
+    return switch (status) {
+      TeamInviteRedeemStatus.invited || TeamInviteRedeemStatus.alreadyInvited =>
+        (name != null && name.isNotEmpty)
+            ? '$name님의 3:3 팀 초대를 확인해주세요.'
+            : '3:3 팀 초대를 확인해주세요.',
+      TeamInviteRedeemStatus.alreadyMember => '이미 이 팀에 참여하고 있어요.',
+      TeamInviteRedeemStatus.notFriends => '먼저 초대한 사람과 친구로 연결되어야 팀에 참여할 수 있어요.',
+      TeamInviteRedeemStatus.teamFull => '팀 정원이 찼어요.',
+      TeamInviteRedeemStatus.teamMissing => '팀 정보를 찾을 수 없어요.',
+      TeamInviteRedeemStatus.expired => '3:3 팀 초대 링크가 만료되었어요.',
+      TeamInviteRedeemStatus.invalid => '유효하지 않은 3:3 팀 초대 링크예요.',
+      TeamInviteRedeemStatus.selfInvite => '내가 만든 초대 링크는 사용할 수 없어요.',
+      TeamInviteRedeemStatus.blocked => '지금은 이 사용자와 함께할 수 없어요.',
+      TeamInviteRedeemStatus.error => '팀 초대를 처리하지 못했어요. 잠시 후 다시 시도해주세요.',
+    };
   }
 }
 
@@ -139,10 +395,23 @@ class FriendInviteService {
        _authService = authService ?? AuthService();
 
   static const String _functionsRegion = 'asia-northeast3';
-  static const String inviteWebHost = 'seolleyeon-final.web.app';
+
+  /// Production custom domain of the Firebase Hosting site. Must match
+  /// `FRIEND_INVITE_HOST` in functions/src/friendInvites.ts, the Android App
+  /// Link intent-filters, and the iOS associated domain.
+  static const String inviteWebHost = 'seolleyeon.com';
+
+  /// Hosts that previously issued invite links resolve on. Still recognised so
+  /// links shared before the domain switch keep working.
+  static const Set<String> legacyInviteWebHosts = {'seolleyeon-final.web.app'};
   static const String inviteWebPath = '/invite/friend';
+  static const String teamInviteWebPath = '/invite/team';
   static const String inviteScheme = 'seolleyeon';
   static const String inviteTarget = 'friend_invite';
+  static const String teamInviteTarget = 'team_invite';
+  static const String kakaoLinkHost = 'kakaolink';
+  static const String kakaoButtonTitle = '친구 추가하기';
+  static const String kakaoTeamButtonTitle = '3:3 미팅 참여하기';
 
   final FirebaseFunctions _functions;
   final StorageService _storageService;
@@ -154,125 +423,221 @@ class FriendInviteService {
           defaultTargetPlatform == TargetPlatform.macOS ||
           defaultTargetPlatform == TargetPlatform.linux);
 
+  // ---------------------------------------------------------------------------
+  // Kakao link / template builders (the only place a Kakao `Link` is built)
+  // ---------------------------------------------------------------------------
+
+  /// A Kakao `Link` for a share invite. The execution params make KakaoTalk
+  /// launch the installed app through
+  /// `kakao{NATIVE_APP_KEY}://kakaolink?target=<purpose>&token=...`; the web
+  /// URLs are the fallback for devices without the app.
+  static Link buildKakaoInviteLink(FriendInviteSharePayload payload) {
+    return buildKakaoInviteLinkForUrl(
+      Uri.parse(payload.inviteUrl),
+      token: payload.inviteToken,
+      purpose: payload.purpose,
+    );
+  }
+
+  /// Same as [buildKakaoInviteLink] for callers that only hold the URL
+  /// (Kakao Message API). The token and purpose are read back from the URL
+  /// when omitted.
+  static Link buildKakaoInviteLinkForUrl(
+    Uri inviteUri, {
+    String? token,
+    InvitePurpose? purpose,
+  }) {
+    final resolvedToken = (token != null && token.trim().isNotEmpty)
+        ? token.trim()
+        : _extractInviteTokenFromUri(inviteUri);
+    if (resolvedToken == null || resolvedToken.isEmpty) {
+      throw ArgumentError('invite link without a token');
+    }
+    final resolvedPurpose = purpose ?? _purposeFromPath(inviteUri.path);
+    if (resolvedPurpose == null) {
+      throw ArgumentError('invite link without a recognised purpose path');
+    }
+    final executionParams = <String, String>{
+      'target': resolvedPurpose.target,
+      'token': resolvedToken,
+    };
+    return Link(
+      webUrl: inviteUri,
+      mobileWebUrl: inviteUri,
+      androidExecutionParams: executionParams,
+      iosExecutionParams: executionParams,
+    );
+  }
+
+  /// A Kakao link that is NOT an invite (e.g. Message API self-test).
+  static Link buildPlainKakaoLink(Uri uri) {
+    return Link(webUrl: uri, mobileWebUrl: uri);
+  }
+
+  /// The KakaoTalk friend-invite message. The "친구 추가하기" button always
+  /// points at a unique FRIEND_INVITE token.
+  static TextTemplate buildKakaoInviteTemplate({
+    required FriendInviteSharePayload payload,
+    required String inviterName,
+  }) {
+    if (payload.purpose != InvitePurpose.friend) {
+      throw ArgumentError('friend template requires a FRIEND_INVITE payload');
+    }
+    final link = buildKakaoInviteLink(payload);
+    return TextTemplate(
+      text: '설레연에서 친구 추가하기\n${_shareDisplayName(inviterName)}님이 친구로 초대했어요.',
+      link: link,
+      buttons: [Button(title: kakaoButtonTitle, link: link)],
+      buttonTitle: kakaoButtonTitle,
+    );
+  }
+
+  /// The KakaoTalk 3:3 team message. The "3:3 미팅 참여하기" button always
+  /// points at a unique TEAM_INVITE token — never at a friend invite.
+  static TextTemplate buildKakaoTeamInviteTemplate({
+    required FriendInviteSharePayload payload,
+    required String inviterName,
+  }) {
+    if (payload.purpose != InvitePurpose.team) {
+      throw ArgumentError('team template requires a TEAM_INVITE payload');
+    }
+    final link = buildKakaoInviteLink(payload);
+    return TextTemplate(
+      text: '${_shareDisplayName(inviterName)}님이 설레연 3:3 미팅 팀에 함께 참여하자고 초대했어요.',
+      link: link,
+      buttons: [Button(title: kakaoTeamButtonTitle, link: link)],
+      buttonTitle: kakaoTeamButtonTitle,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Issue
+  // ---------------------------------------------------------------------------
+
   Future<FriendInviteSharePayload> createFriendInvite() async {
+    return _createInvite(
+      callableName: 'createFriendInvite',
+      data: const {'shareChannel': 'kakaotalk'},
+      purpose: InvitePurpose.friend,
+      logTag: 'createFriendInvite',
+    );
+  }
+
+  /// Leader-only 3:3 team share link (server-validated).
+  Future<FriendInviteSharePayload> createTeamShareInvite({
+    required String teamSetupId,
+  }) async {
+    return _createInvite(
+      callableName: 'createEventTeamShareInvite',
+      data: {'teamSetupId': teamSetupId, 'shareChannel': 'kakaotalk'},
+      purpose: InvitePurpose.team,
+      logTag: 'createTeamShareInvite',
+    );
+  }
+
+  Future<FriendInviteSharePayload> _createInvite({
+    required String callableName,
+    required Map<String, dynamic> data,
+    required InvitePurpose purpose,
+    required String logTag,
+  }) async {
     try {
-      debugPrint('[FriendInvite] createFriendInvite start');
-      final kakaoUserId = await _storageService.getKakaoUserId();
-      if (kakaoUserId == null || kakaoUserId.isEmpty) {
-        throw Exception('\uB85C\uADF8\uC778\uC774 \uD544\uC694\uD574\uC694.');
-      }
+      debugPrint('[FriendInvite] $logTag start');
+      await _requireCanonicalSession();
 
-      final hasFirebaseSession = await _authService.ensureCanonicalAppSession();
-
-      final kakaoAccessToken = FirebaseAuth.instance.currentUser == null
-          ? await _authService.getKakaoAccessTokenForFunctions()
-          : null;
-
-      final Map<String, dynamic> callData = {'shareChannel': 'kakaotalk'};
-      if (kakaoAccessToken != null && kakaoAccessToken.isNotEmpty) {
-        callData['kakaoAccessToken'] = kakaoAccessToken;
-      }
-
-      debugPrint(
-        '[FriendInvite] createFriendInvite auth '
-        'firebaseAttached=$hasFirebaseSession '
-        '${PrivacyLogUtils.idFingerprint(FirebaseAuth.instance.currentUser?.uid)} '
-        'hasKakaoAccessToken=${kakaoAccessToken != null && kakaoAccessToken.isNotEmpty}',
-      );
-
-      if (FirebaseAuth.instance.currentUser == null &&
-          (kakaoAccessToken == null || kakaoAccessToken.isEmpty)) {
-        if (kIsWeb) {
-          throw Exception(
-            '\uCE74\uCE74\uC624 \uB85C\uADF8\uC778\uC774 \uB9CC\uB8CC\uB418\uC5C8\uC5B4\uC694. \uBE0C\uB77C\uC6B0\uC800\uC5D0\uC11C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC5F0\uC138 \uBA54\uC77C \uC778\uC99D\uAE4C\uC9C0 \uC644\uB8CC\uD55C \uB2E4\uC74C \uCE5C\uAD6C \uCD08\uB300\uB97C \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.',
-          );
-        }
-
-        throw Exception(
-          '\uB85C\uADF8\uC778\uC774 \uD544\uC694\uD574\uC694. \uCE74\uCE74\uC624 \uB85C\uADF8\uC778 \uD6C4 \uC5F0\uC138 \uC774\uBA54\uC77C \uC778\uC99D\uC744 \uC644\uB8CC\uD574\uC8FC\uC138\uC694.',
-        );
-      }
-
-      final callable = _functions.httpsCallable('createFriendInvite');
-      final result = await callable.call(callData);
-      final data = Map<String, dynamic>.from(
+      final callable = _functions.httpsCallable(callableName);
+      final result = await callable.call(data);
+      final map = Map<String, dynamic>.from(
         (result.data as Map?)?.cast<String, dynamic>() ?? const {},
       );
-      final payload = FriendInviteSharePayload.fromMap(data);
+      final payload = FriendInviteSharePayload.fromMap(
+        map,
+        fallbackPurpose: purpose,
+      );
 
       if (payload.inviteId.isEmpty ||
           payload.inviteToken.isEmpty ||
-          payload.inviteUrl.isEmpty) {
-        throw Exception(
-          '\uCE5C\uAD6C \uCD08\uB300 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544\uC694.',
-        );
+          payload.inviteUrl.isEmpty ||
+          payload.purpose != purpose) {
+        throw Exception('초대 응답이 올바르지 않아요.');
       }
 
       debugPrint(
-        '[FriendInvite] createFriendInvite success '
+        '[FriendInvite] $logTag success '
         '${PrivacyLogUtils.idFingerprint(payload.inviteId)} '
         '${PrivacyLogUtils.pathFingerprint(payload.inviteUrl)}',
       );
       return payload;
     } on FirebaseFunctionsException catch (e) {
-      debugPrint(
-        '[FriendInvite] createFriendInvite ${PrivacyLogUtils.errorSummary(e)}',
-      );
-
+      debugPrint('[FriendInvite] $logTag ${PrivacyLogUtils.errorSummary(e)}');
       throw Exception(_functionsErrorMessage(e));
     } catch (e) {
-      debugPrint(
-        '[FriendInvite] createFriendInvite ${PrivacyLogUtils.errorSummary(e)}',
-      );
-
-      throw Exception(
-        '\uCE5C\uAD6C \uCD08\uB300 \uB9C1\uD06C\uB97C \uB9CC\uB4E4\uC9C0 \uBABB\uD588\uC5B4\uC694: $e',
-      );
+      debugPrint('[FriendInvite] $logTag ${PrivacyLogUtils.errorSummary(e)}');
+      throw Exception('초대 링크를 만들지 못했어요: $e');
     }
   }
+
+  /// Every invite callable needs the Firebase canonical session. A cached
+  /// local id or a Kakao SDK session is NOT enough (and is never sent).
+  Future<void> _requireCanonicalSession() async {
+    final appUserId = await _storageService.getAppUserId();
+    if (appUserId == null || appUserId.isEmpty) {
+      throw Exception('로그인이 필요해요.');
+    }
+    final attached = await _authService.ensureCanonicalAppSession();
+    debugPrint(
+      '[FriendInvite] canonical session attached=$attached '
+      '${PrivacyLogUtils.idFingerprint(FirebaseAuth.instance.currentUser?.uid)}',
+    );
+    if (FirebaseAuth.instance.currentUser == null) {
+      throw Exception('로그인이 필요해요. 연세 메일 로그인 후 다시 시도해주세요.');
+    }
+  }
+
+  bool get hasCanonicalFirebaseSession =>
+      FirebaseAuth.instance.currentUser != null;
+
+  // ---------------------------------------------------------------------------
+  // Share
+  // ---------------------------------------------------------------------------
 
   Future<FriendInviteShareResult> shareInviteViaKakao({
     required FriendInviteSharePayload payload,
     required String inviterName,
-  }) async {
-    final inviteUri = Uri.parse(payload.inviteUrl);
-    debugPrint(
-      '[FriendInvite] share target ${PrivacyLogUtils.pathFingerprint(inviteUri.toString())}',
+  }) {
+    final template = payload.purpose == InvitePurpose.team
+        ? buildKakaoTeamInviteTemplate(
+            payload: payload,
+            inviterName: inviterName,
+          )
+        : buildKakaoInviteTemplate(payload: payload, inviterName: inviterName);
+    return shareTemplateViaKakao(
+      template: template,
+      inviteUrl: payload.inviteUrl,
     );
+  }
 
-    final link = Link(webUrl: inviteUri, mobileWebUrl: inviteUri);
-
-    final template = TextTemplate(
-      text:
-          '\uC124\uB808\uC5F0\uC5D0\uC11C \uCE5C\uAD6C \uCD94\uAC00\uD558\uAE30\n${_shareDisplayName(inviterName)}\uB2D8\uC774 \uCE5C\uAD6C\uB85C \uCD08\uB300\uD588\uC5B4\uC694.',
-      link: link,
-      buttons: [
-        Button(title: '\uCE5C\uAD6C \uCD94\uAC00\uD558\uAE30', link: link),
-      ],
-      buttonTitle: '\uCE5C\uAD6C \uCD94\uAC00\uD558\uAE30',
+  Future<FriendInviteShareResult> shareTemplateViaKakao({
+    required TextTemplate template,
+    required String inviteUrl,
+  }) async {
+    debugPrint(
+      '[FriendInvite] share target ${PrivacyLogUtils.pathFingerprint(inviteUrl)}',
     );
 
     try {
       debugPrint(
-        "[FriendInvite] shareInviteViaKakao start platform=${kIsWeb ? 'web' : 'native'} "
-        "${PrivacyLogUtils.pathFingerprint(payload.inviteUrl)}",
+        "[FriendInvite] shareTemplateViaKakao start platform=${kIsWeb ? 'web' : 'native'}",
       );
 
       if (kIsWeb) {
         final sharerUri = await WebSharerClient.instance.makeDefaultUrl(
           template: template,
         );
-        debugPrint(
-          '[FriendInvite] web sharer ${PrivacyLogUtils.pathFingerprint(sharerUri.toString())}',
-        );
-
         final launched = await launchUrl(sharerUri, webOnlyWindowName: '_self');
         if (!launched) {
-          throw Exception(
-            '\uCE74\uCE74\uC624 \uACF5\uC720 \uD398\uC774\uC9C0\uB97C \uC5F4\uC9C0 \uBABB\uD588\uC5B4\uC694.',
-          );
+          throw Exception('카카오 공유 페이지를 열지 못했어요.');
         }
-
         return const FriendInviteShareResult(
           surface: FriendInviteShareSurface.webSharePage,
         );
@@ -282,21 +647,14 @@ class FriendInviteService {
         final sharerUri = await WebSharerClient.instance.makeDefaultUrl(
           template: template,
         );
-        debugPrint(
-          '[FriendInvite] desktop sharer ${PrivacyLogUtils.pathFingerprint(sharerUri.toString())}',
-        );
-
-        await Clipboard.setData(ClipboardData(text: payload.inviteUrl));
+        await Clipboard.setData(ClipboardData(text: inviteUrl));
         final launched = await launchUrl(
           sharerUri,
           mode: LaunchMode.externalApplication,
         );
         if (!launched) {
-          throw Exception(
-            '\uB370\uC2A4\uD06C\uD1B1\uC5D0\uC11C \uCE74\uCE74\uC624 \uACF5\uC720 \uD398\uC774\uC9C0\uB97C \uC5F4\uC9C0 \uBABB\uD588\uC5B4\uC694.',
-          );
+          throw Exception('데스크톱에서 카카오 공유 페이지를 열지 못했어요.');
         }
-
         return const FriendInviteShareResult(
           surface: FriendInviteShareSurface.desktopSharePage,
           inviteLinkCopied: true,
@@ -311,11 +669,7 @@ class FriendInviteService {
         final sharingUri = await ShareClient.instance.shareDefault(
           template: template,
         );
-        debugPrint(
-          '[FriendInvite] launchKakaoTalk ${PrivacyLogUtils.pathFingerprint(sharingUri.toString())}',
-        );
         await ShareClient.instance.launchKakaoTalk(sharingUri);
-
         return const FriendInviteShareResult(
           surface: FriendInviteShareSurface.kakaoTalkApp,
         );
@@ -324,71 +678,113 @@ class FriendInviteService {
       final sharerUri = await WebSharerClient.instance.makeDefaultUrl(
         template: template,
       );
-      debugPrint(
-        '[FriendInvite] native fallback ${PrivacyLogUtils.pathFingerprint(sharerUri.toString())}',
-      );
-
       final launched = await launchUrl(
         sharerUri,
         mode: LaunchMode.externalApplication,
       );
       if (!launched) {
-        throw Exception(
-          '\uCE74\uCE74\uC624 \uACF5\uC720 \uD398\uC774\uC9C0\uB97C \uC5F4\uC9C0 \uBABB\uD588\uC5B4\uC694.',
-        );
+        throw Exception('카카오 공유 페이지를 열지 못했어요.');
       }
-
       return const FriendInviteShareResult(
         surface: FriendInviteShareSurface.webSharePage,
       );
     } catch (e) {
       debugPrint(
-        '[FriendInvite] shareInviteViaKakao ${PrivacyLogUtils.errorSummary(e)}',
+        '[FriendInvite] shareTemplateViaKakao ${PrivacyLogUtils.errorSummary(e)}',
       );
-
-      throw Exception(
-        '\uCE74\uCE74\uC624\uD1A1 \uACF5\uC720\uB97C \uC2E4\uD589\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694: $e',
-      );
+      throw Exception('카카오톡 공유를 실행하지 못했어요: $e');
     }
   }
 
-  bool isFriendInviteUri(Uri uri) {
-    final token = extractInviteToken(uri);
-    if (token == null || token.isEmpty) {
-      return false;
-    }
+  // ---------------------------------------------------------------------------
+  // Incoming link classification (routing hints only — never authorization)
+  // ---------------------------------------------------------------------------
+
+  /// Parses an incoming URI into a [PendingInvite], or null when the URI is
+  /// not a share invite. Unknown `target` values fail closed.
+  static PendingInvite? parseInviteUri(Uri uri) {
+    final token = _extractInviteTokenFromUri(uri);
+    if (token == null || token.isEmpty) return null;
 
     final normalizedPath = uri.path.toLowerCase();
     final normalizedHost = uri.host.toLowerCase();
+    final scheme = uri.scheme.toLowerCase();
+    final target = uri.queryParameters['target'];
+    final purposeFromTarget = _purposeFromTarget(target);
 
-    if (uri.queryParameters['target'] == inviteTarget) {
-      return true;
+    // Kakao execution params: kakao{key}://kakaolink?target=...&token=...
+    if (normalizedHost == kakaoLinkHost && scheme.startsWith('kakao')) {
+      return purposeFromTarget == null
+          ? null
+          : PendingInvite(token: token, purpose: purposeFromTarget);
     }
 
-    if (normalizedHost == 'kakaolink' &&
-        uri.scheme.toLowerCase().startsWith('kakao')) {
-      return true;
-    }
-
-    if (uri.scheme == inviteScheme) {
-      if (normalizedHost == 'invite' && normalizedPath == '/friend') {
-        return true;
+    // Landing-page custom scheme: seolleyeon://invite/friend | /team
+    if (scheme == inviteScheme) {
+      InvitePurpose? purposeFromPath;
+      if (normalizedHost == 'invite') {
+        purposeFromPath = switch (normalizedPath) {
+          '/friend' => InvitePurpose.friend,
+          '/team' => InvitePurpose.team,
+          _ => null,
+        };
+      } else {
+        purposeFromPath = _purposeFromPath(normalizedPath);
       }
-      return normalizedPath == inviteWebPath;
+      return _resolvePurpose(token, purposeFromPath, purposeFromTarget);
     }
 
+    // HTTPS App Link / Universal Link on the production or legacy host.
     final isWebLink =
-        (uri.scheme == 'https' || uri.scheme == 'http') &&
-        normalizedHost == inviteWebHost;
-    if (!isWebLink) {
-      return false;
-    }
+        (scheme == 'https' || scheme == 'http') &&
+        (normalizedHost == inviteWebHost ||
+            legacyInviteWebHosts.contains(normalizedHost));
+    if (!isWebLink) return null;
 
-    return normalizedPath == inviteWebPath ||
-        normalizedPath.startsWith('$inviteWebPath/');
+    return _resolvePurpose(
+      token,
+      _purposeFromPath(normalizedPath),
+      purposeFromTarget,
+    );
   }
 
-  String? extractInviteToken(Uri uri) {
+  static PendingInvite? _resolvePurpose(
+    String token,
+    InvitePurpose? fromPath,
+    InvitePurpose? fromTarget,
+  ) {
+    if (fromPath == null) return null;
+    // A target that contradicts the path is a tampered link: fail closed.
+    if (fromTarget != null && fromTarget != fromPath) return null;
+    return PendingInvite(token: token, purpose: fromPath);
+  }
+
+  static InvitePurpose? _purposeFromTarget(String? target) {
+    return switch (target) {
+      inviteTarget => InvitePurpose.friend,
+      teamInviteTarget => InvitePurpose.team,
+      _ => null,
+    };
+  }
+
+  static InvitePurpose? _purposeFromPath(String path) {
+    final p = path.toLowerCase();
+    if (p == inviteWebPath || p.startsWith('$inviteWebPath/')) {
+      return InvitePurpose.friend;
+    }
+    if (p == teamInviteWebPath || p.startsWith('$teamInviteWebPath/')) {
+      return InvitePurpose.team;
+    }
+    return null;
+  }
+
+  /// Convenience for callers that only need to know "is this any invite".
+  static bool matchesInviteUri(Uri uri) => parseInviteUri(uri) != null;
+
+  /// Pure token reader shared by the deep-link handlers and tests.
+  static String? readInviteToken(Uri uri) => _extractInviteTokenFromUri(uri);
+
+  static String? _extractInviteTokenFromUri(Uri uri) {
     var token = uri.queryParameters['token']?.trim();
     if (token != null && token.isNotEmpty) {
       return token;
@@ -407,89 +803,78 @@ class FriendInviteService {
     return null;
   }
 
-  Future<void> savePendingInviteToken(String token) async {
-    await _storageService.savePendingFriendInviteToken(token);
+  // ---------------------------------------------------------------------------
+  // Pending invite persistence (token + purpose only; no personal data)
+  // ---------------------------------------------------------------------------
+
+  Future<void> savePendingInvite(PendingInvite invite) async {
+    await _storageService.savePendingFriendInviteToken(invite.token);
+    await _storageService.savePendingInvitePurpose(invite.purpose.wire);
   }
 
-  Future<String?> getPendingInviteToken() async {
-    return _storageService.getPendingFriendInviteToken();
+  Future<PendingInvite?> getPendingInvite() async {
+    final token = await _storageService.getPendingFriendInviteToken();
+    if (token == null || token.trim().isEmpty) return null;
+    final purpose =
+        InvitePurposeWire.fromWire(
+          await _storageService.getPendingInvitePurpose(),
+        ) ??
+        InvitePurpose.friend;
+    return PendingInvite(token: token.trim(), purpose: purpose);
   }
 
-  Future<void> clearPendingInviteToken() async {
+  Future<void> clearPendingInvite() async {
     await _storageService.clearPendingFriendInviteToken();
   }
 
-  Future<FriendInviteAcceptResult?> processPendingInviteIfPossible() async {
-    final token = await getPendingInviteToken();
-    debugPrint(
-      '[FriendInvite] processPendingInviteIfPossible tokenExists=${token != null && token.trim().isNotEmpty}',
-    );
+  // ---------------------------------------------------------------------------
+  // Server calls (Firebase canonical auth only)
+  // ---------------------------------------------------------------------------
 
-    if (token == null || token.trim().isEmpty) {
-      return null;
-    }
-
-    final kakaoUserId = await _storageService.getKakaoUserId();
-    debugPrint(
-      '[FriendInvite] processPendingInviteIfPossible '
-      '${PrivacyLogUtils.idFingerprint(kakaoUserId)}',
-    );
-
-    if (kakaoUserId == null || kakaoUserId.isEmpty) {
-      return const FriendInviteAcceptResult(
-        status: FriendInviteAcceptStatus.pendingLogin,
+  /// Read-only. Returns the server's purpose and the inviter's display info
+  /// for the confirmation step. Never consumes the token.
+  Future<InvitePreview> previewInvite(String rawToken) async {
+    try {
+      final callable = _functions.httpsCallable('previewInviteToken');
+      final result = await callable.call({'token': rawToken});
+      final data = Map<String, dynamic>.from(
+        (result.data as Map?)?.cast<String, dynamic>() ?? const {},
       );
+      final preview = InvitePreview.fromMap(data);
+      debugPrint(
+        '[FriendInvite] preview status=${preview.status} purpose=${preview.purpose}',
+      );
+      return preview;
+    } on FirebaseFunctionsException catch (e) {
+      // Rethrown on purpose: a transport / deployment failure (unavailable,
+      // deadline-exceeded, not-found, internal …) is NOT an invalid invite.
+      // Only a status the server actually returned may retire the token;
+      // the caller keeps it pending otherwise.
+      debugPrint('[FriendInvite] preview ${PrivacyLogUtils.errorSummary(e)}');
+      rethrow;
     }
-
-    await _authService.ensureCanonicalAppSession();
-
-    final result = await acceptFriendInvite(token);
-    debugPrint(
-      '[FriendInvite] processPendingInviteIfPossible result=${result.status}',
-    );
-
-    if (result.isTerminal) {
-      await clearPendingInviteToken();
-    }
-
-    return result;
   }
 
+  /// User-facing text for a callable failure surfaced by [previewInvite].
+  String describeFunctionsError(FirebaseFunctionsException error) =>
+      _functionsErrorMessage(error);
+
+  /// Consumes a FRIEND_INVITE token. Call ONLY after the user explicitly
+  /// confirmed in the app (see FriendInviteConfirmationSheet).
   Future<FriendInviteAcceptResult> acceptFriendInvite(String rawToken) async {
     try {
       debugPrint('[FriendInvite] acceptFriendInvite start');
-
-      final kakaoUserId = await _storageService.getKakaoUserId();
-      if (kakaoUserId != null && kakaoUserId.isNotEmpty) {
+      if (!hasCanonicalFirebaseSession) {
         await _authService.ensureCanonicalAppSession();
       }
-
-      final kakaoAccessToken = FirebaseAuth.instance.currentUser == null
-          ? await _authService.getKakaoAccessTokenForFunctions()
-          : null;
-
-      final Map<String, dynamic> callData = {'token': rawToken};
-      if (kakaoAccessToken != null && kakaoAccessToken.isNotEmpty) {
-        callData['kakaoAccessToken'] = kakaoAccessToken;
-      }
-
-      debugPrint(
-        '[FriendInvite] acceptFriendInvite auth '
-        '${PrivacyLogUtils.idFingerprint(FirebaseAuth.instance.currentUser?.uid)} '
-        'hasKakaoAccessToken=${kakaoAccessToken != null && kakaoAccessToken.isNotEmpty}',
-      );
-
-      if (FirebaseAuth.instance.currentUser == null &&
-          (kakaoAccessToken == null || kakaoAccessToken.isEmpty)) {
+      if (!hasCanonicalFirebaseSession) {
         return const FriendInviteAcceptResult(
-          status: FriendInviteAcceptStatus.pendingVerification,
-          message:
-              '\uCE74\uCE74\uC624 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD574\uC694.',
+          status: FriendInviteAcceptStatus.pendingLogin,
         );
       }
 
       final callable = _functions.httpsCallable('acceptFriendInvite');
-      final result = await callable.call(callData);
+      final result = await callable.call({'token': rawToken});
       final data = Map<String, dynamic>.from(
         (result.data as Map?)?.cast<String, dynamic>() ?? const {},
       );
@@ -503,9 +888,10 @@ class FriendInviteService {
         '[FriendInvite] acceptFriendInvite ${PrivacyLogUtils.errorSummary(e)}',
       );
 
-      if (e.code == 'unauthenticated') {
-        return const FriendInviteAcceptResult(
+      if (e.code == 'unauthenticated' || e.code == 'failed-precondition') {
+        return FriendInviteAcceptResult(
           status: FriendInviteAcceptStatus.pendingVerification,
+          message: _functionsErrorMessage(e),
         );
       }
 
@@ -517,11 +903,42 @@ class FriendInviteService {
       debugPrint(
         '[FriendInvite] acceptFriendInvite ${PrivacyLogUtils.errorSummary(e)}',
       );
-
       return FriendInviteAcceptResult(
         status: FriendInviteAcceptStatus.error,
-        message:
-            '\uCE5C\uAD6C \uCD08\uB300\uB97C \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694: $e',
+        message: '친구 초대를 처리하지 못했어요: $e',
+      );
+    }
+  }
+
+  /// Turns a TEAM_INVITE token into the canonical pending team invitation.
+  /// Membership is still decided in the existing team response screen.
+  Future<TeamInviteRedeemResult> redeemTeamShareInvite(String rawToken) async {
+    try {
+      if (!hasCanonicalFirebaseSession) {
+        await _authService.ensureCanonicalAppSession();
+      }
+      final callable = _functions.httpsCallable('redeemEventTeamShareInvite');
+      final result = await callable.call({'token': rawToken});
+      final data = Map<String, dynamic>.from(
+        (result.data as Map?)?.cast<String, dynamic>() ?? const {},
+      );
+      final parsed = TeamInviteRedeemResult.fromMap(data);
+      debugPrint(
+        '[FriendInvite] redeemTeamShareInvite result=${parsed.status}',
+      );
+      return parsed;
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint(
+        '[FriendInvite] redeemTeamShareInvite ${PrivacyLogUtils.errorSummary(e)}',
+      );
+      return TeamInviteRedeemResult(
+        status: TeamInviteRedeemStatus.error,
+        message: _functionsErrorMessage(e),
+      );
+    } catch (e) {
+      return TeamInviteRedeemResult(
+        status: TeamInviteRedeemStatus.error,
+        message: '팀 초대를 처리하지 못했어요: $e',
       );
     }
   }
@@ -533,6 +950,7 @@ class FriendInviteService {
       'already_friends' => FriendInviteAcceptStatus.alreadyFriends,
       'expired' => FriendInviteAcceptStatus.expired,
       'self_invite' => FriendInviteAcceptStatus.selfInvite,
+      'blocked' => FriendInviteAcceptStatus.blockedRelationship,
       'pending_login' => FriendInviteAcceptStatus.pendingLogin,
       'pending_verification' => FriendInviteAcceptStatus.pendingVerification,
       'invalid' => FriendInviteAcceptStatus.invalid,
@@ -556,20 +974,20 @@ class FriendInviteService {
 
     switch (error.code) {
       case 'unauthenticated':
-        return '\uD559\uAD50 \uC774\uBA54\uC77C \uC778\uC99D\uC744 \uC644\uB8CC\uD55C \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694.';
+        return '학교 이메일 인증을 완료한 계정으로 다시 로그인해주세요.';
       case 'failed-precondition':
-        return '\uCE5C\uAD6C \uCD08\uB300\uB97C \uC0AC\uC6A9\uD558\uB824\uBA74 \uD559\uAD50 \uC774\uBA54\uC77C \uC778\uC99D\uC774 \uC644\uB8CC\uB418\uC5B4 \uC788\uC5B4\uC57C \uD574\uC694.';
+        return '초대를 사용하려면 학교 이메일 인증이 완료되어 있어야 해요.';
       case 'permission-denied':
-        return '\uCE5C\uAD6C \uCD08\uB300\uB97C \uCC98\uB9AC\uD560 \uAD8C\uD55C\uC774 \uC5C6\uC5B4\uC694.';
+        return '초대를 처리할 권한이 없어요.';
       case 'unavailable':
-        return '\uC11C\uBC84\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC5B4\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.';
+        return '서버에 연결하지 못했어요. 잠시 후 다시 시도해주세요.';
       default:
-        return '\uCE5C\uAD6C \uCD08\uB300 \uCC98\uB9AC \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC5B4\uC694.';
+        return '초대 처리 중 오류가 발생했어요.';
     }
   }
 
-  String _shareDisplayName(String inviterName) {
+  static String _shareDisplayName(String inviterName) {
     final trimmed = inviterName.trim();
-    return trimmed.isEmpty ? '\uC124\uB808\uC5F0 \uCE5C\uAD6C' : trimmed;
+    return trimmed.isEmpty ? '설레연 친구' : trimmed;
   }
 }

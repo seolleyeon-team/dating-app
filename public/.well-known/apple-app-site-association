@@ -10,6 +10,8 @@
           "NOT /_/*",
           "/invite/friend",
           "/invite/friend/*",
+          "/invite/team",
+          "/invite/team/*",
           "/auth/email-link",
           "/auth/email-link/*"
         ]

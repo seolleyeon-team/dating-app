@@ -2,12 +2,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
-import '../../../router/route_names.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/friend_service.dart';
 import '../../../services/storage_service.dart';
 import '../../../services/user_service.dart';
-import '../../matching/models/profile_card_args.dart';
 import '../widgets/friends_list_shared.dart';
 
 class FriendsListScreen extends StatefulWidget {
@@ -69,10 +67,7 @@ class _FriendsListScreenState extends State<FriendsListScreen> {
 
   void _openFriendProfile(FriendListItem item) {
     HapticFeedback.selectionClick();
-    Navigator.of(context, rootNavigator: true).pushNamed(
-      RouteNames.profileSpecificDetail,
-      arguments: ProfileCardArgs.fromChat(userId: item.friendUserId),
-    );
+    openFriendProfile(context, item);
   }
 
   String _formatAddedAt(DateTime? dateTime) {

@@ -105,35 +105,17 @@ class _StudentVerificationScreenState extends State<StudentVerificationScreen>
     ).pushNamedAndRemoveUntil(RouteNames.terms, (route) => false);
   }
 
+  /// 이메일 인증이 끝난 뒤 보류 중인 초대를 확인 화면으로 복원한다.
+  /// 자동 수락은 하지 않는다 — 친구 추가는 확인 시트에서 사용자가 직접 누른다.
   Future<bool> _handlePendingInviteAfterVerification() async {
-    final pendingToken = await _friendInviteService.getPendingInviteToken();
+    final pending = await _friendInviteService.getPendingInvite();
     debugPrint(
-      '[FriendInvite] after verification pendingTokenExists=${pendingToken != null && pendingToken.trim().isNotEmpty}',
+      '[FriendInvite] after verification pendingInviteExists=${pending != null}',
     );
-    final result = await _friendInviteService.processPendingInviteIfPossible();
-    debugPrint('[FriendInvite] after verification result=${result?.status}');
-    if (!mounted || result == null) return false;
+    if (pending == null || !mounted) return false;
+    await context.read<AuthProvider>().resumePendingInvite();
 
-    if (result.status == FriendInviteAcceptStatus.pendingLogin ||
-        result.status == FriendInviteAcceptStatus.pendingVerification) {
-      return false;
-    }
-
-    await showCupertinoDialog<void>(
-      context: context,
-      builder: (dialogContext) => CupertinoAlertDialog(
-        title: const Text('친구 초대'),
-        content: Text(result.displayMessage),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('확인'),
-          ),
-        ],
-      ),
-    );
-
-    // 초대 수락 후에도 반드시 설정 사다리를 다시 통과한다. (친구 연결,
+    // 초대 확인 후에도 반드시 설정 사다리를 다시 통과한다. (친구 연결,
     // 온보딩 등이 남아 있으면 main 으로 직행할 수 없다.)
     return false;
   }

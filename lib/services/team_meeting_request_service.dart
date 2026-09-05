@@ -46,12 +46,9 @@ class TeamMeetingRequestService {
   Future<Map<String, dynamic>> _callablePayload(
     Map<String, dynamic> extra,
   ) async {
+    // Firebase canonical session only — no Kakao access token is attached.
     await _requireFirebaseReadSession();
-    final token = await _authService.getKakaoAccessTokenForFunctions();
-    return <String, dynamic>{
-      ...extra,
-      if (token != null && token.isNotEmpty) 'kakaoAccessToken': token,
-    };
+    return <String, dynamic>{...extra};
   }
 
   Future<String?> resolveCurrentTeamId() {

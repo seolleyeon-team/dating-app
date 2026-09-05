@@ -399,20 +399,35 @@ export async function applySocialCleanupOperation(
       return;
     case "deleteFriendEdge": {
       const other = requirePathSegment(operation.otherUid, "otherUid");
-      await Promise.all([
-        firestore
-          .collection("users")
-          .doc(safeUid)
-          .collection("friends")
-          .doc(other)
-          .delete(),
-        firestore
-          .collection("users")
-          .doc(other)
-          .collection("friends")
-          .doc(safeUid)
-          .delete(),
-      ]);
+      const ownEdgeRef = firestore
+        .collection("users")
+        .doc(safeUid)
+        .collection("friends")
+        .doc(other);
+      const otherUserRef = firestore.collection("users").doc(other);
+      const otherEdgeRef = otherUserRef.collection("friends").doc(safeUid);
+      // The surviving friend's denormalised users.friendsCount must follow
+      // their users/{uid}/friends edges (it is incremented together with
+      // the edge in friendInvites.ts). Decrement it exactly once, in the
+      // same transaction that removes the edge, and never below zero.
+      await firestore.runTransaction(async (transaction) => {
+        const otherEdgeSnap = await transaction.get(otherEdgeRef);
+        const otherUserSnap = await transaction.get(otherUserRef);
+        transaction.delete(ownEdgeRef);
+        if (!otherEdgeSnap.exists) return;
+        transaction.delete(otherEdgeRef);
+        if (!otherUserSnap.exists) return;
+        const current = otherUserSnap.get("friendsCount");
+        const next =
+          typeof current === "number" && Number.isFinite(current) && current > 0
+            ? current - 1
+            : 0;
+        transaction.set(
+          otherUserRef,
+          { friendsCount: next, updatedAt: now },
+          { merge: true }
+        );
+      });
       return;
     }
     case "endMatch":
