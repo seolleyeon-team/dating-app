@@ -147,5 +147,4 @@ class AvatarSourcePhotoService {
     }
     return parsed;
   }
-
 }

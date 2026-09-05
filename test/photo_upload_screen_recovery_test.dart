@@ -173,26 +173,27 @@ void main() {
       expect(find.byIcon(Icons.close_rounded), findsNothing);
     });
 
-    testWidgets('start over ends the generation server-side and unlocks the screen', (
-      tester,
-    ) async {
-      await _useMobileSurface(tester);
-      final client = _RecoveryClient();
-      await tester.pumpWidget(_harness(client));
-      await tester.pump();
-      await tester.tap(_nextButton());
-      await _settle(tester);
-      expect(find.text(avatarStartOverButtonLabel), findsOneWidget);
+    testWidgets(
+      'start over ends the generation server-side and unlocks the screen',
+      (tester) async {
+        await _useMobileSurface(tester);
+        final client = _RecoveryClient();
+        await tester.pumpWidget(_harness(client));
+        await tester.pump();
+        await tester.tap(_nextButton());
+        await _settle(tester);
+        expect(find.text(avatarStartOverButtonLabel), findsOneWidget);
 
-      await tester.tap(find.text(avatarStartOverButtonLabel));
-      await _settle(tester);
+        await tester.tap(find.text(avatarStartOverButtonLabel));
+        await _settle(tester);
 
-      expect(client.replaceCalls, 1);
-      expect(find.byType(AvatarGenerationErrorBanner), findsNothing);
-      expect(find.text(sourceLockedAvatarMessage), findsNothing);
-      // 잠금이 풀리고 새 사진 세트를 받을 준비가 된 빈 화면.
-      expect(find.text('최소 2장 필요'), findsOneWidget);
-    });
+        expect(client.replaceCalls, 1);
+        expect(find.byType(AvatarGenerationErrorBanner), findsNothing);
+        expect(find.text(sourceLockedAvatarMessage), findsNothing);
+        // 잠금이 풀리고 새 사진 세트를 받을 준비가 된 빈 화면.
+        expect(find.text('최소 2장 필요'), findsOneWidget);
+      },
+    );
 
     testWidgets('double tap on start over releases exactly once', (
       tester,
@@ -205,7 +206,10 @@ void main() {
       await _settle(tester);
 
       await tester.tap(find.text(avatarStartOverButtonLabel));
-      await tester.tap(find.text(avatarStartOverButtonLabel), warnIfMissed: false);
+      await tester.tap(
+        find.text(avatarStartOverButtonLabel),
+        warnIfMissed: false,
+      );
       await _settle(tester);
 
       expect(client.replaceCalls, 1);
@@ -232,33 +236,38 @@ void main() {
       await tester.tap(find.text('다시 시도'));
       await _settle(tester);
 
-      expect(client.retryCalls, 1, reason: 'the server re-dispatches the same job');
-    });
-
-    testWidgets('retry is refused without a server call when the server says terminal', (
-      tester,
-    ) async {
-      await _useMobileSurface(tester);
-      final client = _RecoveryClient(
-        pollStatus: AvatarJobStatus.failed,
-        pollErrorCode: 'no_safe_avatar_candidates',
-        serverStatus: 'terminal_failed',
+      expect(
+        client.retryCalls,
+        1,
+        reason: 'the server re-dispatches the same job',
       );
-      await tester.pumpWidget(_harness(client));
-      await tester.pump();
-      await tester.tap(_nextButton());
-      await _settle(tester);
-      // In-session failure still shows the retry button (server not consulted yet).
-      expect(find.text('다시 시도'), findsOneWidget);
-
-      await tester.tap(find.text('다시 시도'));
-      await _settle(tester);
-
-      expect(client.retryCalls, 0);
-      expect(find.text(avatarTerminalFailureMessage), findsWidgets);
-      expect(find.text('다시 시도'), findsNothing);
-      expect(find.text(avatarStartOverButtonLabel), findsOneWidget);
     });
+
+    testWidgets(
+      'retry is refused without a server call when the server says terminal',
+      (tester) async {
+        await _useMobileSurface(tester);
+        final client = _RecoveryClient(
+          pollStatus: AvatarJobStatus.failed,
+          pollErrorCode: 'no_safe_avatar_candidates',
+          serverStatus: 'terminal_failed',
+        );
+        await tester.pumpWidget(_harness(client));
+        await tester.pump();
+        await tester.tap(_nextButton());
+        await _settle(tester);
+        // In-session failure still shows the retry button (server not consulted yet).
+        expect(find.text('다시 시도'), findsOneWidget);
+
+        await tester.tap(find.text('다시 시도'));
+        await _settle(tester);
+
+        expect(client.retryCalls, 0);
+        expect(find.text(avatarTerminalFailureMessage), findsWidgets);
+        expect(find.text('다시 시도'), findsNothing);
+        expect(find.text(avatarStartOverButtonLabel), findsOneWidget);
+      },
+    );
 
     testWidgets('reconciliation_required offers neither retry nor start over', (
       tester,
@@ -284,25 +293,26 @@ void main() {
   });
 
   group('source_selecting resume', () {
-    testWidgets('restart while the server is selecting the source keeps waiting', (
-      tester,
-    ) async {
-      await _useMobileSurface(tester);
-      final client = _RecoveryClient(
-        serverStatus: 'source_selecting',
-        useRealPollingLoop: true,
-      );
-      await tester.pumpWidget(_harness(client));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
+    testWidgets(
+      'restart while the server is selecting the source keeps waiting',
+      (tester) async {
+        await _useMobileSurface(tester);
+        final client = _RecoveryClient(
+          serverStatus: 'source_selecting',
+          useRealPollingLoop: true,
+        );
+        await tester.pumpWidget(_harness(client));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
 
-      expect(find.byType(AvatarGenerationErrorBanner), findsNothing);
-      expect(client.pollCount, greaterThan(0));
+        expect(find.byType(AvatarGenerationErrorBanner), findsNothing);
+        expect(client.pollCount, greaterThan(0));
 
-      // 폴링 루프 정리.
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pump(const Duration(seconds: 3));
-    });
+        // 폴링 루프 정리.
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump(const Duration(seconds: 3));
+      },
+    );
   });
 
   test('resume policy treats source_selecting as active work', () {

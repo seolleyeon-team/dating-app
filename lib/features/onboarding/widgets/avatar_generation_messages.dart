@@ -36,14 +36,12 @@ const avatarBackendIncompatibleMessage =
     '아바타 생성 준비가 아직 끝나지 않았어요. 잠시 후 다시 시도해주세요.';
 
 /// 서버가 사진 세트를 검증하지 못했다(삭제/변경/미완료 업로드). 사진 재등록 안내.
-const avatarSourceSetInvalidMessage =
-    '사진 정보를 확인하지 못했어요. 사진을 다시 등록해주세요.';
+const avatarSourceSetInvalidMessage = '사진 정보를 확인하지 못했어요. 사진을 다시 등록해주세요.';
 
 /// needs_review / 최종 실패에서 유일한 안전한 출구. 같은 generation 재시도가
 /// 아니라 새 사진 세트로 새 generation 을 시작한다.
 const avatarStartOverButtonLabel = '사진을 바꾸고 다시 만들기';
-const avatarStartOverUnavailableMessage =
-    '지금은 새로 만들 수 없어요. 잠시 후 다시 시도해주세요.';
+const avatarStartOverUnavailableMessage = '지금은 새로 만들 수 없어요. 잠시 후 다시 시도해주세요.';
 
 String avatarGenerationFailureMessage({
   required AvatarJobStatus status,
