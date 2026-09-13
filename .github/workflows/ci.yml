@@ -282,6 +282,12 @@ jobs:
       - run: pytest -q tests/test_avatar_detector_assisted_shadow.py --maxfail=10
         env:
           PYTHONPATH: .
+      # B3-L6.2: threshold selection 은 development 만 읽고 holdout 은 한 번만,
+      # H4-DIRECT-1 은 Florence region 없이도 escalate-only, human 필드는 runtime
+      # 입력 불가, precision 미정의는 통과 불가, 동일 라벨 내용은 사기가 아님.
+      - run: pytest -q tests/test_avatar_owlv2_threshold_selection.py --maxfail=10
+        env:
+          PYTHONPATH: .
       # 배포 가드는 Windows 운영자 셸에서 Hangul env 값을 "???" 로 읽어 바뀐 적
       # 없는 변수를 changed 로 보고했다. 인코딩과 키 단위 승인 계약을 Linux
       # 에서도 고정한다.

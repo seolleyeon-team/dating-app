@@ -91,8 +91,8 @@ textarea{width:100%;height:180px;background:#000;color:#9f9;font-family:ui-monos
 """
 
 _JS = """
-const RATER = %(rater)s, ITEMS = %(ids)s, SCHEMA = %(schema)s, UI = %(ui)s;
-const KEY = 'b3l6-labels-' + RATER;
+const RATER = %(rater)s, ITEMS = %(ids)s, SCHEMA = %(schema)s, UI = %(ui)s, STATE = %(state)s;
+const KEY = 'b3l6-labels-' + STATE + '-' + RATER;
 function load(){ try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch(e) { return {}; } }
 function save(d){ try { localStorage.setItem(KEY, JSON.stringify(d)); } catch(e) {} }
 function collect(){
@@ -134,7 +134,7 @@ function exportLabels(){
   const rows = collect();
   const payload = {
     uiVersion: UI, labelSchema: SCHEMA, raterId: RATER,
-    adjudicationState: 'first_pass',
+    adjudicationState: STATE,
     labels: ITEMS.map(id => Object.assign({evaluationId: id}, rows[id] || {})).filter(r => r.primaryLabel)
   };
   const text = JSON.stringify(payload, null, 2);
@@ -143,7 +143,7 @@ function exportLabels(){
     const blob = new Blob([text], {type: 'application/json'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `b3l6-labels-rater-${RATER}.json`;
+    a.download = STATE === 'first_pass' ? `b3l6-labels-rater-${RATER}.json` : `b3l6-adjudication-rater-${RATER}.json`;
     a.click();
   } catch(e) {}
 }
@@ -172,7 +172,11 @@ def _radios(field: str, eid: str, values) -> str:
     )
 
 
-def build_html(entries, rater: str) -> str:
+def build_html(entries, rater: str, *, adjudication_state: str = "first_pass") -> str:
+    """One page per rater. A third adjudicator gets the same blind page over the
+    unresolved subset only: it never carries either first-pass vote, and its
+    export is stamped third_adjudication so the ingest can tell it apart."""
+
     ids = [e["opaqueId"] for e in entries]
     items = []
     for entry in entries:
@@ -199,17 +203,19 @@ def build_html(entries, rater: str) -> str:
         "ids": json.dumps(ids),
         "schema": json.dumps(LABEL_SCHEMA_VERSION),
         "ui": json.dumps(UI_VERSION),
+        "state": json.dumps(adjudication_state),
     }
+    role = "third adjudicator" if adjudication_state == "third_adjudication" else "rater"
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
-<title>B3-L6 labeling - rater {html.escape(rater)}</title>
+<title>B3-L6 labeling - {role} {html.escape(rater)}</title>
 <style>{_CSS}</style></head>
 <body>
-<header><strong>B3-L6 human labeling</strong> - rater {html.escape(rater)}
+<header><strong>B3-L6 human labeling</strong> - {role} {html.escape(rater)}
 <span id="status"></span>
 <button type="button" onclick="exportLabels()">Export labels</button>
-<div class="warn">Label from the image only. Do not discuss items with the other rater until both are finished.</div>
+<div class="warn">Label from the image only. Do not discuss items with the other raters, and do not ask what they answered.</div>
 </header>
 <main>
 {''.join(items)}
@@ -226,6 +232,9 @@ def main(argv=None):
     parser.add_argument("--rater", required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--domain", default=bench.DOMAIN_AVATAR)
+    # Third adjudication: a blind page over the unresolved subset only. The
+    # ids come from the ingest report; the page never sees either prior vote.
+    parser.add_argument("--adjudication-ids", type=Path, help="JSON with 'unresolvedIds' (an ingest report)")
     args = parser.parse_args(argv)
     manifest = json.loads((args.private_dir / "restricted_manifest.json").read_text(encoding="utf-8"))
     entries = [e for e in manifest["entries"] if e["domain"] == args.domain]
@@ -233,11 +242,19 @@ def main(argv=None):
     if expected and len(entries) != expected:
         tag = "SOURCE" if args.domain == bench.DOMAIN_SOURCE else "AVATAR"
         raise SystemExit(f"BLOCKED_G004_{tag}_SET_COUNT_{len(entries)}")
+    state = "first_pass"
+    if args.adjudication_ids:
+        wanted = set(json.loads(args.adjudication_ids.read_text(encoding="utf-8"))["unresolvedIds"])
+        entries = [e for e in entries if e["opaqueId"] in wanted]
+        if len(entries) != len(wanted):
+            raise SystemExit("ADJUDICATION_IDS_NOT_IN_CORPUS")
+        state = "third_adjudication"
     prepared = [{"opaqueId": e["opaqueId"], "dataUri": _data_uri(Path(e["path"]))} for e in entries]
     args.out.mkdir(parents=True, exist_ok=True)
-    target = args.out / f"label-rater-{args.rater}.html"
-    target.write_text(build_html(prepared, args.rater), encoding="utf-8")
-    worksheet = args.out / f"worksheet-rater-{args.rater}.json"
+    prefix = "adjudication" if state == "third_adjudication" else "label"
+    target = args.out / f"{prefix}-rater-{args.rater}.html"
+    target.write_text(build_html(prepared, args.rater, adjudication_state=state), encoding="utf-8")
+    worksheet = args.out / f"worksheet-{prefix}-rater-{args.rater}.json"
     worksheet.write_text(
         json.dumps(
             {
