@@ -100,24 +100,180 @@ def _row(eid, primary="GRAPHICAL_LOGO", mark="yes", integration="overlay_like", 
     return row
 
 
-def test_ingest_requires_two_distinct_independent_raters(tmp_path):
+def test_ingest_rejects_the_same_rater_submitted_twice(tmp_path):
     a = tmp_path / "a.json"
     b = tmp_path / "b.json"
     a.write_text(json.dumps(_export("A", [_row("g004-avatar-001")])), encoding="utf-8")
     b.write_text(json.dumps(_export("A", [_row("g004-avatar-001")])), encoding="utf-8")
     with pytest.raises(SystemExit, match="RATERS_NOT_DISTINCT"):
-        ingest.ingest(a, b)
+        ingest.ingest(a, b, independence_attested=True)
+
+
+def test_distinct_raters_with_identical_legitimate_labels_are_accepted(tmp_path):
+    """Two real people can agree on every item. Identical content is not fraud
+    once the raters are distinct and the owner attests independence."""
+
+    a = tmp_path / "a.json"
+    b = tmp_path / "b.json"
+    rows = [
+        _row("g004-avatar-001"),
+        _row("g004-avatar-002", primary="GARMENT_TEXT", mark="no", integration="scene_native", markType="brand_or_object_mark"),
+    ]
+    a.write_text(json.dumps(_export("A", rows)), encoding="utf-8")
+    b.write_text(json.dumps(_export("B", rows)), encoding="utf-8")
+    report = ingest.ingest(a, b, independence_attested=True)
+    assert report["complete"] is True
+    assert report["identicalContent"] is True
+    assert report["independenceProvenance"] == "owner_attestation"
+    assert all(row["adjudicationState"] == "agreed" for row in report["labels"])
+
+
+def test_identical_content_without_attestation_is_held_not_silently_accepted(tmp_path):
+    a = tmp_path / "a.json"
+    b = tmp_path / "b.json"
+    a.write_text(json.dumps(_export("A", [_row("g004-avatar-001")])), encoding="utf-8")
     b.write_text(json.dumps(_export("B", [_row("g004-avatar-001")])), encoding="utf-8")
-    with pytest.raises(SystemExit, match="RATER_PASSES_IDENTICAL_NOT_INDEPENDENT"):
-        ingest.ingest(a, b)
+    with pytest.raises(SystemExit, match="IDENTICAL_CONTENT_REQUIRES_INDEPENDENCE_ATTESTATION"):
+        ingest.ingest(a, b, independence_attested=False)
+
+
+def test_ingest_rejects_duplicate_and_missing_evaluation_ids(tmp_path):
+    a = tmp_path / "a.json"
+    b = tmp_path / "b.json"
+    a.write_text(json.dumps(_export("A", [_row("i1"), _row("i1")])), encoding="utf-8")
+    b.write_text(json.dumps(_export("B", [_row("i1", mark="no", markType="none")])), encoding="utf-8")
+    with pytest.raises(SystemExit, match="DUPLICATE_EVALUATION_ID"):
+        ingest.ingest(a, b, independence_attested=True)
+    missing = _row("i1")
+    del missing["evaluationId"]
+    a.write_text(json.dumps(_export("A", [missing])), encoding="utf-8")
+    with pytest.raises(SystemExit, match="MISSING_EVALUATION_ID"):
+        ingest.ingest(a, b, independence_attested=True)
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        _row("i1", mark="yes", markType="none"),
+        _row("i1", mark="no", markType="graphical_logo"),
+        _row("i1", mark="no", markType="watermark"),
+        _row("i1", primary="NO_VISIBLE_RELEVANT_TEXT_OR_MARK", mark="yes"),
+        _row(
+            "i1",
+            primary="NO_VISIBLE_RELEVANT_TEXT_OR_MARK",
+            mark="no",
+            markType="none",
+            allVisibleClasses=["NO_VISIBLE_RELEVANT_TEXT_OR_MARK", "GARMENT_TEXT"],
+        ),
+    ],
+)
+def test_obvious_within_rater_contradictions_are_reported_not_repaired(row):
+    problems = ingest.contradictions(ingest.sanitize(row, "A"))
+    assert problems, row
+    for problem in problems:
+        assert set(problem.split("+")) <= {"primaryLabel", "visibleGraphicalMark", "markType", "allVisibleClasses"}
+
+
+def test_ambiguous_combinations_are_not_treated_as_contradictions():
+    # Brand text can be text-only: no graphical mark with a brand/object mark type is allowed.
+    assert not ingest.contradictions(
+        ingest.sanitize(_row("i1", primary="GARMENT_TEXT", mark="no", markType="brand_or_object_mark", integration="scene_native"), "A")
+    )
+    assert not ingest.contradictions(
+        ingest.sanitize(
+            _row(
+                "i1",
+                primary="NO_VISIBLE_RELEVANT_TEXT_OR_MARK",
+                mark="no",
+                markType="uncertain",
+                integration="not_applicable",
+                allVisibleClasses=["NO_VISIBLE_RELEVANT_TEXT_OR_MARK"],
+            ),
+            "A",
+        )
+    )
+
+
+def test_ingest_blocks_on_contradiction_instead_of_correcting(tmp_path):
+    a = tmp_path / "a.json"
+    b = tmp_path / "b.json"
+    a.write_text(json.dumps(_export("A", [_row("i1", mark="yes", markType="none")])), encoding="utf-8")
+    b.write_text(json.dumps(_export("B", [_row("i1")])), encoding="utf-8")
+    with pytest.raises(SystemExit, match="BLOCKED_RATER_LABEL_CORRECTION_REQUIRED"):
+        ingest.ingest(a, b, independence_attested=True)
+
+
+def test_secondary_field_disagreement_is_unresolved_not_folded(tmp_path):
+    """Any of primaryLabel / visibleGraphicalMark / markIntegration / markType differing is unresolved."""
+
+    a = tmp_path / "a.json"
+    b = tmp_path / "b.json"
+    a.write_text(json.dumps(_export("A", [_row("i1", integration="overlay_like")])), encoding="utf-8")
+    b.write_text(json.dumps(_export("B", [_row("i1", integration="scene_native")])), encoding="utf-8")
+    report = ingest.ingest(a, b, independence_attested=True)
+    row = report["labels"][0]
+    assert row["adjudicationState"] == "unresolved_disagreement"
+    assert report["disagreementFields"] == {"markIntegration": 1}
+    assert report["unresolvedCount"] == 1
+
+
+def test_uncertain_gate_field_is_unresolved_even_when_raters_agree(tmp_path):
+    a = tmp_path / "a.json"
+    b = tmp_path / "b.json"
+    a.write_text(json.dumps(_export("A", [_row("i1", mark="uncertain")])), encoding="utf-8")
+    b.write_text(json.dumps(_export("B", [_row("i1", mark="uncertain")])), encoding="utf-8")
+    report = ingest.ingest(a, b, independence_attested=True)
+    assert report["labels"][0]["adjudicationState"] == "unresolved_gate_field_uncertain"
+    assert report["unresolvedCount"] == 1
+
+
+def test_disagreement_is_never_auto_resolved_and_third_adjudication_resolves_it(tmp_path):
+    a = tmp_path / "a.json"
+    b = tmp_path / "b.json"
+    c = tmp_path / "c.json"
+    a.write_text(
+        json.dumps(
+            _export(
+                "A",
+                [_row("i1", mark="no", primary="NO_VISIBLE_RELEVANT_TEXT_OR_MARK", markType="none", integration="not_applicable")],
+            )
+        ),
+        encoding="utf-8",
+    )
+    b.write_text(json.dumps(_export("B", [_row("i1")])), encoding="utf-8")
+    report = ingest.ingest(a, b, independence_attested=True)
+    assert report["labels"][0]["primaryLabel"] == "UNCERTAIN"
+    assert report["labels"][0]["visibleGraphicalMark"] == "uncertain"
+    third = _export("C", [_row("i1")])
+    third["adjudicationState"] = "third_adjudication"
+    c.write_text(json.dumps(third), encoding="utf-8")
+    resolved = ingest.ingest(a, b, independence_attested=True, adjudication=c)
+    assert resolved["labels"][0]["adjudicationState"] == "third_adjudicated"
+    assert resolved["labels"][0]["visibleGraphicalMark"] == "yes"
+    assert resolved["thirdAdjudicatorUsed"] is True and resolved["unresolvedCount"] == 0
+    third["raterId"] = "A"
+    c.write_text(json.dumps(third), encoding="utf-8")
+    with pytest.raises(SystemExit, match="ADJUDICATOR_NOT_DISTINCT"):
+        ingest.ingest(a, b, independence_attested=True, adjudication=c)
+
+
+def test_agreement_report_is_telemetry_only():
+    report = ingest.agreement(
+        {"i1": ingest.sanitize(_row("i1"), "A"), "i2": ingest.sanitize(_row("i2", mark="no"), "A")},
+        {"i1": ingest.sanitize(_row("i1"), "B"), "i2": ingest.sanitize(_row("i2"), "B")},
+    )
+    assert report["exact"]["primaryLabel"]["agree"] == 2
+    assert report["exact"]["visibleGraphicalMark"]["agree"] == 1
+    assert report["sampleSizeNote"].startswith("N=")
+    assert "gate" not in json.dumps(report).lower()
 
 
 def test_ingest_marks_disagreements_uncertain_and_reports_completion(tmp_path):
     a = tmp_path / "a.json"
     b = tmp_path / "b.json"
-    a.write_text(json.dumps(_export("A", [_row("i1"), _row("i2", primary="GARMENT_TEXT", mark="no", integration="scene_native")])), encoding="utf-8")
+    a.write_text(json.dumps(_export("A", [_row("i1"), _row("i2", primary="GARMENT_TEXT", mark="no", integration="scene_native", markType="none")])), encoding="utf-8")
     b.write_text(json.dumps(_export("B", [_row("i1"), _row("i2", primary="BRAND_TEXT_OR_MARK", mark="yes")])), encoding="utf-8")
-    report = ingest.ingest(a, b, expected_items=["i1", "i2"])
+    report = ingest.ingest(a, b, expected_items=["i1", "i2"], independence_attested=True)
     assert report["complete"] is True
     assert report["agreementCount"] == 1 and report["disagreementCount"] == 1
     by_id = {row["evaluationId"]: row for row in report["labels"]}
@@ -130,8 +286,8 @@ def test_ingest_is_incomplete_when_a_rater_has_not_finished(tmp_path):
     a = tmp_path / "a.json"
     b = tmp_path / "b.json"
     a.write_text(json.dumps(_export("A", [_row("i1"), _row("i2")])), encoding="utf-8")
-    b.write_text(json.dumps(_export("B", [_row("i1", mark="no")])), encoding="utf-8")
-    report = ingest.ingest(a, b, expected_items=["i1", "i2"])
+    b.write_text(json.dumps(_export("B", [_row("i1", mark="no", markType="none")])), encoding="utf-8")
+    report = ingest.ingest(a, b, expected_items=["i1", "i2"], independence_attested=True)
     assert report["complete"] is False and report["itemsCompletedByBoth"] == 1
 
 
