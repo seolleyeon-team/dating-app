@@ -1,0 +1,593 @@
+{
+  "developmentFailureReason": "no development human positive under the reference truth: precision is 0 wherever the detector fires and NOT_ESTIMABLE elsewhere, so criterion A cannot pass at any threshold",
+  "developmentTable": {
+    "0.05": {
+      "artifactRegressions": 0,
+      "confusion": {
+        "excludedUnresolved": 0,
+        "fn": 0,
+        "fp": 11,
+        "humanNegatives": 12,
+        "humanPositives": 0,
+        "newDetectorInducedReviews": 9,
+        "newReviewRate": 0.75,
+        "precision": 0.0,
+        "precisionStatus": "estimable",
+        "recall": null,
+        "recallStatus": "NOT_ESTIMABLE",
+        "tn": 1,
+        "tp": 0
+      },
+      "eligibility": {
+        "criteria": {
+          "A": false,
+          "B": false,
+          "C": true,
+          "D": true,
+          "E": true
+        },
+        "eligible": false
+      },
+      "h4": {
+        "cleanReviewBurden": {
+          "current": 2,
+          "h4": 11,
+          "n": 12
+        },
+        "humanNegativeNewReview": 9,
+        "humanPositiveResponse": 0,
+        "injectedFlagged": {
+          "current": 2,
+          "h4": 12
+        },
+        "transitions": {
+          "allow->review": 19,
+          "same": 5
+        }
+      },
+      "hardRejectBypass": 0,
+      "injectedRecall": {
+        "hits": 12,
+        "n": 12,
+        "rate": 1.0
+      },
+      "newReviewRateCI": {
+        "ci95": [
+          0.4677,
+          0.9111
+        ],
+        "k": 9,
+        "n": 12,
+        "rate": 0.75
+      },
+      "precisionCI": {
+        "ci95": [
+          0.0,
+          0.2588
+        ],
+        "k": 0,
+        "n": 11,
+        "rate": 0.0
+      },
+      "recallCI": {
+        "status": "NOT_ESTIMABLE"
+      },
+      "threshold": 0.05
+    },
+    "0.10": {
+      "artifactRegressions": 0,
+      "confusion": {
+        "excludedUnresolved": 0,
+        "fn": 0,
+        "fp": 6,
+        "humanNegatives": 12,
+        "humanPositives": 0,
+        "newDetectorInducedReviews": 6,
+        "newReviewRate": 0.5,
+        "precision": 0.0,
+        "precisionStatus": "estimable",
+        "recall": null,
+        "recallStatus": "NOT_ESTIMABLE",
+        "tn": 6,
+        "tp": 0
+      },
+      "eligibility": {
+        "criteria": {
+          "A": false,
+          "B": false,
+          "C": true,
+          "D": true,
+          "E": true
+        },
+        "eligible": false
+      },
+      "h4": {
+        "cleanReviewBurden": {
+          "current": 2,
+          "h4": 8,
+          "n": 12
+        },
+        "humanNegativeNewReview": 6,
+        "humanPositiveResponse": 0,
+        "injectedFlagged": {
+          "current": 2,
+          "h4": 12
+        },
+        "transitions": {
+          "allow->review": 16,
+          "same": 8
+        }
+      },
+      "hardRejectBypass": 0,
+      "injectedRecall": {
+        "hits": 12,
+        "n": 12,
+        "rate": 1.0
+      },
+      "newReviewRateCI": {
+        "ci95": [
+          0.2538,
+          0.7462
+        ],
+        "k": 6,
+        "n": 12,
+        "rate": 0.5
+      },
+      "precisionCI": {
+        "ci95": [
+          0.0,
+          0.3903
+        ],
+        "k": 0,
+        "n": 6,
+        "rate": 0.0
+      },
+      "recallCI": {
+        "status": "NOT_ESTIMABLE"
+      },
+      "threshold": 0.1
+    },
+    "0.15": {
+      "artifactRegressions": 0,
+      "confusion": {
+        "excludedUnresolved": 0,
+        "fn": 0,
+        "fp": 3,
+        "humanNegatives": 12,
+        "humanPositives": 0,
+        "newDetectorInducedReviews": 3,
+        "newReviewRate": 0.25,
+        "precision": 0.0,
+        "precisionStatus": "estimable",
+        "recall": null,
+        "recallStatus": "NOT_ESTIMABLE",
+        "tn": 9,
+        "tp": 0
+      },
+      "eligibility": {
+        "criteria": {
+          "A": false,
+          "B": false,
+          "C": true,
+          "D": true,
+          "E": true
+        },
+        "eligible": false
+      },
+      "h4": {
+        "cleanReviewBurden": {
+          "current": 2,
+          "h4": 5,
+          "n": 12
+        },
+        "humanNegativeNewReview": 3,
+        "humanPositiveResponse": 0,
+        "injectedFlagged": {
+          "current": 2,
+          "h4": 12
+        },
+        "transitions": {
+          "allow->review": 13,
+          "same": 11
+        }
+      },
+      "hardRejectBypass": 0,
+      "injectedRecall": {
+        "hits": 12,
+        "n": 12,
+        "rate": 1.0
+      },
+      "newReviewRateCI": {
+        "ci95": [
+          0.0889,
+          0.5323
+        ],
+        "k": 3,
+        "n": 12,
+        "rate": 0.25
+      },
+      "precisionCI": {
+        "ci95": [
+          0.0,
+          0.5615
+        ],
+        "k": 0,
+        "n": 3,
+        "rate": 0.0
+      },
+      "recallCI": {
+        "status": "NOT_ESTIMABLE"
+      },
+      "threshold": 0.15
+    },
+    "0.20": {
+      "artifactRegressions": 0,
+      "confusion": {
+        "excludedUnresolved": 0,
+        "fn": 0,
+        "fp": 2,
+        "humanNegatives": 12,
+        "humanPositives": 0,
+        "newDetectorInducedReviews": 2,
+        "newReviewRate": 0.1667,
+        "precision": 0.0,
+        "precisionStatus": "estimable",
+        "recall": null,
+        "recallStatus": "NOT_ESTIMABLE",
+        "tn": 10,
+        "tp": 0
+      },
+      "eligibility": {
+        "criteria": {
+          "A": false,
+          "B": false,
+          "C": true,
+          "D": true,
+          "E": true
+        },
+        "eligible": false
+      },
+      "h4": {
+        "cleanReviewBurden": {
+          "current": 2,
+          "h4": 4,
+          "n": 12
+        },
+        "humanNegativeNewReview": 2,
+        "humanPositiveResponse": 0,
+        "injectedFlagged": {
+          "current": 2,
+          "h4": 12
+        },
+        "transitions": {
+          "allow->review": 12,
+          "same": 12
+        }
+      },
+      "hardRejectBypass": 0,
+      "injectedRecall": {
+        "hits": 12,
+        "n": 12,
+        "rate": 1.0
+      },
+      "newReviewRateCI": {
+        "ci95": [
+          0.047,
+          0.448
+        ],
+        "k": 2,
+        "n": 12,
+        "rate": 0.1667
+      },
+      "precisionCI": {
+        "ci95": [
+          0.0,
+          0.6576
+        ],
+        "k": 0,
+        "n": 2,
+        "rate": 0.0
+      },
+      "recallCI": {
+        "status": "NOT_ESTIMABLE"
+      },
+      "threshold": 0.2
+    },
+    "0.25": {
+      "artifactRegressions": 0,
+      "confusion": {
+        "excludedUnresolved": 0,
+        "fn": 0,
+        "fp": 0,
+        "humanNegatives": 12,
+        "humanPositives": 0,
+        "newDetectorInducedReviews": 0,
+        "newReviewRate": 0.0,
+        "precision": null,
+        "precisionStatus": "NOT_ESTIMABLE",
+        "recall": null,
+        "recallStatus": "NOT_ESTIMABLE",
+        "tn": 12,
+        "tp": 0
+      },
+      "eligibility": {
+        "criteria": {
+          "A": false,
+          "B": true,
+          "C": true,
+          "D": true,
+          "E": true
+        },
+        "eligible": false
+      },
+      "h4": {
+        "cleanReviewBurden": {
+          "current": 2,
+          "h4": 2,
+          "n": 12
+        },
+        "humanNegativeNewReview": 0,
+        "humanPositiveResponse": 0,
+        "injectedFlagged": {
+          "current": 2,
+          "h4": 12
+        },
+        "transitions": {
+          "allow->review": 10,
+          "same": 14
+        }
+      },
+      "hardRejectBypass": 0,
+      "injectedRecall": {
+        "hits": 12,
+        "n": 12,
+        "rate": 1.0
+      },
+      "newReviewRateCI": {
+        "ci95": [
+          0.0,
+          0.2425
+        ],
+        "k": 0,
+        "n": 12,
+        "rate": 0.0
+      },
+      "precisionCI": {
+        "status": "NOT_ESTIMABLE"
+      },
+      "recallCI": {
+        "status": "NOT_ESTIMABLE"
+      },
+      "threshold": 0.25
+    },
+    "0.30": {
+      "artifactRegressions": 0,
+      "confusion": {
+        "excludedUnresolved": 0,
+        "fn": 0,
+        "fp": 0,
+        "humanNegatives": 12,
+        "humanPositives": 0,
+        "newDetectorInducedReviews": 0,
+        "newReviewRate": 0.0,
+        "precision": null,
+        "precisionStatus": "NOT_ESTIMABLE",
+        "recall": null,
+        "recallStatus": "NOT_ESTIMABLE",
+        "tn": 12,
+        "tp": 0
+      },
+      "eligibility": {
+        "criteria": {
+          "A": false,
+          "B": true,
+          "C": true,
+          "D": true,
+          "E": true
+        },
+        "eligible": false
+      },
+      "h4": {
+        "cleanReviewBurden": {
+          "current": 2,
+          "h4": 2,
+          "n": 12
+        },
+        "humanNegativeNewReview": 0,
+        "humanPositiveResponse": 0,
+        "injectedFlagged": {
+          "current": 2,
+          "h4": 12
+        },
+        "transitions": {
+          "allow->review": 10,
+          "same": 14
+        }
+      },
+      "hardRejectBypass": 0,
+      "injectedRecall": {
+        "hits": 12,
+        "n": 12,
+        "rate": 1.0
+      },
+      "newReviewRateCI": {
+        "ci95": [
+          0.0,
+          0.2425
+        ],
+        "k": 0,
+        "n": 12,
+        "rate": 0.0
+      },
+      "precisionCI": {
+        "status": "NOT_ESTIMABLE"
+      },
+      "recallCI": {
+        "status": "NOT_ESTIMABLE"
+      },
+      "threshold": 0.3
+    },
+    "0.40": {
+      "artifactRegressions": 0,
+      "confusion": {
+        "excludedUnresolved": 0,
+        "fn": 0,
+        "fp": 0,
+        "humanNegatives": 12,
+        "humanPositives": 0,
+        "newDetectorInducedReviews": 0,
+        "newReviewRate": 0.0,
+        "precision": null,
+        "precisionStatus": "NOT_ESTIMABLE",
+        "recall": null,
+        "recallStatus": "NOT_ESTIMABLE",
+        "tn": 12,
+        "tp": 0
+      },
+      "eligibility": {
+        "criteria": {
+          "A": false,
+          "B": true,
+          "C": false,
+          "D": true,
+          "E": true
+        },
+        "eligible": false
+      },
+      "h4": {
+        "cleanReviewBurden": {
+          "current": 2,
+          "h4": 2,
+          "n": 12
+        },
+        "humanNegativeNewReview": 0,
+        "humanPositiveResponse": 0,
+        "injectedFlagged": {
+          "current": 2,
+          "h4": 10
+        },
+        "transitions": {
+          "allow->review": 8,
+          "same": 16
+        }
+      },
+      "hardRejectBypass": 0,
+      "injectedRecall": {
+        "hits": 9,
+        "n": 12,
+        "rate": 0.75
+      },
+      "newReviewRateCI": {
+        "ci95": [
+          0.0,
+          0.2425
+        ],
+        "k": 0,
+        "n": 12,
+        "rate": 0.0
+      },
+      "precisionCI": {
+        "status": "NOT_ESTIMABLE"
+      },
+      "recallCI": {
+        "status": "NOT_ESTIMABLE"
+      },
+      "threshold": 0.4
+    },
+    "0.50": {
+      "artifactRegressions": 0,
+      "confusion": {
+        "excludedUnresolved": 0,
+        "fn": 0,
+        "fp": 0,
+        "humanNegatives": 12,
+        "humanPositives": 0,
+        "newDetectorInducedReviews": 0,
+        "newReviewRate": 0.0,
+        "precision": null,
+        "precisionStatus": "NOT_ESTIMABLE",
+        "recall": null,
+        "recallStatus": "NOT_ESTIMABLE",
+        "tn": 12,
+        "tp": 0
+      },
+      "eligibility": {
+        "criteria": {
+          "A": false,
+          "B": true,
+          "C": false,
+          "D": true,
+          "E": true
+        },
+        "eligible": false
+      },
+      "h4": {
+        "cleanReviewBurden": {
+          "current": 2,
+          "h4": 2,
+          "n": 12
+        },
+        "humanNegativeNewReview": 0,
+        "humanPositiveResponse": 0,
+        "injectedFlagged": {
+          "current": 2,
+          "h4": 3
+        },
+        "transitions": {
+          "allow->review": 1,
+          "same": 23
+        }
+      },
+      "hardRejectBypass": 0,
+      "injectedRecall": {
+        "hits": 1,
+        "n": 12,
+        "rate": 0.0833
+      },
+      "newReviewRateCI": {
+        "ci95": [
+          0.0,
+          0.2425
+        ],
+        "k": 0,
+        "n": 12,
+        "rate": 0.0
+      },
+      "precisionCI": {
+        "status": "NOT_ESTIMABLE"
+      },
+      "recallCI": {
+        "status": "NOT_ESTIMABLE"
+      },
+      "threshold": 0.5
+    }
+  },
+  "evidenceLabel": "PROVISIONAL_G004_SHADOW_EVIDENCE",
+  "gate": {
+    "gateVersion": "owlv2_provisional_shadow_gate_v1",
+    "status": "NOT_EVALUATED_NO_SELECTED_THRESHOLD"
+  },
+  "h4Verdict": "H4_EVIDENCE_INSUFFICIENT",
+  "h4Version": "H4-DIRECT-1",
+  "holdoutEvaluated": 0,
+  "pilotVerdict": "OWLV2_POSITIVE_GROUND_TRUTH_INSUFFICIENT",
+  "precisionLabel": "G004_OWNER_RATER_A_PILOT_PRECISION",
+  "referenceTruthCounts": {
+    "all": {
+      "no": 20
+    },
+    "allPositives": 0,
+    "developmentPositives": 0
+  },
+  "reportVersion": "avatar_owlv2_pilot_evaluation_v1",
+  "selection": {
+    "reason": "no threshold on the frozen grid satisfies A-E on development groups",
+    "selectedThreshold": null,
+    "selectionVersion": "OWLV2_THRESHOLD_SELECTION_V1",
+    "status": "NO_THRESHOLD_SELECTED"
+  },
+  "selectionVersion": "OWLV2_THRESHOLD_SELECTION_V1",
+  "thirdAdjudicatorUsed": false,
+  "truthAuthority": "OWNER_DESIGNATED_RATER_A_REFERENCE_TRUTH",
+  "truthResolutionVersion": "OWNER_RATER_A_RESOLUTION_V1"
+}

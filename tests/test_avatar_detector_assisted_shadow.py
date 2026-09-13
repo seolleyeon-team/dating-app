@@ -257,6 +257,127 @@ def test_disagreement_is_never_auto_resolved_and_third_adjudication_resolves_it(
         ingest.ingest(a, b, independence_attested=True, adjudication=c)
 
 
+# ------------------------------------------ owner-designated Rater A resolution
+
+
+def _pair(tmp_path, row_a, row_b):
+    a = tmp_path / "a.json"
+    b = tmp_path / "b.json"
+    a.write_text(json.dumps(_export("A", [row_a])), encoding="utf-8")
+    b.write_text(json.dumps(_export("B", [row_b])), encoding="utf-8")
+    return a, b
+
+
+def _neg(eid="i1", **extra):
+    return _row(eid, primary="NO_VISIBLE_RELEVANT_TEXT_OR_MARK", mark="no", integration="not_applicable", markType="none", **extra)
+
+
+def test_owner_mode_constants_are_frozen():
+    assert ingest.TRUTH_RESOLUTION_VERSION == "OWNER_RATER_A_RESOLUTION_V1"
+    assert ingest.TRUTH_AUTHORITY == "OWNER_DESIGNATED_RATER_A_REFERENCE_TRUTH"
+    assert ingest.RESOLUTION_MODES == ("consensus", "owner-rater-a")
+
+
+def test_owner_mode_a_yes_b_no_is_yes(tmp_path):
+    a, b = _pair(tmp_path, _row("i1"), _neg())
+    report = ingest.ingest(a, b, independence_attested=True, truth_resolution="owner-rater-a")
+    row = report["labels"][0]
+    assert row["visibleGraphicalMark"] == "yes" and row["primaryLabel"] == "GRAPHICAL_LOGO"
+    assert row["adjudicationState"] == "owner_rater_a_reference"
+    assert row["raterAgreement"] is False
+
+
+def test_owner_mode_a_no_b_yes_is_no(tmp_path):
+    a, b = _pair(tmp_path, _neg(), _row("i1"))
+    report = ingest.ingest(a, b, independence_attested=True, truth_resolution="owner-rater-a")
+    assert report["labels"][0]["visibleGraphicalMark"] == "no"
+
+
+def test_owner_mode_primary_label_follows_a(tmp_path):
+    a, b = _pair(tmp_path, _row("i1", primary="GRAPHICAL_LOGO"), _row("i1", primary="BRAND_TEXT_OR_MARK"))
+    report = ingest.ingest(a, b, independence_attested=True, truth_resolution="owner-rater-a")
+    assert report["labels"][0]["primaryLabel"] == "GRAPHICAL_LOGO"
+
+
+def test_owner_mode_a_uncertain_stays_uncertain(tmp_path):
+    a, b = _pair(tmp_path, _row("i1", mark="uncertain"), _row("i1", mark="yes"))
+    report = ingest.ingest(a, b, independence_attested=True, truth_resolution="owner-rater-a")
+    row = report["labels"][0]
+    assert row["visibleGraphicalMark"] == "uncertain"
+    assert row["adjudicationState"] == "owner_rater_a_reference_uncertain"
+    assert report["uncertainCount"] == 1
+
+
+def test_owner_mode_agreement_keeps_shared_value(tmp_path):
+    a, b = _pair(tmp_path, _row("i1"), _row("i1"))
+    report = ingest.ingest(a, b, independence_attested=True, truth_resolution="owner-rater-a")
+    row = report["labels"][0]
+    assert row["visibleGraphicalMark"] == "yes" and row["raterAgreement"] is True
+
+
+def test_owner_mode_has_no_third_adjudication_blocker(tmp_path):
+    a, b = _pair(tmp_path, _row("i1"), _neg())
+    report = ingest.ingest(a, b, independence_attested=True, truth_resolution="owner-rater-a")
+    assert report["unresolvedCount"] == 0
+    assert report["thirdAdjudicatorUsed"] is False
+    assert report["truthResolutionVersion"] == ingest.TRUTH_RESOLUTION_VERSION
+    assert report["truthAuthority"] == ingest.TRUTH_AUTHORITY
+    assert report["disagreementCount"] == 1  # telemetry survives
+
+
+def test_consensus_mode_semantics_are_unchanged(tmp_path):
+    a, b = _pair(tmp_path, _row("i1"), _neg())
+    report = ingest.ingest(a, b, independence_attested=True)
+    assert report["labels"][0]["adjudicationState"] == "unresolved_disagreement"
+    assert report["unresolvedCount"] == 1
+    assert "truthResolutionVersion" not in report or report["truthResolutionVersion"] == "CONSENSUS"
+
+
+def test_owner_mode_ignores_detector_florence_and_confidence(tmp_path):
+    """The resolver takes only the two rater rows; there is no parameter through
+    which a detector score, a Florence result or a confidence can enter."""
+
+    import inspect
+
+    params = list(inspect.signature(ingest.resolve_owner_rater_a).parameters)
+    assert params == ["row_a", "row_b"]
+    low = _row("i1", labelConfidence="low")
+    high = _neg(labelConfidence="high")
+    final = ingest.resolve_owner_rater_a(ingest.sanitize(low, "A"), ingest.sanitize(high, "B"))
+    assert final["visibleGraphicalMark"] == "yes"
+
+
+def test_owner_mode_b_cannot_override_a_on_any_field(tmp_path):
+    a_row = _row("i1", primary="GARMENT_TEXT", mark="no", integration="scene_native", markType="brand_or_object_mark")
+    b_row = _row("i1", primary="GRAPHICAL_LOGO", mark="yes", integration="overlay_like", markType="graphical_logo")
+    a, b = _pair(tmp_path, a_row, b_row)
+    report = ingest.ingest(a, b, independence_attested=True, truth_resolution="owner-rater-a")
+    row = report["labels"][0]
+    for field in ("primaryLabel", "visibleGraphicalMark", "markIntegration", "markType"):
+        assert row[field] == a_row[field]
+
+
+def test_owner_mode_rater_a_contradiction_hard_blocks(tmp_path):
+    a, b = _pair(tmp_path, _row("i1", mark="yes", markType="none"), _row("i1"))
+    with pytest.raises(SystemExit, match="BLOCKED_RATER_A_CORRECTION_REQUIRED"):
+        ingest.ingest(a, b, independence_attested=True, truth_resolution="owner-rater-a")
+
+
+def test_owner_mode_rater_b_contradiction_is_telemetry_not_a_block(tmp_path):
+    a, b = _pair(tmp_path, _row("i1"), _row("i1", mark="yes", markType="none"))
+    report = ingest.ingest(a, b, independence_attested=True, truth_resolution="owner-rater-a")
+    assert report["raterBContradictionCount"] == 1
+    assert report["labels"][0]["visibleGraphicalMark"] == "yes"
+
+
+def test_owner_mode_uncertain_a_is_excluded_from_detector_truth(tmp_path):
+    import avatar_owlv2_threshold_selection as sel
+
+    a, b = _pair(tmp_path, _row("i1", mark="uncertain"), _row("i1", mark="yes"))
+    report = ingest.ingest(a, b, independence_attested=True, truth_resolution="owner-rater-a")
+    assert sel.truth_of(report["labels"][0]) is None
+
+
 def test_agreement_report_is_telemetry_only():
     report = ingest.agreement(
         {"i1": ingest.sanitize(_row("i1"), "A"), "i2": ingest.sanitize(_row("i2", mark="no"), "A")},

@@ -45,8 +45,16 @@ from avatar_watermark_label_local import (  # noqa: E402
     VISIBLE_GRAPHICAL_MARK,
 )
 
-INGEST_VERSION = "avatar_watermark_label_ingest_v2"
+INGEST_VERSION = "avatar_watermark_label_ingest_v3"
 LABEL_ARTIFACT_VERSION = "b3l6_adjudicated_labels_v1"
+
+# B3-L6.2A owner decision: for this pilot, Rater A is the designated human
+# reference authority and Rater B is agreement/disagreement telemetry only. This
+# is an explicit mode, never the default. It is an owner policy decision, not a
+# claim that Rater A is objective truth, and it is not a three-rater consensus.
+RESOLUTION_MODES = ("consensus", "owner-rater-a")
+TRUTH_RESOLUTION_VERSION = "OWNER_RATER_A_RESOLUTION_V1"
+TRUTH_AUTHORITY = "OWNER_DESIGNATED_RATER_A_REFERENCE_TRUTH"
 ALLOWED_FIELDS = (
     "evaluationId",
     "primaryLabel",
@@ -113,6 +121,29 @@ def contradictions(row: Mapping[str, Any]) -> list[str]:
     return problems
 
 
+def resolve_owner_rater_a(row_a: Mapping[str, Any], row_b: Mapping[str, Any]) -> dict[str, Any]:
+    """OWNER_RATER_A_RESOLUTION_V1: A == B -> A; A != B -> A; A uncertain -> uncertain.
+
+    Takes the two sanitized rater rows and nothing else: no detector score, no
+    Florence output, no confidence can enter. Rater B never overrides A; its
+    disagreement is recorded per row as telemetry only.
+    """
+
+    agree = all(row_a.get(f) == row_b.get(f) for f in COMPARED_FIELDS)
+    uncertain = row_a.get(GATE_FIELD) == "uncertain"
+    return {
+        "evaluationId": row_a["evaluationId"],
+        "primaryLabel": row_a.get("primaryLabel"),
+        "visibleGraphicalMark": row_a.get("visibleGraphicalMark"),
+        "markIntegration": row_a.get("markIntegration"),
+        "markType": row_a.get("markType"),
+        "allVisibleClasses": sorted(row_a.get("allVisibleClasses") or []),
+        "adjudicationState": "owner_rater_a_reference_uncertain" if uncertain else "owner_rater_a_reference",
+        "raterAgreement": agree,
+        "disagreeingFields": [f for f in COMPARED_FIELDS if row_a.get(f) != row_b.get(f)],
+    }
+
+
 def _load(path: Path) -> tuple[str, dict[str, dict[str, Any]], str]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("labelSchema") != LABEL_SCHEMA_VERSION:
@@ -172,19 +203,30 @@ def ingest(
     *,
     independence_attested: bool = False,
     adjudication: Path | None = None,
+    truth_resolution: str = "consensus",
 ) -> dict[str, Any]:
+    if truth_resolution not in RESOLUTION_MODES:
+        raise SystemExit(f"UNKNOWN_TRUTH_RESOLUTION {truth_resolution}")
+    owner_mode = truth_resolution == "owner-rater-a"
     rater_a, rows_a, _ = _load(path_a)
     rater_b, rows_b, _ = _load(path_b)
     if rater_a == rater_b:
         raise SystemExit("RATERS_NOT_DISTINCT")
+    if owner_mode and adjudication is not None:
+        raise SystemExit("ADJUDICATION_NOT_USED_IN_OWNER_RATER_A_MODE")
 
-    blockers = []
-    for rater, rows in ((rater_a, rows_a), (rater_b, rows_b)):
+    blockers_a, blockers_b = [], []
+    for rater, rows, sink in ((rater_a, rows_a, blockers_a), (rater_b, rows_b, blockers_b)):
         for item, row in sorted(rows.items()):
             for problem in contradictions(row):
-                blockers.append({"raterId": rater, "evaluationId": item, "fields": problem})
-    if blockers:
-        raise SystemExit("BLOCKED_RATER_LABEL_CORRECTION_REQUIRED " + json.dumps(blockers))
+                sink.append({"raterId": rater, "evaluationId": item, "fields": problem})
+    if owner_mode:
+        # A is the reference authority: its contradictions hard-block. B's are
+        # telemetry only -- B does not decide truth, so it cannot block it.
+        if blockers_a:
+            raise SystemExit("BLOCKED_RATER_A_CORRECTION_REQUIRED " + json.dumps(blockers_a))
+    elif blockers_a or blockers_b:
+        raise SystemExit("BLOCKED_RATER_LABEL_CORRECTION_REQUIRED " + json.dumps(blockers_a + blockers_b))
 
     identical = bool(rows_a) and _content(rows_a) == _content(rows_b)
     if identical and not independence_attested:
@@ -211,6 +253,9 @@ def ingest(
         gate_uncertain = a.get(GATE_FIELD) == "uncertain" or b.get(GATE_FIELD) == "uncertain"
         for f in differing:
             field_disagreements[f] += 1
+        if owner_mode:
+            resolved.append(resolve_owner_rater_a(a, b))
+            continue
         if not differing and not gate_uncertain:
             resolved.append(
                 {
@@ -256,6 +301,11 @@ def ingest(
         "ingestVersion": INGEST_VERSION,
         "labelArtifactVersion": LABEL_ARTIFACT_VERSION,
         "labelSchema": LABEL_SCHEMA_VERSION,
+        "truthResolutionMode": truth_resolution,
+        "truthResolutionVersion": TRUTH_RESOLUTION_VERSION if owner_mode else "CONSENSUS",
+        "truthAuthority": TRUTH_AUTHORITY if owner_mode else "TWO_RATER_CONSENSUS_WITH_THIRD_ADJUDICATION",
+        "referenceRater": rater_a if owner_mode else None,
+        "raterBContradictionCount": len(blockers_b),
         "raters": sorted([rater_a, rater_b]),
         "raterCount": 2,
         "independenceProvenance": "owner_attestation" if independence_attested else "not_attested",
@@ -286,6 +336,7 @@ def main(argv=None):
     parser.add_argument("--adjudication", type=Path)
     parser.add_argument("--worksheet", type=Path)
     parser.add_argument("--owner-attests-independence", action="store_true")
+    parser.add_argument("--truth-resolution", choices=RESOLUTION_MODES, default="consensus")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args(argv)
     expected = None
@@ -297,6 +348,7 @@ def main(argv=None):
         expected,
         independence_attested=args.owner_attests_independence,
         adjudication=args.adjudication,
+        truth_resolution=args.truth_resolution,
     )
     problems = bench.privacy_violations(report)
     if problems:
@@ -308,7 +360,7 @@ def main(argv=None):
     if not report["complete"]:
         print("BLOCKED_HUMAN_LABELS_REQUIRED", file=sys.stderr)
         return 2
-    if report["unresolvedCount"]:
+    if report["unresolvedCount"] and report["truthResolutionMode"] == "consensus":
         print("BLOCKED_THIRD_ADJUDICATION_REQUIRED", file=sys.stderr)
         return 3
     return 0
