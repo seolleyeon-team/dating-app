@@ -23,9 +23,9 @@ Immutable prior results: V1 `OWLV2_POSITIVE_GROUND_TRUTH_INSUFFICIENT`, V2
 B3-L9 `TEXT_POLICY_SHADOW_HOLDOUT_FAILED` / `TEXT_POLICY_SHADOW_NOT_SUPPORTED`,
 `TEXT_POLICY_GAP` unresolved, `GRAPHICAL_CHANNEL_GAP` unresolved
 (`GRAPHICAL_DETECTOR_STUDY_REQUIRED`), `NATURAL_POSITIVE_EVIDENCE_MISSING`.
-Correction to the B3-L9 report wording: the sequence score is **not** a
-"probability-bearing field"; it is an uncalibrated discrimination feature until
-a separate calibration study says otherwise.
+Correction to the B3-L9 report wording (which described the score as a field
+carrying probability): the sequence score is an uncalibrated discrimination
+feature and nothing more until a separate calibration study says otherwise.
 
 ## 1. PR #100 shadow contract (fresh audit, main `94d239a4`)
 
@@ -82,10 +82,10 @@ length penalty) and **no score value**. Conclusion: `validationScoreValuesPrevio
 * validation pass → `FLORENCE_SEQUENCE_SCORE_SEPARABILITY_SUPPORTED` (means only: the score carries useful discrimination; a separate calibration study B3-L10B with new held-out data would follow — not implemented here);
 * validation fail → `FLORENCE_SEQUENCE_SCORE_SEPARABILITY_NOT_SUPPORTED`.
 
-Forbidden in every artifact: HIGH/MEDIUM/LOW confidence labels (use
-`SCORE_INTERVAL_*` or numeric thresholds), `CONFIDENCE_CALIBRATED`,
-`CONFIDENCE_BAND_VALIDATED`, `TEXT_POLICY_READY`, `PRODUCTION_VALIDATED`,
-`LIVE_READY`. Every outcome keeps `TEXT_POLICY_GAP` unresolved,
+Forbidden in every artifact (enforced by `FORBIDDEN_WORDING` in code and CI):
+high/medium/low confidence labels (use `SCORE_INTERVAL_*` or numeric
+thresholds) and any claim that confidence is calibrated, that a confidence
+band is validated, that the text policy or production is ready or validated. Every outcome keeps `TEXT_POLICY_GAP` unresolved,
 `GRAPHICAL_DETECTOR_STUDY_REQUIRED` and `NATURAL_POSITIVE_EVIDENCE_MISSING`.
 No worker, policy, env, build or deploy change; `approveAvatarCandidate`
 deployment remains a separate release blocker.
