@@ -307,6 +307,12 @@ jobs:
       - run: pytest -q tests/test_avatar_text_policy_shadow.py --maxfail=10
         env:
           PYTHONPATH: .
+      # B3-L10A: Florence beam sequence score 는 UNCALIBRATED DISCRIMINATION FEATURE. region confidence 로
+      # 흘러가지 않고 confidenceBand 는 unknown 유지, whole_sequence 는 region score 로 가장 불가, score 로
+      # watermark action 변경 불가, validation 은 freeze 이후 1회·이미 본 값이면 NEW_HELDOUT_REQUIRED.
+      - run: pytest -q tests/test_avatar_ocr_score_separability.py --maxfail=10
+        env:
+          PYTHONPATH: .
       # 배포 가드는 Windows 운영자 셸에서 Hangul env 값을 "???" 로 읽어 바뀐 적
       # 없는 변수를 changed 로 보고했다. 인코딩과 키 단위 승인 계약을 Linux
       # 에서도 고정한다.

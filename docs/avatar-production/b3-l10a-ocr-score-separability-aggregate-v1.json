@@ -1,0 +1,570 @@
+{
+  "captureCoverage": {
+    "clean": {
+      "development": 12,
+      "validation": 8
+    },
+    "opaque": {
+      "development": 12,
+      "validation": 8
+    },
+    "scoreAvailable": "60/60",
+    "shadowPresent": "60/60",
+    "singleRegion": "60/60",
+    "source": "B3-L4 V0 rows, B3-L8 development text rows, B3-L9 validation text rows (PR #100 telemetry already recorded)",
+    "translucent": {
+      "development": 12,
+      "validation": 8
+    }
+  },
+  "confidenceBandChanged": false,
+  "contractDigestPrefix": "8092c3ea2f34",
+  "decisionDiff": 0,
+  "descriptiveNote": "rank discrimination (AUC) is reported descriptively; the frozen quantile grid is the only threshold authority and no finer search was performed",
+  "development": {
+    "aucRoc": {
+      "opaqueVsClean": 1.0,
+      "positiveVsClean": 0.9896,
+      "translucentVsClean": 0.9792
+    },
+    "averagePrecision": 0.9951,
+    "coverageSingleRegion": 1.0,
+    "decisionDiff": 0,
+    "n": {
+      "clean": 12,
+      "opaque": 12,
+      "translucent": 12
+    },
+    "scoreCalibratedFlags": [
+      "False"
+    ],
+    "split": "development",
+    "table": [
+      {
+        "balancedAccuracy": 0.6666,
+        "cleanFalseEscalationProxy": {
+          "k": 8,
+          "n": 12,
+          "rate": 0.6667
+        },
+        "combinedSensitivity": {
+          "k": 24,
+          "n": 24,
+          "rate": 1.0
+        },
+        "direction": "positive_higher",
+        "eligibility": {
+          "criteria": {
+            "A": false,
+            "B": true,
+            "C": true,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "A"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "role": "SEPARABILITY_CANDIDATE_THRESHOLD",
+        "threshold": -1.42351,
+        "translucentSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        }
+      },
+      {
+        "balancedAccuracy": 0.7916,
+        "cleanFalseEscalationProxy": {
+          "k": 5,
+          "n": 12,
+          "rate": 0.4167
+        },
+        "combinedSensitivity": {
+          "k": 24,
+          "n": 24,
+          "rate": 1.0
+        },
+        "direction": "positive_higher",
+        "eligibility": {
+          "criteria": {
+            "A": false,
+            "B": true,
+            "C": true,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "A"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "role": "SEPARABILITY_CANDIDATE_THRESHOLD",
+        "threshold": -1.13944,
+        "translucentSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        }
+      },
+      {
+        "balancedAccuracy": 0.8958,
+        "cleanFalseEscalationProxy": {
+          "k": 2,
+          "n": 12,
+          "rate": 0.1667
+        },
+        "combinedSensitivity": {
+          "k": 23,
+          "n": 24,
+          "rate": 0.9583
+        },
+        "direction": "positive_higher",
+        "eligibility": {
+          "criteria": {
+            "A": false,
+            "B": true,
+            "C": true,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "A"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "role": "SEPARABILITY_CANDIDATE_THRESHOLD",
+        "threshold": -1.066554,
+        "translucentSensitivity": {
+          "k": 11,
+          "n": 12,
+          "rate": 0.9167
+        }
+      },
+      {
+        "balancedAccuracy": 0.9375,
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 21,
+          "n": 24,
+          "rate": 0.875
+        },
+        "direction": "positive_higher",
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": true,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "role": "SEPARABILITY_CANDIDATE_THRESHOLD",
+        "threshold": -0.918332,
+        "translucentSensitivity": {
+          "k": 9,
+          "n": 12,
+          "rate": 0.75
+        }
+      },
+      {
+        "balancedAccuracy": 0.875,
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 18,
+          "n": 24,
+          "rate": 0.75
+        },
+        "direction": "positive_higher",
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": true,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "role": "SEPARABILITY_CANDIDATE_THRESHOLD",
+        "threshold": -0.748467,
+        "translucentSensitivity": {
+          "k": 6,
+          "n": 12,
+          "rate": 0.5
+        }
+      },
+      {
+        "balancedAccuracy": 0.8125,
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 15,
+          "n": 24,
+          "rate": 0.625
+        },
+        "direction": "positive_higher",
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": true,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 11,
+          "n": 12,
+          "rate": 0.9167
+        },
+        "role": "SEPARABILITY_CANDIDATE_THRESHOLD",
+        "threshold": -0.700672,
+        "translucentSensitivity": {
+          "k": 4,
+          "n": 12,
+          "rate": 0.3333
+        }
+      },
+      {
+        "balancedAccuracy": 0.7291,
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 11,
+          "n": 24,
+          "rate": 0.4583
+        },
+        "direction": "positive_higher",
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": false,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "B",
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 10,
+          "n": 12,
+          "rate": 0.8333
+        },
+        "role": "SEPARABILITY_CANDIDATE_THRESHOLD",
+        "threshold": -0.663906,
+        "translucentSensitivity": {
+          "k": 1,
+          "n": 12,
+          "rate": 0.0833
+        }
+      },
+      {
+        "balancedAccuracy": 0.6666,
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 8,
+          "n": 24,
+          "rate": 0.3333
+        },
+        "direction": "positive_higher",
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": false,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "B",
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 8,
+          "n": 12,
+          "rate": 0.6667
+        },
+        "role": "SEPARABILITY_CANDIDATE_THRESHOLD",
+        "threshold": -0.613713,
+        "translucentSensitivity": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        }
+      },
+      {
+        "balancedAccuracy": 0.5834,
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 4,
+          "n": 24,
+          "rate": 0.1667
+        },
+        "direction": "positive_higher",
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": false,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "B",
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 4,
+          "n": 12,
+          "rate": 0.3333
+        },
+        "role": "SEPARABILITY_CANDIDATE_THRESHOLD",
+        "threshold": -0.592678,
+        "translucentSensitivity": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        }
+      }
+    ]
+  },
+  "developmentInventory": {
+    "CLEAN": {
+      "attributionScope": {
+        "single_region": 12
+      },
+      "n": 12,
+      "outputTokenCount": {
+        "max": 54.0,
+        "median": 21.5,
+        "min": 14.0,
+        "n": 12,
+        "q1": 15.5,
+        "q3": 22.25
+      },
+      "rawSequenceScore": {
+        "max": -0.9915,
+        "median": -1.2118,
+        "min": -1.7635,
+        "n": 12,
+        "q1": -1.527,
+        "q3": -1.1227
+      },
+      "regionCount": {
+        "1": 12
+      },
+      "scoreAvailable": 12,
+      "usableSingleRegion": 12
+    },
+    "TEXT_WATERMARK_OPAQUE": {
+      "attributionScope": {
+        "single_region": 12
+      },
+      "n": 12,
+      "outputTokenCount": {
+        "max": 13.0,
+        "median": 13.0,
+        "min": 13.0,
+        "n": 12,
+        "q1": 13.0,
+        "q3": 13.0
+      },
+      "rawSequenceScore": {
+        "max": -0.5692,
+        "median": -0.6122,
+        "min": -0.7132,
+        "n": 12,
+        "q1": -0.6333,
+        "q3": -0.58
+      },
+      "regionCount": {
+        "1": 12
+      },
+      "scoreAvailable": 12,
+      "usableSingleRegion": 12
+    },
+    "TEXT_WATERMARK_TRANSLUCENT": {
+      "attributionScope": {
+        "single_region": 12
+      },
+      "n": 12,
+      "outputTokenCount": {
+        "max": 15.0,
+        "median": 14.0,
+        "min": 13.0,
+        "n": 12,
+        "q1": 13.0,
+        "q3": 14.0
+      },
+      "rawSequenceScore": {
+        "max": -0.6383,
+        "median": -0.7485,
+        "min": -1.0856,
+        "n": 12,
+        "q1": -0.8369,
+        "q3": -0.6995
+      },
+      "regionCount": {
+        "1": 12
+      },
+      "scoreAvailable": 12,
+      "usableSingleRegion": 12
+    }
+  },
+  "evidenceLabel": "G004_UNCALIBRATED_OCR_SCORE_EVIDENCE",
+  "exposureAudit": {
+    "auditedAt": "2026-09-14",
+    "evidence": [
+      "repo grep (scripts/docs/tests) for rawSequenceScore / sequenceScore / shadowOcr: only PR #100 tests, B3-L5 preregistration semantics row, measurement observability tests; no values",
+      "local b3l4..b3l9 eval directories: no *.json / *.stdout contains rawSequenceScore; values exist only inside raw .jsonl captures",
+      "B3-L4 aggregate report mentions output_scores only as a generation config row; no score distribution",
+      "memory notes mention the field's existence only",
+      "B3-L10A coverage check printed availability/scope/regionCount/source/calibrated/beams/lengthPenalty counts and no score value",
+      "caveat: G4-G5 images were opened once for the B3-L9 geometry-policy holdout; that exposure concerns typed geometry fields, not score values"
+    ],
+    "validationScoreValuesPreviouslySeen": false,
+    "validationSplit": "G4-G5",
+    "validationSplitName": "FEATURE_SPECIFIC_FROZEN_VALIDATION_SPLIT",
+    "version": "FLORENCE_OCR_SEQUENCE_SCORE_STUDY_V1"
+  },
+  "featureName": "UNCALIBRATED_DISCRIMINATION_FEATURE",
+  "florenceInference": {
+    "newCalls": 0,
+    "reason": "every analysed row already carried the shadow score"
+  },
+  "graphicalDetectorStudyRequired": "GRAPHICAL_DETECTOR_STUDY_REQUIRED",
+  "naturalPositiveLimitation": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+  "originalsUnchanged": "28/28",
+  "priorStatus": {
+    "B3_L9": "TEXT_POLICY_SHADOW_HOLDOUT_FAILED",
+    "B3_L9_SUPPORT": "TEXT_POLICY_SHADOW_NOT_SUPPORTED",
+    "H4_DUAL_CHANNEL": "H4_DUAL_CHANNEL_SHADOW_NOT_SUPPORTED",
+    "V1": "OWLV2_POSITIVE_GROUND_TRUTH_INSUFFICIENT",
+    "V2": "OWLV2_CONTROLLED_GATE_FAILED_DEVELOPMENT",
+    "V3": "V3_DUAL_CHANNEL_FAILED_DEVELOPMENT",
+    "V3_DIAGNOSIS": [
+      "TEXT_POLICY_GAP",
+      "GRAPHICAL_CHANNEL_GAP",
+      "MIXED"
+    ]
+  },
+  "reportVersion": "avatar_ocr_score_separability_eval_v1",
+  "scoreSemantics": {
+    "attributionScope": "single_region only when regionCount == 1, otherwise whole_sequence",
+    "notA": [
+      "calibrated OCR probability",
+      "per-region confidence",
+      "probability text is correct",
+      "probability watermark is present"
+    ],
+    "rawSequenceScore": "whole generated sequence beam log-probability",
+    "scoreCalibrated": false,
+    "scoreSource": "florence_beam_sequence_score"
+  },
+  "selection": {
+    "reason": "no candidate satisfies A-F on development",
+    "selectedThreshold": null,
+    "status": "NONE"
+  },
+  "textPolicyGap": "TEXT_POLICY_GAP_UNRESOLVED",
+  "thresholdGenerationContract": {
+    "basis": "pooled development scores (clean + opaque + translucent)",
+    "direction": "positive_higher",
+    "directionRule": "median(positive dev) vs median(clean dev)",
+    "grid": [
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9
+    ]
+  },
+  "validationEvaluated": 0,
+  "validationScoreValuesStillUnseen": true,
+  "validationSplitName": "FEATURE_SPECIFIC_FROZEN_VALIDATION_SPLIT",
+  "validationSplitStatus": "G4-G5 score values were not read by the evaluator (selection NONE -> validation never opened); they remain unseen for a future study",
+  "verdict": "FLORENCE_SEQUENCE_SCORE_NOT_SEPARATING",
+  "version": "FLORENCE_OCR_SEQUENCE_SCORE_STUDY_V1",
+  "watermarkPolicyChanged": false
+}
