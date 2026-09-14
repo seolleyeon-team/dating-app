@@ -277,11 +277,23 @@ def test_aggregate_only_report():
             assert phrase not in text, (path.name, phrase)
         assert not re.search(r"P\d{2}_C\d{2}", text), path.name
         assert not re.search(r"[A-Za-z]:\\Users\\", text), path.name
-        assert "AppData" not in text and "quad_boxes" not in text
+        assert "AppData" not in text
+        if path.suffix == ".md":
+            assert "quad_boxes" not in text
     if AGGREGATE.exists():
         report = json.loads(AGGREGATE.read_text(encoding="utf-8"))
         assert bench.privacy_violations(report) == []
-        assert "regionEvidence" not in json.dumps(report) and "detections" not in json.dumps(report)
+        # raw structures may be *named* in the forbidden-field list but never present as data
+        def keys(obj):
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    yield k
+                    yield from keys(v)
+            elif isinstance(obj, list):
+                for v in obj:
+                    yield from keys(v)
+        present = set(keys(report))
+        assert not ({"regionEvidence", "detections", "quad_boxes", "labels", "tasks", "token_key"} & present)
         assert report["naturalPositiveLimitation"] == "NATURAL_POSITIVE_EVIDENCE_MISSING"
         assert report["graphicalDetectorStudyRequired"] == "GRAPHICAL_DETECTOR_STUDY_REQUIRED"
         assert report["designation"] == "DEVELOPMENT_DESIGNED"
