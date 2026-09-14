@@ -1,0 +1,2716 @@
+{
+  "conditionsPerFamily": {
+    "BRAND_LIKE_TEXT_AND_SYMBOL": 20,
+    "CENTER_OVERLAY_MARK": 20,
+    "EDGE_MARK": 20,
+    "GRAPHICAL_WATERMARK": 20,
+    "GRAPHIC_SYMBOL": 20,
+    "LOGO_LIKE_EMBLEM": 20,
+    "REPEATED_TILED_MARK": 20,
+    "SMALL_CORNER_MARK": 20,
+    "TEXT_WATERMARK_OPAQUE": 20,
+    "TEXT_WATERMARK_TRANSLUCENT": 20
+  },
+  "currentActionNote": "challenge rows use the base clean image's live action as a proxy (Florence not re-run); F1 uses the real V8 action",
+  "developmentTable": {
+    "0.05": {
+      "cleanNegative": {
+        "confusion": {
+          "excludedUnresolved": 0,
+          "fn": 0,
+          "fp": 11,
+          "humanNegatives": 12,
+          "humanPositives": 0,
+          "newDetectorInducedReviews": 9,
+          "newReviewRate": 0.75,
+          "precision": 0.0,
+          "precisionStatus": "estimable",
+          "recall": null,
+          "recallStatus": "NOT_ESTIMABLE",
+          "tn": 1,
+          "tp": 0
+        },
+        "currentReviewBurden": 2,
+        "detectorResponseRate": 0.9167,
+        "excludedUnresolved": 0,
+        "falsePositiveImages": 11,
+        "h4ReviewBurden": 11,
+        "humanNegatives": 12,
+        "n": 12,
+        "newDetectorInducedReviews": 9,
+        "newReviewRate": 0.75,
+        "newReviewRateCI": {
+          "ci95": [
+            0.4677,
+            0.9111
+          ],
+          "k": 9,
+          "n": 12,
+          "rate": 0.75
+        },
+        "trueNegativeImages": 1
+      },
+      "controlledPositive": {
+        "conditions": 120,
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 5,
+              "a logo": 7,
+              "a watermark": 12
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12,
+              "a watermark": 3
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "EDGE_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12,
+              "a watermark": 4
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "GRAPHICAL_WATERMARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12,
+              "a watermark": 6
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "GRAPHIC_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12,
+              "a watermark": 2
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12,
+              "a watermark": 3
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 9,
+              "a logo": 1,
+              "a watermark": 12
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "SMALL_CORNER_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12,
+              "a logo": 2
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a brand emblem": 3,
+              "a graphic symbol": 8,
+              "a logo": 4,
+              "a watermark": 4
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 8,
+              "a logo": 2,
+              "a watermark": 10
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          }
+        },
+        "label": "CONTROLLED_CHALLENGE_RECALL",
+        "overallCI": {
+          "ci95": [
+            0.969,
+            1.0
+          ],
+          "k": 120,
+          "n": 120,
+          "rate": 1.0
+        },
+        "overallImageRecall": 1.0
+      },
+      "eligibility": {
+        "criteria": {
+          "A_clean_negative_new_review_rate": {
+            "ceiling": 0.1,
+            "pass": false,
+            "value": 0.75
+          },
+          "B_overall_controlled_positive_recall": {
+            "floor": 0.95,
+            "pass": true,
+            "value": 1.0
+          },
+          "C_safety_critical_family_recall": {
+            "floor": 0.9,
+            "pass": true,
+            "value": {
+              "GRAPHICAL_WATERMARK": 1.0,
+              "LOGO_LIKE_EMBLEM": 1.0,
+              "TEXT_WATERMARK_OPAQUE": 1.0,
+              "TEXT_WATERMARK_TRANSLUCENT": 1.0
+            }
+          },
+          "D_small_corner_recall": {
+            "floor": 0.9,
+            "pass": true,
+            "value": 1.0
+          },
+          "E_edge_recall": {
+            "floor": 0.9,
+            "pass": true,
+            "value": 1.0
+          },
+          "F_generative_artifact_regression": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          },
+          "G_hard_reject_bypass": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          }
+        },
+        "eligible": false,
+        "gateVersion": "OWLV2_CONTROLLED_CHALLENGE_GATE_V2"
+      },
+      "safety": {
+        "artifactRegressions": 0,
+        "hardRejectBypass": 0,
+        "transitions": {
+          "allow->review": 109,
+          "same": 23
+        }
+      },
+      "threshold": 0.05
+    },
+    "0.10": {
+      "cleanNegative": {
+        "confusion": {
+          "excludedUnresolved": 0,
+          "fn": 0,
+          "fp": 6,
+          "humanNegatives": 12,
+          "humanPositives": 0,
+          "newDetectorInducedReviews": 6,
+          "newReviewRate": 0.5,
+          "precision": 0.0,
+          "precisionStatus": "estimable",
+          "recall": null,
+          "recallStatus": "NOT_ESTIMABLE",
+          "tn": 6,
+          "tp": 0
+        },
+        "currentReviewBurden": 2,
+        "detectorResponseRate": 0.5,
+        "excludedUnresolved": 0,
+        "falsePositiveImages": 6,
+        "h4ReviewBurden": 8,
+        "humanNegatives": 12,
+        "n": 12,
+        "newDetectorInducedReviews": 6,
+        "newReviewRate": 0.5,
+        "newReviewRateCI": {
+          "ci95": [
+            0.2538,
+            0.7462
+          ],
+          "k": 6,
+          "n": 12,
+          "rate": 0.5
+        },
+        "trueNegativeImages": 6
+      },
+      "controlledPositive": {
+        "conditions": 120,
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 2,
+              "a logo": 1,
+              "a watermark": 12
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 9,
+            "imageHits": 7,
+            "modelMisses": 5,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 7
+            },
+            "rate": 0.5833,
+            "rateCI": {
+              "ci95": [
+                0.3195,
+                0.8067
+              ],
+              "k": 7,
+              "n": 12,
+              "rate": 0.5833
+            },
+            "regionRecall": 0.5833
+          },
+          "EDGE_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 10,
+            "imageHits": 9,
+            "modelMisses": 3,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 9
+            },
+            "rate": 0.75,
+            "rateCI": {
+              "ci95": [
+                0.4677,
+                0.9111
+              ],
+              "k": 9,
+              "n": 12,
+              "rate": 0.75
+            },
+            "regionRecall": 0.75
+          },
+          "GRAPHICAL_WATERMARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 11,
+            "modelMisses": 1,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 11,
+              "a watermark": 2
+            },
+            "rate": 0.9167,
+            "rateCI": {
+              "ci95": [
+                0.6461,
+                0.9851
+              ],
+              "k": 11,
+              "n": 12,
+              "rate": 0.9167
+            },
+            "regionRecall": 0.9167
+          },
+          "GRAPHIC_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12,
+              "a watermark": 1
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 4,
+              "a watermark": 12
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 0.7639
+          },
+          "SMALL_CORNER_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 11,
+              "a logo": 2
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 8,
+            "imageHits": 6,
+            "modelMisses": 6,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 4,
+              "a watermark": 3
+            },
+            "rate": 0.5,
+            "rateCI": {
+              "ci95": [
+                0.2538,
+                0.7462
+              ],
+              "k": 6,
+              "n": 12,
+              "rate": 0.5
+            },
+            "regionRecall": 0.5
+          },
+          "TEXT_WATERMARK_TRANSLUCENT": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 10,
+            "imageHits": 6,
+            "modelMisses": 6,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 4,
+              "a logo": 1,
+              "a watermark": 4
+            },
+            "rate": 0.5,
+            "rateCI": {
+              "ci95": [
+                0.2538,
+                0.7462
+              ],
+              "k": 6,
+              "n": 12,
+              "rate": 0.5
+            },
+            "regionRecall": 0.5
+          }
+        },
+        "label": "CONTROLLED_CHALLENGE_RECALL",
+        "overallCI": {
+          "ci95": [
+            0.7472,
+            0.8826
+          ],
+          "k": 99,
+          "n": 120,
+          "rate": 0.825
+        },
+        "overallImageRecall": 0.825
+      },
+      "eligibility": {
+        "criteria": {
+          "A_clean_negative_new_review_rate": {
+            "ceiling": 0.1,
+            "pass": false,
+            "value": 0.5
+          },
+          "B_overall_controlled_positive_recall": {
+            "floor": 0.95,
+            "pass": false,
+            "value": 0.825
+          },
+          "C_safety_critical_family_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": {
+              "GRAPHICAL_WATERMARK": 0.9167,
+              "LOGO_LIKE_EMBLEM": 1.0,
+              "TEXT_WATERMARK_OPAQUE": 0.5,
+              "TEXT_WATERMARK_TRANSLUCENT": 0.5
+            }
+          },
+          "D_small_corner_recall": {
+            "floor": 0.9,
+            "pass": true,
+            "value": 1.0
+          },
+          "E_edge_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": 0.75
+          },
+          "F_generative_artifact_regression": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          },
+          "G_hard_reject_bypass": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          }
+        },
+        "eligible": false,
+        "gateVersion": "OWLV2_CONTROLLED_CHALLENGE_GATE_V2"
+      },
+      "safety": {
+        "artifactRegressions": 0,
+        "hardRejectBypass": 0,
+        "transitions": {
+          "allow->review": 95,
+          "same": 37
+        }
+      },
+      "threshold": 0.1
+    },
+    "0.15": {
+      "cleanNegative": {
+        "confusion": {
+          "excludedUnresolved": 0,
+          "fn": 0,
+          "fp": 3,
+          "humanNegatives": 12,
+          "humanPositives": 0,
+          "newDetectorInducedReviews": 3,
+          "newReviewRate": 0.25,
+          "precision": 0.0,
+          "precisionStatus": "estimable",
+          "recall": null,
+          "recallStatus": "NOT_ESTIMABLE",
+          "tn": 9,
+          "tp": 0
+        },
+        "currentReviewBurden": 2,
+        "detectorResponseRate": 0.25,
+        "excludedUnresolved": 0,
+        "falsePositiveImages": 3,
+        "h4ReviewBurden": 5,
+        "humanNegatives": 12,
+        "n": 12,
+        "newDetectorInducedReviews": 3,
+        "newReviewRate": 0.25,
+        "newReviewRateCI": {
+          "ci95": [
+            0.0889,
+            0.5323
+          ],
+          "k": 3,
+          "n": 12,
+          "rate": 0.25
+        },
+        "trueNegativeImages": 9
+      },
+      "controlledPositive": {
+        "conditions": 120,
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 9,
+            "modelMisses": 3,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 1,
+              "a watermark": 9
+            },
+            "rate": 0.75,
+            "rateCI": {
+              "ci95": [
+                0.4677,
+                0.9111
+              ],
+              "k": 9,
+              "n": 12,
+              "rate": 0.75
+            },
+            "regionRecall": 0.75
+          },
+          "CENTER_OVERLAY_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 5,
+            "imageHits": 2,
+            "modelMisses": 10,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 2
+            },
+            "rate": 0.1667,
+            "rateCI": {
+              "ci95": [
+                0.047,
+                0.448
+              ],
+              "k": 2,
+              "n": 12,
+              "rate": 0.1667
+            },
+            "regionRecall": 0.1667
+          },
+          "EDGE_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 7,
+            "imageHits": 5,
+            "modelMisses": 7,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 5
+            },
+            "rate": 0.4167,
+            "rateCI": {
+              "ci95": [
+                0.1933,
+                0.6805
+              ],
+              "k": 5,
+              "n": 12,
+              "rate": 0.4167
+            },
+            "regionRecall": 0.4167
+          },
+          "GRAPHICAL_WATERMARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 8,
+            "imageHits": 7,
+            "modelMisses": 5,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 7
+            },
+            "rate": 0.5833,
+            "rateCI": {
+              "ci95": [
+                0.3195,
+                0.8067
+              ],
+              "k": 7,
+              "n": 12,
+              "rate": 0.5833
+            },
+            "regionRecall": 0.5833
+          },
+          "GRAPHIC_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 11,
+            "modelMisses": 1,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 3,
+              "a watermark": 10
+            },
+            "rate": 0.9167,
+            "rateCI": {
+              "ci95": [
+                0.6461,
+                0.9851
+              ],
+              "k": 11,
+              "n": 12,
+              "rate": 0.9167
+            },
+            "regionRecall": 0.4931
+          },
+          "SMALL_CORNER_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 10,
+              "a logo": 2
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 6,
+            "imageHits": 4,
+            "modelMisses": 8,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 1,
+              "a watermark": 3
+            },
+            "rate": 0.3333,
+            "rateCI": {
+              "ci95": [
+                0.1381,
+                0.6094
+              ],
+              "k": 4,
+              "n": 12,
+              "rate": 0.3333
+            },
+            "regionRecall": 0.3333
+          },
+          "TEXT_WATERMARK_TRANSLUCENT": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 8,
+            "imageHits": 3,
+            "modelMisses": 9,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 2,
+              "a watermark": 1
+            },
+            "rate": 0.25,
+            "rateCI": {
+              "ci95": [
+                0.0889,
+                0.5323
+              ],
+              "k": 3,
+              "n": 12,
+              "rate": 0.25
+            },
+            "regionRecall": 0.25
+          }
+        },
+        "label": "CONTROLLED_CHALLENGE_RECALL",
+        "overallCI": {
+          "ci95": [
+            0.5527,
+            0.7218
+          ],
+          "k": 77,
+          "n": 120,
+          "rate": 0.6417
+        },
+        "overallImageRecall": 0.6417
+      },
+      "eligibility": {
+        "criteria": {
+          "A_clean_negative_new_review_rate": {
+            "ceiling": 0.1,
+            "pass": false,
+            "value": 0.25
+          },
+          "B_overall_controlled_positive_recall": {
+            "floor": 0.95,
+            "pass": false,
+            "value": 0.6417
+          },
+          "C_safety_critical_family_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": {
+              "GRAPHICAL_WATERMARK": 0.5833,
+              "LOGO_LIKE_EMBLEM": 1.0,
+              "TEXT_WATERMARK_OPAQUE": 0.3333,
+              "TEXT_WATERMARK_TRANSLUCENT": 0.25
+            }
+          },
+          "D_small_corner_recall": {
+            "floor": 0.9,
+            "pass": true,
+            "value": 1.0
+          },
+          "E_edge_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": 0.4167
+          },
+          "F_generative_artifact_regression": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          },
+          "G_hard_reject_bypass": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          }
+        },
+        "eligible": false,
+        "gateVersion": "OWLV2_CONTROLLED_CHALLENGE_GATE_V2"
+      },
+      "safety": {
+        "artifactRegressions": 0,
+        "hardRejectBypass": 0,
+        "transitions": {
+          "allow->review": 77,
+          "same": 55
+        }
+      },
+      "threshold": 0.15
+    },
+    "0.20": {
+      "cleanNegative": {
+        "confusion": {
+          "excludedUnresolved": 0,
+          "fn": 0,
+          "fp": 2,
+          "humanNegatives": 12,
+          "humanPositives": 0,
+          "newDetectorInducedReviews": 2,
+          "newReviewRate": 0.1667,
+          "precision": 0.0,
+          "precisionStatus": "estimable",
+          "recall": null,
+          "recallStatus": "NOT_ESTIMABLE",
+          "tn": 10,
+          "tp": 0
+        },
+        "currentReviewBurden": 2,
+        "detectorResponseRate": 0.1667,
+        "excludedUnresolved": 0,
+        "falsePositiveImages": 2,
+        "h4ReviewBurden": 4,
+        "humanNegatives": 12,
+        "n": 12,
+        "newDetectorInducedReviews": 2,
+        "newReviewRate": 0.1667,
+        "newReviewRateCI": {
+          "ci95": [
+            0.047,
+            0.448
+          ],
+          "k": 2,
+          "n": 12,
+          "rate": 0.1667
+        },
+        "trueNegativeImages": 10
+      },
+      "controlledPositive": {
+        "conditions": 120,
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 4,
+            "modelMisses": 8,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a watermark": 4
+            },
+            "rate": 0.3333,
+            "rateCI": {
+              "ci95": [
+                0.1381,
+                0.6094
+              ],
+              "k": 4,
+              "n": 12,
+              "rate": 0.3333
+            },
+            "regionRecall": 0.3333
+          },
+          "CENTER_OVERLAY_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 3,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "EDGE_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 6,
+            "imageHits": 3,
+            "modelMisses": 9,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 3
+            },
+            "rate": 0.25,
+            "rateCI": {
+              "ci95": [
+                0.0889,
+                0.5323
+              ],
+              "k": 3,
+              "n": 12,
+              "rate": 0.25
+            },
+            "regionRecall": 0.25
+          },
+          "GRAPHICAL_WATERMARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 4,
+            "imageHits": 3,
+            "modelMisses": 9,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 3
+            },
+            "rate": 0.25,
+            "rateCI": {
+              "ci95": [
+                0.0889,
+                0.5323
+              ],
+              "k": 3,
+              "n": 12,
+              "rate": 0.25
+            },
+            "regionRecall": 0.25
+          },
+          "GRAPHIC_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 8,
+            "imageHits": 8,
+            "modelMisses": 4,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 1,
+              "a watermark": 7
+            },
+            "rate": 0.6667,
+            "rateCI": {
+              "ci95": [
+                0.3906,
+                0.8619
+              ],
+              "k": 8,
+              "n": 12,
+              "rate": 0.6667
+            },
+            "regionRecall": 0.2778
+          },
+          "SMALL_CORNER_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 10,
+              "a logo": 2
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 5,
+            "imageHits": 1,
+            "modelMisses": 11,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a watermark": 1
+            },
+            "rate": 0.0833,
+            "rateCI": {
+              "ci95": [
+                0.0149,
+                0.3539
+              ],
+              "k": 1,
+              "n": 12,
+              "rate": 0.0833
+            },
+            "regionRecall": 0.0833
+          },
+          "TEXT_WATERMARK_TRANSLUCENT": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 7,
+            "imageHits": 1,
+            "modelMisses": 11,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 1
+            },
+            "rate": 0.0833,
+            "rateCI": {
+              "ci95": [
+                0.0149,
+                0.3539
+              ],
+              "k": 1,
+              "n": 12,
+              "rate": 0.0833
+            },
+            "regionRecall": 0.0833
+          }
+        },
+        "label": "CONTROLLED_CHALLENGE_RECALL",
+        "overallCI": {
+          "ci95": [
+            0.3798,
+            0.5556
+          ],
+          "k": 56,
+          "n": 120,
+          "rate": 0.4667
+        },
+        "overallImageRecall": 0.4667
+      },
+      "eligibility": {
+        "criteria": {
+          "A_clean_negative_new_review_rate": {
+            "ceiling": 0.1,
+            "pass": false,
+            "value": 0.1667
+          },
+          "B_overall_controlled_positive_recall": {
+            "floor": 0.95,
+            "pass": false,
+            "value": 0.4667
+          },
+          "C_safety_critical_family_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": {
+              "GRAPHICAL_WATERMARK": 0.25,
+              "LOGO_LIKE_EMBLEM": 1.0,
+              "TEXT_WATERMARK_OPAQUE": 0.0833,
+              "TEXT_WATERMARK_TRANSLUCENT": 0.0833
+            }
+          },
+          "D_small_corner_recall": {
+            "floor": 0.9,
+            "pass": true,
+            "value": 1.0
+          },
+          "E_edge_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": 0.25
+          },
+          "F_generative_artifact_regression": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          },
+          "G_hard_reject_bypass": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          }
+        },
+        "eligible": false,
+        "gateVersion": "OWLV2_CONTROLLED_CHALLENGE_GATE_V2"
+      },
+      "safety": {
+        "artifactRegressions": 0,
+        "hardRejectBypass": 0,
+        "transitions": {
+          "allow->review": 63,
+          "same": 69
+        }
+      },
+      "threshold": 0.2
+    },
+    "0.25": {
+      "cleanNegative": {
+        "confusion": {
+          "excludedUnresolved": 0,
+          "fn": 0,
+          "fp": 0,
+          "humanNegatives": 12,
+          "humanPositives": 0,
+          "newDetectorInducedReviews": 0,
+          "newReviewRate": 0.0,
+          "precision": null,
+          "precisionStatus": "NOT_ESTIMABLE",
+          "recall": null,
+          "recallStatus": "NOT_ESTIMABLE",
+          "tn": 12,
+          "tp": 0
+        },
+        "currentReviewBurden": 2,
+        "detectorResponseRate": 0.0,
+        "excludedUnresolved": 0,
+        "falsePositiveImages": 0,
+        "h4ReviewBurden": 2,
+        "humanNegatives": 12,
+        "n": 12,
+        "newDetectorInducedReviews": 0,
+        "newReviewRate": 0.0,
+        "newReviewRateCI": {
+          "ci95": [
+            0.0,
+            0.2425
+          ],
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "trueNegativeImages": 12
+      },
+      "controlledPositive": {
+        "conditions": 120,
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 9,
+            "imageHits": 1,
+            "modelMisses": 11,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a watermark": 1
+            },
+            "rate": 0.0833,
+            "rateCI": {
+              "ci95": [
+                0.0149,
+                0.3539
+              ],
+              "k": 1,
+              "n": 12,
+              "rate": 0.0833
+            },
+            "regionRecall": 0.0833
+          },
+          "CENTER_OVERLAY_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "EDGE_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 3,
+            "imageHits": 1,
+            "modelMisses": 11,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 1
+            },
+            "rate": 0.0833,
+            "rateCI": {
+              "ci95": [
+                0.0149,
+                0.3539
+              ],
+              "k": 1,
+              "n": 12,
+              "rate": 0.0833
+            },
+            "regionRecall": 0.0833
+          },
+          "GRAPHICAL_WATERMARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "GRAPHIC_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 6,
+            "imageHits": 6,
+            "modelMisses": 6,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a watermark": 6
+            },
+            "rate": 0.5,
+            "rateCI": {
+              "ci95": [
+                0.2538,
+                0.7462
+              ],
+              "k": 6,
+              "n": 12,
+              "rate": 0.5
+            },
+            "regionRecall": 0.0972
+          },
+          "SMALL_CORNER_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 10,
+              "a logo": 2
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 3,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 5,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          }
+        },
+        "label": "CONTROLLED_CHALLENGE_RECALL",
+        "overallCI": {
+          "ci95": [
+            0.2858,
+            0.4558
+          ],
+          "k": 44,
+          "n": 120,
+          "rate": 0.3667
+        },
+        "overallImageRecall": 0.3667
+      },
+      "eligibility": {
+        "criteria": {
+          "A_clean_negative_new_review_rate": {
+            "ceiling": 0.1,
+            "pass": true,
+            "value": 0.0
+          },
+          "B_overall_controlled_positive_recall": {
+            "floor": 0.95,
+            "pass": false,
+            "value": 0.3667
+          },
+          "C_safety_critical_family_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": {
+              "GRAPHICAL_WATERMARK": 0.0,
+              "LOGO_LIKE_EMBLEM": 1.0,
+              "TEXT_WATERMARK_OPAQUE": 0.0,
+              "TEXT_WATERMARK_TRANSLUCENT": 0.0
+            }
+          },
+          "D_small_corner_recall": {
+            "floor": 0.9,
+            "pass": true,
+            "value": 1.0
+          },
+          "E_edge_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": 0.0833
+          },
+          "F_generative_artifact_regression": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          },
+          "G_hard_reject_bypass": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          }
+        },
+        "eligible": false,
+        "gateVersion": "OWLV2_CONTROLLED_CHALLENGE_GATE_V2"
+      },
+      "safety": {
+        "artifactRegressions": 0,
+        "hardRejectBypass": 0,
+        "transitions": {
+          "allow->review": 46,
+          "same": 86
+        }
+      },
+      "threshold": 0.25
+    },
+    "0.30": {
+      "cleanNegative": {
+        "confusion": {
+          "excludedUnresolved": 0,
+          "fn": 0,
+          "fp": 0,
+          "humanNegatives": 12,
+          "humanPositives": 0,
+          "newDetectorInducedReviews": 0,
+          "newReviewRate": 0.0,
+          "precision": null,
+          "precisionStatus": "NOT_ESTIMABLE",
+          "recall": null,
+          "recallStatus": "NOT_ESTIMABLE",
+          "tn": 12,
+          "tp": 0
+        },
+        "currentReviewBurden": 2,
+        "detectorResponseRate": 0.0,
+        "excludedUnresolved": 0,
+        "falsePositiveImages": 0,
+        "h4ReviewBurden": 2,
+        "humanNegatives": 12,
+        "n": 12,
+        "newDetectorInducedReviews": 0,
+        "newReviewRate": 0.0,
+        "newReviewRateCI": {
+          "ci95": [
+            0.0,
+            0.2425
+          ],
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "trueNegativeImages": 12
+      },
+      "controlledPositive": {
+        "conditions": 120,
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "EDGE_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "GRAPHICAL_WATERMARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "GRAPHIC_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 4,
+            "imageHits": 2,
+            "modelMisses": 10,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a watermark": 2
+            },
+            "rate": 0.1667,
+            "rateCI": {
+              "ci95": [
+                0.047,
+                0.448
+              ],
+              "k": 2,
+              "n": 12,
+              "rate": 0.1667
+            },
+            "regionRecall": 0.0278
+          },
+          "SMALL_CORNER_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 10,
+              "a logo": 2
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          }
+        },
+        "label": "CONTROLLED_CHALLENGE_RECALL",
+        "overallCI": {
+          "ci95": [
+            0.2402,
+            0.4045
+          ],
+          "k": 38,
+          "n": 120,
+          "rate": 0.3167
+        },
+        "overallImageRecall": 0.3167
+      },
+      "eligibility": {
+        "criteria": {
+          "A_clean_negative_new_review_rate": {
+            "ceiling": 0.1,
+            "pass": true,
+            "value": 0.0
+          },
+          "B_overall_controlled_positive_recall": {
+            "floor": 0.95,
+            "pass": false,
+            "value": 0.3167
+          },
+          "C_safety_critical_family_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": {
+              "GRAPHICAL_WATERMARK": 0.0,
+              "LOGO_LIKE_EMBLEM": 1.0,
+              "TEXT_WATERMARK_OPAQUE": 0.0,
+              "TEXT_WATERMARK_TRANSLUCENT": 0.0
+            }
+          },
+          "D_small_corner_recall": {
+            "floor": 0.9,
+            "pass": true,
+            "value": 1.0
+          },
+          "E_edge_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": 0.0
+          },
+          "F_generative_artifact_regression": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          },
+          "G_hard_reject_bypass": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          }
+        },
+        "eligible": false,
+        "gateVersion": "OWLV2_CONTROLLED_CHALLENGE_GATE_V2"
+      },
+      "safety": {
+        "artifactRegressions": 0,
+        "hardRejectBypass": 0,
+        "transitions": {
+          "allow->review": 32,
+          "same": 100
+        }
+      },
+      "threshold": 0.3
+    },
+    "0.40": {
+      "cleanNegative": {
+        "confusion": {
+          "excludedUnresolved": 0,
+          "fn": 0,
+          "fp": 0,
+          "humanNegatives": 12,
+          "humanPositives": 0,
+          "newDetectorInducedReviews": 0,
+          "newReviewRate": 0.0,
+          "precision": null,
+          "precisionStatus": "NOT_ESTIMABLE",
+          "recall": null,
+          "recallStatus": "NOT_ESTIMABLE",
+          "tn": 12,
+          "tp": 0
+        },
+        "currentReviewBurden": 2,
+        "detectorResponseRate": 0.0,
+        "excludedUnresolved": 0,
+        "falsePositiveImages": 0,
+        "h4ReviewBurden": 2,
+        "humanNegatives": 12,
+        "n": 12,
+        "newDetectorInducedReviews": 0,
+        "newReviewRate": 0.0,
+        "newReviewRateCI": {
+          "ci95": [
+            0.0,
+            0.2425
+          ],
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "trueNegativeImages": 12
+      },
+      "controlledPositive": {
+        "conditions": 120,
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "EDGE_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "GRAPHICAL_WATERMARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "GRAPHIC_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 10,
+            "imageHits": 9,
+            "modelMisses": 3,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 9
+            },
+            "rate": 0.75,
+            "rateCI": {
+              "ci95": [
+                0.4677,
+                0.9111
+              ],
+              "k": 9,
+              "n": 12,
+              "rate": 0.75
+            },
+            "regionRecall": 0.75
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 12,
+            "imageHits": 12,
+            "modelMisses": 0,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 12
+            },
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "regionRecall": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "SMALL_CORNER_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 3,
+            "imageHits": 2,
+            "modelMisses": 10,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 2
+            },
+            "rate": 0.1667,
+            "rateCI": {
+              "ci95": [
+                0.047,
+                0.448
+              ],
+              "k": 2,
+              "n": 12,
+              "rate": 0.1667
+            },
+            "regionRecall": 0.1667
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          }
+        },
+        "label": "CONTROLLED_CHALLENGE_RECALL",
+        "overallCI": {
+          "ci95": [
+            0.1313,
+            0.2712
+          ],
+          "k": 23,
+          "n": 120,
+          "rate": 0.1917
+        },
+        "overallImageRecall": 0.1917
+      },
+      "eligibility": {
+        "criteria": {
+          "A_clean_negative_new_review_rate": {
+            "ceiling": 0.1,
+            "pass": true,
+            "value": 0.0
+          },
+          "B_overall_controlled_positive_recall": {
+            "floor": 0.95,
+            "pass": false,
+            "value": 0.1917
+          },
+          "C_safety_critical_family_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": {
+              "GRAPHICAL_WATERMARK": 0.0,
+              "LOGO_LIKE_EMBLEM": 1.0,
+              "TEXT_WATERMARK_OPAQUE": 0.0,
+              "TEXT_WATERMARK_TRANSLUCENT": 0.0
+            }
+          },
+          "D_small_corner_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": 0.1667
+          },
+          "E_edge_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": 0.0
+          },
+          "F_generative_artifact_regression": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          },
+          "G_hard_reject_bypass": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          }
+        },
+        "eligible": false,
+        "gateVersion": "OWLV2_CONTROLLED_CHALLENGE_GATE_V2"
+      },
+      "safety": {
+        "artifactRegressions": 0,
+        "hardRejectBypass": 0,
+        "transitions": {
+          "allow->review": 19,
+          "same": 113
+        }
+      },
+      "threshold": 0.4
+    },
+    "0.50": {
+      "cleanNegative": {
+        "confusion": {
+          "excludedUnresolved": 0,
+          "fn": 0,
+          "fp": 0,
+          "humanNegatives": 12,
+          "humanPositives": 0,
+          "newDetectorInducedReviews": 0,
+          "newReviewRate": 0.0,
+          "precision": null,
+          "precisionStatus": "NOT_ESTIMABLE",
+          "recall": null,
+          "recallStatus": "NOT_ESTIMABLE",
+          "tn": 12,
+          "tp": 0
+        },
+        "currentReviewBurden": 2,
+        "detectorResponseRate": 0.0,
+        "excludedUnresolved": 0,
+        "falsePositiveImages": 0,
+        "h4ReviewBurden": 2,
+        "humanNegatives": 12,
+        "n": 12,
+        "newDetectorInducedReviews": 0,
+        "newReviewRate": 0.0,
+        "newReviewRateCI": {
+          "ci95": [
+            0.0,
+            0.2425
+          ],
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "trueNegativeImages": 12
+      },
+      "controlledPositive": {
+        "conditions": 120,
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "EDGE_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "GRAPHICAL_WATERMARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "GRAPHIC_SYMBOL": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 3,
+            "imageHits": 1,
+            "modelMisses": 11,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 1
+            },
+            "rate": 0.0833,
+            "rateCI": {
+              "ci95": [
+                0.0149,
+                0.3539
+              ],
+              "k": 1,
+              "n": 12,
+              "rate": 0.0833
+            },
+            "regionRecall": 0.0833
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 5,
+            "imageHits": 4,
+            "modelMisses": 8,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {
+              "a graphic symbol": 4
+            },
+            "rate": 0.3333,
+            "rateCI": {
+              "ci95": [
+                0.1381,
+                0.6094
+              ],
+              "k": 4,
+              "n": 12,
+              "rate": 0.3333
+            },
+            "regionRecall": 0.3333
+          },
+          "REPEATED_TILED_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "SMALL_CORNER_MARK": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT": {
+            "currentPolicyFlagged": 2,
+            "h4Flagged": 2,
+            "imageHits": 0,
+            "modelMisses": 12,
+            "n": 12,
+            "policyMisses": 0,
+            "promptsThatHit": {},
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "regionRecall": 0.0
+          }
+        },
+        "label": "CONTROLLED_CHALLENGE_RECALL",
+        "overallCI": {
+          "ci95": [
+            0.0179,
+            0.0938
+          ],
+          "k": 5,
+          "n": 120,
+          "rate": 0.0417
+        },
+        "overallImageRecall": 0.0417
+      },
+      "eligibility": {
+        "criteria": {
+          "A_clean_negative_new_review_rate": {
+            "ceiling": 0.1,
+            "pass": true,
+            "value": 0.0
+          },
+          "B_overall_controlled_positive_recall": {
+            "floor": 0.95,
+            "pass": false,
+            "value": 0.0417
+          },
+          "C_safety_critical_family_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": {
+              "GRAPHICAL_WATERMARK": 0.0,
+              "LOGO_LIKE_EMBLEM": 0.3333,
+              "TEXT_WATERMARK_OPAQUE": 0.0,
+              "TEXT_WATERMARK_TRANSLUCENT": 0.0
+            }
+          },
+          "D_small_corner_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": 0.0
+          },
+          "E_edge_recall": {
+            "floor": 0.9,
+            "pass": false,
+            "value": 0.0
+          },
+          "F_generative_artifact_regression": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          },
+          "G_hard_reject_bypass": {
+            "pass": true,
+            "required": 0,
+            "value": 0
+          }
+        },
+        "eligible": false,
+        "gateVersion": "OWLV2_CONTROLLED_CHALLENGE_GATE_V2"
+      },
+      "safety": {
+        "artifactRegressions": 0,
+        "hardRejectBypass": 0,
+        "transitions": {
+          "allow->review": 4,
+          "same": 128
+        }
+      },
+      "threshold": 0.5
+    }
+  },
+  "evidenceLabel": "G004_CONTROLLED_MARK_CHALLENGE_EVIDENCE",
+  "families": [
+    {
+      "code": "F1",
+      "family": "GRAPHIC_SYMBOL",
+      "reused": true,
+      "safetyCritical": false
+    },
+    {
+      "code": "F2",
+      "family": "LOGO_LIKE_EMBLEM",
+      "reused": false,
+      "safetyCritical": true
+    },
+    {
+      "code": "F3",
+      "family": "TEXT_WATERMARK_OPAQUE",
+      "reused": false,
+      "safetyCritical": true
+    },
+    {
+      "code": "F4",
+      "family": "TEXT_WATERMARK_TRANSLUCENT",
+      "reused": false,
+      "safetyCritical": true
+    },
+    {
+      "code": "F5",
+      "family": "GRAPHICAL_WATERMARK",
+      "reused": false,
+      "safetyCritical": true
+    },
+    {
+      "code": "F6",
+      "family": "BRAND_LIKE_TEXT_AND_SYMBOL",
+      "reused": false,
+      "safetyCritical": false
+    },
+    {
+      "code": "F7",
+      "family": "SMALL_CORNER_MARK",
+      "reused": false,
+      "safetyCritical": false
+    },
+    {
+      "code": "F8",
+      "family": "EDGE_MARK",
+      "reused": false,
+      "safetyCritical": false
+    },
+    {
+      "code": "F9",
+      "family": "CENTER_OVERLAY_MARK",
+      "reused": false,
+      "safetyCritical": false
+    },
+    {
+      "code": "F10",
+      "family": "REPEATED_TILED_MARK",
+      "reused": false,
+      "safetyCritical": false
+    }
+  ],
+  "gateV1Status": "OWLV2_POSITIVE_GROUND_TRUTH_INSUFFICIENT (unchanged, not reinterpreted)",
+  "gateVersion": "OWLV2_CONTROLLED_CHALLENGE_GATE_V2",
+  "h4Verdict": "H4_DIRECT_SHADOW_NOT_SUPPORTED",
+  "h4Version": "H4-DIRECT-1",
+  "holdoutEvaluated": 0,
+  "modelRevision": "cfd3195ba4ea9592eec887ded089f4c08eff231d",
+  "naturalPositiveLimitation": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+  "prompts": [
+    "a logo",
+    "a watermark",
+    "a brand emblem",
+    "a graphic symbol"
+  ],
+  "reportVersion": "avatar_owlv2_challenge_eval_v1",
+  "selection": {
+    "reason": "no threshold on the frozen grid satisfies A-E on development groups",
+    "selectedThreshold": null,
+    "selectionVersion": "OWLV2_THRESHOLD_SELECTION_V1",
+    "status": "NO_THRESHOLD_SELECTED"
+  },
+  "selectionVersion": "OWLV2_THRESHOLD_SELECTION_V1",
+  "truthResolutionVersion": "OWNER_RATER_A_RESOLUTION_V1",
+  "v2Verdict": "OWLV2_CONTROLLED_GATE_FAILED_DEVELOPMENT"
+}
