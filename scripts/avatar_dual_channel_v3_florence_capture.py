@@ -39,7 +39,10 @@ import avatar_owlv2_challenge_v2 as v2  # noqa: E402
 import avatar_owlv2_calibration as calib  # noqa: E402
 
 CAPTURE_VERSION = "avatar_dual_channel_v3_florence_capture_v1"
-MIN_AVAILABLE_GB_TO_START = 4.6
+# Start gate: the fp32 Florence-2-large process peaks ~4.0 GB RSS on this machine.
+# The hard stop is the per-row guard below (checkpoint kept, fail closed).
+# Measured after torch/transformers are imported (~0.3 GB), so 4.0 here is ~4.3 GB pre-import.
+MIN_AVAILABLE_GB_TO_START = 4.0
 MIN_AVAILABLE_GB_DURING = 0.6
 
 
