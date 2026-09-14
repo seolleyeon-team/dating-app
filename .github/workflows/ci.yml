@@ -288,6 +288,12 @@ jobs:
       - run: pytest -q tests/test_avatar_owlv2_threshold_selection.py --maxfail=10
         env:
           PYTHONPATH: .
+      # B3-L7: gate V2 는 v1 과 별개 버전, 결정적 challenge 렌더링·원본 불변·실상표 금지·
+      # dev/holdout 격리·holdout 1회·clean specificity 와 positive sensitivity 분리를 고정.
+      # 모델 추론·사용자 이미지는 CI 에 없다.
+      - run: pytest -q tests/test_avatar_owlv2_challenge_v2.py --maxfail=10
+        env:
+          PYTHONPATH: .
       # 배포 가드는 Windows 운영자 셸에서 Hangul env 값을 "???" 로 읽어 바뀐 적
       # 없는 변수를 changed 로 보고했다. 인코딩과 키 단위 승인 계약을 Linux
       # 에서도 고정한다.
