@@ -1,0 +1,953 @@
+{
+  "allowedRuntimeFields": [
+    "areaBand",
+    "artifactHint",
+    "kind",
+    "location",
+    "ocrDetectionCount",
+    "overlayLike",
+    "repeated",
+    "textQuality"
+  ],
+  "candidateSet": "TEXT_POLICY_CANDIDATES_V1",
+  "candidates": [
+    {
+      "area_bands": [
+        "small"
+      ],
+      "confidence_bands": null,
+      "id": "T1",
+      "locations": [
+        "corner",
+        "edge"
+      ],
+      "overlay_like": true,
+      "predicate": "kind in ['logo', 'sign', 'text'] AND location in ['corner', 'edge'] AND areaBand in ['small'] AND overlayLike == True",
+      "rank": 1,
+      "single_region": false
+    },
+    {
+      "area_bands": [
+        "small"
+      ],
+      "confidence_bands": null,
+      "id": "T2",
+      "locations": [
+        "central"
+      ],
+      "overlay_like": false,
+      "predicate": "kind in ['logo', 'sign', 'text'] AND location in ['central'] AND areaBand in ['small'] AND overlayLike == False AND ocrDetectionCount == 1",
+      "rank": 2,
+      "single_region": true
+    },
+    {
+      "area_bands": [
+        "small"
+      ],
+      "confidence_bands": null,
+      "id": "T3",
+      "locations": [
+        "central",
+        "clothing_zone"
+      ],
+      "overlay_like": false,
+      "predicate": "kind in ['logo', 'sign', 'text'] AND location in ['central', 'clothing_zone'] AND areaBand in ['small'] AND overlayLike == False AND ocrDetectionCount == 1",
+      "rank": 3,
+      "single_region": true
+    },
+    {
+      "area_bands": [
+        "medium",
+        "small"
+      ],
+      "confidence_bands": null,
+      "id": "T4",
+      "locations": [
+        "central",
+        "clothing_zone",
+        "corner",
+        "edge"
+      ],
+      "overlay_like": null,
+      "predicate": "kind in ['logo', 'sign', 'text'] AND location in ['central', 'clothing_zone', 'corner', 'edge'] AND areaBand in ['medium', 'small'] AND ocrDetectionCount == 1",
+      "rank": 4,
+      "single_region": true
+    }
+  ],
+  "canonicalPolicy": {
+    "source": "avatar_generation.analysis.watermark.evaluate_watermark_risk <- avatar_generation.analysis.visual_risk.analyze_florence_visual_risk_outputs (qa_signals._add_visual_signals contract; source_regions=() as in canonical Azure worker mode)",
+    "version": "watermark_policy_v4_runtime_evidence_parity_v1"
+  },
+  "contractDigestPrefix": "89514d712ad8",
+  "criteria": {
+    "A": 0.1,
+    "B": 0.9,
+    "C": 0.9,
+    "D": 1.0,
+    "E": 0,
+    "F": 0
+  },
+  "designation": "DEVELOPMENT_DESIGNED",
+  "development": {
+    "florenceSources": {
+      "reused_exact_b3l8": 36
+    },
+    "selection": {
+      "predicate": "kind in ['logo', 'sign', 'text'] AND location in ['central', 'clothing_zone'] AND areaBand in ['small'] AND overlayLike == False AND ocrDetectionCount == 1",
+      "rank": 3,
+      "reason": "strictest candidate satisfying A-F on development (pre-registered narrowness order)",
+      "selectedCandidate": "T3",
+      "status": "SELECTED"
+    },
+    "table": {
+      "T1": {
+        "candidate": "T1",
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "reject": 0,
+            "review": 2
+          },
+          "excludedNonNegative": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "n": 12,
+          "newAllowToReview": 8,
+          "newReviewRate": 0.6667,
+          "newReviewRateCI": {
+            "ci95": [
+              0.3906,
+              0.8619
+            ],
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667
+          },
+          "v3": {
+            "allow": 2,
+            "reject": 0,
+            "review": 10
+          }
+        },
+        "criteria": {
+          "A": false,
+          "B": false,
+          "C": false,
+          "D": true,
+          "E": true,
+          "F": true
+        },
+        "eligible": false,
+        "failed": [
+          "A",
+          "B",
+          "C"
+        ],
+        "predicate": "kind in ['logo', 'sign', 'text'] AND location in ['corner', 'edge'] AND areaBand in ['small'] AND overlayLike == True",
+        "rank": 1,
+        "repeated": {
+          "n": 12,
+          "rate": 1.0,
+          "rejectPreserved": 12
+        },
+        "safety": {
+          "artifactRegressions": 0,
+          "hardRejectBypass": 0
+        },
+        "textFamilies": {
+          "TEXT_WATERMARK_OPAQUE": {
+            "canonicalFlagged": 0,
+            "label": "CONTROLLED_CHALLENGE_ACTION_RECALL",
+            "n": 12,
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "shadowFlagged": 0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT": {
+            "canonicalFlagged": 0,
+            "label": "CONTROLLED_CHALLENGE_ACTION_RECALL",
+            "n": 12,
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "shadowFlagged": 0
+          }
+        }
+      },
+      "T2": {
+        "candidate": "T2",
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "reject": 0,
+            "review": 2
+          },
+          "excludedNonNegative": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "n": 12,
+          "newAllowToReview": 0,
+          "newReviewRate": 0.0,
+          "newReviewRateCI": {
+            "ci95": [
+              0.0,
+              0.2425
+            ],
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "v3": {
+            "allow": 10,
+            "reject": 0,
+            "review": 2
+          }
+        },
+        "criteria": {
+          "A": true,
+          "B": false,
+          "C": false,
+          "D": true,
+          "E": true,
+          "F": true
+        },
+        "eligible": false,
+        "failed": [
+          "B",
+          "C"
+        ],
+        "predicate": "kind in ['logo', 'sign', 'text'] AND location in ['central'] AND areaBand in ['small'] AND overlayLike == False AND ocrDetectionCount == 1",
+        "rank": 2,
+        "repeated": {
+          "n": 12,
+          "rate": 1.0,
+          "rejectPreserved": 12
+        },
+        "safety": {
+          "artifactRegressions": 0,
+          "hardRejectBypass": 0
+        },
+        "textFamilies": {
+          "TEXT_WATERMARK_OPAQUE": {
+            "canonicalFlagged": 0,
+            "label": "CONTROLLED_CHALLENGE_ACTION_RECALL",
+            "n": 12,
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "shadowFlagged": 0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT": {
+            "canonicalFlagged": 0,
+            "label": "CONTROLLED_CHALLENGE_ACTION_RECALL",
+            "n": 12,
+            "rate": 0.0,
+            "rateCI": {
+              "ci95": [
+                0.0,
+                0.2425
+              ],
+              "k": 0,
+              "n": 12,
+              "rate": 0.0
+            },
+            "shadowFlagged": 0
+          }
+        }
+      },
+      "T3": {
+        "candidate": "T3",
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "reject": 0,
+            "review": 2
+          },
+          "excludedNonNegative": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "n": 12,
+          "newAllowToReview": 1,
+          "newReviewRate": 0.0833,
+          "newReviewRateCI": {
+            "ci95": [
+              0.0149,
+              0.3539
+            ],
+            "k": 1,
+            "n": 12,
+            "rate": 0.0833
+          },
+          "v3": {
+            "allow": 9,
+            "reject": 0,
+            "review": 3
+          }
+        },
+        "criteria": {
+          "A": true,
+          "B": true,
+          "C": true,
+          "D": true,
+          "E": true,
+          "F": true
+        },
+        "eligible": true,
+        "failed": [],
+        "predicate": "kind in ['logo', 'sign', 'text'] AND location in ['central', 'clothing_zone'] AND areaBand in ['small'] AND overlayLike == False AND ocrDetectionCount == 1",
+        "rank": 3,
+        "repeated": {
+          "n": 12,
+          "rate": 1.0,
+          "rejectPreserved": 12
+        },
+        "safety": {
+          "artifactRegressions": 0,
+          "hardRejectBypass": 0
+        },
+        "textFamilies": {
+          "TEXT_WATERMARK_OPAQUE": {
+            "canonicalFlagged": 0,
+            "label": "CONTROLLED_CHALLENGE_ACTION_RECALL",
+            "n": 12,
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "shadowFlagged": 12
+          },
+          "TEXT_WATERMARK_TRANSLUCENT": {
+            "canonicalFlagged": 0,
+            "label": "CONTROLLED_CHALLENGE_ACTION_RECALL",
+            "n": 12,
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "shadowFlagged": 12
+          }
+        }
+      },
+      "T4": {
+        "candidate": "T4",
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "reject": 0,
+            "review": 2
+          },
+          "excludedNonNegative": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "n": 12,
+          "newAllowToReview": 10,
+          "newReviewRate": 0.8333,
+          "newReviewRateCI": {
+            "ci95": [
+              0.552,
+              0.953
+            ],
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "v3": {
+            "allow": 0,
+            "reject": 0,
+            "review": 12
+          }
+        },
+        "criteria": {
+          "A": false,
+          "B": true,
+          "C": true,
+          "D": true,
+          "E": true,
+          "F": true
+        },
+        "eligible": false,
+        "failed": [
+          "A"
+        ],
+        "predicate": "kind in ['logo', 'sign', 'text'] AND location in ['central', 'clothing_zone', 'corner', 'edge'] AND areaBand in ['medium', 'small'] AND ocrDetectionCount == 1",
+        "rank": 4,
+        "repeated": {
+          "n": 12,
+          "rate": 1.0,
+          "rejectPreserved": 12
+        },
+        "safety": {
+          "artifactRegressions": 0,
+          "hardRejectBypass": 0
+        },
+        "textFamilies": {
+          "TEXT_WATERMARK_OPAQUE": {
+            "canonicalFlagged": 0,
+            "label": "CONTROLLED_CHALLENGE_ACTION_RECALL",
+            "n": 12,
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "shadowFlagged": 12
+          },
+          "TEXT_WATERMARK_TRANSLUCENT": {
+            "canonicalFlagged": 0,
+            "label": "CONTROLLED_CHALLENGE_ACTION_RECALL",
+            "n": 12,
+            "rate": 1.0,
+            "rateCI": {
+              "ci95": [
+                0.7575,
+                1.0
+              ],
+              "k": 12,
+              "n": 12,
+              "rate": 1.0
+            },
+            "shadowFlagged": 12
+          }
+        }
+      }
+    }
+  },
+  "developmentFeatureInventory": {
+    "BRAND_LIKE_TEXT_AND_SYMBOL(diagnostic)": {
+      "canonicalActions": {
+        "allow": 12
+      },
+      "fields": {
+        "areaBand": {
+          "small": 12
+        },
+        "artifactHint": {
+          "False": 12
+        },
+        "confidenceBand": {
+          "unknown": 12
+        },
+        "kind": {
+          "text": 12
+        },
+        "location": {
+          "corner": 12
+        },
+        "overlayLike": {
+          "True": 12
+        },
+        "repeated": {
+          "False": 12
+        },
+        "textQuality": {
+          "plausible": 12
+        }
+      },
+      "locationAreaOverlay": {
+        "corner/small/overlay=True": 12
+      },
+      "n": 12,
+      "regionsPerImage": {
+        "1": 12
+      }
+    },
+    "CLEAN_HUMAN_NEGATIVE": {
+      "canonicalActions": {
+        "allow": 10,
+        "review": 2
+      },
+      "fields": {
+        "areaBand": {
+          "medium": 1,
+          "small": 11
+        },
+        "artifactHint": {
+          "False": 12
+        },
+        "confidenceBand": {
+          "unknown": 12
+        },
+        "kind": {
+          "text": 12
+        },
+        "location": {
+          "clothing_zone": 1,
+          "corner": 8,
+          "edge": 3
+        },
+        "overlayLike": {
+          "False": 2,
+          "True": 10
+        },
+        "repeated": {
+          "False": 12
+        },
+        "textQuality": {
+          "implausible": 2,
+          "plausible": 10
+        }
+      },
+      "locationAreaOverlay": {
+        "clothing_zone/small/overlay=False": 1,
+        "corner/small/overlay=True": 8,
+        "edge/medium/overlay=False": 1,
+        "edge/small/overlay=True": 2
+      },
+      "n": 12,
+      "regionsPerImage": {
+        "1": 12
+      }
+    },
+    "REPEATED_TILED_MARK(diagnostic)": {
+      "canonicalActions": {
+        "reject": 12
+      },
+      "fields": {
+        "areaBand": {
+          "small": 125
+        },
+        "artifactHint": {
+          "False": 125
+        },
+        "confidenceBand": {
+          "unknown": 125
+        },
+        "kind": {
+          "text": 125
+        },
+        "location": {
+          "central": 46,
+          "clothing_zone": 12,
+          "corner": 1,
+          "edge": 66
+        },
+        "overlayLike": {
+          "False": 58,
+          "True": 67
+        },
+        "repeated": {
+          "False": 14,
+          "True": 111
+        },
+        "textQuality": {
+          "plausible": 125
+        }
+      },
+      "locationAreaOverlay": {
+        "central/small/overlay=False": 46,
+        "clothing_zone/small/overlay=False": 12,
+        "corner/small/overlay=True": 1,
+        "edge/small/overlay=True": 66
+      },
+      "n": 12,
+      "regionsPerImage": {
+        "10": 1,
+        "11": 6,
+        "12": 3,
+        "6": 1,
+        "7": 1
+      }
+    },
+    "TEXT_WATERMARK_OPAQUE": {
+      "canonicalActions": {
+        "allow": 12
+      },
+      "fields": {
+        "areaBand": {
+          "small": 12
+        },
+        "artifactHint": {
+          "False": 12
+        },
+        "confidenceBand": {
+          "unknown": 12
+        },
+        "kind": {
+          "text": 12
+        },
+        "location": {
+          "clothing_zone": 12
+        },
+        "overlayLike": {
+          "False": 12
+        },
+        "repeated": {
+          "False": 12
+        },
+        "textQuality": {
+          "plausible": 12
+        }
+      },
+      "locationAreaOverlay": {
+        "clothing_zone/small/overlay=False": 12
+      },
+      "n": 12,
+      "regionsPerImage": {
+        "1": 12
+      }
+    },
+    "TEXT_WATERMARK_TRANSLUCENT": {
+      "canonicalActions": {
+        "allow": 12
+      },
+      "fields": {
+        "areaBand": {
+          "small": 12
+        },
+        "artifactHint": {
+          "False": 12
+        },
+        "confidenceBand": {
+          "unknown": 12
+        },
+        "kind": {
+          "text": 12
+        },
+        "location": {
+          "clothing_zone": 12
+        },
+        "overlayLike": {
+          "False": 12
+        },
+        "repeated": {
+          "False": 12
+        },
+        "textQuality": {
+          "plausible": 12
+        }
+      },
+      "locationAreaOverlay": {
+        "clothing_zone/small/overlay=False": 12
+      },
+      "n": 12,
+      "regionsPerImage": {
+        "1": 12
+      }
+    }
+  },
+  "evidenceLabel": "G004_TEXT_POLICY_SHADOW_EVIDENCE_V1",
+  "florenceInference": {
+    "development": {
+      "newFlorenceCalls": 0,
+      "source": "B3-L8 actual-derivative capture + B3-L4 V0/V4 rows (exact reuse)"
+    },
+    "holdout": {
+      "cleanAndTiledRows": "exact reuse of B3-L4 V0/V4 rows",
+      "device": "cpu",
+      "dtype": "torch.float32",
+      "families": [
+        "TEXT_WATERMARK_OPAQUE",
+        "TEXT_WATERMARK_TRANSLUCENT"
+      ],
+      "firstAttempt": "exit 139 (segfault) at model load, 0 rows; second attempt completed 16/16; per-row guard never lowered",
+      "maxSecondsPerImage": 46.9,
+      "medianSecondsPerImage": 37.4,
+      "newFlorenceCalls": 16,
+      "peakRssGb": 4.0
+    },
+    "owlv2NewCalls": 0
+  },
+  "forbiddenRuntimeFields": [
+    "allVisibleClasses",
+    "baseOpaqueId",
+    "conditionId",
+    "confidenceBand",
+    "construct",
+    "constructFamily",
+    "derivativeDigest",
+    "family",
+    "familyCode",
+    "filename",
+    "groundTruth",
+    "groundTruthBox",
+    "groundTruthBoxes",
+    "groupKey",
+    "injected",
+    "injectedBox",
+    "label",
+    "labelConfidence",
+    "labels",
+    "markIntegration",
+    "markPresent",
+    "markType",
+    "ocrText",
+    "ocr_text",
+    "opaqueId",
+    "path",
+    "primaryLabel",
+    "quadBoxes",
+    "quad_boxes",
+    "rawLabel",
+    "raw_label",
+    "sourceConsistent",
+    "split",
+    "text",
+    "textPresent",
+    "tokenKey",
+    "token_key",
+    "tokens",
+    "transcription",
+    "visibleGraphicalMark"
+  ],
+  "graphicalDetectorStudyRequired": "GRAPHICAL_DETECTOR_STUDY_REQUIRED",
+  "graphicalGapFamilies": [
+    "GRAPHICAL_WATERMARK",
+    "EDGE_MARK",
+    "CENTER_OVERLAY_MARK"
+  ],
+  "holdout": {
+    "florenceSources": {
+      "local_inference_b3l9": 16
+    },
+    "selected": {
+      "candidate": "T3",
+      "clean": {
+        "canonical": {
+          "allow": 7,
+          "reject": 0,
+          "review": 1
+        },
+        "excludedNonNegative": 0,
+        "existingCanonicalBurdenNotCounted": 1,
+        "n": 8,
+        "newAllowToReview": 3,
+        "newReviewRate": 0.375,
+        "newReviewRateCI": {
+          "ci95": [
+            0.1368,
+            0.6943
+          ],
+          "k": 3,
+          "n": 8,
+          "rate": 0.375
+        },
+        "v3": {
+          "allow": 4,
+          "reject": 0,
+          "review": 4
+        }
+      },
+      "criteria": {
+        "A": false,
+        "B": true,
+        "C": true,
+        "D": true,
+        "E": true,
+        "F": true
+      },
+      "eligible": false,
+      "failed": [
+        "A"
+      ],
+      "predicate": "kind in ['logo', 'sign', 'text'] AND location in ['central', 'clothing_zone'] AND areaBand in ['small'] AND overlayLike == False AND ocrDetectionCount == 1",
+      "rank": 3,
+      "repeated": {
+        "n": 8,
+        "rate": 1.0,
+        "rejectPreserved": 8
+      },
+      "safety": {
+        "artifactRegressions": 0,
+        "hardRejectBypass": 0
+      },
+      "textFamilies": {
+        "TEXT_WATERMARK_OPAQUE": {
+          "canonicalFlagged": 0,
+          "label": "CONTROLLED_CHALLENGE_ACTION_RECALL",
+          "n": 8,
+          "rate": 1.0,
+          "rateCI": {
+            "ci95": [
+              0.6756,
+              1.0
+            ],
+            "k": 8,
+            "n": 8,
+            "rate": 1.0
+          },
+          "shadowFlagged": 8
+        },
+        "TEXT_WATERMARK_TRANSLUCENT": {
+          "canonicalFlagged": 0,
+          "label": "CONTROLLED_CHALLENGE_ACTION_RECALL",
+          "n": 8,
+          "rate": 1.0,
+          "rateCI": {
+            "ci95": [
+              0.6756,
+              1.0
+            ],
+            "k": 8,
+            "n": 8,
+            "rate": 1.0
+          },
+          "shadowFlagged": 8
+        }
+      }
+    }
+  },
+  "holdoutCleanFeatureInventory": {
+    "canonicalActions": {
+      "allow": 7,
+      "review": 1
+    },
+    "fields": {
+      "areaBand": {
+        "small": 8
+      },
+      "artifactHint": {
+        "False": 8
+      },
+      "confidenceBand": {
+        "unknown": 8
+      },
+      "kind": {
+        "text": 8
+      },
+      "location": {
+        "clothing_zone": 3,
+        "corner": 4,
+        "edge": 1
+      },
+      "overlayLike": {
+        "False": 3,
+        "True": 5
+      },
+      "repeated": {
+        "False": 8
+      },
+      "textQuality": {
+        "implausible": 1,
+        "plausible": 5,
+        "unknown": 2
+      }
+    },
+    "locationAreaOverlay": {
+      "clothing_zone/small/overlay=False": 3,
+      "corner/small/overlay=True": 4,
+      "edge/small/overlay=True": 1
+    },
+    "n": 8,
+    "regionsPerImage": {
+      "1": 8
+    }
+  },
+  "holdoutDiagnostic": {
+    "newCleanReviews": 3,
+    "note": "descriptive only; computed after the one-shot holdout, nothing retuned",
+    "primaryLabelAllHoldoutClean": {
+      "NO_VISIBLE_RELEVANT_TEXT_OR_MARK": 8
+    },
+    "primaryLabelOfNewReviews": {
+      "NO_VISIBLE_RELEVANT_TEXT_OR_MARK": 3
+    },
+    "t3ProfilePrevalenceAllClean20Descriptive": "4/20"
+  },
+  "holdoutEvaluated": 1,
+  "holdoutTextFeatureInventory": {
+    "canonicalActions": {
+      "allow": 16
+    },
+    "fields": {
+      "areaBand": {
+        "small": 16
+      },
+      "artifactHint": {
+        "False": 16
+      },
+      "confidenceBand": {
+        "unknown": 16
+      },
+      "kind": {
+        "text": 16
+      },
+      "location": {
+        "clothing_zone": 16
+      },
+      "overlayLike": {
+        "False": 16
+      },
+      "repeated": {
+        "False": 16
+      },
+      "textQuality": {
+        "plausible": 16
+      }
+    },
+    "locationAreaOverlay": {
+      "clothing_zone/small/overlay=False": 16
+    },
+    "n": 16,
+    "regionsPerImage": {
+      "1": 16
+    }
+  },
+  "holdoutVerdict": "TEXT_POLICY_SHADOW_HOLDOUT_FAILED",
+  "naturalPositiveLimitation": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+  "originalsUnchanged": "28/28",
+  "priorStatus": {
+    "H4_DUAL_CHANNEL": "H4_DUAL_CHANNEL_SHADOW_NOT_SUPPORTED",
+    "V1": "OWLV2_POSITIVE_GROUND_TRUTH_INSUFFICIENT",
+    "V2": "OWLV2_CONTROLLED_GATE_FAILED_DEVELOPMENT",
+    "V3": "V3_DUAL_CHANNEL_FAILED_DEVELOPMENT",
+    "V3_DIAGNOSIS": [
+      "TEXT_POLICY_GAP",
+      "GRAPHICAL_CHANNEL_GAP",
+      "MIXED"
+    ]
+  },
+  "reportVersion": "avatar_text_policy_shadow_eval_v1",
+  "resourceSafety": {
+    "diskFreeGb": 7.83,
+    "guardTrips": 0,
+    "perRowGuardGb": 0.6,
+    "preImportAvailableGb": 5.95,
+    "startGateGb": 4.0,
+    "startGateHistory": "B3-L8: 4.6 -> 4.2 -> 4.0 (post-import measure); B3-L9 unchanged at 4.0"
+  },
+  "selectedFrozen": {
+    "candidate": "T3",
+    "contractDigestPrefix": "89514d712ad8",
+    "developmentInputsDigestPrefix": "e24e4421a94a",
+    "predicate": "kind in ['logo', 'sign', 'text'] AND location in ['central', 'clothing_zone'] AND areaBand in ['small'] AND overlayLike == False AND ocrDetectionCount == 1"
+  },
+  "support": "TEXT_POLICY_SHADOW_NOT_SUPPORTED",
+  "truthAuthority": "OWNER_DESIGNATED_RATER_A_REFERENCE_TRUTH",
+  "verdict": "TEXT_POLICY_SHADOW_HOLDOUT_FAILED",
+  "version": "TEXT_POLICY_SHADOW_V1"
+}
