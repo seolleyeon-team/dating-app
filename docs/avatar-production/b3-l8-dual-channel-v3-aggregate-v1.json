@@ -1,0 +1,520 @@
+{
+  "actualDerivativeActions": true,
+  "canonicalDecisionClassesByFamily": {
+    "BRAND_LIKE_TEXT_AND_SYMBOL": {
+      "ambiguous_text_evidence": 12
+    },
+    "CENTER_OVERLAY_MARK": {
+      "ambiguous_text_evidence": 10,
+      "generated_text_artifact": 2
+    },
+    "EDGE_MARK": {
+      "ambiguous_text_evidence": 9,
+      "generated_text_artifact": 3
+    },
+    "GRAPHICAL_WATERMARK": {
+      "ambiguous_text_evidence": 8,
+      "generated_text_artifact": 4
+    },
+    "LOGO_LIKE_EMBLEM": {
+      "ambiguous_text_evidence": 6,
+      "generated_text_artifact": 6
+    },
+    "SMALL_CORNER_MARK": {
+      "ambiguous_text_evidence": 11,
+      "generated_text_artifact": 1
+    },
+    "TEXT_WATERMARK_OPAQUE": {
+      "ambiguous_text_evidence": 12
+    },
+    "TEXT_WATERMARK_TRANSLUCENT": {
+      "ambiguous_text_evidence": 12
+    }
+  },
+  "channelG": {
+    "mode": "combined",
+    "name": "OWLV2_GRAPHICAL_SUPPLEMENT",
+    "prompts": [
+      "a logo",
+      "a watermark",
+      "a brand emblem",
+      "a graphic symbol"
+    ],
+    "repo": "google/owlv2-base-patch16-ensemble",
+    "revision": "cfd3195ba4ea9592eec887ded089f4c08eff231d",
+    "threshold": 0.25,
+    "thresholdAuthority": "DEVELOPMENT_SELECTED_GRAPHICAL_SUPPLEMENT_THRESHOLD"
+  },
+  "channelGapDiagnosis": [
+    "TEXT_POLICY_GAP",
+    "GRAPHICAL_CHANNEL_GAP",
+    "MIXED"
+  ],
+  "channelT": {
+    "florenceRepo": "florence-community/Florence-2-large-ft",
+    "florenceRevision": "26b734a54fdfbf9c398351eedfabb7f27fc470b7",
+    "name": "CANONICAL_FLORENCE_TEXT_POLICY",
+    "policyVersion": "watermark_policy_v4_runtime_evidence_parity_v1",
+    "source": "avatar_generation.analysis.watermark.evaluate_watermark_risk <- avatar_generation.analysis.visual_risk.analyze_florence_visual_risk_outputs (qa_signals._add_visual_signals contract; source_regions=() as in canonical Azure worker mode)"
+  },
+  "contractDigestPrefix": "7e0281db982a",
+  "development": {
+    "clean": {
+      "canonical": {
+        "allow": 10,
+        "reject": 0,
+        "review": 2
+      },
+      "excludedNonNegative": 0,
+      "existingCanonicalBurdenNotCounted": 2,
+      "n": 12,
+      "newAllowToReject": 0,
+      "newAllowToReview": 0,
+      "newReviewRate": 0.0,
+      "newReviewRateCI": {
+        "ci95": [
+          0.0,
+          0.2425
+        ],
+        "k": 0,
+        "n": 12,
+        "rate": 0.0
+      },
+      "owlv2Hits": 0,
+      "v3": {
+        "allow": 10,
+        "reject": 0,
+        "review": 2
+      }
+    },
+    "eligibility": {
+      "criteria": {
+        "A": true,
+        "B": false,
+        "C": false,
+        "D": false,
+        "E": false,
+        "F": true,
+        "G": true,
+        "H": false,
+        "I": false,
+        "J": true,
+        "K": true,
+        "L": true
+      },
+      "eligible": false,
+      "failed": [
+        "B",
+        "C",
+        "D",
+        "E",
+        "H",
+        "I"
+      ]
+    },
+    "families": {
+      "BRAND_LIKE_TEXT_AND_SYMBOL": {
+        "actionSources": {
+          "locallyInferred": 12,
+          "reused": 0
+        },
+        "bothChannelsFlagged": 0,
+        "canonicalPolicyFlagged": 0,
+        "florenceModelDetectedPolicyDidNotFlag": 12,
+        "florenceModelMiss": 0,
+        "florenceOcrHit": 12,
+        "graphicalChannelFlagged": 8,
+        "n": 12,
+        "neitherFlagged": 4,
+        "owlv2Hit": 8,
+        "owlv2ModelMiss": 4,
+        "textChannelFlagged": 0,
+        "v3ActionRecall": 0.6667,
+        "v3ActionRecallCI": {
+          "ci95": [
+            0.3906,
+            0.8619
+          ],
+          "k": 8,
+          "n": 12,
+          "rate": 0.6667
+        },
+        "v3Flagged": 8
+      },
+      "CENTER_OVERLAY_MARK": {
+        "actionSources": {
+          "locallyInferred": 12,
+          "reused": 0
+        },
+        "bothChannelsFlagged": 0,
+        "canonicalPolicyFlagged": 2,
+        "florenceModelDetectedPolicyDidNotFlag": 4,
+        "florenceModelMiss": 8,
+        "florenceOcrHit": 4,
+        "graphicalChannelFlagged": 0,
+        "n": 12,
+        "neitherFlagged": 10,
+        "owlv2Hit": 0,
+        "owlv2ModelMiss": 12,
+        "textChannelFlagged": 2,
+        "v3ActionRecall": 0.1667,
+        "v3ActionRecallCI": {
+          "ci95": [
+            0.047,
+            0.448
+          ],
+          "k": 2,
+          "n": 12,
+          "rate": 0.1667
+        },
+        "v3Flagged": 2
+      },
+      "EDGE_MARK": {
+        "actionSources": {
+          "locallyInferred": 12,
+          "reused": 0
+        },
+        "bothChannelsFlagged": 1,
+        "canonicalPolicyFlagged": 3,
+        "florenceModelDetectedPolicyDidNotFlag": 1,
+        "florenceModelMiss": 11,
+        "florenceOcrHit": 1,
+        "graphicalChannelFlagged": 1,
+        "n": 12,
+        "neitherFlagged": 9,
+        "owlv2Hit": 1,
+        "owlv2ModelMiss": 11,
+        "textChannelFlagged": 3,
+        "v3ActionRecall": 0.25,
+        "v3ActionRecallCI": {
+          "ci95": [
+            0.0889,
+            0.5323
+          ],
+          "k": 3,
+          "n": 12,
+          "rate": 0.25
+        },
+        "v3Flagged": 3
+      },
+      "GRAPHICAL_WATERMARK": {
+        "actionSources": {
+          "locallyInferred": 12,
+          "reused": 0
+        },
+        "bothChannelsFlagged": 0,
+        "canonicalPolicyFlagged": 4,
+        "florenceModelDetectedPolicyDidNotFlag": 0,
+        "florenceModelMiss": 12,
+        "florenceOcrHit": 0,
+        "graphicalChannelFlagged": 0,
+        "n": 12,
+        "neitherFlagged": 8,
+        "owlv2Hit": 0,
+        "owlv2ModelMiss": 12,
+        "textChannelFlagged": 4,
+        "v3ActionRecall": 0.3333,
+        "v3ActionRecallCI": {
+          "ci95": [
+            0.1381,
+            0.6094
+          ],
+          "k": 4,
+          "n": 12,
+          "rate": 0.3333
+        },
+        "v3Flagged": 4
+      },
+      "GRAPHIC_SYMBOL": {
+        "actionSources": {
+          "locallyInferred": 0,
+          "reused": 12
+        },
+        "bothChannelsFlagged": 2,
+        "canonicalPolicyFlagged": 2,
+        "florenceModelDetectedPolicyDidNotFlag": 5,
+        "florenceModelMiss": 7,
+        "florenceOcrHit": 5,
+        "graphicalChannelFlagged": 12,
+        "n": 12,
+        "neitherFlagged": 0,
+        "owlv2Hit": 12,
+        "owlv2ModelMiss": 0,
+        "textChannelFlagged": 2,
+        "v3ActionRecall": 1.0,
+        "v3ActionRecallCI": {
+          "ci95": [
+            0.7575,
+            1.0
+          ],
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "v3Flagged": 12
+      },
+      "LOGO_LIKE_EMBLEM": {
+        "actionSources": {
+          "locallyInferred": 12,
+          "reused": 0
+        },
+        "bothChannelsFlagged": 6,
+        "canonicalPolicyFlagged": 6,
+        "florenceModelDetectedPolicyDidNotFlag": 0,
+        "florenceModelMiss": 12,
+        "florenceOcrHit": 0,
+        "graphicalChannelFlagged": 12,
+        "n": 12,
+        "neitherFlagged": 0,
+        "owlv2Hit": 12,
+        "owlv2ModelMiss": 0,
+        "textChannelFlagged": 6,
+        "v3ActionRecall": 1.0,
+        "v3ActionRecallCI": {
+          "ci95": [
+            0.7575,
+            1.0
+          ],
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "v3Flagged": 12
+      },
+      "REPEATED_TILED_MARK": {
+        "actionSources": {
+          "locallyInferred": 0,
+          "reused": 12
+        },
+        "bothChannelsFlagged": 6,
+        "canonicalPolicyFlagged": 12,
+        "florenceModelDetectedPolicyDidNotFlag": 0,
+        "florenceModelMiss": 0,
+        "florenceOcrHit": 12,
+        "graphicalChannelFlagged": 6,
+        "n": 12,
+        "neitherFlagged": 0,
+        "owlv2Hit": 6,
+        "owlv2ModelMiss": 6,
+        "textChannelFlagged": 12,
+        "v3ActionRecall": 1.0,
+        "v3ActionRecallCI": {
+          "ci95": [
+            0.7575,
+            1.0
+          ],
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "v3Flagged": 12
+      },
+      "SMALL_CORNER_MARK": {
+        "actionSources": {
+          "locallyInferred": 12,
+          "reused": 0
+        },
+        "bothChannelsFlagged": 1,
+        "canonicalPolicyFlagged": 1,
+        "florenceModelDetectedPolicyDidNotFlag": 2,
+        "florenceModelMiss": 10,
+        "florenceOcrHit": 2,
+        "graphicalChannelFlagged": 12,
+        "n": 12,
+        "neitherFlagged": 0,
+        "owlv2Hit": 12,
+        "owlv2ModelMiss": 0,
+        "textChannelFlagged": 1,
+        "v3ActionRecall": 1.0,
+        "v3ActionRecallCI": {
+          "ci95": [
+            0.7575,
+            1.0
+          ],
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "v3Flagged": 12
+      },
+      "TEXT_WATERMARK_OPAQUE": {
+        "actionSources": {
+          "locallyInferred": 12,
+          "reused": 0
+        },
+        "bothChannelsFlagged": 0,
+        "canonicalPolicyFlagged": 0,
+        "florenceModelDetectedPolicyDidNotFlag": 12,
+        "florenceModelMiss": 0,
+        "florenceOcrHit": 12,
+        "graphicalChannelFlagged": 1,
+        "n": 12,
+        "neitherFlagged": 11,
+        "owlv2Hit": 1,
+        "owlv2ModelMiss": 11,
+        "textChannelFlagged": 0,
+        "v3ActionRecall": 0.0833,
+        "v3ActionRecallCI": {
+          "ci95": [
+            0.0149,
+            0.3539
+          ],
+          "k": 1,
+          "n": 12,
+          "rate": 0.0833
+        },
+        "v3Flagged": 1
+      },
+      "TEXT_WATERMARK_TRANSLUCENT": {
+        "actionSources": {
+          "locallyInferred": 12,
+          "reused": 0
+        },
+        "bothChannelsFlagged": 0,
+        "canonicalPolicyFlagged": 0,
+        "florenceModelDetectedPolicyDidNotFlag": 12,
+        "florenceModelMiss": 0,
+        "florenceOcrHit": 12,
+        "graphicalChannelFlagged": 4,
+        "n": 12,
+        "neitherFlagged": 8,
+        "owlv2Hit": 4,
+        "owlv2ModelMiss": 8,
+        "textChannelFlagged": 0,
+        "v3ActionRecall": 0.3333,
+        "v3ActionRecallCI": {
+          "ci95": [
+            0.1381,
+            0.6094
+          ],
+          "k": 4,
+          "n": 12,
+          "rate": 0.3333
+        },
+        "v3Flagged": 4
+      }
+    },
+    "florenceSources": {
+      "local_inference": 96,
+      "reused_exact": 24
+    },
+    "overall": {
+      "actionRecall": 0.5833,
+      "actionRecallCI": {
+        "ci95": [
+          0.4939,
+          0.6676
+        ],
+        "k": 70,
+        "n": 120,
+        "rate": 0.5833
+      },
+      "label": "CONTROLLED_CHALLENGE_ACTION_RECALL",
+      "n": 120,
+      "v3Flagged": 70
+    },
+    "safety": {
+      "artifactRegressions": 0,
+      "hardRejectBypass": 0
+    },
+    "split": "development",
+    "transitions": {
+      "allow->allow": 60,
+      "allow->review": 40,
+      "reject->reject": 12,
+      "review->review": 20
+    }
+  },
+  "evidenceLabel": "G004_DUAL_CHANNEL_CONTROLLED_EVIDENCE_V3",
+  "florenceInference": {
+    "development": {
+      "device": "cpu",
+      "dtype": "torch.float32",
+      "latencyNote": "one row stalled ~56 min under host memory paging; not a model property",
+      "locallyInferredRows": 96,
+      "maxSecondsPerImage": 3376.5,
+      "meanSecondsPerImage": 97.5,
+      "medianSecondsPerImage": 43.1,
+      "newFlorenceCalls": 96,
+      "p90SecondsPerImage": 54.8,
+      "peakRssGb": 4.02,
+      "reusedRows": 24
+    },
+    "holdout": {
+      "newFlorenceCalls": 0,
+      "reason": "development failed; holdout inference forbidden"
+    },
+    "owlv2NewCalls": 0
+  },
+  "gateV1Status": "OWLV2_POSITIVE_GROUND_TRUTH_INSUFFICIENT (unchanged, not reinterpreted)",
+  "gateV2Status": "OWLV2_CONTROLLED_GATE_FAILED_DEVELOPMENT (unchanged, not reinterpreted)",
+  "h4Verdict": "H4_DUAL_CHANNEL_SHADOW_NOT_SUPPORTED",
+  "holdoutEvaluated": 0,
+  "naturalPositiveLimitation": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+  "originalsUnchanged": "28/28",
+  "proxyBaseActionsUsed": false,
+  "reportVersion": "avatar_dual_channel_v3_eval_v1",
+  "resourceSafety": {
+    "checkpointResumes": 1,
+    "guardTrips": 1,
+    "perRowGuardGb": 0.6,
+    "rowsLostToGuard": 0,
+    "startGateGb": 4.0
+  },
+  "reuseAudit": {
+    "BRAND_LIKE_TEXT_AND_SYMBOL": {
+      "bitwise": null,
+      "variant": null,
+      "verdict": "NOT_REUSABLE"
+    },
+    "CENTER_OVERLAY_MARK": {
+      "bitwise": null,
+      "variant": null,
+      "verdict": "NOT_REUSABLE"
+    },
+    "EDGE_MARK": {
+      "bitwise": null,
+      "variant": null,
+      "verdict": "NOT_REUSABLE"
+    },
+    "GRAPHICAL_WATERMARK": {
+      "bitwise": null,
+      "variant": null,
+      "verdict": "NOT_REUSABLE"
+    },
+    "GRAPHIC_SYMBOL": {
+      "bitwise": "BITWISE_IDENTITY_UNPROVEN",
+      "variant": "V8",
+      "verdict": "EXACT_REUSABLE"
+    },
+    "LOGO_LIKE_EMBLEM": {
+      "bitwise": null,
+      "variant": null,
+      "verdict": "NOT_REUSABLE"
+    },
+    "REPEATED_TILED_MARK": {
+      "bitwise": "BITWISE_IDENTITY_UNPROVEN",
+      "variant": "V4",
+      "verdict": "EXACT_REUSABLE"
+    },
+    "SMALL_CORNER_MARK": {
+      "bitwise": null,
+      "variant": null,
+      "verdict": "NOT_REUSABLE"
+    },
+    "TEXT_WATERMARK_OPAQUE": {
+      "bitwise": null,
+      "variant": null,
+      "verdict": "NOT_REUSABLE"
+    },
+    "TEXT_WATERMARK_TRANSLUCENT": {
+      "bitwise": null,
+      "variant": null,
+      "verdict": "NOT_REUSABLE"
+    }
+  },
+  "truthAuthority": "OWNER_DESIGNATED_RATER_A_REFERENCE_TRUTH",
+  "truthResolutionVersion": "OWNER_RATER_A_RESOLUTION_V1",
+  "v3Verdict": "V3_DUAL_CHANNEL_FAILED_DEVELOPMENT",
+  "v3Version": "AVATAR_WATERMARK_DUAL_CHANNEL_V3"
+}
