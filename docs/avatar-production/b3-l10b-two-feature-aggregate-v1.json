@@ -1,0 +1,1429 @@
+{
+  "calibrationPerformed": false,
+  "confidenceBandChanged": false,
+  "contractDigestPrefix": "390251927491",
+  "decisionDiff": 0,
+  "designation": "DEVELOPMENT_DESIGNED",
+  "development": {
+    "coverageSingleRegion": 1.0,
+    "decisionDiff": 0,
+    "n": {
+      "clean": 12,
+      "opaque": 12,
+      "translucent": 12
+    },
+    "outputTokenCountDistribution": {
+      "clean": {
+        "max": 54.0,
+        "median": 21.5,
+        "min": 14.0,
+        "n": 12,
+        "q1": 15.5,
+        "q3": 22.25
+      },
+      "opaque": {
+        "max": 13.0,
+        "median": 13.0,
+        "min": 13.0,
+        "n": 12,
+        "q1": 13.0,
+        "q3": 13.0
+      },
+      "translucent": {
+        "max": 15.0,
+        "median": 14.0,
+        "min": 13.0,
+        "n": 12,
+        "q1": 13.0,
+        "q3": 14.0
+      }
+    },
+    "scoreCalibratedFlags": [
+      "False"
+    ],
+    "split": "development",
+    "table": [
+      {
+        "balancedAccuracy": 0.9166,
+        "candidate": "S1_C16",
+        "cleanFalseEscalationProxy": {
+          "k": 2,
+          "n": 12,
+          "rate": 0.1667
+        },
+        "combinedSensitivity": {
+          "k": 24,
+          "n": 24,
+          "rate": 1.0
+        },
+        "eligibility": {
+          "criteria": {
+            "A": false,
+            "B": true,
+            "C": true,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "A"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "predicate": "rawSequenceScore >= -1.42351 AND outputTokenCount <= 16",
+        "scoreThreshold": -1.42351,
+        "tokenCap": 16,
+        "translucentSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        }
+      },
+      {
+        "balancedAccuracy": 0.7084,
+        "candidate": "S1_C24",
+        "cleanFalseEscalationProxy": {
+          "k": 7,
+          "n": 12,
+          "rate": 0.5833
+        },
+        "combinedSensitivity": {
+          "k": 24,
+          "n": 24,
+          "rate": 1.0
+        },
+        "eligibility": {
+          "criteria": {
+            "A": false,
+            "B": true,
+            "C": true,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "A"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "predicate": "rawSequenceScore >= -1.42351 AND outputTokenCount <= 24",
+        "scoreThreshold": -1.42351,
+        "tokenCap": 24,
+        "translucentSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        }
+      },
+      {
+        "balancedAccuracy": 0.7084,
+        "candidate": "S1_C32",
+        "cleanFalseEscalationProxy": {
+          "k": 7,
+          "n": 12,
+          "rate": 0.5833
+        },
+        "combinedSensitivity": {
+          "k": 24,
+          "n": 24,
+          "rate": 1.0
+        },
+        "eligibility": {
+          "criteria": {
+            "A": false,
+            "B": true,
+            "C": true,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "A"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "predicate": "rawSequenceScore >= -1.42351 AND outputTokenCount <= 32",
+        "scoreThreshold": -1.42351,
+        "tokenCap": 32,
+        "translucentSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        }
+      },
+      {
+        "balancedAccuracy": 0.9166,
+        "candidate": "S2_C16",
+        "cleanFalseEscalationProxy": {
+          "k": 2,
+          "n": 12,
+          "rate": 0.1667
+        },
+        "combinedSensitivity": {
+          "k": 24,
+          "n": 24,
+          "rate": 1.0
+        },
+        "eligibility": {
+          "criteria": {
+            "A": false,
+            "B": true,
+            "C": true,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "A"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "predicate": "rawSequenceScore >= -1.13944 AND outputTokenCount <= 16",
+        "scoreThreshold": -1.13944,
+        "tokenCap": 16,
+        "translucentSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        }
+      },
+      {
+        "balancedAccuracy": 0.7916,
+        "candidate": "S2_C24",
+        "cleanFalseEscalationProxy": {
+          "k": 5,
+          "n": 12,
+          "rate": 0.4167
+        },
+        "combinedSensitivity": {
+          "k": 24,
+          "n": 24,
+          "rate": 1.0
+        },
+        "eligibility": {
+          "criteria": {
+            "A": false,
+            "B": true,
+            "C": true,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "A"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "predicate": "rawSequenceScore >= -1.13944 AND outputTokenCount <= 24",
+        "scoreThreshold": -1.13944,
+        "tokenCap": 24,
+        "translucentSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        }
+      },
+      {
+        "balancedAccuracy": 0.7916,
+        "candidate": "S2_C32",
+        "cleanFalseEscalationProxy": {
+          "k": 5,
+          "n": 12,
+          "rate": 0.4167
+        },
+        "combinedSensitivity": {
+          "k": 24,
+          "n": 24,
+          "rate": 1.0
+        },
+        "eligibility": {
+          "criteria": {
+            "A": false,
+            "B": true,
+            "C": true,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "A"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "predicate": "rawSequenceScore >= -1.13944 AND outputTokenCount <= 32",
+        "scoreThreshold": -1.13944,
+        "tokenCap": 32,
+        "translucentSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        }
+      },
+      {
+        "balancedAccuracy": 0.8958,
+        "candidate": "S3_C16",
+        "cleanFalseEscalationProxy": {
+          "k": 2,
+          "n": 12,
+          "rate": 0.1667
+        },
+        "combinedSensitivity": {
+          "k": 23,
+          "n": 24,
+          "rate": 0.9583
+        },
+        "eligibility": {
+          "criteria": {
+            "A": false,
+            "B": true,
+            "C": true,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "A"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "predicate": "rawSequenceScore >= -1.066554 AND outputTokenCount <= 16",
+        "scoreThreshold": -1.066554,
+        "tokenCap": 16,
+        "translucentSensitivity": {
+          "k": 11,
+          "n": 12,
+          "rate": 0.9167
+        }
+      },
+      {
+        "balancedAccuracy": 0.8958,
+        "candidate": "S3_C24",
+        "cleanFalseEscalationProxy": {
+          "k": 2,
+          "n": 12,
+          "rate": 0.1667
+        },
+        "combinedSensitivity": {
+          "k": 23,
+          "n": 24,
+          "rate": 0.9583
+        },
+        "eligibility": {
+          "criteria": {
+            "A": false,
+            "B": true,
+            "C": true,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "A"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "predicate": "rawSequenceScore >= -1.066554 AND outputTokenCount <= 24",
+        "scoreThreshold": -1.066554,
+        "tokenCap": 24,
+        "translucentSensitivity": {
+          "k": 11,
+          "n": 12,
+          "rate": 0.9167
+        }
+      },
+      {
+        "balancedAccuracy": 0.8958,
+        "candidate": "S3_C32",
+        "cleanFalseEscalationProxy": {
+          "k": 2,
+          "n": 12,
+          "rate": 0.1667
+        },
+        "combinedSensitivity": {
+          "k": 23,
+          "n": 24,
+          "rate": 0.9583
+        },
+        "eligibility": {
+          "criteria": {
+            "A": false,
+            "B": true,
+            "C": true,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "A"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "predicate": "rawSequenceScore >= -1.066554 AND outputTokenCount <= 32",
+        "scoreThreshold": -1.066554,
+        "tokenCap": 32,
+        "translucentSensitivity": {
+          "k": 11,
+          "n": 12,
+          "rate": 0.9167
+        }
+      },
+      {
+        "balancedAccuracy": 0.9375,
+        "candidate": "S4_C16",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 21,
+          "n": 24,
+          "rate": 0.875
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": true,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "predicate": "rawSequenceScore >= -0.918332 AND outputTokenCount <= 16",
+        "scoreThreshold": -0.918332,
+        "tokenCap": 16,
+        "translucentSensitivity": {
+          "k": 9,
+          "n": 12,
+          "rate": 0.75
+        }
+      },
+      {
+        "balancedAccuracy": 0.9375,
+        "candidate": "S4_C24",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 21,
+          "n": 24,
+          "rate": 0.875
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": true,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "predicate": "rawSequenceScore >= -0.918332 AND outputTokenCount <= 24",
+        "scoreThreshold": -0.918332,
+        "tokenCap": 24,
+        "translucentSensitivity": {
+          "k": 9,
+          "n": 12,
+          "rate": 0.75
+        }
+      },
+      {
+        "balancedAccuracy": 0.9375,
+        "candidate": "S4_C32",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 21,
+          "n": 24,
+          "rate": 0.875
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": true,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "predicate": "rawSequenceScore >= -0.918332 AND outputTokenCount <= 32",
+        "scoreThreshold": -0.918332,
+        "tokenCap": 32,
+        "translucentSensitivity": {
+          "k": 9,
+          "n": 12,
+          "rate": 0.75
+        }
+      },
+      {
+        "balancedAccuracy": 0.875,
+        "candidate": "S5_C16",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 18,
+          "n": 24,
+          "rate": 0.75
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": true,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "predicate": "rawSequenceScore >= -0.748467 AND outputTokenCount <= 16",
+        "scoreThreshold": -0.748467,
+        "tokenCap": 16,
+        "translucentSensitivity": {
+          "k": 6,
+          "n": 12,
+          "rate": 0.5
+        }
+      },
+      {
+        "balancedAccuracy": 0.875,
+        "candidate": "S5_C24",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 18,
+          "n": 24,
+          "rate": 0.75
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": true,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "predicate": "rawSequenceScore >= -0.748467 AND outputTokenCount <= 24",
+        "scoreThreshold": -0.748467,
+        "tokenCap": 24,
+        "translucentSensitivity": {
+          "k": 6,
+          "n": 12,
+          "rate": 0.5
+        }
+      },
+      {
+        "balancedAccuracy": 0.875,
+        "candidate": "S5_C32",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 18,
+          "n": 24,
+          "rate": 0.75
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": true,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "predicate": "rawSequenceScore >= -0.748467 AND outputTokenCount <= 32",
+        "scoreThreshold": -0.748467,
+        "tokenCap": 32,
+        "translucentSensitivity": {
+          "k": 6,
+          "n": 12,
+          "rate": 0.5
+        }
+      },
+      {
+        "balancedAccuracy": 0.8125,
+        "candidate": "S6_C16",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 15,
+          "n": 24,
+          "rate": 0.625
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": true,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 11,
+          "n": 12,
+          "rate": 0.9167
+        },
+        "predicate": "rawSequenceScore >= -0.700672 AND outputTokenCount <= 16",
+        "scoreThreshold": -0.700672,
+        "tokenCap": 16,
+        "translucentSensitivity": {
+          "k": 4,
+          "n": 12,
+          "rate": 0.3333
+        }
+      },
+      {
+        "balancedAccuracy": 0.8125,
+        "candidate": "S6_C24",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 15,
+          "n": 24,
+          "rate": 0.625
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": true,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 11,
+          "n": 12,
+          "rate": 0.9167
+        },
+        "predicate": "rawSequenceScore >= -0.700672 AND outputTokenCount <= 24",
+        "scoreThreshold": -0.700672,
+        "tokenCap": 24,
+        "translucentSensitivity": {
+          "k": 4,
+          "n": 12,
+          "rate": 0.3333
+        }
+      },
+      {
+        "balancedAccuracy": 0.8125,
+        "candidate": "S6_C32",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 15,
+          "n": 24,
+          "rate": 0.625
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": true,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 11,
+          "n": 12,
+          "rate": 0.9167
+        },
+        "predicate": "rawSequenceScore >= -0.700672 AND outputTokenCount <= 32",
+        "scoreThreshold": -0.700672,
+        "tokenCap": 32,
+        "translucentSensitivity": {
+          "k": 4,
+          "n": 12,
+          "rate": 0.3333
+        }
+      },
+      {
+        "balancedAccuracy": 0.7291,
+        "candidate": "S7_C16",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 11,
+          "n": 24,
+          "rate": 0.4583
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": false,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "B",
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 10,
+          "n": 12,
+          "rate": 0.8333
+        },
+        "predicate": "rawSequenceScore >= -0.663906 AND outputTokenCount <= 16",
+        "scoreThreshold": -0.663906,
+        "tokenCap": 16,
+        "translucentSensitivity": {
+          "k": 1,
+          "n": 12,
+          "rate": 0.0833
+        }
+      },
+      {
+        "balancedAccuracy": 0.7291,
+        "candidate": "S7_C24",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 11,
+          "n": 24,
+          "rate": 0.4583
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": false,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "B",
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 10,
+          "n": 12,
+          "rate": 0.8333
+        },
+        "predicate": "rawSequenceScore >= -0.663906 AND outputTokenCount <= 24",
+        "scoreThreshold": -0.663906,
+        "tokenCap": 24,
+        "translucentSensitivity": {
+          "k": 1,
+          "n": 12,
+          "rate": 0.0833
+        }
+      },
+      {
+        "balancedAccuracy": 0.7291,
+        "candidate": "S7_C32",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 11,
+          "n": 24,
+          "rate": 0.4583
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": false,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "B",
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 10,
+          "n": 12,
+          "rate": 0.8333
+        },
+        "predicate": "rawSequenceScore >= -0.663906 AND outputTokenCount <= 32",
+        "scoreThreshold": -0.663906,
+        "tokenCap": 32,
+        "translucentSensitivity": {
+          "k": 1,
+          "n": 12,
+          "rate": 0.0833
+        }
+      },
+      {
+        "balancedAccuracy": 0.6666,
+        "candidate": "S8_C16",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 8,
+          "n": 24,
+          "rate": 0.3333
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": false,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "B",
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 8,
+          "n": 12,
+          "rate": 0.6667
+        },
+        "predicate": "rawSequenceScore >= -0.613713 AND outputTokenCount <= 16",
+        "scoreThreshold": -0.613713,
+        "tokenCap": 16,
+        "translucentSensitivity": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        }
+      },
+      {
+        "balancedAccuracy": 0.6666,
+        "candidate": "S8_C24",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 8,
+          "n": 24,
+          "rate": 0.3333
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": false,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "B",
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 8,
+          "n": 12,
+          "rate": 0.6667
+        },
+        "predicate": "rawSequenceScore >= -0.613713 AND outputTokenCount <= 24",
+        "scoreThreshold": -0.613713,
+        "tokenCap": 24,
+        "translucentSensitivity": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        }
+      },
+      {
+        "balancedAccuracy": 0.6666,
+        "candidate": "S8_C32",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 8,
+          "n": 24,
+          "rate": 0.3333
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": false,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "B",
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 8,
+          "n": 12,
+          "rate": 0.6667
+        },
+        "predicate": "rawSequenceScore >= -0.613713 AND outputTokenCount <= 32",
+        "scoreThreshold": -0.613713,
+        "tokenCap": 32,
+        "translucentSensitivity": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        }
+      },
+      {
+        "balancedAccuracy": 0.5834,
+        "candidate": "S9_C16",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 4,
+          "n": 24,
+          "rate": 0.1667
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": false,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "B",
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 4,
+          "n": 12,
+          "rate": 0.3333
+        },
+        "predicate": "rawSequenceScore >= -0.592678 AND outputTokenCount <= 16",
+        "scoreThreshold": -0.592678,
+        "tokenCap": 16,
+        "translucentSensitivity": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        }
+      },
+      {
+        "balancedAccuracy": 0.5834,
+        "candidate": "S9_C24",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 4,
+          "n": 24,
+          "rate": 0.1667
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": false,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "B",
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 4,
+          "n": 12,
+          "rate": 0.3333
+        },
+        "predicate": "rawSequenceScore >= -0.592678 AND outputTokenCount <= 24",
+        "scoreThreshold": -0.592678,
+        "tokenCap": 24,
+        "translucentSensitivity": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        }
+      },
+      {
+        "balancedAccuracy": 0.5834,
+        "candidate": "S9_C32",
+        "cleanFalseEscalationProxy": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        },
+        "combinedSensitivity": {
+          "k": 4,
+          "n": 24,
+          "rate": 0.1667
+        },
+        "eligibility": {
+          "criteria": {
+            "A": true,
+            "B": false,
+            "C": false,
+            "D": true,
+            "E": true,
+            "F": true
+          },
+          "eligible": false,
+          "failed": [
+            "B",
+            "C"
+          ]
+        },
+        "opaqueSensitivity": {
+          "k": 4,
+          "n": 12,
+          "rate": 0.3333
+        },
+        "predicate": "rawSequenceScore >= -0.592678 AND outputTokenCount <= 32",
+        "scoreThreshold": -0.592678,
+        "tokenCap": 32,
+        "translucentSensitivity": {
+          "k": 0,
+          "n": 12,
+          "rate": 0.0
+        }
+      }
+    ]
+  },
+  "developmentByScoreThreshold": {
+    "-0.592678": {
+      "16": {
+        "clean": 0,
+        "opaque": 4,
+        "translucent": 0
+      },
+      "24": {
+        "clean": 0,
+        "opaque": 4,
+        "translucent": 0
+      },
+      "32": {
+        "clean": 0,
+        "opaque": 4,
+        "translucent": 0
+      }
+    },
+    "-0.613713": {
+      "16": {
+        "clean": 0,
+        "opaque": 8,
+        "translucent": 0
+      },
+      "24": {
+        "clean": 0,
+        "opaque": 8,
+        "translucent": 0
+      },
+      "32": {
+        "clean": 0,
+        "opaque": 8,
+        "translucent": 0
+      }
+    },
+    "-0.663906": {
+      "16": {
+        "clean": 0,
+        "opaque": 10,
+        "translucent": 1
+      },
+      "24": {
+        "clean": 0,
+        "opaque": 10,
+        "translucent": 1
+      },
+      "32": {
+        "clean": 0,
+        "opaque": 10,
+        "translucent": 1
+      }
+    },
+    "-0.700672": {
+      "16": {
+        "clean": 0,
+        "opaque": 11,
+        "translucent": 4
+      },
+      "24": {
+        "clean": 0,
+        "opaque": 11,
+        "translucent": 4
+      },
+      "32": {
+        "clean": 0,
+        "opaque": 11,
+        "translucent": 4
+      }
+    },
+    "-0.748467": {
+      "16": {
+        "clean": 0,
+        "opaque": 12,
+        "translucent": 6
+      },
+      "24": {
+        "clean": 0,
+        "opaque": 12,
+        "translucent": 6
+      },
+      "32": {
+        "clean": 0,
+        "opaque": 12,
+        "translucent": 6
+      }
+    },
+    "-0.918332": {
+      "16": {
+        "clean": 0,
+        "opaque": 12,
+        "translucent": 9
+      },
+      "24": {
+        "clean": 0,
+        "opaque": 12,
+        "translucent": 9
+      },
+      "32": {
+        "clean": 0,
+        "opaque": 12,
+        "translucent": 9
+      }
+    },
+    "-1.066554": {
+      "16": {
+        "clean": 2,
+        "opaque": 12,
+        "translucent": 11
+      },
+      "24": {
+        "clean": 2,
+        "opaque": 12,
+        "translucent": 11
+      },
+      "32": {
+        "clean": 2,
+        "opaque": 12,
+        "translucent": 11
+      }
+    },
+    "-1.13944": {
+      "16": {
+        "clean": 2,
+        "opaque": 12,
+        "translucent": 12
+      },
+      "24": {
+        "clean": 5,
+        "opaque": 12,
+        "translucent": 12
+      },
+      "32": {
+        "clean": 5,
+        "opaque": 12,
+        "translucent": 12
+      }
+    },
+    "-1.42351": {
+      "16": {
+        "clean": 2,
+        "opaque": 12,
+        "translucent": 12
+      },
+      "24": {
+        "clean": 7,
+        "opaque": 12,
+        "translucent": 12
+      },
+      "32": {
+        "clean": 7,
+        "opaque": 12,
+        "translucent": 12
+      }
+    }
+  },
+  "diagnosis": {
+    "cleanSide": "the token cap removes clean rows only above -1.14 (8->2 at S1, 5->2 at S2); two clean rows have both a positive-like score (>= -1.0666) and <= 16 tokens, so criterion A (<= 1/12) fails at every cap for S1-S3",
+    "conclusion": "outputTokenCount does not add separation where it is needed: the overlap is between short-and-high-scoring clean rows and low-scoring translucent rows, and both features agree on those rows",
+    "positiveSide": "from S4 (-0.9183) upward the clean side is 0/12 at every cap but translucent sensitivity is 9/12 at best; the cap never changes a positive count (all positives are 13-15 tokens <= 16)"
+  },
+  "evidenceLabel": "G004_UNCALIBRATED_OCR_TWO_FEATURE_EVIDENCE",
+  "exposureAudit": {
+    "auditedAt": "2026-09-15",
+    "evidence": [
+      "repo docs/scripts/tests: outputTokenCount/rawSequenceScore appear only as field names, semantics, and B3-L10A development-only aggregates",
+      "local b3l4..b3l10a eval dirs: only b3l10a-eval/score_study.json + eval.stdout contain values; both hold developmentInventory only (no validation key; selection NONE so split_eval(holdout) never ran)",
+      "B3-L10A coverage check printed availability/scope/regionCount/source/calibrated/beams/lengthPenalty counts only",
+      "B3-L9 holdout inventory printed typed geometry fields only (location/areaBand/overlayLike/textQuality), no score or token count",
+      "PR bodies (b3l8/pr_body_*.md): no values; memory notes: development medians only",
+      "values in raw restricted .jsonl captures are not counted as seen"
+    ],
+    "validationScoreValuesPreviouslySeen": false,
+    "validationSplit": "G4-G5",
+    "validationSplitName": "FEATURE_SPECIFIC_FROZEN_VALIDATION_SPLIT_V2",
+    "validationTokenCountValuesPreviouslySeen": false,
+    "version": "FLORENCE_OCR_TWO_FEATURE_STUDY_V1"
+  },
+  "features": {
+    "outputTokenCount": {
+      "direction": "positive_shorter",
+      "role": "UNCALIBRATED_AUXILIARY_FEATURE",
+      "semantics": {
+        "definition": "len(generated.sequences[0]) from Florence2ForConditionalGeneration.generate (top beam)",
+        "includesSpecialTokens": [
+          "decoder_start_token_id=2",
+          "forced_bos_token_id=0",
+          "eos_token_id=2"
+        ],
+        "notA": [
+          "confidence",
+          "probability",
+          "watermark probability",
+          "OCR correctness probability"
+        ],
+        "side": "decoder output only; encoder/prompt tokens excluded",
+        "stability": "pinned florence-community/Florence-2-large-ft@26b734a5 generation_config (BART text backbone); semantics change with model/revision",
+        "upperBound": "max_new_tokens (1024) + 1 decoder start token"
+      }
+    },
+    "rawSequenceScore": {
+      "direction": "positive_higher",
+      "role": "UNCALIBRATED_DISCRIMINATION_FEATURE",
+      "scoreCalibrated": false,
+      "scoreSource": "florence_beam_sequence_score"
+    }
+  },
+  "florenceInference": {
+    "newCalls": 0,
+    "reason": "development failed; validation and robustness never opened"
+  },
+  "graphicalDetectorStudyRequired": "GRAPHICAL_DETECTOR_STUDY_REQUIRED",
+  "grid": {
+    "candidates": 27,
+    "scoreThresholdOrigin": "B3-L10A pre-registered quantile grid, reused verbatim",
+    "scoreThresholds": [
+      -1.42351,
+      -1.13944,
+      -1.066554,
+      -0.918332,
+      -0.748467,
+      -0.700672,
+      -0.663906,
+      -0.613713,
+      -0.592678
+    ],
+    "tokenCaps": [
+      16,
+      24,
+      32
+    ]
+  },
+  "naturalPositiveLimitation": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+  "originalsUnchanged": "28/28",
+  "priorStatus": {
+    "B3_L10A": "FLORENCE_SEQUENCE_SCORE_NOT_SEPARATING",
+    "B3_L10A_VALIDATION_EXECUTIONS": 0,
+    "B3_L9": "TEXT_POLICY_SHADOW_HOLDOUT_FAILED",
+    "B3_L9_SUPPORT": "TEXT_POLICY_SHADOW_NOT_SUPPORTED",
+    "H4_DUAL_CHANNEL": "H4_DUAL_CHANNEL_SHADOW_NOT_SUPPORTED",
+    "V1": "OWLV2_POSITIVE_GROUND_TRUTH_INSUFFICIENT",
+    "V2": "OWLV2_CONTROLLED_GATE_FAILED_DEVELOPMENT",
+    "V3": "V3_DUAL_CHANNEL_FAILED_DEVELOPMENT",
+    "V3_DIAGNOSIS": [
+      "TEXT_POLICY_GAP",
+      "GRAPHICAL_CHANNEL_GAP",
+      "MIXED"
+    ]
+  },
+  "reportVersion": "avatar_ocr_two_feature_eval_v1",
+  "robustnessExecuted": false,
+  "selection": {
+    "reason": "no candidate satisfies A-F on development",
+    "selectedCandidate": null,
+    "status": "NONE"
+  },
+  "textPolicyGap": "TEXT_POLICY_GAP_UNRESOLVED",
+  "validationEvaluated": 0,
+  "validationSplitName": "FEATURE_SPECIFIC_FROZEN_VALIDATION_SPLIT_V2",
+  "validationValuesStillUnseen": {
+    "outputTokenCount": true,
+    "rawSequenceScore": true
+  },
+  "verdict": "FLORENCE_TWO_FEATURE_NOT_SEPARATING",
+  "version": "FLORENCE_OCR_TWO_FEATURE_STUDY_V1",
+  "watermarkPolicyChanged": false
+}
