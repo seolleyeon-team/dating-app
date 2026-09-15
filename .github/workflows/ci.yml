@@ -313,6 +313,11 @@ jobs:
       - run: pytest -q tests/test_avatar_ocr_score_separability.py --maxfail=10
         env:
           PYTHONPATH: .
+      # B3-L10B: score+outputTokenCount 2-feature 는 uncalibrated 그대로, L10A threshold 9개 verbatim 재사용·coarse cap 고정,
+      # geometry/human/family 입력 거부, dual-feature exposure audit 없이는 validation 불가, 1회 lock, robustness 는 rule 튜닝 불가.
+      - run: pytest -q tests/test_avatar_ocr_two_feature.py --maxfail=10
+        env:
+          PYTHONPATH: .
       # 배포 가드는 Windows 운영자 셸에서 Hangul env 값을 "???" 로 읽어 바뀐 적
       # 없는 변수를 changed 로 보고했다. 인코딩과 키 단위 승인 계약을 Linux
       # 에서도 고정한다.
