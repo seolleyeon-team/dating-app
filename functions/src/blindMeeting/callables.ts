@@ -27,6 +27,7 @@ import {
   voteFivePersonException,
   voteSchedule,
 } from "./orchestrator";
+import { leaveBlindMeeting } from "./automaticReplacement";
 import { BLIND_MEETING_CALLABLE_OPTIONS } from "./runtime";
 import {
   cancelBlindMeetingParty,
@@ -520,6 +521,13 @@ async function requestBlindMeetingCancellationHandler(request: BlindMeetingReque
   return { ok: true };
 }
 
+async function leaveBlindMeetingHandler(request: BlindMeetingRequest) {
+  const user = await requireVerifiedUser(request);
+  const meetingId = requireMeetingId(getData(request));
+  await leaveBlindMeeting({ meetingId, userId: user.userId });
+  return { ok: true };
+}
+
 async function markBlindMeetingSafetyStampHandler(request: BlindMeetingRequest) {
   const user = await requireVerifiedUser(request);
   const data = getData(request);
@@ -632,6 +640,7 @@ const HANDLERS: Record<string, BlindMeetingHandler> = {
   voteBlindMeetingFivePersonException:
     voteBlindMeetingFivePersonExceptionHandler,
   requestBlindMeetingCancellation: requestBlindMeetingCancellationHandler,
+  leaveBlindMeeting: leaveBlindMeetingHandler,
   markBlindMeetingSafetyStamp: markBlindMeetingSafetyStampHandler,
   submitBlindMeetingFeedback: submitBlindMeetingFeedbackHandler,
   submitBlindMeetingFollowUpChoice: submitBlindMeetingFollowUpChoiceHandler,

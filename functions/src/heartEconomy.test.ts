@@ -12,6 +12,10 @@ const blindCallablesSource = readFileSync(
   resolve(__dirname, "../src/blindMeeting/callables.ts"),
   "utf8"
 );
+const recommendationRefreshSource = readFileSync(
+  resolve(__dirname, "../src/recommendationRefresh.ts"),
+  "utf8"
+);
 const productionEnvExample = readFileSync(
   resolve(__dirname, "../.env.seolleyeon-final.example"),
   "utf8"
@@ -52,7 +56,9 @@ describe("heart economy contract", () => {
   });
 
   it("grants the server-authoritative heart amount exactly once per transaction", () => {
-    assert.match(indexSource, /const heartBalance = currentBalance \+ heartAmount/);
+    assert.match(indexSource, /heartCreditedToBalance/);
+    assert.match(indexSource, /heartAppliedToRefundDebt/);
+    assert.match(indexSource, /applyPurchasedHeartsToRefundDebts/);
     assert.match(indexSource, /transaction\.create\(transactionRef/);
     assert.match(indexSource, /heartBalanceAfter: heartBalance/);
     assert.match(indexSource, /if \(existing\.exists\)/);
@@ -85,7 +91,13 @@ describe("heart economy contract", () => {
     assert.match(indexSource, /export const unlockDirectChat = onCall/);
     assert.match(indexSource, /feature: "direct_chat"/);
     assert.match(indexSource, /feature: "season_roulette"/);
-    assert.match(indexSource, /feature !== "recommendation_refresh"/);
+    assert.match(indexSource, /export const purchaseRecommendationRefresh/);
+    assert.match(
+      recommendationRefreshSource,
+      /export function createPurchaseRecommendationRefreshFunction/
+    );
+    assert.match(indexSource, /export const spendHearts = onCall/);
+    assert.match(indexSource, /이전 하트 차감 경로는 종료되었어요/);
     assert.match(
       blindStoreSource,
       /export async function createPaidBlindMeetingApplication/

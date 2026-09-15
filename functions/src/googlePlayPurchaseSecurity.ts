@@ -15,6 +15,10 @@ export type GooglePlayPurchaseValidation =
       reason: "not_purchased" | "product_mismatch" | "account_mismatch";
     };
 
+export type GooglePlayRefundPurchaseValidation =
+  | { ok: true }
+  | { ok: false; reason: "product_mismatch" | "account_mismatch" };
+
 /** Validates only server-returned Google Play purchase fields. */
 export function validateGooglePlayProductPurchase(input: {
   purchase: GooglePlayProductPurchase;
@@ -39,6 +43,29 @@ export function validateGooglePlayProductPurchase(input: {
     ok: true,
     needsConsumption: input.purchase.consumptionState !== 1,
   };
+}
+
+/**
+ * RTDN tells us a purchase changed state, not every authoritative purchase
+ * field. Re-read the Developer API and bind its immutable product/account
+ * identifiers to our original ledger before honoring a voided-purchase event.
+ * A refunded purchase may no longer have purchaseState=0, so state is not
+ * reused from the initial-grant validator here.
+ */
+export function validateGooglePlayRefundProductPurchase(input: {
+  purchase: GooglePlayProductPurchase;
+  expectedProductId: string;
+  expectedAccountId: string;
+}): GooglePlayRefundPurchaseValidation {
+  if (input.purchase.productId !== input.expectedProductId) {
+    return { ok: false, reason: "product_mismatch" };
+  }
+  if (
+    input.purchase.obfuscatedExternalAccountId !== input.expectedAccountId
+  ) {
+    return { ok: false, reason: "account_mismatch" };
+  }
+  return { ok: true };
 }
 
 /** Android clients must echo the purchase token in both legacy request fields. */

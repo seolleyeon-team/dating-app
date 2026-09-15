@@ -267,6 +267,10 @@ class InteractionService {
     required String toUserId,
     required String reason,
     String? details,
+    String source = 'profile',
+    String? contentType,
+    String? contentId,
+    String? parentContentId,
   }) async {
     if (fromUserId.trim().isEmpty) {
       throw Exception('fromUserId is empty');
@@ -283,6 +287,10 @@ class InteractionService {
       'reason': reason.trim(),
       if (details != null && details.trim().isNotEmpty)
         'details': details.trim(),
+      'source': source,
+      if (contentType != null) 'contentType': contentType,
+      if (contentId != null) 'contentId': contentId,
+      if (parentContentId != null) 'parentContentId': parentContentId,
     });
 
     // 기존 매치가 있다면 해제 처리 (실패해도 신고는 유지)

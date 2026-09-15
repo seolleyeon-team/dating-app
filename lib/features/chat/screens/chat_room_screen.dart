@@ -11,6 +11,7 @@ import '../data/promise_campus_places.dart';
 import '../services/chat_service.dart';
 import '../services/promise_place_service.dart';
 import '../utils/safety_stamp_availability.dart';
+import '../widgets/chat_report_block_flow.dart';
 import '../widgets/promise_place_picker_sheet.dart';
 import 'safety_stamp_screen.dart';
 import '../../../services/chat_profile_photo_service.dart';
@@ -22,6 +23,7 @@ import '../../../router/route_names.dart';
 import '../../../shared/utils/profile_display_image_resolver.dart';
 import '../../../shared/widgets/capture_protected_image.dart';
 import '../../matching/models/profile_card_args.dart';
+import '../../blind_meeting/domain/blind_meeting_public_profile.dart';
 import '../../../core/constants/app_colors.dart';
 
 class _AppColors {
@@ -82,6 +84,8 @@ class _ChatMessage {
   final String time;
   final bool isRead;
   final DateTime sortDateTime;
+  final String senderId;
+  final String senderName;
 
   final String? promiseId;
   final DateTime? promiseDateTime;
@@ -103,6 +107,8 @@ class _ChatMessage {
     required this.time,
     required this.sortDateTime,
     this.isRead = false,
+    this.senderId = '',
+    this.senderName = '',
     this.promiseId,
     this.promiseDateTime,
     this.promisePlace,
@@ -138,6 +144,8 @@ class _ChatMessage {
     String? time,
     bool? isRead,
     DateTime? sortDateTime,
+    String? senderId,
+    String? senderName,
     String? promiseId,
     DateTime? promiseDateTime,
     String? promisePlace,
@@ -157,6 +165,8 @@ class _ChatMessage {
       time: time ?? this.time,
       isRead: isRead ?? this.isRead,
       sortDateTime: sortDateTime ?? this.sortDateTime,
+      senderId: senderId ?? this.senderId,
+      senderName: senderName ?? this.senderName,
       promiseId: promiseId ?? this.promiseId,
       promiseDateTime: promiseDateTime ?? this.promiseDateTime,
       promisePlace: promisePlace ?? this.promisePlace,
@@ -222,7 +232,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   String? _initError;
   bool _isReady = false;
   bool _isGroupRoom = false;
+  bool _isBlindMeetingRoom = false;
+  String? _blindMeetingId;
   bool _isSending = false;
+  bool _isPartnerBlocked = false;
   bool _isNearBottom = true;
   bool _pendingForceScrollToBottom = true;
   bool _isCancellingExpiredPromise = false;
@@ -463,6 +476,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             participantIds.length > 2 ||
             roomKind == 'group' ||
             roomType.endsWith('_group');
+        _isBlindMeetingRoom = roomType == 'blind_meeting_group';
+        _blindMeetingId = _isBlindMeetingRoom
+            ? roomData['meetingId']?.toString()
+            : null;
       } else {
         await _chatService.ensureDirectRoom(
           roomId: _roomId,
@@ -493,11 +510,145 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  Future<void> _confirmLeaveBlindMeeting() async {
+    final meetingId = _blindMeetingId;
+    if (!_isBlindMeetingRoom || meetingId == null || meetingId.isEmpty) return;
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('미팅을 불참하고 나가시겠습니까?'),
+        content: const Padding(
+          padding: EdgeInsets.only(top: 8),
+          child: Column(
+            children: [
+              Text('하트는 다시 환불받으실 수 없습니다.'),
+              SizedBox(height: 8),
+              Text(
+                '대타는 설레연이 대신 구할게요',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: CupertinoColors.systemGrey,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('취소'),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('확인했고 나갈게요'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await _chatService.leaveBlindMeeting(meetingId: meetingId);
+      if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      if (!mounted) return;
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          content: const Text('나가기를 처리하지 못했어요. 잠시 후 다시 시도해주세요.'),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  void _showBlindParticipants(Map<String, dynamic> roomData) {
+    final meetingId =
+        roomData['meetingId']?.toString() ?? _blindMeetingId ?? '';
+    if (meetingId.isEmpty) return;
+    final memberIds = ((roomData['participantIds'] as List?) ?? const [])
+        .map((value) => value.toString())
+        .toSet();
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (sheetContext) => CupertinoPageScaffold(
+        navigationBar: const CupertinoNavigationBar(middle: Text('참여자')),
+        child: SafeArea(
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection('blindMeetings')
+                .doc(meetingId)
+                .collection('publicProfiles')
+                .snapshots(),
+            builder: (context, snapshot) {
+              final profiles = (snapshot.data?.docs ?? const [])
+                  .where((doc) => memberIds.contains(doc.id))
+                  .map(
+                    (doc) => BlindMeetingPublicProfile.fromMap({
+                      ...doc.data(),
+                      'userId': doc.id,
+                    }),
+                  )
+                  .toList();
+              return ListView.separated(
+                padding: const EdgeInsets.only(top: 64),
+                itemCount: profiles.length,
+                separatorBuilder: (_, __) => Container(
+                  height: 1,
+                  color: CupertinoColors.separator.resolveFrom(context),
+                ),
+                itemBuilder: (context, index) {
+                  final profile = profiles[index];
+                  return CupertinoListTile(
+                    title: Text(profile.nickname),
+                    subtitle: Text(
+                      [
+                        if (profile.department != null) profile.department!,
+                        if (profile.mbti != null) profile.mbti!,
+                      ].join(' · '),
+                    ),
+                    trailing: const CupertinoListTileChevron(),
+                    onTap: () => showCupertinoModalPopup<void>(
+                      context: sheetContext,
+                      builder: (context) => CupertinoActionSheet(
+                        title: Text(profile.nickname),
+                        message: Text(
+                          [
+                            if (profile.department != null) profile.department!,
+                            if (profile.mbti != null) profile.mbti!,
+                            if (profile.topInterestIds.isNotEmpty)
+                              profile.topInterestIds.join(' · '),
+                            if (profile.oneLineIntro != null)
+                              profile.oneLineIntro!,
+                          ].join('\n'),
+                        ),
+                        cancelButton: CupertinoActionSheetAction(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('닫기'),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _handleSend() async {
     final text = _messageController.text.trim();
     if (text.isEmpty ||
         _currentUserId == null ||
         _roomId.isEmpty ||
+        _isPartnerBlocked ||
         _isSending) {
       return;
     }
@@ -526,6 +677,43 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       } else {
         _isSending = false;
       }
+    }
+  }
+
+  Future<void> _showChatMoreOptions() async {
+    // Keep existing embedded/demo callbacks intact. The app router supplies no
+    // callback, so regular 1:1 rooms use the built-in safety flow.
+    if (widget.onMore != null) {
+      widget.onMore!();
+      return;
+    }
+
+    final reporterId = _currentUserId?.trim() ?? '';
+    final reportedUserId = widget.partnerId.trim();
+    if (reporterId.isEmpty || reportedUserId.isEmpty) {
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (dialogContext) => CupertinoAlertDialog(
+          title: const Text('신고할 수 없어요'),
+          content: const Text('채팅 정보를 불러온 뒤 다시 시도해주세요.'),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final didBlock = await showChatReportAndBlockFlow(
+      context: context,
+      reporterId: reporterId,
+      reportedUserId: reportedUserId,
+    );
+    if (didBlock && mounted) {
+      setState(() => _isPartnerBlocked = true);
     }
   }
 
@@ -683,7 +871,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
-  _ChatMessage _mapMessage(Map<String, dynamic> data) {
+  _ChatMessage _mapMessage(
+    Map<String, dynamic> data, {
+    bool isBlindMeeting = false,
+    Map<String, String> blindMemberNames = const {},
+  }) {
     final senderId = data['senderId']?.toString() ?? '';
     final text = (data['text'] ?? data['content'] ?? '').toString();
     final type = data['type']?.toString() ?? 'text';
@@ -830,7 +1022,24 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       time: timeText,
       sortDateTime: createdAt,
       isRead: senderId == _currentUserId,
+      senderId: senderId,
+      senderName: !isBlindMeeting
+          ? ''
+          : blindMemberNames[senderId] ??
+                (senderId == 'system' ? '설레연' : '참여자'),
     );
+  }
+
+  Map<String, String> _blindMemberNames(Map<String, dynamic>? roomData) {
+    final rawInfo = roomData?['participantInfo'];
+    if (rawInfo is! Map) return const {};
+    final names = <String, String>{};
+    rawInfo.forEach((key, value) {
+      if (value is! Map) return;
+      final nickname = value['nickname']?.toString().trim() ?? '';
+      if (nickname.isNotEmpty) names[key.toString()] = nickname;
+    });
+    return names;
   }
 
   List<_ChatMessage> _mergeMessages(List<_ChatMessage> source) {
@@ -956,79 +1165,104 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                           ),
                         ),
                       )
-                    : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                        stream: _chatService.messagesStream(_roomId),
-                        builder: (context, messageSnapshot) {
-                          if (messageSnapshot.connectionState ==
-                                  ConnectionState.waiting &&
-                              !messageSnapshot.hasData) {
-                            return const SliverToBoxAdapter(
-                              child: Center(
-                                child: Padding(
-                                  padding: EdgeInsets.only(top: 40),
-                                  child: CupertinoActivityIndicator(),
-                                ),
-                              ),
-                            );
-                          }
-
-                          final messageDocs =
-                              messageSnapshot.data?.docs ?? const [];
-
-                          _markCurrentRoomAsRead();
-
-                          final mappedMessages = messageDocs
-                              .map((doc) => _mapMessage(doc.data()))
-                              .toList();
-                          final allMessages = _mergeMessages(mappedMessages);
-
-                          if (allMessages.isEmpty) {
-                            return const SliverToBoxAdapter(
-                              child: Padding(
-                                padding: EdgeInsets.only(top: 80),
-                                child: Center(
-                                  child: Text(
-                                    '채팅을 시작해 보세요!',
-                                    style: TextStyle(
-                                      fontFamily: 'Pretendard',
-                                      fontSize: 15,
-                                      color: _AppColors.textSubtle,
+                    : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        stream: _chatService.roomStream(_roomId),
+                        builder: (context, roomSnapshot) {
+                          final roomData = roomSnapshot.data?.data();
+                          final isBlindMeeting =
+                              _isBlindMeetingRoom ||
+                              roomData?['roomType']?.toString() ==
+                                  'blind_meeting_group';
+                          final blindMemberNames = _blindMemberNames(roomData);
+                          return StreamBuilder<
+                            QuerySnapshot<Map<String, dynamic>>
+                          >(
+                            stream: _chatService.messagesStream(_roomId),
+                            builder: (context, messageSnapshot) {
+                              if (messageSnapshot.connectionState ==
+                                      ConnectionState.waiting &&
+                                  !messageSnapshot.hasData) {
+                                return const SliverToBoxAdapter(
+                                  child: Center(
+                                    child: Padding(
+                                      padding: EdgeInsets.only(top: 40),
+                                      child: CupertinoActivityIndicator(),
                                     ),
                                   ),
-                                ),
-                              ),
-                            );
-                          }
+                                );
+                              }
 
-                          _maybeAutoScrollToBottom(messageDocs);
+                              final messageDocs =
+                                  messageSnapshot.data?.docs ?? const [];
 
-                          return SliverList(
-                            delegate: SliverChildBuilderDelegate((
-                              context,
-                              index,
-                            ) {
-                              final message = allMessages[index];
+                              _markCurrentRoomAsRead();
 
-                              return _MessageItem(
-                                message: message,
-                                avatarUrl:
-                                    _partnerDisplayAvatarUrl ??
-                                    widget.partnerAvatarUrl ??
-                                    _defaultAvatarUrl,
-                                onApprovePromise: () =>
-                                    _approvePromise(message),
-                                onRejectPromise: () => _rejectPromise(message),
-                                onEditPromise: () => _openPromiseSheet(
-                                  editingPromiseId: message.promiseId,
-                                  initialDateTime: message.promiseDateTime,
-                                  initialCategory: message.promiseCategory,
-                                  initialPlace: message.promisePlace,
-                                  initialPlaceId: message.promisePlaceId,
-                                ),
-                                onDeletePromise: () => _deletePromise(message),
-                                onOpenProfile: _openPartnerProfileCard,
+                              final mappedMessages = messageDocs
+                                  .map(
+                                    (doc) => _mapMessage(
+                                      doc.data(),
+                                      isBlindMeeting: isBlindMeeting,
+                                      blindMemberNames: blindMemberNames,
+                                    ),
+                                  )
+                                  .toList();
+                              final allMessages = _mergeMessages(
+                                mappedMessages,
                               );
-                            }, childCount: allMessages.length),
+
+                              if (allMessages.isEmpty) {
+                                return const SliverToBoxAdapter(
+                                  child: Padding(
+                                    padding: EdgeInsets.only(top: 80),
+                                    child: Center(
+                                      child: Text(
+                                        '채팅을 시작해 보세요!',
+                                        style: TextStyle(
+                                          fontFamily: 'Pretendard',
+                                          fontSize: 15,
+                                          color: _AppColors.textSubtle,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              _maybeAutoScrollToBottom(messageDocs);
+
+                              return SliverList(
+                                delegate: SliverChildBuilderDelegate((
+                                  context,
+                                  index,
+                                ) {
+                                  final message = allMessages[index];
+
+                                  return _MessageItem(
+                                    message: message,
+                                    avatarUrl: isBlindMeeting
+                                        ? ''
+                                        : _partnerDisplayAvatarUrl ??
+                                              widget.partnerAvatarUrl ??
+                                              _defaultAvatarUrl,
+                                    isBlindMeeting: isBlindMeeting,
+                                    onApprovePromise: () =>
+                                        _approvePromise(message),
+                                    onRejectPromise: () =>
+                                        _rejectPromise(message),
+                                    onEditPromise: () => _openPromiseSheet(
+                                      editingPromiseId: message.promiseId,
+                                      initialDateTime: message.promiseDateTime,
+                                      initialCategory: message.promiseCategory,
+                                      initialPlace: message.promisePlace,
+                                      initialPlaceId: message.promisePlaceId,
+                                    ),
+                                    onDeletePromise: () =>
+                                        _deletePromise(message),
+                                    onOpenProfile: _openPartnerProfileCard,
+                                  );
+                                }, childCount: allMessages.length),
+                              );
+                            },
                           );
                         },
                       ),
@@ -1069,7 +1303,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       name: widget.partnerName,
                       university: widget.partnerUniversity,
                       onBack: widget.onBack,
-                      onMore: widget.onMore,
+                      onMore: _showChatMoreOptions,
+                      showBlindMeetingActions:
+                          roomData?['roomType']?.toString() ==
+                          'blind_meeting_group',
+                      onBlindParticipants: () =>
+                          _showBlindParticipants(roomData ?? const {}),
+                      onLeaveBlindMeeting: _confirmLeaveBlindMeeting,
                       onPromiseTap: _isGroupRoom
                           ? null
                           : () => _openPromiseSheet(),
@@ -1095,6 +1335,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             child: _InputBar(
               controller: _messageController,
               bottomPadding: bottomPadding,
+              isDisabled: _isPartnerBlocked,
               onSend: _handleSend,
             ),
           ),
@@ -1205,6 +1446,9 @@ class _Header extends StatelessWidget {
   final VoidCallback? onMore;
   final VoidCallback? onPromiseTap;
   final VoidCallback? onProfileTap;
+  final bool showBlindMeetingActions;
+  final VoidCallback? onBlindParticipants;
+  final VoidCallback? onLeaveBlindMeeting;
 
   const _Header({
     required this.name,
@@ -1213,6 +1457,9 @@ class _Header extends StatelessWidget {
     this.onMore,
     this.onPromiseTap,
     this.onProfileTap,
+    this.showBlindMeetingActions = false,
+    this.onBlindParticipants,
+    this.onLeaveBlindMeeting,
   });
 
   @override
@@ -1324,39 +1571,42 @@ class _Header extends StatelessWidget {
                     ),
                   ),
                 ),
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  minimumSize: Size.zero,
-                  onPressed: onPromiseTap,
-                  child: Container(
-                    height: 40,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _AppColors.primarySoft.withValues(
-                        alpha: _AppColors.promiseFillAlpha,
+                if (!showBlindMeetingActions)
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    onPressed: onPromiseTap,
+                    child: Container(
+                      height: 40,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
                       ),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: const Center(
-                      child: Text(
-                        '약속잡기',
-                        style: TextStyle(
-                          fontFamily: 'Pretendard',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: _AppColors.primary,
+                      decoration: BoxDecoration(
+                        color: _AppColors.primarySoft.withValues(
+                          alpha: _AppColors.promiseFillAlpha,
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          '약속잡기',
+                          style: TextStyle(
+                            fontFamily: 'Pretendard',
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: _AppColors.primary,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
+                if (!showBlindMeetingActions) const SizedBox(width: 8),
                 CupertinoButton(
                   padding: EdgeInsets.zero,
-                  onPressed: onMore,
+                  onPressed: showBlindMeetingActions
+                      ? onBlindParticipants
+                      : onMore,
                   child: Container(
                     width: 40,
                     height: 40,
@@ -1365,12 +1615,34 @@ class _Header extends StatelessWidget {
                       color: buttonBg,
                     ),
                     child: Icon(
-                      CupertinoIcons.ellipsis,
+                      showBlindMeetingActions
+                          ? CupertinoIcons.person_2
+                          : CupertinoIcons.ellipsis,
                       size: 24,
                       color: textMainColor,
                     ),
                   ),
                 ),
+                if (showBlindMeetingActions) ...[
+                  const SizedBox(width: 8),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: onLeaveBlindMeeting,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: buttonBg,
+                      ),
+                      child: Icon(
+                        CupertinoIcons.escape,
+                        size: 22,
+                        color: CupertinoColors.systemRed.resolveFrom(context),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1433,6 +1705,7 @@ class _ActivePromiseBanner extends StatelessWidget {
 class _MessageItem extends StatelessWidget {
   final _ChatMessage message;
   final String avatarUrl;
+  final bool isBlindMeeting;
   final VoidCallback? onApprovePromise;
   final VoidCallback? onRejectPromise;
   final VoidCallback? onEditPromise;
@@ -1442,6 +1715,7 @@ class _MessageItem extends StatelessWidget {
   const _MessageItem({
     required this.message,
     required this.avatarUrl,
+    this.isBlindMeeting = false,
     this.onApprovePromise,
     this.onRejectPromise,
     this.onEditPromise,
@@ -1457,7 +1731,9 @@ class _MessageItem extends StatelessWidget {
           text: message.text,
           time: message.time,
           avatarUrl: avatarUrl,
-          onAvatarTap: onOpenProfile,
+          senderName: isBlindMeeting ? message.senderName : '',
+          useBlindPlaceholder: isBlindMeeting,
+          onAvatarTap: isBlindMeeting ? null : onOpenProfile,
         );
       case MessageType.sent:
         return _SentMessage(
@@ -1494,12 +1770,16 @@ class _ReceivedMessage extends StatelessWidget {
   final String text;
   final String time;
   final String avatarUrl;
+  final String senderName;
+  final bool useBlindPlaceholder;
   final VoidCallback? onAvatarTap;
 
   const _ReceivedMessage({
     required this.text,
     required this.time,
     required this.avatarUrl,
+    this.senderName = '',
+    this.useBlindPlaceholder = false,
     this.onAvatarTap,
   });
 
@@ -1534,43 +1814,69 @@ class _ReceivedMessage extends StatelessWidget {
                     color: avatarBg,
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: CaptureProtectedImage(
-                    imageUrl: avatarUrl,
-                    shape: CaptureProtectedImageShape.circle,
-                    fit: BoxFit.cover,
-                    backgroundColor: avatarBg,
-                    placeholderIconColor: isDark
-                        ? AppColorsDark.textHint
-                        : _AppColors.stone400,
-                    placeholderIconSize: 20,
-                  ),
+                  child: useBlindPlaceholder
+                      ? Icon(
+                          CupertinoIcons.person_fill,
+                          color: isDark
+                              ? AppColorsDark.textHint
+                              : _AppColors.stone400,
+                          size: 20,
+                        )
+                      : CaptureProtectedImage(
+                          imageUrl: avatarUrl,
+                          shape: CaptureProtectedImageShape.circle,
+                          fit: BoxFit.cover,
+                          backgroundColor: avatarBg,
+                          placeholderIconColor: isDark
+                              ? AppColorsDark.textHint
+                              : _AppColors.stone400,
+                          placeholderIconSize: 20,
+                        ),
                 ),
               ),
               const SizedBox(width: 12),
               Flexible(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 14,
-                  ),
-                  decoration: BoxDecoration(
-                    color: bubbleBg,
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(20),
-                      topRight: Radius.circular(20),
-                      bottomRight: Radius.circular(20),
-                      bottomLeft: Radius.circular(4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (senderName.isNotEmpty) ...[
+                      Text(
+                        senderName,
+                        style: TextStyle(
+                          fontFamily: 'Pretendard',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: textColor,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                    ],
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 14,
+                      ),
+                      decoration: BoxDecoration(
+                        color: bubbleBg,
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(20),
+                          topRight: Radius.circular(20),
+                          bottomRight: Radius.circular(20),
+                          bottomLeft: Radius.circular(4),
+                        ),
+                      ),
+                      child: Text(
+                        text,
+                        style: TextStyle(
+                          fontFamily: 'Pretendard',
+                          fontSize: 15,
+                          height: 1.5,
+                          color: textColor,
+                        ),
+                      ),
                     ),
-                  ),
-                  child: Text(
-                    text,
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      fontSize: 15,
-                      height: 1.5,
-                      color: textColor,
-                    ),
-                  ),
+                  ],
                 ),
               ),
             ],
@@ -2999,11 +3305,13 @@ class _PeriodButton extends StatelessWidget {
 class _InputBar extends StatelessWidget {
   final TextEditingController controller;
   final double bottomPadding;
+  final bool isDisabled;
   final VoidCallback? onSend;
 
   const _InputBar({
     required this.controller,
     required this.bottomPadding,
+    this.isDisabled = false,
     this.onSend,
   });
 
@@ -3064,6 +3372,7 @@ class _InputBar extends StatelessWidget {
             Expanded(
               child: CupertinoTextField(
                 controller: controller,
+                readOnly: isDisabled,
                 placeholder: 'Write a message...',
                 placeholderStyle: TextStyle(
                   fontFamily: 'Pretendard',
@@ -3080,7 +3389,7 @@ class _InputBar extends StatelessWidget {
                   vertical: 12,
                 ),
                 decoration: null,
-                onSubmitted: (_) => onSend?.call(),
+                onSubmitted: isDisabled ? null : (_) => onSend?.call(),
               ),
             ),
             Semantics(
@@ -3089,10 +3398,12 @@ class _InputBar extends StatelessWidget {
               child: CupertinoButton(
                 padding: EdgeInsets.zero,
                 minimumSize: const Size(44, 44),
-                onPressed: () {
-                  HapticFeedback.mediumImpact();
-                  onSend?.call();
-                },
+                onPressed: isDisabled
+                    ? null
+                    : () {
+                        HapticFeedback.mediumImpact();
+                        onSend?.call();
+                      },
                 child: ExcludeSemantics(
                   child: Container(
                     width: 44,

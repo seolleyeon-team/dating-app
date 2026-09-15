@@ -384,6 +384,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                 style: const TextStyle(
                                   fontFamily: 'NanumSquareRound',
                                   fontSize: 16,
+                                  color: _AppColors.textMain,
                                 ),
                               ),
                             ),
@@ -558,6 +559,7 @@ class _BasicInfoScreenState extends State<BasicInfoScreen> {
                                     style: const TextStyle(
                                       fontFamily: 'NanumSquareRound',
                                       fontSize: 16,
+                                      color: _AppColors.textMain,
                                     ),
                                   ),
                                   const Positioned(

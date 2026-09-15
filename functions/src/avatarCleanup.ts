@@ -262,6 +262,29 @@ function requirePathSegment(value: string, label: string): string {
   return normalized;
 }
 
+/**
+ * Firestore document IDs may contain punctuation such as `:`, which is
+ * present in normal iOS FCM registration tokens. They must still be one path
+ * segment: non-empty and never contain a slash. This intentionally remains
+ * stricter for app-owned IDs via requirePathSegment above.
+ */
+export function requireFirestoreDocumentId(value: string, label: string): string {
+  const normalized = value.trim();
+  if (
+    !normalized ||
+    normalized.includes("/") ||
+    normalized === "." ||
+    normalized === ".." ||
+    /^__.*__$/.test(normalized)
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} is not a safe Firestore document ID.`,
+    );
+  }
+  return normalized;
+}
+
 function parseGcsUri(value: string): GcsRef | null {
   const match = value.match(/^(?:gs|gcs):\/\/([^/]+)\/(.+)$/);
   if (!match) return null;
@@ -1094,7 +1117,7 @@ export function createAvatarCleanupFirestoreExecutor(
           return;
         }
         case "deleteDeviceToken": {
-          const tokenId = requirePathSegment(operation.tokenId, "tokenId");
+          const tokenId = requireFirestoreDocumentId(operation.tokenId, "tokenId");
           await firestore
             .collection("users")
             .doc(uid)

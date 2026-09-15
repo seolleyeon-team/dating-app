@@ -1,7 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../services/contact_block_service.dart';
+import '../../services/firebase_runtime.dart';
 import '../models/community/post_model.dart';
 import 'community_repository.dart';
 
@@ -14,6 +17,8 @@ class FirestoreCommunityRepository implements CommunityRepository {
 
   final FirebaseFirestore _firestore;
   final FirebaseAuth _firebaseAuth;
+  FirebaseFunctions get _functions =>
+      FirebaseFunctions.instanceFor(region: firebaseFunctionsRegion);
 
   static const _reviewerUid = 'play-reviewer-v1';
   static const _reviewPostsCollection = 'playReviewBambooPosts';
@@ -88,37 +93,16 @@ class FirestoreCommunityRepository implements CommunityRepository {
       throw Exception('카테고리를 선택해주세요.');
     }
 
-    final docRef = _posts.doc();
-    // authorId는 항상 문자열로 저장 (Firestore 숫자 vs 문자열 불일치 방지)
-    final authorIdStr = authorId.trim().toString();
-
-    // 글과 소유권 매핑은 반드시 함께 남아야 한다. 따로 쓰면 둘 중 하나만
-    // 성공한 상태가 생기고, 그러면 나중에 public authorId 를 지울 때
-    // 주인 없는 글이 된다.
-    final batch = _firestore.batch();
-    batch.set(docRef, {
-      'postId': docRef.id,
-      'authorId': authorIdStr,
-      'content': trimmedContent,
-      'category': category,
-      'tags': normalizedTags,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'likeCount': 0,
-      'commentCount': 0,
-      'score7d': 0,
-      'isDeleted': false,
-      if (_isPlayReviewSession) 'dataPartition': 'play_review',
-    });
-    batch.set(_postAuthors.doc(docRef.id), {
-      'postId': docRef.id,
-      'ownerUid': authorIdStr,
-      'createdAt': FieldValue.serverTimestamp(),
-      if (_isPlayReviewSession) 'dataPartition': 'play_review',
-    });
-    await batch.commit();
-
-    return docRef.id;
+    final result = await _functions
+        .httpsCallable('createCommunityPost')
+        .call<Map<Object?, Object?>>({
+          'content': trimmedContent,
+          'category': category.trim(),
+          'tags': normalizedTags,
+        });
+    final postId = result.data['postId']?.toString() ?? '';
+    if (postId.isEmpty) throw Exception('게시글을 저장하지 못했어요.');
+    return postId;
   }
 
   Query<Map<String, dynamic>> _buildListQuery({
@@ -186,7 +170,11 @@ class FirestoreCommunityRepository implements CommunityRepository {
     }
 
     final snapshot = await query.get();
-    return snapshot.docs.map(PostModel.fromFirestore).toList();
+    final blocked = await ContactBlockService().getBlockedUserIds();
+    return snapshot.docs
+        .map(PostModel.fromFirestore)
+        .where((post) => !blocked.contains(post.authorId))
+        .toList();
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> fetchPostsSnapshot({
@@ -212,11 +200,21 @@ class FirestoreCommunityRepository implements CommunityRepository {
     return snapshot;
   }
 
+  /// Firestore cannot safely exclude an arbitrary per-user block list in the
+  /// query itself. Keep the cursor based query intact, then defensively remove
+  /// blocked authors before the UI renders the page.
+  Future<List<PostModel>> excludeBlockedPosts(Iterable<PostModel> posts) async {
+    final blocked = await ContactBlockService().getBlockedUserIds();
+    return posts.where((post) => !blocked.contains(post.authorId)).toList();
+  }
+
   @override
   Future<PostModel?> fetchPostDetail(String postId) async {
     final doc = await _posts.doc(postId).get();
     if (!doc.exists) return null;
-    return PostModel.fromFirestore(doc);
+    final post = PostModel.fromFirestore(doc);
+    final blocked = await ContactBlockService().getBlockedUserIds();
+    return blocked.contains(post.authorId) ? null : post;
   }
 
   @override
@@ -316,46 +314,16 @@ class FirestoreCommunityRepository implements CommunityRepository {
       throw Exception('댓글 내용이 비어 있습니다.');
     }
 
-    final postRef = _posts.doc(postId);
-    final commentRef = postRef.collection('comments').doc();
-
-    await _firestore.runTransaction((transaction) async {
-      final postSnap = await transaction.get(postRef);
-
-      if (!postSnap.exists) {
-        throw Exception('게시글이 존재하지 않습니다.');
-      }
-
-      transaction.set(commentRef, {
-        'commentId': commentRef.id,
-        'authorId': authorId,
-        'content': trimmedContent,
-        'parentCommentId': parentCommentId,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'likeCount': 0,
-        'isDeleted': false,
-        if (_isPlayReviewSession) 'dataPartition': 'play_review',
-      });
-
-      // 글과 같은 이유로 댓글도 소유권을 같은 커밋에 남긴다.
-      transaction
-          .set(_commentAuthors.doc(commentAuthorDocId(postId, commentRef.id)), {
-            'postId': postId,
-            'commentId': commentRef.id,
-            'ownerUid': authorId.trim(),
-            'createdAt': FieldValue.serverTimestamp(),
-            if (_isPlayReviewSession) 'dataPartition': 'play_review',
-          });
-
-      transaction.update(postRef, {
-        'commentCount': FieldValue.increment(1),
-        'score7d': FieldValue.increment(1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    });
-
-    return commentRef.id;
+    final result = await _functions
+        .httpsCallable('createCommunityComment')
+        .call<Map<Object?, Object?>>({
+          'postId': postId,
+          'content': trimmedContent,
+          if (parentCommentId != null) 'parentCommentId': parentCommentId,
+        });
+    final commentId = result.data['commentId']?.toString() ?? '';
+    if (commentId.isEmpty) throw Exception('댓글을 저장하지 못했어요.');
+    return commentId;
   }
 
   @override
@@ -367,19 +335,23 @@ class FirestoreCommunityRepository implements CommunityRepository {
         .orderBy('createdAt', descending: false)
         .get();
 
-    return snapshot.docs.map((doc) {
-      final data = doc.data();
-      return CommunityCommentModel(
-        commentId: (data['commentId'] ?? doc.id).toString(),
-        authorId: (data['authorId'] ?? '').toString(),
-        content: (data['content'] ?? '').toString(),
-        parentCommentId: data['parentCommentId']?.toString(),
-        createdAt: _parseDateTime(data['createdAt']),
-        updatedAt: _parseDateTime(data['updatedAt']),
-        likeCount: _parseInt(data['likeCount']),
-        isDeleted: data['isDeleted'] == true,
-      );
-    }).toList();
+    final blocked = await ContactBlockService().getBlockedUserIds();
+    return snapshot.docs
+        .map((doc) {
+          final data = doc.data();
+          return CommunityCommentModel(
+            commentId: (data['commentId'] ?? doc.id).toString(),
+            authorId: (data['authorId'] ?? '').toString(),
+            content: (data['content'] ?? '').toString(),
+            parentCommentId: data['parentCommentId']?.toString(),
+            createdAt: _parseDateTime(data['createdAt']),
+            updatedAt: _parseDateTime(data['updatedAt']),
+            likeCount: _parseInt(data['likeCount']),
+            isDeleted: data['isDeleted'] == true,
+          );
+        })
+        .where((comment) => !blocked.contains(comment.authorId))
+        .toList();
   }
 
   @override

@@ -5,6 +5,7 @@ import {
   googlePlayPurchaseIdentifiersMatch,
   googlePlayPurchaseLedgerKey,
   googlePlayPurchaseTokenHash,
+  validateGooglePlayRefundProductPurchase,
   validateGooglePlayProductPurchase,
 } from "./googlePlayPurchaseSecurity";
 
@@ -95,6 +96,32 @@ describe("Google Play purchase ledger security", () => {
         expectedAccountId: "account-hash",
       }),
       { ok: true, needsConsumption: false },
+    );
+  });
+
+  it("re-binds a voided RTDN purchase to its original product and account", () => {
+    assert.deepEqual(
+      validateGooglePlayRefundProductPurchase({
+        purchase: {
+          purchaseState: 1,
+          productId: "seolleyeon.heart.20",
+          obfuscatedExternalAccountId: "account-hash",
+        },
+        expectedProductId: "seolleyeon.heart.20",
+        expectedAccountId: "account-hash",
+      }),
+      { ok: true },
+    );
+    assert.deepEqual(
+      validateGooglePlayRefundProductPurchase({
+        purchase: {
+          productId: "seolleyeon.heart.40",
+          obfuscatedExternalAccountId: "account-hash",
+        },
+        expectedProductId: "seolleyeon.heart.20",
+        expectedAccountId: "account-hash",
+      }),
+      { ok: false, reason: "product_mismatch" },
     );
   });
 

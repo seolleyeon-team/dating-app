@@ -78,6 +78,41 @@ void main() {
       expect(button.onPressed, isNull);
     });
 
+    testWidgets('검색어에 맞는 관심사만 표시하고 바로 선택할 수 있다', (tester) async {
+      await _pumpRepairScreen(tester, loadInterests: () async => const []);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('interests-search-field')),
+        '와인',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('음식'), findsOneWidget);
+      expect(find.text('와인'), findsOneWidget);
+      expect(find.text('넷플릭스'), findsNothing);
+
+      await tester.tap(find.text('와인'));
+      await tester.pumpAndSettle();
+
+      final button = tester.widget<CupertinoButton>(
+        find.byType(CupertinoButton),
+      );
+      expect(button.onPressed, isNotNull);
+    });
+
+    testWidgets('일치하는 관심사가 없으면 빈 검색 결과를 안내한다', (tester) async {
+      await _pumpRepairScreen(tester, loadInterests: () async => const []);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('interests-search-field')),
+        '없는관심사',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('검색 결과가 없어요.'), findsOneWidget);
+      expect(find.text('실내 활동'), findsNothing);
+    });
+
     testWidgets('보충 화면에서 뒤로 가면 저장 없이 취소 결과로 돌아온다', (tester) async {
       var saveCalls = 0;
       final result = await _pushRepairScreen(

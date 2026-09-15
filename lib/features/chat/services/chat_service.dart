@@ -70,6 +70,14 @@ class ChatService {
     return _firestore.collection('chat_rooms').doc(roomId).snapshots();
   }
 
+  /// 블라인드 3:3 미팅 전용 이탈. 멤버십과 대타 충원은 서버만 변경한다.
+  Future<void> leaveBlindMeeting({required String meetingId}) async {
+    await _functions.httpsCallable('blindMeetingAction').call<dynamic>({
+      'action': 'leaveBlindMeeting',
+      'meetingId': meetingId,
+    });
+  }
+
   Future<bool> cancelExpiredIncompleteSafetyStamp({
     required String roomId,
     required String promiseId,
@@ -255,30 +263,10 @@ class ChatService {
     required String senderId,
     required String text,
   }) async {
-    final roomRef = _firestore.collection('chat_rooms').doc(roomId);
-    final msgRef = roomRef.collection('messages').doc();
-
-    final batch = _firestore.batch();
-
-    batch.set(msgRef, {
-      'senderId': senderId,
-      'text': text,
-      'type': 'text',
-      'readBy': [senderId],
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+    await _functions.httpsCallable('sendChatText').call<dynamic>({
+      'roomId': roomId,
+      'text': text.trim(),
     });
-
-    batch.set(roomRef, {
-      'lastMessage': text,
-      'lastMessageAt': FieldValue.serverTimestamp(),
-      'photoBlurUnlocked': true,
-      'photoBlurUnlockedAt': FieldValue.serverTimestamp(),
-      'photoBlurUnlockedBy': senderId,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    await batch.commit();
   }
 
   Future<String> createPromise({

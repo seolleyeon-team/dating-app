@@ -28,6 +28,7 @@ import {
   runMatchingForAllDates,
   settleCancellation,
 } from "./orchestrator";
+import { processBlindMeetingReplacementSearches } from "./automaticReplacement";
 import {
   MeetingDoc,
   db,
@@ -66,10 +67,27 @@ async function loadMeetingsByStatuses(
 
 /** 10분마다 대기 중인 날짜에 대해 팀 구성을 재시도한다. */
 async function runBlindMeetingMatchingStep(): Promise<void> {
-    const created = await runMatchingForAllDates();
-    logger.info("blindMeeting scheduled matching", {
-      createdMeetings: created.length,
+  // 대타가 필요한 순간에는 새 3:3을 먼저 만들지 않는다. 대기열 후보를
+  // 기존 방의 빈자리부터 채우며, 탐색 기한 안에 빈자리가 남아 있으면 일반
+  // 매칭 전체를 잠시 멈춘다. 그래야 먼저 신청한 후보가 새 방으로 빠져
+  // 대타 충원 우선순위가 뒤집히지 않는다.
+  await processBlindMeetingReplacementSearches();
+  const pendingReplacement = await db()
+    .collection(BLIND_MEETING_COLLECTIONS.meetings)
+    .where("replacementSearchActive", "==", true)
+    .limit(1)
+    .get();
+  if (!pendingReplacement.empty) {
+    logger.info("blindMeeting scheduled matching deferred for replacement", {
+      meetingId: pendingReplacement.docs[0]?.id,
     });
+    return;
+  }
+
+  const created = await runMatchingForAllDates();
+  logger.info("blindMeeting scheduled matching", {
+    createdMeetings: created.length,
+  });
 }
 
 /**
@@ -409,6 +427,7 @@ export const blindMeetingLifecycleTick = onSchedule(
     await runStep("legacyNormalize", normalizeLegacyBlindMeetingsStep);
     await runStep("legacyAcceptance", normalizeLegacyAcceptanceStep);
     await runStep("groupChatRepair", repairBlindMeetingGroupChatsStep);
+    await runStep("automaticReplacement", processBlindMeetingReplacementSearches);
     await runStep("scheduleVotes", finalizeBlindMeetingScheduleVotesStep);
     await runStep("attendance", dispatchBlindMeetingAttendanceChecksStep);
     await runStep("checkin", dispatchBlindMeetingCheckinRemindersStep);

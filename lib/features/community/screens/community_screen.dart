@@ -20,6 +20,7 @@ import '../../../router/route_names.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 import '../providers/community_provider.dart';
 import '../widgets/community_post_delete_flow.dart';
+import '../widgets/community_report_block_flow.dart';
 import '../widgets/falling_leaves_overlay.dart';
 
 // =============================================================================
@@ -91,6 +92,20 @@ class _CommunityScreenState extends State<CommunityScreen> {
         const SnackBar(content: Text('게시글을 삭제하지 못했어요. 잠시 후 다시 시도해주세요.')),
       );
     }
+  }
+
+  Future<void> _reportPost(PostModel post) async {
+    final userId = _currentUserId;
+    if (userId == null || userId.isEmpty) return;
+    await showCommunityReportAndBlockFlow(
+      context: context,
+      reporterId: userId,
+      reportedUserId: post.authorId,
+      source: 'bamboo_post',
+      contentType: 'bamboo_post',
+      contentId: post.postId,
+    );
+    if (mounted) await context.read<CommunityProvider>().refreshCurrentTab();
   }
 
   @override
@@ -231,6 +246,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                     authorId: posts[i].authorId,
                                   ),
                                   onDelete: () => _deletePost(posts[i]),
+                                  onReport: () => _reportPost(posts[i]),
                                   categoryColor: _getCategoryColor(
                                     context,
                                     posts[i].category,
@@ -568,6 +584,7 @@ class _PostCard extends StatelessWidget {
   final PostModel post;
   final bool isOwner;
   final Future<void> Function() onDelete;
+  final Future<void> Function() onReport;
   final Color categoryColor;
   final Color categoryTextColor;
 
@@ -575,6 +592,7 @@ class _PostCard extends StatelessWidget {
     required this.post,
     required this.isOwner,
     required this.onDelete,
+    required this.onReport,
     required this.categoryColor,
     required this.categoryTextColor,
   });
@@ -655,18 +673,17 @@ class _PostCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                if (isOwner)
-                  IconButton(
-                    key: ValueKey('community-post-more-${post.postId}'),
-                    tooltip: '게시글 관리',
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 40,
-                      minHeight: 40,
-                    ),
-                    onPressed: onDelete,
-                    icon: Icon(Icons.more_horiz, color: seol.gray300),
+                IconButton(
+                  key: ValueKey('community-post-more-${post.postId}'),
+                  tooltip: isOwner ? '게시글 관리' : '신고 및 차단',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 40,
+                    minHeight: 40,
                   ),
+                  onPressed: isOwner ? onDelete : onReport,
+                  icon: Icon(Icons.more_horiz, color: seol.gray300),
+                ),
               ],
             ),
             const SizedBox(height: 16),

@@ -74,6 +74,7 @@ class InterestsSelectionScreen extends StatefulWidget {
 
 class _InterestsSelectionScreenState extends State<InterestsSelectionScreen> {
   final Set<String> _selectedInterests = {};
+  final TextEditingController _searchController = TextEditingController();
   final StorageService _storageService = StorageService();
   late final UserService _userService = UserService();
   bool _isLoadingExistingInterests = true;
@@ -84,10 +85,37 @@ class _InterestsSelectionScreenState extends State<InterestsSelectionScreen> {
   bool get _isPrerequisiteRepair =>
       widget.mode == InterestsSelectionMode.prerequisiteRepair;
 
+  String get _searchQuery => _searchController.text.trim().toLowerCase();
+
+  List<InterestCategory> get _filteredCategories {
+    final query = _searchQuery;
+    if (query.isEmpty) return _categories;
+
+    return _categories
+        .map(
+          (category) => InterestCategory(
+            id: category.id,
+            emoji: category.emoji,
+            title: category.title,
+            items: category.items
+                .where((item) => item.toLowerCase().contains(query))
+                .toList(growable: false),
+          ),
+        )
+        .where((category) => category.items.isNotEmpty)
+        .toList(growable: false);
+  }
+
   @override
   void initState() {
     super.initState();
     _loadExistingInterests();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadExistingInterests() async {
@@ -329,16 +357,36 @@ class _InterestsSelectionScreenState extends State<InterestsSelectionScreen> {
                               ),
                             ),
                           // 검색창
-                          const _SearchBar(),
-                          const SizedBox(height: 32),
-                          // 카테고리별 섹션
-                          ..._categories.map(
-                            (category) => _CategorySection(
-                              category: category,
-                              selectedInterests: _selectedInterests,
-                              onToggle: _toggleInterest,
-                            ),
+                          _SearchBar(
+                            controller: _searchController,
+                            onChanged: (_) => setState(() {}),
                           ),
+                          const SizedBox(height: 32),
+                          if (_searchQuery.isNotEmpty &&
+                              _filteredCategories.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 12),
+                              child: Center(
+                                child: Text(
+                                  '검색 결과가 없어요.',
+                                  style: TextStyle(
+                                    fontFamily: 'NanumSquareRound',
+                                    color: _AppColors.textSub,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                            )
+                          else
+                            // 카테고리별 섹션
+                            ..._filteredCategories.map(
+                              (category) => _CategorySection(
+                                category: category,
+                                selectedInterests: _selectedInterests,
+                                onToggle: _toggleInterest,
+                                showExpandControl: _searchQuery.isEmpty,
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -525,7 +573,10 @@ class _SelectedChip extends StatelessWidget {
 // 검색창
 // =============================================================================
 class _SearchBar extends StatelessWidget {
-  const _SearchBar();
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+
+  const _SearchBar({required this.controller, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -541,7 +592,13 @@ class _SearchBar extends StatelessWidget {
         ],
       ),
       child: TextField(
-        style: const TextStyle(fontFamily: 'NanumSquareRound'),
+        key: const ValueKey('interests-search-field'),
+        controller: controller,
+        onChanged: onChanged,
+        style: const TextStyle(
+          fontFamily: 'NanumSquareRound',
+          color: _AppColors.textMain,
+        ),
         decoration: InputDecoration(
           filled: true,
           fillColor: _AppColors.surfaceLight,
@@ -572,11 +629,13 @@ class _CategorySection extends StatefulWidget {
   final InterestCategory category;
   final Set<String> selectedInterests;
   final Function(String) onToggle;
+  final bool showExpandControl;
 
   const _CategorySection({
     required this.category,
     required this.selectedInterests,
     required this.onToggle,
+    this.showExpandControl = true,
   });
 
   @override
@@ -612,30 +671,9 @@ class _CategorySectionState extends State<_CategorySection> {
             ],
           ),
           const SizedBox(height: 16),
-          // 칩 목록 (확장 상태에 따라 높이 제한)
-          AnimatedCrossFade(
-            duration: const Duration(milliseconds: 300),
-            crossFadeState: _isExpanded
-                ? CrossFadeState.showSecond
-                : CrossFadeState.showFirst,
-            firstChild: SizedBox(
-              height: _collapsedHeight,
-              child: ClipRect(
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 10,
-                  children: widget.category.items.map((item) {
-                    final isSelected = widget.selectedInterests.contains(item);
-                    return _InterestOptionChip(
-                      label: item,
-                      isSelected: isSelected,
-                      onTap: () => widget.onToggle(item),
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-            secondChild: Wrap(
+          // 검색 중에는 모든 결과를 바로 보여준다.
+          if (!widget.showExpandControl)
+            Wrap(
               spacing: 8,
               runSpacing: 10,
               children: widget.category.items.map((item) {
@@ -646,48 +684,91 @@ class _CategorySectionState extends State<_CategorySection> {
                   onTap: () => widget.onToggle(item),
                 );
               }).toList(),
-            ),
-          ),
-          // 더 보기 / 접기 버튼
-          const SizedBox(height: 24),
-          GestureDetector(
-            onTap: () {
-              HapticFeedback.lightImpact();
-              setState(() {
-                _isExpanded = !_isExpanded;
-              });
-            },
-            child: Row(
-              children: [
-                Expanded(child: Container(height: 1, color: _AppColors.border)),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(
-                    children: [
-                      Text(
-                        _isExpanded ? '접기' : '더 보기',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: _AppColors.textMain,
-                        ),
-                      ),
-                      AnimatedRotation(
-                        turns: _isExpanded ? 0.5 : 0,
-                        duration: const Duration(milliseconds: 300),
-                        child: const Icon(
-                          Icons.expand_more_rounded,
-                          size: 16,
-                          color: _AppColors.textMain,
-                        ),
-                      ),
-                    ],
+            )
+          else ...[
+            // 칩 목록 (확장 상태에 따라 높이 제한)
+            AnimatedCrossFade(
+              duration: const Duration(milliseconds: 300),
+              crossFadeState: _isExpanded
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              firstChild: SizedBox(
+                height: _collapsedHeight,
+                child: ClipRect(
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 10,
+                    children: widget.category.items.map((item) {
+                      final isSelected = widget.selectedInterests.contains(
+                        item,
+                      );
+                      return _InterestOptionChip(
+                        label: item,
+                        isSelected: isSelected,
+                        onTap: () => widget.onToggle(item),
+                      );
+                    }).toList(),
                   ),
                 ),
-                Expanded(child: Container(height: 1, color: _AppColors.border)),
-              ],
+              ),
+              secondChild: Wrap(
+                spacing: 8,
+                runSpacing: 10,
+                children: widget.category.items.map((item) {
+                  final isSelected = widget.selectedInterests.contains(item);
+                  return _InterestOptionChip(
+                    label: item,
+                    isSelected: isSelected,
+                    onTap: () => widget.onToggle(item),
+                  );
+                }).toList(),
+              ),
             ),
-          ),
+            // 더 보기 / 접기 버튼
+            const SizedBox(height: 24),
+            GestureDetector(
+              onTap: () {
+                HapticFeedback.lightImpact();
+                setState(() {
+                  _isExpanded = !_isExpanded;
+                });
+              },
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(height: 1, color: _AppColors.border),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      children: [
+                        Text(
+                          _isExpanded ? '접기' : '더 보기',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: _AppColors.textMain,
+                          ),
+                        ),
+                        AnimatedRotation(
+                          turns: _isExpanded ? 0.5 : 0,
+                          duration: const Duration(milliseconds: 300),
+                          child: const Icon(
+                            Icons.expand_more_rounded,
+                            size: 16,
+                            color: _AppColors.textMain,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Container(height: 1, color: _AppColors.border),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

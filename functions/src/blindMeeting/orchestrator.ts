@@ -547,6 +547,8 @@ export async function createMeetingFromProposal(
       scheduleVoteDeadlineAt: Timestamp.fromMillis(
         Date.now() + policy.scheduleVoteWindowMs
       ),
+      // 대타 충원으로 구성원이 바뀌면 회차를 올려 이전 투표를 분리한다.
+      scheduleVoteRound: 0,
       venue: null,
       scheduledStartAt: null,
       fivePersonExceptionApproved: false,
@@ -728,6 +730,13 @@ export async function voteSchedule(params: {
     );
   }
 
+  // A replacement can reopen schedule planning. Votes from the earlier roster
+  // must never count toward the new roster's decision.
+  const scheduleVoteRound = Math.max(
+    0,
+    Math.floor(Number(meeting.raw.scheduleVoteRound ?? 0))
+  );
+
   await db()
     .collection(BLIND_MEETING_COLLECTIONS.meetings)
     .doc(params.meetingId)
@@ -738,6 +747,7 @@ export async function voteSchedule(params: {
         userId: params.userId,
         preferredSlotIds,
         preferredPlaceId: params.preferredPlaceId,
+        scheduleVoteRound,
         votedAt: FieldValue.serverTimestamp(),
       },
       { merge: true }
@@ -767,11 +777,18 @@ async function maybeConfirmSchedule(
     .doc(meetingId)
     .collection("scheduleVotes")
     .get();
-  if (!options.force && snap.size < meeting.participantIds.length) return;
+  const scheduleVoteRound = Math.max(
+    0,
+    Math.floor(Number(meeting.raw.scheduleVoteRound ?? 0))
+  );
+  const currentVotes = snap.docs.filter(
+    (doc) => Math.max(0, Math.floor(Number(doc.data()?.scheduleVoteRound ?? 0))) === scheduleVoteRound
+  );
+  if (!options.force && currentVotes.length < meeting.participantIds.length) return;
 
   const slotTally = new Map<string, number>();
   const placeTally = new Map<string, number>();
-  for (const doc of snap.docs) {
+  for (const doc of currentVotes) {
     for (const slotId of asStrArray(doc.data()?.preferredSlotIds)) {
       slotTally.set(slotId, (slotTally.get(slotId) ?? 0) + 1);
     }
@@ -829,7 +846,7 @@ async function maybeConfirmSchedule(
   if (slotId == null) {
     logger.warn("blindMeeting schedule expired without confirmation", {
       meetingId,
-      voteCount: snap.size,
+      voteCount: currentVotes.length,
     });
     await cancelMeeting(meetingId, "schedule_window_expired");
     return;

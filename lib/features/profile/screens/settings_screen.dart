@@ -152,14 +152,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (dialogContext) => CupertinoAlertDialog(
         title: const Text('고객 센터'),
-        content: const Text(
-          '문의는 아래 이메일로 보내주세요.\n\nseolleyeon.official@gmail.com',
-        ),
+        content: const Text('문의는 아래 이메일로 보내주세요.\n\nsupport@seolleyeon.com'),
         actions: [
           CupertinoDialogAction(
             onPressed: () {
               Clipboard.setData(
-                const ClipboardData(text: 'seolleyeon.official@gmail.com'),
+                const ClipboardData(text: 'support@seolleyeon.com'),
               );
               Navigator.of(dialogContext).pop();
             },
@@ -339,9 +337,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: Text(
-                            _isPlayReviewSession
-                                ? 'Google Play 리뷰 세션'
-                                : '카카오 연동됨',
+                            _isPlayReviewSession ? '심사 계정 세션' : '카카오 연동됨',
                             style: TextStyle(
                               fontFamily: 'NanumSquareRound',
                               fontSize: 11,

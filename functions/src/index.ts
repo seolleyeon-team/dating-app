@@ -22,7 +22,8 @@ import {
   onDocumentCreated,
   onDocumentUpdated,
 } from "firebase-functions/v2/firestore";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
+import { onMessagePublished } from "firebase-functions/v2/pubsub";
 import { withAppCheck } from "./appCheckPolicy";
 import { loadCampusLifeZoneActivation } from "./campusLifeZoneActivation";
 import { readPersistedCampusLifeZones } from "./campusLifeZones";
@@ -107,6 +108,7 @@ import { createAvatarClipAfterSelectionTrigger } from "./avatarClipAfterSelectio
 import { isSafePublicAvatarUrl } from "./publicMediaUrlPolicy";
 import {
   appleAppAccountTokenForUserId,
+  verifyAppleRefundNotification,
   verifyApplePurchase,
 } from "./applePurchaseVerification";
 import {
@@ -114,14 +116,25 @@ import {
   googlePlayPurchaseIdentifiersMatch,
   googlePlayPurchaseLedgerKey,
   googlePlayPurchaseTokenHash,
+  validateGooglePlayRefundProductPurchase,
   validateGooglePlayProductPurchase,
 } from "./googlePlayPurchaseSecurity";
+import {
+  applyPurchasedHeartsToRefundDebts,
+  applyRefundToBalance,
+  refundHeartsForRevocation,
+  refundReversalRestoration,
+  type OpenRefundDebt,
+} from "./iapRefundReconciliation";
+import { createPurchaseRecommendationRefreshFunction } from "./recommendationRefresh";
 export { isSafePublicAvatarUrl as isSafePublicMediaUrl } from "./publicMediaUrlPolicy";
 import {
   createRespondTeamMeetingRequestFunction,
   createTeamMeetingRequestFunction,
 } from "./teamMeetingRequest";
 import { createReportAndBlockUserFunction } from "./reportAndBlock";
+import { createCommunitySafetyCallables } from "./communitySafety";
+import { createSendChatTextFunction } from "./chatSafety";
 import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
 import { createCompleteStudentEmailLinkFunction } from "./emailLinkCompletion";
 import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
@@ -1322,9 +1335,11 @@ async function resolveAuthedAppUser(
 }
 
 /**
- * Review access is opt-in per callable. Never weaken resolveAuthedAppUser:
- * purchase, identity, onboarding, Kakao, and operations functions must keep
- * requiring a genuinely verified Yonsei account.
+ * Review access is opt-in per callable. `grantPurchasedHearts` is explicitly
+ * review-capable so App Review can complete an Apple Sandbox purchase; its
+ * StoreKit transaction is still server-verified and bound to the reviewer UID
+ * through the signed appAccountToken. Other privileged callables keep
+ * requiring a genuinely verified Yonsei account unless they opt in here.
  */
 async function resolveReviewCapableAppUser(
   auth: { uid?: string; token?: Record<string, unknown> } | null | undefined
@@ -1340,6 +1355,15 @@ async function resolveReviewCapableAppUser(
   }
   return resolveAuthedAppUser(auth);
 }
+
+// The app's paid refresh screen calls this exact callable. Its implementation
+// creates the entitlement and debits 5 hearts in one transaction, unlike the
+// retired spendHearts endpoint.
+export const purchaseRecommendationRefresh =
+  createPurchaseRecommendationRefreshFunction(
+    db,
+    (auth) => resolveReviewCapableAppUser(auth)
+  );
 
 // Support operations use a Firebase Auth custom claim plus an immutable
 // server-managed admin/{uid} record.  Keeping these callables beside the
@@ -1408,6 +1432,30 @@ function heartBalanceFromSnapshot(snapshot: DocumentSnapshot): number {
   return typeof raw === "number" && Number.isFinite(raw) && raw >= 0
     ? Math.floor(raw)
     : 0;
+}
+
+function nonNegativeWhole(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : 0;
+}
+
+function appleIapVerificationConfig(): { bundleId: string; appAppleId: number } {
+  const appAppleIdRaw = APPLE_IAP_APPLE_ID.value().trim();
+  if (!/^\d+$/.test(appAppleIdRaw)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "APPLE_IAP_APPLE_ID 설정이 올바르지 않아요."
+    );
+  }
+  const appAppleId = Number(appAppleIdRaw);
+  if (!Number.isSafeInteger(appAppleId) || appAppleId <= 0) {
+    throw new HttpsError(
+      "failed-precondition",
+      "APPLE_IAP_APPLE_ID 설정이 올바르지 않아요."
+    );
+  }
+  return { bundleId: APPLE_IAP_BUNDLE_ID.value().trim(), appAppleId };
 }
 
 function debitHeartsInTransaction(params: {
@@ -1504,21 +1552,6 @@ class ProductionApplePurchaseVerifier implements PurchaseVerifier {
     input: PurchaseVerificationInput,
     expectedAccountToken: string
   ): Promise<VerifiedPurchase> {
-    const appAppleIdRaw = APPLE_IAP_APPLE_ID.value().trim();
-    if (!/^\d+$/.test(appAppleIdRaw)) {
-      throw new HttpsError(
-        "failed-precondition",
-        "APPLE_IAP_APPLE_ID 설정이 올바르지 않아요."
-      );
-    }
-    const appAppleId = Number(appAppleIdRaw);
-    if (!Number.isSafeInteger(appAppleId) || appAppleId <= 0) {
-      throw new HttpsError(
-        "failed-precondition",
-        "APPLE_IAP_APPLE_ID 설정이 올바르지 않아요."
-      );
-    }
-
     const verified = await verifyApplePurchase(
       {
         productId: input.productId,
@@ -1526,10 +1559,7 @@ class ProductionApplePurchaseVerifier implements PurchaseVerifier {
         signedTransaction: input.verificationData,
       },
       expectedAccountToken,
-      {
-        bundleId: APPLE_IAP_BUNDLE_ID.value().trim(),
-        appAppleId,
-      }
+      appleIapVerificationConfig()
     );
     return {
       receiptFingerprint: verified.receiptFingerprint,
@@ -1718,7 +1748,10 @@ function readIapRequest(request: {
  * transaction으로 커밋되어 이벤트 재전달/앱 강제 종료에도 중복 지급되지 않는다.
  */
 export const grantPurchasedHearts = onCall(withAppCheck(), async (request) => {
-  const user = await resolveAuthedAppUser(request.auth);
+  // The dedicated review account is allowed solely to verify the StoreKit
+  // purchase path. `resolveReviewCapableAppUser` accepts it only when the
+  // server-minted review claims and review fixture are both valid.
+  const user = await resolveReviewCapableAppUser(request.auth);
   const purchase = readIapRequest(request);
   const verifier = createPurchaseVerifier(purchase);
   const expectedAccountId =
@@ -1744,11 +1777,16 @@ export const grantPurchasedHearts = onCall(withAppCheck(), async (request) => {
       : createHash("sha256").update(purchase.transactionId).digest("hex");
   const transactionRef = db.collection("iapTransactions").doc(transactionKey);
   const userRef = db.collection("users").doc(user.userId);
+  const openRefundDebtQuery = userRef
+    .collection("iapRefundDebts")
+    .where("status", "==", "open")
+    .limit(100);
 
   const result = await db.runTransaction(async (transaction) => {
-    const [existing, userSnap] = await Promise.all([
+    const [existing, userSnap, openRefundDebtSnapshots] = await Promise.all([
       transaction.get(transactionRef),
       transaction.get(userRef),
+      transaction.get(openRefundDebtQuery),
     ]);
 
     if (existing.exists) {
@@ -1794,12 +1832,55 @@ export const grantPurchasedHearts = onCall(withAppCheck(), async (request) => {
     }
 
     const currentBalance = heartBalanceFromSnapshot(userSnap);
-    const heartBalance = currentBalance + heartAmount;
+    const openDebts: OpenRefundDebt[] = openRefundDebtSnapshots.docs.map(
+      (debt) => ({
+        id: debt.id,
+        outstandingAmount: nonNegativeWhole(debt.get("outstandingAmount")),
+        repaidAmount: nonNegativeWhole(debt.get("repaidAmount")),
+        createdAtMs: nonNegativeWhole(debt.get("createdAtMs")),
+      })
+    );
+    const debtSettlement = applyPurchasedHeartsToRefundDebts(
+      heartAmount,
+      openDebts
+    );
+    const debtSnapshotsById = new Map(
+      openRefundDebtSnapshots.docs.map((debt) => [debt.id, debt])
+    );
+    for (const allocation of debtSettlement.allocations) {
+      const debt = debtSnapshotsById.get(allocation.id);
+      if (!debt) continue;
+      const previousRepaid = nonNegativeWhole(debt.get("repaidAmount"));
+      transaction.update(debt.ref, {
+        outstandingAmount: allocation.outstandingAfter,
+        repaidAmount: previousRepaid + allocation.amount,
+        status: allocation.outstandingAfter === 0 ? "settled" : "open",
+        settledAt:
+          allocation.outstandingAfter === 0
+            ? FieldValue.serverTimestamp()
+            : FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    const knownOpenDebtTotal = openDebts.reduce(
+      (total, debt) => total + debt.outstandingAmount,
+      0
+    );
+    const recordedOutstanding = nonNegativeWhole(
+      userSnap.get("heartRefundOutstanding")
+    );
+    const heartRefundOutstanding = Math.max(
+      0,
+      Math.max(recordedOutstanding, knownOpenDebtTotal) - debtSettlement.appliedToDebt
+    );
+    const heartBalance = currentBalance + debtSettlement.creditedToBalance;
 
     transaction.set(
       userRef,
       {
         heartBalance,
+        heartRefundOutstanding,
         iapPurchaseCount: purchaseCount + 1,
         ...(isFirstPurchaseOffer ? { firstPurchaseOfferUsed: true } : {}),
         heartBalanceUpdatedAt: FieldValue.serverTimestamp(),
@@ -1811,6 +1892,8 @@ export const grantPurchasedHearts = onCall(withAppCheck(), async (request) => {
       uid: user.userId,
       productId: purchase.productId,
       heartAmount,
+      heartCreditedToBalance: debtSettlement.creditedToBalance,
+      heartAppliedToRefundDebt: debtSettlement.appliedToDebt,
       // Google Play purchaseToken 원문은 Firestore에 보관하지 않는다. hash와
       // transactionKey로 동일 token의 재전달을 idempotent하게 처리한다.
       ...(purchase.platform === "ios"
@@ -1865,63 +1948,446 @@ export const grantPurchasedHearts = onCall(withAppCheck(), async (request) => {
 });
 
 /**
- * 독립 리소스가 없는 기능의 멱등적 하트 차감.
- * 현재는 추천 피드 새로고침만 허용한다. 채팅·미팅·룰렛은 각 서버
- * 트랜잭션에서 리소스 생성과 차감을 함께 처리한다.
+ * Store refund accounting is deliberately kept separate from a normal heart
+ * debit: a refunded purchase can only recover spendable balance. Any missing
+ * amount becomes a per-purchase debt that a later store purchase settles
+ * before crediting the user. This avoids both negative balances and letting a
+ * refunded consumable remain spendable forever.
  */
-export const spendHearts = onCall(withAppCheck(), async (request) => {
-  const user = await resolveAuthedAppUser(request.auth);
-  const data = getCallableData(request);
-  const feature = asNonEmptyString(data.feature);
-  const operationId = asNonEmptyString(data.operationId);
-  if (feature !== "recommendation_refresh") {
-    throw new HttpsError("invalid-argument", "지원하지 않는 하트 사용 기능이에요.");
-  }
-  if (!operationId || operationId.length > 128) {
-    throw new HttpsError("invalid-argument", "사용 요청 ID가 올바르지 않아요.");
-  }
+type StoreRefundReconciliationInput = {
+  platform: IapPlatform;
+  transactionKey: string;
+  source: "apple_server_notification" | "google_play_rtdn";
+  eventId: string;
+  requestedHeartAmount: number;
+  expectedProductId?: string;
+};
 
-  const operationKey = createHash("sha256")
-    .update(`${user.userId}:${feature}:${operationId}`)
+function refundEventKey(input: StoreRefundReconciliationInput): string {
+  return createHash("sha256")
+    .update(`${input.source}:${input.eventId}`, "utf8")
     .digest("hex");
-  const spendRef = db.collection("heartTransactions").doc(operationKey);
-  const userRef = db.collection("users").doc(user.userId);
+}
+
+async function reconcileStoreRefund(
+  input: StoreRefundReconciliationInput
+): Promise<{ outcome: "reconciled" | "already_reconciled" | "ignored"; recovered: number; outstanding: number }> {
+  const eventRef = db.collection("iapRefundEvents").doc(refundEventKey(input));
+  const iapRef = db.collection("iapTransactions").doc(input.transactionKey);
+
   return db.runTransaction(async (transaction) => {
-    const [existing, userSnap] = await Promise.all([
-      transaction.get(spendRef),
-      transaction.get(userRef),
+    const [eventSnap, iapSnap] = await Promise.all([
+      transaction.get(eventRef),
+      transaction.get(iapRef),
     ]);
-    if (existing.exists) {
-      if (existing.get("uid") !== user.userId || existing.get("feature") !== feature) {
-        throw new HttpsError("already-exists", "이미 사용된 요청 ID예요.");
-      }
+    if (eventSnap.exists) {
       return {
-        spent: false,
-        alreadySpent: true,
-        heartBalance: Number(existing.get("heartBalanceAfter") ?? 0),
+        outcome: "already_reconciled" as const,
+        recovered: nonNegativeWhole(eventSnap.get("recoveredFromBalance")),
+        outstanding: nonNegativeWhole(eventSnap.get("outstandingAmount")),
       };
     }
-    if (!userSnap.exists) {
-      throw new HttpsError("not-found", "사용자 정보를 찾을 수 없어요.");
+    if (!iapSnap.exists) {
+      // Returning success here would silently lose a refund that arrived just
+      // before the purchase callable committed. Both providers retry failures.
+      throw new Error("iap_refund_transaction_not_found");
     }
-    const amount = HEART_FEATURE_COSTS.recommendationRefresh;
-    const heartBalance = debitHeartsInTransaction({
-      transaction,
+    const iap = (iapSnap.data() ?? {}) as Record<string, unknown>;
+    if (
+      iap.platform !== input.platform ||
+      (input.expectedProductId !== undefined &&
+        iap.productId !== input.expectedProductId)
+    ) {
+      transaction.create(eventRef, {
+        source: input.source,
+        eventIdHash: createHash("sha256").update(input.eventId, "utf8").digest("hex"),
+        transactionKey: input.transactionKey,
+        outcome: "ignored_mismatched_purchase",
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      return { outcome: "ignored" as const, recovered: 0, outstanding: 0 };
+    }
+    const userId = asNonEmptyString(iap.uid);
+    const originalHeartAmount = nonNegativeWhole(iap.heartAmount);
+    if (!userId || originalHeartAmount === 0) {
+      throw new Error("iap_refund_ledger_invalid");
+    }
+    if (iap.refundStatus === "reconciled") {
+      transaction.create(eventRef, {
+        source: input.source,
+        eventIdHash: createHash("sha256").update(input.eventId, "utf8").digest("hex"),
+        transactionKey: input.transactionKey,
+        outcome: "already_reconciled",
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      return { outcome: "already_reconciled" as const, recovered: 0, outstanding: 0 };
+    }
+    if (iap.refundStatus === "reversed") {
+      transaction.create(eventRef, {
+        source: input.source,
+        eventIdHash: createHash("sha256").update(input.eventId, "utf8").digest("hex"),
+        transactionKey: input.transactionKey,
+        outcome: "ignored_already_reversed",
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      return { outcome: "ignored" as const, recovered: 0, outstanding: 0 };
+    }
+
+    const userRef = db.collection("users").doc(userId);
+    const [userSnap] = await Promise.all([transaction.get(userRef)]);
+    if (!userSnap.exists) throw new Error("iap_refund_user_not_found");
+    const refundedHeartAmount = Math.min(
+      originalHeartAmount,
+      nonNegativeWhole(input.requestedHeartAmount)
+    );
+    if (refundedHeartAmount === 0) {
+      throw new Error("iap_refund_amount_invalid");
+    }
+    const refund = applyRefundToBalance(
+      heartBalanceFromSnapshot(userSnap),
+      refundedHeartAmount
+    );
+    const recordedOutstanding = nonNegativeWhole(
+      userSnap.get("heartRefundOutstanding")
+    );
+    const debtRef = userRef.collection("iapRefundDebts").doc(input.transactionKey);
+    const recoveryRef = db
+      .collection("heartTransactions")
+      .doc(createHash("sha256").update(`iap_refund_recovery:${input.transactionKey}`, "utf8").digest("hex"));
+    const createdAtMs = Date.now();
+
+    transaction.set(
       userRef,
-      userSnap,
-      amount,
-      feature: "새로고침",
+      {
+        heartBalance: refund.balanceAfter,
+        heartRefundOutstanding: recordedOutstanding + refund.outstandingAmount,
+        heartBalanceUpdatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    transaction.create(debtRef, {
+      transactionKey: input.transactionKey,
+      refundedHeartAmount,
+      recoveredFromBalance: refund.recoveredFromBalance,
+      repaidAmount: 0,
+      outstandingAmount: refund.outstandingAmount,
+      status: refund.outstandingAmount === 0 ? "settled" : "open",
+      createdAtMs,
+      createdAt: FieldValue.serverTimestamp(),
+      settledAt:
+        refund.outstandingAmount === 0 ? FieldValue.serverTimestamp() : null,
+      updatedAt: FieldValue.serverTimestamp(),
     });
-    transaction.create(spendRef, {
-      uid: user.userId,
-      feature,
-      amount,
-      operationKey,
-      heartBalanceAfter: heartBalance,
+    if (refund.recoveredFromBalance > 0) {
+      transaction.create(recoveryRef, {
+        uid: userId,
+        feature: "iap_refund_recovery",
+        type: "store_refund",
+        amount: -refund.recoveredFromBalance,
+        transactionKey: input.transactionKey,
+        heartBalanceAfter: refund.balanceAfter,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
+    transaction.set(
+      iapRef,
+      {
+        refundStatus: "reconciled",
+        refundSource: input.source,
+        refundedHeartAmount,
+        recoveredFromBalance: refund.recoveredFromBalance,
+        refundOutstandingAmount: refund.outstandingAmount,
+        refundReconciledAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    transaction.create(eventRef, {
+      source: input.source,
+      eventIdHash: createHash("sha256").update(input.eventId, "utf8").digest("hex"),
+      transactionKey: input.transactionKey,
+      refundedHeartAmount,
+      recoveredFromBalance: refund.recoveredFromBalance,
+      outstandingAmount: refund.outstandingAmount,
+      outcome: "reconciled",
       createdAt: FieldValue.serverTimestamp(),
     });
-    return { spent: true, alreadySpent: false, heartBalance };
+    return {
+      outcome: "reconciled" as const,
+      recovered: refund.recoveredFromBalance,
+      outstanding: refund.outstandingAmount,
+    };
   });
+}
+
+async function reverseStoreRefund(input: Omit<StoreRefundReconciliationInput, "requestedHeartAmount">): Promise<{ outcome: "reversed" | "already_reversed" | "ignored"; restored: number }> {
+  const eventRef = db.collection("iapRefundEvents").doc(refundEventKey({ ...input, requestedHeartAmount: 0 }));
+  const iapRef = db.collection("iapTransactions").doc(input.transactionKey);
+  return db.runTransaction(async (transaction) => {
+    const [eventSnap, iapSnap] = await Promise.all([
+      transaction.get(eventRef),
+      transaction.get(iapRef),
+    ]);
+    if (eventSnap.exists) {
+      return {
+        outcome: "already_reversed" as const,
+        restored: nonNegativeWhole(eventSnap.get("restoredHearts")),
+      };
+    }
+    if (!iapSnap.exists) throw new Error("iap_refund_reversal_transaction_not_found");
+    const iap = (iapSnap.data() ?? {}) as Record<string, unknown>;
+    if (
+      iap.platform !== input.platform ||
+      (input.expectedProductId !== undefined && iap.productId !== input.expectedProductId)
+    ) {
+      transaction.create(eventRef, {
+        source: input.source,
+        eventIdHash: createHash("sha256").update(input.eventId, "utf8").digest("hex"),
+        transactionKey: input.transactionKey,
+        outcome: "ignored_mismatched_purchase",
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      return { outcome: "ignored" as const, restored: 0 };
+    }
+    const userId = asNonEmptyString(iap.uid);
+    if (!userId) throw new Error("iap_refund_reversal_ledger_invalid");
+    if (iap.refundStatus === "reversed") {
+      transaction.create(eventRef, {
+        source: input.source,
+        eventIdHash: createHash("sha256").update(input.eventId, "utf8").digest("hex"),
+        transactionKey: input.transactionKey,
+        outcome: "already_reversed",
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      return { outcome: "already_reversed" as const, restored: 0 };
+    }
+    if (iap.refundStatus !== "reconciled") {
+      // Do not acknowledge an out-of-order reversal: the provider retry gives
+      // the earlier refund event time to create its ledger and debt first.
+      throw new Error("iap_refund_reversal_before_refund");
+    }
+    const userRef = db.collection("users").doc(userId);
+    const debtRef = userRef.collection("iapRefundDebts").doc(input.transactionKey);
+    const [userSnap, debtSnap] = await Promise.all([
+      transaction.get(userRef),
+      transaction.get(debtRef),
+    ]);
+    if (!userSnap.exists || !debtSnap.exists) {
+      throw new Error("iap_refund_reversal_ledger_missing");
+    }
+    const restoration = refundReversalRestoration({
+      currentBalance: heartBalanceFromSnapshot(userSnap),
+      currentOutstandingTotal: nonNegativeWhole(userSnap.get("heartRefundOutstanding")),
+      recoveredFromBalance: debtSnap.get("recoveredFromBalance"),
+      repaidAmount: debtSnap.get("repaidAmount"),
+      outstandingAmount: debtSnap.get("outstandingAmount"),
+    });
+    const reversalRef = db
+      .collection("heartTransactions")
+      .doc(createHash("sha256").update(`iap_refund_reversal:${input.transactionKey}`, "utf8").digest("hex"));
+    transaction.set(
+      userRef,
+      {
+        heartBalance: restoration.balanceAfter,
+        heartRefundOutstanding: restoration.outstandingAfter,
+        heartBalanceUpdatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    transaction.update(debtRef, {
+      outstandingAmount: 0,
+      releasedOutstandingAmount: nonNegativeWhole(debtSnap.get("outstandingAmount")),
+      status: "reversed",
+      reversedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    if (restoration.restoredHearts > 0) {
+      transaction.create(reversalRef, {
+        uid: userId,
+        feature: "iap_refund_reversal",
+        type: "store_refund_reversed",
+        amount: restoration.restoredHearts,
+        transactionKey: input.transactionKey,
+        heartBalanceAfter: restoration.balanceAfter,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
+    transaction.set(
+      iapRef,
+      {
+        refundStatus: "reversed",
+        refundReversedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    transaction.create(eventRef, {
+      source: input.source,
+      eventIdHash: createHash("sha256").update(input.eventId, "utf8").digest("hex"),
+      transactionKey: input.transactionKey,
+      restoredHearts: restoration.restoredHearts,
+      outcome: "reversed",
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    return { outcome: "reversed" as const, restored: restoration.restoredHearts };
+  });
+}
+
+/** App Store Server Notifications V2 endpoint (JWS is verified before use). */
+export const appStoreServerNotifications = onRequest(
+  { region: "asia-northeast3", timeoutSeconds: 60, memory: "256MiB" },
+  async (request, response) => {
+    if (request.method !== "POST") {
+      response.status(405).send("Method Not Allowed");
+      return;
+    }
+    const body = isRecord(request.body) ? request.body : {};
+    const signedPayload = asNonEmptyString(body.signedPayload);
+    if (!signedPayload) {
+      response.status(400).send("Missing signedPayload");
+      return;
+    }
+    let notification;
+    try {
+      notification = await verifyAppleRefundNotification(
+        signedPayload,
+        appleIapVerificationConfig()
+      );
+    } catch (error) {
+      logger.warn("Apple IAP refund notification signature rejected", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // A malformed or forged JWS will never become valid on retry. A server
+      // configuration error is the exception and must remain retryable.
+      response
+        .status(error instanceof HttpsError ? 500 : 400)
+        .send(error instanceof HttpsError ? "Retry" : "Invalid signedPayload");
+      return;
+    }
+    try {
+      if (!notification) {
+        response.status(200).send("Ignored");
+        return;
+      }
+      const transactionKey = createHash("sha256")
+        .update(notification.transactionId, "utf8")
+        .digest("hex");
+      const input = {
+        platform: "ios" as const,
+        transactionKey,
+        source: "apple_server_notification" as const,
+        eventId: notification.notificationId,
+        expectedProductId: notification.productId,
+      };
+      const result =
+        notification.notificationType === "REFUND"
+          ? await reconcileStoreRefund({
+              ...input,
+              requestedHeartAmount: refundHeartsForRevocation(
+                APPLE_HEART_PRODUCT_AMOUNTS[notification.productId] ?? 0,
+                notification.revocationPercentage
+              ),
+            })
+          : await reverseStoreRefund(input);
+      logger.info("Apple IAP refund notification processed", {
+        transactionKey,
+        notificationType: notification.notificationType,
+        outcome: result.outcome,
+      });
+      response.status(200).send("OK");
+    } catch (error) {
+      logger.error("Apple IAP refund notification failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // Apple retries non-2xx responses; do not acknowledge an unrecorded
+      // financial state transition.
+      response.status(500).send("Retry");
+    }
+  }
+);
+
+async function verifyGooglePlayRefundWithDeveloperApi(params: {
+  transactionKey: string;
+  purchaseToken: string;
+}): Promise<void> {
+  const iapSnap = await db.collection("iapTransactions").doc(params.transactionKey).get();
+  if (!iapSnap.exists) throw new Error("google_play_refund_transaction_not_found");
+  const iap = (iapSnap.data() ?? {}) as Record<string, unknown>;
+  const productId = asNonEmptyString(iap.productId);
+  const userId = asNonEmptyString(iap.uid);
+  if (iap.platform !== "android" || !productId || !userId) {
+    throw new Error("google_play_refund_ledger_invalid");
+  }
+  const auth = new GoogleAuth({
+    scopes: ["https://www.googleapis.com/auth/androidpublisher"],
+  });
+  const client = await auth.getClient();
+  const response = await client.request<GooglePlayProductPurchase>({
+    url:
+      "https://androidpublisher.googleapis.com/androidpublisher/v3/" +
+      `applications/${encodeURIComponent(GOOGLE_PLAY_PACKAGE_NAME)}/purchases/products/` +
+      `${encodeURIComponent(productId)}/tokens/` +
+      encodeURIComponent(params.purchaseToken),
+  });
+  const validation = validateGooglePlayRefundProductPurchase({
+    purchase: response.data,
+    expectedProductId: productId,
+    expectedAccountId: sha256Hex(userId),
+  });
+  if (!validation.ok) {
+    throw new Error(`google_play_refund_${validation.reason}`);
+  }
+}
+
+/** Google Play Real-time Developer Notification handler for one-time IAP refunds. */
+export const googlePlayRefundRtdn = onMessagePublished(
+  // Pub/Sub topic IDs may not start with "goog"; this exact name is also the
+  // topic that must be configured in Play Console's RTDN settings.
+  { topic: "play-rtdn-refunds", region: "asia-northeast3", retry: true },
+  async (event) => {
+    const payload = isRecord(event.data.message.json)
+      ? event.data.message.json
+      : {};
+    const voided = isRecord(payload.voidedPurchaseNotification)
+      ? payload.voidedPurchaseNotification
+      : null;
+    if (!voided || Number(voided.productType) !== 2) return;
+    const purchaseToken = asNonEmptyString(voided.purchaseToken);
+    if (!purchaseToken) throw new Error("google_play_rtdn_purchase_token_missing");
+    const transactionKey = googlePlayPurchaseLedgerKey(purchaseToken);
+    const eventId = event.data.message.messageId;
+    if (!eventId) throw new Error("google_play_rtdn_message_id_missing");
+    await verifyGooglePlayRefundWithDeveloperApi({
+      transactionKey,
+      purchaseToken,
+    });
+    const result = await reconcileStoreRefund({
+      platform: "android",
+      transactionKey,
+      source: "google_play_rtdn",
+      eventId,
+      // The app accepts exactly one unit per purchase token, so a voided
+      // one-time purchase always maps to the full, server-recorded amount.
+      requestedHeartAmount: Number.MAX_SAFE_INTEGER,
+    });
+    logger.info("Google Play IAP refund RTDN processed", {
+      transactionKey,
+      outcome: result.outcome,
+    });
+  }
+);
+
+/**
+ * Retained briefly for old app versions, but intentionally cannot debit.
+ * Paid recommendation refreshes must use purchaseRecommendationRefresh,
+ * which atomically creates the entitlement and charges the 5 hearts.
+ */
+export const spendHearts = onCall(withAppCheck(), async (request) => {
+  await resolveAuthedAppUser(request.auth);
+  throw new HttpsError(
+    "failed-precondition",
+    "이전 하트 차감 경로는 종료되었어요. 앱을 최신 버전으로 업데이트해 주세요."
+  );
 });
 
 /** 첫 1:1 채팅방을 열 때만 10H를 차감한다. 기존 방 재진입은 무료다. */
@@ -2254,6 +2720,17 @@ export const respondTeamMeetingRequest = createRespondTeamMeetingRequestFunction
 export const reportAndBlockUser = createReportAndBlockUserFunction(
   db,
   (request) => resolveReviewCapableAppUser(request.auth)
+);
+
+const communitySafety = createCommunitySafetyCallables(
+  db,
+  (request) => resolveReviewCapableAppUser(request.auth),
+);
+export const createCommunityPost = communitySafety.createCommunityPost;
+export const createCommunityComment = communitySafety.createCommunityComment;
+export const sendChatText = createSendChatTextFunction(
+  db,
+  (request) => resolveReviewCapableAppUser(request.auth),
 );
 
 // LEGACY_KAKAO_AUTH_BACKEND_STILL_REQUIRED_FOR_OLD_CLIENTS

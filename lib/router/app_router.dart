@@ -57,6 +57,7 @@ import '../features/matching/screens/ai_preference_screen.dart';
 import '../features/matching/screens/ai_match_card_screen.dart';
 import '../features/matching/screens/profile_specific_detail_screen.dart';
 import '../shared/widgets/sensitive_screen_protection.dart';
+import '../shared/widgets/light_surface_theme.dart';
 
 // Chat
 import '../features/chat/screens/premium_chat_list_screen.dart';
@@ -141,72 +142,72 @@ class AppRouter {
       case RouteNames.login:
       case RouteNames.kakaoAuth:
       case RouteNames.studentVerification:
-        return _cupertino(const StudentVerificationScreen());
+        return _lightSurfaceCupertino(const StudentVerificationScreen());
       case RouteNames.playReviewAccess:
         return _cupertino(const PlayReviewAccessScreen());
       case RouteNames.adultVerification:
-        return _cupertino(const AdultVerificationGateScreen());
+        return _lightSurfaceCupertino(const AdultVerificationGateScreen());
       case RouteNames.terms:
-        return _cupertino(const TermsScreen());
+        return _lightSurfaceCupertino(const TermsScreen());
       // Post-auth 카카오 친구 연결 (아는 사람 추천 차단 전용, 인증 아님)
       case RouteNames.kakaoFriendConnect:
         return _cupertino(const KakaoFriendConnectionScreen());
 
       // Onboarding
       case RouteNames.onboardingBasicInfo:
-        return _cupertino(const BasicInfoScreen());
+        return _lightSurfaceCupertino(const BasicInfoScreen());
       case RouteNames.onboardingInterestsSelection:
         {
           final args = settings.arguments;
           final mode = args is InterestsSelectionRouteArgs
               ? args.mode
               : InterestsSelectionMode.onboarding;
-          return _cupertino(InterestsSelectionScreen(mode: mode));
+          return _lightSurfaceCupertino(InterestsSelectionScreen(mode: mode));
         }
       case RouteNames.onboardingLifestyle:
-        return _cupertino(const LifestyleScreen());
+        return _lightSurfaceCupertino(const LifestyleScreen());
       case RouteNames.onboardingMajor:
-        return _cupertino(const MajorSelectionScreen());
+        return _lightSurfaceCupertino(const MajorSelectionScreen());
       case RouteNames.onboardingDepartment:
-        return _cupertino(const DepartmentScreen());
+        return _lightSurfaceCupertino(const DepartmentScreen());
       case RouteNames.campusLifeZoneRepair:
-        return _cupertino(const CampusLifeZoneRepairScreen());
+        return _lightSurfaceCupertino(const CampusLifeZoneRepairScreen());
       case RouteNames.onboardingPhoto:
-        return _cupertino(const PhotoUploadScreen());
+        return _lightSurfaceCupertino(const PhotoUploadScreen());
       case RouteNames.onboardingSelfIntro:
-        return _cupertino(const SelfIntroductionScreen());
+        return _lightSurfaceCupertino(const SelfIntroductionScreen());
       case RouteNames.onboardingProfileQa:
-        return _cupertino(const ProfileQaScreen());
+        return _lightSurfaceCupertino(const ProfileQaScreen());
       case RouteNames.onboardingKeywords:
-        return _cupertino(const KeywordScreen());
+        return _lightSurfaceCupertino(const KeywordScreen());
       case RouteNames.onboardingIdealType:
-        return _cupertino(const IdealTypeScreen());
+        return _lightSurfaceCupertino(const IdealTypeScreen());
       case RouteNames.onboardingHeightSelection:
         {
           final args = settings.arguments as Map<String, dynamic>?;
           final initialHeight = args?['initialHeight'] as int? ?? 175;
-          return _cupertino(
+          return _lightSurfaceCupertino(
             HeightSelectionScreen(initialHeight: initialHeight.clamp(140, 200)),
           );
         }
       case RouteNames.onboardingIdealHeightRange:
-        return _cupertino(const IdealHeightRangeScreen());
+        return _lightSurfaceCupertino(const IdealHeightRangeScreen());
       case RouteNames.onboardingIdealAge:
-        return _cupertino(const IdealAgeScreen());
+        return _lightSurfaceCupertino(const IdealAgeScreen());
       case RouteNames.onboardingIdealHeight:
-        return _cupertino(const IdealHeightScreen());
+        return _lightSurfaceCupertino(const IdealHeightScreen());
       case RouteNames.onboardingIdealMbti:
-        return _cupertino(const IdealMbtiScreen());
+        return _lightSurfaceCupertino(const IdealMbtiScreen());
       case RouteNames.onboardingIdealDepartment:
-        return _cupertino(const IdealDepartmentScreen());
+        return _lightSurfaceCupertino(const IdealDepartmentScreen());
       case RouteNames.onboardingIdealPersonality:
-        return _cupertino(const IdealPersonalityScreen());
+        return _lightSurfaceCupertino(const IdealPersonalityScreen());
       case RouteNames.onboardingIdealLifestyle:
-        return _cupertino(const IdealLifestyleScreen());
+        return _lightSurfaceCupertino(const IdealLifestyleScreen());
       case RouteNames.onboardingAvatarSelect:
-        return _cupertino(const AvatarSelectScreen());
+        return _lightSurfaceCupertino(const AvatarSelectScreen());
       case RouteNames.onboardingInterests:
-        return _cupertino(const InterestsScreen());
+        return _lightSurfaceCupertino(const InterestsScreen());
 
       // Tutorial
       case RouteNames.welcomeTutorial:
@@ -563,5 +564,12 @@ class AppRouter {
     RouteSettings? settings,
   }) {
     return CupertinoPageRoute<T>(builder: (_) => page, settings: settings);
+  }
+
+  static CupertinoPageRoute<T> _lightSurfaceCupertino<T>(
+    Widget page, {
+    RouteSettings? settings,
+  }) {
+    return _cupertino<T>(LightSurfaceTheme(child: page), settings: settings);
   }
 }

@@ -509,6 +509,33 @@ export async function loadOpenApplications(
   return [...byId.values()].sort((a, b) => a.userId.localeCompare(b.userId));
 }
 
+/**
+ * 자동 대타 충원 전용 활성 신청서 전체 조회.
+ *
+ * 일반 3:3 생성은 날짜별 pool을 사용하지만, 대타는 새 참가자를 포함한
+ * 전체 인원의 미래 공통 날짜를 다시 계산해야 하므로 여기서 먼저 모두 읽는다.
+ * 반환값은 신청 시각 순으로 결정적이다.
+ */
+export async function loadAllOpenApplications(): Promise<ApplicationDoc[]> {
+  const snap = await db()
+    .collection(BLIND_MEETING_COLLECTIONS.applications)
+    .where("open", "==", true)
+    .get();
+  const result: ApplicationDoc[] = [];
+  for (const doc of snap.docs) {
+    const application = readApplicationDoc(doc.id, doc.data());
+    if (
+      application != null &&
+      (application.status === "applied" || application.status === "waitlisted")
+    ) {
+      result.push(application);
+    }
+  }
+  return result.sort(
+    (a, b) => a.appliedAtMs - b.appliedAtMs || a.userId.localeCompare(b.userId)
+  );
+}
+
 /** 대기 중인 모든 날짜 key 수집 */
 export async function loadOpenDateKeys(): Promise<string[]> {
   const snap = await db()

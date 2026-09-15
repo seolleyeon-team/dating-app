@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import {
   Environment,
+  NotificationTypeV2,
   SignedDataVerifier,
   Type,
   VerificationException,
@@ -27,6 +28,15 @@ export type AppleVerifiedPurchase = {
 export type ApplePurchaseVerificationConfig = {
   bundleId: string;
   appAppleId: number;
+};
+
+export type AppleRefundNotification = {
+  notificationId: string;
+  notificationType: "REFUND" | "REFUND_REVERSED";
+  transactionId: string;
+  productId: string;
+  revocationPercentage: number | null;
+  environment: "production" | "sandbox";
 };
 
 /**
@@ -100,6 +110,45 @@ async function verifySignedTransaction(
     payload: await sandboxVerifier.verifyAndDecodeTransaction(signedTransaction),
     environment: "sandbox",
   };
+}
+
+async function verifySignedRefundNotification(
+  signedPayload: string,
+  config: ApplePurchaseVerificationConfig
+): Promise<{
+  notification: Awaited<ReturnType<SignedDataVerifier["verifyAndDecodeNotification"]>>;
+  transaction: JWSTransactionDecodedPayload;
+  environment: "production" | "sandbox";
+}> {
+  const verifyInEnvironment = async (
+    environment: Environment,
+    name: "production" | "sandbox"
+  ) => {
+    const verifier = createVerifier(environment, config);
+    const notification = await verifier.verifyAndDecodeNotification(signedPayload);
+    const signedTransaction = notification.data?.signedTransactionInfo;
+    if (!signedTransaction) {
+      throw new Error("apple_refund_notification_missing_transaction");
+    }
+    return {
+      notification,
+      transaction: await verifier.verifyAndDecodeTransaction(signedTransaction),
+      environment: name,
+    };
+  };
+
+  try {
+    return await verifyInEnvironment(Environment.PRODUCTION, "production");
+  } catch (error) {
+    if (
+      !(error instanceof VerificationException) ||
+      error.status !== VerificationStatus.INVALID_ENVIRONMENT
+    ) {
+      throw error;
+    }
+  }
+
+  return verifyInEnvironment(Environment.SANDBOX, "sandbox");
 }
 
 function validateDecodedTransaction(
@@ -197,4 +246,55 @@ export async function verifyApplePurchase(
       "Apple 구매 검증을 완료하지 못했어요."
     );
   }
+}
+
+/**
+ * Verifies an App Store Server Notifications V2 payload and extracts only the
+ * refund states that can affect an already-issued consumable entitlement.
+ * The nested signed transaction is verified with the same environment-bound
+ * verifier; a notification body alone is never trusted.
+ */
+export async function verifyAppleRefundNotification(
+  signedPayload: string,
+  config: ApplePurchaseVerificationConfig
+): Promise<AppleRefundNotification | null> {
+  if (!config.bundleId.trim() || !Number.isSafeInteger(config.appAppleId)) {
+    throw new Error("apple_iap_configuration_invalid");
+  }
+  if (!signedPayload || signedPayload.length > 200000) {
+    throw new Error("apple_refund_notification_payload_invalid");
+  }
+
+  const verified = await verifySignedRefundNotification(signedPayload, config);
+  const type = verified.notification.notificationType;
+  if (
+    type !== NotificationTypeV2.REFUND &&
+    type !== NotificationTypeV2.REFUND_REVERSED
+  ) {
+    return null;
+  }
+
+  const notificationId = verified.notification.notificationUUID?.trim();
+  const transactionId = verified.transaction.transactionId?.trim();
+  const productId = verified.transaction.productId?.trim();
+  if (!notificationId || !transactionId || !productId) {
+    throw new Error("apple_refund_notification_identifiers_missing");
+  }
+  if (verified.transaction.type !== Type.CONSUMABLE) {
+    return null;
+  }
+
+  const percentage = verified.transaction.revocationPercentage;
+  return {
+    notificationId,
+    notificationType:
+      type === NotificationTypeV2.REFUND ? "REFUND" : "REFUND_REVERSED",
+    transactionId,
+    productId,
+    revocationPercentage:
+      typeof percentage === "number" && Number.isFinite(percentage)
+        ? percentage
+        : null,
+    environment: verified.environment,
+  };
 }

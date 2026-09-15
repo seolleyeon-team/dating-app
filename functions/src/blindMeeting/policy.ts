@@ -55,6 +55,8 @@ export type BlindMeetingPolicy = {
   replacementOfferWaveSize: number;
   /** 대체 제안 응답 제한 시간 */
   replacementOfferExpiryMs: number;
+  /** 자동 대타 탐색을 지속하는 최대 시간. 만료되면 미팅 전체를 취소한다. */
+  replacementSearchWindowMs: number;
   /** 최근에 만난 사용자 재매칭 제외 기간 */
   recentlyMetLookbackMs: number;
   /** 단체 채팅방 약속잡기 투표 제한 시간 (지나면 서버가 자동 확정한다) */
@@ -97,6 +99,7 @@ export const DEFAULT_POLICY: BlindMeetingPolicy = {
   noShowLookbackMs: 90 * DAY,
   replacementOfferWaveSize: 3,
   replacementOfferExpiryMs: 30 * MINUTE,
+  replacementSearchWindowMs: 24 * HOUR,
   recentlyMetLookbackMs: 60 * DAY,
   scheduleVoteWindowMs: 24 * HOUR,
   inlineMatchingDateLimit: 3,

@@ -1641,7 +1641,7 @@ SPEC CHECKSUMS:
   FirebaseMessagingInterop: 2bc0ddbf26a3552c61a2efbecc8b8a3b68d383e4
   FirebaseSharedSwift: 9d9404eea60b650d3e549898bfebbb8f665fe601
   FirebaseStorage: 6dc90a86bf2a8f1dc54a6ca659ae9898465e10a0
-  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
   flutter_ble_peripheral: b141df08802a7f8be87a3fcdd1e04b933a5c5a40
   flutter_blue_plus_darwin: 20a08bfeaa0f7804d524858d3d8744bcc1b6dbc3
   flutter_contacts: 2ec1d6b62ca2869c3bbb3871bd74d4e3ef157135

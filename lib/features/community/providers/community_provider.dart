@@ -138,7 +138,9 @@ class CommunityProvider extends ChangeNotifier {
       );
 
       final docs = snapshot.docs;
-      final loadedPosts = docs.map(PostModel.fromFirestore).toList();
+      final loadedPosts = await _repository.excludeBlockedPosts(
+        docs.map(PostModel.fromFirestore),
+      );
 
       _postsByTab[tab] = loadedPosts;
       _lastDocByTab[tab] = docs.isNotEmpty ? docs.last : null;
@@ -179,7 +181,9 @@ class CommunityProvider extends ChangeNotifier {
       );
 
       final docs = snapshot.docs;
-      final newPosts = docs.map(PostModel.fromFirestore).toList();
+      final newPosts = await _repository.excludeBlockedPosts(
+        docs.map(PostModel.fromFirestore),
+      );
 
       final currentPosts = [...(_postsByTab[targetTab] ?? <PostModel>[])];
       currentPosts.addAll(newPosts);

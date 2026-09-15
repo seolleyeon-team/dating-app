@@ -113,6 +113,9 @@ export function buildReportAndBlockPlan(params: {
   reason: unknown;
   details?: unknown;
   source?: unknown;
+  contentType?: unknown;
+  contentId?: unknown;
+  parentContentId?: unknown;
 }): ReportAndBlockPlan {
   const reporterUid = requireSafePathSegment(params.reporterUid, "reporterUid");
   const reportedUid = requireSafePathSegment(params.reportedUid, "reportedUid");
@@ -127,6 +130,16 @@ export function buildReportAndBlockPlan(params: {
     MAX_REPORT_DETAILS_LENGTH
   );
   const source = asString(params.source) || "profile";
+  const contentType = readOptionalBoundedText(params.contentType, "contentType", 80);
+  const contentId = params.contentId == null
+    ? null
+    : requireSafePathSegment(params.contentId, "contentId");
+  const parentContentId = params.parentContentId == null
+    ? null
+    : requireSafePathSegment(params.parentContentId, "parentContentId");
+  if ((contentType == null) !== (contentId == null)) {
+    throw new HttpsError("invalid-argument", "contentType and contentId must be provided together.");
+  }
 
   return {
     reporterUid,
@@ -137,6 +150,9 @@ export function buildReportAndBlockPlan(params: {
       reason,
       details,
       source,
+      contentType,
+      contentId,
+      parentContentId,
       status: "pending",
     },
     blockWrites: [
@@ -184,6 +200,9 @@ export function createReportAndBlockUserFunction(
         reason: data.reason,
         details: data.details,
         source: data.source,
+        contentType: data.contentType,
+        contentId: data.contentId,
+        parentContentId: data.parentContentId,
       });
 
       const reportedSnap = await firestore
@@ -205,6 +224,35 @@ export function createReportAndBlockUserFunction(
           "permission-denied",
           "Account partitions do not match.",
         );
+      }
+
+      // A content report must identify real content belonging to the reported
+      // account. This prevents a caller from attaching an unrelated post or
+      // comment ID to make operations evidence misleading.
+      const source = plan.reportData.source;
+      const contentType = plan.reportData.contentType;
+      const contentId = plan.reportData.contentId;
+      const parentContentId = plan.reportData.parentContentId;
+      if (contentType === "bamboo_post" && source === "bamboo_post") {
+        const posts = reporterPartition === "play_review"
+          ? "playReviewBambooPosts" : "bamboo_posts";
+        const content = await firestore.collection(posts).doc(String(contentId)).get();
+        if (!content.exists || content.get("authorId") !== plan.reportedUid) {
+          throw new HttpsError("not-found", "신고할 게시글을 찾을 수 없어요.");
+        }
+      } else if (contentType === "bamboo_comment" && source === "bamboo_comment") {
+        if (!parentContentId) {
+          throw new HttpsError("invalid-argument", "postId is required for a comment report.");
+        }
+        const posts = reporterPartition === "play_review"
+          ? "playReviewBambooPosts" : "bamboo_posts";
+        const content = await firestore.collection(posts).doc(String(parentContentId))
+          .collection("comments").doc(String(contentId)).get();
+        if (!content.exists || content.get("authorId") !== plan.reportedUid) {
+          throw new HttpsError("not-found", "신고할 댓글을 찾을 수 없어요.");
+        }
+      } else if (contentType != null || contentId != null) {
+        throw new HttpsError("invalid-argument", "unsupported content report.");
       }
 
       const now = FieldValue.serverTimestamp();

@@ -39,10 +39,16 @@ class CaptureProtectedImage extends StatelessWidget {
   final Color placeholderIconColor;
   final double placeholderIconSize;
 
+  static const _allowQaScreenCapture = bool.fromEnvironment(
+    'SEOLLEYEON_QA_ALLOW_SCREEN_CAPTURE',
+    defaultValue: false,
+  );
+
   bool get _usesNativeSecureImage =>
       !kIsWeb &&
       defaultTargetPlatform == TargetPlatform.iOS &&
-      iosSecureCaptureEnabled;
+      iosSecureCaptureEnabled &&
+      !_allowQaScreenCapture;
 
   @override
   Widget build(BuildContext context) {
