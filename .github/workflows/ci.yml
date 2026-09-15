@@ -318,6 +318,11 @@ jobs:
       - run: pytest -q tests/test_avatar_ocr_two_feature.py --maxfail=10
         env:
           PYTHONPATH: .
+      # B3-L11: VISUAL_MARK_CHALLENGE_V3 + DETECTOR_CANDIDATE_SET_V1. 실상표 거부, DEV/HOLDOUT variant 분리, alpha/size/placement 고정,
+      # 렌더 결정성, OWLv2 0.25/prompt 불변, YOLO-World 제외, cross-model score 금지, review-only, holdout freeze+1회, LOW alpha 별도 보고.
+      - run: pytest -q tests/test_avatar_visual_mark_detector.py --maxfail=10
+        env:
+          PYTHONPATH: .
       # 배포 가드는 Windows 운영자 셸에서 Hangul env 값을 "???" 로 읽어 바뀐 적
       # 없는 변수를 changed 로 보고했다. 인코딩과 키 단위 승인 계약을 Linux
       # 에서도 고정한다.
