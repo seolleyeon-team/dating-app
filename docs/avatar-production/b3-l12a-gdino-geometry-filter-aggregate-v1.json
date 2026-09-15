@@ -1,0 +1,1012 @@
+{
+  "candidateSet": "GDINO_GEOMETRY_CANDIDATES_V1",
+  "candidates": [
+    {
+      "aspectCap": null,
+      "id": "G1",
+      "maxArea": 0.5,
+      "predicate": "keep box iff normalizedArea < 0.5",
+      "rank": 1
+    },
+    {
+      "aspectCap": 4.0,
+      "id": "G2",
+      "maxArea": 0.2,
+      "predicate": "keep box iff normalizedArea < 0.2 AND 1/4 < aspectRatio < 4",
+      "rank": 2
+    },
+    {
+      "aspectCap": 3.0,
+      "id": "G3",
+      "maxArea": 0.08,
+      "predicate": "keep box iff normalizedArea < 0.08 AND 1/3 < aspectRatio < 3",
+      "rank": 3
+    },
+    {
+      "aspectCap": 3.0,
+      "id": "G4",
+      "maxArea": 0.03,
+      "predicate": "keep box iff normalizedArea < 0.03 AND 1/3 < aspectRatio < 3",
+      "rank": 4
+    }
+  ],
+  "cleanInventory": {
+    "areaBands": {
+      "0.01-0.03": 4,
+      "0.03-0.08": 8,
+      "0.08-0.20": 0,
+      "0.20-0.50": 4,
+      "<0.01": 18,
+      ">=0.50": 1
+    },
+    "aspectBands": {
+      "1/3-3": 23,
+      "3-4": 8,
+      "<1/3": 0,
+      ">=4": 4
+    },
+    "borderTouch": 0,
+    "boxes": 35,
+    "candidateCleanSurvivalPreview": {
+      "G1": 12,
+      "G2": 12,
+      "G3": 10,
+      "G4": 9
+    },
+    "detectionsPerImage": {
+      "max": 6,
+      "median": 3.0,
+      "min": 1,
+      "q1": 2.0,
+      "q3": 3.25
+    },
+    "features": {
+      "aspectRatio": {
+        "max": 5.5168,
+        "median": 2.1979,
+        "min": 0.7972,
+        "q1": 0.9751,
+        "q3": 3.6472
+      },
+      "centerX": {
+        "max": 0.6207,
+        "median": 0.5036,
+        "min": 0.372,
+        "q1": 0.3986,
+        "q3": 0.5136
+      },
+      "centerY": {
+        "max": 0.9599,
+        "median": 0.4698,
+        "min": 0.3828,
+        "q1": 0.4408,
+        "q3": 0.9295
+      },
+      "normalizedArea": {
+        "max": 0.7377,
+        "median": 0.0092,
+        "min": 0.0004,
+        "q1": 0.0027,
+        "q3": 0.0437
+      },
+      "normalizedHeight": {
+        "max": 0.9169,
+        "median": 0.0709,
+        "min": 0.0202,
+        "q1": 0.0416,
+        "q3": 0.1086
+      },
+      "normalizedWidth": {
+        "max": 0.9915,
+        "median": 0.1199,
+        "min": 0.0175,
+        "q1": 0.0652,
+        "q3": 0.4004
+      }
+    },
+    "fullFrameLike": 1,
+    "imagesByTinyBoxCount": {
+      "0": 3,
+      "1": 1,
+      "2": 7,
+      "3": 1
+    },
+    "imagesWithBoxes": 12,
+    "locationBand": {
+      "central": 13,
+      "clothing_zone": 7,
+      "edge": 15
+    },
+    "n": 12,
+    "nearBorder5pct": 19
+  },
+  "contractDigestPrefix": "3e615dd3b443",
+  "decisionDiff": 0,
+  "designation": "CLEAN_DEVELOPMENT_DESIGNED",
+  "detector": {
+    "boxFilter": null,
+    "floor": 0.05,
+    "gridOperatingPoints": {
+      "grid_0.15": {
+        "threshold": 0.15
+      },
+      "grid_0.35": {
+        "threshold": 0.35
+      },
+      "grid_0.45": {
+        "threshold": 0.45
+      }
+    },
+    "kind": "gdino",
+    "license": "apache-2.0",
+    "licenseAuthority": "official model card (IDEA-Research/grounding-dino-tiny)",
+    "operatingPoints": {
+      "historical_0.25": {
+        "threshold": 0.25
+      }
+    },
+    "prompts": [
+      "a logo",
+      "a watermark",
+      "a brand emblem",
+      "a graphic symbol"
+    ],
+    "repo": "IDEA-Research/grounding-dino-tiny",
+    "revision": "a2bb814dd30d776dcf7e30523b00659f4f141c71",
+    "role": "BASELINE_B",
+    "scoreSemantics": "Grounding DINO box score (max token logit sigmoid)"
+  },
+  "development": {
+    "rows": 192,
+    "selection": {
+      "candidate": null,
+      "reason": "no geometry candidate satisfies A-L on development",
+      "status": "NONE"
+    },
+    "table": [
+      {
+        "alphas": {
+          "HIGH": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOW": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "MEDIUM": {
+            "k": 33,
+            "n": 36,
+            "rate": 0.9167
+          },
+          "OPAQUE": {
+            "k": 106,
+            "n": 108,
+            "rate": 0.9815
+          }
+        },
+        "boxRecall": {
+          "k": 180,
+          "n": 312,
+          "rate": 0.5769
+        },
+        "candidate": "G1",
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 12,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "n": 12,
+          "newAllowToReview": 10,
+          "newReviewRate": 0.8333,
+          "newReviewRateCI": {
+            "ci95": [
+              0.552,
+              0.953
+            ],
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          }
+        },
+        "criteria": {
+          "A": false,
+          "B": true,
+          "C": true,
+          "D": true,
+          "E": true,
+          "F": false,
+          "G": true,
+          "H": true,
+          "I": false,
+          "J": true,
+          "K": true,
+          "L": true
+        },
+        "criticalFamilyMinRecall": 0.8333,
+        "eligible": false,
+        "failed": [
+          "A",
+          "F",
+          "I"
+        ],
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          }
+        },
+        "lowVisibility": {
+          "family": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 9,
+          "marker": "LOW_VISIBILITY_STRESS_CONDITION",
+          "n": 12,
+          "rate": 0.75
+        },
+        "meanIouOnHits": 0.7175,
+        "overall": {
+          "excludes": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 163,
+          "n": 168,
+          "rate": 0.9702,
+          "requiredHits": 160
+        },
+        "placements": {
+          "center": {
+            "k": 22,
+            "n": 24,
+            "rate": 0.9167
+          },
+          "corner": {
+            "k": 72,
+            "n": 72,
+            "rate": 1.0
+          },
+          "edge": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "tiled": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "torso": {
+            "k": 56,
+            "n": 60,
+            "rate": 0.9333
+          }
+        },
+        "predicate": "keep box iff normalizedArea < 0.5",
+        "rank": 1,
+        "sizes": {
+          "medium": {
+            "k": 102,
+            "n": 108,
+            "rate": 0.9444
+          },
+          "small": {
+            "k": 70,
+            "n": 72,
+            "rate": 0.9722
+          }
+        }
+      },
+      {
+        "alphas": {
+          "HIGH": {
+            "k": 13,
+            "n": 24,
+            "rate": 0.5417
+          },
+          "LOW": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "MEDIUM": {
+            "k": 31,
+            "n": 36,
+            "rate": 0.8611
+          },
+          "OPAQUE": {
+            "k": 106,
+            "n": 108,
+            "rate": 0.9815
+          }
+        },
+        "boxRecall": {
+          "k": 167,
+          "n": 312,
+          "rate": 0.5353
+        },
+        "candidate": "G2",
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 12,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "n": 12,
+          "newAllowToReview": 10,
+          "newReviewRate": 0.8333,
+          "newReviewRateCI": {
+            "ci95": [
+              0.552,
+              0.953
+            ],
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          }
+        },
+        "criteria": {
+          "A": false,
+          "B": false,
+          "C": true,
+          "D": false,
+          "E": false,
+          "F": false,
+          "G": true,
+          "H": true,
+          "I": false,
+          "J": true,
+          "K": true,
+          "L": true
+        },
+        "criticalFamilyMinRecall": 0.0833,
+        "eligible": false,
+        "failed": [
+          "A",
+          "B",
+          "D",
+          "E",
+          "F",
+          "I"
+        ],
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 1,
+            "n": 12,
+            "rate": 0.0833
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          }
+        },
+        "lowVisibility": {
+          "family": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 9,
+          "marker": "LOW_VISIBILITY_STRESS_CONDITION",
+          "n": 12,
+          "rate": 0.75
+        },
+        "meanIouOnHits": 0.7174,
+        "overall": {
+          "excludes": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 150,
+          "n": 168,
+          "rate": 0.8929,
+          "requiredHits": 160
+        },
+        "placements": {
+          "center": {
+            "k": 22,
+            "n": 24,
+            "rate": 0.9167
+          },
+          "corner": {
+            "k": 72,
+            "n": 72,
+            "rate": 1.0
+          },
+          "edge": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "tiled": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "torso": {
+            "k": 43,
+            "n": 60,
+            "rate": 0.7167
+          }
+        },
+        "predicate": "keep box iff normalizedArea < 0.2 AND 1/4 < aspectRatio < 4",
+        "rank": 2,
+        "sizes": {
+          "medium": {
+            "k": 89,
+            "n": 108,
+            "rate": 0.8241
+          },
+          "small": {
+            "k": 70,
+            "n": 72,
+            "rate": 0.9722
+          }
+        }
+      },
+      {
+        "alphas": {
+          "HIGH": {
+            "k": 13,
+            "n": 24,
+            "rate": 0.5417
+          },
+          "LOW": {
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667
+          },
+          "MEDIUM": {
+            "k": 22,
+            "n": 36,
+            "rate": 0.6111
+          },
+          "OPAQUE": {
+            "k": 106,
+            "n": 108,
+            "rate": 0.9815
+          }
+        },
+        "boxRecall": {
+          "k": 156,
+          "n": 312,
+          "rate": 0.5
+        },
+        "candidate": "G3",
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 10,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "n": 12,
+          "newAllowToReview": 8,
+          "newReviewRate": 0.6667,
+          "newReviewRateCI": {
+            "ci95": [
+              0.3906,
+              0.8619
+            ],
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667
+          }
+        },
+        "criteria": {
+          "A": false,
+          "B": false,
+          "C": true,
+          "D": false,
+          "E": false,
+          "F": false,
+          "G": true,
+          "H": true,
+          "I": false,
+          "J": true,
+          "K": true,
+          "L": true
+        },
+        "criticalFamilyMinRecall": 0.0833,
+        "eligible": false,
+        "failed": [
+          "A",
+          "B",
+          "D",
+          "E",
+          "F",
+          "I"
+        ],
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 1,
+            "n": 12,
+            "rate": 0.0833
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 1,
+            "n": 12,
+            "rate": 0.0833
+          }
+        },
+        "lowVisibility": {
+          "family": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 8,
+          "marker": "LOW_VISIBILITY_STRESS_CONDITION",
+          "n": 12,
+          "rate": 0.6667
+        },
+        "meanIouOnHits": 0.681,
+        "overall": {
+          "excludes": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 141,
+          "n": 168,
+          "rate": 0.8393,
+          "requiredHits": 160
+        },
+        "placements": {
+          "center": {
+            "k": 22,
+            "n": 24,
+            "rate": 0.9167
+          },
+          "corner": {
+            "k": 72,
+            "n": 72,
+            "rate": 1.0
+          },
+          "edge": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "tiled": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "torso": {
+            "k": 34,
+            "n": 60,
+            "rate": 0.5667
+          }
+        },
+        "predicate": "keep box iff normalizedArea < 0.08 AND 1/3 < aspectRatio < 3",
+        "rank": 3,
+        "sizes": {
+          "medium": {
+            "k": 80,
+            "n": 108,
+            "rate": 0.7407
+          },
+          "small": {
+            "k": 69,
+            "n": 72,
+            "rate": 0.9583
+          }
+        }
+      },
+      {
+        "alphas": {
+          "HIGH": {
+            "k": 12,
+            "n": 24,
+            "rate": 0.5
+          },
+          "LOW": {
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667
+          },
+          "MEDIUM": {
+            "k": 22,
+            "n": 36,
+            "rate": 0.6111
+          },
+          "OPAQUE": {
+            "k": 106,
+            "n": 108,
+            "rate": 0.9815
+          }
+        },
+        "boxRecall": {
+          "k": 155,
+          "n": 312,
+          "rate": 0.4968
+        },
+        "candidate": "G4",
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 9,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "n": 12,
+          "newAllowToReview": 7,
+          "newReviewRate": 0.5833,
+          "newReviewRateCI": {
+            "ci95": [
+              0.3195,
+              0.8067
+            ],
+            "k": 7,
+            "n": 12,
+            "rate": 0.5833
+          }
+        },
+        "criteria": {
+          "A": false,
+          "B": false,
+          "C": true,
+          "D": false,
+          "E": false,
+          "F": false,
+          "G": true,
+          "H": true,
+          "I": false,
+          "J": true,
+          "K": true,
+          "L": true
+        },
+        "criticalFamilyMinRecall": 0.0,
+        "eligible": false,
+        "failed": [
+          "A",
+          "B",
+          "D",
+          "E",
+          "F",
+          "I"
+        ],
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 1,
+            "n": 12,
+            "rate": 0.0833
+          }
+        },
+        "lowVisibility": {
+          "family": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 8,
+          "marker": "LOW_VISIBILITY_STRESS_CONDITION",
+          "n": 12,
+          "rate": 0.6667
+        },
+        "meanIouOnHits": 0.6831,
+        "overall": {
+          "excludes": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 140,
+          "n": 168,
+          "rate": 0.8333,
+          "requiredHits": 160
+        },
+        "placements": {
+          "center": {
+            "k": 22,
+            "n": 24,
+            "rate": 0.9167
+          },
+          "corner": {
+            "k": 72,
+            "n": 72,
+            "rate": 1.0
+          },
+          "edge": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "tiled": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "torso": {
+            "k": 33,
+            "n": 60,
+            "rate": 0.55
+          }
+        },
+        "predicate": "keep box iff normalizedArea < 0.03 AND 1/3 < aspectRatio < 3",
+        "rank": 4,
+        "sizes": {
+          "medium": {
+            "k": 79,
+            "n": 108,
+            "rate": 0.7315
+          },
+          "small": {
+            "k": 69,
+            "n": 72,
+            "rate": 0.9583
+          }
+        }
+      }
+    ]
+  },
+  "developmentInferenceCalls": 0,
+  "developmentProvenance": {
+    "checks": {
+      "constructDigest": true,
+      "detectorSetDigest": true,
+      "floorSufficient": true,
+      "license": true,
+      "originalsUnchanged": true,
+      "repo": true,
+      "revision": true,
+      "variant": true
+    },
+    "device": "cpu",
+    "exact": true,
+    "peakRssGb": 2.77,
+    "split": "development"
+  },
+  "diagnosis": [
+    "CLEAN_GEOMETRY_NOT_SEPARATING",
+    "EDGE_FAMILY_STILL_UNDERDETECTED",
+    "GRAPHICAL_WATERMARK_STILL_UNDERDETECTED",
+    "MIXED"
+  ],
+  "gaps": {
+    "graphicalDetector": "GRAPHICAL_DETECTOR_STUDY_REQUIRED",
+    "naturalPositive": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "textDetector": "TEXT_DETECTOR_CONTROLLED_GAP_OPEN",
+    "textPolicyGap": "TEXT_POLICY_GAP_UNRESOLVED (canonical policy unchanged)"
+  },
+  "holdoutEvaluated": 0,
+  "holdoutInferenceCalls": 0,
+  "holdoutUnopenedAudit": {
+    "anyHoldoutCapture": false,
+    "holdoutCaptureExists": false,
+    "holdoutOpened": false,
+    "lockExists": false,
+    "selectedMarkerExists": false
+  },
+  "inferenceCounts": {
+    "developmentGroundingDino": 0,
+    "external": 0,
+    "florence": 0,
+    "holdoutGroundingDino": 0,
+    "owlv2": 0
+  },
+  "operatingPoint": {
+    "threshold": 0.25
+  },
+  "orEnsemble": "FIXED_OR_ENSEMBLE_REJECTED_BY_DEVELOPMENT_DOMINANCE",
+  "originalsUnchanged": "28/28",
+  "priorStatus": {
+    "B3_L10A": "FLORENCE_SEQUENCE_SCORE_NOT_SEPARATING",
+    "B3_L10B": "FLORENCE_TWO_FEATURE_NOT_SEPARATING",
+    "B3_L11": "VISUAL_MARK_DETECTOR_FAILED_DEVELOPMENT",
+    "B3_L11_HOLDOUT_EXECUTIONS": 0,
+    "B3_L11_HOLDOUT_OPENED": false,
+    "B3_L9": "TEXT_POLICY_SHADOW_HOLDOUT_FAILED",
+    "FLORENCE_TELEMETRY": "FLORENCE_TELEMETRY_TEXT_PATH_CLOSED_ON_CURRENT_CORPUS",
+    "GRAPHICAL_CHANNEL_GAP": "unresolved",
+    "NATURAL_POSITIVE": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "TEXT_POLICY_GAP": "unresolved",
+    "V1": "OWLV2_POSITIVE_GROUND_TRUTH_INSUFFICIENT",
+    "V2": "OWLV2_CONTROLLED_GATE_FAILED_DEVELOPMENT",
+    "V3": "V3_DUAL_CHANNEL_FAILED_DEVELOPMENT"
+  },
+  "reportVersion": "avatar_gdino_geometry_eval_v1",
+  "support": "GDINO_GEOMETRY_FILTER_NOT_SUPPORTED",
+  "verdict": "GDINO_GEOMETRY_FILTER_FAILED_DEVELOPMENT",
+  "version": "GDINO_BOX_GEOMETRY_FILTER_V1",
+  "watermarkPolicyChanged": false
+}
