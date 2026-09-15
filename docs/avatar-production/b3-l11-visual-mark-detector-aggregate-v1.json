@@ -1,0 +1,1870 @@
+{
+  "candidateSetVersion": "DETECTOR_CANDIDATE_SET_V1",
+  "candidates": {
+    "florence2-phrase-grounding": {
+      "boxFilter": {
+        "dropFullFrameAreaRatio": 0.5,
+        "origin": "pure-synthetic blank-image smoke before freeze"
+      },
+      "caption": "a logo. a watermark. a brand emblem. a graphic symbol.",
+      "floor": null,
+      "generation": {
+        "max_new_tokens": 256,
+        "num_beams": 3
+      },
+      "gridOperatingPoints": {},
+      "kind": "florence",
+      "license": "mit",
+      "licenseAuthority": "official model card README (license: mit; license_link microsoft/Florence-2-large LICENSE)",
+      "operatingPoints": {
+        "presence": {
+          "threshold": null
+        }
+      },
+      "prompts": [
+        "a logo",
+        "a watermark",
+        "a brand emblem",
+        "a graphic symbol"
+      ],
+      "repo": "florence-community/Florence-2-large-ft",
+      "revision": "26b734a54fdfbf9c398351eedfabb7f27fc470b7",
+      "role": "NEW_CANDIDATE_C",
+      "scoreSemantics": "none (presence of a grounded phrase box)",
+      "task": "<CAPTION_TO_PHRASE_GROUNDING>"
+    },
+    "grounding-dino-tiny": {
+      "boxFilter": null,
+      "floor": 0.05,
+      "gridOperatingPoints": {
+        "grid_0.15": {
+          "threshold": 0.15
+        },
+        "grid_0.35": {
+          "threshold": 0.35
+        },
+        "grid_0.45": {
+          "threshold": 0.45
+        }
+      },
+      "kind": "gdino",
+      "license": "apache-2.0",
+      "licenseAuthority": "official model card (IDEA-Research/grounding-dino-tiny)",
+      "operatingPoints": {
+        "historical_0.25": {
+          "threshold": 0.25
+        }
+      },
+      "prompts": [
+        "a logo",
+        "a watermark",
+        "a brand emblem",
+        "a graphic symbol"
+      ],
+      "repo": "IDEA-Research/grounding-dino-tiny",
+      "revision": "a2bb814dd30d776dcf7e30523b00659f4f141c71",
+      "role": "BASELINE_B",
+      "scoreSemantics": "Grounding DINO box score (max token logit sigmoid)"
+    },
+    "owlv2-base-patch16-ensemble": {
+      "boxFilter": null,
+      "floor": 0.01,
+      "gridOperatingPoints": {},
+      "kind": "owl",
+      "license": "apache-2.0",
+      "licenseAuthority": "official model card (google/owlv2-base-patch16-ensemble)",
+      "operatingPoints": {
+        "legacy_0.25": {
+          "threshold": 0.25
+        }
+      },
+      "prompts": [
+        "a logo",
+        "a watermark",
+        "a brand emblem",
+        "a graphic symbol"
+      ],
+      "repo": "google/owlv2-base-patch16-ensemble",
+      "revision": "cfd3195ba4ea9592eec887ded089f4c08eff231d",
+      "role": "BASELINE_A",
+      "scoreSemantics": "OWLv2 post-processed detection score (sigmoid logit)"
+    }
+  },
+  "challengeVersion": "VISUAL_MARK_CHALLENGE_V3",
+  "closureMarker": "FLORENCE_TELEMETRY_TEXT_PATH_CLOSED_ON_CURRENT_CORPUS",
+  "constructDigestPrefix": "38ec105fc597",
+  "constructs": {
+    "alphas": {
+      "HIGH": 0.65,
+      "LOW": 0.2,
+      "MEDIUM": 0.35,
+      "OPAQUE": 1.0
+    },
+    "challengeVersion": "VISUAL_MARK_CHALLENGE_V3",
+    "closureMarker": "FLORENCE_TELEMETRY_TEXT_PATH_CLOSED_ON_CURRENT_CORPUS",
+    "conditionsPerBase": 15,
+    "families": [
+      {
+        "alpha_name": "OPAQUE",
+        "code": "F1",
+        "critical": true,
+        "dev": "DRAFT",
+        "dev_shape": null,
+        "diagnostic": false,
+        "family": "TEXT_WATERMARK_OPAQUE",
+        "holdout": "PROOF",
+        "holdout_shape": null,
+        "kind": "text",
+        "placement": "torso",
+        "sizes": [
+          "small",
+          "medium"
+        ],
+        "stroke": true
+      },
+      {
+        "alpha_name": "HIGH",
+        "code": "F2",
+        "critical": true,
+        "dev": "PLACEHOLDER",
+        "dev_shape": null,
+        "diagnostic": false,
+        "family": "TEXT_WATERMARK_TRANSLUCENT_HIGH",
+        "holdout": "UNCONFIRMED",
+        "holdout_shape": null,
+        "kind": "text",
+        "placement": "torso",
+        "sizes": [
+          "medium"
+        ],
+        "stroke": false
+      },
+      {
+        "alpha_name": "MEDIUM",
+        "code": "F3",
+        "critical": true,
+        "dev": "NOT FINAL",
+        "dev_shape": null,
+        "diagnostic": false,
+        "family": "TEXT_WATERMARK_TRANSLUCENT_MEDIUM",
+        "holdout": "FOR REVIEW",
+        "holdout_shape": null,
+        "kind": "text",
+        "placement": "torso",
+        "sizes": [
+          "medium"
+        ],
+        "stroke": false
+      },
+      {
+        "alpha_name": "LOW",
+        "code": "F4",
+        "critical": false,
+        "dev": "RX7Q2",
+        "dev_shape": null,
+        "diagnostic": true,
+        "family": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+        "holdout": "QZ4K9",
+        "holdout_shape": null,
+        "kind": "text",
+        "placement": "torso",
+        "sizes": [
+          "medium"
+        ],
+        "stroke": false
+      },
+      {
+        "alpha_name": "MEDIUM",
+        "code": "F5",
+        "critical": true,
+        "dev": "icon_ring_star",
+        "dev_shape": null,
+        "diagnostic": false,
+        "family": "GRAPHICAL_WATERMARK_TRANSLUCENT",
+        "holdout": "icon_asymmetric",
+        "holdout_shape": null,
+        "kind": "graphic",
+        "placement": "center",
+        "sizes": [
+          "medium"
+        ],
+        "stroke": false
+      },
+      {
+        "alpha_name": "OPAQUE",
+        "code": "F6",
+        "critical": true,
+        "dev": "emblem_shield",
+        "dev_shape": null,
+        "diagnostic": false,
+        "family": "LOGO_LIKE_EMBLEM",
+        "holdout": "emblem_crest",
+        "holdout_shape": null,
+        "kind": "graphic",
+        "placement": "corner_tl",
+        "sizes": [
+          "small",
+          "medium"
+        ],
+        "stroke": false
+      },
+      {
+        "alpha_name": "OPAQUE",
+        "code": "F7",
+        "critical": false,
+        "dev": "VERA",
+        "dev_shape": "diamond",
+        "diagnostic": false,
+        "family": "BRAND_LIKE_TEXT_AND_SYMBOL",
+        "holdout": "KOLT",
+        "holdout_shape": "hexagon",
+        "kind": "text_symbol",
+        "placement": "corner_br",
+        "sizes": [
+          "medium"
+        ],
+        "stroke": true
+      },
+      {
+        "alpha_name": "OPAQUE",
+        "code": "F8",
+        "critical": true,
+        "dev": "symbol_circle_triangle",
+        "dev_shape": null,
+        "diagnostic": false,
+        "family": "SMALL_CORNER_MARK",
+        "holdout": "monogram_squares",
+        "holdout_shape": null,
+        "kind": "graphic",
+        "placement": "corner_br",
+        "sizes": [
+          "small"
+        ],
+        "stroke": false
+      },
+      {
+        "alpha_name": "OPAQUE",
+        "code": "F9",
+        "critical": true,
+        "dev": "line_emblem",
+        "dev_shape": null,
+        "diagnostic": false,
+        "family": "EDGE_MARK",
+        "holdout": "icon_asymmetric",
+        "holdout_shape": null,
+        "kind": "graphic",
+        "placement": "edge_top",
+        "sizes": [
+          "small"
+        ],
+        "stroke": false
+      },
+      {
+        "alpha_name": "HIGH",
+        "code": "F10",
+        "critical": true,
+        "dev": "badge_ring",
+        "dev_shape": null,
+        "diagnostic": false,
+        "family": "CENTER_OVERLAY_MARK",
+        "holdout": "emblem_crest",
+        "holdout_shape": null,
+        "kind": "graphic",
+        "placement": "center",
+        "sizes": [
+          "medium"
+        ],
+        "stroke": false
+      },
+      {
+        "alpha_name": "MEDIUM",
+        "code": "F11",
+        "critical": false,
+        "dev": "DRAFT",
+        "dev_shape": null,
+        "diagnostic": false,
+        "family": "REPEATED_TILED_MARK",
+        "holdout": "PROOF",
+        "holdout_shape": null,
+        "kind": "tiled_text",
+        "placement": "tiled",
+        "sizes": [
+          "small"
+        ],
+        "stroke": false
+      },
+      {
+        "alpha_name": "OPAQUE",
+        "code": "F12",
+        "critical": false,
+        "dev": "symbol_circle_triangle",
+        "dev_shape": null,
+        "diagnostic": false,
+        "family": "GRAPHIC_SYMBOL",
+        "holdout": "symbol_hexagon_bar",
+        "holdout_shape": null,
+        "kind": "graphic",
+        "placement": "corner_tr",
+        "sizes": [
+          "small",
+          "medium"
+        ],
+        "stroke": false
+      }
+    ],
+    "generatorVersion": "avatar_visual_mark_challenge_v3_generator_v1",
+    "lowVisibilityFamily": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+    "lowVisibilityMarker": "LOW_VISIBILITY_STRESS_CONDITION",
+    "placements": {
+      "center": [
+        0.5,
+        0.5
+      ],
+      "corner_br": [
+        0.98,
+        0.98
+      ],
+      "corner_tl": [
+        0.02,
+        0.02
+      ],
+      "corner_tr": [
+        0.98,
+        0.02
+      ],
+      "edge_top": [
+        0.5,
+        0.02
+      ],
+      "tiled": [
+        0.5,
+        0.5
+      ],
+      "torso": [
+        0.5,
+        0.62
+      ]
+    },
+    "sizeBands": {
+      "medium": 0.07,
+      "small": 0.035
+    },
+    "split": {
+      "development": [
+        "G1",
+        "G2",
+        "G3"
+      ],
+      "holdout": [
+        "G4",
+        "G5"
+      ],
+      "holdoutName": "DETECTOR_SPECIFIC_FROZEN_HOLDOUT"
+    }
+  },
+  "contractDigestPrefix": "086a32a65e05",
+  "criteria": {
+    "A": 0.1,
+    "B": 0.95,
+    "C-J": 0.9,
+    "K": 0,
+    "L": 0,
+    "gateFamilies": {
+      "C": "TEXT_WATERMARK_OPAQUE",
+      "D": "TEXT_WATERMARK_TRANSLUCENT_HIGH",
+      "E": "TEXT_WATERMARK_TRANSLUCENT_MEDIUM",
+      "F": "GRAPHICAL_WATERMARK_TRANSLUCENT",
+      "G": "LOGO_LIKE_EMBLEM",
+      "H": "SMALL_CORNER_MARK",
+      "I": "EDGE_MARK",
+      "J": "CENTER_OVERLAY_MARK"
+    }
+  },
+  "decisionDiff": 0,
+  "descriptive": {
+    "florence2-phrase-grounding": {
+      "cleanDetectionLabelMix": {
+        "a brand emblem": 2,
+        "a graphic symbol": 2,
+        "a logo": 3,
+        "a watermark": 3
+      },
+      "detectionsPerImageAtFloor": 4.6,
+      "latencySeconds": {
+        "max": 40.6,
+        "median": 20.9,
+        "p90": 30.1
+      }
+    },
+    "grounding-dino-tiny": {
+      "cleanDetectionLabelMix": {
+        "a logo": 33,
+        "a watermark": 2
+      },
+      "detectionsPerImageAtFloor": 65.7,
+      "latencySeconds": {
+        "max": 18625.7,
+        "median": 14.6,
+        "p90": 16.9
+      }
+    },
+    "owlv2-base-patch16-ensemble": {
+      "cleanDetectionLabelMix": {},
+      "detectionsPerImageAtFloor": 20.9,
+      "latencySeconds": {
+        "max": 23.3,
+        "median": 18.5,
+        "p90": 18.9
+      }
+    }
+  },
+  "development": {
+    "capturedDetectors": [
+      "florence2-phrase-grounding",
+      "grounding-dino-tiny",
+      "owlv2-base-patch16-ensemble"
+    ],
+    "resources": {
+      "florence2-phrase-grounding": 3.98,
+      "grounding-dino-tiny": 2.77,
+      "owlv2-base-patch16-ensemble": 5.72
+    },
+    "rowsPerDetector": {
+      "florence2-phrase-grounding": 192,
+      "grounding-dino-tiny": 192,
+      "owlv2-base-patch16-ensemble": 192
+    },
+    "selection": {
+      "detector": null,
+      "operatingPoint": null,
+      "reason": "no detector/operating point satisfies A-L on development",
+      "status": "NONE"
+    },
+    "table": [
+      {
+        "alphas": {
+          "HIGH": {
+            "k": 12,
+            "n": 24,
+            "rate": 0.5
+          },
+          "LOW": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "MEDIUM": {
+            "k": 4,
+            "n": 36,
+            "rate": 0.1111
+          },
+          "OPAQUE": {
+            "k": 60,
+            "n": 108,
+            "rate": 0.5556
+          }
+        },
+        "boxRecall": {
+          "k": 76,
+          "n": 312,
+          "rate": 0.2436
+        },
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 0,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "n": 12,
+          "newAllowToReview": 0,
+          "newReviewRate": 0.0,
+          "newReviewRateCI": {
+            "ci95": [
+              0.0,
+              0.2425
+            ],
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          }
+        },
+        "criteria": {
+          "A": true,
+          "B": false,
+          "C": false,
+          "D": false,
+          "E": false,
+          "F": false,
+          "G": true,
+          "H": true,
+          "I": false,
+          "J": false,
+          "K": true,
+          "L": true
+        },
+        "criticalFamilyMinRecall": 0.0,
+        "detector": "owlv2-base-patch16-ensemble",
+        "eligible": false,
+        "failed": [
+          "B",
+          "C",
+          "D",
+          "E",
+          "F",
+          "I",
+          "J"
+        ],
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 3,
+            "n": 12,
+            "rate": 0.25
+          },
+          "EDGE_MARK": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 0,
+            "n": 24,
+            "rate": 0.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 4,
+            "n": 12,
+            "rate": 0.3333
+          }
+        },
+        "latencySeconds": {
+          "device": "cpu",
+          "median": 18.5,
+          "p90": 18.94
+        },
+        "lowVisibility": {
+          "family": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 0,
+          "marker": "LOW_VISIBILITY_STRESS_CONDITION",
+          "n": 12,
+          "rate": 0.0
+        },
+        "meanIouOnHits": 0.8462,
+        "operatingPoint": "legacy_0.25",
+        "overall": {
+          "excludes": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 76,
+          "n": 168,
+          "rate": 0.4524,
+          "requiredHits": 160
+        },
+        "params": {
+          "threshold": 0.25
+        },
+        "placements": {
+          "center": {
+            "k": 3,
+            "n": 24,
+            "rate": 0.125
+          },
+          "corner": {
+            "k": 60,
+            "n": 72,
+            "rate": 0.8333
+          },
+          "edge": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "tiled": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "torso": {
+            "k": 13,
+            "n": 60,
+            "rate": 0.2167
+          }
+        },
+        "role": "BASELINE",
+        "sizes": {
+          "medium": {
+            "k": 40,
+            "n": 108,
+            "rate": 0.3704
+          },
+          "small": {
+            "k": 36,
+            "n": 72,
+            "rate": 0.5
+          }
+        },
+        "textLengthClasses": {
+          "alphanumeric": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "long_word": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "short_word": {
+            "k": 0,
+            "n": 48,
+            "rate": 0.0
+          },
+          "two_word": {
+            "k": 4,
+            "n": 12,
+            "rate": 0.3333
+          }
+        }
+      },
+      {
+        "alphas": {
+          "HIGH": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOW": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "MEDIUM": {
+            "k": 33,
+            "n": 36,
+            "rate": 0.9167
+          },
+          "OPAQUE": {
+            "k": 106,
+            "n": 108,
+            "rate": 0.9815
+          }
+        },
+        "boxRecall": {
+          "k": 180,
+          "n": 312,
+          "rate": 0.5769
+        },
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 12,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "n": 12,
+          "newAllowToReview": 10,
+          "newReviewRate": 0.8333,
+          "newReviewRateCI": {
+            "ci95": [
+              0.552,
+              0.953
+            ],
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          }
+        },
+        "criteria": {
+          "A": false,
+          "B": true,
+          "C": true,
+          "D": true,
+          "E": true,
+          "F": false,
+          "G": true,
+          "H": true,
+          "I": false,
+          "J": true,
+          "K": true,
+          "L": true
+        },
+        "criticalFamilyMinRecall": 0.8333,
+        "detector": "grounding-dino-tiny",
+        "eligible": false,
+        "failed": [
+          "A",
+          "F",
+          "I"
+        ],
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          }
+        },
+        "latencySeconds": {
+          "device": "cpu",
+          "median": 14.62,
+          "p90": 16.86
+        },
+        "lowVisibility": {
+          "family": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 9,
+          "marker": "LOW_VISIBILITY_STRESS_CONDITION",
+          "n": 12,
+          "rate": 0.75
+        },
+        "meanIouOnHits": 0.7175,
+        "operatingPoint": "historical_0.25",
+        "overall": {
+          "excludes": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 163,
+          "n": 168,
+          "rate": 0.9702,
+          "requiredHits": 160
+        },
+        "params": {
+          "threshold": 0.25
+        },
+        "placements": {
+          "center": {
+            "k": 22,
+            "n": 24,
+            "rate": 0.9167
+          },
+          "corner": {
+            "k": 72,
+            "n": 72,
+            "rate": 1.0
+          },
+          "edge": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "tiled": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "torso": {
+            "k": 56,
+            "n": 60,
+            "rate": 0.9333
+          }
+        },
+        "role": "BASELINE",
+        "sizes": {
+          "medium": {
+            "k": 102,
+            "n": 108,
+            "rate": 0.9444
+          },
+          "small": {
+            "k": 70,
+            "n": 72,
+            "rate": 0.9722
+          }
+        },
+        "textLengthClasses": {
+          "alphanumeric": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "long_word": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "short_word": {
+            "k": 48,
+            "n": 48,
+            "rate": 1.0
+          },
+          "two_word": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          }
+        }
+      },
+      {
+        "alphas": {
+          "HIGH": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOW": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "MEDIUM": {
+            "k": 36,
+            "n": 36,
+            "rate": 1.0
+          },
+          "OPAQUE": {
+            "k": 108,
+            "n": 108,
+            "rate": 1.0
+          }
+        },
+        "boxRecall": {
+          "k": 221,
+          "n": 312,
+          "rate": 0.7083
+        },
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 12,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "n": 12,
+          "newAllowToReview": 10,
+          "newReviewRate": 0.8333,
+          "newReviewRateCI": {
+            "ci95": [
+              0.552,
+              0.953
+            ],
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          }
+        },
+        "criteria": {
+          "A": false,
+          "B": true,
+          "C": true,
+          "D": true,
+          "E": true,
+          "F": true,
+          "G": true,
+          "H": true,
+          "I": true,
+          "J": true,
+          "K": true,
+          "L": true
+        },
+        "criticalFamilyMinRecall": 1.0,
+        "detector": "grounding-dino-tiny",
+        "eligible": false,
+        "failed": [
+          "A"
+        ],
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          }
+        },
+        "latencySeconds": {
+          "device": "cpu",
+          "median": 14.62,
+          "p90": 16.86
+        },
+        "lowVisibility": {
+          "family": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 11,
+          "marker": "LOW_VISIBILITY_STRESS_CONDITION",
+          "n": 12,
+          "rate": 0.9167
+        },
+        "meanIouOnHits": 0.7399,
+        "operatingPoint": "grid_0.15",
+        "overall": {
+          "excludes": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 168,
+          "n": 168,
+          "rate": 1.0,
+          "requiredHits": 160
+        },
+        "params": {
+          "threshold": 0.15
+        },
+        "placements": {
+          "center": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "corner": {
+            "k": 72,
+            "n": 72,
+            "rate": 1.0
+          },
+          "edge": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "tiled": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "torso": {
+            "k": 59,
+            "n": 60,
+            "rate": 0.9833
+          }
+        },
+        "role": "PRE_REGISTERED_GRID",
+        "sizes": {
+          "medium": {
+            "k": 107,
+            "n": 108,
+            "rate": 0.9907
+          },
+          "small": {
+            "k": 72,
+            "n": 72,
+            "rate": 1.0
+          }
+        },
+        "textLengthClasses": {
+          "alphanumeric": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "long_word": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "short_word": {
+            "k": 48,
+            "n": 48,
+            "rate": 1.0
+          },
+          "two_word": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          }
+        }
+      },
+      {
+        "alphas": {
+          "HIGH": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOW": {
+            "k": 6,
+            "n": 12,
+            "rate": 0.5
+          },
+          "MEDIUM": {
+            "k": 20,
+            "n": 36,
+            "rate": 0.5556
+          },
+          "OPAQUE": {
+            "k": 93,
+            "n": 108,
+            "rate": 0.8611
+          }
+        },
+        "boxRecall": {
+          "k": 143,
+          "n": 312,
+          "rate": 0.4583
+        },
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 1,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "n": 12,
+          "newAllowToReview": 1,
+          "newReviewRate": 0.0833,
+          "newReviewRateCI": {
+            "ci95": [
+              0.0149,
+              0.3539
+            ],
+            "k": 1,
+            "n": 12,
+            "rate": 0.0833
+          }
+        },
+        "criteria": {
+          "A": true,
+          "B": false,
+          "C": true,
+          "D": true,
+          "E": false,
+          "F": false,
+          "G": true,
+          "H": true,
+          "I": false,
+          "J": true,
+          "K": true,
+          "L": true
+        },
+        "criticalFamilyMinRecall": 0.0833,
+        "detector": "grounding-dino-tiny",
+        "eligible": false,
+        "failed": [
+          "B",
+          "E",
+          "F",
+          "I"
+        ],
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 1,
+            "n": 12,
+            "rate": 0.0833
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 23,
+            "n": 24,
+            "rate": 0.9583
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 23,
+            "n": 24,
+            "rate": 0.9583
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 1,
+            "n": 12,
+            "rate": 0.0833
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 22,
+            "n": 24,
+            "rate": 0.9167
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 6,
+            "n": 12,
+            "rate": 0.5
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          }
+        },
+        "latencySeconds": {
+          "device": "cpu",
+          "median": 14.62,
+          "p90": 16.86
+        },
+        "lowVisibility": {
+          "family": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 6,
+          "marker": "LOW_VISIBILITY_STRESS_CONDITION",
+          "n": 12,
+          "rate": 0.5
+        },
+        "meanIouOnHits": 0.6918,
+        "operatingPoint": "grid_0.35",
+        "overall": {
+          "excludes": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 137,
+          "n": 168,
+          "rate": 0.8155,
+          "requiredHits": 160
+        },
+        "params": {
+          "threshold": 0.35
+        },
+        "placements": {
+          "center": {
+            "k": 22,
+            "n": 24,
+            "rate": 0.9167
+          },
+          "corner": {
+            "k": 70,
+            "n": 72,
+            "rate": 0.9722
+          },
+          "edge": {
+            "k": 1,
+            "n": 12,
+            "rate": 0.0833
+          },
+          "tiled": {
+            "k": 1,
+            "n": 12,
+            "rate": 0.0833
+          },
+          "torso": {
+            "k": 49,
+            "n": 60,
+            "rate": 0.8167
+          }
+        },
+        "role": "PRE_REGISTERED_GRID",
+        "sizes": {
+          "medium": {
+            "k": 95,
+            "n": 108,
+            "rate": 0.8796
+          },
+          "small": {
+            "k": 48,
+            "n": 72,
+            "rate": 0.6667
+          }
+        },
+        "textLengthClasses": {
+          "alphanumeric": {
+            "k": 6,
+            "n": 12,
+            "rate": 0.5
+          },
+          "long_word": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "short_word": {
+            "k": 35,
+            "n": 48,
+            "rate": 0.7292
+          },
+          "two_word": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          }
+        }
+      },
+      {
+        "alphas": {
+          "HIGH": {
+            "k": 17,
+            "n": 24,
+            "rate": 0.7083
+          },
+          "LOW": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "MEDIUM": {
+            "k": 9,
+            "n": 36,
+            "rate": 0.25
+          },
+          "OPAQUE": {
+            "k": 18,
+            "n": 108,
+            "rate": 0.1667
+          }
+        },
+        "boxRecall": {
+          "k": 44,
+          "n": 312,
+          "rate": 0.141
+        },
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 1,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "n": 12,
+          "newAllowToReview": 1,
+          "newReviewRate": 0.0833,
+          "newReviewRateCI": {
+            "ci95": [
+              0.0149,
+              0.3539
+            ],
+            "k": 1,
+            "n": 12,
+            "rate": 0.0833
+          }
+        },
+        "criteria": {
+          "A": true,
+          "B": false,
+          "C": false,
+          "D": false,
+          "E": false,
+          "F": false,
+          "G": false,
+          "H": false,
+          "I": false,
+          "J": false,
+          "K": true,
+          "L": true
+        },
+        "criticalFamilyMinRecall": 0.0,
+        "detector": "grounding-dino-tiny",
+        "eligible": false,
+        "failed": [
+          "B",
+          "C",
+          "D",
+          "E",
+          "F",
+          "G",
+          "H",
+          "I",
+          "J"
+        ],
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 5,
+            "n": 12,
+            "rate": 0.4167
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667
+          },
+          "EDGE_MARK": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 4,
+            "n": 12,
+            "rate": 0.3333
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 2,
+            "n": 24,
+            "rate": 0.0833
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 4,
+            "n": 24,
+            "rate": 0.1667
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 7,
+            "n": 24,
+            "rate": 0.2917
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 5,
+            "n": 12,
+            "rate": 0.4167
+          }
+        },
+        "latencySeconds": {
+          "device": "cpu",
+          "median": 14.62,
+          "p90": 16.86
+        },
+        "lowVisibility": {
+          "family": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 0,
+          "marker": "LOW_VISIBILITY_STRESS_CONDITION",
+          "n": 12,
+          "rate": 0.0
+        },
+        "meanIouOnHits": 0.703,
+        "operatingPoint": "grid_0.45",
+        "overall": {
+          "excludes": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 44,
+          "n": 168,
+          "rate": 0.2619,
+          "requiredHits": 160
+        },
+        "params": {
+          "threshold": 0.45
+        },
+        "placements": {
+          "center": {
+            "k": 12,
+            "n": 24,
+            "rate": 0.5
+          },
+          "corner": {
+            "k": 11,
+            "n": 72,
+            "rate": 0.1528
+          },
+          "edge": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "tiled": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "torso": {
+            "k": 21,
+            "n": 60,
+            "rate": 0.35
+          }
+        },
+        "role": "PRE_REGISTERED_GRID",
+        "sizes": {
+          "medium": {
+            "k": 43,
+            "n": 108,
+            "rate": 0.3981
+          },
+          "small": {
+            "k": 1,
+            "n": 72,
+            "rate": 0.0139
+          }
+        },
+        "textLengthClasses": {
+          "alphanumeric": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          },
+          "long_word": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "short_word": {
+            "k": 12,
+            "n": 48,
+            "rate": 0.25
+          },
+          "two_word": {
+            "k": 5,
+            "n": 12,
+            "rate": 0.4167
+          }
+        }
+      },
+      {
+        "alphas": {
+          "HIGH": {
+            "k": 23,
+            "n": 24,
+            "rate": 0.9583
+          },
+          "LOW": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "MEDIUM": {
+            "k": 32,
+            "n": 36,
+            "rate": 0.8889
+          },
+          "OPAQUE": {
+            "k": 98,
+            "n": 108,
+            "rate": 0.9074
+          }
+        },
+        "boxRecall": {
+          "k": 165,
+          "n": 312,
+          "rate": 0.5288
+        },
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 4,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "n": 12,
+          "newAllowToReview": 4,
+          "newReviewRate": 0.3333,
+          "newReviewRateCI": {
+            "ci95": [
+              0.1381,
+              0.6094
+            ],
+            "k": 4,
+            "n": 12,
+            "rate": 0.3333
+          }
+        },
+        "criteria": {
+          "A": false,
+          "B": false,
+          "C": true,
+          "D": true,
+          "E": false,
+          "F": true,
+          "G": true,
+          "H": true,
+          "I": false,
+          "J": true,
+          "K": true,
+          "L": true
+        },
+        "criticalFamilyMinRecall": 0.4167,
+        "detector": "florence2-phrase-grounding",
+        "eligible": false,
+        "failed": [
+          "A",
+          "B",
+          "E",
+          "I"
+        ],
+        "families": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 5,
+            "n": 12,
+            "rate": 0.4167
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 23,
+            "n": 24,
+            "rate": 0.9583
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 22,
+            "n": 24,
+            "rate": 0.9167
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          }
+        },
+        "latencySeconds": {
+          "device": "cpu",
+          "median": 20.87,
+          "p90": 30.08
+        },
+        "lowVisibility": {
+          "family": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 9,
+          "marker": "LOW_VISIBILITY_STRESS_CONDITION",
+          "n": 12,
+          "rate": 0.75
+        },
+        "meanIouOnHits": 0.6933,
+        "operatingPoint": "presence",
+        "overall": {
+          "excludes": "TEXT_WATERMARK_TRANSLUCENT_LOW",
+          "k": 153,
+          "n": 168,
+          "rate": 0.9107,
+          "requiredHits": 160
+        },
+        "params": {
+          "threshold": null
+        },
+        "placements": {
+          "center": {
+            "k": 23,
+            "n": 24,
+            "rate": 0.9583
+          },
+          "corner": {
+            "k": 71,
+            "n": 72,
+            "rate": 0.9861
+          },
+          "edge": {
+            "k": 5,
+            "n": 12,
+            "rate": 0.4167
+          },
+          "tiled": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "torso": {
+            "k": 51,
+            "n": 60,
+            "rate": 0.85
+          }
+        },
+        "role": "BASELINE",
+        "sizes": {
+          "medium": {
+            "k": 99,
+            "n": 108,
+            "rate": 0.9167
+          },
+          "small": {
+            "k": 63,
+            "n": 72,
+            "rate": 0.875
+          }
+        },
+        "textLengthClasses": {
+          "alphanumeric": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "long_word": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "short_word": {
+            "k": 46,
+            "n": 48,
+            "rate": 0.9583
+          },
+          "two_word": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          }
+        }
+      }
+    ]
+  },
+  "excluded": {
+    "IDEA-Research/grounding-dino-base": {
+      "license": "apache-2.0",
+      "note": "heavier variant; same budget reason",
+      "status": "EXCLUDED_LOCAL_RESOURCE_BUDGET"
+    },
+    "google/owlv2-large-patch14-ensemble": {
+      "license": "apache-2.0",
+      "note": "~2.4 GB weights / CPU cost beyond the 5.3 GB disk and 16 GB RAM budget",
+      "status": "EXCLUDED_LOCAL_RESOURCE_BUDGET"
+    },
+    "ultralytics-yolo-world": {
+      "license": "AGPL-3.0",
+      "note": "owner licensing decision pending; not downloaded, not evaluated, no legality claim",
+      "status": "EXCLUDED_PENDING_PRODUCT_LICENSE_DECISION"
+    }
+  },
+  "gaps": {
+    "graphicalDetector": "GRAPHICAL_DETECTOR_STUDY_REQUIRED",
+    "naturalPositive": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "textDetector": "TEXT_DETECTOR_CONTROLLED_GAP_OPEN",
+    "textPolicyGap": "TEXT_POLICY_GAP_UNRESOLVED (canonical policy unchanged)"
+  },
+  "holdoutEvaluated": 0,
+  "holdoutName": "DETECTOR_SPECIFIC_FROZEN_HOLDOUT",
+  "inferenceCounts": {
+    "external": 0,
+    "florence2PhraseGrounding": 192,
+    "florenceOcrOd": 0,
+    "groundingDino": 192,
+    "owlv2": 192
+  },
+  "originalsUnchanged": "28/28",
+  "priorStatus": {
+    "B3_L10A": "FLORENCE_SEQUENCE_SCORE_NOT_SEPARATING",
+    "B3_L10B": "FLORENCE_TWO_FEATURE_NOT_SEPARATING",
+    "B3_L9": "TEXT_POLICY_SHADOW_HOLDOUT_FAILED",
+    "FLORENCE_TELEMETRY": "FLORENCE_TELEMETRY_TEXT_PATH_CLOSED_ON_CURRENT_CORPUS",
+    "GRAPHICAL_CHANNEL_GAP": "unresolved",
+    "NATURAL_POSITIVE": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "TEXT_POLICY_GAP": "unresolved",
+    "V1": "OWLV2_POSITIVE_GROUND_TRUTH_INSUFFICIENT",
+    "V2": "OWLV2_CONTROLLED_GATE_FAILED_DEVELOPMENT",
+    "V3": "V3_DUAL_CHANNEL_FAILED_DEVELOPMENT"
+  },
+  "reportVersion": "avatar_visual_mark_eval_v1",
+  "resourceTelemetry": {
+    "diskFreeGb": 5.1,
+    "florence2-phrase-grounding": {
+      "checkpointResumes": 3,
+      "device": "cpu",
+      "license": "mit",
+      "modelLoadSec": 29.7,
+      "peakRssGb": 3.98,
+      "resourceGuardTrips": 3,
+      "revision": "26b734a54fdfbf9c398351eedfabb7f27fc470b7",
+      "rowsLost": 0
+    },
+    "grounding-dino-tiny": {
+      "device": "cpu",
+      "license": "apache-2.0",
+      "modelLoadSec": 43.1,
+      "peakRssGb": 2.77,
+      "revision": "a2bb814dd30d776dcf7e30523b00659f4f141c71"
+    },
+    "guardsLowered": false,
+    "owlv2-base-patch16-ensemble": {
+      "device": "cpu",
+      "license": "apache-2.0",
+      "modelLoadSec": 27.8,
+      "peakRssGb": 5.72,
+      "revision": "cfd3195ba4ea9592eec887ded089f4c08eff231d"
+    },
+    "perRowGuardGb": 0.6,
+    "preloadAvailableRamGb": {
+      "florence": "3.9-5.6 (varied; start gate 4.0 blocked twice)",
+      "gdino": 5.6,
+      "owlv2": 6.9
+    },
+    "startGateGb": {
+      "florence": 4.0,
+      "gdino": 3.0,
+      "owl": 4.0
+    }
+  },
+  "support": "VISUAL_MARK_DETECTOR_NOT_SUPPORTED",
+  "verdict": "VISUAL_MARK_DETECTOR_FAILED_DEVELOPMENT",
+  "watermarkPolicyChanged": false
+}
