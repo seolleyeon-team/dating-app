@@ -134,6 +134,14 @@
         "destination": "/privacy.html"
       },
       {
+        "source": "/support",
+        "destination": "/support.html"
+      },
+      {
+        "source": "/support/**",
+        "destination": "/support.html"
+      },
+      {
         "source": "/account-deletion",
         "destination": "/account-deletion.html"
       },

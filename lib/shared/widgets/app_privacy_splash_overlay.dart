@@ -14,9 +14,17 @@ class AppPrivacySplashOverlay extends StatefulWidget {
 
 class _AppPrivacySplashOverlayState extends State<AppPrivacySplashOverlay>
     with WidgetsBindingObserver {
+  // Internal-only recording build switch. The App Store build does not pass
+  // this define, so its background privacy cover remains enabled.
+  static const _allowQaScreenCapture = bool.fromEnvironment(
+    'SEOLLEYEON_QA_ALLOW_SCREEN_CAPTURE',
+    defaultValue: false,
+  );
+
   AppLifecycleState? _lastLifecycleState;
 
   bool get _shouldShowOverlay {
+    if (_allowQaScreenCapture) return false;
     final state = _lastLifecycleState;
     // Do not cover on `inactive` alone.
     // KakaoTalk / Universal Link handoff briefly parks the app in

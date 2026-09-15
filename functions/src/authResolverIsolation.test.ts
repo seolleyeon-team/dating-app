@@ -67,6 +67,30 @@ test("F9: resolveAuthedAppUser never resolves a user from an email claim", () =>
   );
 });
 
+test("IAP review: purchased hearts accepts only the dedicated review capability", () => {
+  const start = indexSource.indexOf("export const grantPurchasedHearts =");
+  assert.notEqual(start, -1, "grantPurchasedHearts must exist");
+  const end = indexSource.indexOf("\nexport const ", start + 1);
+  assert.notEqual(end, -1, "could not delimit grantPurchasedHearts");
+  const body = indexSource.slice(start, end);
+
+  assert.match(
+    body,
+    /resolveReviewCapableAppUser\(request\.auth\)/,
+    "the dedicated App Review account must be able to complete a signed StoreKit purchase"
+  );
+  assert.match(
+    body,
+    /appleAppAccountTokenForUserId\(user\.userId\)/,
+    "the signed StoreKit transaction must remain bound to the authenticated account"
+  );
+  assert.match(
+    body,
+    /verifier\.verify\(purchase, expectedAccountId\)/,
+    "the server must continue to verify the StoreKit transaction before granting hearts"
+  );
+});
+
 test("F9: resolveAuthedAppUser resolves strictly by users/{request.auth.uid}", () => {
   const body = resolverBody().replace(/\s+/g, " ");
 

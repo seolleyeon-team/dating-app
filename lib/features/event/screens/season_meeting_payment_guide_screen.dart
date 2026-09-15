@@ -248,7 +248,7 @@ class _MerchantInfo {
       mailOrderRegistrationNumber = '2026-제주애월-0146',
       address = '제주특별자치도 제주시 애월읍 납읍로2길 68 1층',
       supportPhone = '010-7435-1916',
-      supportEmail = 'seolleyeon.official@gmail.com';
+      supportEmail = 'support@seolleyeon.com';
 }
 
 class _GuideColors {

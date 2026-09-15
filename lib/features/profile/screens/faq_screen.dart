@@ -45,7 +45,7 @@ class FaqScreen extends StatelessWidget {
     _FaqItem(
       question: '신고나 문의는 어디로 보내나요?',
       answer:
-          '앱 설정의 의견 보내기, 문제 신고, 고객 센터를 이용해주세요. 고객 센터 이메일은 seolleyeon.official@gmail.com 입니다.',
+          '앱 설정의 의견 보내기, 문제 신고, 고객 센터를 이용해주세요. 고객 센터 이메일은 support@seolleyeon.com 입니다.',
     ),
   ];
 

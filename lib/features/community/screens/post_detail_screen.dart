@@ -17,6 +17,7 @@ import '../../../data/repositories/firestore_community_repository.dart';
 import '../../../data/repositories/community_repository.dart';
 import '../../../core/constants/app_colors.dart';
 import '../widgets/community_post_delete_flow.dart';
+import '../widgets/community_report_block_flow.dart';
 
 // =============================================================================
 // 색상 상수
@@ -237,6 +238,36 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         const SnackBar(content: Text('게시글을 삭제하지 못했어요. 잠시 후 다시 시도해주세요.')),
       );
     }
+  }
+
+  Future<void> _reportPost() async {
+    final post = _post;
+    final userId = _currentUserId;
+    if (post == null || userId == null || userId.isEmpty) return;
+    await showCommunityReportAndBlockFlow(
+      context: context,
+      reporterId: userId,
+      reportedUserId: post.authorId,
+      source: 'bamboo_post',
+      contentType: 'bamboo_post',
+      contentId: post.postId,
+    );
+    if (mounted) Navigator.of(context).pop(true);
+  }
+
+  Future<void> _reportComment(CommunityCommentModel comment) async {
+    final userId = _currentUserId;
+    if (userId == null || userId.isEmpty) return;
+    await showCommunityReportAndBlockFlow(
+      context: context,
+      reporterId: userId,
+      reportedUserId: comment.authorId,
+      source: 'bamboo_comment',
+      contentType: 'bamboo_comment',
+      contentId: comment.commentId,
+      parentContentId: widget.postId,
+    );
+    if (mounted) Navigator.of(context).pop(true);
   }
 
   Future<void> _submitComment() async {
@@ -464,6 +495,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                     authorId: _post!.authorId,
                                   ),
                                   onDelete: _deletePost,
+                                  onReport: _reportPost,
                                   categoryColor: _getCategoryColor(
                                     _post!.category,
                                   ),
@@ -518,6 +550,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           timeAgo: _timeAgo(root.createdAt),
           onReplyTap: () => _startReply(root),
           onLikeTap: () => _toggleCommentLike(root.commentId),
+          onReportTap: () => _reportComment(root),
+          isOwner: isCommunityPostOwner(
+            currentUserId: _currentUserId,
+            authorId: root.authorId,
+          ),
           isLiked: _likedComments[root.commentId] ?? false,
           indent: 0,
         ),
@@ -532,6 +569,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             timeAgo: _timeAgo(child.createdAt),
             onReplyTap: () => _startReply(root),
             onLikeTap: () => _toggleCommentLike(child.commentId),
+            onReportTap: () => _reportComment(child),
+            isOwner: isCommunityPostOwner(
+              currentUserId: _currentUserId,
+              authorId: child.authorId,
+            ),
             isLiked: _likedComments[child.commentId] ?? false,
             indent: 20,
             isReply: true,
@@ -673,6 +715,7 @@ class _DetailPostCard extends StatelessWidget {
   final PostModel post;
   final bool isOwner;
   final Future<void> Function() onDelete;
+  final Future<void> Function() onReport;
   final Color categoryColor;
   final Color categoryTextColor;
   final bool isLiked;
@@ -683,6 +726,7 @@ class _DetailPostCard extends StatelessWidget {
     required this.post,
     required this.isOwner,
     required this.onDelete,
+    required this.onReport,
     required this.categoryColor,
     required this.categoryTextColor,
     required this.isLiked,
@@ -755,20 +799,18 @@ class _DetailPostCard extends StatelessWidget {
                   color: _AppColors.textMain,
                 ),
               ),
-              if (isOwner) ...[
-                const SizedBox(width: 4),
-                CupertinoButton(
-                  key: ValueKey('community-post-detail-more-${post.postId}'),
-                  padding: EdgeInsets.zero,
-                  minimumSize: const Size(40, 40),
-                  onPressed: onDelete,
-                  child: const Icon(
-                    CupertinoIcons.ellipsis,
-                    color: _AppColors.textSub,
-                    size: 20,
-                  ),
+              const SizedBox(width: 4),
+              CupertinoButton(
+                key: ValueKey('community-post-detail-more-${post.postId}'),
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(40, 40),
+                onPressed: isOwner ? onDelete : onReport,
+                child: const Icon(
+                  CupertinoIcons.ellipsis,
+                  color: _AppColors.textSub,
+                  size: 20,
                 ),
-              ],
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -907,6 +949,8 @@ class _CommentCard extends StatelessWidget {
   final String timeAgo;
   final VoidCallback onReplyTap;
   final VoidCallback onLikeTap;
+  final VoidCallback onReportTap;
+  final bool isOwner;
   final double indent;
   final bool isReply;
   final bool isLiked;
@@ -916,6 +960,8 @@ class _CommentCard extends StatelessWidget {
     required this.timeAgo,
     required this.onReplyTap,
     required this.onLikeTap,
+    required this.onReportTap,
+    required this.isOwner,
     this.indent = 0,
     this.isReply = false,
     required this.isLiked,
@@ -965,6 +1011,15 @@ class _CommentCard extends StatelessWidget {
                     color: _AppColors.textSub,
                   ),
                 ),
+                if (!isOwner) ...[
+                  const Spacer(),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(32, 32),
+                    onPressed: onReportTap,
+                    child: const Icon(CupertinoIcons.ellipsis, size: 18),
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 10),

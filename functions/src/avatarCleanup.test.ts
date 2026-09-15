@@ -11,6 +11,7 @@ import {
   isUidBoundCleanupRef,
   planAccountDeletionPiiOperations,
   requireAvatarCleanupRequest,
+  requireFirestoreDocumentId,
   type CleanupExecutor,
   type CleanupOperation,
 } from "./avatarCleanup";
@@ -128,6 +129,18 @@ test("cleanup request validation requires explicit allowed reason and idempotenc
         clientRequestId: "short",
       }),
     /avatar_cleanup_request_invalid/,
+  );
+});
+
+test("device token document IDs allow standard iOS FCM punctuation but reject paths", () => {
+  const iosFcmToken = "d9qPM7u2R6e7FtKxv0dKU1:APA91bF8C4Q3wz-6rT4YpO2qL9xZ7aV5mN1cB8sE6kH3jG0fD2uW4iR9oP7lS5tX1";
+  assert.equal(
+    requireFirestoreDocumentId(iosFcmToken, "tokenId"),
+    iosFcmToken,
+  );
+  assert.throws(
+    () => requireFirestoreDocumentId("tokens/other-user", "tokenId"),
+    /tokenId is not a safe Firestore document ID/,
   );
 });
 

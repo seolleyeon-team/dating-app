@@ -263,30 +263,10 @@ class ChatService {
     required String senderId,
     required String text,
   }) async {
-    final roomRef = _firestore.collection('chat_rooms').doc(roomId);
-    final msgRef = roomRef.collection('messages').doc();
-
-    final batch = _firestore.batch();
-
-    batch.set(msgRef, {
-      'senderId': senderId,
-      'text': text,
-      'type': 'text',
-      'readBy': [senderId],
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+    await _functions.httpsCallable('sendChatText').call<dynamic>({
+      'roomId': roomId,
+      'text': text.trim(),
     });
-
-    batch.set(roomRef, {
-      'lastMessage': text,
-      'lastMessageAt': FieldValue.serverTimestamp(),
-      'photoBlurUnlocked': true,
-      'photoBlurUnlockedAt': FieldValue.serverTimestamp(),
-      'photoBlurUnlockedBy': senderId,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    await batch.commit();
   }
 
   Future<String> createPromise({

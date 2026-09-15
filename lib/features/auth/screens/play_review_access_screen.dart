@@ -33,16 +33,16 @@ class _PlayReviewAccessScreenState extends State<PlayReviewAccessScreen> {
         return '로그인 시도가 잠시 제한되었습니다. 잠시 후 다시 시도해 주세요.';
       }
       if (error.code == 'unauthenticated') {
-        return '리뷰 아이디 또는 비밀번호가 올바르지 않습니다.';
+        return '심사 계정 ID 또는 비밀번호가 올바르지 않습니다.';
       }
       if (error.code == 'failed-precondition') {
         return '리뷰용 테스트 데이터가 준비되지 않았습니다. 개발자에게 문의해 주세요.';
       }
     }
     if (error.toString().contains('app_check_unavailable')) {
-      return '앱 무결성 확인에 실패했습니다. Play 스토어에서 설치한 앱인지 확인해 주세요.';
+      return '앱 무결성 확인에 실패했습니다. 공식 앱 스토어에서 설치한 앱인지 확인해 주세요.';
     }
-    return '리뷰 로그인에 실패했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.';
+    return '심사용 로그인에 실패했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.';
   }
 
   Future<void> _submit() async {
@@ -77,9 +77,7 @@ class _PlayReviewAccessScreenState extends State<PlayReviewAccessScreen> {
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
-      navigationBar: const CupertinoNavigationBar(
-        middle: Text('Google Play 리뷰 로그인'),
-      ),
+      navigationBar: const CupertinoNavigationBar(middle: Text('심사용 계정 로그인')),
       child: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 40, 24, 24),
@@ -90,7 +88,7 @@ class _PlayReviewAccessScreenState extends State<PlayReviewAccessScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Play Console의 앱 액세스 안내에 제공된 아이디와 비밀번호를 입력해 주세요.',
+              '앱 심사 안내에 제공된 심사 계정 ID와 비밀번호를 입력해 주세요.',
               style: TextStyle(fontSize: 15, height: 1.45),
             ),
             const SizedBox(height: 28),

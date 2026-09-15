@@ -241,8 +241,8 @@ test("canonical app session gates the interactive surfaces (auth re-architecture
     "// 1:1 방은 unlockDirectChat callable이 하트 차감과 함께 생성한다. // 시즌/블라인드 미팅 방도 각 서버 트랜잭션의 소유다. allow create: if false;"
   );
   assertContains(
-    "bamboo post create must require a canonical or isolated Play Review session",
-    "allow create: if (isCanonicalAppSession() || isPlayReviewSession()) && request.resource.data.authorId == request.auth.uid && request.resource.data.postId is string"
+    "bamboo post create is server-only so moderation cannot be bypassed",
+    "match /bamboo_posts/{postId} { allow get, list: if isSignedIn() && !isPlayReviewSession(); // New public posts are written exclusively by createCommunityPost so // server-side moderation cannot be bypassed. allow create: if false;"
   );
 });
 

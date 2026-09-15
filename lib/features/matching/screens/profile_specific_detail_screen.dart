@@ -568,7 +568,7 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
   // ---------------------------------------------------------------------------
   // [4] 메시지 핸들러
   // ---------------------------------------------------------------------------
-  void _handleMessage() {
+  Future<void> _handleMessage() async {
     HapticFeedback.selectionClick();
     final uid = _currentUserId;
     final targetId = _profile?.id ?? '';
@@ -604,6 +604,22 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
           ),
         );
 
+    final roomId = _chatService.buildDirectRoomId(uid, targetId);
+    var isExistingDirectRoom = false;
+    try {
+      final roomSnapshot = await _chatService.roomStream(roomId).first;
+      final participantIds = roomSnapshot.data()?['participantIds'];
+      isExistingDirectRoom =
+          roomSnapshot.exists &&
+          participantIds is List &&
+          participantIds.contains(uid);
+    } catch (_) {
+      // If the room cannot be read, keep the paid-first-message confirmation.
+      // The server remains the final authority for whether a room is new.
+    }
+
+    if (!mounted) return;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -614,14 +630,13 @@ class _AiMatchProfileScreenState extends State<AiMatchProfileScreen> {
       ),
       builder: (sheetCtx) => _MessageBottomSheet(
         targetName: _profile?.name ?? '상대방',
+        isExistingDirectRoom: isExistingDirectRoom,
         onSend: (messageText) async {
           final myProfile = await _userService.getUserProfile(uid);
           final myOnboarding = myProfile?['onboarding'] is Map
               ? Map<String, dynamic>.from(myProfile!['onboarding'] as Map)
               : <String, dynamic>{};
           final myAvatarUrl = ProfileDisplayImageResolver.resolve(myProfile);
-
-          final roomId = _chatService.buildDirectRoomId(uid, targetId);
 
           await _chatService.ensureDirectRoom(
             roomId: roomId,
@@ -2440,12 +2455,14 @@ class _AskBottomSheetState extends State<_AskBottomSheet> {
 // =============================================================================
 class _MessageBottomSheet extends StatefulWidget {
   final String targetName;
+  final bool isExistingDirectRoom;
   final Future<void> Function(String message) onSend;
   final VoidCallback onSuccess;
   final void Function(dynamic error) onError;
 
   const _MessageBottomSheet({
     required this.targetName,
+    required this.isExistingDirectRoom,
     required this.onSend,
     required this.onSuccess,
     required this.onError,
@@ -2469,15 +2486,17 @@ class _MessageBottomSheetState extends State<_MessageBottomSheet> {
     final text = _controller.text.trim();
     if (text.isEmpty || _isSending) return;
 
-    final confirmed = await confirmHeartSpend(
-      context,
-      action: '정말로 메시지를 보내시겠습니까?',
-      amount: HeartFeatureCosts.directChat,
-      chargeMessage:
-          '첫 채팅방을 열면 ${HeartFeatureCosts.label(HeartFeatureCosts.directChat)} 하트가 차감됩니다.',
-      detail: '첫 채팅방을 열 때만 차감되며, 이미 열린 채팅방은 무료입니다.',
-    );
-    if (!confirmed || !mounted) return;
+    if (!widget.isExistingDirectRoom) {
+      final confirmed = await confirmHeartSpend(
+        context,
+        action: '정말로 메시지를 보내시겠습니까?',
+        amount: HeartFeatureCosts.directChat,
+        chargeMessage:
+            '첫 채팅방을 열면 ${HeartFeatureCosts.label(HeartFeatureCosts.directChat)} 하트가 차감됩니다.',
+        detail: '첫 채팅방을 열 때만 차감되며, 이미 열린 채팅방은 무료입니다.',
+      );
+      if (!confirmed || !mounted) return;
+    }
 
     setState(() => _isSending = true);
 
@@ -2517,7 +2536,9 @@ class _MessageBottomSheetState extends State<_MessageBottomSheet> {
             ),
             const SizedBox(height: 20),
             Text(
-              '메시지 보내기 · ${HeartFeatureCosts.label(HeartFeatureCosts.directChat)}',
+              widget.isExistingDirectRoom
+                  ? '메시지 보내기'
+                  : '메시지 보내기 · ${HeartFeatureCosts.label(HeartFeatureCosts.directChat)}',
               style: TextStyle(
                 fontFamily: _kFontFamily,
                 fontSize: 20,
@@ -2527,7 +2548,9 @@ class _MessageBottomSheetState extends State<_MessageBottomSheet> {
             ),
             const SizedBox(height: 6),
             Text(
-              '${widget.targetName}님에게 첫 메시지를 보내보세요',
+              widget.isExistingDirectRoom
+                  ? '${widget.targetName}님에게 메시지를 보내보세요'
+                  : '${widget.targetName}님에게 첫 메시지를 보내보세요',
               style: const TextStyle(
                 fontFamily: _kFontFamily,
                 fontSize: 14,
@@ -2591,7 +2614,9 @@ class _MessageBottomSheetState extends State<_MessageBottomSheet> {
                             color: CupertinoColors.white,
                           )
                         : Text(
-                            '${HeartFeatureCosts.label(HeartFeatureCosts.directChat)}로 보내기',
+                            widget.isExistingDirectRoom
+                                ? '보내기'
+                                : '${HeartFeatureCosts.label(HeartFeatureCosts.directChat)}로 보내기',
                             style: TextStyle(
                               fontFamily: _kFontFamily,
                               fontSize: 15,

@@ -133,6 +133,8 @@ import {
   createTeamMeetingRequestFunction,
 } from "./teamMeetingRequest";
 import { createReportAndBlockUserFunction } from "./reportAndBlock";
+import { createCommunitySafetyCallables } from "./communitySafety";
+import { createSendChatTextFunction } from "./chatSafety";
 import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
 import { createCompleteStudentEmailLinkFunction } from "./emailLinkCompletion";
 import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
@@ -1333,9 +1335,11 @@ async function resolveAuthedAppUser(
 }
 
 /**
- * Review access is opt-in per callable. Never weaken resolveAuthedAppUser:
- * purchase, identity, onboarding, Kakao, and operations functions must keep
- * requiring a genuinely verified Yonsei account.
+ * Review access is opt-in per callable. `grantPurchasedHearts` is explicitly
+ * review-capable so App Review can complete an Apple Sandbox purchase; its
+ * StoreKit transaction is still server-verified and bound to the reviewer UID
+ * through the signed appAccountToken. Other privileged callables keep
+ * requiring a genuinely verified Yonsei account unless they opt in here.
  */
 async function resolveReviewCapableAppUser(
   auth: { uid?: string; token?: Record<string, unknown> } | null | undefined
@@ -1744,7 +1748,10 @@ function readIapRequest(request: {
  * transaction으로 커밋되어 이벤트 재전달/앱 강제 종료에도 중복 지급되지 않는다.
  */
 export const grantPurchasedHearts = onCall(withAppCheck(), async (request) => {
-  const user = await resolveAuthedAppUser(request.auth);
+  // The dedicated review account is allowed solely to verify the StoreKit
+  // purchase path. `resolveReviewCapableAppUser` accepts it only when the
+  // server-minted review claims and review fixture are both valid.
+  const user = await resolveReviewCapableAppUser(request.auth);
   const purchase = readIapRequest(request);
   const verifier = createPurchaseVerifier(purchase);
   const expectedAccountId =
@@ -2713,6 +2720,17 @@ export const respondTeamMeetingRequest = createRespondTeamMeetingRequestFunction
 export const reportAndBlockUser = createReportAndBlockUserFunction(
   db,
   (request) => resolveReviewCapableAppUser(request.auth)
+);
+
+const communitySafety = createCommunitySafetyCallables(
+  db,
+  (request) => resolveReviewCapableAppUser(request.auth),
+);
+export const createCommunityPost = communitySafety.createCommunityPost;
+export const createCommunityComment = communitySafety.createCommunityComment;
+export const sendChatText = createSendChatTextFunction(
+  db,
+  (request) => resolveReviewCapableAppUser(request.auth),
 );
 
 // LEGACY_KAKAO_AUTH_BACKEND_STILL_REQUIRED_FOR_OLD_CLIENTS

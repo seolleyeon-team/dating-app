@@ -11,6 +11,7 @@ import '../data/promise_campus_places.dart';
 import '../services/chat_service.dart';
 import '../services/promise_place_service.dart';
 import '../utils/safety_stamp_availability.dart';
+import '../widgets/chat_report_block_flow.dart';
 import '../widgets/promise_place_picker_sheet.dart';
 import 'safety_stamp_screen.dart';
 import '../../../services/chat_profile_photo_service.dart';
@@ -234,6 +235,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   bool _isBlindMeetingRoom = false;
   String? _blindMeetingId;
   bool _isSending = false;
+  bool _isPartnerBlocked = false;
   bool _isNearBottom = true;
   bool _pendingForceScrollToBottom = true;
   bool _isCancellingExpiredPromise = false;
@@ -646,6 +648,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     if (text.isEmpty ||
         _currentUserId == null ||
         _roomId.isEmpty ||
+        _isPartnerBlocked ||
         _isSending) {
       return;
     }
@@ -674,6 +677,43 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       } else {
         _isSending = false;
       }
+    }
+  }
+
+  Future<void> _showChatMoreOptions() async {
+    // Keep existing embedded/demo callbacks intact. The app router supplies no
+    // callback, so regular 1:1 rooms use the built-in safety flow.
+    if (widget.onMore != null) {
+      widget.onMore!();
+      return;
+    }
+
+    final reporterId = _currentUserId?.trim() ?? '';
+    final reportedUserId = widget.partnerId.trim();
+    if (reporterId.isEmpty || reportedUserId.isEmpty) {
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (dialogContext) => CupertinoAlertDialog(
+          title: const Text('신고할 수 없어요'),
+          content: const Text('채팅 정보를 불러온 뒤 다시 시도해주세요.'),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final didBlock = await showChatReportAndBlockFlow(
+      context: context,
+      reporterId: reporterId,
+      reportedUserId: reportedUserId,
+    );
+    if (didBlock && mounted) {
+      setState(() => _isPartnerBlocked = true);
     }
   }
 
@@ -1263,7 +1303,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       name: widget.partnerName,
                       university: widget.partnerUniversity,
                       onBack: widget.onBack,
-                      onMore: widget.onMore,
+                      onMore: _showChatMoreOptions,
                       showBlindMeetingActions:
                           roomData?['roomType']?.toString() ==
                           'blind_meeting_group',
@@ -1295,6 +1335,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             child: _InputBar(
               controller: _messageController,
               bottomPadding: bottomPadding,
+              isDisabled: _isPartnerBlocked,
               onSend: _handleSend,
             ),
           ),
@@ -3264,11 +3305,13 @@ class _PeriodButton extends StatelessWidget {
 class _InputBar extends StatelessWidget {
   final TextEditingController controller;
   final double bottomPadding;
+  final bool isDisabled;
   final VoidCallback? onSend;
 
   const _InputBar({
     required this.controller,
     required this.bottomPadding,
+    this.isDisabled = false,
     this.onSend,
   });
 
@@ -3329,6 +3372,7 @@ class _InputBar extends StatelessWidget {
             Expanded(
               child: CupertinoTextField(
                 controller: controller,
+                readOnly: isDisabled,
                 placeholder: 'Write a message...',
                 placeholderStyle: TextStyle(
                   fontFamily: 'Pretendard',
@@ -3345,7 +3389,7 @@ class _InputBar extends StatelessWidget {
                   vertical: 12,
                 ),
                 decoration: null,
-                onSubmitted: (_) => onSend?.call(),
+                onSubmitted: isDisabled ? null : (_) => onSend?.call(),
               ),
             ),
             Semantics(
@@ -3354,10 +3398,12 @@ class _InputBar extends StatelessWidget {
               child: CupertinoButton(
                 padding: EdgeInsets.zero,
                 minimumSize: const Size(44, 44),
-                onPressed: () {
-                  HapticFeedback.mediumImpact();
-                  onSend?.call();
-                },
+                onPressed: isDisabled
+                    ? null
+                    : () {
+                        HapticFeedback.mediumImpact();
+                        onSend?.call();
+                      },
                 child: ExcludeSemantics(
                   child: Container(
                     width: 44,

@@ -32,6 +32,13 @@ class SeolleyeonApp extends StatefulWidget {
 }
 
 class _SeolleyeonAppState extends State<SeolleyeonApp> {
+  // Internal-only build switch used to make the physical-device App Review
+  // recording. Production builds never pass this define and keep protection.
+  static const _allowQaScreenCapture = bool.fromEnvironment(
+    'SEOLLEYEON_QA_ALLOW_SCREEN_CAPTURE',
+    defaultValue: false,
+  );
+
   /// 아바타 완료 배너의 "지금 온보딩 구간인가" 판단에 쓰는 라우트 관측자.
   final CurrentRouteObserver _routeObserver = CurrentRouteObserver();
 
@@ -39,7 +46,9 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
   void initState() {
     super.initState();
     PushNotificationService.instance.initialize();
-    ScreenSecurityService.instance.enableProtection();
+    if (!_allowQaScreenCapture) {
+      ScreenSecurityService.instance.enableProtection();
+    }
 
     // 앱이 완전히 종료된 상태에서 미팅 룰렛 알림으로 열린 경우,
     // navigator가 준비될 때까지 보류된 알림을 첫 프레임 이후에 이어서 처리한다.

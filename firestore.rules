@@ -620,6 +620,21 @@ service cloud.firestore {
       return request.resource.data.participantIds == resource.data.participantIds;
     }
 
+    // Text chat is server-mediated so moderation and mutual block checks are
+    // authoritative. Existing history remains readable; only new contact in a
+    // one-to-one room is denied after either participant blocks the other.
+    function isOneToOneChatRoomData(data) {
+      return data != null && data.get('type', null) == 'one_to_one' &&
+        data.participantIds is list && data.participantIds.size() == 2;
+    }
+
+    function hasOneToOneChatBlock(data) {
+      return isOneToOneChatRoomData(data) && (
+        exists(/databases/$(database)/documents/blocks/$(data.participantIds[0])/targets/$(data.participantIds[1])) ||
+        exists(/databases/$(database)/documents/blocks/$(data.participantIds[1])/targets/$(data.participantIds[0]))
+      );
+    }
+
     // Support rooms are server-created and use the normal participant model.
     // A participant may update only the message-preview fields that the chat
     // client writes; case references, staff assignment and room state remain
@@ -1467,6 +1482,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       // participantIds is immutable after create — changing it would let a
       // participant add a third party who can then read the full history.
       allow update: if isChatRoomParticipant() &&
+        !hasOneToOneChatBlock(resource.data) &&
         isChatRoomParticipantAfter() &&
         chatRoomParticipantIdsUnchanged() &&
         chatRoomDoesNotPersistPrivateMedia(request.resource.data) &&
@@ -1489,6 +1505,8 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       match /messages/{messageId} {
         allow read: if isExistingChatRoomParticipant(roomId);
         allow create: if isParticipantMessageAuthor(roomId) &&
+          !hasOneToOneChatBlock(blindRoomData(roomId)) &&
+          request.resource.data.type != 'text' &&
           isValidClientSupportMessage(roomId) &&
           (
             !request.resource.data.keys().hasAny(['type']) ||
@@ -1513,6 +1531,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       match /promises/{promiseId} {
         allow read: if isExistingChatRoomParticipant(roomId);
         allow create: if isExistingChatRoomParticipant(roomId) &&
+          !hasOneToOneChatBlock(blindRoomData(roomId)) &&
           (!isBlindMeetingRoomData(blindRoomData(roomId)) ||
             blindRoomData(roomId).writable == true) &&
           request.resource.data.keys().hasOnly(promiseClientCreatableKeys()) &&
@@ -1833,22 +1852,9 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     match /bamboo_posts/{postId} {
       allow get, list: if isSignedIn() && !isPlayReviewSession();
 
-      allow create: if
-        (isCanonicalAppSession() || isPlayReviewSession()) &&
-        request.resource.data.authorId == request.auth.uid &&
-        request.resource.data.postId is string &&
-        request.resource.data.authorId is string &&
-        request.resource.data.authorId.size() > 0 &&
-        request.resource.data.content is string &&
-        request.resource.data.content.size() > 0 &&
-        request.resource.data.content.size() <= 500 &&
-        request.resource.data.category is string &&
-        request.resource.data.category.size() > 0 &&
-        request.resource.data.tags is list &&
-        request.resource.data.likeCount == 0 &&
-        request.resource.data.commentCount == 0 &&
-        request.resource.data.score7d == 0 &&
-        request.resource.data.isDeleted == false;
+      // New public posts are written exclusively by createCommunityPost so
+      // server-side moderation cannot be bypassed.
+      allow create: if false;
 
       allow update: if
         (
@@ -1896,17 +1902,8 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       match /comments/{commentId} {
         allow get, list: if isSignedIn() && !isPlayReviewSession();
 
-        allow create: if
-          isSignedIn() && !isPlayReviewSession() &&
-          request.resource.data.authorId == request.auth.uid &&
-          request.resource.data.commentId is string &&
-          request.resource.data.authorId is string &&
-          request.resource.data.authorId.size() > 0 &&
-          request.resource.data.content is string &&
-          request.resource.data.content.size() > 0 &&
-          request.resource.data.content.size() <= 500 &&
-          request.resource.data.likeCount == 0 &&
-          request.resource.data.isDeleted == false;
+        // New comments are written exclusively by createCommunityComment.
+        allow create: if false;
 
         allow update: if
           (
@@ -2012,32 +2009,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
     match /playReviewBambooPosts/{postId} {
       allow get, list: if isPlayReviewSession();
 
-      allow create: if
-        isPlayReviewSession() &&
-        request.resource.data.keys().hasOnly([
-          'postId', 'authorId', 'content', 'category', 'tags',
-          'createdAt', 'updatedAt', 'likeCount', 'commentCount', 'score7d',
-          'isDeleted', 'dataPartition'
-        ]) &&
-        request.resource.data.postId is string &&
-        request.resource.data.postId == postId &&
-        request.resource.data.authorId == request.auth.uid &&
-        request.resource.data.authorId is string &&
-        request.resource.data.content is string &&
-        request.resource.data.content.size() > 0 &&
-        request.resource.data.content.size() <= 500 &&
-        request.resource.data.category is string &&
-        request.resource.data.category.size() > 0 &&
-        request.resource.data.category.size() <= 40 &&
-        request.resource.data.tags is list &&
-        request.resource.data.tags.size() <= 10 &&
-        request.resource.data.createdAt is timestamp &&
-        request.resource.data.updatedAt is timestamp &&
-        request.resource.data.likeCount == 0 &&
-        request.resource.data.commentCount == 0 &&
-        request.resource.data.score7d == 0 &&
-        request.resource.data.isDeleted == false &&
-        request.resource.data.dataPartition == 'play_review';
+      allow create: if false;
 
       allow update: if
         isPlayReviewSession() &&
@@ -2084,33 +2056,7 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
 
       match /comments/{commentId} {
         allow get, list: if isPlayReviewSession();
-        allow create: if
-          isPlayReviewSession() &&
-          reviewBambooParentExists(postId) &&
-          request.resource.data.keys().hasOnly([
-            'commentId', 'authorId', 'content', 'parentCommentId',
-            'createdAt', 'updatedAt', 'likeCount', 'isDeleted',
-            'dataPartition'
-          ]) &&
-          request.resource.data.commentId is string &&
-          request.resource.data.commentId == commentId &&
-          request.resource.data.authorId == request.auth.uid &&
-          request.resource.data.authorId is string &&
-          request.resource.data.content is string &&
-          request.resource.data.content.size() > 0 &&
-          request.resource.data.content.size() <= 500 &&
-          (
-            request.resource.data.parentCommentId == null ||
-            (
-              request.resource.data.parentCommentId is string &&
-              request.resource.data.parentCommentId.size() <= 128
-            )
-          ) &&
-          request.resource.data.createdAt is timestamp &&
-          request.resource.data.updatedAt is timestamp &&
-          request.resource.data.likeCount == 0 &&
-          request.resource.data.isDeleted == false &&
-          request.resource.data.dataPartition == 'play_review';
+        allow create: if false;
 
         allow update: if
           isPlayReviewSession() &&

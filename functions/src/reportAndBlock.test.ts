@@ -61,8 +61,23 @@ test("report payload matches the reports collection contract", () => {
     reason: "harassment",
     details: "sent abusive messages",
     source: "chat",
+    contentType: null,
+    contentId: null,
+    parentContentId: null,
     status: "pending",
   });
+});
+
+test("content reports retain an auditable post or comment reference", () => {
+  const result = plan({
+    source: "bamboo_comment",
+    contentType: "bamboo_comment",
+    contentId: "comment_1",
+    parentContentId: "post_1",
+  });
+  assert.equal(result.reportData.contentType, "bamboo_comment");
+  assert.equal(result.reportData.contentId, "comment_1");
+  assert.equal(result.reportData.parentContentId, "post_1");
 });
 
 test("reporter identity comes from the resolved caller, never from the payload", () => {

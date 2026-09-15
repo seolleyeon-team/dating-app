@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>설레연 고객지원</title>
+  <meta name="description" content="설레연 서비스 이용 문의 및 고객지원 안내" />
+  <style>
+    :root {
+      --background: #fff9fc;
+      --surface: #ffffff;
+      --surface-soft: #fff3f7;
+      --text: #1f2937;
+      --muted: #667085;
+      --line: #ecdfe7;
+      --accent: #ef3976;
+      --accent-dark: #c9215d;
+      --shadow: 0 10px 30px rgba(24, 39, 75, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top, rgba(239, 57, 118, 0.08), transparent 28%),
+        linear-gradient(180deg, var(--background) 0%, #fffdfd 100%);
+      font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", system-ui, sans-serif;
+      line-height: 1.75;
+      word-break: keep-all;
+    }
+
+    a { color: var(--accent-dark); }
+    a:focus-visible { outline: 3px solid rgba(239, 57, 118, 0.35); outline-offset: 3px; }
+
+    .page { width: min(100%, 760px); margin: 0 auto; padding: 32px 20px 72px; }
+    .hero, .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+    }
+    .hero { padding: 30px 26px; }
+    .card { margin-top: 20px; padding: 28px 26px; }
+    .eyebrow { color: var(--accent); font-weight: 800; }
+    h1 { margin: 10px 0 12px; font-size: clamp(2rem, 7vw, 2.7rem); line-height: 1.2; }
+    h2 { margin: 0 0 12px; font-size: 1.3rem; line-height: 1.4; }
+    p { margin: 0 0 12px; }
+    .muted { color: var(--muted); }
+    .email {
+      display: inline-flex;
+      align-items: center;
+      min-height: 48px;
+      margin-top: 8px;
+      padding: 10px 16px;
+      border: 1px solid var(--accent);
+      border-radius: 12px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .topics { margin: 14px 0 0; padding-left: 1.3rem; }
+    .topics li { margin: 7px 0; }
+    .links { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 20px; }
+    .footer { padding: 24px 6px 0; color: var(--muted); font-size: 0.92rem; }
+
+    @media (max-width: 520px) {
+      .page { padding: 16px 14px 52px; }
+      .hero, .card { padding: 22px 18px; border-radius: 18px; }
+      .email { width: 100%; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div class="eyebrow">설레연 • 고객지원</div>
+      <h1>설레연 고객지원</h1>
+      <p>서비스 이용 중 문의나 불편 사항이 있으시면 아래 이메일로 연락해 주세요.</p>
+      <a class="email" href="mailto:support@seolleyeon.com">support@seolleyeon.com</a>
+    </header>
+
+    <section class="card" aria-labelledby="topics-title">
+      <h2 id="topics-title">문의할 수 있는 내용</h2>
+      <ul class="topics">
+        <li>계정 및 로그인</li>
+        <li>본인 확인 및 학교 인증</li>
+        <li>프로필, 매칭 및 서비스 이용</li>
+        <li>결제 및 앱 오류</li>
+      </ul>
+      <p class="muted">문의 시 가입한 계정 정보와 발생한 상황을 함께 알려 주시면 더 빠르게 확인할 수 있습니다. 비밀번호, 인증번호, 신분증 전체 이미지 등 민감정보는 이메일로 보내지 마세요.</p>
+      <div class="links">
+        <a href="/privacy">개인정보처리방침</a>
+        <a href="/account-deletion">계정 및 데이터 삭제</a>
+        <a href="/terms">이용약관</a>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <p>고객 문의: <a href="mailto:support@seolleyeon.com">support@seolleyeon.com</a></p>
+    </footer>
+  </main>
+</body>
+</html>

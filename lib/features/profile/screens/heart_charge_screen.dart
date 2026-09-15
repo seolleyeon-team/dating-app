@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Brightness, Theme;
 import 'package:in_app_purchase/in_app_purchase.dart';
-import 'package:intl/intl.dart';
 
 import '../../../services/storage_service.dart';
 import '../../../core/constants/app_colors.dart';
@@ -204,15 +203,9 @@ class _HeartChargeScreenState extends State<HeartChargeScreen> {
         return _ProductCard(
           details: details,
           heartPackage: package,
-          // Android must show the localized price returned by Play Console.
-          // Preserve the existing iOS display behavior exactly.
-          displayPrice: _iapService.supportsGooglePlayIap
-              ? details.price
-              : NumberFormat.currency(
-                  locale: 'ko_KR',
-                  symbol: '₩',
-                  decimalDigits: 0,
-                ).format(package.priceWon),
+          // Both App Store and Google Play provide the authoritative,
+          // localized price for the purchaser's storefront.
+          displayPrice: details.price,
           isBusy: _iapService.isPurchaseInProgress,
           isActive: _iapService.activeProductId == details.id,
           onPressed: () => _onBuy(details),
