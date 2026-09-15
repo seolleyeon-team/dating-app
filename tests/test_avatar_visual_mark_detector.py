@@ -207,6 +207,15 @@ def test_model_score_not_treated_as_cross_model_probability():
     assert det.filter_detections(OWL, [dict(full[0], score=0.9)], {"threshold": 0.25}, size) != []
 
 
+def test_query_label_membership_per_detector():
+    size = (640, 800)
+    concat = [{"box": [10, 10, 60, 60], "score": 0.9, "label": "a logo a watermark a brand emblem a graphic symbol"}]
+    assert det.filter_detections(GD, concat, {"threshold": 0.25}, size) == concat
+    assert det.filter_detections(OWL, concat, {"threshold": 0.25}, size) == []      # OWLv2 labels are exact query strings
+    assert det.filter_detections(GD, [{"box": [10, 10, 60, 60], "score": 0.9, "label": "a person"}], {"threshold": 0.25}, size) == []
+    assert det.filter_detections(GD, [{"box": [10, 10, 60, 60], "score": 0.9, "label": ""}], {"threshold": 0.25}, size) == []
+
+
 def test_matching_rule_frozen():
     assert det.IOU_MATCH == 0.30 == bench.IOU_MATCH and det.MAX_LONG_SIDE == 2048
     truth = [{"box": [100, 100, 200, 200]}]

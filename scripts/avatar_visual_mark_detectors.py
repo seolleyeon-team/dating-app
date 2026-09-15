@@ -108,12 +108,28 @@ def contract_digest() -> str:
 # ------------------------------------------------------------------ filtering (on stored raw captures; no re-inference)
 
 
+def _label_is_query(spec: Mapping[str, Any], label: str) -> bool:
+    """A detection counts only when labelled by one of the frozen queries.
+
+    Grounding DINO's post-processor at the low capture text floor labels a box
+    with the concatenation of every query phrase whose tokens cleared the
+    floor (e.g. "a logo a watermark ..."), so membership is tested as
+    phrase-containment; at the historical text threshold that label is a
+    subset of the same phrases.  Implementation detail fixed before any
+    development table was computed; no query was added or removed.
+    """
+
+    if spec["kind"] == "gdino":
+        return any(prompt in label for prompt in spec["prompts"])
+    return label in spec["prompts"]
+
+
 def filter_detections(name: str, detections: Sequence[Mapping[str, Any]], op: Mapping[str, Any], image_size: Sequence[int]) -> list[Mapping[str, Any]]:
     spec = CANDIDATES[name]
     out = []
     area = float(image_size[0]) * float(image_size[1])
     for d in detections:
-        if d.get("label") not in spec["prompts"]:
+        if not _label_is_query(spec, str(d.get("label", ""))):
             continue
         if op.get("threshold") is not None and float(d.get("score", 0.0)) < float(op["threshold"]):
             continue
