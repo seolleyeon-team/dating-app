@@ -323,6 +323,11 @@ jobs:
       - run: pytest -q tests/test_avatar_visual_mark_detector.py --maxfail=10
         env:
           PYTHONPATH: .
+      # B3-L12A: Grounding DINO box-geometry filter (area/aspect only) at frozen 0.25; label/human/family/GT 입력 거부,
+      # positive box 는 후보 freeze 전 접근 불가, 후보 ≤4·순서 고정·미세 탐색 금지, review-only, B3-L11 holdout 1회 lock 재사용.
+      - run: pytest -q tests/test_avatar_gdino_geometry_filter.py --maxfail=10
+        env:
+          PYTHONPATH: .
       # 배포 가드는 Windows 운영자 셸에서 Hangul env 값을 "???" 로 읽어 바뀐 적
       # 없는 변수를 changed 로 보고했다. 인코딩과 키 단위 승인 계약을 Linux
       # 에서도 고정한다.
