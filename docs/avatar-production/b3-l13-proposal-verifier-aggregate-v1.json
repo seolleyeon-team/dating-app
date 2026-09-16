@@ -1,0 +1,380 @@
+{
+  "classifier": {
+    "C": 1.0,
+    "class_weight": "balanced",
+    "estimator": "sklearn.linear_model.LogisticRegression",
+    "hyperparameterSearch": "none",
+    "input": "L2-normalized CLIP image embedding",
+    "max_iter": 1000,
+    "penalty": "l2",
+    "random_state": 0,
+    "sklearnVersionPinned": "1.9.1",
+    "solver": "lbfgs"
+  },
+  "contractDigestPrefix": "f2c38dc9feaa",
+  "coverage": {
+    "cleanProposalsPerImage": {
+      "max": 10,
+      "min": 1,
+      "n": 12,
+      "total": 45
+    },
+    "conditions": 192,
+    "criteria": {
+      "A": true,
+      "B": true,
+      "C": true,
+      "D": true,
+      "E": true,
+      "F": true,
+      "G": true,
+      "H": false,
+      "I": true
+    },
+    "failed": [
+      "H"
+    ],
+    "families": {
+      "BRAND_LIKE_TEXT_AND_SYMBOL": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0
+      },
+      "CENTER_OVERLAY_MARK": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0
+      },
+      "EDGE_MARK": {
+        "k": 10,
+        "n": 12,
+        "rate": 0.8333
+      },
+      "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+        "k": 11,
+        "n": 12,
+        "rate": 0.9167
+      },
+      "GRAPHIC_SYMBOL": {
+        "k": 24,
+        "n": 24,
+        "rate": 1.0
+      },
+      "LOGO_LIKE_EMBLEM": {
+        "k": 24,
+        "n": 24,
+        "rate": 1.0
+      },
+      "REPEATED_TILED_MARK": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0
+      },
+      "SMALL_CORNER_MARK": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0
+      },
+      "TEXT_WATERMARK_OPAQUE": {
+        "k": 24,
+        "n": 24,
+        "rate": 1.0
+      },
+      "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0
+      },
+      "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+        "k": 10,
+        "n": 12,
+        "rate": 0.8333
+      },
+      "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+        "k": 11,
+        "n": 12,
+        "rate": 0.9167
+      }
+    },
+    "overall": {
+      "k": 164,
+      "n": 168,
+      "rate": 0.9762
+    },
+    "pass": false,
+    "proposalsBySource": {
+      "clean": {
+        "florence2-phrase-grounding": 10,
+        "grounding-dino-tiny": 35
+      },
+      "positive": {
+        "florence2-phrase-grounding": 735,
+        "grounding-dino-tiny": 1046,
+        "owlv2-base-patch16-ensemble": 96
+      }
+    },
+    "provenance": {
+      "florence2-phrase-grounding": {
+        "checks": {
+          "constructDigest": true,
+          "detectorSetDigest": true,
+          "license": true,
+          "originalsUnchanged": true,
+          "repo": true,
+          "revision": true,
+          "variant": true
+        },
+        "exact": true,
+        "peakRssGb": 3.98
+      },
+      "grounding-dino-tiny": {
+        "checks": {
+          "constructDigest": true,
+          "detectorSetDigest": true,
+          "license": true,
+          "originalsUnchanged": true,
+          "repo": true,
+          "revision": true,
+          "variant": true
+        },
+        "exact": true,
+        "peakRssGb": 2.77
+      },
+      "owlv2-base-patch16-ensemble": {
+        "checks": {
+          "constructDigest": true,
+          "detectorSetDigest": true,
+          "license": true,
+          "originalsUnchanged": true,
+          "repo": true,
+          "revision": true,
+          "variant": true
+        },
+        "exact": true,
+        "peakRssGb": 5.72
+      }
+    },
+    "provenanceExact": true,
+    "split": "development"
+  },
+  "crop": {
+    "clipToImage": true,
+    "minSidePx": 8,
+    "paddingBasis": "each side by 0.15 x box width (x) / 0.15 x box height (y)",
+    "paddingRelative": 0.15,
+    "then": "CLIPProcessor default"
+  },
+  "decisionDiff": 0,
+  "detectors": {
+    "florence2-phrase-grounding": {
+      "boxFilter": {
+        "dropFullFrameAreaRatio": 0.5,
+        "origin": "pure-synthetic blank-image smoke before freeze"
+      },
+      "caption": "a logo. a watermark. a brand emblem. a graphic symbol.",
+      "floor": null,
+      "generation": {
+        "max_new_tokens": 256,
+        "num_beams": 3
+      },
+      "gridOperatingPoints": {},
+      "kind": "florence",
+      "license": "mit",
+      "licenseAuthority": "official model card README (license: mit; license_link microsoft/Florence-2-large LICENSE)",
+      "operatingPoints": {
+        "presence": {
+          "threshold": null
+        }
+      },
+      "prompts": [
+        "a logo",
+        "a watermark",
+        "a brand emblem",
+        "a graphic symbol"
+      ],
+      "repo": "florence-community/Florence-2-large-ft",
+      "revision": "26b734a54fdfbf9c398351eedfabb7f27fc470b7",
+      "role": "NEW_CANDIDATE_C",
+      "scoreSemantics": "none (presence of a grounded phrase box)",
+      "task": "<CAPTION_TO_PHRASE_GROUNDING>"
+    },
+    "grounding-dino-tiny": {
+      "boxFilter": null,
+      "floor": 0.05,
+      "gridOperatingPoints": {
+        "grid_0.15": {
+          "threshold": 0.15
+        },
+        "grid_0.35": {
+          "threshold": 0.35
+        },
+        "grid_0.45": {
+          "threshold": 0.45
+        }
+      },
+      "kind": "gdino",
+      "license": "apache-2.0",
+      "licenseAuthority": "official model card (IDEA-Research/grounding-dino-tiny)",
+      "operatingPoints": {
+        "historical_0.25": {
+          "threshold": 0.25
+        }
+      },
+      "prompts": [
+        "a logo",
+        "a watermark",
+        "a brand emblem",
+        "a graphic symbol"
+      ],
+      "repo": "IDEA-Research/grounding-dino-tiny",
+      "revision": "a2bb814dd30d776dcf7e30523b00659f4f141c71",
+      "role": "BASELINE_B",
+      "scoreSemantics": "Grounding DINO box score (max token logit sigmoid)"
+    },
+    "owlv2-base-patch16-ensemble": {
+      "boxFilter": null,
+      "floor": 0.01,
+      "gridOperatingPoints": {},
+      "kind": "owl",
+      "license": "apache-2.0",
+      "licenseAuthority": "official model card (google/owlv2-base-patch16-ensemble)",
+      "operatingPoints": {
+        "legacy_0.25": {
+          "threshold": 0.25
+        }
+      },
+      "prompts": [
+        "a logo",
+        "a watermark",
+        "a brand emblem",
+        "a graphic symbol"
+      ],
+      "repo": "google/owlv2-base-patch16-ensemble",
+      "revision": "cfd3195ba4ea9592eec887ded089f4c08eff231d",
+      "role": "BASELINE_A",
+      "scoreSemantics": "OWLv2 post-processed detection score (sigmoid logit)"
+    }
+  },
+  "developmentLabels": null,
+  "diagnosis": [
+    "EDGE_PROPOSAL_GAP",
+    "MIXED",
+    "PROPOSAL_CEILING_INSUFFICIENT"
+  ],
+  "edgeMarkByGeneratorAtBaseline": {
+    "florence2-phrase-grounding/presence": {
+      "k": 5,
+      "n": 12,
+      "rate": 0.4167
+    },
+    "grounding-dino-tiny/historical_0.25": {
+      "k": 10,
+      "n": 12,
+      "rate": 0.8333
+    },
+    "owlv2-base-patch16-ensemble/legacy_0.25": {
+      "k": 0,
+      "n": 12,
+      "rate": 0.0
+    }
+  },
+  "folds": [
+    [
+      "G1",
+      "G2",
+      "G3"
+    ],
+    [
+      "G1",
+      "G3",
+      "G2"
+    ],
+    [
+      "G2",
+      "G3",
+      "G1"
+    ]
+  ],
+  "gaps": {
+    "graphicalDetector": "GRAPHICAL_DETECTOR_STUDY_REQUIRED",
+    "naturalPositive": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "textDetector": "TEXT_DETECTOR_CONTROLLED_GAP_OPEN",
+    "textPolicyGap": "TEXT_POLICY_GAP_UNRESOLVED (canonical policy unchanged)"
+  },
+  "generators": {
+    "florence2-phrase-grounding": "presence",
+    "grounding-dino-tiny": "historical_0.25",
+    "owlv2-base-patch16-ensemble": "legacy_0.25"
+  },
+  "holdoutEvaluated": 0,
+  "holdoutUnopenedAudit": {
+    "florence2-phrase-grounding": false,
+    "grounding-dino-tiny": false,
+    "holdoutEmbeddingsExist": false,
+    "lockExists": false,
+    "owlv2-base-patch16-ensemble": false,
+    "unopened": true
+  },
+  "inferenceCounts": {
+    "developmentProposal": 0,
+    "developmentVerifierEmbedding": 0,
+    "external": 0,
+    "holdoutProposal": 0,
+    "holdoutVerifierEmbedding": 0
+  },
+  "markers": [
+    "GDINO_GEOMETRY_FILTER_PATH_CLOSED_ON_CURRENT_CORPUS",
+    "PROPOSAL_UNION_WITH_DOWNSTREAM_VERIFIER_DISTINCT_FROM_REJECTED_RAW_OR",
+    "FACE_SUPPRESSION_PROHIBITED"
+  ],
+  "oofTable": null,
+  "originalsUnchanged": "28/28",
+  "priorStatus": {
+    "B3_L10A": "FLORENCE_SEQUENCE_SCORE_NOT_SEPARATING",
+    "B3_L10B": "FLORENCE_TWO_FEATURE_NOT_SEPARATING",
+    "B3_L11": "VISUAL_MARK_DETECTOR_FAILED_DEVELOPMENT",
+    "B3_L11_HOLDOUT_EXECUTIONS": 0,
+    "B3_L11_HOLDOUT_OPENED": false,
+    "B3_L12A": "GDINO_GEOMETRY_FILTER_FAILED_DEVELOPMENT",
+    "B3_L12A_DIAGNOSIS": [
+      "CLEAN_GEOMETRY_NOT_SEPARATING",
+      "EDGE_FAMILY_STILL_UNDERDETECTED",
+      "GRAPHICAL_WATERMARK_STILL_UNDERDETECTED",
+      "MIXED"
+    ],
+    "B3_L9": "TEXT_POLICY_SHADOW_HOLDOUT_FAILED",
+    "FLORENCE_TELEMETRY": "FLORENCE_TELEMETRY_TEXT_PATH_CLOSED_ON_CURRENT_CORPUS",
+    "GRAPHICAL_CHANNEL_GAP": "unresolved",
+    "NATURAL_POSITIVE": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "TEXT_POLICY_GAP": "unresolved",
+    "V1": "OWLV2_POSITIVE_GROUND_TRUTH_INSUFFICIENT",
+    "V2": "OWLV2_CONTROLLED_GATE_FAILED_DEVELOPMENT",
+    "V3": "V3_DUAL_CHANNEL_FAILED_DEVELOPMENT"
+  },
+  "reportVersion": "avatar_proposal_verifier_eval_v1",
+  "support": "VISUAL_MARK_PROPOSAL_VERIFIER_NOT_SUPPORTED",
+  "thresholdGrid": [
+    0.2,
+    0.35,
+    0.5,
+    0.65,
+    0.8
+  ],
+  "verdict": "PROPOSAL_UNION_COVERAGE_INSUFFICIENT",
+  "verifier": {
+    "device": "cpu",
+    "embeddingDim": 768,
+    "feature": "get_image_features, L2-normalized",
+    "license": "mit",
+    "licenseAuthority": "official repository openai/CLIP LICENSE (MIT License, Copyright (c) 2021 OpenAI); the Hugging Face model card links that repository and carries no license field of its own",
+    "package": "transformers CLIPModel/CLIPProcessor (local_files_only)",
+    "preprocessing": "CLIPProcessor: resize shortest side 224, center crop 224, CLIP mean/std",
+    "productionUse": "LocalClipRiskScorer clipSafety (Dockerfile QA_CLIP_LARGE_REVISION, AVATAR_QA_CALIBRATION_EXPECTED_MODELS_JSON)",
+    "repo": "openai/clip-vit-large-patch14",
+    "revision": "32bd64288804d66eefd0ccbe215aa642df71cc41",
+    "scoreRole": "UNCALIBRATED_VERIFIER_SCORE"
+  },
+  "verifierStage": "NOT_STARTED (coverage gate failed before any embedding)",
+  "version": "VISUAL_MARK_PROPOSAL_VERIFIER_V1",
+  "watermarkPolicyChanged": false
+}
