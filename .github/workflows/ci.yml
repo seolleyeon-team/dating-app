@@ -328,6 +328,11 @@ jobs:
       - run: pytest -q tests/test_avatar_gdino_geometry_filter.py --maxfail=10
         env:
           PYTHONPATH: .
+      # B3-L13: frozen 3-detector proposal union + local CLIP crop verifier (fixed L2 logistic). coverage gate 선행, GT/human/family/face 입력 거부,
+      # base-disjoint group OOF, in-sample 선택 불가, hyperparameter/crop/grid 고정, ambiguous 제외, review-only, B3-L11 holdout 1회 lock.
+      - run: pytest -q tests/test_avatar_proposal_verifier.py --maxfail=10
+        env:
+          PYTHONPATH: .
       # 배포 가드는 Windows 운영자 셸에서 Hangul env 값을 "???" 로 읽어 바뀐 적
       # 없는 변수를 changed 로 보고했다. 인코딩과 키 단위 승인 계약을 Linux
       # 에서도 고정한다.

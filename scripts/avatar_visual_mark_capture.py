@@ -68,7 +68,8 @@ def run(name: str, split: str, private_dir: Path, out_dir: Path, model_dir: Path
         if not marker.exists():
             raise SystemExit("HOLDOUT_REQUIRES_SELECTED_FREEZE")
         frozen = json.loads(marker.read_text(encoding="utf-8"))
-        if frozen.get("detector") != name or frozen.get("contractDigest") != digest or frozen.get("constructDigest") != cdigest:
+        member = frozen.get("detector") == name or name in (frozen.get("detectors") or [])   # single-detector or frozen union marker
+        if not member or frozen.get("contractDigest") != digest or frozen.get("constructDigest") != cdigest:
             raise SystemExit("HOLDOUT_FREEZE_MISMATCH")
         groups, variant = c3.HOLDOUT_GROUPS, c3.HOLDOUT_VARIANT
     else:
