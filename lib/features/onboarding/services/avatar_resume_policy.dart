@@ -38,6 +38,8 @@ class AvatarGenerationStatusSnapshot {
   /// 이 필드가 없으므로, 없을 때는 서버의 retryAllowed 판단을 그대로 따른다.
   final bool sourceAvailable;
 
+  /// The server may mark a candidate as preview-safe for selection while
+  /// preserving its canonical QA status (including soft needs_review).
   bool get hasPreviewSafeCandidates => candidateAvailability == 'preview_safe';
 
   static AvatarGenerationStatusSnapshot fromMap(Map<String, dynamic> map) {
@@ -157,12 +159,17 @@ AvatarResumePlan planAvatarResume(AvatarGenerationStatusSnapshot? snapshot) {
       );
     case 'needs_review':
       return AvatarResumePlan(
-        action: AvatarResumeAction.showNeedsReview,
+        action: snapshot.hasPreviewSafeCandidates
+            ? AvatarResumeAction.resumePreview
+            : AvatarResumeAction.showNeedsReview,
         jobId: snapshot.jobId,
-        // 같은 generation 재시도는 금지. 새 사진으로 새 generation 은 허용.
-        allowsNewGeneration: true,
+        // 후보가 있으면 기존 선택/승인 흐름을 계속한다. 후보가 없을 때만
+        // 같은 generation 재시도는 금지하고 새 사진 generation을 허용한다.
+        allowsNewGeneration: !snapshot.hasPreviewSafeCandidates,
         blocksPhotoEditing: true,
-        message: avatarNeedsReviewMessage,
+        message: snapshot.hasPreviewSafeCandidates
+            ? ''
+            : avatarNeedsReviewMessage,
       );
     case 'reconciliation_required':
       return AvatarResumePlan(

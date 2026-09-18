@@ -167,7 +167,8 @@ class _AvatarSelectScreenState extends State<AvatarSelectScreen> {
     try {
       final result = await _client.getCandidates(jobId);
       if (!mounted) return;
-      if (result.status == AvatarJobStatus.previewReady &&
+      if ((result.status == AvatarJobStatus.previewReady ||
+              result.status == AvatarJobStatus.needsReview) &&
           result.candidates.isNotEmpty) {
         setState(() {
           _candidates = result.candidates;

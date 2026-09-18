@@ -6,21 +6,18 @@
  * candidate ownership, job ownership and the current-avatar-job contract both
  * before and again inside the transaction; it re-reads candidate, user, job and
  * private media in that transaction; it is idempotent through
- * planAvatarApprovalState. The one thing it does not do is look at the QA
- * verdict beyond a single boolean.
+ * planAvatarApprovalState. The QA gate deliberately distinguishes the
+ * canonical soft needs_review exposure policy from hard review and rejects.
  *
- * canPreviewCandidate is the whole QA gate:
+ * canPreviewCandidate is the final QA/exposure gate:
  *
- *     status === "preview_ready" && qa.previewAllowed === true && !expired
+ *     preview_ready + normal QA pass, or canonical soft needs_review,
+ *     plus hard-reject checks and !expired
  *
- * so rejectReasons, privacyQa, adultQa, watermarkQaAction and
- * requiresHumanReview are never consulted. The worker does not currently emit
- * such a document -- is_preview_eligible checks is_hard_reject first, so a
- * rejected candidate never reaches preview_ready. That makes this
- * defence-in-depth rather than a live hole, and defence-in-depth is the point:
- * the approval path is the last server-side authority before a face becomes the
- * user's public profile, and it should not depend on an upstream invariant it
- * cannot see.
+ * Hard reject fields remain checked here even when the soft-review policy
+ * bypasses qa.previewAllowed for a canonical soft candidate. The approval path
+ * is the last server-side authority before a face becomes the user's public
+ * profile, so it must fail closed on malformed or contradictory documents.
  *
  * These tests state what must hold regardless of how a contradictory document
  * came to exist -- partial write, admin repair, migration, or a future producer
@@ -33,6 +30,9 @@ import test from "node:test";
 import * as avatarApprovalModule from "./avatarApproval";
 
 type ApprovalGate = {
+  buildAvatarCandidateQaSummary: (
+    candidate: Record<string, unknown>,
+  ) => Record<string, unknown>;
   canPreviewCandidate: (
     candidate: Record<string, unknown>,
     nowMs?: number,
@@ -42,6 +42,7 @@ type ApprovalGate = {
     userData: Record<string, unknown>,
     candidateId: string,
   ) => boolean;
+  isAvatarApprovalJobStatusAllowed: (status: string) => boolean;
 };
 
 function gate(): ApprovalGate {
@@ -202,6 +203,118 @@ test("G needs_review status is not approvable even with previewAllowed=true", ()
     gate().canAdmitAvatarApproval(candidate, FRESH_USER, CANDIDATE_ID),
     false,
   );
+});
+
+test("soft needs_review candidate is visible and selectable without changing QA evidence", () => {
+  const reviewReasons = ["watermark_review", "logo_review"];
+  const candidate = healthyCandidate(
+    {
+      previewAllowed: false,
+      requiresHumanReview: true,
+      reviewTier: "soft_review",
+      reviewReasons,
+    },
+    { status: "needs_review" },
+  );
+
+  assert.equal(gate().canPreviewCandidate(candidate), true);
+  assert.equal(
+    gate().canAdmitAvatarApproval(candidate, FRESH_USER, CANDIDATE_ID),
+    true,
+  );
+  assert.equal(candidate.status, "needs_review");
+  assert.deepEqual((candidate.qa as Record<string, unknown>).reviewReasons, reviewReasons);
+  assert.deepEqual(gate().buildAvatarCandidateQaSummary(candidate), {
+    status: "needs_review",
+    reviewTier: "soft_review",
+    reviewReasons,
+  });
+  assert.deepEqual(
+    gate().buildAvatarCandidateQaSummary(healthyCandidate()),
+    { status: "pass" },
+  );
+});
+
+test("hard-review needs_review candidate remains unavailable", () => {
+  const candidate = healthyCandidate(
+    {
+      previewAllowed: false,
+      requiresHumanReview: true,
+      reviewTier: "hard_review",
+      reviewReasons: ["watermark_artifact_review"],
+    },
+    { status: "needs_review" },
+  );
+
+  assert.equal(gate().canPreviewCandidate(candidate), false);
+  assert.equal(
+    gate().canAdmitAvatarApproval(candidate, FRESH_USER, CANDIDATE_ID),
+    false,
+  );
+});
+
+test("soft review does not bypass a canonical hard reject", () => {
+  const candidate = healthyCandidate(
+    {
+      previewAllowed: false,
+      requiresHumanReview: true,
+      reviewTier: "soft_review",
+      reviewReasons: ["watermark_review"],
+      childlikeRisk: "high",
+    },
+    { status: "needs_review" },
+  );
+
+  assert.equal(gate().canPreviewCandidate(candidate), false);
+  assert.equal(
+    gate().canAdmitAvatarApproval(candidate, FRESH_USER, CANDIDATE_ID),
+    false,
+  );
+});
+
+test("mixed candidate visibility preserves order and excludes hard review", () => {
+  const candidates = [
+    healthyCandidate({}, { candidateId: "pass" }),
+    healthyCandidate(
+      {
+        previewAllowed: false,
+        requiresHumanReview: true,
+        reviewTier: "soft_review",
+        reviewReasons: ["logo_review"],
+      },
+      { candidateId: "soft", status: "needs_review" },
+    ),
+    healthyCandidate(
+      {
+        previewAllowed: false,
+        requiresHumanReview: true,
+        reviewTier: "hard_review",
+        reviewReasons: ["watermark_artifact_review"],
+      },
+      { candidateId: "hard", status: "needs_review" },
+    ),
+  ];
+
+  assert.deepEqual(
+    candidates.filter((candidate) => gate().canPreviewCandidate(candidate)).map(
+      (candidate) => candidate.candidateId,
+    ),
+    ["pass", "soft"],
+  );
+});
+
+test("only preview-ready, soft needs-review, and approval-copying jobs admit approval", () => {
+  assert.equal(gate().isAvatarApprovalJobStatusAllowed("preview_ready"), true);
+  assert.equal(gate().isAvatarApprovalJobStatusAllowed("needs_review"), true);
+  assert.equal(
+    gate().isAvatarApprovalJobStatusAllowed("approval_copying"),
+    true,
+  );
+  assert.equal(
+    gate().isAvatarApprovalJobStatusAllowed("reconciliation_required"),
+    false,
+  );
+  assert.equal(gate().isAvatarApprovalJobStatusAllowed("unknown"), false);
 });
 
 test("H rejected status is not approvable even with previewAllowed=true", () => {

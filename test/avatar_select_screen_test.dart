@@ -45,7 +45,9 @@ class _SelectClient extends AvatarGenerationClient {
     candidateCalls += 1;
     return AvatarCandidatesResult(
       jobId: jobId,
-      status: AvatarJobStatus.previewReady,
+      status: status == 'needs_review'
+          ? AvatarJobStatus.needsReview
+          : AvatarJobStatus.previewReady,
       candidates: List<AvatarCandidate>.generate(
         2,
         (index) => AvatarCandidate(
@@ -314,6 +316,39 @@ void main() {
     expect(client.replaceCalls, 1);
     expect(h.startOverCalls, 1);
     expect(h.controller.phase, AvatarSessionPhase.idle);
+    await _finish(tester, h);
+  });
+
+  testWidgets('soft needs_review candidates are shown and can be approved', (
+    tester,
+  ) async {
+    await _useMobileSurface(tester);
+    final client = _SelectClient(status: 'needs_review')
+      ..candidateAvailability = 'preview_safe';
+    final h = _Harness(client);
+    addTearDown(h.dispose);
+
+    await tester.pumpWidget(h.build());
+    await _settle(tester);
+    _drainImageErrors(tester);
+
+    expect(find.byType(AvatarCandidateSelectionDialog), findsOneWidget);
+    expect(find.byType(AvatarCandidateTile), findsNWidgets(2));
+    expect(find.text(avatarNeedsReviewMessage), findsNothing);
+
+    await tester.tap(find.byType(AvatarCandidateTile).first);
+    await tester.pump();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AvatarCandidateSelectionDialog),
+        matching: find.byType(ElevatedButton),
+      ),
+    );
+    await _settle(tester);
+
+    expect(client.approvedCandidateId, 'cand_0');
+    expect(h.completeCalls, 1);
+    expect(h.finishedCalls, 1);
     await _finish(tester, h);
   });
 
