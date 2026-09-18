@@ -335,6 +335,12 @@ jobs:
       - run: pytest -q tests/test_avatar_proposal_verifier.py --maxfail=10
         env:
           PYTHONPATH: .
+      # B3-L14A: EDGE_MARK_GENERALIZATION_V1 — frozen 3-generator union의 edge proposal ceiling(4 edge × 2 size × 2 geometry, OPAQUE),
+      # B3-L13 verdict/EDGE critical 불변, diagnostic 강등·verifier 실행 금지, construct freeze 후에만 old-miss audit, per-cell 11/12·8/8 산술,
+      # holdout 1회 lock, B3-L11 원 holdout 미접촉, aggregate-only.
+      - run: pytest -q tests/test_avatar_edge_mark_generalization.py --maxfail=10
+        env:
+          PYTHONPATH: .
       # 배포 가드는 Windows 운영자 셸에서 Hangul env 값을 "???" 로 읽어 바뀐 적
       # 없는 변수를 changed 로 보고했다. 인코딩과 키 단위 승인 계약을 Linux
       # 에서도 고정한다.
