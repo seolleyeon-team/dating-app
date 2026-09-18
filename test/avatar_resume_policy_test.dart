@@ -58,6 +58,16 @@ void main() {
       expect(plan.message, isEmpty);
     });
 
+    test('soft needs_review with available candidates resumes the preview', () {
+      final plan = planAvatarResume(
+        snap('needs_review', candidateAvailability: 'preview_safe'),
+      );
+      expect(plan.action, AvatarResumeAction.resumePreview);
+      expect(plan.retryAllowed, isFalse);
+      expect(plan.allowsNewGeneration, isFalse);
+      expect(plan.message, isEmpty);
+    });
+
     test('approved resumes the approved state', () {
       final plan = planAvatarResume(
         snap('approved', approved: true, jobId: ''),

@@ -376,18 +376,21 @@ const QA_HARD_REJECT_RISK_FIELDS = [
 
 /** qa._risk_is_high in lib/ai_recommend_model/avatar_generation/qa.py. */
 const QA_RISK_HIGH_VALUES = new Set(["high", "critical", "fail", "failed"]);
+const AVATAR_APPROVAL_JOB_STATUSES = new Set([
+  "preview_ready",
+  "needs_review",
+  "approval_copying",
+]);
 
 /**
  * Why a candidate may not be approved, or "" when it may.
  *
- * qa.previewAllowed alone was the entire QA gate. It is a summary the worker
- * writes, and the approval path is the last server-side authority before a
- * face becomes the user's public profile -- it should not depend on an upstream
- * invariant it cannot see. The worker does not currently emit a document where
- * previewAllowed disagrees with the QA verdict (is_preview_eligible checks
- * is_hard_reject first), and production holds none, so this is defence in
- * depth: a contradictory document from a partial write, an admin repair, a
- * migration or a future producer fails closed instead of being approved.
+ * qa.previewAllowed is the normal hard-pass summary the worker writes, and the
+ * approval path is the last server-side authority before a face becomes the
+ * user's public profile -- it should not depend on an upstream invariant it
+ * cannot see. The temporary soft-review product policy is the only explicit
+ * exception: a canonical soft needs_review candidate may be offered while its
+ * QA evidence remains unchanged. Every other contradiction fails closed.
  *
  * The conditions mirror apply_avatar_qa_rejection_logic, which owns the
  * semantics. functions/src/avatarQaHardRejectContract.json states them in a
@@ -395,17 +398,54 @@ const QA_RISK_HIGH_VALUES = new Set(["high", "critical", "fail", "failed"]);
  * without the other fails a test rather than drifting silently.
  *
  * "fail"/"high" block; "needs_review"/"medium"/"review" do not -- that band is
- * the 2026-09-07 soft-review product contract, which deliberately offers such
+ * the soft-review product contract, which deliberately offers canonical soft
  * candidates. An absent field is not evidence of danger either.
  *
  * Contradictions are never normalised into an approval. Fail closed and leave
  * the data repair as a separate, deliberate act.
  */
+// Product policy: soft QA needs_review candidates are currently
+// user-visible/selectable. QA status and evidence remain unchanged. Re-evaluate
+// this policy after watermark/logo QA hardening.
+export function isSoftNeedsReviewAvatarCandidate(
+  candidate: Record<string, unknown>,
+): boolean {
+  const qa = readMap(candidate.qa);
+  return (
+    asString(candidate.status).toLowerCase() === "needs_review" &&
+    qa.requiresHumanReview === true &&
+    asString(qa.reviewTier).toLowerCase() === "soft_review"
+  );
+}
+
+export function buildAvatarCandidateQaSummary(
+  candidate: Record<string, unknown>,
+): Record<string, unknown> {
+  const qa = readMap(candidate.qa);
+  const reviewTier = asString(qa.reviewTier).toLowerCase();
+  if (reviewTier !== "soft_review") return { status: "pass" };
+  return {
+    // Keep the user-facing API's existing pass summary for hard-pass
+    // candidates, while making a soft candidate's canonical review state
+    // observable instead of misreporting it as pass.
+    status: "needs_review",
+    reviewTier,
+    reviewReasons: normalizeStringList(qa.reviewReasons),
+  };
+}
+
 export function avatarApprovalBlockReason(
   candidate: Record<string, unknown>,
 ): string {
   const qa = readMap(candidate.qa);
-  if (qa.previewAllowed !== true) {
+  const reviewTier = asString(qa.reviewTier).toLowerCase();
+  if (reviewTier === "hard_review") {
+    return "qa_hard_review";
+  }
+  if (
+    !isSoftNeedsReviewAvatarCandidate(candidate) &&
+    qa.previewAllowed !== true
+  ) {
     return "qa_preview_not_allowed";
   }
   if (normalizeStringList(qa.rejectReasons).length > 0) {
@@ -434,12 +474,17 @@ function qaPreviewAllowed(candidate: Record<string, unknown>): boolean {
   return avatarApprovalBlockReason(candidate) === "";
 }
 
+export function isAvatarApprovalJobStatusAllowed(status: string): boolean {
+  return AVATAR_APPROVAL_JOB_STATUSES.has(status.trim().toLowerCase());
+}
+
 export function canPreviewCandidate(
   candidate: Record<string, unknown>,
   nowMs = Date.now(),
 ): boolean {
   return (
-    asString(candidate.status) === "preview_ready" &&
+    (asString(candidate.status).toLowerCase() === "preview_ready" ||
+      isSoftNeedsReviewAvatarCandidate(candidate)) &&
     qaPreviewAllowed(candidate) &&
     !isExpired(candidate.expiresAt, nowMs)
   );
@@ -801,7 +846,8 @@ export function createGetAvatarJobCandidatesFunction(
         privateData: (privateSnap.data() ?? {}) as Record<string, unknown>,
       });
       const canReturnCandidates =
-        jobStatus === "preview_ready" && currentContract.ok;
+        (jobStatus === "preview_ready" || jobStatus === "needs_review") &&
+        currentContract.ok;
 
       const candidateDocs = canReturnCandidates
         ? (
@@ -832,9 +878,7 @@ export function createGetAvatarJobCandidatesFunction(
                 return {
                   candidateId,
                   ...(await runtimePreviewImagePayload(imageRef)),
-                  qaSummary: {
-                    status: "pass",
-                  },
+                  qaSummary: buildAvatarCandidateQaSummary(candidate),
                 };
               }),
           )
@@ -1007,7 +1051,7 @@ export function createApproveAvatarCandidateFunction(
         }
 
         const jobStatus = asString(freshJobData.status);
-        if (jobStatus !== "preview_ready" && jobStatus !== "approval_copying") {
+        if (!isAvatarApprovalJobStatusAllowed(jobStatus)) {
           throw new HttpsError(
             "failed-precondition",
             "Avatar job is not ready for candidate approval.",
@@ -1070,6 +1114,8 @@ export function createApproveAvatarCandidateFunction(
           approvedAvatarUrl,
           approvedAvatarStoragePath,
           sourceImage: freshSourceImage,
+          candidateStatusBeforeApproval: asString(freshCandidateData.status),
+          jobStatusBeforeApproval: asString(freshJobData.status),
         };
       });
 
@@ -1285,9 +1331,13 @@ export function createApproveAvatarCandidateFunction(
         ] as const) {
           if (!shouldRevert) continue;
           try {
+            const status =
+              label === "candidate"
+                ? reservation.candidateStatusBeforeApproval
+                : reservation.jobStatusBeforeApproval;
             await ref.set(
               {
-                status: "preview_ready",
+                status: status || "preview_ready",
                 updatedAt: FieldValue.serverTimestamp(),
               },
               { merge: true },

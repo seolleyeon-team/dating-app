@@ -12,6 +12,10 @@ import {
   type CallableRequest,
 } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
+import {
+  canPreviewCandidate,
+  isSoftNeedsReviewAvatarCandidate,
+} from "./avatarApproval";
 
 const DEFAULT_REGION = "asia-northeast3";
 const DEFAULT_SOURCE_PHOTO_BUCKET = "seolleyeon-final-private-source-photos";
@@ -1066,9 +1070,10 @@ export function previewCandidateAvailableFromCandidate(
 ): boolean {
   const data = readMap(candidate);
   const qa = readMap(data.qa);
+  if (!canPreviewCandidate(data)) return false;
+  if (isSoftNeedsReviewAvatarCandidate(data)) return true;
   return (
     asString(data.status).toLowerCase() === "preview_ready" &&
-    qa.previewAllowed === true &&
     qa.selectedForPreview === true
   );
 }
@@ -1173,7 +1178,8 @@ export function buildCurrentAvatarGenerationStatusResponse(params: {
       ? "source_selecting"
       : jobStatus;
   const candidateAvailability =
-    status === "preview_ready" && params.candidatesAvailable
+    (status === "preview_ready" || status === "needs_review") &&
+    params.candidatesAvailable
       ? "preview_safe"
       : "none";
   // 소스 선택 단계는 아직 잠글 원본을 고르는 중이므로 "남아 있다"로 본다.
@@ -1659,7 +1665,6 @@ async function currentPreviewCandidateAvailable(
     .collection("avatarCandidates")
     .where("jobId", "==", jobId)
     .where("uid", "==", uid)
-    .where("status", "==", "preview_ready")
     .limit(20)
     .get();
   return candidatesSnap.docs.some((doc) =>
@@ -1702,7 +1707,7 @@ export function createGetCurrentAvatarGenerationStatusFunction(
             jobData = null;
           }
           const status = asString(jobData?.status).toLowerCase();
-          if (status === "preview_ready") {
+          if (status === "preview_ready" || status === "needs_review") {
             candidatesAvailable = await currentPreviewCandidateAvailable(
               firestore,
               uid,

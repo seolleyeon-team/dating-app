@@ -5,6 +5,7 @@ import {
   buildCurrentAvatarGenerationStatusResponse,
   buildSourceSetRetryPlan,
   readCurrentAvatarContract,
+  previewCandidateAvailableFromCandidate,
   avatarPresentationGenderFromUserData,
   buildChatRealPhotoMetadata,
   buildClipPayload,
@@ -353,6 +354,43 @@ test("provider post-send unknown is separated from QA needs_review", () => {
   );
   assert.equal(qaReview.status, "needs_review");
   assert.equal(qaReview.retryAllowed, false);
+});
+
+test("soft needs_review candidate counts as available without becoming QA pass", () => {
+  const softReviewCandidate = {
+    status: "needs_review",
+    qa: {
+      previewAllowed: false,
+      selectedForPreview: false,
+      requiresHumanReview: true,
+      reviewTier: "soft_review",
+      reviewReasons: ["logo_review"],
+    },
+  };
+
+  assert.equal(previewCandidateAvailableFromCandidate(softReviewCandidate), true);
+  const response = buildCurrentAvatarGenerationStatusResponse({
+    ...currentStatusFixture("needs_review", { errorCode: "qa_requires_review" }),
+    candidatesAvailable: true,
+  });
+  assert.equal(response.status, "needs_review");
+  assert.equal(response.candidateAvailability, "preview_safe");
+});
+
+test("hard-review candidate is not available for preview", () => {
+  assert.equal(
+    previewCandidateAvailableFromCandidate({
+      status: "needs_review",
+      qa: {
+        previewAllowed: false,
+        selectedForPreview: false,
+        requiresHumanReview: true,
+        reviewTier: "hard_review",
+        reviewReasons: ["watermark_artifact_review"],
+      },
+    }),
+    false,
+  );
 });
 
 test("the source-set dispatch failure code reaches the client", () => {
