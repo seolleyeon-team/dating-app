@@ -349,7 +349,18 @@ def test_aggregate_only_artifacts():
             elif isinstance(obj, list):
                 for v in obj:
                     yield from keys(v)
-        assert not ({"embedding", "proposals", "detections", "groundTruth", "box", "boxes", "score", "path", "opaqueId"} & set(keys(report)))
+        assert not ({"embedding", "proposals", "detections", "groundTruth", "boxes", "score", "path", "opaqueId"} & set(keys(report)))
+
+        def box_values(obj):
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    if k == "box":
+                        yield v
+                    yield from box_values(v)
+            elif isinstance(obj, list):
+                for v in obj:
+                    yield from box_values(v)
+        assert all(isinstance(v, (int, float)) for v in box_values(report))   # only the frozen grounding-dino box threshold; never coordinates
         assert report["verifierEmbeddings"] == 0 and report["classifierFits"] == 0 and report["watermarkPolicyChanged"] is False and report["decisionDiff"] == 0
         assert report["priorStatus"]["B3_L13"] == "PROPOSAL_UNION_COVERAGE_INSUFFICIENT" and report["gaps"]["naturalPositive"] == "NATURAL_POSITIVE_EVIDENCE_MISSING"
         assert report["l11HoldoutAudit"]["untouched"] is True

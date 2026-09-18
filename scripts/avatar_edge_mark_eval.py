@@ -145,7 +145,8 @@ def run(stage: str, capture_dir: Path, private_dir: Path, b3l11_dir: Path, freez
         if not freeze_commit:
             raise SystemExit("FREEZE_COMMIT_REQUIRED")
         eg.write_construct_frozen(private_dir, digest, freeze_commit)
-        base["constructFrozen"] = eg.require_construct_frozen(private_dir, digest)
+        frozen = eg.require_construct_frozen(private_dir, digest)
+        base["constructFrozen"] = {"freezeCommit": frozen["freezeCommit"], "contractDigestPrefix": frozen["contractDigest"][:12], "constructDigestPrefix": frozen["constructDigest"][:12], "frozenAt": frozen["frozenAt"]}
         return base
     if stage == "decompose":
         base["b3l13EdgeMissDecomposition"] = decompose(b3l11_dir, private_dir)

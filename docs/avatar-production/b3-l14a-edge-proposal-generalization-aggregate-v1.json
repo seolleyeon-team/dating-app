@@ -1,0 +1,1872 @@
+{
+  "b3l13EdgeMissDecomposition": {
+    "cannotChange": [
+      "construct",
+      "gate",
+      "iouMatch",
+      "thresholds",
+      "prompts",
+      "inset",
+      "sizes",
+      "geometries"
+    ],
+    "categories": [
+      "NO_RELEVANT_PROPOSAL",
+      "PROPOSAL_WRONG_LABEL_ONLY",
+      "LOCALIZATION_MISS_IOU_BELOW_030",
+      "FULL_FRAME_FILTER_EFFECT",
+      "OTHER"
+    ],
+    "constructFrozenCommit": "cef1b5be85c29a908ca6796f53860b0f5c6dbdf1",
+    "perDetectorMissCategories": {
+      "florence2-phrase-grounding": {
+        "FULL_FRAME_FILTER_EFFECT": 1,
+        "NO_RELEVANT_PROPOSAL": 1
+      },
+      "grounding-dino-tiny": {
+        "OTHER": 2
+      },
+      "owlv2-base-patch16-ensemble": {
+        "NO_RELEVANT_PROPOSAL": 2
+      }
+    },
+    "rows": 12,
+    "unionBestIouBandOnMisses": {
+      "0": 2
+    },
+    "unionHits": 10,
+    "unionMissCategories": {
+      "FULL_FRAME_FILTER_EFFECT": 1,
+      "OTHER": 1
+    },
+    "unionMisses": 2
+  },
+  "buildsDeploys": 0,
+  "captureRuns": {
+    "developmentRetriesOnResourceGuard": 83,
+    "developmentRowsInferred": {
+      "florence2-phrase-grounding": 192,
+      "grounding-dino-tiny": 192,
+      "owlv2-base-patch16-ensemble": 192
+    },
+    "guardsLowered": false,
+    "holdoutRetriesOnResourceGuard": 7,
+    "holdoutRowsInferred": {
+      "florence2-phrase-grounding": 128,
+      "grounding-dino-tiny": 128,
+      "owlv2-base-patch16-ensemble": 128
+    },
+    "peakRssGb": {
+      "development": {
+        "florence2-phrase-grounding": 4.04,
+        "grounding-dino-tiny": 2.79,
+        "owlv2-base-patch16-ensemble": 4.43
+      },
+      "holdout": {
+        "florence2-phrase-grounding": 3.95,
+        "grounding-dino-tiny": 2.84,
+        "owlv2-base-patch16-ensemble": 5.76
+      }
+    },
+    "perRowGuardGb": 0.6,
+    "startGateGb": {
+      "florence": 4.0,
+      "gdino": 3.0,
+      "owl": 4.0
+    }
+  },
+  "classifierFits": 0,
+  "construct": {
+    "alpha": {
+      "OPAQUE": 1.0
+    },
+    "conditionsPerBase": 16,
+    "criticalMarker": "EDGE_MARK_REMAINS_CRITICAL_FAMILY",
+    "devGeometries": [
+      "open_hexagon_emblem",
+      "paired_chevron_emblem"
+    ],
+    "edges": [
+      "TOP",
+      "BOTTOM",
+      "LEFT",
+      "RIGHT"
+    ],
+    "generatorVersion": "avatar_edge_mark_generalization_generator_v1",
+    "geometryDescriptions": {
+      "broken_ring_emblem": "ring arc with a 60-degree gap, thick stroke, small filled square at the centre",
+      "offset_bar_emblem": "two horizontal filled bars offset diagonally with a filled disc between them",
+      "open_hexagon_emblem": "hexagon outline with one side omitted (open), thick stroke, filled centre dot",
+      "paired_chevron_emblem": "two stacked filled chevrons (V shapes) in two contrasting colours"
+    },
+    "holdout": {
+      "globallyUnseen": false,
+      "name": "EDGE_CONSTRUCT_SPECIFIC_FROZEN_HOLDOUT",
+      "unseenBeforePerformance": [
+        "holdout geometries",
+        "holdout derivatives",
+        "holdout detector outputs"
+      ]
+    },
+    "holdoutGeometries": [
+      "broken_ring_emblem",
+      "offset_bar_emblem"
+    ],
+    "inset": {
+      "basis": "min(W, H)",
+      "relative": 0.02,
+      "rule": "square mark box of side round(size x min(W,H)); its outer side sits round(0.02 x min(W,H)) px inside the touching image edge; centred at 0.50 along that edge"
+    },
+    "sizeBands": {
+      "medium": 0.07,
+      "small": 0.035
+    },
+    "split": {
+      "development": [
+        "G1",
+        "G2",
+        "G3"
+      ],
+      "holdout": [
+        "G4",
+        "G5"
+      ]
+    },
+    "trademarkBlocklist": [
+      "nike",
+      "adidas",
+      "apple",
+      "coca",
+      "cola",
+      "pepsi",
+      "samsung",
+      "google",
+      "kakao",
+      "naver",
+      "instagram",
+      "facebook",
+      "meta",
+      "puma",
+      "reebok",
+      "gucci",
+      "chanel",
+      "louis",
+      "vuitton",
+      "starbucks",
+      "mcdonald",
+      "disney",
+      "netflix",
+      "amazon",
+      "microsoft",
+      "sony",
+      "lg",
+      "yonsei",
+      "seolleyeon",
+      "coca",
+      "cola",
+      "apple",
+      "samsung",
+      "kakao",
+      "naver",
+      "google",
+      "instagram",
+      "tiktok"
+    ],
+    "version": "EDGE_MARK_GENERALIZATION_V1"
+  },
+  "constructDigestPrefix": "e03ca29115b2",
+  "constructFrozenCommit": "cef1b5be85c29a908ca6796f53860b0f5c6dbdf1",
+  "containmentClause": false,
+  "contractDigestPrefix": "c11ffa3eaabf",
+  "decisionDiff": 0,
+  "descriptiveNote": {
+    "developmentFloorCells": "TOP x small x open_hexagon 11/12 and BOTTOM x small x open_hexagon 11/12 (at the floor)",
+    "holdoutFailure": "single cell TOP x medium x offset_bar_emblem 5/8; every marginal axis criterion (overall, four edges, two sizes, two geometries) passed; TOP is the only edge with misses on both development (47/48) and holdout (29/32)",
+    "unionVsBestSingle": "on holdout the union equals Grounding DINO alone (125/128, same per-edge counts); OWLv2 9/128, Florence 111/128 add no edge recall beyond it"
+  },
+  "detectorSetDigestPrefix": "086a32a65e05",
+  "detectors": {
+    "florence2-phrase-grounding": {
+      "boxFilter": {
+        "dropFullFrameAreaRatio": 0.5,
+        "origin": "pure-synthetic blank-image smoke before freeze"
+      },
+      "caption": "a logo. a watermark. a brand emblem. a graphic symbol.",
+      "floor": null,
+      "generation": {
+        "max_new_tokens": 256,
+        "num_beams": 3
+      },
+      "gridOperatingPoints": {},
+      "kind": "florence",
+      "license": "mit",
+      "licenseAuthority": "official model card README (license: mit; license_link microsoft/Florence-2-large LICENSE)",
+      "operatingPoints": {
+        "presence": {
+          "threshold": null
+        }
+      },
+      "prompts": [
+        "a logo",
+        "a watermark",
+        "a brand emblem",
+        "a graphic symbol"
+      ],
+      "repo": "florence-community/Florence-2-large-ft",
+      "revision": "26b734a54fdfbf9c398351eedfabb7f27fc470b7",
+      "role": "NEW_CANDIDATE_C",
+      "scoreSemantics": "none (presence of a grounded phrase box)",
+      "task": "<CAPTION_TO_PHRASE_GROUNDING>"
+    },
+    "grounding-dino-tiny": {
+      "boxFilter": null,
+      "floor": 0.05,
+      "gridOperatingPoints": {
+        "grid_0.15": {
+          "threshold": 0.15
+        },
+        "grid_0.35": {
+          "threshold": 0.35
+        },
+        "grid_0.45": {
+          "threshold": 0.45
+        }
+      },
+      "kind": "gdino",
+      "license": "apache-2.0",
+      "licenseAuthority": "official model card (IDEA-Research/grounding-dino-tiny)",
+      "operatingPoints": {
+        "historical_0.25": {
+          "threshold": 0.25
+        }
+      },
+      "prompts": [
+        "a logo",
+        "a watermark",
+        "a brand emblem",
+        "a graphic symbol"
+      ],
+      "repo": "IDEA-Research/grounding-dino-tiny",
+      "revision": "a2bb814dd30d776dcf7e30523b00659f4f141c71",
+      "role": "BASELINE_B",
+      "scoreSemantics": "Grounding DINO box score (max token logit sigmoid)"
+    },
+    "owlv2-base-patch16-ensemble": {
+      "boxFilter": null,
+      "floor": 0.01,
+      "gridOperatingPoints": {},
+      "kind": "owl",
+      "license": "apache-2.0",
+      "licenseAuthority": "official model card (google/owlv2-base-patch16-ensemble)",
+      "operatingPoints": {
+        "legacy_0.25": {
+          "threshold": 0.25
+        }
+      },
+      "prompts": [
+        "a logo",
+        "a watermark",
+        "a brand emblem",
+        "a graphic symbol"
+      ],
+      "repo": "google/owlv2-base-patch16-ensemble",
+      "revision": "cfd3195ba4ea9592eec887ded089f4c08eff231d",
+      "role": "BASELINE_A",
+      "scoreSemantics": "OWLv2 post-processed detection score (sigmoid logit)"
+    }
+  },
+  "development": {
+    "bases": 12,
+    "cells": {
+      "BOTTOM|medium|open_hexagon_emblem": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0,
+        "required": 11
+      },
+      "BOTTOM|medium|paired_chevron_emblem": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0,
+        "required": 11
+      },
+      "BOTTOM|small|open_hexagon_emblem": {
+        "k": 11,
+        "n": 12,
+        "rate": 0.9167,
+        "required": 11
+      },
+      "BOTTOM|small|paired_chevron_emblem": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0,
+        "required": 11
+      },
+      "LEFT|medium|open_hexagon_emblem": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0,
+        "required": 11
+      },
+      "LEFT|medium|paired_chevron_emblem": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0,
+        "required": 11
+      },
+      "LEFT|small|open_hexagon_emblem": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0,
+        "required": 11
+      },
+      "LEFT|small|paired_chevron_emblem": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0,
+        "required": 11
+      },
+      "RIGHT|medium|open_hexagon_emblem": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0,
+        "required": 11
+      },
+      "RIGHT|medium|paired_chevron_emblem": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0,
+        "required": 11
+      },
+      "RIGHT|small|open_hexagon_emblem": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0,
+        "required": 11
+      },
+      "RIGHT|small|paired_chevron_emblem": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0,
+        "required": 11
+      },
+      "TOP|medium|open_hexagon_emblem": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0,
+        "required": 11
+      },
+      "TOP|medium|paired_chevron_emblem": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0,
+        "required": 11
+      },
+      "TOP|small|open_hexagon_emblem": {
+        "k": 11,
+        "n": 12,
+        "rate": 0.9167,
+        "required": 11
+      },
+      "TOP|small|paired_chevron_emblem": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0,
+        "required": 11
+      }
+    },
+    "complete": true,
+    "edges": {
+      "BOTTOM": {
+        "k": 47,
+        "n": 48,
+        "rate": 0.9792
+      },
+      "LEFT": {
+        "k": 48,
+        "n": 48,
+        "rate": 1.0
+      },
+      "RIGHT": {
+        "k": 48,
+        "n": 48,
+        "rate": 1.0
+      },
+      "TOP": {
+        "k": 47,
+        "n": 48,
+        "rate": 0.9792
+      }
+    },
+    "expectedBases": 12,
+    "expectedRows": 192,
+    "gate": {
+      "criteria": {
+        "A": true,
+        "B": true,
+        "C": true,
+        "D": true,
+        "E": true,
+        "F": true,
+        "G": true,
+        "H": true,
+        "I": true,
+        "J:BOTTOM|medium|open_hexagon_emblem": true,
+        "J:BOTTOM|medium|paired_chevron_emblem": true,
+        "J:BOTTOM|small|open_hexagon_emblem": true,
+        "J:BOTTOM|small|paired_chevron_emblem": true,
+        "J:LEFT|medium|open_hexagon_emblem": true,
+        "J:LEFT|medium|paired_chevron_emblem": true,
+        "J:LEFT|small|open_hexagon_emblem": true,
+        "J:LEFT|small|paired_chevron_emblem": true,
+        "J:RIGHT|medium|open_hexagon_emblem": true,
+        "J:RIGHT|medium|paired_chevron_emblem": true,
+        "J:RIGHT|small|open_hexagon_emblem": true,
+        "J:RIGHT|small|paired_chevron_emblem": true,
+        "J:TOP|medium|open_hexagon_emblem": true,
+        "J:TOP|medium|paired_chevron_emblem": true,
+        "J:TOP|small|open_hexagon_emblem": true,
+        "J:TOP|small|paired_chevron_emblem": true
+      },
+      "failed": [],
+      "pass": true,
+      "required": {
+        "cell": {
+          "BOTTOM|medium|open_hexagon_emblem": 11,
+          "BOTTOM|medium|paired_chevron_emblem": 11,
+          "BOTTOM|small|open_hexagon_emblem": 11,
+          "BOTTOM|small|paired_chevron_emblem": 11,
+          "LEFT|medium|open_hexagon_emblem": 11,
+          "LEFT|medium|paired_chevron_emblem": 11,
+          "LEFT|small|open_hexagon_emblem": 11,
+          "LEFT|small|paired_chevron_emblem": 11,
+          "RIGHT|medium|open_hexagon_emblem": 11,
+          "RIGHT|medium|paired_chevron_emblem": 11,
+          "RIGHT|small|open_hexagon_emblem": 11,
+          "RIGHT|small|paired_chevron_emblem": 11,
+          "TOP|medium|open_hexagon_emblem": 11,
+          "TOP|medium|paired_chevron_emblem": 11,
+          "TOP|small|open_hexagon_emblem": 11,
+          "TOP|small|paired_chevron_emblem": 11
+        },
+        "edge": {
+          "BOTTOM": 44,
+          "LEFT": 44,
+          "RIGHT": 44,
+          "TOP": 44
+        },
+        "geometry": {
+          "open_hexagon_emblem": 87,
+          "paired_chevron_emblem": 87
+        },
+        "overall": 183,
+        "size": {
+          "medium": 87,
+          "small": 87
+        }
+      }
+    },
+    "geometries": {
+      "open_hexagon_emblem": {
+        "k": 94,
+        "n": 96,
+        "rate": 0.9792
+      },
+      "paired_chevron_emblem": {
+        "k": 96,
+        "n": 96,
+        "rate": 1.0
+      }
+    },
+    "inputsDigest": "fc62c69fc5c1",
+    "overall": {
+      "k": 190,
+      "n": 192,
+      "rate": 0.9896
+    },
+    "perDetector": {
+      "florence2-phrase-grounding": {
+        "cells": {
+          "BOTTOM|medium|open_hexagon_emblem": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167,
+            "required": 11
+          },
+          "BOTTOM|medium|paired_chevron_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "BOTTOM|small|open_hexagon_emblem": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75,
+            "required": 11
+          },
+          "BOTTOM|small|paired_chevron_emblem": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167,
+            "required": 11
+          },
+          "LEFT|medium|open_hexagon_emblem": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333,
+            "required": 11
+          },
+          "LEFT|medium|paired_chevron_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "LEFT|small|open_hexagon_emblem": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333,
+            "required": 11
+          },
+          "LEFT|small|paired_chevron_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "RIGHT|medium|open_hexagon_emblem": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167,
+            "required": 11
+          },
+          "RIGHT|medium|paired_chevron_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "RIGHT|small|open_hexagon_emblem": {
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667,
+            "required": 11
+          },
+          "RIGHT|small|paired_chevron_emblem": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333,
+            "required": 11
+          },
+          "TOP|medium|open_hexagon_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "TOP|medium|paired_chevron_emblem": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167,
+            "required": 11
+          },
+          "TOP|small|open_hexagon_emblem": {
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667,
+            "required": 11
+          },
+          "TOP|small|paired_chevron_emblem": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167,
+            "required": 11
+          }
+        },
+        "edges": {
+          "BOTTOM": {
+            "k": 43,
+            "n": 48,
+            "rate": 0.8958
+          },
+          "LEFT": {
+            "k": 44,
+            "n": 48,
+            "rate": 0.9167
+          },
+          "RIGHT": {
+            "k": 41,
+            "n": 48,
+            "rate": 0.8542
+          },
+          "TOP": {
+            "k": 42,
+            "n": 48,
+            "rate": 0.875
+          }
+        },
+        "geometries": {
+          "open_hexagon_emblem": {
+            "k": 79,
+            "n": 96,
+            "rate": 0.8229
+          },
+          "paired_chevron_emblem": {
+            "k": 91,
+            "n": 96,
+            "rate": 0.9479
+          }
+        },
+        "overall": {
+          "k": 170,
+          "n": 192,
+          "rate": 0.8854
+        },
+        "sizes": {
+          "medium": {
+            "k": 91,
+            "n": 96,
+            "rate": 0.9479
+          },
+          "small": {
+            "k": 79,
+            "n": 96,
+            "rate": 0.8229
+          }
+        }
+      },
+      "grounding-dino-tiny": {
+        "cells": {
+          "BOTTOM|medium|open_hexagon_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "BOTTOM|medium|paired_chevron_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "BOTTOM|small|open_hexagon_emblem": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167,
+            "required": 11
+          },
+          "BOTTOM|small|paired_chevron_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "LEFT|medium|open_hexagon_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "LEFT|medium|paired_chevron_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "LEFT|small|open_hexagon_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "LEFT|small|paired_chevron_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "RIGHT|medium|open_hexagon_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "RIGHT|medium|paired_chevron_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "RIGHT|small|open_hexagon_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "RIGHT|small|paired_chevron_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "TOP|medium|open_hexagon_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "TOP|medium|paired_chevron_emblem": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0,
+            "required": 11
+          },
+          "TOP|small|open_hexagon_emblem": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167,
+            "required": 11
+          },
+          "TOP|small|paired_chevron_emblem": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167,
+            "required": 11
+          }
+        },
+        "edges": {
+          "BOTTOM": {
+            "k": 47,
+            "n": 48,
+            "rate": 0.9792
+          },
+          "LEFT": {
+            "k": 48,
+            "n": 48,
+            "rate": 1.0
+          },
+          "RIGHT": {
+            "k": 48,
+            "n": 48,
+            "rate": 1.0
+          },
+          "TOP": {
+            "k": 46,
+            "n": 48,
+            "rate": 0.9583
+          }
+        },
+        "geometries": {
+          "open_hexagon_emblem": {
+            "k": 94,
+            "n": 96,
+            "rate": 0.9792
+          },
+          "paired_chevron_emblem": {
+            "k": 95,
+            "n": 96,
+            "rate": 0.9896
+          }
+        },
+        "overall": {
+          "k": 189,
+          "n": 192,
+          "rate": 0.9844
+        },
+        "sizes": {
+          "medium": {
+            "k": 96,
+            "n": 96,
+            "rate": 1.0
+          },
+          "small": {
+            "k": 93,
+            "n": 96,
+            "rate": 0.9688
+          }
+        }
+      },
+      "owlv2-base-patch16-ensemble": {
+        "cells": {
+          "BOTTOM|medium|open_hexagon_emblem": {
+            "k": 7,
+            "n": 12,
+            "rate": 0.5833,
+            "required": 11
+          },
+          "BOTTOM|medium|paired_chevron_emblem": {
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667,
+            "required": 11
+          },
+          "BOTTOM|small|open_hexagon_emblem": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333,
+            "required": 11
+          },
+          "BOTTOM|small|paired_chevron_emblem": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333,
+            "required": 11
+          },
+          "LEFT|medium|open_hexagon_emblem": {
+            "k": 6,
+            "n": 12,
+            "rate": 0.5,
+            "required": 11
+          },
+          "LEFT|medium|paired_chevron_emblem": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0,
+            "required": 11
+          },
+          "LEFT|small|open_hexagon_emblem": {
+            "k": 5,
+            "n": 12,
+            "rate": 0.4167,
+            "required": 11
+          },
+          "LEFT|small|paired_chevron_emblem": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0,
+            "required": 11
+          },
+          "RIGHT|medium|open_hexagon_emblem": {
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667,
+            "required": 11
+          },
+          "RIGHT|medium|paired_chevron_emblem": {
+            "k": 1,
+            "n": 12,
+            "rate": 0.0833,
+            "required": 11
+          },
+          "RIGHT|small|open_hexagon_emblem": {
+            "k": 7,
+            "n": 12,
+            "rate": 0.5833,
+            "required": 11
+          },
+          "RIGHT|small|paired_chevron_emblem": {
+            "k": 3,
+            "n": 12,
+            "rate": 0.25,
+            "required": 11
+          },
+          "TOP|medium|open_hexagon_emblem": {
+            "k": 2,
+            "n": 12,
+            "rate": 0.1667,
+            "required": 11
+          },
+          "TOP|medium|paired_chevron_emblem": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0,
+            "required": 11
+          },
+          "TOP|small|open_hexagon_emblem": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0,
+            "required": 11
+          },
+          "TOP|small|paired_chevron_emblem": {
+            "k": 1,
+            "n": 12,
+            "rate": 0.0833,
+            "required": 11
+          }
+        },
+        "edges": {
+          "BOTTOM": {
+            "k": 35,
+            "n": 48,
+            "rate": 0.7292
+          },
+          "LEFT": {
+            "k": 11,
+            "n": 48,
+            "rate": 0.2292
+          },
+          "RIGHT": {
+            "k": 19,
+            "n": 48,
+            "rate": 0.3958
+          },
+          "TOP": {
+            "k": 3,
+            "n": 48,
+            "rate": 0.0625
+          }
+        },
+        "geometries": {
+          "open_hexagon_emblem": {
+            "k": 45,
+            "n": 96,
+            "rate": 0.4688
+          },
+          "paired_chevron_emblem": {
+            "k": 23,
+            "n": 96,
+            "rate": 0.2396
+          }
+        },
+        "overall": {
+          "k": 68,
+          "n": 192,
+          "rate": 0.3542
+        },
+        "sizes": {
+          "medium": {
+            "k": 32,
+            "n": 96,
+            "rate": 0.3333
+          },
+          "small": {
+            "k": 36,
+            "n": 96,
+            "rate": 0.375
+          }
+        }
+      }
+    },
+    "proposalsBySource": {
+      "florence2-phrase-grounding": 965,
+      "grounding-dino-tiny": 1287,
+      "owlv2-base-patch16-ensemble": 73
+    },
+    "provenance": {
+      "florence2-phrase-grounding": {
+        "checks": {
+          "constructDigest": true,
+          "contractDigest": true,
+          "detectorSetDigest": true,
+          "license": true,
+          "originalsUnchanged": true,
+          "repo": true,
+          "revision": true,
+          "variant": true
+        },
+        "exact": true,
+        "peakRssGb": 4.04
+      },
+      "grounding-dino-tiny": {
+        "checks": {
+          "constructDigest": true,
+          "contractDigest": true,
+          "detectorSetDigest": true,
+          "license": true,
+          "originalsUnchanged": true,
+          "repo": true,
+          "revision": true,
+          "variant": true
+        },
+        "exact": true,
+        "peakRssGb": 2.79
+      },
+      "owlv2-base-patch16-ensemble": {
+        "checks": {
+          "constructDigest": true,
+          "contractDigest": true,
+          "detectorSetDigest": true,
+          "license": true,
+          "originalsUnchanged": true,
+          "repo": true,
+          "revision": true,
+          "variant": true
+        },
+        "exact": true,
+        "peakRssGb": 4.43
+      }
+    },
+    "provenanceExact": true,
+    "rowsPerDetector": {
+      "florence2-phrase-grounding": 192,
+      "grounding-dino-tiny": 192,
+      "owlv2-base-patch16-ensemble": 192
+    },
+    "sizes": {
+      "medium": {
+        "k": 96,
+        "n": 96,
+        "rate": 1.0
+      },
+      "small": {
+        "k": 94,
+        "n": 96,
+        "rate": 0.9792
+      }
+    },
+    "split": "development",
+    "variant": "EDGE_DEV_VARIANT"
+  },
+  "developmentPassFrozen": {
+    "developmentInputsDigestPrefix": "fc62c69fc5c1"
+  },
+  "expected": {
+    "cellN": {
+      "development": 12,
+      "holdout": 8
+    },
+    "conditionsPerBase": 16,
+    "developmentPositives": 192,
+    "edgeN": {
+      "development": 48,
+      "holdout": 32
+    },
+    "geometryN": {
+      "development": 96,
+      "holdout": 64
+    },
+    "holdoutPositives": 128,
+    "sizeN": {
+      "development": 96,
+      "holdout": 64
+    }
+  },
+  "externalCalls": 0,
+  "floors": {
+    "axis": 0.9,
+    "overall": 0.95
+  },
+  "freezeCommitPrefix": "cef1b5be",
+  "gaps": {
+    "graphicalDetector": "GRAPHICAL_DETECTOR_STUDY_REQUIRED",
+    "naturalPositive": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "textDetector": "TEXT_DETECTOR_CONTROLLED_GAP_OPEN",
+    "textPolicyGap": "TEXT_POLICY_GAP_UNRESOLVED (canonical policy unchanged)"
+  },
+  "generators": {
+    "florence2-phrase-grounding": "presence",
+    "grounding-dino-tiny": "historical_0.25",
+    "owlv2-base-patch16-ensemble": "legacy_0.25"
+  },
+  "holdout": {
+    "bases": 8,
+    "cells": {
+      "BOTTOM|medium|broken_ring_emblem": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "required": 8
+      },
+      "BOTTOM|medium|offset_bar_emblem": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "required": 8
+      },
+      "BOTTOM|small|broken_ring_emblem": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "required": 8
+      },
+      "BOTTOM|small|offset_bar_emblem": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "required": 8
+      },
+      "LEFT|medium|broken_ring_emblem": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "required": 8
+      },
+      "LEFT|medium|offset_bar_emblem": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "required": 8
+      },
+      "LEFT|small|broken_ring_emblem": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "required": 8
+      },
+      "LEFT|small|offset_bar_emblem": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "required": 8
+      },
+      "RIGHT|medium|broken_ring_emblem": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "required": 8
+      },
+      "RIGHT|medium|offset_bar_emblem": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "required": 8
+      },
+      "RIGHT|small|broken_ring_emblem": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "required": 8
+      },
+      "RIGHT|small|offset_bar_emblem": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "required": 8
+      },
+      "TOP|medium|broken_ring_emblem": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "required": 8
+      },
+      "TOP|medium|offset_bar_emblem": {
+        "k": 5,
+        "n": 8,
+        "rate": 0.625,
+        "required": 8
+      },
+      "TOP|small|broken_ring_emblem": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "required": 8
+      },
+      "TOP|small|offset_bar_emblem": {
+        "k": 8,
+        "n": 8,
+        "rate": 1.0,
+        "required": 8
+      }
+    },
+    "complete": true,
+    "edges": {
+      "BOTTOM": {
+        "k": 32,
+        "n": 32,
+        "rate": 1.0
+      },
+      "LEFT": {
+        "k": 32,
+        "n": 32,
+        "rate": 1.0
+      },
+      "RIGHT": {
+        "k": 32,
+        "n": 32,
+        "rate": 1.0
+      },
+      "TOP": {
+        "k": 29,
+        "n": 32,
+        "rate": 0.9062
+      }
+    },
+    "expectedBases": 8,
+    "expectedRows": 128,
+    "gate": {
+      "criteria": {
+        "A": true,
+        "B": true,
+        "C": true,
+        "D": true,
+        "E": true,
+        "F": true,
+        "G": true,
+        "H": true,
+        "I": true,
+        "J:BOTTOM|medium|broken_ring_emblem": true,
+        "J:BOTTOM|medium|offset_bar_emblem": true,
+        "J:BOTTOM|small|broken_ring_emblem": true,
+        "J:BOTTOM|small|offset_bar_emblem": true,
+        "J:LEFT|medium|broken_ring_emblem": true,
+        "J:LEFT|medium|offset_bar_emblem": true,
+        "J:LEFT|small|broken_ring_emblem": true,
+        "J:LEFT|small|offset_bar_emblem": true,
+        "J:RIGHT|medium|broken_ring_emblem": true,
+        "J:RIGHT|medium|offset_bar_emblem": true,
+        "J:RIGHT|small|broken_ring_emblem": true,
+        "J:RIGHT|small|offset_bar_emblem": true,
+        "J:TOP|medium|broken_ring_emblem": true,
+        "J:TOP|medium|offset_bar_emblem": false,
+        "J:TOP|small|broken_ring_emblem": true,
+        "J:TOP|small|offset_bar_emblem": true
+      },
+      "failed": [
+        "J:TOP|medium|offset_bar_emblem"
+      ],
+      "pass": false,
+      "required": {
+        "cell": {
+          "BOTTOM|medium|broken_ring_emblem": 8,
+          "BOTTOM|medium|offset_bar_emblem": 8,
+          "BOTTOM|small|broken_ring_emblem": 8,
+          "BOTTOM|small|offset_bar_emblem": 8,
+          "LEFT|medium|broken_ring_emblem": 8,
+          "LEFT|medium|offset_bar_emblem": 8,
+          "LEFT|small|broken_ring_emblem": 8,
+          "LEFT|small|offset_bar_emblem": 8,
+          "RIGHT|medium|broken_ring_emblem": 8,
+          "RIGHT|medium|offset_bar_emblem": 8,
+          "RIGHT|small|broken_ring_emblem": 8,
+          "RIGHT|small|offset_bar_emblem": 8,
+          "TOP|medium|broken_ring_emblem": 8,
+          "TOP|medium|offset_bar_emblem": 8,
+          "TOP|small|broken_ring_emblem": 8,
+          "TOP|small|offset_bar_emblem": 8
+        },
+        "edge": {
+          "BOTTOM": 29,
+          "LEFT": 29,
+          "RIGHT": 29,
+          "TOP": 29
+        },
+        "geometry": {
+          "broken_ring_emblem": 58,
+          "offset_bar_emblem": 58
+        },
+        "overall": 122,
+        "size": {
+          "medium": 58,
+          "small": 58
+        }
+      }
+    },
+    "geometries": {
+      "broken_ring_emblem": {
+        "k": 64,
+        "n": 64,
+        "rate": 1.0
+      },
+      "offset_bar_emblem": {
+        "k": 61,
+        "n": 64,
+        "rate": 0.9531
+      }
+    },
+    "inputsDigest": "a7c411cdc5f8",
+    "overall": {
+      "k": 125,
+      "n": 128,
+      "rate": 0.9766
+    },
+    "perDetector": {
+      "florence2-phrase-grounding": {
+        "cells": {
+          "BOTTOM|medium|broken_ring_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "BOTTOM|medium|offset_bar_emblem": {
+            "k": 6,
+            "n": 8,
+            "rate": 0.75,
+            "required": 8
+          },
+          "BOTTOM|small|broken_ring_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "BOTTOM|small|offset_bar_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "LEFT|medium|broken_ring_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "LEFT|medium|offset_bar_emblem": {
+            "k": 6,
+            "n": 8,
+            "rate": 0.75,
+            "required": 8
+          },
+          "LEFT|small|broken_ring_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "LEFT|small|offset_bar_emblem": {
+            "k": 7,
+            "n": 8,
+            "rate": 0.875,
+            "required": 8
+          },
+          "RIGHT|medium|broken_ring_emblem": {
+            "k": 7,
+            "n": 8,
+            "rate": 0.875,
+            "required": 8
+          },
+          "RIGHT|medium|offset_bar_emblem": {
+            "k": 7,
+            "n": 8,
+            "rate": 0.875,
+            "required": 8
+          },
+          "RIGHT|small|broken_ring_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "RIGHT|small|offset_bar_emblem": {
+            "k": 7,
+            "n": 8,
+            "rate": 0.875,
+            "required": 8
+          },
+          "TOP|medium|broken_ring_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "TOP|medium|offset_bar_emblem": {
+            "k": 2,
+            "n": 8,
+            "rate": 0.25,
+            "required": 8
+          },
+          "TOP|small|broken_ring_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "TOP|small|offset_bar_emblem": {
+            "k": 5,
+            "n": 8,
+            "rate": 0.625,
+            "required": 8
+          }
+        },
+        "edges": {
+          "BOTTOM": {
+            "k": 30,
+            "n": 32,
+            "rate": 0.9375
+          },
+          "LEFT": {
+            "k": 29,
+            "n": 32,
+            "rate": 0.9062
+          },
+          "RIGHT": {
+            "k": 29,
+            "n": 32,
+            "rate": 0.9062
+          },
+          "TOP": {
+            "k": 23,
+            "n": 32,
+            "rate": 0.7188
+          }
+        },
+        "geometries": {
+          "broken_ring_emblem": {
+            "k": 63,
+            "n": 64,
+            "rate": 0.9844
+          },
+          "offset_bar_emblem": {
+            "k": 48,
+            "n": 64,
+            "rate": 0.75
+          }
+        },
+        "overall": {
+          "k": 111,
+          "n": 128,
+          "rate": 0.8672
+        },
+        "sizes": {
+          "medium": {
+            "k": 52,
+            "n": 64,
+            "rate": 0.8125
+          },
+          "small": {
+            "k": 59,
+            "n": 64,
+            "rate": 0.9219
+          }
+        }
+      },
+      "grounding-dino-tiny": {
+        "cells": {
+          "BOTTOM|medium|broken_ring_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "BOTTOM|medium|offset_bar_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "BOTTOM|small|broken_ring_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "BOTTOM|small|offset_bar_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "LEFT|medium|broken_ring_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "LEFT|medium|offset_bar_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "LEFT|small|broken_ring_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "LEFT|small|offset_bar_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "RIGHT|medium|broken_ring_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "RIGHT|medium|offset_bar_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "RIGHT|small|broken_ring_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "RIGHT|small|offset_bar_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "TOP|medium|broken_ring_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "TOP|medium|offset_bar_emblem": {
+            "k": 5,
+            "n": 8,
+            "rate": 0.625,
+            "required": 8
+          },
+          "TOP|small|broken_ring_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          },
+          "TOP|small|offset_bar_emblem": {
+            "k": 8,
+            "n": 8,
+            "rate": 1.0,
+            "required": 8
+          }
+        },
+        "edges": {
+          "BOTTOM": {
+            "k": 32,
+            "n": 32,
+            "rate": 1.0
+          },
+          "LEFT": {
+            "k": 32,
+            "n": 32,
+            "rate": 1.0
+          },
+          "RIGHT": {
+            "k": 32,
+            "n": 32,
+            "rate": 1.0
+          },
+          "TOP": {
+            "k": 29,
+            "n": 32,
+            "rate": 0.9062
+          }
+        },
+        "geometries": {
+          "broken_ring_emblem": {
+            "k": 64,
+            "n": 64,
+            "rate": 1.0
+          },
+          "offset_bar_emblem": {
+            "k": 61,
+            "n": 64,
+            "rate": 0.9531
+          }
+        },
+        "overall": {
+          "k": 125,
+          "n": 128,
+          "rate": 0.9766
+        },
+        "sizes": {
+          "medium": {
+            "k": 61,
+            "n": 64,
+            "rate": 0.9531
+          },
+          "small": {
+            "k": 64,
+            "n": 64,
+            "rate": 1.0
+          }
+        }
+      },
+      "owlv2-base-patch16-ensemble": {
+        "cells": {
+          "BOTTOM|medium|broken_ring_emblem": {
+            "k": 0,
+            "n": 8,
+            "rate": 0.0,
+            "required": 8
+          },
+          "BOTTOM|medium|offset_bar_emblem": {
+            "k": 0,
+            "n": 8,
+            "rate": 0.0,
+            "required": 8
+          },
+          "BOTTOM|small|broken_ring_emblem": {
+            "k": 0,
+            "n": 8,
+            "rate": 0.0,
+            "required": 8
+          },
+          "BOTTOM|small|offset_bar_emblem": {
+            "k": 0,
+            "n": 8,
+            "rate": 0.0,
+            "required": 8
+          },
+          "LEFT|medium|broken_ring_emblem": {
+            "k": 0,
+            "n": 8,
+            "rate": 0.0,
+            "required": 8
+          },
+          "LEFT|medium|offset_bar_emblem": {
+            "k": 0,
+            "n": 8,
+            "rate": 0.0,
+            "required": 8
+          },
+          "LEFT|small|broken_ring_emblem": {
+            "k": 0,
+            "n": 8,
+            "rate": 0.0,
+            "required": 8
+          },
+          "LEFT|small|offset_bar_emblem": {
+            "k": 2,
+            "n": 8,
+            "rate": 0.25,
+            "required": 8
+          },
+          "RIGHT|medium|broken_ring_emblem": {
+            "k": 1,
+            "n": 8,
+            "rate": 0.125,
+            "required": 8
+          },
+          "RIGHT|medium|offset_bar_emblem": {
+            "k": 0,
+            "n": 8,
+            "rate": 0.0,
+            "required": 8
+          },
+          "RIGHT|small|broken_ring_emblem": {
+            "k": 2,
+            "n": 8,
+            "rate": 0.25,
+            "required": 8
+          },
+          "RIGHT|small|offset_bar_emblem": {
+            "k": 3,
+            "n": 8,
+            "rate": 0.375,
+            "required": 8
+          },
+          "TOP|medium|broken_ring_emblem": {
+            "k": 0,
+            "n": 8,
+            "rate": 0.0,
+            "required": 8
+          },
+          "TOP|medium|offset_bar_emblem": {
+            "k": 0,
+            "n": 8,
+            "rate": 0.0,
+            "required": 8
+          },
+          "TOP|small|broken_ring_emblem": {
+            "k": 1,
+            "n": 8,
+            "rate": 0.125,
+            "required": 8
+          },
+          "TOP|small|offset_bar_emblem": {
+            "k": 0,
+            "n": 8,
+            "rate": 0.0,
+            "required": 8
+          }
+        },
+        "edges": {
+          "BOTTOM": {
+            "k": 0,
+            "n": 32,
+            "rate": 0.0
+          },
+          "LEFT": {
+            "k": 2,
+            "n": 32,
+            "rate": 0.0625
+          },
+          "RIGHT": {
+            "k": 6,
+            "n": 32,
+            "rate": 0.1875
+          },
+          "TOP": {
+            "k": 1,
+            "n": 32,
+            "rate": 0.0312
+          }
+        },
+        "geometries": {
+          "broken_ring_emblem": {
+            "k": 4,
+            "n": 64,
+            "rate": 0.0625
+          },
+          "offset_bar_emblem": {
+            "k": 5,
+            "n": 64,
+            "rate": 0.0781
+          }
+        },
+        "overall": {
+          "k": 9,
+          "n": 128,
+          "rate": 0.0703
+        },
+        "sizes": {
+          "medium": {
+            "k": 1,
+            "n": 64,
+            "rate": 0.0156
+          },
+          "small": {
+            "k": 8,
+            "n": 64,
+            "rate": 0.125
+          }
+        }
+      }
+    },
+    "proposalsBySource": {
+      "florence2-phrase-grounding": 555,
+      "grounding-dino-tiny": 660,
+      "owlv2-base-patch16-ensemble": 9
+    },
+    "provenance": {
+      "florence2-phrase-grounding": {
+        "checks": {
+          "constructDigest": true,
+          "contractDigest": true,
+          "detectorSetDigest": true,
+          "license": true,
+          "originalsUnchanged": true,
+          "repo": true,
+          "revision": true,
+          "variant": true
+        },
+        "exact": true,
+        "peakRssGb": 3.95
+      },
+      "grounding-dino-tiny": {
+        "checks": {
+          "constructDigest": true,
+          "contractDigest": true,
+          "detectorSetDigest": true,
+          "license": true,
+          "originalsUnchanged": true,
+          "repo": true,
+          "revision": true,
+          "variant": true
+        },
+        "exact": true,
+        "peakRssGb": 2.84
+      },
+      "owlv2-base-patch16-ensemble": {
+        "checks": {
+          "constructDigest": true,
+          "contractDigest": true,
+          "detectorSetDigest": true,
+          "license": true,
+          "originalsUnchanged": true,
+          "repo": true,
+          "revision": true,
+          "variant": true
+        },
+        "exact": true,
+        "peakRssGb": 5.76
+      }
+    },
+    "provenanceExact": true,
+    "rowsPerDetector": {
+      "florence2-phrase-grounding": 128,
+      "grounding-dino-tiny": 128,
+      "owlv2-base-patch16-ensemble": 128
+    },
+    "sizes": {
+      "medium": {
+        "k": 61,
+        "n": 64,
+        "rate": 0.9531
+      },
+      "small": {
+        "k": 64,
+        "n": 64,
+        "rate": 1.0
+      }
+    },
+    "split": "holdout",
+    "variant": "EDGE_HOLDOUT_VARIANT"
+  },
+  "holdoutEvaluated": 1,
+  "holdoutName": "EDGE_CONSTRUCT_SPECIFIC_FROZEN_HOLDOUT",
+  "interpretation": {
+    "b3l13": "PROPOSAL_UNION_COVERAGE_INSUFFICIENT",
+    "b3l13EdgeMark": "10/12 (unresolved misses on the original construct)",
+    "b3l13Reopened": false,
+    "b3l13VerifierContinuationAllowed": false,
+    "criticalMarker": "EDGE_MARK_REMAINS_CRITICAL_FAMILY",
+    "markers": [
+      "EDGE_ZERO_SHOT_GENERALIZATION_LIMIT"
+    ],
+    "note": "a pass is evidence for a new hypothesis on new edge constructs only; the B3-L13 failure on its construct stands; any continuation needs a new owner-approved hypothesis",
+    "status": "EDGE_PROPOSAL_GAP_REPLICATED"
+  },
+  "iouMatch": 0.3,
+  "l11HoldoutAudit": {
+    "captures": {
+      "florence2-phrase-grounding": false,
+      "grounding-dino-tiny": false,
+      "owlv2-base-patch16-ensemble": false
+    },
+    "lockExists": false,
+    "selectedMarkerExists": false,
+    "untouched": true
+  },
+  "markers": [
+    "EDGE_MARK_REMAINS_CRITICAL_FAMILY",
+    "VERIFIER_STAGE_PROHIBITED_IN_B3_L14A"
+  ],
+  "nextStepIsNotRetuning": true,
+  "originals": {
+    "authorized": 28,
+    "method": "SHA-256 + mtime before/after",
+    "unchangedAfterAllInference": 28
+  },
+  "priorStatus": {
+    "B3_L10A": "FLORENCE_SEQUENCE_SCORE_NOT_SEPARATING",
+    "B3_L10B": "FLORENCE_TWO_FEATURE_NOT_SEPARATING",
+    "B3_L11": "VISUAL_MARK_DETECTOR_FAILED_DEVELOPMENT",
+    "B3_L11_HOLDOUT_EXECUTIONS": 0,
+    "B3_L11_HOLDOUT_OPENED": false,
+    "B3_L12A": "GDINO_GEOMETRY_FILTER_FAILED_DEVELOPMENT",
+    "B3_L12A_DIAGNOSIS": [
+      "CLEAN_GEOMETRY_NOT_SEPARATING",
+      "EDGE_FAMILY_STILL_UNDERDETECTED",
+      "GRAPHICAL_WATERMARK_STILL_UNDERDETECTED",
+      "MIXED"
+    ],
+    "B3_L13": "PROPOSAL_UNION_COVERAGE_INSUFFICIENT",
+    "B3_L13_EDGE_MARK": "10/12",
+    "B3_L13_HOLDOUT": "NOT_OPENED",
+    "B3_L13_UNION_OVERALL": "164/168",
+    "B3_L13_VERIFIER": "NOT_STARTED",
+    "B3_L9": "TEXT_POLICY_SHADOW_HOLDOUT_FAILED",
+    "FLORENCE_TELEMETRY": "FLORENCE_TELEMETRY_TEXT_PATH_CLOSED_ON_CURRENT_CORPUS",
+    "GRAPHICAL_CHANNEL_GAP": "unresolved",
+    "GRAPHICAL_DETECTOR": "GRAPHICAL_DETECTOR_STUDY_REQUIRED",
+    "NATURAL_POSITIVE": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "TEXT_POLICY_GAP": "unresolved",
+    "V1": "OWLV2_POSITIVE_GROUND_TRUTH_INSUFFICIENT",
+    "V2": "OWLV2_CONTROLLED_GATE_FAILED_DEVELOPMENT",
+    "V3": "V3_DUAL_CHANNEL_FAILED_DEVELOPMENT"
+  },
+  "productionWrites": 0,
+  "prompts": [
+    "a logo",
+    "a watermark",
+    "a brand emblem",
+    "a graphic symbol"
+  ],
+  "reportVersion": "avatar_edge_mark_eval_v1",
+  "thresholds": {
+    "florence2-phrase-grounding": "presence",
+    "grounding-dino-tiny": {
+      "box": 0.25,
+      "text": 0.25
+    },
+    "owlv2-base-patch16-ensemble": 0.25
+  },
+  "verdict": "EDGE_PROPOSAL_GENERALIZATION_HOLDOUT_FAILED",
+  "verifierEmbeddings": 0,
+  "version": "EDGE_MARK_GENERALIZATION_V1",
+  "watermarkPolicyChanged": false
+}
