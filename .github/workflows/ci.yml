@@ -347,6 +347,12 @@ jobs:
       - run: pytest -q tests/test_avatar_edge_scan_verifier.py --maxfail=10
         env:
           PYTHONPATH: .
+      # B3-L16A: B3-L15A proposal architecture 그대로(EDGE_SCAN_PROPOSAL_CONTRACT_FROZEN_AFTER_B3_L15A) + 유일한 새 가설 = CLIP → facebook/dinov2-base
+      # (pinned revision, 공식 preprocessor, pooler_output CLS, L2) 교체. 후보 1개·비선형 head 금지·layer/pooling search 금지, 같은 crop/label/fold/
+      # linear recipe/grid, OOF 만 선택, stress ≠ holdout, B3-L11 원 holdout 1회, dev 실패 시 representation search stop rule.
+      - run: pytest -q tests/test_avatar_dinov2_verifier.py --maxfail=10
+        env:
+          PYTHONPATH: .
       # 배포 가드는 Windows 운영자 셸에서 Hangul env 값을 "???" 로 읽어 바뀐 적
       # 없는 변수를 changed 로 보고했다. 인코딩과 키 단위 승인 계약을 Linux
       # 에서도 고정한다.
