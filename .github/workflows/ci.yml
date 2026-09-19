@@ -356,6 +356,8 @@ jobs:
       # B3-L17A: SUPERVISED_WATERMARK_LOGO_DATASET_V1 data-design contract only (no training/inference): source policy, ontology(B3 authority),
       # region schema, blinded dual-rater workflow, group leakage unit, sha256+pHash dedup, deterministic group-disjoint split, sealed-test lock,
       # Clopper-Pearson sufficiency helper(29/46/59), legacy contamination classification, aggregate-only artifacts.
+      # B3-L17A.1 (V1_1): evaluation-quota vs collection-quota correction — splitter-simulated minimum collection (142/227/292),
+      # multi-label group split, NATURAL_CLEAN_REPRESENTATIVE vs BENIGN_HARD_NEGATIVE_STRESS, sealed quota validator; V1 artifacts pinned.
       - run: pytest -q tests/test_avatar_supervised_dataset_contract.py --maxfail=10
         env:
           PYTHONPATH: .

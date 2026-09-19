@@ -313,7 +313,7 @@ def test_training_size_not_inferred_from_evaluation_n():
     assert ss.TRAINING_SIZE_STATUS == sc.TRAINING_SIZE_STATUS == "TRAINING_SIZE_NOT_YET_JUSTIFIED"
     with pytest.raises(RuntimeError):
         ss.training_size_from_evaluation_n(29)
-    assert ss.plan()["trainingSize"] == {"status": "TRAINING_SIZE_NOT_YET_JUSTIFIED", "decidedBy": "future supervised phase learning-curve contract", "evaluationNIsNotTrainingN": True}
+    assert ss.plan()["trainingSize"].items() >= {"status": "TRAINING_SIZE_NOT_YET_JUSTIFIED", "decidedBy": "future supervised phase learning-curve contract", "evaluationNIsNotTrainingN": True}.items()
 
 
 # ------------------------------------------------------------ 26-30 privacy / artifacts / no training / no production / no paid generation
@@ -380,7 +380,7 @@ def test_no_paid_image_generation():
 
 
 def test_split_planner_deterministic_and_class_aware():
-    groups = _groups(40, stratum="CLEAN") + [dict(g, groupId=f"grp-p{i:03d}", stratum="GRAPHICAL_LOGO") for i, g in enumerate(_groups(10))]
+    groups = _groups(40, stratum="NATURAL_CLEAN_REPRESENTATIVE") + [dict(g, groupId=f"grp-p{i:03d}", stratum="GRAPHICAL_LOGO") for i, g in enumerate(_groups(10))]
     plan1 = sp.plan_split(groups)
     plan2 = sp.plan_split(list(reversed(groups)))
     assert plan1 == plan2
@@ -581,7 +581,9 @@ def test_a12_group_duplicated_across_strata_rejected():
 def test_a13_multi_label_allocation_rule_frozen():
     assert sc.SPLIT_ALGORITHM.startswith("group-level multi-label: order groups by sha256(SEED + groupId); integer quotas per (label, provenance pool, partition) by largest remainder")
     assert "deficit" in sc.SPLIT_ALGORITHM and "no manual override" in sc.SPLIT_ALGORITHM and "no model score" in sc.SPLIT_ALGORITHM
-    assert sp.integer_quotas(143, {"TRAIN_DEVELOPMENT": 0.6, "VALIDATION": 0.2, "SEALED_TEST": 0.2}) == {"TRAIN_DEVELOPMENT": 85, "VALIDATION": 29, "SEALED_TEST": 29}
+    assert sp.integer_quotas(143, {"TRAIN_DEVELOPMENT": 0.6, "VALIDATION": 0.2, "SEALED_TEST": 0.2}) == {"TRAIN_DEVELOPMENT": 86, "VALIDATION": 28, "SEALED_TEST": 29}   # 85.8/28.6/28.6: remainders .8 > .6 = .6, tie -> SEALED_TEST
+    assert sp.integer_quotas(142, {"TRAIN_DEVELOPMENT": 0.6, "VALIDATION": 0.2, "SEALED_TEST": 0.2}) == {"TRAIN_DEVELOPMENT": 85, "VALIDATION": 28, "SEALED_TEST": 29}   # 85.2/28.4/28.4: one seat, tie -> SEALED_TEST
+    assert sp.integer_quotas(141, {"TRAIN_DEVELOPMENT": 0.6, "VALIDATION": 0.2, "SEALED_TEST": 0.2}) == {"TRAIN_DEVELOPMENT": 85, "VALIDATION": 28, "SEALED_TEST": 28}   # 84.6/28.2/28.2: seat -> TRAIN
     assert sp.integer_quotas(5, {"TRAIN_DEVELOPMENT": 0.6, "VALIDATION": 0.2, "SEALED_TEST": 0.2}) == {"TRAIN_DEVELOPMENT": 3, "VALIDATION": 1, "SEALED_TEST": 1}
     assert sp.integer_quotas(4, {"TRAIN_DEVELOPMENT": 0.75, "VALIDATION": 0.25}) == {"TRAIN_DEVELOPMENT": 3, "VALIDATION": 1}
     assert sp.REMAINDER_TIE_BREAK == ("SEALED_TEST", "VALIDATION", "TRAIN_DEVELOPMENT")

@@ -1,0 +1,643 @@
+{
+  "annotationSchemaVersion": "supervised_watermark_logo_region_schema_v1",
+  "benignClasses": [
+    "GARMENT_TEXT",
+    "BACKGROUND_SIGNAGE"
+  ],
+  "buildsDeploys": 0,
+  "classifierFits": 0,
+  "cleanCategories": {
+    "BENIGN_HARD_NEGATIVE_STRESS": {
+      "countsTowardRepresentativeClean": false,
+      "definition": "benign distractor outputs (garment text, background signage, decorative graphics, skin/hair texture, jewelry/accessory, seams/patterns) that may be deliberately enriched",
+      "enrichmentAllowed": true,
+      "metric": "HARD_NEGATIVE_STRESS_FALSE_REVIEW_RATE",
+      "productionPrevalenceClaim": false,
+      "selectedByModelScore": false,
+      "statisticalGate": "separate stress metric; never a production clean prevalence estimate"
+    },
+    "NATURAL_CLEAN_REPRESENTATIVE": {
+      "definition": "natural clean output drawn from the canonical generation distribution without any relevant policy mark",
+      "enrichmentAllowed": false,
+      "metric": "REPRESENTATIVE_CLEAN_FALSE_REVIEW_RATE",
+      "originKind": "NATURAL_GENERATED_OUTPUT",
+      "productionPrevalenceClaim": true,
+      "selectedByModelScore": false,
+      "statisticalGate": "production-style false-review gate: SEALED_TEST 0/29 -> upper bound < 0.10; aspirational 0/59 -> < 0.05"
+    }
+  },
+  "cleanNegativeCorpus": "CLEAN_NEGATIVE_CORPUS_INSUFFICIENT",
+  "collectionGapByClassMinimum": {
+    "BRAND_TEXT_OR_MARK": 142,
+    "GENERATIVE_TEXT_ARTIFACT": 142,
+    "GRAPHICAL_LOGO": 142,
+    "NATURAL_CLEAN_REPRESENTATIVE": 142,
+    "OVERLAY_WATERMARK": 142
+  },
+  "collectionPlan": {
+    "benignHardNegativeKinds": [
+      "GARMENT_TEXT",
+      "BACKGROUND_SIGNAGE",
+      "benign decorative graphics",
+      "face/skin/hair texture",
+      "jewelry/accessory detail",
+      "clothing seams/patterns"
+    ],
+    "cleanCategories": [
+      "NATURAL_CLEAN_REPRESENTATIVE",
+      "BENIGN_HARD_NEGATIVE_STRESS"
+    ],
+    "cleanIndependentGroupsForEvaluation": {
+      "category": "NATURAL_CLEAN_REPRESENTATIVE",
+      "countKind": "EVALUATION_ELIGIBLE_SEALED_GROUPS",
+      "zeroFalseReview": 29,
+      "zeroFalseReviewAt5pct": 59
+    },
+    "countKinds": [
+      "COLLECTED_GROUPS",
+      "PARTITIONED_GROUPS",
+      "EVALUATION_ELIGIBLE_SEALED_GROUPS"
+    ],
+    "executed": false,
+    "execution": "NOT_EXECUTED_PLAN_ONLY",
+    "hardNegativeMining": "separate phase after training; never in this contract",
+    "hardNegativeStress": "BENIGN_HARD_NEGATIVE_STRESS may be enriched; reported as HARD_NEGATIVE_STRESS_FALSE_REVIEW_RATE only",
+    "minimumCollection": {
+      "clean29": {
+        "assumption": "single-label groups in one provenance pool; multi-label corpora are checked by the sealed quota validator at manifest freeze",
+        "countKind": "COLLECTED_GROUPS",
+        "isTrainingSizeRequirement": false,
+        "method": "simulate the frozen deterministic splitter on n synthetic opaque groups",
+        "minimumCollectedIndependentGroupsRequired": 142,
+        "naiveCeil": 145,
+        "naiveCeilIsAuthority": false,
+        "provenancePool": "FUTURE",
+        "sealedFraction": 0.2,
+        "sealedGroupsAtMinimum": 29,
+        "sealedGroupsOneBelow": 28,
+        "splitPlanDigestPrefix": "2e7e1bb8f31a",
+        "stratum": "NATURAL_CLEAN_REPRESENTATIVE",
+        "targetCountKind": "EVALUATION_ELIGIBLE_SEALED_GROUPS",
+        "targetSealedGroups": 29,
+        "trainingSize": "TRAINING_SIZE_NOT_YET_JUSTIFIED",
+        "unit": "independent group (never image, crop or region)"
+      },
+      "clean59Aspirational": {
+        "assumption": "single-label groups in one provenance pool; multi-label corpora are checked by the sealed quota validator at manifest freeze",
+        "countKind": "COLLECTED_GROUPS",
+        "isTrainingSizeRequirement": false,
+        "method": "simulate the frozen deterministic splitter on n synthetic opaque groups",
+        "minimumCollectedIndependentGroupsRequired": 292,
+        "naiveCeil": 295,
+        "naiveCeilIsAuthority": false,
+        "provenancePool": "FUTURE",
+        "sealedFraction": 0.2,
+        "sealedGroupsAtMinimum": 59,
+        "sealedGroupsOneBelow": 58,
+        "splitPlanDigestPrefix": "2e7e1bb8f31a",
+        "stratum": "NATURAL_CLEAN_REPRESENTATIVE",
+        "targetCountKind": "EVALUATION_ELIGIBLE_SEALED_GROUPS",
+        "targetSealedGroups": 59,
+        "trainingSize": "TRAINING_SIZE_NOT_YET_JUSTIFIED",
+        "unit": "independent group (never image, crop or region)"
+      },
+      "countKind": "COLLECTED_GROUPS",
+      "isTrainingSizeRequirement": false,
+      "method": "simulate the frozen deterministic splitter on n synthetic opaque groups",
+      "sealed29": {
+        "assumption": "single-label groups in one provenance pool; multi-label corpora are checked by the sealed quota validator at manifest freeze",
+        "countKind": "COLLECTED_GROUPS",
+        "isTrainingSizeRequirement": false,
+        "method": "simulate the frozen deterministic splitter on n synthetic opaque groups",
+        "minimumCollectedIndependentGroupsRequired": 142,
+        "naiveCeil": 145,
+        "naiveCeilIsAuthority": false,
+        "provenancePool": "FUTURE",
+        "sealedFraction": 0.2,
+        "sealedGroupsAtMinimum": 29,
+        "sealedGroupsOneBelow": 28,
+        "splitPlanDigestPrefix": "2e7e1bb8f31a",
+        "stratum": "GRAPHICAL_LOGO",
+        "targetCountKind": "EVALUATION_ELIGIBLE_SEALED_GROUPS",
+        "targetSealedGroups": 29,
+        "trainingSize": "TRAINING_SIZE_NOT_YET_JUSTIFIED",
+        "unit": "independent group (never image, crop or region)"
+      },
+      "sealed46": {
+        "assumption": "single-label groups in one provenance pool; multi-label corpora are checked by the sealed quota validator at manifest freeze",
+        "countKind": "COLLECTED_GROUPS",
+        "isTrainingSizeRequirement": false,
+        "method": "simulate the frozen deterministic splitter on n synthetic opaque groups",
+        "minimumCollectedIndependentGroupsRequired": 227,
+        "naiveCeil": 230,
+        "naiveCeilIsAuthority": false,
+        "provenancePool": "FUTURE",
+        "sealedFraction": 0.2,
+        "sealedGroupsAtMinimum": 46,
+        "sealedGroupsOneBelow": 45,
+        "splitPlanDigestPrefix": "2e7e1bb8f31a",
+        "stratum": "GRAPHICAL_LOGO",
+        "targetCountKind": "EVALUATION_ELIGIBLE_SEALED_GROUPS",
+        "targetSealedGroups": 46,
+        "trainingSize": "TRAINING_SIZE_NOT_YET_JUSTIFIED",
+        "unit": "independent group (never image, crop or region)"
+      }
+    },
+    "naturalPositiveStrata": [
+      "BRAND_TEXT_OR_MARK",
+      "OVERLAY_WATERMARK",
+      "GRAPHICAL_LOGO",
+      "GENERATIVE_TEXT_ARTIFACT"
+    ],
+    "overlayTextSeparate": "OVERLAY_TEXT held separately (TEXT_POLICY_GAP unresolved)",
+    "paidGenerationRequired": "YES (new first-party generated outputs; not executed; count/cost/privacy plan only)",
+    "perStratumIndependentGroupsForEvaluation": {
+      "countKind": "EVALUATION_ELIGIBLE_SEALED_GROUPS",
+      "oneMiss": 46,
+      "zeroMiss": 29
+    },
+    "productionUserDataRequired": "NO (unless separately approved by owner/privacy)",
+    "source": "owner-authorized first-party generated avatar outputs",
+    "syntheticCountedAsNatural": false,
+    "targetCountKind": "EVALUATION_ELIGIBLE_SEALED_GROUPS"
+  },
+  "contractDigestPrefix": "c1b80fea5509",
+  "correctionMarker": "SUPERVISED_DATA_COLLECTION_CONTRACT_READY_AFTER_QUOTA_CORRECTION",
+  "countKinds": [
+    "COLLECTED_GROUPS",
+    "PARTITIONED_GROUPS",
+    "EVALUATION_ELIGIBLE_SEALED_GROUPS"
+  ],
+  "criticalPositiveStrata": [
+    "BRAND_TEXT_OR_MARK",
+    "OVERLAY_WATERMARK",
+    "GRAPHICAL_LOGO",
+    "GENERATIVE_TEXT_ARTIFACT"
+  ],
+  "currentCleanContaminatedIndependentGroups": 5,
+  "currentCleanUncontaminatedIndependentGroups": 0,
+  "currentNaturalPositiveIndependentGroups": {
+    "BRAND_TEXT_OR_MARK": 0,
+    "GENERATIVE_TEXT_ARTIFACT": 0,
+    "GRAPHICAL_LOGO": 0,
+    "OVERLAY_WATERMARK": 0
+  },
+  "datasetVersion": "SUPERVISED_WATERMARK_LOGO_DATASET_V1_1",
+  "digests": {
+    "annotationSchema": "ca4152f3b513",
+    "labelPolicy": "ba2c49fd0b43",
+    "ontology": "0f2925f0d492",
+    "sourcePolicy": "7335e2378bc1",
+    "splitPlan": "2e7e1bb8f31a"
+  },
+  "evaluationTargetCountKind": "EVALUATION_ELIGIBLE_SEALED_GROUPS",
+  "exampleManifest": {
+    "aggregate": {
+      "cleanNaturalIndependentGroups": 2,
+      "cleanNaturalUncontaminatedGroups": 2,
+      "cleanRepresentativeIndependentGroups": 2,
+      "countKindOfSealedEvidence": "EVALUATION_ELIGIBLE_SEALED_GROUPS",
+      "groups": 6,
+      "groupsByPartition": {
+        "SEALED_TEST": 2,
+        "TRAIN_DEVELOPMENT": 3,
+        "VALIDATION": 1
+      },
+      "hardNegativeStressIndependentGroups": 1,
+      "images": 6,
+      "imagesByPartition": {
+        "SEALED_TEST": 2,
+        "TRAIN_DEVELOPMENT": 3,
+        "VALIDATION": 1
+      },
+      "imagesByProvenance": {
+        "FUTURE_HOLDOUT_ELIGIBLE": 3,
+        "FUTURE_TRAINING_ELIGIBLE": 2,
+        "LEGACY_DEVELOPMENT_CONTAMINATED": 1
+      },
+      "naturalPositiveIndependentGroups": {
+        "BACKGROUND_SIGNAGE": 0,
+        "BRAND_TEXT_OR_MARK": 0,
+        "GARMENT_TEXT": 1,
+        "GENERATIVE_TEXT_ARTIFACT": 0,
+        "GRAPHICAL_LOGO": 1,
+        "OVERLAY_TEXT": 0,
+        "OVERLAY_WATERMARK": 1
+      },
+      "primaryTrainingEligibleImages": 5,
+      "regionsByClass": {
+        "GARMENT_TEXT": 1,
+        "GRAPHICAL_LOGO": 1,
+        "OVERLAY_WATERMARK": 2,
+        "UNCERTAIN": 1
+      },
+      "regionsTotal": 5,
+      "sealedEvidence": {
+        "BENIGN_HARD_NEGATIVE_STRESS": 0,
+        "BRAND_TEXT_OR_MARK": 0,
+        "GENERATIVE_TEXT_ARTIFACT": 0,
+        "GRAPHICAL_LOGO": 1,
+        "NATURAL_CLEAN_REPRESENTATIVE": 1,
+        "OVERLAY_TEXT": 0,
+        "OVERLAY_WATERMARK": 1,
+        "UNCATEGORIZED_CLEAN": 0,
+        "independentGroups": 2
+      },
+      "sealedQuotaStatus": "SEALED_TEST_STATISTICAL_QUOTA_NOT_MET",
+      "statisticalUnit": "independent image/group, never crop or region count",
+      "syntheticPositiveImages": 1,
+      "uncategorizedCleanIndependentGroups": 0,
+      "uncertaintyRate": 0.1667
+    },
+    "file": "b3-l17a1-supervised-manifest-example.json",
+    "fixture": "FAKE_OPAQUE_IDS_ONLY",
+    "validatorErrors": 0
+  },
+  "externalRawImageTransmission": 0,
+  "falseReviewMetricNames": {
+    "BENIGN_HARD_NEGATIVE_STRESS": "HARD_NEGATIVE_STRESS_FALSE_REVIEW_RATE",
+    "NATURAL_CLEAN_REPRESENTATIVE": "REPRESENTATIVE_CLEAN_FALSE_REVIEW_RATE"
+  },
+  "forbiddenManifestKeys": [
+    "uid",
+    "userId",
+    "email",
+    "sourcePhotoPath",
+    "path",
+    "filename",
+    "fileName",
+    "userFacingFilename",
+    "displayName",
+    "phone",
+    "identity",
+    "sourcePhotoId"
+  ],
+  "gaps": {
+    "graphicalDetector": "GRAPHICAL_DETECTOR_STUDY_REQUIRED",
+    "naturalPositive": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "naturalPositiveIncidence": "unknown (not estimated in this phase)",
+    "textPolicy": "TEXT_POLICY_GAP unresolved"
+  },
+  "historicalVersion": "SUPERVISED_WATERMARK_LOGO_DATASET_V1",
+  "imageGeneration": {
+    "azure": 0,
+    "openaiImage": 0
+  },
+  "imageLevelAllowed": [
+    "hasRelevantRegion",
+    "regionCount",
+    "classSet",
+    "uncertainPresent",
+    "sourceProvenanceClass",
+    "splitGroupId",
+    "cleanCategory"
+  ],
+  "inference": 0,
+  "leakageUnit": "group (same underlying identity / source lineage: regenerations, variants, near duplicates)",
+  "lineageReservations": [
+    "SEALED_RESERVED",
+    "DEVELOPMENT_ONLY"
+  ],
+  "marker": "SUPERVISED_WATERMARK_LOGO_DATA_DESIGN",
+  "minimumCollection": {
+    "clean29": {
+      "assumption": "single-label groups in one provenance pool; multi-label corpora are checked by the sealed quota validator at manifest freeze",
+      "countKind": "COLLECTED_GROUPS",
+      "isTrainingSizeRequirement": false,
+      "method": "simulate the frozen deterministic splitter on n synthetic opaque groups",
+      "minimumCollectedIndependentGroupsRequired": 142,
+      "naiveCeil": 145,
+      "naiveCeilIsAuthority": false,
+      "provenancePool": "FUTURE",
+      "sealedFraction": 0.2,
+      "sealedGroupsAtMinimum": 29,
+      "sealedGroupsOneBelow": 28,
+      "splitPlanDigestPrefix": "2e7e1bb8f31a",
+      "stratum": "NATURAL_CLEAN_REPRESENTATIVE",
+      "targetCountKind": "EVALUATION_ELIGIBLE_SEALED_GROUPS",
+      "targetSealedGroups": 29,
+      "trainingSize": "TRAINING_SIZE_NOT_YET_JUSTIFIED",
+      "unit": "independent group (never image, crop or region)"
+    },
+    "clean59Aspirational": {
+      "assumption": "single-label groups in one provenance pool; multi-label corpora are checked by the sealed quota validator at manifest freeze",
+      "countKind": "COLLECTED_GROUPS",
+      "isTrainingSizeRequirement": false,
+      "method": "simulate the frozen deterministic splitter on n synthetic opaque groups",
+      "minimumCollectedIndependentGroupsRequired": 292,
+      "naiveCeil": 295,
+      "naiveCeilIsAuthority": false,
+      "provenancePool": "FUTURE",
+      "sealedFraction": 0.2,
+      "sealedGroupsAtMinimum": 59,
+      "sealedGroupsOneBelow": 58,
+      "splitPlanDigestPrefix": "2e7e1bb8f31a",
+      "stratum": "NATURAL_CLEAN_REPRESENTATIVE",
+      "targetCountKind": "EVALUATION_ELIGIBLE_SEALED_GROUPS",
+      "targetSealedGroups": 59,
+      "trainingSize": "TRAINING_SIZE_NOT_YET_JUSTIFIED",
+      "unit": "independent group (never image, crop or region)"
+    },
+    "countKind": "COLLECTED_GROUPS",
+    "isTrainingSizeRequirement": false,
+    "method": "simulate the frozen deterministic splitter on n synthetic opaque groups",
+    "sealed29": {
+      "assumption": "single-label groups in one provenance pool; multi-label corpora are checked by the sealed quota validator at manifest freeze",
+      "countKind": "COLLECTED_GROUPS",
+      "isTrainingSizeRequirement": false,
+      "method": "simulate the frozen deterministic splitter on n synthetic opaque groups",
+      "minimumCollectedIndependentGroupsRequired": 142,
+      "naiveCeil": 145,
+      "naiveCeilIsAuthority": false,
+      "provenancePool": "FUTURE",
+      "sealedFraction": 0.2,
+      "sealedGroupsAtMinimum": 29,
+      "sealedGroupsOneBelow": 28,
+      "splitPlanDigestPrefix": "2e7e1bb8f31a",
+      "stratum": "GRAPHICAL_LOGO",
+      "targetCountKind": "EVALUATION_ELIGIBLE_SEALED_GROUPS",
+      "targetSealedGroups": 29,
+      "trainingSize": "TRAINING_SIZE_NOT_YET_JUSTIFIED",
+      "unit": "independent group (never image, crop or region)"
+    },
+    "sealed46": {
+      "assumption": "single-label groups in one provenance pool; multi-label corpora are checked by the sealed quota validator at manifest freeze",
+      "countKind": "COLLECTED_GROUPS",
+      "isTrainingSizeRequirement": false,
+      "method": "simulate the frozen deterministic splitter on n synthetic opaque groups",
+      "minimumCollectedIndependentGroupsRequired": 227,
+      "naiveCeil": 230,
+      "naiveCeilIsAuthority": false,
+      "provenancePool": "FUTURE",
+      "sealedFraction": 0.2,
+      "sealedGroupsAtMinimum": 46,
+      "sealedGroupsOneBelow": 45,
+      "splitPlanDigestPrefix": "2e7e1bb8f31a",
+      "stratum": "GRAPHICAL_LOGO",
+      "targetCountKind": "EVALUATION_ELIGIBLE_SEALED_GROUPS",
+      "targetSealedGroups": 46,
+      "trainingSize": "TRAINING_SIZE_NOT_YET_JUSTIFIED",
+      "unit": "independent group (never image, crop or region)"
+    }
+  },
+  "minimumCollectionByClass": {
+    "BRAND_TEXT_OR_MARK": 142,
+    "GENERATIVE_TEXT_ARTIFACT": 142,
+    "GRAPHICAL_LOGO": 142,
+    "NATURAL_CLEAN_REPRESENTATIVE": 142,
+    "NATURAL_CLEAN_REPRESENTATIVE_ASPIRATIONAL": 292,
+    "OVERLAY_WATERMARK": 142
+  },
+  "mismatch": {
+    "correctedMeaning": "29 / 46 / 59 are targets for EVALUATION_ELIGIBLE_SEALED_GROUPS (independent groups that actually land in SEALED_TEST); the collection target is the minimum COLLECTED_GROUPS that makes the frozen splitter place >= target groups into SEALED_TEST (simulated, not ceil(target / 0.2) by assumption)",
+    "marker": "EVALUATION_QUOTA_VS_COLLECTION_QUOTA_MISMATCH",
+    "notDone": [
+      "lower 29",
+      "lower confidence to 90 %",
+      "merge SEALED_TEST into development",
+      "count VALIDATION as sealed evidence",
+      "count crops/regions as independent samples"
+    ],
+    "oldMeaningImplied": "29 was presented as a total collection target (V1 corpus_status.collectionGapByClass = 29 - current)",
+    "oldWording": "Collection gap: 29 independent groups per positive stratum and 29 independent clean groups (59 aspirational)",
+    "sealedFractionChanged": false,
+    "statisticalTargetChanged": false,
+    "unitChanged": false
+  },
+  "modelTraining": 0,
+  "naturalPositiveCorpus": "NATURAL_POSITIVE_CORPUS_INSUFFICIENT",
+  "noTraining": {
+    "classifierFit": 0,
+    "featureExtractionForModelSelection": 0,
+    "fineTuning": 0,
+    "linearProbe": 0,
+    "modelTraining": 0,
+    "productionInference": 0,
+    "thresholdSelection": 0
+  },
+  "ontology": [
+    "NO_VISIBLE_RELEVANT_TEXT_OR_MARK",
+    "GARMENT_TEXT",
+    "BACKGROUND_SIGNAGE",
+    "BRAND_TEXT_OR_MARK",
+    "OVERLAY_TEXT",
+    "OVERLAY_WATERMARK",
+    "GRAPHICAL_LOGO",
+    "GENERATIVE_TEXT_ARTIFACT",
+    "UNCERTAIN"
+  ],
+  "ontologyAuthority": "avatar_watermark_label_schema_v2",
+  "optionalManifestFields": [
+    "sourceAuthority",
+    "ownerPrivacyApproval",
+    "thirdPartyDataset",
+    "lineageReservation",
+    "hasRelevantRegion",
+    "regionCount",
+    "classSet",
+    "uncertainPresent",
+    "sourceProvenanceClass",
+    "splitGroupId",
+    "cleanCategory"
+  ],
+  "overlayText": "OVERLAY_TEXT held separately (TEXT_POLICY_GAP unresolved)",
+  "paidGenerationRequiredForCollection": "YES (not executed; plan only)",
+  "partitionFractions": {
+    "SEALED_TEST": 0.2,
+    "TRAIN_DEVELOPMENT": 0.6,
+    "VALIDATION": 0.2
+  },
+  "partitions": [
+    "TRAIN_DEVELOPMENT",
+    "VALIDATION",
+    "SEALED_TEST"
+  ],
+  "policyCollapseAllowed": false,
+  "policyPositiveClasses": [
+    "BRAND_TEXT_OR_MARK",
+    "OVERLAY_WATERMARK",
+    "GRAPHICAL_LOGO",
+    "GENERATIVE_TEXT_ARTIFACT",
+    "OVERLAY_TEXT"
+  ],
+  "priorStatus": {
+    "B3_L15A": "EDGE_SCAN_VERIFIER_FAILED_DEVELOPMENT",
+    "B3_L16A": "DINOV2_VERIFIER_FAILED_DEVELOPMENT",
+    "B3_L16A_CORRECTION": "PROVENANCE_ONLY_METADATA_CORRECTION",
+    "B3_L17A": "SUPERVISED_DATA_COLLECTION_CONTRACT_READY",
+    "B3_L17A_1": "EVALUATION_QUOTA_VS_COLLECTION_QUOTA_MISMATCH",
+    "B3_L17A_CORPUS": "NATURAL_POSITIVE_CORPUS_INSUFFICIENT + CLEAN_NEGATIVE_CORPUS_INSUFFICIENT",
+    "NATURAL_POSITIVE": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "STOP_RULE": "FROZEN_VERIFIER_REPRESENTATION_SEARCH_STOP_RULE",
+    "TEXT_POLICY_GAP": "unresolved"
+  },
+  "priorVerdictV1": "SUPERVISED_DATA_COLLECTION_CONTRACT_READY",
+  "productionAccess": {
+    "firestoreScans": 0,
+    "storageBulkList": 0,
+    "userCorpusExport": 0,
+    "userDataMutation": 0
+  },
+  "productionUserDataRequired": "NO (unless separately approved by owner/privacy)",
+  "productionWrites": 0,
+  "prohibitedInThisPhase": [
+    "SigLIP",
+    "OpenCLIP",
+    "DINOv2-large",
+    "CLIP variant",
+    "RBF SVM",
+    "MLP",
+    "random forest",
+    "boosting",
+    "new threshold grid",
+    "new crop",
+    "new scan",
+    "new zero-shot detector",
+    "model training",
+    "fine-tuning",
+    "linear probe",
+    "classifier fit",
+    "threshold selection",
+    "feature extraction for model selection",
+    "production inference"
+  ],
+  "readiness": {
+    "allComplete": true,
+    "blindedLabelWorkflow": true,
+    "cleanCategorySeparation": true,
+    "duplicateHandling": true,
+    "evaluationVsCollectionQuota": true,
+    "labelOntology": true,
+    "leakageGroup": true,
+    "legacyContaminationClassification": true,
+    "licenseHandling": true,
+    "multiLabelGroupSplit": true,
+    "naturalPositiveDefinition": true,
+    "privacyContract": true,
+    "regionSchema": true,
+    "sealedHoldoutContract": true,
+    "sealedQuotaValidator": true,
+    "sourcePolicy": true,
+    "splitAlgorithm": true,
+    "statisticalSufficiencyHelper": true
+  },
+  "regionSchema": {
+    "bboxRule": "[xmin, ymin, xmax, ymax] in [0, 1], xmin < xmax, ymin < ymax",
+    "classEnum": "ontology (unchanged from V1)",
+    "fields": [
+      "regionId",
+      "class",
+      "bboxNormalized",
+      "visibility",
+      "sceneRelation",
+      "legibility",
+      "raterConfidence",
+      "annotationStatus"
+    ]
+  },
+  "remainderTieBreak": [
+    "SEALED_TEST",
+    "VALIDATION",
+    "TRAIN_DEVELOPMENT"
+  ],
+  "sealedEvaluationGapByClass": {
+    "BRAND_TEXT_OR_MARK": 29,
+    "GENERATIVE_TEXT_ARTIFACT": 29,
+    "GRAPHICAL_LOGO": 29,
+    "NATURAL_CLEAN_REPRESENTATIVE": 29,
+    "OVERLAY_WATERMARK": 29
+  },
+  "sealedQuota": {
+    "criticalPositivePerClass": 29,
+    "partition": "SEALED_TEST",
+    "representativeClean": 29,
+    "representativeCleanAspirational": 59,
+    "unit": "independent group"
+  },
+  "sealedTest": {
+    "browsing": "minimised; no performance evaluation before the prerequisites",
+    "evaluations": "exactly one behind the lock; second evaluation fails closed",
+    "legacyData": "never",
+    "partition": "SEALED_TEST",
+    "prerequisites": [
+      "supervised_dataset_v1_1_manifest_frozen.json",
+      "supervised_model_architecture_frozen.json",
+      "supervised_training_recipe_frozen.json",
+      "supervised_threshold_frozen.json",
+      "supervised_dataset_v1_1_sealed_quota_check.json"
+    ],
+    "quotaGate": "SEALED_TEST_STATISTICAL_QUOTA_MET required before the lock can be created",
+    "validationCountsTowardSealedEvidence": false,
+    "validationRole": [
+      "model selection",
+      "training recipe selection",
+      "threshold selection"
+    ]
+  },
+  "splitAlgorithm": "group-level multi-label: order groups by sha256(SEED + groupId); integer quotas per (label, provenance pool, partition) by largest remainder on the renormalised frozen fractions (remainder ties SEALED_TEST > VALIDATION > TRAIN_DEVELOPMENT); assign each group once to the allowed partition with the largest total remaining deficit over all its labels, ties by sha256(SEED + groupId + partition); every label of the group is credited in that partition; a group is one statistical unit and never two rows; legacy pool excludes SEALED_TEST; SEALED_RESERVED lineages are SEALED_TEST-only; DEVELOPMENT_ONLY lineages exclude SEALED_TEST; no manual override; no model score",
+  "splitLabels": [
+    "BRAND_TEXT_OR_MARK",
+    "OVERLAY_WATERMARK",
+    "GRAPHICAL_LOGO",
+    "GENERATIVE_TEXT_ARTIFACT",
+    "OVERLAY_TEXT",
+    "NATURAL_CLEAN_REPRESENTATIVE",
+    "BENIGN_HARD_NEGATIVE_STRESS",
+    "UNCATEGORIZED_CLEAN",
+    "UNCERTAIN"
+  ],
+  "statisticalUnit": "independent image/group, never crop or region count",
+  "statistics": {
+    "clean": {
+      "aspirationalTarget": 0.05,
+      "gateTarget": 0.1,
+      "minIndependentCleanFor0FalseReviews": 29,
+      "minIndependentCleanFor0FalseReviewsAt5pct": 59,
+      "minIndependentCleanFor1FalseReview": 46,
+      "upperBoundAt0of29": 0.0981,
+      "upperBoundAt0of59": 0.0495
+    },
+    "confidence": 0.95,
+    "countKindOfTheseTargets": "EVALUATION_ELIGIBLE_SEALED_GROUPS",
+    "method": "one-sided exact binomial (Clopper-Pearson) via beta quantiles",
+    "pointEstimateAloneIsInsufficient": true,
+    "recall": {
+      "lowerBoundAt29of29": 0.9019,
+      "minIndependentPositivesFor0Misses": 29,
+      "minIndependentPositivesFor1Miss": 46,
+      "minIndependentPositivesFor2Misses": 61,
+      "target": 0.9
+    },
+    "scipyVersion": "1.17.1",
+    "trainingSize": {
+      "collectionNIsNotTrainingN": true,
+      "decidedBy": "future supervised phase learning-curve contract",
+      "evaluationNIsNotTrainingN": true,
+      "status": "TRAINING_SIZE_NOT_YET_JUSTIFIED"
+    },
+    "unit": "independent image/group (never crop or region count)"
+  },
+  "sufficiencyBasis": "COLLECTED_GROUPS >= minimum collection implied by the frozen splitter (single-label assumption); the sealed quota validator is the authority at manifest freeze",
+  "trainingSize": "TRAINING_SIZE_NOT_YET_JUSTIFIED",
+  "uncertainPolicy": "EXCLUDED_FROM_PRIMARY_TRAINING",
+  "v1ArtifactsPreserved": [
+    "b3-l17a-supervised-data-design.md",
+    "b3-l17a-supervised-data-design-aggregate-v1.json",
+    "b3-l17a-supervised-manifest-example.json"
+  ],
+  "v1FrozenDigestPrefixes": {
+    "contract": "5d10e2b09248",
+    "labelPolicy": "ba2c49fd0b43",
+    "ontology": "0f2925f0d492",
+    "schema": "ad492f8341c5",
+    "sourcePolicy": "7335e2378bc1",
+    "splitPlan": "75522cd03b4f"
+  },
+  "v1SplitAlgorithm": "per (stratum, provenance pool): order groups by sha256(SEED + groupId); assign the i-th of n to the partition whose cumulative fraction covers (i + 0.5) / n; legacy pool excludes SEALED_TEST with renormalised fractions; no manual override",
+  "validationRole": [
+    "model selection",
+    "training recipe selection",
+    "threshold selection"
+  ],
+  "verdict": "SUPERVISED_DATA_COLLECTION_CONTRACT_READY_AFTER_QUOTA_CORRECTION"
+}
