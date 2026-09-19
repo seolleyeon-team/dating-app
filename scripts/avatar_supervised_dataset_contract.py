@@ -1,4 +1,18 @@
-"""B3-L17A — SUPERVISED_WATERMARK_LOGO_DATASET_V1 (data-design contract; no model, no training, no inference).
+"""B3-L17A / B3-L17A.1 — SUPERVISED_WATERMARK_LOGO_DATASET_V1_1 (data-design contract; no model, no training, no inference).
+
+B3-L17A.1 is a versioned consistency correction of V1 (V1 is preserved as a
+historical frozen record: docs, aggregate and digests are pinned, never
+edited).  What changed and why: V1 presented the sealed-evaluation quota (29
+independent groups per critical stratum, 29 representative clean groups, 59
+aspirational) as if it were the total collection gap
+(EVALUATION_QUOTA_VS_COLLECTION_QUOTA_MISMATCH).  With a 0.6/0.2/0.2 group
+split, 29 groups collected would leave only ~6 in SEALED_TEST.  V1_1 separates
+COLLECTED_GROUPS / PARTITIONED_GROUPS / EVALUATION_ELIGIBLE_SEALED_GROUPS,
+derives the minimum collection by simulating the frozen splitter, makes the
+split group-level multi-label aware, splits "clean" into
+NATURAL_CLEAN_REPRESENTATIVE vs BENIGN_HARD_NEGATIVE_STRESS, and adds a
+sealed per-class quota validator that blocks the sealed lock.  The statistical
+target itself (one-sided 95 % Clopper-Pearson; 29 / 46 / 59) is unchanged.
 
 Fixes, before any supervised model is chosen or trained: source policy,
 natural-positive definition, label ontology (B3 authority reused), region
@@ -32,12 +46,31 @@ import avatar_dinov2_verifier as dv  # noqa: E402
 import avatar_supervised_sample_size as ss  # noqa: E402
 import avatar_watermark_label_local as ll  # noqa: E402
 
-VERSION = "SUPERVISED_WATERMARK_LOGO_DATASET_V1"
+VERSION = "SUPERVISED_WATERMARK_LOGO_DATASET_V1_1"
+VERSION_V1 = "SUPERVISED_WATERMARK_LOGO_DATASET_V1"
 MARKER = "SUPERVISED_WATERMARK_LOGO_DATA_DESIGN"
+CORRECTION_MARKER = "SUPERVISED_DATA_COLLECTION_CONTRACT_READY_AFTER_QUOTA_CORRECTION"
+MISMATCH_MARKER = "EVALUATION_QUOTA_VS_COLLECTION_QUOTA_MISMATCH"
+V1_FROZEN_DIGESTS = {   # historical record of the V1 module state (PR #134, main 764c0a68); never recomputed
+    "contract": "5d10e2b0924840079c494067109e232183f0cf649a2388c77688773af0e899c2", "sourcePolicy": "7335e2378bc1e41dd97d78303720d3a00d81af5f85c343e298337109c504320a",
+    "ontology": "0f2925f0d492e233f7cf536e0f91961b0594637edf5d183babd2f3da26e8b211", "schema": "ad492f8341c5eebce6b0f5e123b17e9d1b3fd9b5e9931baaa3d2c06dabf27e41",
+    "splitPlan": "75522cd03b4fdec92646ab364f2755bd6625266a06d4d248c19cb15e05bcd7de", "labelPolicy": "ba2c49fd0b43908eef86be18ca2387d10582016f466b5b3d2c5d3c6d8f09f3c0"}
+MISMATCH_RECORD = {
+    "marker": MISMATCH_MARKER,
+    "oldWording": "Collection gap: 29 independent groups per positive stratum and 29 independent clean groups (59 aspirational)",
+    "oldMeaningImplied": "29 was presented as a total collection target (V1 corpus_status.collectionGapByClass = 29 - current)",
+    "correctedMeaning": "29 / 46 / 59 are targets for EVALUATION_ELIGIBLE_SEALED_GROUPS (independent groups that actually land in SEALED_TEST); the collection target is the minimum COLLECTED_GROUPS "
+                        "that makes the frozen splitter place >= target groups into SEALED_TEST (simulated, not ceil(target / 0.2) by assumption)",
+    "statisticalTargetChanged": False, "sealedFractionChanged": False, "unitChanged": False,
+    "notDone": ["lower 29", "lower confidence to 90 %", "merge SEALED_TEST into development", "count VALIDATION as sealed evidence", "count crops/regions as independent samples"],
+}
+COUNT_KINDS = ("COLLECTED_GROUPS", "PARTITIONED_GROUPS", "EVALUATION_ELIGIBLE_SEALED_GROUPS")
+EVALUATION_TARGET_COUNT_KIND = "EVALUATION_ELIGIBLE_SEALED_GROUPS"
 ANNOTATION_SCHEMA_VERSION = "supervised_watermark_logo_region_schema_v1"
 STOP_RULE = dv.STOP_RULE
 PRIOR_STATUS = {**dv.PRIOR_STATUS, "B3_L15A": "EDGE_SCAN_VERIFIER_FAILED_DEVELOPMENT", "B3_L16A": "DINOV2_VERIFIER_FAILED_DEVELOPMENT",
-                "B3_L16A_CORRECTION": "PROVENANCE_ONLY_METADATA_CORRECTION", "STOP_RULE": STOP_RULE, "NATURAL_POSITIVE": "NATURAL_POSITIVE_EVIDENCE_MISSING", "TEXT_POLICY_GAP": "unresolved"}
+                "B3_L16A_CORRECTION": "PROVENANCE_ONLY_METADATA_CORRECTION", "STOP_RULE": STOP_RULE, "NATURAL_POSITIVE": "NATURAL_POSITIVE_EVIDENCE_MISSING", "TEXT_POLICY_GAP": "unresolved",
+                "B3_L17A": "SUPERVISED_DATA_COLLECTION_CONTRACT_READY", "B3_L17A_CORPUS": "NATURAL_POSITIVE_CORPUS_INSUFFICIENT + CLEAN_NEGATIVE_CORPUS_INSUFFICIENT", "B3_L17A_1": MISMATCH_MARKER}
 PROHIBITED_IN_THIS_PHASE = ("SigLIP", "OpenCLIP", "DINOv2-large", "CLIP variant", "RBF SVM", "MLP", "random forest", "boosting", "new threshold grid", "new crop", "new scan", "new zero-shot detector",
                             "model training", "fine-tuning", "linear probe", "classifier fit", "threshold selection", "feature extraction for model selection", "production inference")
 NO_TRAINING = {"modelTraining": 0, "fineTuning": 0, "linearProbe": 0, "classifierFit": 0, "thresholdSelection": 0, "featureExtractionForModelSelection": 0, "productionInference": 0}
@@ -82,8 +115,63 @@ NATURAL_POSITIVE = {
     "gap": "NATURAL_POSITIVE_EVIDENCE_MISSING until a prospective natural-positive corpus is collected and labelled under this contract",
 }
 NATURAL_POSITIVE_STRATA = ("BRAND_TEXT_OR_MARK", "OVERLAY_WATERMARK", "GRAPHICAL_LOGO", "GENERATIVE_TEXT_ARTIFACT")
+CRITICAL_POSITIVE_STRATA = NATURAL_POSITIVE_STRATA
+HELD_SEPARATELY_CLASSES = ("OVERLAY_TEXT",)
+POLICY_POSITIVE_CLASSES = CRITICAL_POSITIVE_STRATA + HELD_SEPARATELY_CLASSES        # a region of one of these makes the image a policy positive (never "clean")
+BENIGN_CLASSES = ("GARMENT_TEXT", "BACKGROUND_SIGNAGE")                            # annotated but benign: an image with only these regions is clean (hard-negative stress candidate)
 OVERLAY_TEXT_STATUS = "OVERLAY_TEXT held separately (TEXT_POLICY_GAP unresolved)"
 BENIGN_HARD_NEGATIVE_KINDS = ("GARMENT_TEXT", "BACKGROUND_SIGNAGE", "benign decorative graphics", "face/skin/hair texture", "jewelry/accessory detail", "clothing seams/patterns")
+
+# ---- B3-L17A.1: two clean concepts (never merged into one "clean" number)
+CLEAN_CATEGORIES = ("NATURAL_CLEAN_REPRESENTATIVE", "BENIGN_HARD_NEGATIVE_STRESS")
+UNCATEGORIZED_CLEAN = "UNCATEGORIZED_CLEAN"
+CLEAN_CATEGORY_CONTRACT = {
+    "NATURAL_CLEAN_REPRESENTATIVE": {"definition": "natural clean output drawn from the canonical generation distribution without any relevant policy mark", "selectedByModelScore": False, "enrichmentAllowed": False,
+                                     "originKind": "NATURAL_GENERATED_OUTPUT", "statisticalGate": "production-style false-review gate: SEALED_TEST 0/29 -> upper bound < 0.10; aspirational 0/59 -> < 0.05",
+                                     "metric": "REPRESENTATIVE_CLEAN_FALSE_REVIEW_RATE", "productionPrevalenceClaim": True},
+    "BENIGN_HARD_NEGATIVE_STRESS": {"definition": "benign distractor outputs (garment text, background signage, decorative graphics, skin/hair texture, jewelry/accessory, seams/patterns) that may be deliberately enriched",
+                                    "selectedByModelScore": False, "enrichmentAllowed": True, "statisticalGate": "separate stress metric; never a production clean prevalence estimate",
+                                    "metric": "HARD_NEGATIVE_STRESS_FALSE_REVIEW_RATE", "productionPrevalenceClaim": False, "countsTowardRepresentativeClean": False},
+}
+FALSE_REVIEW_METRIC_NAMES = {"NATURAL_CLEAN_REPRESENTATIVE": "REPRESENTATIVE_CLEAN_FALSE_REVIEW_RATE", "BENIGN_HARD_NEGATIVE_STRESS": "HARD_NEGATIVE_STRESS_FALSE_REVIEW_RATE"}
+FORBIDDEN_STRESS_METRIC_LABELS = ("production clean false-review rate", "production clean false review rate", "production false-review prevalence", "production clean prevalence")
+SPLIT_LABELS = POLICY_POSITIVE_CLASSES + CLEAN_CATEGORIES + (UNCATEGORIZED_CLEAN, "UNCERTAIN")
+
+
+def clean_status(record: Mapping[str, Any]) -> str:
+    regions = record.get("regions", [])
+    if any(r.get("class") == "UNCERTAIN" or r.get("annotationStatus") == "uncertain" for r in regions):
+        return "UNCERTAIN"
+    if any(r.get("class") in POLICY_POSITIVE_CLASSES for r in regions):
+        return "POSITIVE"
+    return "CLEAN"
+
+
+def clean_category(record: Mapping[str, Any]) -> Optional[str]:
+    if clean_status(record) != "CLEAN":
+        return None
+    declared = record.get("cleanCategory")
+    return declared if declared in CLEAN_CATEGORIES else UNCATEGORIZED_CLEAN
+
+
+def false_review_metric_name(category: str) -> str:
+    if category not in FALSE_REVIEW_METRIC_NAMES:
+        raise ValueError(f"no false-review metric is defined for {category!r}; uncategorised clean groups contribute to no gate")
+    return FALSE_REVIEW_METRIC_NAMES[category]
+
+
+def production_clean_rate_claim_allowed(category: str, representative_sealed_groups: int) -> bool:
+    """A production-style clean false-review claim needs representative sampling evidence in SEALED_TEST; stress sets never qualify."""
+
+    return category == "NATURAL_CLEAN_REPRESENTATIVE" and representative_sealed_groups >= ss.min_n_for_upper(0)
+
+
+def metric_label(category: str, label: str) -> str:
+    if category == "BENIGN_HARD_NEGATIVE_STRESS" and label.strip().lower() in FORBIDDEN_STRESS_METRIC_LABELS:
+        raise ValueError(f"a hard-negative-enriched false-review rate is HARD_NEGATIVE_STRESS_FALSE_REVIEW_RATE, never {label!r}")
+    if label != FALSE_REVIEW_METRIC_NAMES.get(category, label):
+        raise ValueError(f"{category} metric must be named {FALSE_REVIEW_METRIC_NAMES.get(category)}")
+    return label
 SYNTHETIC_ROLE = {"allowed": ["training augmentation", "challenge set", "regression set"], "excludedFrom": ["natural-domain validation statistics", "sealed natural holdout statistics", "natural positive counts"]}
 LEGACY_SPLIT_STATUS = {"legacy20GeneratedAvatars": "LEGACY_DEVELOPMENT_CONTAMINATED", "allB3Constructs": "LEGACY_DEVELOPMENT_CONTAMINATED", "sealedEvaluationHoldout": "never"}
 
@@ -171,14 +259,19 @@ REGION_SCHEMA = {
     "raterConfidence": ["high", "medium", "low"], "annotationStatus": ["agreed", "adjudicated", "uncertain"],
 }
 TRANSCRIPTION_POLICY = {"default": "not stored", "requiresNewHypothesis": True, "why": "minimise collection of personal / trademark strings; OCR text is not a training target under this contract"}
-IMAGE_LEVEL_ALLOWED = ("hasRelevantRegion", "regionCount", "classSet", "uncertainPresent", "sourceProvenanceClass", "splitGroupId")
+IMAGE_LEVEL_ALLOWED = ("hasRelevantRegion", "regionCount", "classSet", "uncertainPresent", "sourceProvenanceClass", "splitGroupId", "cleanCategory")
 PRIVATE_MANIFEST_FIELDS = ("opaqueImageId", "groupId", "provenanceClass", "originKind", "collectionBatch", "annotationVersion", "sha256", "perceptualHash", "width", "height", "regions", "split")
-OPTIONAL_MANIFEST_FIELDS = ("sourceAuthority", "ownerPrivacyApproval", "thirdPartyDataset") + IMAGE_LEVEL_ALLOWED
+LINEAGE_RESERVATIONS = ("SEALED_RESERVED", "DEVELOPMENT_ONLY")
+OPTIONAL_MANIFEST_FIELDS = ("sourceAuthority", "ownerPrivacyApproval", "thirdPartyDataset", "lineageReservation") + IMAGE_LEVEL_ALLOWED
 FORBIDDEN_MANIFEST_KEYS = ("uid", "userId", "email", "sourcePhotoPath", "path", "filename", "fileName", "userFacingFilename", "displayName", "phone", "identity", "sourcePhotoId")
 PARTITIONS = ("TRAIN_DEVELOPMENT", "VALIDATION", "SEALED_TEST")
 PARTITION_FRACTIONS = {"TRAIN_DEVELOPMENT": 0.6, "VALIDATION": 0.2, "SEALED_TEST": 0.2}
 SEED = VERSION
-SPLIT_ALGORITHM = "per (stratum, provenance pool): order groups by sha256(SEED + groupId); assign the i-th of n to the partition whose cumulative fraction covers (i + 0.5) / n; legacy pool excludes SEALED_TEST with renormalised fractions; no manual override"
+SPLIT_ALGORITHM = ("group-level multi-label: order groups by sha256(SEED + groupId); integer quotas per (label, provenance pool, partition) by largest remainder on the renormalised frozen fractions "
+                   "(remainder ties SEALED_TEST > VALIDATION > TRAIN_DEVELOPMENT); assign each group once to the allowed partition with the largest total remaining deficit over all its labels, "
+                   "ties by sha256(SEED + groupId + partition); every label of the group is credited in that partition; a group is one statistical unit and never two rows; "
+                   "legacy pool excludes SEALED_TEST; SEALED_RESERVED lineages are SEALED_TEST-only; DEVELOPMENT_ONLY lineages exclude SEALED_TEST; no manual override; no model score")
+V1_SPLIT_ALGORITHM = "per (stratum, provenance pool): order groups by sha256(SEED + groupId); assign the i-th of n to the partition whose cumulative fraction covers (i + 0.5) / n; legacy pool excludes SEALED_TEST with renormalised fractions; no manual override"
 
 
 def allowed_partitions(provenance_class: str) -> tuple:
@@ -187,6 +280,22 @@ def allowed_partitions(provenance_class: str) -> tuple:
     if provenance_class in ("FUTURE_TRAINING_ELIGIBLE", "FUTURE_HOLDOUT_ELIGIBLE"):
         return PARTITIONS
     return ()
+
+
+def group_allowed_partitions(group: Mapping[str, Any]) -> tuple:
+    """Pool of a group = provenance-class partitions narrowed by a prospective lineage reservation (set before generation, never after scores)."""
+
+    base = allowed_partitions(group.get("provenanceClass"))
+    reservation = group.get("lineageReservation")
+    if reservation is None:
+        return base
+    if reservation not in LINEAGE_RESERVATIONS:
+        raise ValueError(f"lineageReservation must be one of {LINEAGE_RESERVATIONS}")
+    if reservation == "SEALED_RESERVED":
+        if "SEALED_TEST" not in base or group.get("provenanceClass") != "FUTURE_HOLDOUT_ELIGIBLE":
+            raise ValueError("SEALED_RESERVED lineages must be FUTURE_HOLDOUT_ELIGIBLE and never legacy/contaminated")
+        return ("SEALED_TEST",)
+    return tuple(p for p in base if p != "SEALED_TEST")
 
 
 def validate_group_id(group_id: Any) -> list[str]:
@@ -261,6 +370,21 @@ def validate_image_record(record: Mapping[str, Any], allow_transcription: bool =
     for k, v in derived.items():
         if k in record and record[k] != v:
             errors.append(f"image-level field {k} inconsistent with regions")
+    if "cleanCategory" in record:
+        if record["cleanCategory"] not in CLEAN_CATEGORIES:
+            errors.append(f"cleanCategory must be one of {CLEAN_CATEGORIES}")
+        elif clean_status(record) != "CLEAN":
+            errors.append(f"cleanCategory is only allowed on clean images (no {POLICY_POSITIVE_CLASSES} region, not uncertain); this image is {clean_status(record)}")
+        elif record["cleanCategory"] == "NATURAL_CLEAN_REPRESENTATIVE" and record["originKind"] != "NATURAL_GENERATED_OUTPUT":
+            errors.append("cleanCategory NATURAL_CLEAN_REPRESENTATIVE requires originKind NATURAL_GENERATED_OUTPUT (never synthetic, challenge or source photo)")
+    if "lineageReservation" in record:
+        try:
+            allowed = group_allowed_partitions(record)
+        except ValueError as exc:
+            errors.append(f"lineageReservation: {exc}")
+        else:
+            if split in PARTITIONS and split not in allowed:
+                errors.append(f"lineageReservation {record['lineageReservation']} does not allow partition {split}")
     errors += check_source(record)
     return errors
 
@@ -403,10 +527,59 @@ def collapse_duplicates(records: Sequence[Mapping[str, Any]]) -> dict[str, str]:
 
 # ------------------------------------------------------------------ sealed test contract
 
-SEALED_TEST_PREREQUISITES = ("supervised_dataset_v1_manifest_frozen.json", "supervised_model_architecture_frozen.json", "supervised_training_recipe_frozen.json", "supervised_threshold_frozen.json")
-SEALED_TEST_LOCK_NAME = "supervised_dataset_v1_sealed_test.lock"
+SEALED_QUOTA_FILE = "supervised_dataset_v1_1_sealed_quota_check.json"
+SEALED_TEST_PREREQUISITES = ("supervised_dataset_v1_1_manifest_frozen.json", "supervised_model_architecture_frozen.json", "supervised_training_recipe_frozen.json", "supervised_threshold_frozen.json", SEALED_QUOTA_FILE)
+SEALED_TEST_LOCK_NAME = "supervised_dataset_v1_1_sealed_test.lock"
+VALIDATION_ROLE = ("model selection", "training recipe selection", "threshold selection")
 SEALED_TEST_CONTRACT = {"partition": "SEALED_TEST", "browsing": "minimised; no performance evaluation before the prerequisites", "prerequisites": list(SEALED_TEST_PREREQUISITES),
-                        "evaluations": "exactly one behind the lock; second evaluation fails closed", "legacyData": "never"}
+                        "evaluations": "exactly one behind the lock; second evaluation fails closed", "legacyData": "never", "validationRole": list(VALIDATION_ROLE),
+                        "validationCountsTowardSealedEvidence": False, "quotaGate": "SEALED_TEST_STATISTICAL_QUOTA_MET required before the lock can be created"}
+SEALED_QUOTA = {"criticalPositivePerClass": ss.min_n_for_lower(0), "representativeClean": ss.min_n_for_upper(0), "representativeCleanAspirational": ss.min_n_for_upper(0, ss.CONFIDENCE, ss.CLEAN_ASPIRATIONAL_TARGET),
+                "unit": "independent group", "partition": "SEALED_TEST"}
+
+
+class SealedQuotaNotMet(RuntimeError):
+    pass
+
+
+def validation_counts_toward_sealed_evidence() -> bool:
+    return False
+
+
+def sealed_evidence_groups(records: Sequence[Mapping[str, Any]], partition: str = "SEALED_TEST") -> dict[str, int]:
+    """Independent natural groups per policy class and per clean category in SEALED_TEST. Any other partition is refused: VALIDATION is never sealed evidence."""
+
+    if partition != "SEALED_TEST":
+        raise ValueError(f"{partition} is not sealed evidence (VALIDATION is for {', '.join(VALIDATION_ROLE)}; sealed evidence is SEALED_TEST only)")
+    sealed = [r for r in records if r.get("split") == "SEALED_TEST"]
+    out: dict[str, int] = {}
+    for cls in POLICY_POSITIVE_CLASSES:
+        out[cls] = len({r["groupId"] for r in sealed if r.get("originKind") == "NATURAL_GENERATED_OUTPUT" and any(g.get("class") == cls for g in r.get("regions", []))})
+    for cat in CLEAN_CATEGORIES:
+        out[cat] = len({r["groupId"] for r in sealed if clean_category(r) == cat})
+    out[UNCATEGORIZED_CLEAN] = len({r["groupId"] for r in sealed if clean_category(r) == UNCATEGORIZED_CLEAN})
+    out["independentGroups"] = len({r["groupId"] for r in sealed})
+    return out
+
+
+def sealed_quota_check(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    ev = sealed_evidence_groups(records)
+    need = SEALED_QUOTA["criticalPositivePerClass"]
+    per_class = {cls: {"sealedIndependentGroups": ev[cls], "required": need, "met": ev[cls] >= need} for cls in CRITICAL_POSITIVE_STRATA}
+    rep = ev["NATURAL_CLEAN_REPRESENTATIVE"]
+    representative = {"sealedIndependentGroups": rep, "required": SEALED_QUOTA["representativeClean"], "met": rep >= SEALED_QUOTA["representativeClean"],
+                      "aspirational": SEALED_QUOTA["representativeCleanAspirational"], "aspirationalMet": rep >= SEALED_QUOTA["representativeCleanAspirational"]}
+    met = all(v["met"] for v in per_class.values()) and representative["met"]
+    return {"status": "SEALED_TEST_STATISTICAL_QUOTA_MET" if met else "SEALED_TEST_STATISTICAL_QUOTA_NOT_MET", "perClass": per_class, "representativeClean": representative,
+            "hardNegativeStress": {"sealedIndependentGroups": ev["BENIGN_HARD_NEGATIVE_STRESS"], "countsTowardRepresentativeClean": False, "metric": "HARD_NEGATIVE_STRESS_FALSE_REVIEW_RATE"},
+            "overlayText": {"sealedIndependentGroups": ev["OVERLAY_TEXT"], "heldSeparately": True, "why": OVERLAY_TEXT_STATUS}, "uncategorizedClean": ev[UNCATEGORIZED_CLEAN],
+            "validationCountsTowardSealed": False, "unit": SEALED_QUOTA["unit"], "countKind": EVALUATION_TARGET_COUNT_KIND, "datasetVersion": VERSION}
+
+
+def write_sealed_quota_check(private_dir: Path, records: Sequence[Mapping[str, Any]]) -> Path:
+    out = Path(private_dir) / SEALED_QUOTA_FILE
+    out.write_text(json.dumps(sealed_quota_check(records), indent=2, sort_keys=True), encoding="utf-8")
+    return out
 
 
 def sealed_test_guard(private_dir: Path) -> Path:
@@ -414,6 +587,12 @@ def sealed_test_guard(private_dir: Path) -> Path:
     missing = [name for name in SEALED_TEST_PREREQUISITES if not (p / name).exists()]
     if missing:
         raise NotFrozen(f"sealed test evaluation requires frozen prerequisites: {missing}")
+    try:
+        quota = json.loads((p / SEALED_QUOTA_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        quota = {}
+    if not isinstance(quota, dict) or quota.get("status") != "SEALED_TEST_STATISTICAL_QUOTA_MET" or quota.get("datasetVersion") != VERSION:
+        raise SealedQuotaNotMet("SEALED_TEST_STATISTICAL_QUOTA_NOT_MET: the sealed per-class / representative-clean quota is not met; no sealed lock is created")
     lock = p / SEALED_TEST_LOCK_NAME
     if lock.exists():
         raise SealedAlreadyEvaluated("sealed test already evaluated once")
@@ -437,12 +616,25 @@ def family_recall_denominator(records: Sequence[Mapping[str, Any]], cls: str) ->
     return len({r["groupId"] for r in records if any(g.get("class") == cls for g in r.get("regions", []))})
 
 
+def count_kinds(groups: Sequence[Mapping[str, Any]], plan: Mapping[str, str]) -> dict[str, int]:
+    """The three counts that must never be confused: collected, partitioned, and sealed-evaluation-eligible independent groups."""
+
+    collected = len({g["groupId"] for g in groups})
+    partitioned = len({gid for gid in plan if gid in {g["groupId"] for g in groups}})
+    sealed = sum(1 for gid, p in plan.items() if p == "SEALED_TEST")
+    return {"COLLECTED_GROUPS": collected, "PARTITIONED_GROUPS": partitioned, "EVALUATION_ELIGIBLE_SEALED_GROUPS": sealed}
+
+
 def collection_plan() -> dict[str, Any]:
     p = ss.plan()
     return {"executed": False, "execution": COLLECTION_EXECUTION, "naturalPositiveStrata": list(NATURAL_POSITIVE_STRATA), "overlayTextSeparate": OVERLAY_TEXT_STATUS,
-            "perStratumIndependentGroupsForEvaluation": {"zeroMiss": p["recall"]["minIndependentPositivesFor0Misses"], "oneMiss": p["recall"]["minIndependentPositivesFor1Miss"]},
-            "cleanIndependentGroupsForEvaluation": {"zeroFalseReview": p["clean"]["minIndependentCleanFor0FalseReviews"], "zeroFalseReviewAt5pct": p["clean"]["minIndependentCleanFor0FalseReviewsAt5pct"]},
-            "benignHardNegativeKinds": list(BENIGN_HARD_NEGATIVE_KINDS), "hardNegativeMining": "separate phase after training; never in this contract",
+            "targetCountKind": EVALUATION_TARGET_COUNT_KIND, "countKinds": list(COUNT_KINDS),
+            "perStratumIndependentGroupsForEvaluation": {"zeroMiss": p["recall"]["minIndependentPositivesFor0Misses"], "oneMiss": p["recall"]["minIndependentPositivesFor1Miss"], "countKind": EVALUATION_TARGET_COUNT_KIND},
+            "cleanIndependentGroupsForEvaluation": {"zeroFalseReview": p["clean"]["minIndependentCleanFor0FalseReviews"], "zeroFalseReviewAt5pct": p["clean"]["minIndependentCleanFor0FalseReviewsAt5pct"],
+                                                    "category": "NATURAL_CLEAN_REPRESENTATIVE", "countKind": EVALUATION_TARGET_COUNT_KIND},
+            "minimumCollection": p["minimumCollection"], "cleanCategories": list(CLEAN_CATEGORIES),
+            "benignHardNegativeKinds": list(BENIGN_HARD_NEGATIVE_KINDS), "hardNegativeStress": "BENIGN_HARD_NEGATIVE_STRESS may be enriched; reported as HARD_NEGATIVE_STRESS_FALSE_REVIEW_RATE only",
+            "hardNegativeMining": "separate phase after training; never in this contract",
             "source": SOURCE_POLICY["preferredSource"], "paidGenerationRequired": "YES (new first-party generated outputs; not executed; count/cost/privacy plan only)",
             "productionUserDataRequired": "NO (unless separately approved by owner/privacy)", "syntheticCountedAsNatural": False}
 
@@ -458,7 +650,8 @@ RETENTION = {
     "PRODUCTION_USER_IMAGE": {"used": False, "note": "production user images are not used in SUPERVISED_WATERMARK_LOGO_DATASET_V1"},
 }
 READINESS_CHECKLIST = ("sourcePolicy", "naturalPositiveDefinition", "labelOntology", "regionSchema", "blindedLabelWorkflow", "leakageGroup", "splitAlgorithm", "sealedHoldoutContract",
-                       "duplicateHandling", "privacyContract", "licenseHandling", "statisticalSufficiencyHelper", "legacyContaminationClassification")
+                       "duplicateHandling", "privacyContract", "licenseHandling", "statisticalSufficiencyHelper", "legacyContaminationClassification",
+                       "evaluationVsCollectionQuota", "multiLabelGroupSplit", "cleanCategorySeparation", "sealedQuotaValidator")
 
 
 def readiness() -> dict[str, Any]:
@@ -468,19 +661,28 @@ def readiness() -> dict[str, Any]:
 
 
 def readiness_verdict() -> str:
-    return "SUPERVISED_DATA_COLLECTION_CONTRACT_READY" if readiness()["allComplete"] else "SUPERVISED_DATA_COLLECTION_CONTRACT_INCOMPLETE"
+    return CORRECTION_MARKER if readiness()["allComplete"] else "SUPERVISED_DATA_COLLECTION_CONTRACT_INCOMPLETE"
 
 
 def corpus_status(natural_groups_by_stratum: Mapping[str, int], clean_uncontaminated_groups: int) -> dict[str, Any]:
+    """Inputs are COLLECTED (uncontaminated, natural) independent groups. Sufficiency = collected >= minimum collection implied by the frozen splitter for the sealed quota."""
+
     p = ss.plan()
     need_pos = p["recall"]["minIndependentPositivesFor0Misses"]
     need_clean = p["clean"]["minIndependentCleanFor0FalseReviews"]
-    pos_ok = all(natural_groups_by_stratum.get(s, 0) >= need_pos for s in NATURAL_POSITIVE_STRATA)
+    min_pos = p["minimumCollection"]["sealed29"]["minimumCollectedIndependentGroupsRequired"]
+    min_clean = p["minimumCollection"]["clean29"]["minimumCollectedIndependentGroupsRequired"]
+    min_clean_asp = p["minimumCollection"]["clean59Aspirational"]["minimumCollectedIndependentGroupsRequired"]
+    pos_ok = all(natural_groups_by_stratum.get(s, 0) >= min_pos for s in NATURAL_POSITIVE_STRATA)
     return {"naturalPositiveCorpus": "NATURAL_POSITIVE_CORPUS_SUFFICIENT" if pos_ok else "NATURAL_POSITIVE_CORPUS_INSUFFICIENT",
-            "cleanNegativeCorpus": "CLEAN_NEGATIVE_CORPUS_SUFFICIENT" if clean_uncontaminated_groups >= need_clean else "CLEAN_NEGATIVE_CORPUS_INSUFFICIENT",
-            "requiredPerStratum": need_pos, "requiredClean": need_clean, "naturalGroupsByStratum": {s: natural_groups_by_stratum.get(s, 0) for s in NATURAL_POSITIVE_STRATA},
-            "cleanUncontaminatedGroups": clean_uncontaminated_groups,
-            "collectionGapByClass": {s: max(0, need_pos - natural_groups_by_stratum.get(s, 0)) for s in NATURAL_POSITIVE_STRATA} | {"CLEAN": max(0, need_clean - clean_uncontaminated_groups)}}
+            "cleanNegativeCorpus": "CLEAN_NEGATIVE_CORPUS_SUFFICIENT" if clean_uncontaminated_groups >= min_clean else "CLEAN_NEGATIVE_CORPUS_INSUFFICIENT",
+            "requiredSealedPerStratum": need_pos, "requiredSealedRepresentativeClean": need_clean, "requiredCountKind": EVALUATION_TARGET_COUNT_KIND,
+            "naturalGroupsByStratum": {s: natural_groups_by_stratum.get(s, 0) for s in NATURAL_POSITIVE_STRATA}, "cleanUncontaminatedGroups": clean_uncontaminated_groups, "inputCountKind": "COLLECTED_GROUPS",
+            "sealedEvaluationGapByClass": {s: max(0, need_pos - min(natural_groups_by_stratum.get(s, 0), need_pos)) for s in NATURAL_POSITIVE_STRATA} | {"NATURAL_CLEAN_REPRESENTATIVE": max(0, need_clean - min(clean_uncontaminated_groups, need_clean))},
+            "minimumCollectionByClass": {s: min_pos for s in NATURAL_POSITIVE_STRATA} | {"NATURAL_CLEAN_REPRESENTATIVE": min_clean, "NATURAL_CLEAN_REPRESENTATIVE_ASPIRATIONAL": min_clean_asp},
+            "collectionGapByClassMinimum": {s: max(0, min_pos - natural_groups_by_stratum.get(s, 0)) for s in NATURAL_POSITIVE_STRATA} | {"NATURAL_CLEAN_REPRESENTATIVE": max(0, min_clean - clean_uncontaminated_groups)},
+            "sufficiencyBasis": "COLLECTED_GROUPS >= minimum collection implied by the frozen splitter (single-label assumption); the sealed quota validator is the authority at manifest freeze",
+            "trainingSize": TRAINING_SIZE_STATUS}
 
 
 # ------------------------------------------------------------------ digests
@@ -501,7 +703,7 @@ def schema_digest() -> str:
 
 def split_plan_digest() -> str:
     return _digest({"partitions": list(PARTITIONS), "fractions": PARTITION_FRACTIONS, "seed": SEED, "algorithm": SPLIT_ALGORITHM, "leakageUnit": LEAKAGE_UNIT, "duplicatePolicy": DUPLICATE_POLICY,
-                    "legacy": LEGACY_SPLIT_STATUS, "sealedTest": SEALED_TEST_CONTRACT})
+                    "legacy": LEGACY_SPLIT_STATUS, "sealedTest": SEALED_TEST_CONTRACT, "lineageReservations": list(LINEAGE_RESERVATIONS), "splitLabels": list(SPLIT_LABELS), "sealedQuota": SEALED_QUOTA})
 
 
 def label_policy_digest() -> str:
@@ -510,6 +712,8 @@ def label_policy_digest() -> str:
 
 
 def contract_digest() -> str:
-    return _digest({"version": VERSION, "marker": MARKER, "sourcePolicy": source_policy_digest(), "ontology": ontology_digest(), "schema": schema_digest(), "splitPlan": split_plan_digest(),
+    return _digest({"version": VERSION, "historicalVersion": VERSION_V1, "marker": MARKER, "correctionMarker": CORRECTION_MARKER, "mismatch": MISMATCH_RECORD, "countKinds": list(COUNT_KINDS),
+                    "cleanCategories": CLEAN_CATEGORY_CONTRACT, "policyPositiveClasses": list(POLICY_POSITIVE_CLASSES), "benignClasses": list(BENIGN_CLASSES),
+                    "sourcePolicy": source_policy_digest(), "ontology": ontology_digest(), "schema": schema_digest(), "splitPlan": split_plan_digest(),
                     "labelPolicy": label_policy_digest(), "statistics": {"method": ss.METHOD, "confidence": ss.CONFIDENCE, "cleanTarget": ss.CLEAN_GATE_TARGET, "aspirational": ss.CLEAN_ASPIRATIONAL_TARGET, "recallTarget": ss.RECALL_TARGET},
                     "noTraining": NO_TRAINING, "prohibited": list(PROHIBITED_IN_THIS_PHASE), "readiness": list(READINESS_CHECKLIST), "priorStatus": {k: PRIOR_STATUS[k] for k in ("B3_L15A", "B3_L16A", "STOP_RULE")}})

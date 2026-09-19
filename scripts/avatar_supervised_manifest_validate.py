@@ -1,4 +1,4 @@
-"""B3-L17A — private manifest validator (aggregate-only output; the raw manifest is never committed).
+"""B3-L17A / B3-L17A.1 — private manifest validator (aggregate-only output; the raw manifest is never committed).
 
 Checks schema, forbidden identifiers, region boxes, provenance/partition rules,
 group disjointness across partitions, exact and near duplicates across
@@ -34,6 +34,7 @@ def aggregate(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     per_provenance: Counter = Counter()
     natural_groups: dict[str, set] = defaultdict(set)
     clean_groups: set = set()
+    clean_by_category: dict[str, set] = defaultdict(set)
     synthetic_positive_images = 0
     uncertain_images = 0
     eligible = 0
@@ -55,18 +56,58 @@ def aggregate(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 clean_groups.add(r["groupId"])
         elif relevant:
             synthetic_positive_images += 1
+        cat = sc.clean_category(r)
+        if cat is not None:
+            clean_by_category[cat].add(r["groupId"])
     n = len(records)
+    quota = sc.sealed_quota_check(records)
     return {"images": n, "groups": len({r["groupId"] for r in records}), "regionsTotal": sum(len(r.get("regions", [])) for r in records), "regionsByClass": dict(per_class),
             "imagesByPartition": dict(per_partition_images), "groupsByPartition": {k: len(v) for k, v in per_partition_groups.items()}, "imagesByProvenance": dict(per_provenance),
             "uncertaintyRate": _rate(uncertain_images, n), "primaryTrainingEligibleImages": eligible,
             "naturalPositiveIndependentGroups": {c: len(natural_groups.get(c, set())) for c in sc.RELEVANT_CLASSES}, "cleanNaturalIndependentGroups": len(clean_groups),
             "cleanNaturalUncontaminatedGroups": len({r["groupId"] for r in records if r["groupId"] in clean_groups and r.get("provenanceClass") != "LEGACY_DEVELOPMENT_CONTAMINATED"}),
-            "syntheticPositiveImages": synthetic_positive_images, "statisticalUnit": sc.STATISTICAL_UNIT}
+            "syntheticPositiveImages": synthetic_positive_images, "statisticalUnit": sc.STATISTICAL_UNIT,
+            "cleanRepresentativeIndependentGroups": len(clean_by_category.get("NATURAL_CLEAN_REPRESENTATIVE", set())),
+            "hardNegativeStressIndependentGroups": len(clean_by_category.get("BENIGN_HARD_NEGATIVE_STRESS", set())),
+            "uncategorizedCleanIndependentGroups": len(clean_by_category.get(sc.UNCATEGORIZED_CLEAN, set())),
+            "sealedEvidence": sc.sealed_evidence_groups(records), "sealedQuotaStatus": quota["status"], "countKindOfSealedEvidence": sc.EVALUATION_TARGET_COUNT_KIND}
+
+
+def groups_from_manifest(records: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Group-level rows for the split planner: one row per group, evaluationStrata = union of policy classes / clean categories over its images."""
+
+    by_group: dict[str, dict[str, Any]] = {}
+    for r in records:
+        g = by_group.setdefault(r["groupId"], {"groupId": r["groupId"], "provenanceClass": r.get("provenanceClass"), "labels": set(), "imageCount": 0, "reservations": set()})
+        g["imageCount"] += 1
+        if r.get("provenanceClass") != g["provenanceClass"]:
+            raise ValueError(f"group {r['groupId']} mixes provenance classes")
+        if r.get("lineageReservation"):
+            g["reservations"].add(r["lineageReservation"])
+        status = sc.clean_status(r)
+        if status == "POSITIVE":
+            g["labels"] |= {x.get("class") for x in r.get("regions", []) if x.get("class") in sc.POLICY_POSITIVE_CLASSES}
+        elif status == "UNCERTAIN":
+            g["labels"].add("UNCERTAIN")
+        else:
+            g["labels"].add(sc.clean_category(r))
+    out = []
+    for gid in sorted(by_group):
+        g = by_group[gid]
+        if len(g["reservations"]) > 1:
+            raise ValueError(f"group {gid} mixes lineage reservations {sorted(g['reservations'])}")
+        row = {"groupId": gid, "provenanceClass": g["provenanceClass"], "evaluationStrata": sorted(g["labels"]), "imageCount": g["imageCount"]}
+        if g["reservations"]:
+            row["lineageReservation"] = next(iter(g["reservations"]))
+        out.append(row)
+    return out
 
 
 def validate_manifest(manifest: Mapping[str, Any], allow_transcription: bool = False) -> dict[str, Any]:
     errors: list[str] = []
-    if manifest.get("datasetVersion") != sc.VERSION:
+    if manifest.get("datasetVersion") == sc.VERSION_V1:
+        errors.append(f"datasetVersion must be {sc.VERSION} (historical {sc.VERSION_V1} manifest requires migration)")
+    elif manifest.get("datasetVersion") != sc.VERSION:
         errors.append(f"datasetVersion must be {sc.VERSION}")
     records = manifest.get("images", [])
     for r in records:
@@ -80,6 +121,10 @@ def validate_manifest(manifest: Mapping[str, Any], allow_transcription: bool = F
     for gid, parts in partitions_by_group.items():
         if len(parts) > 1:
             errors.append(f"group {gid} spans partitions {sorted(parts)}")
+    try:
+        groups_from_manifest([r for r in records if "groupId" in r])
+    except ValueError as exc:
+        errors.append(str(exc))
     valid = [r for r in records if not sc.validate_image_record(r, allow_transcription)]
     for i, a in enumerate(valid):
         for b in valid[i + 1:]:
