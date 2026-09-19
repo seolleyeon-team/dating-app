@@ -155,7 +155,9 @@ def test_b22_synthetic_source_domain_limitation():
     for path in (PLAN, AGGREGATE):
         text = path.read_text(encoding="utf-8")
         assert "SYNTHETIC_SOURCE_DOMAIN_LIMITATION" in text
-        assert not re.search(r"(?<!forbidden claim.{0,40})(?<!never )REAL_USER_SOURCE_DOMAIN_VALIDATED", text) or "forbiddenDomainClaim" in text
+        for line in text.splitlines():
+            if "REAL_USER_SOURCE_DOMAIN_VALIDATED" in line:
+                assert "never" in line.lower() or "forbidden" in line.lower(), line     # only ever named as the forbidden claim
 
 
 # ---- 23-24. fixed paid-generation cap required; automatic paid extension prohibited
