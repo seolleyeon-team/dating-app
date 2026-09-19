@@ -1,0 +1,468 @@
+{
+  "batchProvenanceFields": [
+    "batchId",
+    "sourceAuthorityClass",
+    "generationProvider",
+    "generationModelRevision",
+    "promptContractDigest",
+    "generationDate",
+    "consentAuthority",
+    "retentionRule"
+  ],
+  "budget": {
+    "combinedWithoutIncidence": {
+      "dominantStratum": null,
+      "expectedGeneratedOutputs": null,
+      "expectedIndependentGroupsToGenerate": null,
+      "generationPlanConfirmed": false,
+      "incidenceStatus": "NATURAL_POSITIVE_INCIDENCE_UNKNOWN",
+      "planVersion": "B3_L17B0_COLLECTION_FEASIBILITY_V1",
+      "unknownClasses": [
+        "BRAND_TEXT_OR_MARK",
+        "OVERLAY_WATERMARK",
+        "GRAPHICAL_LOGO",
+        "GENERATIVE_TEXT_ARTIFACT"
+      ]
+    },
+    "generationPlanConfirmed": false,
+    "isExpectationOnly": true,
+    "requiredCollectedPositiveGroupsFuturePool": 142,
+    "requiredCollectedPositiveGroupsReservedPool": 29,
+    "riskTableFuturePool": [
+      {
+        "expectedLineages": 14200,
+        "expectedOutputs": 56800,
+        "incidence": 0.01,
+        "lineagesFor95pctSufficiency": 16205,
+        "outputsFor95pctSufficiency": 64820,
+        "requiredCollectedPositiveGroups": 142
+      },
+      {
+        "expectedLineages": 7100,
+        "expectedOutputs": 28400,
+        "incidence": 0.02,
+        "lineagesFor95pctSufficiency": 8098,
+        "outputsFor95pctSufficiency": 32392,
+        "requiredCollectedPositiveGroups": 142
+      },
+      {
+        "expectedLineages": 2840,
+        "expectedOutputs": 11360,
+        "incidence": 0.05,
+        "lineagesFor95pctSufficiency": 3233,
+        "outputsFor95pctSufficiency": 12932,
+        "requiredCollectedPositiveGroups": 142
+      },
+      {
+        "expectedLineages": 1420,
+        "expectedOutputs": 5680,
+        "incidence": 0.1,
+        "lineagesFor95pctSufficiency": 1611,
+        "outputsFor95pctSufficiency": 6444,
+        "requiredCollectedPositiveGroups": 142
+      },
+      {
+        "expectedLineages": 710,
+        "expectedOutputs": 2840,
+        "incidence": 0.2,
+        "lineagesFor95pctSufficiency": 800,
+        "outputsFor95pctSufficiency": 3200,
+        "requiredCollectedPositiveGroups": 142
+      },
+      {
+        "expectedLineages": 284,
+        "expectedOutputs": 1136,
+        "incidence": 0.5,
+        "lineagesFor95pctSufficiency": 313,
+        "outputsFor95pctSufficiency": 1252,
+        "requiredCollectedPositiveGroups": 142
+      }
+    ],
+    "riskTableReservedPool": [
+      {
+        "expectedLineages": 2900,
+        "expectedOutputs": 11600,
+        "incidence": 0.01,
+        "lineagesFor95pctSufficiency": 3834,
+        "outputsFor95pctSufficiency": 15336,
+        "requiredCollectedPositiveGroups": 29
+      },
+      {
+        "expectedLineages": 1450,
+        "expectedOutputs": 5800,
+        "incidence": 0.02,
+        "lineagesFor95pctSufficiency": 1915,
+        "outputsFor95pctSufficiency": 7660,
+        "requiredCollectedPositiveGroups": 29
+      },
+      {
+        "expectedLineages": 580,
+        "expectedOutputs": 2320,
+        "incidence": 0.05,
+        "lineagesFor95pctSufficiency": 763,
+        "outputsFor95pctSufficiency": 3052,
+        "requiredCollectedPositiveGroups": 29
+      },
+      {
+        "expectedLineages": 290,
+        "expectedOutputs": 1160,
+        "incidence": 0.1,
+        "lineagesFor95pctSufficiency": 379,
+        "outputsFor95pctSufficiency": 1516,
+        "requiredCollectedPositiveGroups": 29
+      },
+      {
+        "expectedLineages": 145,
+        "expectedOutputs": 580,
+        "incidence": 0.2,
+        "lineagesFor95pctSufficiency": 187,
+        "outputsFor95pctSufficiency": 748,
+        "requiredCollectedPositiveGroups": 29
+      },
+      {
+        "expectedLineages": 58,
+        "expectedOutputs": 232,
+        "incidence": 0.5,
+        "lineagesFor95pctSufficiency": 71,
+        "outputsFor95pctSufficiency": 284,
+        "requiredCollectedPositiveGroups": 29
+      }
+    ],
+    "targetCountKind": "EVALUATION_ELIGIBLE_SEALED_GROUPS",
+    "targetSealedPositivesPerClass": 29,
+    "withoutIncidence": {
+      "expectedGeneratedOutputs": null,
+      "expectedIndependentGroupsToGenerate": null,
+      "generationPlanConfirmed": false,
+      "guaranteed": false,
+      "incidence": null,
+      "incidenceStatus": "NATURAL_POSITIVE_INCIDENCE_UNKNOWN",
+      "isExpectationOnly": true,
+      "note": "no generation count is fixed until FIRST_PARTY_NATURAL_MARK_INCIDENCE_PILOT_V1 has estimated the incidence with blinded human labels",
+      "outputsPerLineage": 4,
+      "planVersion": "B3_L17B0_COLLECTION_FEASIBILITY_V1",
+      "pool": "FUTURE",
+      "requiredCollectedPositiveGroups": 142,
+      "stratum": "GRAPHICAL_LOGO",
+      "targetCountKind": "EVALUATION_ELIGIBLE_SEALED_GROUPS",
+      "targetSealedPositives": 29,
+      "trainingSize": "TRAINING_SIZE_NOT_YET_JUSTIFIED"
+    }
+  },
+  "buildsDeploys": 0,
+  "contractDigestPrefix": "c1b80fea5509",
+  "contractVerdict": "SUPERVISED_DATA_COLLECTION_CONTRACT_READY_AFTER_QUOTA_CORRECTION",
+  "datasetVersion": "SUPERVISED_WATERMARK_LOGO_DATASET_V1_1",
+  "execution": "PLAN_ONLY_NOT_EXECUTED",
+  "externalRawImageTransmission": 0,
+  "forbiddenDomainClaim": "REAL_USER_SOURCE_DOMAIN_VALIDATED",
+  "hardNegativeStress": {
+    "countsTowardRepresentativeClean": false,
+    "quota": "none fixed; reported separately as HARD_NEGATIVE_STRESS_FALSE_REVIEW_RATE",
+    "status": "STRESS_SET_DEFINED_NOT_COLLECTED"
+  },
+  "imageGeneration": {
+    "azure": 0,
+    "openaiImage": 0
+  },
+  "incidenceStatus": "NATURAL_POSITIVE_INCIDENCE_UNKNOWN",
+  "inference": 0,
+  "lineageDefinition": {
+    "developmentReuse": "a lineage used for train/dev generation is never reused as a sealed lineage",
+    "idFormat": "opaque lin-<alnum>; never a user id, filename or path",
+    "regeneration": "same lineage regeneration = same group",
+    "unit": "independent source lineage = one source subject/photo set that no other lineage shares (no regeneration, variant, crop or near duplicate of another lineage)"
+  },
+  "modelTraining": 0,
+  "noTraining": {
+    "classifierFit": 0,
+    "featureExtractionForModelSelection": 0,
+    "fineTuning": 0,
+    "linearProbe": 0,
+    "modelTraining": 0,
+    "productionInference": 0,
+    "thresholdSelection": 0
+  },
+  "paidGeneration": {
+    "automaticExecution": false,
+    "azureCalls": 0,
+    "executedInThisTask": false,
+    "openaiImageCalls": 0,
+    "requiresExplicitOwnerApproval": true,
+    "status": "PLAN_ONLY_NOT_EXECUTED"
+  },
+  "pilot": {
+    "allowedPartitionsLater": [
+      "TRAIN_DEVELOPMENT",
+      "VALIDATION"
+    ],
+    "assumptions": {
+      "note": "storage and labelling numbers are declared planning assumptions, not measurements",
+      "outputsPerLineage": 4,
+      "raterMinutesPerOutput": 1.5,
+      "raters": 2,
+      "storageMbPerOutputUpperBound": 2.0
+    },
+    "costStatus": "COST_NOT_VERIFIED",
+    "dataStatus": "PILOT_DISCOVERY_NOT_SEALED_TEST",
+    "feasibilityFloorPositiveLineagesPerClass": 3,
+    "labelContract": {
+      "blindedHumanLabelsOnly": true,
+      "blindingForbiddenFields": [
+        "clipScore",
+        "dinov2Score",
+        "groundingDinoBox",
+        "florenceResult",
+        "owlv2Result",
+        "modelPrediction",
+        "thresholdResult",
+        "priorB3PassFail",
+        "detectorScore",
+        "verifierScore",
+        "proposalBox"
+      ],
+      "coverage": "every generated pilot output is labelled by blinded raters; no model-selected subset",
+      "labelAuthority": "dual independent raters + adjudication as SUPERVISED_WATERMARK_LOGO_DATASET_V1_1",
+      "modelScoreFiltering": false,
+      "prohibitedInputs": [
+        "CLIP",
+        "DINOv2",
+        "Grounding DINO",
+        "Florence",
+        "OWLv2",
+        "future supervised model",
+        "model score filtering"
+      ]
+    },
+    "lineageReservation": "DEVELOPMENT_ONLY",
+    "options": {
+      "LARGE": {
+        "cost": {
+          "generationAttempts": 240,
+          "status": "COST_NOT_VERIFIED",
+          "why": "no fresh verified provider pricing source was supplied; the repo holds no pricing authority"
+        },
+        "dataStatus": "PILOT_DISCOVERY_NOT_SEALED_TEST",
+        "estimatedLabelingWorkload": {
+          "assumption": "declared, not measured",
+          "raterLabels": 480,
+          "raterMinutesAssumed": 720.0
+        },
+        "estimatedStorageMbUpperBound": 480.0,
+        "fixedGenerationAttemptCap": 240,
+        "generatedOutputs": 240,
+        "generationAttemptsPerLineage": 4,
+        "independentGroups": 60,
+        "independentSourceLineages": 60,
+        "limitations": [
+          "incidence is per lineage; outputs from one lineage are one group",
+          "PILOT_DISCOVERY_NOT_SEALED_TEST: no pilot image can become sealed evidence",
+          "synthetic-source lineages carry SYNTHETIC_SOURCE_DOMAIN_LIMITATION",
+          "cost is COST_NOT_VERIFIED until a fresh provider price source is recorded"
+        ],
+        "observability": {
+          "expectedPositiveLineages": {
+            "0.01": 0.6,
+            "0.05": 3.0,
+            "0.1": 6.0,
+            "0.2": 12.0
+          },
+          "note": "rare strata (incidence ~1 %) are unlikely to be observed at all in a small pilot; the pilot then yields only an upper bound",
+          "probabilityAtLeastOnePositiveLineage": {
+            "0.01": 0.4528,
+            "0.05": 0.9539,
+            "0.1": 0.9982,
+            "0.2": 1.0
+          },
+          "zeroObservedIncidenceUpperBound95": 0.0487
+        },
+        "option": "LARGE",
+        "totalGenerationAttempts": 240
+      },
+      "MEDIUM": {
+        "cost": {
+          "generationAttempts": 120,
+          "status": "COST_NOT_VERIFIED",
+          "why": "no fresh verified provider pricing source was supplied; the repo holds no pricing authority"
+        },
+        "dataStatus": "PILOT_DISCOVERY_NOT_SEALED_TEST",
+        "estimatedLabelingWorkload": {
+          "assumption": "declared, not measured",
+          "raterLabels": 240,
+          "raterMinutesAssumed": 360.0
+        },
+        "estimatedStorageMbUpperBound": 240.0,
+        "fixedGenerationAttemptCap": 120,
+        "generatedOutputs": 120,
+        "generationAttemptsPerLineage": 4,
+        "independentGroups": 30,
+        "independentSourceLineages": 30,
+        "limitations": [
+          "incidence is per lineage; outputs from one lineage are one group",
+          "PILOT_DISCOVERY_NOT_SEALED_TEST: no pilot image can become sealed evidence",
+          "synthetic-source lineages carry SYNTHETIC_SOURCE_DOMAIN_LIMITATION",
+          "cost is COST_NOT_VERIFIED until a fresh provider price source is recorded"
+        ],
+        "observability": {
+          "expectedPositiveLineages": {
+            "0.01": 0.3,
+            "0.05": 1.5,
+            "0.1": 3.0,
+            "0.2": 6.0
+          },
+          "note": "rare strata (incidence ~1 %) are unlikely to be observed at all in a small pilot; the pilot then yields only an upper bound",
+          "probabilityAtLeastOnePositiveLineage": {
+            "0.01": 0.2603,
+            "0.05": 0.7854,
+            "0.1": 0.9576,
+            "0.2": 0.9988
+          },
+          "zeroObservedIncidenceUpperBound95": 0.095
+        },
+        "option": "MEDIUM",
+        "totalGenerationAttempts": 120
+      },
+      "SMALL": {
+        "cost": {
+          "generationAttempts": 48,
+          "status": "COST_NOT_VERIFIED",
+          "why": "no fresh verified provider pricing source was supplied; the repo holds no pricing authority"
+        },
+        "dataStatus": "PILOT_DISCOVERY_NOT_SEALED_TEST",
+        "estimatedLabelingWorkload": {
+          "assumption": "declared, not measured",
+          "raterLabels": 96,
+          "raterMinutesAssumed": 144.0
+        },
+        "estimatedStorageMbUpperBound": 96.0,
+        "fixedGenerationAttemptCap": 48,
+        "generatedOutputs": 48,
+        "generationAttemptsPerLineage": 4,
+        "independentGroups": 12,
+        "independentSourceLineages": 12,
+        "limitations": [
+          "incidence is per lineage; outputs from one lineage are one group",
+          "PILOT_DISCOVERY_NOT_SEALED_TEST: no pilot image can become sealed evidence",
+          "synthetic-source lineages carry SYNTHETIC_SOURCE_DOMAIN_LIMITATION",
+          "cost is COST_NOT_VERIFIED until a fresh provider price source is recorded",
+          "a class with incidence <= 5 % will most likely not be observed; only an upper bound results"
+        ],
+        "observability": {
+          "expectedPositiveLineages": {
+            "0.01": 0.12,
+            "0.05": 0.6,
+            "0.1": 1.2,
+            "0.2": 2.4
+          },
+          "note": "rare strata (incidence ~1 %) are unlikely to be observed at all in a small pilot; the pilot then yields only an upper bound",
+          "probabilityAtLeastOnePositiveLineage": {
+            "0.01": 0.1136,
+            "0.05": 0.4596,
+            "0.1": 0.7176,
+            "0.2": 0.9313
+          },
+          "zeroObservedIncidenceUpperBound95": 0.2209
+        },
+        "option": "SMALL",
+        "totalGenerationAttempts": 48
+      }
+    },
+    "provider": {
+      "modelId": "azure_gpt_image_2",
+      "note": "canonical generation path; revision recorded per batch at generation time, never assumed",
+      "provider": "azure"
+    },
+    "sealedTestEligible": false,
+    "stoppingRule": {
+      "agentMayIncreaseCap": false,
+      "automaticPaidExtension": false,
+      "capUnit": "generation attempts (jobs x candidates)",
+      "extensionRequires": "explicit owner re-approval of a new cap",
+      "extensionTrigger": "blinded human-labelled positive lineage count in a critical class below the feasibility floor (3)",
+      "fixedGenerationAttemptCap": true,
+      "frozenBeforeStart": true,
+      "modelScoreAdaptiveContinuation": false
+    }
+  },
+  "pilotVersion": "FIRST_PARTY_NATURAL_MARK_INCIDENCE_PILOT_V1",
+  "planVersion": "B3_L17B0_COLLECTION_FEASIBILITY_V1",
+  "priorStatus": {
+    "B3_L16A": "DINOV2_VERIFIER_FAILED_DEVELOPMENT",
+    "B3_L17A": "SUPERVISED_DATA_COLLECTION_CONTRACT_READY",
+    "B3_L17A_1": "EVALUATION_QUOTA_VS_COLLECTION_QUOTA_MISMATCH",
+    "B3_L17A_CORPUS": "NATURAL_POSITIVE_CORPUS_INSUFFICIENT + CLEAN_NEGATIVE_CORPUS_INSUFFICIENT",
+    "NATURAL_POSITIVE": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "STOP_RULE": "FROZEN_VERIFIER_REPRESENTATION_SEARCH_STOP_RULE",
+    "TEXT_POLICY_GAP": "unresolved"
+  },
+  "productionAccess": {
+    "firestoreScans": 0,
+    "storageBulkList": 0,
+    "userCorpusExport": 0,
+    "userDataMutation": 0
+  },
+  "productionUserDataRequired": "NO",
+  "productionWrites": 0,
+  "providerDriftPolicy": {
+    "hideRevisionChange": false,
+    "recordRevisionPerBatch": true,
+    "repoArtifacts": "aggregate counts per revision only",
+    "sealedAcrossRevisions": "report the revision distribution of SEALED_TEST; never silently pool"
+  },
+  "representativeCleanSealedQuota": {
+    "aspirational": 59,
+    "minimumCollection": 142,
+    "required": 29
+  },
+  "reservationRules": {
+    "name": "SEALED_TEST_ELIGIBLE_SOURCE_LINEAGES",
+    "regeneration": "same lineage regeneration = same group",
+    "rule": "reserved lineages are FUTURE_HOLDOUT_ELIGIBLE + lineageReservation SEALED_RESERVED; development lineages are DEVELOPMENT_ONLY; no lineage is both",
+    "selection": "deterministic by sha256(SEED + ':reserve:' + lineageId); no manual override; no model score",
+    "when": "before full corpus generation; recorded in the private manifest before any output exists"
+  },
+  "sealedQuota": {
+    "criticalPositivePerClass": 29,
+    "partition": "SEALED_TEST",
+    "representativeClean": 29,
+    "representativeCleanAspirational": 59,
+    "unit": "independent group"
+  },
+  "sourceCategories": {
+    "OWNER_AUTHORIZED_SYNTHETIC_SOURCE": {
+      "allowedInPilot": true,
+      "datasetRecord": "generated output only",
+      "domainValidity": "SYNTHETIC_SOURCE_DOMAIN_LIMITATION",
+      "forbiddenClaim": "REAL_USER_SOURCE_DOMAIN_VALIDATED",
+      "realUserDomainEquivalent": false,
+      "requires": [
+        "owner authorization"
+      ],
+      "sourcePhotoClass": "RESTRICTED_SOURCE_NOT_MODEL_DATA"
+    },
+    "OWNER_VOLUNTEER_REAL_SOURCE": {
+      "allowedInPilot": true,
+      "datasetRecord": "generated output only",
+      "domainValidity": "REAL_SOURCE_DOMAIN",
+      "realUserDomainEquivalent": false,
+      "requires": [
+        "explicit volunteer consent",
+        "separate privacy authority"
+      ],
+      "sourcePhotoClass": "RESTRICTED_SOURCE_NOT_MODEL_DATA"
+    },
+    "PRODUCTION_USER_SOURCE": {
+      "allowedInPilot": false,
+      "datasetRecord": "none",
+      "domainValidity": "not applicable",
+      "realUserDomainEquivalent": false,
+      "requires": [
+        "not usable in this plan"
+      ],
+      "sourcePhotoClass": "RESTRICTED_SOURCE_NOT_MODEL_DATA"
+    }
+  },
+  "splitPlanDigestPrefix": "2e7e1bb8f31a",
+  "syntheticDomainMarker": "SYNTHETIC_SOURCE_DOMAIN_LIMITATION",
+  "trainingSize": "TRAINING_SIZE_NOT_YET_JUSTIFIED"
+}
