@@ -80,7 +80,7 @@ def run(stage: str, private_dir: Path, l11_dir: Path, l14a_dir: Path, l15a_aggre
                             "proposalCeiling": {"source": "B3-L15A immutable", "broadOverall": l15a_aggregate["ceiling"]["broad"]["overall"], "edgeMark": l15a_aggregate["ceiling"]["broad"]["families"]["EDGE_MARK"],
                                                 "edgeOverall": l15a_aggregate["ceiling"]["edge"]["overall"], "pass": l15a_aggregate["ceiling"]["pass"]},
                             "watermarkPolicyChanged": False, "decisionDiff": 0, "holdoutEvaluated": 0, "stressEvaluated": 0, "verifierEmbeddings": {}, "classifierFits": 0,
-                            "newDetectorInference": {"development": 0, "stress": 0, "holdout": 0}, "gaps": ev.gap_markers(None), "interpretation": dv.interpretation_note(),
+                            "newDetectorInference": {"development": 0, "stress": 0, "holdout": 0}, "gaps": ev.gap_markers(None), "interpretation": {k: v for k, v in dv.interpretation_note().items() if k != "forbiddenInterpretations"},
                             "stressDesignation": dv.stress_designation(), "failureEscalation": dv.failure_escalation(), "l11HoldoutAuditNow": dv.l11_holdout_unopened_audit(l11_dir, private_dir)}
     if stage == "freeze":
         if not freeze_commit:

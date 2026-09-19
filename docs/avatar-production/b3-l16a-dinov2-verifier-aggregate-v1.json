@@ -1,0 +1,2309 @@
+{
+  "buildsDeploys": 0,
+  "candidates": [
+    "facebook/dinov2-base"
+  ],
+  "classifier": {
+    "C": 1.0,
+    "class_weight": "balanced",
+    "estimator": "sklearn.linear_model.LogisticRegression",
+    "hyperparameterSearch": "none",
+    "input": "L2-normalized CLIP image embedding",
+    "max_iter": 1000,
+    "penalty": "l2",
+    "random_state": 0,
+    "sklearnVersionPinned": "1.9.1",
+    "solver": "lbfgs"
+  },
+  "classifierFits": 3,
+  "cleanBurdenComparison": {
+    "clip": {
+      "0.2": 10,
+      "0.35": 9,
+      "0.5": 2,
+      "0.65": 2,
+      "0.8": 1
+    },
+    "dinov2": {
+      "0.2": 10,
+      "0.35": 10,
+      "0.5": 8,
+      "0.65": 5,
+      "0.8": 0
+    },
+    "note": "B3-L15A CLIP ViT-L/14 vs B3-L16A DINOv2-base, same proposals/labels/folds/recipe/grid; new clean allow->review of 12"
+  },
+  "contractDigestPrefix": "b6a22d71eb0e",
+  "crop": {
+    "clipToImage": true,
+    "minSidePx": 8,
+    "paddingBasis": "each side by 0.15 x box width (x) / 0.15 x box height (y)",
+    "paddingRelative": 0.15,
+    "then": "CLIPProcessor default"
+  },
+  "decisionDiff": 0,
+  "detectorSetDigestPrefix": "086a32a65e05",
+  "development": {
+    "embeddingDim": 768,
+    "evidence": "GROUP_OUT_OF_FOLD",
+    "labels": {
+      "byDataset": {
+        "l11_dev": {
+          "excluded": 7591,
+          "negative": 525,
+          "positive": 1486
+        },
+        "l14a_dev": {
+          "excluded": 8138,
+          "positive": 1867
+        }
+      },
+      "bySource": {
+        "edge_scan": {
+          "excluded": 14544,
+          "negative": 480,
+          "positive": 336
+        },
+        "florence2-phrase-grounding": {
+          "excluded": 489,
+          "negative": 10,
+          "positive": 1211
+        },
+        "grounding-dino-tiny": {
+          "excluded": 671,
+          "negative": 35,
+          "positive": 1662
+        },
+        "owlv2-base-patch16-ensemble": {
+          "excluded": 25,
+          "positive": 144
+        }
+      },
+      "excluded": 15729,
+      "negative": 525,
+      "positive": 3353
+    },
+    "leakageAudit": {
+      "G1+G2->G3": {
+        "datasetsInEval": [
+          "l11_dev",
+          "l14a_dev"
+        ],
+        "disjoint": true,
+        "evalBases": 4,
+        "trainBases": 8
+      },
+      "G1+G3->G2": {
+        "datasetsInEval": [
+          "l11_dev",
+          "l14a_dev"
+        ],
+        "disjoint": true,
+        "evalBases": 4,
+        "trainBases": 8
+      },
+      "G2+G3->G1": {
+        "datasetsInEval": [
+          "l11_dev",
+          "l14a_dev"
+        ],
+        "disjoint": true,
+        "evalBases": 4,
+        "trainBases": 8
+      }
+    },
+    "proposalProvenance": "B3-L15A exact (ids, sources, boxes, labels)",
+    "records": {
+      "l11_dev": 192,
+      "l14a_dev": 192
+    },
+    "selection": {
+      "reason": "no verifier threshold satisfies the clean, broad and edge gates on OOF development",
+      "status": "NONE",
+      "threshold": null
+    },
+    "table": [
+      {
+        "broadFailed": [
+          "J1"
+        ],
+        "broadFamilies": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          }
+        },
+        "broadOverall": 0.9881,
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 12,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "holdoutCleanCeiling": null,
+          "n": 12,
+          "newAllowToReview": 10,
+          "newReviewRate": 0.8333,
+          "newReviewRateCI": {
+            "ci95": [
+              0.552,
+              0.953
+            ],
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          }
+        },
+        "criteria": {
+          "J1": false,
+          "J10": true,
+          "J11": true,
+          "J12": true,
+          "J2": true,
+          "J3": true,
+          "J4": true,
+          "J5": true,
+          "J6": true,
+          "J7": true,
+          "J8": true,
+          "J9": true
+        },
+        "edge": {
+          "cells": {
+            "BOTTOM|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            }
+          },
+          "edges": {
+            "BOTTOM": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "LEFT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "RIGHT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "TOP": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            }
+          },
+          "gate": {
+            "criteria": {
+              "A": true,
+              "B": true,
+              "C": true,
+              "D": true,
+              "E": true,
+              "F": true,
+              "G": true,
+              "H": true,
+              "I": true,
+              "J:BOTTOM|medium|open_hexagon_emblem": true,
+              "J:BOTTOM|medium|paired_chevron_emblem": true,
+              "J:BOTTOM|small|open_hexagon_emblem": true,
+              "J:BOTTOM|small|paired_chevron_emblem": true,
+              "J:LEFT|medium|open_hexagon_emblem": true,
+              "J:LEFT|medium|paired_chevron_emblem": true,
+              "J:LEFT|small|open_hexagon_emblem": true,
+              "J:LEFT|small|paired_chevron_emblem": true,
+              "J:RIGHT|medium|open_hexagon_emblem": true,
+              "J:RIGHT|medium|paired_chevron_emblem": true,
+              "J:RIGHT|small|open_hexagon_emblem": true,
+              "J:RIGHT|small|paired_chevron_emblem": true,
+              "J:TOP|medium|open_hexagon_emblem": true,
+              "J:TOP|medium|paired_chevron_emblem": true,
+              "J:TOP|small|open_hexagon_emblem": true,
+              "J:TOP|small|paired_chevron_emblem": true
+            },
+            "failed": [],
+            "pass": true,
+            "required": {
+              "cell": {
+                "BOTTOM|medium|open_hexagon_emblem": 11,
+                "BOTTOM|medium|paired_chevron_emblem": 11,
+                "BOTTOM|small|open_hexagon_emblem": 11,
+                "BOTTOM|small|paired_chevron_emblem": 11,
+                "LEFT|medium|open_hexagon_emblem": 11,
+                "LEFT|medium|paired_chevron_emblem": 11,
+                "LEFT|small|open_hexagon_emblem": 11,
+                "LEFT|small|paired_chevron_emblem": 11,
+                "RIGHT|medium|open_hexagon_emblem": 11,
+                "RIGHT|medium|paired_chevron_emblem": 11,
+                "RIGHT|small|open_hexagon_emblem": 11,
+                "RIGHT|small|paired_chevron_emblem": 11,
+                "TOP|medium|open_hexagon_emblem": 11,
+                "TOP|medium|paired_chevron_emblem": 11,
+                "TOP|small|open_hexagon_emblem": 11,
+                "TOP|small|paired_chevron_emblem": 11
+              },
+              "edge": {
+                "BOTTOM": 44,
+                "LEFT": 44,
+                "RIGHT": 44,
+                "TOP": 44
+              },
+              "geometry": {
+                "open_hexagon_emblem": 87,
+                "paired_chevron_emblem": 87
+              },
+              "overall": 183,
+              "size": {
+                "medium": 87,
+                "small": 87
+              }
+            }
+          },
+          "geometries": {
+            "open_hexagon_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "paired_chevron_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "overall": {
+            "k": 192,
+            "n": 192,
+            "rate": 1.0
+          },
+          "sizes": {
+            "medium": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "small": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "survivingProposals": 3790,
+          "threshold": 0.2
+        },
+        "edgeOverall": 1.0,
+        "eligible": false,
+        "minCriticalRecall": 0.9167,
+        "survivingProposals": {
+          "broad": 3352,
+          "edge": 3790
+        },
+        "threshold": 0.2
+      },
+      {
+        "broadFailed": [
+          "J1"
+        ],
+        "broadFamilies": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          }
+        },
+        "broadOverall": 0.9821,
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 11,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "holdoutCleanCeiling": null,
+          "n": 12,
+          "newAllowToReview": 10,
+          "newReviewRate": 0.8333,
+          "newReviewRateCI": {
+            "ci95": [
+              0.552,
+              0.953
+            ],
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          }
+        },
+        "criteria": {
+          "J1": false,
+          "J10": true,
+          "J11": true,
+          "J12": true,
+          "J2": true,
+          "J3": true,
+          "J4": true,
+          "J5": true,
+          "J6": true,
+          "J7": true,
+          "J8": true,
+          "J9": true
+        },
+        "edge": {
+          "cells": {
+            "BOTTOM|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            }
+          },
+          "edges": {
+            "BOTTOM": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "LEFT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "RIGHT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "TOP": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            }
+          },
+          "gate": {
+            "criteria": {
+              "A": true,
+              "B": true,
+              "C": true,
+              "D": true,
+              "E": true,
+              "F": true,
+              "G": true,
+              "H": true,
+              "I": true,
+              "J:BOTTOM|medium|open_hexagon_emblem": true,
+              "J:BOTTOM|medium|paired_chevron_emblem": true,
+              "J:BOTTOM|small|open_hexagon_emblem": true,
+              "J:BOTTOM|small|paired_chevron_emblem": true,
+              "J:LEFT|medium|open_hexagon_emblem": true,
+              "J:LEFT|medium|paired_chevron_emblem": true,
+              "J:LEFT|small|open_hexagon_emblem": true,
+              "J:LEFT|small|paired_chevron_emblem": true,
+              "J:RIGHT|medium|open_hexagon_emblem": true,
+              "J:RIGHT|medium|paired_chevron_emblem": true,
+              "J:RIGHT|small|open_hexagon_emblem": true,
+              "J:RIGHT|small|paired_chevron_emblem": true,
+              "J:TOP|medium|open_hexagon_emblem": true,
+              "J:TOP|medium|paired_chevron_emblem": true,
+              "J:TOP|small|open_hexagon_emblem": true,
+              "J:TOP|small|paired_chevron_emblem": true
+            },
+            "failed": [],
+            "pass": true,
+            "required": {
+              "cell": {
+                "BOTTOM|medium|open_hexagon_emblem": 11,
+                "BOTTOM|medium|paired_chevron_emblem": 11,
+                "BOTTOM|small|open_hexagon_emblem": 11,
+                "BOTTOM|small|paired_chevron_emblem": 11,
+                "LEFT|medium|open_hexagon_emblem": 11,
+                "LEFT|medium|paired_chevron_emblem": 11,
+                "LEFT|small|open_hexagon_emblem": 11,
+                "LEFT|small|paired_chevron_emblem": 11,
+                "RIGHT|medium|open_hexagon_emblem": 11,
+                "RIGHT|medium|paired_chevron_emblem": 11,
+                "RIGHT|small|open_hexagon_emblem": 11,
+                "RIGHT|small|paired_chevron_emblem": 11,
+                "TOP|medium|open_hexagon_emblem": 11,
+                "TOP|medium|paired_chevron_emblem": 11,
+                "TOP|small|open_hexagon_emblem": 11,
+                "TOP|small|paired_chevron_emblem": 11
+              },
+              "edge": {
+                "BOTTOM": 44,
+                "LEFT": 44,
+                "RIGHT": 44,
+                "TOP": 44
+              },
+              "geometry": {
+                "open_hexagon_emblem": 87,
+                "paired_chevron_emblem": 87
+              },
+              "overall": 183,
+              "size": {
+                "medium": 87,
+                "small": 87
+              }
+            }
+          },
+          "geometries": {
+            "open_hexagon_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "paired_chevron_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "overall": {
+            "k": 192,
+            "n": 192,
+            "rate": 1.0
+          },
+          "sizes": {
+            "medium": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "small": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "survivingProposals": 3193,
+          "threshold": 0.35
+        },
+        "edgeOverall": 1.0,
+        "eligible": false,
+        "minCriticalRecall": 0.9167,
+        "survivingProposals": {
+          "broad": 2570,
+          "edge": 3193
+        },
+        "threshold": 0.35
+      },
+      {
+        "broadFailed": [
+          "J1",
+          "J9"
+        ],
+        "broadFamilies": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          }
+        },
+        "broadOverall": 0.9762,
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 9,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "holdoutCleanCeiling": null,
+          "n": 12,
+          "newAllowToReview": 8,
+          "newReviewRate": 0.6667,
+          "newReviewRateCI": {
+            "ci95": [
+              0.3906,
+              0.8619
+            ],
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667
+          }
+        },
+        "criteria": {
+          "J1": false,
+          "J10": true,
+          "J11": true,
+          "J12": true,
+          "J2": true,
+          "J3": true,
+          "J4": true,
+          "J5": true,
+          "J6": true,
+          "J7": true,
+          "J8": true,
+          "J9": false
+        },
+        "edge": {
+          "cells": {
+            "BOTTOM|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            }
+          },
+          "edges": {
+            "BOTTOM": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "LEFT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "RIGHT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "TOP": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            }
+          },
+          "gate": {
+            "criteria": {
+              "A": true,
+              "B": true,
+              "C": true,
+              "D": true,
+              "E": true,
+              "F": true,
+              "G": true,
+              "H": true,
+              "I": true,
+              "J:BOTTOM|medium|open_hexagon_emblem": true,
+              "J:BOTTOM|medium|paired_chevron_emblem": true,
+              "J:BOTTOM|small|open_hexagon_emblem": true,
+              "J:BOTTOM|small|paired_chevron_emblem": true,
+              "J:LEFT|medium|open_hexagon_emblem": true,
+              "J:LEFT|medium|paired_chevron_emblem": true,
+              "J:LEFT|small|open_hexagon_emblem": true,
+              "J:LEFT|small|paired_chevron_emblem": true,
+              "J:RIGHT|medium|open_hexagon_emblem": true,
+              "J:RIGHT|medium|paired_chevron_emblem": true,
+              "J:RIGHT|small|open_hexagon_emblem": true,
+              "J:RIGHT|small|paired_chevron_emblem": true,
+              "J:TOP|medium|open_hexagon_emblem": true,
+              "J:TOP|medium|paired_chevron_emblem": true,
+              "J:TOP|small|open_hexagon_emblem": true,
+              "J:TOP|small|paired_chevron_emblem": true
+            },
+            "failed": [],
+            "pass": true,
+            "required": {
+              "cell": {
+                "BOTTOM|medium|open_hexagon_emblem": 11,
+                "BOTTOM|medium|paired_chevron_emblem": 11,
+                "BOTTOM|small|open_hexagon_emblem": 11,
+                "BOTTOM|small|paired_chevron_emblem": 11,
+                "LEFT|medium|open_hexagon_emblem": 11,
+                "LEFT|medium|paired_chevron_emblem": 11,
+                "LEFT|small|open_hexagon_emblem": 11,
+                "LEFT|small|paired_chevron_emblem": 11,
+                "RIGHT|medium|open_hexagon_emblem": 11,
+                "RIGHT|medium|paired_chevron_emblem": 11,
+                "RIGHT|small|open_hexagon_emblem": 11,
+                "RIGHT|small|paired_chevron_emblem": 11,
+                "TOP|medium|open_hexagon_emblem": 11,
+                "TOP|medium|paired_chevron_emblem": 11,
+                "TOP|small|open_hexagon_emblem": 11,
+                "TOP|small|paired_chevron_emblem": 11
+              },
+              "edge": {
+                "BOTTOM": 44,
+                "LEFT": 44,
+                "RIGHT": 44,
+                "TOP": 44
+              },
+              "geometry": {
+                "open_hexagon_emblem": 87,
+                "paired_chevron_emblem": 87
+              },
+              "overall": 183,
+              "size": {
+                "medium": 87,
+                "small": 87
+              }
+            }
+          },
+          "geometries": {
+            "open_hexagon_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "paired_chevron_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "overall": {
+            "k": 192,
+            "n": 192,
+            "rate": 1.0
+          },
+          "sizes": {
+            "medium": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "small": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "survivingProposals": 2818,
+          "threshold": 0.5
+        },
+        "edgeOverall": 1.0,
+        "eligible": false,
+        "minCriticalRecall": 0.8333,
+        "survivingProposals": {
+          "broad": 2121,
+          "edge": 2818
+        },
+        "threshold": 0.5
+      },
+      {
+        "broadFailed": [
+          "J1",
+          "J9"
+        ],
+        "broadFamilies": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          }
+        },
+        "broadOverall": 0.9762,
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 6,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "holdoutCleanCeiling": null,
+          "n": 12,
+          "newAllowToReview": 5,
+          "newReviewRate": 0.4167,
+          "newReviewRateCI": {
+            "ci95": [
+              0.1933,
+              0.6805
+            ],
+            "k": 5,
+            "n": 12,
+            "rate": 0.4167
+          }
+        },
+        "criteria": {
+          "J1": false,
+          "J10": true,
+          "J11": true,
+          "J12": true,
+          "J2": true,
+          "J3": true,
+          "J4": true,
+          "J5": true,
+          "J6": true,
+          "J7": true,
+          "J8": true,
+          "J9": false
+        },
+        "edge": {
+          "cells": {
+            "BOTTOM|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|open_hexagon_emblem": {
+              "k": 11,
+              "n": 12,
+              "rate": 0.9167,
+              "required": 11
+            },
+            "TOP|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            }
+          },
+          "edges": {
+            "BOTTOM": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "LEFT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "RIGHT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "TOP": {
+              "k": 47,
+              "n": 48,
+              "rate": 0.9792
+            }
+          },
+          "gate": {
+            "criteria": {
+              "A": true,
+              "B": true,
+              "C": true,
+              "D": true,
+              "E": true,
+              "F": true,
+              "G": true,
+              "H": true,
+              "I": true,
+              "J:BOTTOM|medium|open_hexagon_emblem": true,
+              "J:BOTTOM|medium|paired_chevron_emblem": true,
+              "J:BOTTOM|small|open_hexagon_emblem": true,
+              "J:BOTTOM|small|paired_chevron_emblem": true,
+              "J:LEFT|medium|open_hexagon_emblem": true,
+              "J:LEFT|medium|paired_chevron_emblem": true,
+              "J:LEFT|small|open_hexagon_emblem": true,
+              "J:LEFT|small|paired_chevron_emblem": true,
+              "J:RIGHT|medium|open_hexagon_emblem": true,
+              "J:RIGHT|medium|paired_chevron_emblem": true,
+              "J:RIGHT|small|open_hexagon_emblem": true,
+              "J:RIGHT|small|paired_chevron_emblem": true,
+              "J:TOP|medium|open_hexagon_emblem": true,
+              "J:TOP|medium|paired_chevron_emblem": true,
+              "J:TOP|small|open_hexagon_emblem": true,
+              "J:TOP|small|paired_chevron_emblem": true
+            },
+            "failed": [],
+            "pass": true,
+            "required": {
+              "cell": {
+                "BOTTOM|medium|open_hexagon_emblem": 11,
+                "BOTTOM|medium|paired_chevron_emblem": 11,
+                "BOTTOM|small|open_hexagon_emblem": 11,
+                "BOTTOM|small|paired_chevron_emblem": 11,
+                "LEFT|medium|open_hexagon_emblem": 11,
+                "LEFT|medium|paired_chevron_emblem": 11,
+                "LEFT|small|open_hexagon_emblem": 11,
+                "LEFT|small|paired_chevron_emblem": 11,
+                "RIGHT|medium|open_hexagon_emblem": 11,
+                "RIGHT|medium|paired_chevron_emblem": 11,
+                "RIGHT|small|open_hexagon_emblem": 11,
+                "RIGHT|small|paired_chevron_emblem": 11,
+                "TOP|medium|open_hexagon_emblem": 11,
+                "TOP|medium|paired_chevron_emblem": 11,
+                "TOP|small|open_hexagon_emblem": 11,
+                "TOP|small|paired_chevron_emblem": 11
+              },
+              "edge": {
+                "BOTTOM": 44,
+                "LEFT": 44,
+                "RIGHT": 44,
+                "TOP": 44
+              },
+              "geometry": {
+                "open_hexagon_emblem": 87,
+                "paired_chevron_emblem": 87
+              },
+              "overall": 183,
+              "size": {
+                "medium": 87,
+                "small": 87
+              }
+            }
+          },
+          "geometries": {
+            "open_hexagon_emblem": {
+              "k": 95,
+              "n": 96,
+              "rate": 0.9896
+            },
+            "paired_chevron_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "overall": {
+            "k": 191,
+            "n": 192,
+            "rate": 0.9948
+          },
+          "sizes": {
+            "medium": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "small": {
+              "k": 95,
+              "n": 96,
+              "rate": 0.9896
+            }
+          },
+          "survivingProposals": 2535,
+          "threshold": 0.65
+        },
+        "edgeOverall": 0.9948,
+        "eligible": false,
+        "minCriticalRecall": 0.8333,
+        "survivingProposals": {
+          "broad": 1827,
+          "edge": 2535
+        },
+        "threshold": 0.65
+      },
+      {
+        "broadFailed": [
+          "J2",
+          "J5",
+          "J6",
+          "J9"
+        ],
+        "broadFamilies": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 6,
+            "n": 12,
+            "rate": 0.5
+          }
+        },
+        "broadOverall": 0.9167,
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 1,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "holdoutCleanCeiling": null,
+          "n": 12,
+          "newAllowToReview": 0,
+          "newReviewRate": 0.0,
+          "newReviewRateCI": {
+            "ci95": [
+              0.0,
+              0.2425
+            ],
+            "k": 0,
+            "n": 12,
+            "rate": 0.0
+          }
+        },
+        "criteria": {
+          "J1": true,
+          "J10": true,
+          "J11": true,
+          "J12": true,
+          "J2": false,
+          "J3": true,
+          "J4": true,
+          "J5": false,
+          "J6": false,
+          "J7": true,
+          "J8": true,
+          "J9": false
+        },
+        "edge": {
+          "cells": {
+            "BOTTOM|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|open_hexagon_emblem": {
+              "k": 11,
+              "n": 12,
+              "rate": 0.9167,
+              "required": 11
+            },
+            "BOTTOM|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|open_hexagon_emblem": {
+              "k": 11,
+              "n": 12,
+              "rate": 0.9167,
+              "required": 11
+            },
+            "TOP|medium|paired_chevron_emblem": {
+              "k": 11,
+              "n": 12,
+              "rate": 0.9167,
+              "required": 11
+            },
+            "TOP|small|open_hexagon_emblem": {
+              "k": 11,
+              "n": 12,
+              "rate": 0.9167,
+              "required": 11
+            },
+            "TOP|small|paired_chevron_emblem": {
+              "k": 11,
+              "n": 12,
+              "rate": 0.9167,
+              "required": 11
+            }
+          },
+          "edges": {
+            "BOTTOM": {
+              "k": 47,
+              "n": 48,
+              "rate": 0.9792
+            },
+            "LEFT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "RIGHT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "TOP": {
+              "k": 44,
+              "n": 48,
+              "rate": 0.9167
+            }
+          },
+          "gate": {
+            "criteria": {
+              "A": true,
+              "B": true,
+              "C": true,
+              "D": true,
+              "E": true,
+              "F": true,
+              "G": true,
+              "H": true,
+              "I": true,
+              "J:BOTTOM|medium|open_hexagon_emblem": true,
+              "J:BOTTOM|medium|paired_chevron_emblem": true,
+              "J:BOTTOM|small|open_hexagon_emblem": true,
+              "J:BOTTOM|small|paired_chevron_emblem": true,
+              "J:LEFT|medium|open_hexagon_emblem": true,
+              "J:LEFT|medium|paired_chevron_emblem": true,
+              "J:LEFT|small|open_hexagon_emblem": true,
+              "J:LEFT|small|paired_chevron_emblem": true,
+              "J:RIGHT|medium|open_hexagon_emblem": true,
+              "J:RIGHT|medium|paired_chevron_emblem": true,
+              "J:RIGHT|small|open_hexagon_emblem": true,
+              "J:RIGHT|small|paired_chevron_emblem": true,
+              "J:TOP|medium|open_hexagon_emblem": true,
+              "J:TOP|medium|paired_chevron_emblem": true,
+              "J:TOP|small|open_hexagon_emblem": true,
+              "J:TOP|small|paired_chevron_emblem": true
+            },
+            "failed": [],
+            "pass": true,
+            "required": {
+              "cell": {
+                "BOTTOM|medium|open_hexagon_emblem": 11,
+                "BOTTOM|medium|paired_chevron_emblem": 11,
+                "BOTTOM|small|open_hexagon_emblem": 11,
+                "BOTTOM|small|paired_chevron_emblem": 11,
+                "LEFT|medium|open_hexagon_emblem": 11,
+                "LEFT|medium|paired_chevron_emblem": 11,
+                "LEFT|small|open_hexagon_emblem": 11,
+                "LEFT|small|paired_chevron_emblem": 11,
+                "RIGHT|medium|open_hexagon_emblem": 11,
+                "RIGHT|medium|paired_chevron_emblem": 11,
+                "RIGHT|small|open_hexagon_emblem": 11,
+                "RIGHT|small|paired_chevron_emblem": 11,
+                "TOP|medium|open_hexagon_emblem": 11,
+                "TOP|medium|paired_chevron_emblem": 11,
+                "TOP|small|open_hexagon_emblem": 11,
+                "TOP|small|paired_chevron_emblem": 11
+              },
+              "edge": {
+                "BOTTOM": 44,
+                "LEFT": 44,
+                "RIGHT": 44,
+                "TOP": 44
+              },
+              "geometry": {
+                "open_hexagon_emblem": 87,
+                "paired_chevron_emblem": 87
+              },
+              "overall": 183,
+              "size": {
+                "medium": 87,
+                "small": 87
+              }
+            }
+          },
+          "geometries": {
+            "open_hexagon_emblem": {
+              "k": 93,
+              "n": 96,
+              "rate": 0.9688
+            },
+            "paired_chevron_emblem": {
+              "k": 94,
+              "n": 96,
+              "rate": 0.9792
+            }
+          },
+          "overall": {
+            "k": 187,
+            "n": 192,
+            "rate": 0.974
+          },
+          "sizes": {
+            "medium": {
+              "k": 94,
+              "n": 96,
+              "rate": 0.9792
+            },
+            "small": {
+              "k": 93,
+              "n": 96,
+              "rate": 0.9688
+            }
+          },
+          "survivingProposals": 2242,
+          "threshold": 0.8
+        },
+        "edgeOverall": 0.974,
+        "eligible": false,
+        "minCriticalRecall": 0.5,
+        "survivingProposals": {
+          "broad": 1538,
+          "edge": 2242
+        },
+        "threshold": 0.8
+      }
+    ]
+  },
+  "developmentDescriptive": {
+    "note": "re-computed from the same three OOF folds for description only; no selection depends on it",
+    "oofScoreBands": {
+      "excluded|edge_scan": {
+        "<0.2": 11985,
+        "<0.35": 1253,
+        "<0.5": 654,
+        "<0.65": 339,
+        "<0.8": 144,
+        ">=0.8": 169
+      },
+      "excluded|florence2-phrase-grounding": {
+        "<0.2": 4,
+        "<0.35": 8,
+        "<0.5": 21,
+        "<0.65": 83,
+        "<0.8": 101,
+        ">=0.8": 272
+      },
+      "excluded|grounding-dino-tiny": {
+        "<0.2": 38,
+        "<0.35": 23,
+        "<0.5": 85,
+        "<0.65": 68,
+        "<0.8": 125,
+        ">=0.8": 332
+      },
+      "excluded|owlv2-base-patch16-ensemble": {
+        "<0.5": 2,
+        "<0.65": 6,
+        "<0.8": 8,
+        ">=0.8": 9
+      },
+      "negative|edge_scan": {
+        "<0.2": 414,
+        "<0.35": 39,
+        "<0.5": 18,
+        "<0.65": 8,
+        "<0.8": 1
+      },
+      "negative|florence2-phrase-grounding": {
+        "<0.2": 1,
+        "<0.65": 5,
+        "<0.8": 4
+      },
+      "negative|grounding-dino-tiny": {
+        "<0.2": 3,
+        "<0.35": 8,
+        "<0.5": 7,
+        "<0.65": 9,
+        "<0.8": 7,
+        ">=0.8": 1
+      },
+      "positive|edge_scan": {
+        "<0.2": 20,
+        "<0.35": 48,
+        "<0.5": 36,
+        "<0.65": 37,
+        "<0.8": 44,
+        ">=0.8": 151
+      },
+      "positive|florence2-phrase-grounding": {
+        "<0.65": 6,
+        "<0.8": 64,
+        ">=0.8": 1141
+      },
+      "positive|grounding-dino-tiny": {
+        "<0.5": 1,
+        "<0.65": 15,
+        "<0.8": 77,
+        ">=0.8": 1569
+      },
+      "positive|owlv2-base-patch16-ensemble": {
+        "<0.65": 1,
+        "<0.8": 7,
+        ">=0.8": 136
+      }
+    },
+    "perThreshold": {
+      "0.2": {
+        "cleanImagesWithSurvivorBySource": {
+          "edge_scan": 12,
+          "florence2-phrase-grounding": 3,
+          "grounding-dino-tiny": 12
+        },
+        "cleanSurvivingProposalsBySource": {
+          "edge_scan": 66,
+          "florence2-phrase-grounding": 9,
+          "grounding-dino-tiny": 32
+        },
+        "positiveImageHitBy": {
+          "both": 81,
+          "detector_only": 93,
+          "scan_only": 2
+        }
+      },
+      "0.35": {
+        "cleanImagesWithSurvivorBySource": {
+          "edge_scan": 7,
+          "florence2-phrase-grounding": 3,
+          "grounding-dino-tiny": 11
+        },
+        "cleanSurvivingProposalsBySource": {
+          "edge_scan": 27,
+          "florence2-phrase-grounding": 9,
+          "grounding-dino-tiny": 24
+        },
+        "positiveImageHitBy": {
+          "both": 72,
+          "detector_only": 102,
+          "scan_only": 1
+        }
+      },
+      "0.5": {
+        "cleanImagesWithSurvivorBySource": {
+          "edge_scan": 5,
+          "florence2-phrase-grounding": 3,
+          "grounding-dino-tiny": 8
+        },
+        "cleanSurvivingProposalsBySource": {
+          "edge_scan": 9,
+          "florence2-phrase-grounding": 9,
+          "grounding-dino-tiny": 17
+        },
+        "positiveImageHitBy": {
+          "both": 58,
+          "detector_only": 116
+        }
+      },
+      "0.65": {
+        "cleanImagesWithSurvivorBySource": {
+          "edge_scan": 1,
+          "florence2-phrase-grounding": 1,
+          "grounding-dino-tiny": 6
+        },
+        "cleanSurvivingProposalsBySource": {
+          "edge_scan": 1,
+          "florence2-phrase-grounding": 4,
+          "grounding-dino-tiny": 8
+        },
+        "positiveImageHitBy": {
+          "both": 49,
+          "detector_only": 124
+        }
+      },
+      "0.8": {
+        "cleanImagesWithSurvivorBySource": {
+          "grounding-dino-tiny": 1
+        },
+        "cleanSurvivingProposalsBySource": {
+          "grounding-dino-tiny": 1
+        },
+        "positiveImageHitBy": {
+          "both": 33,
+          "detector_only": 129
+        }
+      }
+    }
+  },
+  "diagnosis": [
+    "BROAD_MARK_RECALL_REGRESSION",
+    "CLEAN_HARD_NEGATIVES_NOT_SEPARATING",
+    "EDGE_MARK_RECALL_REGRESSION",
+    "FROZEN_VISUAL_REPRESENTATION_NOT_SEPARATING",
+    "MIXED"
+  ],
+  "embedRuns": {
+    "detectorsLoaded": 0,
+    "guardTriggeredRetries": 0,
+    "guardsLowered": false,
+    "l11_dev": {
+      "modelLoadSec": 0.2,
+      "originalsUnchanged": true,
+      "peakRssGb": 1.27,
+      "priorProvenanceExactThisRun": 192,
+      "proposalsEmbeddedThisRun": 9602
+    },
+    "l14a_dev": {
+      "modelLoadSec": 0.3,
+      "originalsUnchanged": true,
+      "peakRssGb": 1.32,
+      "priorProvenanceExactThisRun": 192,
+      "proposalsEmbeddedThisRun": 10005
+    },
+    "perRowGuardGb": 0.6,
+    "startGateGb": 3.0
+  },
+  "environment": {
+    "device": "cpu",
+    "pillow": "11.3.0",
+    "scikitLearn": "1.9.1",
+    "torch": "2.8.0+cpu",
+    "transformers": "4.57.6"
+  },
+  "externalCalls": {
+    "azure": 0,
+    "externalVision": 0,
+    "modelAndLicenseMetadataDownloads": "facebook/dinov2-base pinned snapshot + card/API/preprocessor metadata",
+    "openaiImage": 0,
+    "rawImage": 0
+  },
+  "failureEscalation": {
+    "next": "SUPERVISED_WATERMARK_LOGO_DATA_DESIGN",
+    "notTried": [
+      "SigLIP",
+      "OpenCLIP",
+      "DINOv2-large",
+      "new classifier head",
+      "new threshold",
+      "new crop"
+    ],
+    "note": "a DINOv2 development failure ends B3 verifier shopping; the next research step is supervised watermark/logo data design",
+    "rule": "FROZEN_VERIFIER_REPRESENTATION_SEARCH_STOP_RULE"
+  },
+  "folds": [
+    [
+      "G1",
+      "G2",
+      "G3"
+    ],
+    [
+      "G1",
+      "G3",
+      "G2"
+    ],
+    [
+      "G2",
+      "G3",
+      "G1"
+    ]
+  ],
+  "freezeCommitPrefix": "232c2a08",
+  "gaps": {
+    "graphicalDetector": "GRAPHICAL_DETECTOR_STUDY_REQUIRED",
+    "naturalPositive": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "textDetector": "TEXT_DETECTOR_CONTROLLED_GAP_OPEN",
+    "textPolicyGap": "TEXT_POLICY_GAP_UNRESOLVED (canonical policy unchanged)"
+  },
+  "holdoutEvaluated": 0,
+  "interpretation": {
+    "b3l13": "PROPOSAL_UNION_COVERAGE_INSUFFICIENT",
+    "b3l14a": "EDGE_PROPOSAL_GENERALIZATION_HOLDOUT_FAILED",
+    "b3l15a": "EDGE_SCAN_VERIFIER_FAILED_DEVELOPMENT",
+    "note": "one representation swap under the frozen proposal architecture; NATURAL_POSITIVE_EVIDENCE_MISSING always",
+    "priorFailuresReopened": false,
+    "proposalArchitecture": "EDGE_SCAN_PROPOSAL_CONTRACT_FROZEN_AFTER_B3_L15A"
+  },
+  "l11HoldoutAuditNow": {
+    "captures": {
+      "florence2-phrase-grounding": false,
+      "grounding-dino-tiny": false,
+      "owlv2-base-patch16-ensemble": false
+    },
+    "dinov2EmbeddingsExist": false,
+    "lockExists": false,
+    "selectedMarkerExists": false,
+    "unopened": true,
+    "verifierEmbeddingsExist": false
+  },
+  "markers": [
+    "EDGE_SCAN_PROPOSAL_CONTRACT_FROZEN_AFTER_B3_L15A",
+    "SCAN_ONLY_CURRENT_REPRESENTATION_DOMINATED_BY_EXISTING_EVIDENCE",
+    "FROZEN_VERIFIER_REPRESENTATION_SEARCH_STOP_RULE",
+    "EDGE_MARK_REMAINS_CRITICAL_FAMILY",
+    "KNOWN_CONSTRUCT_STRESS_GATE"
+  ],
+  "newDetectorInference": {
+    "development": 0,
+    "holdout": 0,
+    "stress": 0
+  },
+  "noSearch": [
+    "layer",
+    "pooling",
+    "patch pooling",
+    "multi-layer concat",
+    "CLS vs mean-pool",
+    "preprocessing",
+    "padding",
+    "crop"
+  ],
+  "nonLinearHeadsProhibited": [
+    "RBF SVM",
+    "kernel search",
+    "random forest",
+    "boosting",
+    "MLP",
+    "neural classifier",
+    "polynomial features"
+  ],
+  "originals": {
+    "authorized": 28,
+    "method": "SHA-256 + mtime before/after (snapshot from B3-L15A carried forward)",
+    "unchangedAfterAllInference": 28
+  },
+  "preprocessing": {
+    "crop_size": {
+      "height": 224,
+      "width": 224
+    },
+    "do_center_crop": true,
+    "do_convert_rgb": true,
+    "do_normalize": true,
+    "do_rescale": true,
+    "do_resize": true,
+    "image_mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "image_std": [
+      0.229,
+      0.224,
+      0.225
+    ],
+    "processor": "BitImageProcessor (AutoImageProcessor from the pinned snapshot)",
+    "resample": "bicubic (3)",
+    "rescale_factor": 0.00392156862745098,
+    "size": {
+      "shortest_edge": 256
+    },
+    "source": "preprocessor_config.json at the pinned revision; official defaults, no custom search"
+  },
+  "priorStatus": {
+    "B3_L10A": "FLORENCE_SEQUENCE_SCORE_NOT_SEPARATING",
+    "B3_L10B": "FLORENCE_TWO_FEATURE_NOT_SEPARATING",
+    "B3_L11": "VISUAL_MARK_DETECTOR_FAILED_DEVELOPMENT",
+    "B3_L11_HOLDOUT_EXECUTIONS": 0,
+    "B3_L11_HOLDOUT_OPENED": false,
+    "B3_L12A": "GDINO_GEOMETRY_FILTER_FAILED_DEVELOPMENT",
+    "B3_L12A_DIAGNOSIS": [
+      "CLEAN_GEOMETRY_NOT_SEPARATING",
+      "EDGE_FAMILY_STILL_UNDERDETECTED",
+      "GRAPHICAL_WATERMARK_STILL_UNDERDETECTED",
+      "MIXED"
+    ],
+    "B3_L13": "PROPOSAL_UNION_COVERAGE_INSUFFICIENT",
+    "B3_L13_EDGE_MARK": "10/12",
+    "B3_L13_HOLDOUT": "NOT_OPENED",
+    "B3_L13_UNION_OVERALL": "164/168",
+    "B3_L13_VERIFIER": "NOT_STARTED",
+    "B3_L14A": "EDGE_PROPOSAL_GENERALIZATION_HOLDOUT_FAILED",
+    "B3_L14A_DEVELOPMENT": "190/192",
+    "B3_L14A_FAILED_CELL": "TOP x medium x offset_bar_emblem 5/8 (required 8/8)",
+    "B3_L14A_HOLDOUT": "125/128",
+    "B3_L14A_INTERPRETATION": "EDGE_PROPOSAL_GAP_REPLICATED",
+    "B3_L15A": "EDGE_SCAN_VERIFIER_FAILED_DEVELOPMENT",
+    "B3_L15A_CEILING": "PASS (B3-L11 dev 166/168, EDGE_MARK 12/12; B3-L14A dev 192/192, all cells 12/12)",
+    "B3_L15A_DIAGNOSIS": [
+      "BROAD_MARK_RECALL_REGRESSION",
+      "EDGE_SCAN_CLEAN_BURDEN_TOO_HIGH",
+      "SYNTHETIC_STYLE_NOT_SEPARATING",
+      "MIXED"
+    ],
+    "B3_L15A_HOLDOUT": "UNOPENED",
+    "B3_L15A_STRESS": "NOT_EXECUTED",
+    "B3_L9": "TEXT_POLICY_SHADOW_HOLDOUT_FAILED",
+    "EDGE_MARK": "EDGE_MARK_REMAINS_CRITICAL_FAMILY",
+    "FLORENCE_TELEMETRY": "FLORENCE_TELEMETRY_TEXT_PATH_CLOSED_ON_CURRENT_CORPUS",
+    "GRAPHICAL_CHANNEL_GAP": "unresolved",
+    "GRAPHICAL_DETECTOR": "GRAPHICAL_DETECTOR_STUDY_REQUIRED",
+    "NATURAL_POSITIVE": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "TEXT_POLICY_GAP": "unresolved",
+    "V1": "OWLV2_POSITIVE_GROUND_TRUTH_INSUFFICIENT",
+    "V2": "OWLV2_CONTROLLED_GATE_FAILED_DEVELOPMENT",
+    "V3": "V3_DUAL_CHANNEL_FAILED_DEVELOPMENT",
+    "ZERO_SHOT_READING": "FROZEN_THREE_GENERATOR_ZERO_SHOT_EDGE_LIMIT"
+  },
+  "productionWrites": 0,
+  "proposalCeiling": {
+    "broadOverall": {
+      "k": 166,
+      "n": 168,
+      "rate": 0.9881
+    },
+    "edgeMark": {
+      "k": 12,
+      "n": 12,
+      "rate": 1.0
+    },
+    "edgeOverall": {
+      "k": 192,
+      "n": 192,
+      "rate": 1.0
+    },
+    "pass": true,
+    "reVerified": {
+      "broadOverall": {
+        "k": 166,
+        "n": 168,
+        "rate": 0.9881
+      },
+      "edgeMark": {
+        "k": 12,
+        "n": 12,
+        "rate": 1.0
+      },
+      "edgeOverall": {
+        "k": 192,
+        "n": 192,
+        "rate": 1.0
+      },
+      "identicalToB3L15A": true
+    },
+    "source": "B3-L15A immutable"
+  },
+  "proposalContractDigestPrefix": "de771758cc30",
+  "reportVersion": "avatar_dinov2_eval_v1",
+  "scanDigestPrefix": "1b45958a524d",
+  "scanOnlyRejection": {
+    "cleanCeiling": "<= 1/12",
+    "combinedEdgeMarkAt0.8": "9/12",
+    "marker": "SCAN_ONLY_CURRENT_REPRESENTATION_DOMINATED_BY_EXISTING_EVIDENCE",
+    "reason": "scan-only clean survivors already exceed the 1/12 ceiling at 0.50 and 0.65; at 0.80 even the combined union misses the EDGE_MARK floor (9/12) and scan-only recall cannot exceed the combined union, so no threshold can pass",
+    "rejected": true,
+    "scanCleanSurvivorImages": {
+      "0.5": 2,
+      "0.65": 2
+    }
+  },
+  "stopRuleApplied": {
+    "next": "SUPERVISED_WATERMARK_LOGO_DATA_DESIGN",
+    "notTried": [
+      "SigLIP",
+      "OpenCLIP",
+      "DINOv2-large",
+      "new classifier head",
+      "new threshold",
+      "new crop"
+    ],
+    "note": "a DINOv2 development failure ends B3 verifier shopping; the next research step is supervised watermark/logo data design",
+    "rule": "FROZEN_VERIFIER_REPRESENTATION_SEARCH_STOP_RULE"
+  },
+  "stopped": {
+    "holdoutOpened": false,
+    "retuned": false,
+    "stage": "development",
+    "stopRule": {
+      "next": "SUPERVISED_WATERMARK_LOGO_DATA_DESIGN",
+      "notTried": [
+        "SigLIP",
+        "OpenCLIP",
+        "DINOv2-large",
+        "new classifier head",
+        "new threshold",
+        "new crop"
+      ],
+      "note": "a DINOv2 development failure ends B3 verifier shopping; the next research step is supervised watermark/logo data design",
+      "rule": "FROZEN_VERIFIER_REPRESENTATION_SEARCH_STOP_RULE"
+    },
+    "stressExecuted": false
+  },
+  "stressDesignation": {
+    "dataset": "l14a_holdout",
+    "detectorOutputsPreviouslySeen": true,
+    "independentHoldout": false,
+    "name": "KNOWN_CONSTRUCT_STRESS_GATE",
+    "note": "B3-L14A G4-G5 EDGE_HOLDOUT_VARIANT: detector captures consumed in B3-L14A, scan deterministic; only the DINOv2 verifier outputs are new",
+    "verifierOutputsPreviouslySeen": false
+  },
+  "stressEvaluated": 0,
+  "thresholdGrid": [
+    0.2,
+    0.35,
+    0.5,
+    0.65,
+    0.8
+  ],
+  "verdict": "DINOV2_VERIFIER_FAILED_DEVELOPMENT",
+  "verifier": {
+    "architecture": "ViT-B/14 self-supervised DINOv2 (Dinov2Model; hidden 768, 12 layers, patch 14, ~86M parameters, model.safetensors ~346 MB)",
+    "device": "cpu",
+    "embeddingDim": 768,
+    "embeddingSemantics": "pooler_output: the [CLS] token of the final LayerNorm output (== last_hidden_state[:, 0]); no mean pooling",
+    "feature": "pooler_output, L2-normalized",
+    "license": "apache-2.0",
+    "licenseAuthority": "official model card (facebook/dinov2-base README front matter license: apache-2.0; Hugging Face API cardData.license apache-2.0), fetched fresh before the freeze",
+    "package": "transformers 4.57.6 AutoImageProcessor + Dinov2Model, local_files_only",
+    "preprocessing": {
+      "crop_size": {
+        "height": 224,
+        "width": 224
+      },
+      "do_center_crop": true,
+      "do_convert_rgb": true,
+      "do_normalize": true,
+      "do_rescale": true,
+      "do_resize": true,
+      "image_mean": [
+        0.485,
+        0.456,
+        0.406
+      ],
+      "image_std": [
+        0.229,
+        0.224,
+        0.225
+      ],
+      "processor": "BitImageProcessor (AutoImageProcessor from the pinned snapshot)",
+      "resample": "bicubic (3)",
+      "rescale_factor": 0.00392156862745098,
+      "size": {
+        "shortest_edge": 256
+      },
+      "source": "preprocessor_config.json at the pinned revision; official defaults, no custom search"
+    },
+    "repo": "facebook/dinov2-base",
+    "revision": "f9e44c814b77203eaa57a6bdbbd535f21ede1415",
+    "role": "orthogonal frozen visual representation; the only candidate in B3-L16A",
+    "scoreRole": "UNCALIBRATED_VERIFIER_SCORE"
+  },
+  "verifierEmbeddings": {
+    "development": 19607
+  },
+  "version": "DINOv2_FROZEN_VISUAL_REPRESENTATION_VERIFIER_V1",
+  "watermarkPolicyChanged": false
+}
