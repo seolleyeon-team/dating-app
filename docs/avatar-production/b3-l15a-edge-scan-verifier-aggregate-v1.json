@@ -1,0 +1,2644 @@
+{
+  "buildsDeploys": 0,
+  "ceiling": {
+    "broad": {
+      "cleanProposalsPerImage": {
+        "max": 50,
+        "min": 41,
+        "n": 12,
+        "total": 525
+      },
+      "criteria": {
+        "A": true,
+        "B": true,
+        "C": true,
+        "D": true,
+        "E": true,
+        "F": true,
+        "G": true,
+        "H": true,
+        "I": true
+      },
+      "failed": [],
+      "families": {
+        "BRAND_LIKE_TEXT_AND_SYMBOL": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "CENTER_OVERLAY_MARK": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "EDGE_MARK": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+          "k": 11,
+          "n": 12,
+          "rate": 0.9167
+        },
+        "GRAPHIC_SYMBOL": {
+          "k": 24,
+          "n": 24,
+          "rate": 1.0
+        },
+        "LOGO_LIKE_EMBLEM": {
+          "k": 24,
+          "n": 24,
+          "rate": 1.0
+        },
+        "REPEATED_TILED_MARK": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "SMALL_CORNER_MARK": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "TEXT_WATERMARK_OPAQUE": {
+          "k": 24,
+          "n": 24,
+          "rate": 1.0
+        },
+        "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0
+        },
+        "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+          "k": 10,
+          "n": 12,
+          "rate": 0.8333
+        },
+        "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+          "k": 11,
+          "n": 12,
+          "rate": 0.9167
+        }
+      },
+      "matchedBy": {
+        "both": 82,
+        "detector_only": 92,
+        "scan_only": 2
+      },
+      "overall": {
+        "k": 166,
+        "n": 168,
+        "rate": 0.9881
+      },
+      "pass": true,
+      "proposalsBySource": {
+        "clean": {
+          "edge_scan": 480,
+          "florence2-phrase-grounding": 10,
+          "grounding-dino-tiny": 35
+        },
+        "positive": {
+          "edge_scan": 7200,
+          "florence2-phrase-grounding": 735,
+          "grounding-dino-tiny": 1046,
+          "owlv2-base-patch16-ensemble": 96
+        }
+      }
+    },
+    "edge": {
+      "cells": {
+        "BOTTOM|medium|open_hexagon_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        },
+        "BOTTOM|medium|paired_chevron_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        },
+        "BOTTOM|small|open_hexagon_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        },
+        "BOTTOM|small|paired_chevron_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        },
+        "LEFT|medium|open_hexagon_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        },
+        "LEFT|medium|paired_chevron_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        },
+        "LEFT|small|open_hexagon_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        },
+        "LEFT|small|paired_chevron_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        },
+        "RIGHT|medium|open_hexagon_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        },
+        "RIGHT|medium|paired_chevron_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        },
+        "RIGHT|small|open_hexagon_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        },
+        "RIGHT|small|paired_chevron_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        },
+        "TOP|medium|open_hexagon_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        },
+        "TOP|medium|paired_chevron_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        },
+        "TOP|small|open_hexagon_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        },
+        "TOP|small|paired_chevron_emblem": {
+          "k": 12,
+          "n": 12,
+          "rate": 1.0,
+          "required": 11
+        }
+      },
+      "edges": {
+        "BOTTOM": {
+          "k": 48,
+          "n": 48,
+          "rate": 1.0
+        },
+        "LEFT": {
+          "k": 48,
+          "n": 48,
+          "rate": 1.0
+        },
+        "RIGHT": {
+          "k": 48,
+          "n": 48,
+          "rate": 1.0
+        },
+        "TOP": {
+          "k": 48,
+          "n": 48,
+          "rate": 1.0
+        }
+      },
+      "gate": {
+        "criteria": {
+          "A": true,
+          "B": true,
+          "C": true,
+          "D": true,
+          "E": true,
+          "F": true,
+          "G": true,
+          "H": true,
+          "I": true,
+          "J:BOTTOM|medium|open_hexagon_emblem": true,
+          "J:BOTTOM|medium|paired_chevron_emblem": true,
+          "J:BOTTOM|small|open_hexagon_emblem": true,
+          "J:BOTTOM|small|paired_chevron_emblem": true,
+          "J:LEFT|medium|open_hexagon_emblem": true,
+          "J:LEFT|medium|paired_chevron_emblem": true,
+          "J:LEFT|small|open_hexagon_emblem": true,
+          "J:LEFT|small|paired_chevron_emblem": true,
+          "J:RIGHT|medium|open_hexagon_emblem": true,
+          "J:RIGHT|medium|paired_chevron_emblem": true,
+          "J:RIGHT|small|open_hexagon_emblem": true,
+          "J:RIGHT|small|paired_chevron_emblem": true,
+          "J:TOP|medium|open_hexagon_emblem": true,
+          "J:TOP|medium|paired_chevron_emblem": true,
+          "J:TOP|small|open_hexagon_emblem": true,
+          "J:TOP|small|paired_chevron_emblem": true
+        },
+        "failed": [],
+        "pass": true,
+        "required": {
+          "cell": {
+            "BOTTOM|medium|open_hexagon_emblem": 11,
+            "BOTTOM|medium|paired_chevron_emblem": 11,
+            "BOTTOM|small|open_hexagon_emblem": 11,
+            "BOTTOM|small|paired_chevron_emblem": 11,
+            "LEFT|medium|open_hexagon_emblem": 11,
+            "LEFT|medium|paired_chevron_emblem": 11,
+            "LEFT|small|open_hexagon_emblem": 11,
+            "LEFT|small|paired_chevron_emblem": 11,
+            "RIGHT|medium|open_hexagon_emblem": 11,
+            "RIGHT|medium|paired_chevron_emblem": 11,
+            "RIGHT|small|open_hexagon_emblem": 11,
+            "RIGHT|small|paired_chevron_emblem": 11,
+            "TOP|medium|open_hexagon_emblem": 11,
+            "TOP|medium|paired_chevron_emblem": 11,
+            "TOP|small|open_hexagon_emblem": 11,
+            "TOP|small|paired_chevron_emblem": 11
+          },
+          "edge": {
+            "BOTTOM": 44,
+            "LEFT": 44,
+            "RIGHT": 44,
+            "TOP": 44
+          },
+          "geometry": {
+            "open_hexagon_emblem": 87,
+            "paired_chevron_emblem": 87
+          },
+          "overall": 183,
+          "size": {
+            "medium": 87,
+            "small": 87
+          }
+        }
+      },
+      "geometries": {
+        "open_hexagon_emblem": {
+          "k": 96,
+          "n": 96,
+          "rate": 1.0
+        },
+        "paired_chevron_emblem": {
+          "k": 96,
+          "n": 96,
+          "rate": 1.0
+        }
+      },
+      "matchedBy": {
+        "both": 190,
+        "scan_only": 2
+      },
+      "overall": {
+        "k": 192,
+        "n": 192,
+        "rate": 1.0
+      },
+      "sizes": {
+        "medium": {
+          "k": 96,
+          "n": 96,
+          "rate": 1.0
+        },
+        "small": {
+          "k": 96,
+          "n": 96,
+          "rate": 1.0
+        }
+      }
+    },
+    "pass": true,
+    "records": {
+      "l11_dev": 192,
+      "l14a_dev": 192
+    },
+    "scanTilesPerImage": 40
+  },
+  "classifier": {
+    "C": 1.0,
+    "class_weight": "balanced",
+    "estimator": "sklearn.linear_model.LogisticRegression",
+    "hyperparameterSearch": "none",
+    "input": "L2-normalized CLIP image embedding",
+    "max_iter": 1000,
+    "penalty": "l2",
+    "random_state": 0,
+    "sklearnVersionPinned": "1.9.1",
+    "solver": "lbfgs"
+  },
+  "classifierFits": 3,
+  "containmentAddedToDetectorMatch": false,
+  "contractDigestPrefix": "de771758cc30",
+  "crop": {
+    "clipToImage": true,
+    "minSidePx": 8,
+    "paddingBasis": "each side by 0.15 x box width (x) / 0.15 x box height (y)",
+    "paddingRelative": 0.15,
+    "then": "CLIPProcessor default"
+  },
+  "decisionDiff": 0,
+  "detectorSetDigestPrefix": "086a32a65e05",
+  "detectors": {
+    "florence2-phrase-grounding": {
+      "boxFilter": {
+        "dropFullFrameAreaRatio": 0.5,
+        "origin": "pure-synthetic blank-image smoke before freeze"
+      },
+      "caption": "a logo. a watermark. a brand emblem. a graphic symbol.",
+      "floor": null,
+      "generation": {
+        "max_new_tokens": 256,
+        "num_beams": 3
+      },
+      "gridOperatingPoints": {},
+      "kind": "florence",
+      "license": "mit",
+      "licenseAuthority": "official model card README (license: mit; license_link microsoft/Florence-2-large LICENSE)",
+      "operatingPoints": {
+        "presence": {
+          "threshold": null
+        }
+      },
+      "prompts": [
+        "a logo",
+        "a watermark",
+        "a brand emblem",
+        "a graphic symbol"
+      ],
+      "repo": "florence-community/Florence-2-large-ft",
+      "revision": "26b734a54fdfbf9c398351eedfabb7f27fc470b7",
+      "role": "NEW_CANDIDATE_C",
+      "scoreSemantics": "none (presence of a grounded phrase box)",
+      "task": "<CAPTION_TO_PHRASE_GROUNDING>"
+    },
+    "grounding-dino-tiny": {
+      "boxFilter": null,
+      "floor": 0.05,
+      "gridOperatingPoints": {
+        "grid_0.15": {
+          "threshold": 0.15
+        },
+        "grid_0.35": {
+          "threshold": 0.35
+        },
+        "grid_0.45": {
+          "threshold": 0.45
+        }
+      },
+      "kind": "gdino",
+      "license": "apache-2.0",
+      "licenseAuthority": "official model card (IDEA-Research/grounding-dino-tiny)",
+      "operatingPoints": {
+        "historical_0.25": {
+          "threshold": 0.25
+        }
+      },
+      "prompts": [
+        "a logo",
+        "a watermark",
+        "a brand emblem",
+        "a graphic symbol"
+      ],
+      "repo": "IDEA-Research/grounding-dino-tiny",
+      "revision": "a2bb814dd30d776dcf7e30523b00659f4f141c71",
+      "role": "BASELINE_B",
+      "scoreSemantics": "Grounding DINO box score (max token logit sigmoid)"
+    },
+    "owlv2-base-patch16-ensemble": {
+      "boxFilter": null,
+      "floor": 0.01,
+      "gridOperatingPoints": {},
+      "kind": "owl",
+      "license": "apache-2.0",
+      "licenseAuthority": "official model card (google/owlv2-base-patch16-ensemble)",
+      "operatingPoints": {
+        "legacy_0.25": {
+          "threshold": 0.25
+        }
+      },
+      "prompts": [
+        "a logo",
+        "a watermark",
+        "a brand emblem",
+        "a graphic symbol"
+      ],
+      "repo": "google/owlv2-base-patch16-ensemble",
+      "revision": "cfd3195ba4ea9592eec887ded089f4c08eff231d",
+      "role": "BASELINE_A",
+      "scoreSemantics": "OWLv2 post-processed detection score (sigmoid logit)"
+    }
+  },
+  "development": {
+    "evidence": "GROUP_OUT_OF_FOLD",
+    "labels": {
+      "byDataset": {
+        "l11_dev": {
+          "excluded": 7591,
+          "negative": 525,
+          "positive": 1486
+        },
+        "l14a_dev": {
+          "excluded": 8138,
+          "positive": 1867
+        }
+      },
+      "bySource": {
+        "edge_scan": {
+          "excluded": 14544,
+          "negative": 480,
+          "positive": 336
+        },
+        "florence2-phrase-grounding": {
+          "excluded": 489,
+          "negative": 10,
+          "positive": 1211
+        },
+        "grounding-dino-tiny": {
+          "excluded": 671,
+          "negative": 35,
+          "positive": 1662
+        },
+        "owlv2-base-patch16-ensemble": {
+          "excluded": 25,
+          "positive": 144
+        }
+      },
+      "excluded": 15729,
+      "negative": 525,
+      "positive": 3353
+    },
+    "leakageAudit": {
+      "G1+G2->G3": {
+        "datasetsInEval": [
+          "l11_dev",
+          "l14a_dev"
+        ],
+        "disjoint": true,
+        "evalBases": 4,
+        "trainBases": 8
+      },
+      "G1+G3->G2": {
+        "datasetsInEval": [
+          "l11_dev",
+          "l14a_dev"
+        ],
+        "disjoint": true,
+        "evalBases": 4,
+        "trainBases": 8
+      },
+      "G2+G3->G1": {
+        "datasetsInEval": [
+          "l11_dev",
+          "l14a_dev"
+        ],
+        "disjoint": true,
+        "evalBases": 4,
+        "trainBases": 8
+      }
+    },
+    "records": {
+      "l11_dev": 192,
+      "l14a_dev": 192
+    },
+    "selection": {
+      "reason": "no verifier threshold satisfies the clean, broad and edge gates on OOF development",
+      "status": "NONE",
+      "threshold": null
+    },
+    "table": [
+      {
+        "broadFailed": [
+          "J1"
+        ],
+        "broadFamilies": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          }
+        },
+        "broadOverall": 0.9881,
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 12,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "holdoutCleanCeiling": null,
+          "n": 12,
+          "newAllowToReview": 10,
+          "newReviewRate": 0.8333,
+          "newReviewRateCI": {
+            "ci95": [
+              0.552,
+              0.953
+            ],
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          }
+        },
+        "criteria": {
+          "J1": false,
+          "J10": true,
+          "J11": true,
+          "J12": true,
+          "J2": true,
+          "J3": true,
+          "J4": true,
+          "J5": true,
+          "J6": true,
+          "J7": true,
+          "J8": true,
+          "J9": true
+        },
+        "edge": {
+          "cells": {
+            "BOTTOM|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            }
+          },
+          "edges": {
+            "BOTTOM": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "LEFT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "RIGHT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "TOP": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            }
+          },
+          "gate": {
+            "criteria": {
+              "A": true,
+              "B": true,
+              "C": true,
+              "D": true,
+              "E": true,
+              "F": true,
+              "G": true,
+              "H": true,
+              "I": true,
+              "J:BOTTOM|medium|open_hexagon_emblem": true,
+              "J:BOTTOM|medium|paired_chevron_emblem": true,
+              "J:BOTTOM|small|open_hexagon_emblem": true,
+              "J:BOTTOM|small|paired_chevron_emblem": true,
+              "J:LEFT|medium|open_hexagon_emblem": true,
+              "J:LEFT|medium|paired_chevron_emblem": true,
+              "J:LEFT|small|open_hexagon_emblem": true,
+              "J:LEFT|small|paired_chevron_emblem": true,
+              "J:RIGHT|medium|open_hexagon_emblem": true,
+              "J:RIGHT|medium|paired_chevron_emblem": true,
+              "J:RIGHT|small|open_hexagon_emblem": true,
+              "J:RIGHT|small|paired_chevron_emblem": true,
+              "J:TOP|medium|open_hexagon_emblem": true,
+              "J:TOP|medium|paired_chevron_emblem": true,
+              "J:TOP|small|open_hexagon_emblem": true,
+              "J:TOP|small|paired_chevron_emblem": true
+            },
+            "failed": [],
+            "pass": true,
+            "required": {
+              "cell": {
+                "BOTTOM|medium|open_hexagon_emblem": 11,
+                "BOTTOM|medium|paired_chevron_emblem": 11,
+                "BOTTOM|small|open_hexagon_emblem": 11,
+                "BOTTOM|small|paired_chevron_emblem": 11,
+                "LEFT|medium|open_hexagon_emblem": 11,
+                "LEFT|medium|paired_chevron_emblem": 11,
+                "LEFT|small|open_hexagon_emblem": 11,
+                "LEFT|small|paired_chevron_emblem": 11,
+                "RIGHT|medium|open_hexagon_emblem": 11,
+                "RIGHT|medium|paired_chevron_emblem": 11,
+                "RIGHT|small|open_hexagon_emblem": 11,
+                "RIGHT|small|paired_chevron_emblem": 11,
+                "TOP|medium|open_hexagon_emblem": 11,
+                "TOP|medium|paired_chevron_emblem": 11,
+                "TOP|small|open_hexagon_emblem": 11,
+                "TOP|small|paired_chevron_emblem": 11
+              },
+              "edge": {
+                "BOTTOM": 44,
+                "LEFT": 44,
+                "RIGHT": 44,
+                "TOP": 44
+              },
+              "geometry": {
+                "open_hexagon_emblem": 87,
+                "paired_chevron_emblem": 87
+              },
+              "overall": 183,
+              "size": {
+                "medium": 87,
+                "small": 87
+              }
+            }
+          },
+          "geometries": {
+            "open_hexagon_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "paired_chevron_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "overall": {
+            "k": 192,
+            "n": 192,
+            "rate": 1.0
+          },
+          "sizes": {
+            "medium": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "small": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "survivingProposals": 3718,
+          "threshold": 0.2
+        },
+        "edgeOverall": 1.0,
+        "eligible": false,
+        "minCriticalRecall": 0.9167,
+        "survivingProposals": {
+          "broad": 3240,
+          "edge": 3718
+        },
+        "threshold": 0.2
+      },
+      {
+        "broadFailed": [
+          "J1"
+        ],
+        "broadFamilies": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          }
+        },
+        "broadOverall": 0.9881,
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 11,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "holdoutCleanCeiling": null,
+          "n": 12,
+          "newAllowToReview": 9,
+          "newReviewRate": 0.75,
+          "newReviewRateCI": {
+            "ci95": [
+              0.4677,
+              0.9111
+            ],
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          }
+        },
+        "criteria": {
+          "J1": false,
+          "J10": true,
+          "J11": true,
+          "J12": true,
+          "J2": true,
+          "J3": true,
+          "J4": true,
+          "J5": true,
+          "J6": true,
+          "J7": true,
+          "J8": true,
+          "J9": true
+        },
+        "edge": {
+          "cells": {
+            "BOTTOM|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            }
+          },
+          "edges": {
+            "BOTTOM": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "LEFT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "RIGHT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "TOP": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            }
+          },
+          "gate": {
+            "criteria": {
+              "A": true,
+              "B": true,
+              "C": true,
+              "D": true,
+              "E": true,
+              "F": true,
+              "G": true,
+              "H": true,
+              "I": true,
+              "J:BOTTOM|medium|open_hexagon_emblem": true,
+              "J:BOTTOM|medium|paired_chevron_emblem": true,
+              "J:BOTTOM|small|open_hexagon_emblem": true,
+              "J:BOTTOM|small|paired_chevron_emblem": true,
+              "J:LEFT|medium|open_hexagon_emblem": true,
+              "J:LEFT|medium|paired_chevron_emblem": true,
+              "J:LEFT|small|open_hexagon_emblem": true,
+              "J:LEFT|small|paired_chevron_emblem": true,
+              "J:RIGHT|medium|open_hexagon_emblem": true,
+              "J:RIGHT|medium|paired_chevron_emblem": true,
+              "J:RIGHT|small|open_hexagon_emblem": true,
+              "J:RIGHT|small|paired_chevron_emblem": true,
+              "J:TOP|medium|open_hexagon_emblem": true,
+              "J:TOP|medium|paired_chevron_emblem": true,
+              "J:TOP|small|open_hexagon_emblem": true,
+              "J:TOP|small|paired_chevron_emblem": true
+            },
+            "failed": [],
+            "pass": true,
+            "required": {
+              "cell": {
+                "BOTTOM|medium|open_hexagon_emblem": 11,
+                "BOTTOM|medium|paired_chevron_emblem": 11,
+                "BOTTOM|small|open_hexagon_emblem": 11,
+                "BOTTOM|small|paired_chevron_emblem": 11,
+                "LEFT|medium|open_hexagon_emblem": 11,
+                "LEFT|medium|paired_chevron_emblem": 11,
+                "LEFT|small|open_hexagon_emblem": 11,
+                "LEFT|small|paired_chevron_emblem": 11,
+                "RIGHT|medium|open_hexagon_emblem": 11,
+                "RIGHT|medium|paired_chevron_emblem": 11,
+                "RIGHT|small|open_hexagon_emblem": 11,
+                "RIGHT|small|paired_chevron_emblem": 11,
+                "TOP|medium|open_hexagon_emblem": 11,
+                "TOP|medium|paired_chevron_emblem": 11,
+                "TOP|small|open_hexagon_emblem": 11,
+                "TOP|small|paired_chevron_emblem": 11
+              },
+              "edge": {
+                "BOTTOM": 44,
+                "LEFT": 44,
+                "RIGHT": 44,
+                "TOP": 44
+              },
+              "geometry": {
+                "open_hexagon_emblem": 87,
+                "paired_chevron_emblem": 87
+              },
+              "overall": 183,
+              "size": {
+                "medium": 87,
+                "small": 87
+              }
+            }
+          },
+          "geometries": {
+            "open_hexagon_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "paired_chevron_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "overall": {
+            "k": 192,
+            "n": 192,
+            "rate": 1.0
+          },
+          "sizes": {
+            "medium": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "small": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "survivingProposals": 2885,
+          "threshold": 0.35
+        },
+        "edgeOverall": 1.0,
+        "eligible": false,
+        "minCriticalRecall": 0.9167,
+        "survivingProposals": {
+          "broad": 2279,
+          "edge": 2885
+        },
+        "threshold": 0.35
+      },
+      {
+        "broadFailed": [
+          "J1"
+        ],
+        "broadFamilies": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 10,
+            "n": 12,
+            "rate": 0.8333
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          }
+        },
+        "broadOverall": 0.9881,
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 3,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "holdoutCleanCeiling": null,
+          "n": 12,
+          "newAllowToReview": 2,
+          "newReviewRate": 0.1667,
+          "newReviewRateCI": {
+            "ci95": [
+              0.047,
+              0.448
+            ],
+            "k": 2,
+            "n": 12,
+            "rate": 0.1667
+          }
+        },
+        "criteria": {
+          "J1": false,
+          "J10": true,
+          "J11": true,
+          "J12": true,
+          "J2": true,
+          "J3": true,
+          "J4": true,
+          "J5": true,
+          "J6": true,
+          "J7": true,
+          "J8": true,
+          "J9": true
+        },
+        "edge": {
+          "cells": {
+            "BOTTOM|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            }
+          },
+          "edges": {
+            "BOTTOM": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "LEFT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "RIGHT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "TOP": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            }
+          },
+          "gate": {
+            "criteria": {
+              "A": true,
+              "B": true,
+              "C": true,
+              "D": true,
+              "E": true,
+              "F": true,
+              "G": true,
+              "H": true,
+              "I": true,
+              "J:BOTTOM|medium|open_hexagon_emblem": true,
+              "J:BOTTOM|medium|paired_chevron_emblem": true,
+              "J:BOTTOM|small|open_hexagon_emblem": true,
+              "J:BOTTOM|small|paired_chevron_emblem": true,
+              "J:LEFT|medium|open_hexagon_emblem": true,
+              "J:LEFT|medium|paired_chevron_emblem": true,
+              "J:LEFT|small|open_hexagon_emblem": true,
+              "J:LEFT|small|paired_chevron_emblem": true,
+              "J:RIGHT|medium|open_hexagon_emblem": true,
+              "J:RIGHT|medium|paired_chevron_emblem": true,
+              "J:RIGHT|small|open_hexagon_emblem": true,
+              "J:RIGHT|small|paired_chevron_emblem": true,
+              "J:TOP|medium|open_hexagon_emblem": true,
+              "J:TOP|medium|paired_chevron_emblem": true,
+              "J:TOP|small|open_hexagon_emblem": true,
+              "J:TOP|small|paired_chevron_emblem": true
+            },
+            "failed": [],
+            "pass": true,
+            "required": {
+              "cell": {
+                "BOTTOM|medium|open_hexagon_emblem": 11,
+                "BOTTOM|medium|paired_chevron_emblem": 11,
+                "BOTTOM|small|open_hexagon_emblem": 11,
+                "BOTTOM|small|paired_chevron_emblem": 11,
+                "LEFT|medium|open_hexagon_emblem": 11,
+                "LEFT|medium|paired_chevron_emblem": 11,
+                "LEFT|small|open_hexagon_emblem": 11,
+                "LEFT|small|paired_chevron_emblem": 11,
+                "RIGHT|medium|open_hexagon_emblem": 11,
+                "RIGHT|medium|paired_chevron_emblem": 11,
+                "RIGHT|small|open_hexagon_emblem": 11,
+                "RIGHT|small|paired_chevron_emblem": 11,
+                "TOP|medium|open_hexagon_emblem": 11,
+                "TOP|medium|paired_chevron_emblem": 11,
+                "TOP|small|open_hexagon_emblem": 11,
+                "TOP|small|paired_chevron_emblem": 11
+              },
+              "edge": {
+                "BOTTOM": 44,
+                "LEFT": 44,
+                "RIGHT": 44,
+                "TOP": 44
+              },
+              "geometry": {
+                "open_hexagon_emblem": 87,
+                "paired_chevron_emblem": 87
+              },
+              "overall": 183,
+              "size": {
+                "medium": 87,
+                "small": 87
+              }
+            }
+          },
+          "geometries": {
+            "open_hexagon_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "paired_chevron_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "overall": {
+            "k": 192,
+            "n": 192,
+            "rate": 1.0
+          },
+          "sizes": {
+            "medium": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "small": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "survivingProposals": 2765,
+          "threshold": 0.5
+        },
+        "edgeOverall": 1.0,
+        "eligible": false,
+        "minCriticalRecall": 0.9167,
+        "survivingProposals": {
+          "broad": 2083,
+          "edge": 2765
+        },
+        "threshold": 0.5
+      },
+      {
+        "broadFailed": [
+          "J1",
+          "J5"
+        ],
+        "broadFamilies": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667
+          }
+        },
+        "broadOverall": 0.9643,
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 2,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "holdoutCleanCeiling": null,
+          "n": 12,
+          "newAllowToReview": 2,
+          "newReviewRate": 0.1667,
+          "newReviewRateCI": {
+            "ci95": [
+              0.047,
+              0.448
+            ],
+            "k": 2,
+            "n": 12,
+            "rate": 0.1667
+          }
+        },
+        "criteria": {
+          "J1": false,
+          "J10": true,
+          "J11": true,
+          "J12": true,
+          "J2": true,
+          "J3": true,
+          "J4": true,
+          "J5": false,
+          "J6": true,
+          "J7": true,
+          "J8": true,
+          "J9": true
+        },
+        "edge": {
+          "cells": {
+            "BOTTOM|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            }
+          },
+          "edges": {
+            "BOTTOM": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "LEFT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "RIGHT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "TOP": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            }
+          },
+          "gate": {
+            "criteria": {
+              "A": true,
+              "B": true,
+              "C": true,
+              "D": true,
+              "E": true,
+              "F": true,
+              "G": true,
+              "H": true,
+              "I": true,
+              "J:BOTTOM|medium|open_hexagon_emblem": true,
+              "J:BOTTOM|medium|paired_chevron_emblem": true,
+              "J:BOTTOM|small|open_hexagon_emblem": true,
+              "J:BOTTOM|small|paired_chevron_emblem": true,
+              "J:LEFT|medium|open_hexagon_emblem": true,
+              "J:LEFT|medium|paired_chevron_emblem": true,
+              "J:LEFT|small|open_hexagon_emblem": true,
+              "J:LEFT|small|paired_chevron_emblem": true,
+              "J:RIGHT|medium|open_hexagon_emblem": true,
+              "J:RIGHT|medium|paired_chevron_emblem": true,
+              "J:RIGHT|small|open_hexagon_emblem": true,
+              "J:RIGHT|small|paired_chevron_emblem": true,
+              "J:TOP|medium|open_hexagon_emblem": true,
+              "J:TOP|medium|paired_chevron_emblem": true,
+              "J:TOP|small|open_hexagon_emblem": true,
+              "J:TOP|small|paired_chevron_emblem": true
+            },
+            "failed": [],
+            "pass": true,
+            "required": {
+              "cell": {
+                "BOTTOM|medium|open_hexagon_emblem": 11,
+                "BOTTOM|medium|paired_chevron_emblem": 11,
+                "BOTTOM|small|open_hexagon_emblem": 11,
+                "BOTTOM|small|paired_chevron_emblem": 11,
+                "LEFT|medium|open_hexagon_emblem": 11,
+                "LEFT|medium|paired_chevron_emblem": 11,
+                "LEFT|small|open_hexagon_emblem": 11,
+                "LEFT|small|paired_chevron_emblem": 11,
+                "RIGHT|medium|open_hexagon_emblem": 11,
+                "RIGHT|medium|paired_chevron_emblem": 11,
+                "RIGHT|small|open_hexagon_emblem": 11,
+                "RIGHT|small|paired_chevron_emblem": 11,
+                "TOP|medium|open_hexagon_emblem": 11,
+                "TOP|medium|paired_chevron_emblem": 11,
+                "TOP|small|open_hexagon_emblem": 11,
+                "TOP|small|paired_chevron_emblem": 11
+              },
+              "edge": {
+                "BOTTOM": 44,
+                "LEFT": 44,
+                "RIGHT": 44,
+                "TOP": 44
+              },
+              "geometry": {
+                "open_hexagon_emblem": 87,
+                "paired_chevron_emblem": 87
+              },
+              "overall": 183,
+              "size": {
+                "medium": 87,
+                "small": 87
+              }
+            }
+          },
+          "geometries": {
+            "open_hexagon_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "paired_chevron_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "overall": {
+            "k": 192,
+            "n": 192,
+            "rate": 1.0
+          },
+          "sizes": {
+            "medium": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "small": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "survivingProposals": 2610,
+          "threshold": 0.65
+        },
+        "edgeOverall": 1.0,
+        "eligible": false,
+        "minCriticalRecall": 0.6667,
+        "survivingProposals": {
+          "broad": 1861,
+          "edge": 2610
+        },
+        "threshold": 0.65
+      },
+      {
+        "broadFailed": [
+          "J2",
+          "J4",
+          "J5",
+          "J9"
+        ],
+        "broadFamilies": {
+          "BRAND_LIKE_TEXT_AND_SYMBOL": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "CENTER_OVERLAY_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "EDGE_MARK": {
+            "k": 9,
+            "n": 12,
+            "rate": 0.75
+          },
+          "GRAPHICAL_WATERMARK_TRANSLUCENT": {
+            "k": 11,
+            "n": 12,
+            "rate": 0.9167
+          },
+          "GRAPHIC_SYMBOL": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "LOGO_LIKE_EMBLEM": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "REPEATED_TILED_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "SMALL_CORNER_MARK": {
+            "k": 12,
+            "n": 12,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_OPAQUE": {
+            "k": 24,
+            "n": 24,
+            "rate": 1.0
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_HIGH": {
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_LOW": {
+            "k": 8,
+            "n": 12,
+            "rate": 0.6667
+          },
+          "TEXT_WATERMARK_TRANSLUCENT_MEDIUM": {
+            "k": 5,
+            "n": 12,
+            "rate": 0.4167
+          }
+        },
+        "broadOverall": 0.9107,
+        "clean": {
+          "canonical": {
+            "allow": 10,
+            "review": 2
+          },
+          "cleanImageResponse": 1,
+          "downgrades": 0,
+          "existingCanonicalBurdenNotCounted": 2,
+          "hardRejectBypass": 0,
+          "holdoutCleanCeiling": null,
+          "n": 12,
+          "newAllowToReview": 1,
+          "newReviewRate": 0.0833,
+          "newReviewRateCI": {
+            "ci95": [
+              0.0149,
+              0.3539
+            ],
+            "k": 1,
+            "n": 12,
+            "rate": 0.0833
+          }
+        },
+        "criteria": {
+          "J1": true,
+          "J10": true,
+          "J11": true,
+          "J12": true,
+          "J2": false,
+          "J3": true,
+          "J4": false,
+          "J5": false,
+          "J6": true,
+          "J7": true,
+          "J8": true,
+          "J9": false
+        },
+        "edge": {
+          "cells": {
+            "BOTTOM|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "BOTTOM|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "LEFT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "RIGHT|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|medium|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|open_hexagon_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            },
+            "TOP|small|paired_chevron_emblem": {
+              "k": 12,
+              "n": 12,
+              "rate": 1.0,
+              "required": 11
+            }
+          },
+          "edges": {
+            "BOTTOM": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "LEFT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "RIGHT": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            },
+            "TOP": {
+              "k": 48,
+              "n": 48,
+              "rate": 1.0
+            }
+          },
+          "gate": {
+            "criteria": {
+              "A": true,
+              "B": true,
+              "C": true,
+              "D": true,
+              "E": true,
+              "F": true,
+              "G": true,
+              "H": true,
+              "I": true,
+              "J:BOTTOM|medium|open_hexagon_emblem": true,
+              "J:BOTTOM|medium|paired_chevron_emblem": true,
+              "J:BOTTOM|small|open_hexagon_emblem": true,
+              "J:BOTTOM|small|paired_chevron_emblem": true,
+              "J:LEFT|medium|open_hexagon_emblem": true,
+              "J:LEFT|medium|paired_chevron_emblem": true,
+              "J:LEFT|small|open_hexagon_emblem": true,
+              "J:LEFT|small|paired_chevron_emblem": true,
+              "J:RIGHT|medium|open_hexagon_emblem": true,
+              "J:RIGHT|medium|paired_chevron_emblem": true,
+              "J:RIGHT|small|open_hexagon_emblem": true,
+              "J:RIGHT|small|paired_chevron_emblem": true,
+              "J:TOP|medium|open_hexagon_emblem": true,
+              "J:TOP|medium|paired_chevron_emblem": true,
+              "J:TOP|small|open_hexagon_emblem": true,
+              "J:TOP|small|paired_chevron_emblem": true
+            },
+            "failed": [],
+            "pass": true,
+            "required": {
+              "cell": {
+                "BOTTOM|medium|open_hexagon_emblem": 11,
+                "BOTTOM|medium|paired_chevron_emblem": 11,
+                "BOTTOM|small|open_hexagon_emblem": 11,
+                "BOTTOM|small|paired_chevron_emblem": 11,
+                "LEFT|medium|open_hexagon_emblem": 11,
+                "LEFT|medium|paired_chevron_emblem": 11,
+                "LEFT|small|open_hexagon_emblem": 11,
+                "LEFT|small|paired_chevron_emblem": 11,
+                "RIGHT|medium|open_hexagon_emblem": 11,
+                "RIGHT|medium|paired_chevron_emblem": 11,
+                "RIGHT|small|open_hexagon_emblem": 11,
+                "RIGHT|small|paired_chevron_emblem": 11,
+                "TOP|medium|open_hexagon_emblem": 11,
+                "TOP|medium|paired_chevron_emblem": 11,
+                "TOP|small|open_hexagon_emblem": 11,
+                "TOP|small|paired_chevron_emblem": 11
+              },
+              "edge": {
+                "BOTTOM": 44,
+                "LEFT": 44,
+                "RIGHT": 44,
+                "TOP": 44
+              },
+              "geometry": {
+                "open_hexagon_emblem": 87,
+                "paired_chevron_emblem": 87
+              },
+              "overall": 183,
+              "size": {
+                "medium": 87,
+                "small": 87
+              }
+            }
+          },
+          "geometries": {
+            "open_hexagon_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "paired_chevron_emblem": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "overall": {
+            "k": 192,
+            "n": 192,
+            "rate": 1.0
+          },
+          "sizes": {
+            "medium": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            },
+            "small": {
+              "k": 96,
+              "n": 96,
+              "rate": 1.0
+            }
+          },
+          "survivingProposals": 2366,
+          "threshold": 0.8
+        },
+        "edgeOverall": 1.0,
+        "eligible": false,
+        "minCriticalRecall": 0.4167,
+        "survivingProposals": {
+          "broad": 1530,
+          "edge": 2366
+        },
+        "threshold": 0.8
+      }
+    ]
+  },
+  "developmentDescriptive": {
+    "note": "re-computed from the same three OOF folds for description only; no selection depends on it",
+    "oofScoreBands": {
+      "excluded|edge_scan": {
+        "<0.2": 12141,
+        "<0.35": 1512,
+        "<0.5": 261,
+        "<0.65": 214,
+        "<0.8": 220,
+        ">=0.8": 196
+      },
+      "excluded|florence2-phrase-grounding": {
+        "<0.2": 31,
+        "<0.35": 92,
+        "<0.5": 1,
+        "<0.65": 10,
+        "<0.8": 68,
+        ">=0.8": 287
+      },
+      "excluded|grounding-dino-tiny": {
+        "<0.2": 47,
+        "<0.35": 112,
+        "<0.5": 13,
+        "<0.65": 63,
+        "<0.8": 71,
+        ">=0.8": 365
+      },
+      "excluded|owlv2-base-patch16-ensemble": {
+        "<0.2": 3,
+        "<0.35": 3,
+        "<0.5": 8,
+        "<0.65": 3,
+        ">=0.8": 8
+      },
+      "negative|edge_scan": {
+        "<0.2": 421,
+        "<0.35": 48,
+        "<0.5": 4,
+        "<0.65": 3,
+        "<0.8": 3,
+        ">=0.8": 1
+      },
+      "negative|florence2-phrase-grounding": {
+        "<0.2": 1,
+        "<0.35": 5,
+        "<0.65": 1,
+        "<0.8": 3
+      },
+      "negative|grounding-dino-tiny": {
+        "<0.2": 2,
+        "<0.35": 13,
+        "<0.5": 13,
+        "<0.65": 5,
+        "<0.8": 2
+      },
+      "positive|edge_scan": {
+        "<0.2": 3,
+        "<0.35": 9,
+        "<0.5": 13,
+        "<0.65": 26,
+        "<0.8": 46,
+        ">=0.8": 239
+      },
+      "positive|florence2-phrase-grounding": {
+        "<0.5": 2,
+        "<0.65": 18,
+        "<0.8": 60,
+        ">=0.8": 1131
+      },
+      "positive|grounding-dino-tiny": {
+        "<0.5": 1,
+        "<0.65": 25,
+        "<0.8": 86,
+        ">=0.8": 1550
+      },
+      "positive|owlv2-base-patch16-ensemble": {
+        "<0.65": 9,
+        "<0.8": 16,
+        ">=0.8": 119
+      }
+    },
+    "perThreshold": {
+      "0.2": {
+        "cleanImagesWithSurvivorBySource": {
+          "edge_scan": 7,
+          "florence2-phrase-grounding": 3,
+          "grounding-dino-tiny": 12
+        },
+        "cleanSurvivingProposalsBySource": {
+          "edge_scan": 59,
+          "florence2-phrase-grounding": 9,
+          "grounding-dino-tiny": 33
+        },
+        "positiveImageHitBy": {
+          "both": 82,
+          "detector_only": 92,
+          "scan_only": 2
+        },
+        "positiveMatchedSurvivorsBySource": {
+          "edge_scan": 141,
+          "florence2-phrase-grounding": 537,
+          "grounding-dino-tiny": 729,
+          "owlv2-base-patch16-ensemble": 76
+        },
+        "positiveSurvivorsBySource": {
+          "edge_scan": 1302,
+          "florence2-phrase-grounding": 716,
+          "grounding-dino-tiny": 1028,
+          "owlv2-base-patch16-ensemble": 93
+        }
+      },
+      "0.35": {
+        "cleanImagesWithSurvivorBySource": {
+          "edge_scan": 3,
+          "florence2-phrase-grounding": 1,
+          "grounding-dino-tiny": 9
+        },
+        "cleanSurvivingProposalsBySource": {
+          "edge_scan": 11,
+          "florence2-phrase-grounding": 4,
+          "grounding-dino-tiny": 20
+        },
+        "positiveImageHitBy": {
+          "both": 80,
+          "detector_only": 94,
+          "scan_only": 2
+        },
+        "positiveMatchedSurvivorsBySource": {
+          "edge_scan": 132,
+          "florence2-phrase-grounding": 537,
+          "grounding-dino-tiny": 729,
+          "owlv2-base-patch16-ensemble": 76
+        },
+        "positiveSurvivorsBySource": {
+          "edge_scan": 523,
+          "florence2-phrase-grounding": 668,
+          "grounding-dino-tiny": 962,
+          "owlv2-base-patch16-ensemble": 91
+        }
+      },
+      "0.5": {
+        "cleanImagesWithSurvivorBySource": {
+          "edge_scan": 2,
+          "florence2-phrase-grounding": 1,
+          "grounding-dino-tiny": 2
+        },
+        "cleanSurvivingProposalsBySource": {
+          "edge_scan": 7,
+          "florence2-phrase-grounding": 4,
+          "grounding-dino-tiny": 7
+        },
+        "positiveImageHitBy": {
+          "both": 78,
+          "detector_only": 96,
+          "scan_only": 2
+        },
+        "positiveMatchedSurvivorsBySource": {
+          "edge_scan": 119,
+          "florence2-phrase-grounding": 536,
+          "grounding-dino-tiny": 728,
+          "owlv2-base-patch16-ensemble": 76
+        },
+        "positiveSurvivorsBySource": {
+          "edge_scan": 361,
+          "florence2-phrase-grounding": 666,
+          "grounding-dino-tiny": 951,
+          "owlv2-base-patch16-ensemble": 87
+        }
+      },
+      "0.65": {
+        "cleanImagesWithSurvivorBySource": {
+          "edge_scan": 2,
+          "florence2-phrase-grounding": 1,
+          "grounding-dino-tiny": 1
+        },
+        "cleanSurvivingProposalsBySource": {
+          "edge_scan": 4,
+          "florence2-phrase-grounding": 3,
+          "grounding-dino-tiny": 2
+        },
+        "positiveImageHitBy": {
+          "both": 68,
+          "detector_only": 102,
+          "scan_only": 1
+        },
+        "positiveMatchedSurvivorsBySource": {
+          "edge_scan": 97,
+          "florence2-phrase-grounding": 518,
+          "grounding-dino-tiny": 705,
+          "owlv2-base-patch16-ensemble": 71
+        },
+        "positiveSurvivorsBySource": {
+          "edge_scan": 241,
+          "florence2-phrase-grounding": 642,
+          "grounding-dino-tiny": 890,
+          "owlv2-base-patch16-ensemble": 79
+        }
+      },
+      "0.8": {
+        "cleanImagesWithSurvivorBySource": {
+          "edge_scan": 1
+        },
+        "cleanSurvivingProposalsBySource": {
+          "edge_scan": 1
+        },
+        "positiveImageHitBy": {
+          "both": 50,
+          "detector_only": 111
+        },
+        "positiveMatchedSurvivorsBySource": {
+          "edge_scan": 62,
+          "florence2-phrase-grounding": 469,
+          "grounding-dino-tiny": 636,
+          "owlv2-base-patch16-ensemble": 63
+        },
+        "positiveSurvivorsBySource": {
+          "edge_scan": 120,
+          "florence2-phrase-grounding": 557,
+          "grounding-dino-tiny": 781,
+          "owlv2-base-patch16-ensemble": 71
+        }
+      }
+    }
+  },
+  "diagnosis": [
+    "BROAD_MARK_RECALL_REGRESSION",
+    "EDGE_SCAN_CLEAN_BURDEN_TOO_HIGH",
+    "MIXED",
+    "SYNTHETIC_STYLE_NOT_SEPARATING"
+  ],
+  "embedRuns": {
+    "guardTriggeredRetries": 0,
+    "guardsLowered": false,
+    "l11_dev": {
+      "modelLoadSec": 0.7,
+      "originalsUnchanged": true,
+      "peakRssGb": 2.23,
+      "proposalsEmbeddedThisRun": 9602
+    },
+    "l14a_dev": {
+      "modelLoadSec": 0.5,
+      "originalsUnchanged": true,
+      "peakRssGb": 2.24,
+      "proposalsEmbeddedThisRun": 10005
+    },
+    "perRowGuardGb": 0.6,
+    "startGateGb": 3.0
+  },
+  "environment": {
+    "device": "cpu",
+    "note": "new venv after the previous scratchpad venv was destroyed; pins restored to the prior parity versions",
+    "pillow": "11.3.0",
+    "scikitLearn": "1.9.1",
+    "torch": "2.8.0+cpu",
+    "transformers": "4.57.6"
+  },
+  "externalCalls": 0,
+  "folds": [
+    [
+      "G1",
+      "G2",
+      "G3"
+    ],
+    [
+      "G1",
+      "G3",
+      "G2"
+    ],
+    [
+      "G2",
+      "G3",
+      "G1"
+    ]
+  ],
+  "freezeCommitPrefix": "092d5910",
+  "gaps": {
+    "graphicalDetector": "GRAPHICAL_DETECTOR_STUDY_REQUIRED",
+    "naturalPositive": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "textDetector": "TEXT_DETECTOR_CONTROLLED_GAP_OPEN",
+    "textPolicyGap": "TEXT_POLICY_GAP_UNRESOLVED (canonical policy unchanged)"
+  },
+  "generators": {
+    "florence2-phrase-grounding": "presence",
+    "grounding-dino-tiny": "historical_0.25",
+    "owlv2-base-patch16-ensemble": "legacy_0.25"
+  },
+  "holdoutEvaluated": 0,
+  "interpretation": {
+    "b3l13": "PROPOSAL_UNION_COVERAGE_INSUFFICIENT",
+    "b3l14a": "EDGE_PROPOSAL_GENERALIZATION_HOLDOUT_FAILED",
+    "note": "a pass is a new architecture passing a new hypothesis on synthetic marks; prior verdicts stand; NATURAL_POSITIVE_EVIDENCE_MISSING always",
+    "priorFailuresReopened": false,
+    "zeroShotReading": "FROZEN_THREE_GENERATOR_ZERO_SHOT_EDGE_LIMIT"
+  },
+  "iouMatch": 0.3,
+  "l11HoldoutAuditNow": {
+    "captures": {
+      "florence2-phrase-grounding": false,
+      "grounding-dino-tiny": false,
+      "owlv2-base-patch16-ensemble": false
+    },
+    "lockExists": false,
+    "selectedMarkerExists": false,
+    "unopened": true,
+    "verifierEmbeddingsExist": false
+  },
+  "labelsContract": {
+    "unmatchedOnPositiveImage": "EXCLUDED_FROM_TRAINING_SCORED_IN_EVALUATION"
+  },
+  "markers": [
+    "SCAN_CROP_COVERAGE_NOT_OBJECT_LOCALIZATION",
+    "FROZEN_THREE_GENERATOR_ZERO_SHOT_EDGE_LIMIT",
+    "EDGE_MARK_REMAINS_CRITICAL_FAMILY",
+    "KNOWN_CONSTRUCT_STRESS_GATE"
+  ],
+  "newDetectorInference": {
+    "development": 0,
+    "holdout": 0,
+    "stress": 0
+  },
+  "originals": {
+    "authorized": 28,
+    "method": "SHA-256 + mtime before/after (snapshot from B3-L14A carried forward)",
+    "unchangedAfterAllInference": 28
+  },
+  "priorStatus": {
+    "B3_L10A": "FLORENCE_SEQUENCE_SCORE_NOT_SEPARATING",
+    "B3_L10B": "FLORENCE_TWO_FEATURE_NOT_SEPARATING",
+    "B3_L11": "VISUAL_MARK_DETECTOR_FAILED_DEVELOPMENT",
+    "B3_L11_HOLDOUT_EXECUTIONS": 0,
+    "B3_L11_HOLDOUT_OPENED": false,
+    "B3_L12A": "GDINO_GEOMETRY_FILTER_FAILED_DEVELOPMENT",
+    "B3_L12A_DIAGNOSIS": [
+      "CLEAN_GEOMETRY_NOT_SEPARATING",
+      "EDGE_FAMILY_STILL_UNDERDETECTED",
+      "GRAPHICAL_WATERMARK_STILL_UNDERDETECTED",
+      "MIXED"
+    ],
+    "B3_L13": "PROPOSAL_UNION_COVERAGE_INSUFFICIENT",
+    "B3_L13_EDGE_MARK": "10/12",
+    "B3_L13_HOLDOUT": "NOT_OPENED",
+    "B3_L13_UNION_OVERALL": "164/168",
+    "B3_L13_VERIFIER": "NOT_STARTED",
+    "B3_L14A": "EDGE_PROPOSAL_GENERALIZATION_HOLDOUT_FAILED",
+    "B3_L14A_DEVELOPMENT": "190/192",
+    "B3_L14A_FAILED_CELL": "TOP x medium x offset_bar_emblem 5/8 (required 8/8)",
+    "B3_L14A_HOLDOUT": "125/128",
+    "B3_L14A_INTERPRETATION": "EDGE_PROPOSAL_GAP_REPLICATED",
+    "B3_L9": "TEXT_POLICY_SHADOW_HOLDOUT_FAILED",
+    "EDGE_MARK": "EDGE_MARK_REMAINS_CRITICAL_FAMILY",
+    "FLORENCE_TELEMETRY": "FLORENCE_TELEMETRY_TEXT_PATH_CLOSED_ON_CURRENT_CORPUS",
+    "GRAPHICAL_CHANNEL_GAP": "unresolved",
+    "GRAPHICAL_DETECTOR": "GRAPHICAL_DETECTOR_STUDY_REQUIRED",
+    "NATURAL_POSITIVE": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "TEXT_POLICY_GAP": "unresolved",
+    "V1": "OWLV2_POSITIVE_GROUND_TRUTH_INSUFFICIENT",
+    "V2": "OWLV2_CONTROLLED_GATE_FAILED_DEVELOPMENT",
+    "V3": "V3_DUAL_CHANNEL_FAILED_DEVELOPMENT",
+    "ZERO_SHOT_READING": "FROZEN_THREE_GENERATOR_ZERO_SHOT_EDGE_LIMIT"
+  },
+  "productionWrites": 0,
+  "prompts": [
+    "a logo",
+    "a watermark",
+    "a brand emblem",
+    "a graphic symbol"
+  ],
+  "reportVersion": "avatar_edge_scan_eval_v1",
+  "scan": {
+    "analyticGuarantee": {
+      "farEdgeMaxRel": 0.09000000000000001,
+      "insetMaxRel": 0.02,
+      "markSideMaxRel": 0.07,
+      "roundingTolerance": "GT_COVERAGE >= 0.95 (pixel rounding may break exact containment by <= 1 px)",
+      "spacingRule": "centre spacing <= tileRel - markSideMaxRel so any along-edge interval of length <= markSideMaxRel lies inside one tile; perpendicular: farEdgeMaxRel <= tileRel",
+      "tileRel": 0.16
+    },
+    "coverageFloor": 0.95,
+    "dedup": "exact duplicate boxes only (corners); no NMS; no cross-source suppression",
+    "edgeInsetRel": 0.02,
+    "edges": [
+      "TOP",
+      "BOTTOM",
+      "LEFT",
+      "RIGHT"
+    ],
+    "marker": "SCAN_CROP_COVERAGE_NOT_OBJECT_LOCALIZATION",
+    "maxMarkRel": 0.07,
+    "maxSpacingRel": 0.09,
+    "placement": "outer tile side flush with the image boundary; first/last tiles flush with the edge endpoints; uniform centres",
+    "runtimeInputs": [
+      "width",
+      "height"
+    ],
+    "source": "edge_scan",
+    "tileRel": 0.16,
+    "version": "EDGE_SCAN_PROPOSAL_V1"
+  },
+  "scanDigestPrefix": "1b45958a524d",
+  "stopped": {
+    "holdoutOpened": false,
+    "retuned": false,
+    "stage": "development",
+    "stressExecuted": false
+  },
+  "stressDesignation": {
+    "dataset": "l14a_holdout",
+    "detectorOutputsPreviouslySeen": true,
+    "independentHoldout": false,
+    "name": "KNOWN_CONSTRUCT_STRESS_GATE",
+    "note": "B3-L14A G4-G5 EDGE_HOLDOUT_VARIANT was consumed at detector level in B3-L14A; only the CLIP verifier outputs are new",
+    "verifierOutputsPreviouslySeen": false
+  },
+  "stressEvaluated": 0,
+  "thresholdGrid": [
+    0.2,
+    0.35,
+    0.5,
+    0.65,
+    0.8
+  ],
+  "thresholds": {
+    "florence2-phrase-grounding": "presence",
+    "grounding-dino-tiny": {
+      "box": 0.25,
+      "text": 0.25
+    },
+    "owlv2-base-patch16-ensemble": 0.25
+  },
+  "verdict": "EDGE_SCAN_VERIFIER_FAILED_DEVELOPMENT",
+  "verifier": {
+    "device": "cpu",
+    "embeddingDim": 768,
+    "feature": "get_image_features, L2-normalized",
+    "license": "mit",
+    "licenseAuthority": "official repository openai/CLIP LICENSE (MIT License, Copyright (c) 2021 OpenAI); the Hugging Face model card links that repository and carries no license field of its own",
+    "package": "transformers CLIPModel/CLIPProcessor (local_files_only)",
+    "preprocessing": "CLIPProcessor: resize shortest side 224, center crop 224, CLIP mean/std",
+    "productionUse": "LocalClipRiskScorer clipSafety (Dockerfile QA_CLIP_LARGE_REVISION, AVATAR_QA_CALIBRATION_EXPECTED_MODELS_JSON)",
+    "repo": "openai/clip-vit-large-patch14",
+    "revision": "32bd64288804d66eefd0ccbe215aa642df71cc41",
+    "scoreRole": "UNCALIBRATED_VERIFIER_SCORE"
+  },
+  "verifierEmbeddings": {
+    "development": 19607
+  },
+  "version": "DETERMINISTIC_EDGE_SCAN_WITH_CONTENT_VERIFIER_V1",
+  "watermarkPolicyChanged": false
+}
