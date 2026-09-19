@@ -353,6 +353,12 @@ jobs:
       - run: pytest -q tests/test_avatar_dinov2_verifier.py --maxfail=10
         env:
           PYTHONPATH: .
+      # B3-L17A: SUPERVISED_WATERMARK_LOGO_DATASET_V1 data-design contract only (no training/inference): source policy, ontology(B3 authority),
+      # region schema, blinded dual-rater workflow, group leakage unit, sha256+pHash dedup, deterministic group-disjoint split, sealed-test lock,
+      # Clopper-Pearson sufficiency helper(29/46/59), legacy contamination classification, aggregate-only artifacts.
+      - run: pytest -q tests/test_avatar_supervised_dataset_contract.py --maxfail=10
+        env:
+          PYTHONPATH: .
       # 배포 가드는 Windows 운영자 셸에서 Hangul env 값을 "???" 로 읽어 바뀐 적
       # 없는 변수를 changed 로 보고했다. 인코딩과 키 단위 승인 계약을 Linux
       # 에서도 고정한다.

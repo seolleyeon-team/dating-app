@@ -1,0 +1,156 @@
+{
+  "fixture": "FAKE_OPAQUE_IDS_ONLY",
+  "note": "Illustrative private-manifest shape for SUPERVISED_WATERMARK_LOGO_DATASET_V1. Every id, hash and box is synthetic; no image exists behind this file.",
+  "datasetVersion": "SUPERVISED_WATERMARK_LOGO_DATASET_V1",
+  "images": [
+    {
+      "opaqueImageId": "img-fake0001",
+      "groupId": "grp-fake0001",
+      "provenanceClass": "FUTURE_HOLDOUT_ELIGIBLE",
+      "originKind": "NATURAL_GENERATED_OUTPUT",
+      "sourceAuthority": "OWNER_AUTHORIZED_FIRST_PARTY",
+      "collectionBatch": "batch-fake-01",
+      "annotationVersion": "supervised_watermark_logo_region_schema_v1",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "perceptualHash": "0f0f0f0f0f0f0f0f",
+      "width": 1024,
+      "height": 1024,
+      "regions": [
+        {
+          "regionId": "r1",
+          "class": "GRAPHICAL_LOGO",
+          "bboxNormalized": [0.82, 0.86, 0.95, 0.97],
+          "visibility": "clear",
+          "sceneRelation": "overlay",
+          "legibility": "not_applicable",
+          "raterConfidence": "high",
+          "annotationStatus": "agreed"
+        }
+      ],
+      "split": "SEALED_TEST",
+      "hasRelevantRegion": true,
+      "regionCount": 1,
+      "classSet": ["GRAPHICAL_LOGO"],
+      "uncertainPresent": false,
+      "sourceProvenanceClass": "FUTURE_HOLDOUT_ELIGIBLE",
+      "splitGroupId": "grp-fake0001"
+    },
+    {
+      "opaqueImageId": "img-fake0002",
+      "groupId": "grp-fake0002",
+      "provenanceClass": "FUTURE_HOLDOUT_ELIGIBLE",
+      "originKind": "NATURAL_GENERATED_OUTPUT",
+      "sourceAuthority": "OWNER_AUTHORIZED_FIRST_PARTY",
+      "collectionBatch": "batch-fake-01",
+      "annotationVersion": "supervised_watermark_logo_region_schema_v1",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "perceptualHash": "f0f0f0f0f0f0f0f0",
+      "width": 1024,
+      "height": 1024,
+      "regions": [
+        {
+          "regionId": "r1",
+          "class": "GARMENT_TEXT",
+          "bboxNormalized": [0.40, 0.55, 0.60, 0.62],
+          "visibility": "faint",
+          "sceneRelation": "garment",
+          "legibility": "partial",
+          "raterConfidence": "medium",
+          "annotationStatus": "adjudicated"
+        }
+      ],
+      "split": "VALIDATION",
+      "hasRelevantRegion": true,
+      "regionCount": 1,
+      "classSet": ["GARMENT_TEXT"],
+      "uncertainPresent": false,
+      "sourceProvenanceClass": "FUTURE_HOLDOUT_ELIGIBLE",
+      "splitGroupId": "grp-fake0002"
+    },
+    {
+      "opaqueImageId": "img-fake0003",
+      "groupId": "grp-fake0003",
+      "provenanceClass": "FUTURE_TRAINING_ELIGIBLE",
+      "originKind": "NATURAL_GENERATED_OUTPUT",
+      "sourceAuthority": "OWNER_AUTHORIZED_FIRST_PARTY",
+      "collectionBatch": "batch-fake-02",
+      "annotationVersion": "supervised_watermark_logo_region_schema_v1",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+      "perceptualHash": "00ff00ff00ff00ff",
+      "width": 1024,
+      "height": 1024,
+      "regions": [],
+      "split": "TRAIN_DEVELOPMENT",
+      "hasRelevantRegion": false,
+      "regionCount": 0,
+      "classSet": [],
+      "uncertainPresent": false,
+      "sourceProvenanceClass": "FUTURE_TRAINING_ELIGIBLE",
+      "splitGroupId": "grp-fake0003"
+    },
+    {
+      "opaqueImageId": "img-fake0004",
+      "groupId": "grp-fake0004",
+      "provenanceClass": "LEGACY_DEVELOPMENT_CONTAMINATED",
+      "originKind": "CONTROLLED_CHALLENGE_EVIDENCE",
+      "sourceAuthority": "OWNER_AUTHORIZED_FIRST_PARTY",
+      "collectionBatch": "batch-legacy-b3",
+      "annotationVersion": "supervised_watermark_logo_region_schema_v1",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+      "perceptualHash": "ff00ff00ff00ff00",
+      "width": 1254,
+      "height": 1254,
+      "regions": [
+        {
+          "regionId": "r1",
+          "class": "OVERLAY_WATERMARK",
+          "bboxNormalized": [0.45, 0.60, 0.55, 0.66],
+          "visibility": "clear",
+          "sceneRelation": "overlay",
+          "legibility": "legible",
+          "raterConfidence": "high",
+          "annotationStatus": "agreed"
+        }
+      ],
+      "split": "TRAIN_DEVELOPMENT",
+      "hasRelevantRegion": true,
+      "regionCount": 1,
+      "classSet": ["OVERLAY_WATERMARK"],
+      "uncertainPresent": false,
+      "sourceProvenanceClass": "LEGACY_DEVELOPMENT_CONTAMINATED",
+      "splitGroupId": "grp-fake0004"
+    },
+    {
+      "opaqueImageId": "img-fake0005",
+      "groupId": "grp-fake0005",
+      "provenanceClass": "FUTURE_TRAINING_ELIGIBLE",
+      "originKind": "NATURAL_GENERATED_OUTPUT",
+      "sourceAuthority": "OWNER_AUTHORIZED_FIRST_PARTY",
+      "collectionBatch": "batch-fake-02",
+      "annotationVersion": "supervised_watermark_logo_region_schema_v1",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000005",
+      "perceptualHash": "0000ffff0000ffff",
+      "width": 1024,
+      "height": 1024,
+      "regions": [
+        {
+          "regionId": "r1",
+          "class": "UNCERTAIN",
+          "bboxNormalized": [0.10, 0.80, 0.22, 0.90],
+          "visibility": "faint",
+          "sceneRelation": "unknown",
+          "legibility": "illegible",
+          "raterConfidence": "low",
+          "annotationStatus": "uncertain"
+        }
+      ],
+      "split": "TRAIN_DEVELOPMENT",
+      "hasRelevantRegion": false,
+      "regionCount": 1,
+      "classSet": ["UNCERTAIN"],
+      "uncertainPresent": true,
+      "sourceProvenanceClass": "FUTURE_TRAINING_ELIGIBLE",
+      "splitGroupId": "grp-fake0005"
+    }
+  ]
+}
