@@ -1,0 +1,589 @@
+{
+  "agreementMetrics": [
+    "image_level_agreement",
+    "region_class_agreement",
+    "region_localization_agreement"
+  ],
+  "annotationSchemaVersion": "supervised_watermark_logo_region_schema_v1",
+  "blindingForbidden": [
+    "clipScore",
+    "dinov2Score",
+    "groundingDinoBox",
+    "florenceResult",
+    "owlv2Result",
+    "modelPrediction",
+    "thresholdResult",
+    "priorB3PassFail",
+    "detectorScore",
+    "verifierScore",
+    "proposalBox"
+  ],
+  "buildsDeploys": 0,
+  "classifierFits": 0,
+  "cleanNegativeCorpus": "CLEAN_NEGATIVE_CORPUS_INSUFFICIENT",
+  "collectionGapByClass": {
+    "BRAND_TEXT_OR_MARK": 29,
+    "CLEAN": 29,
+    "GENERATIVE_TEXT_ARTIFACT": 29,
+    "GRAPHICAL_LOGO": 29,
+    "OVERLAY_WATERMARK": 29
+  },
+  "collectionPlan": {
+    "benignHardNegativeKinds": [
+      "GARMENT_TEXT",
+      "BACKGROUND_SIGNAGE",
+      "benign decorative graphics",
+      "face/skin/hair texture",
+      "jewelry/accessory detail",
+      "clothing seams/patterns"
+    ],
+    "cleanIndependentGroupsForEvaluation": {
+      "zeroFalseReview": 29,
+      "zeroFalseReviewAt5pct": 59
+    },
+    "executed": false,
+    "execution": "NOT_EXECUTED_PLAN_ONLY",
+    "hardNegativeMining": "separate phase after training; never in this contract",
+    "naturalPositiveStrata": [
+      "BRAND_TEXT_OR_MARK",
+      "OVERLAY_WATERMARK",
+      "GRAPHICAL_LOGO",
+      "GENERATIVE_TEXT_ARTIFACT"
+    ],
+    "overlayTextSeparate": "OVERLAY_TEXT held separately (TEXT_POLICY_GAP unresolved)",
+    "paidGenerationRequired": "YES (new first-party generated outputs; not executed; count/cost/privacy plan only)",
+    "perStratumIndependentGroupsForEvaluation": {
+      "oneMiss": 46,
+      "zeroMiss": 29
+    },
+    "productionUserDataRequired": "NO (unless separately approved by owner/privacy)",
+    "source": "owner-authorized first-party generated avatar outputs",
+    "syntheticCountedAsNatural": false
+  },
+  "contractDigestPrefix": "5d10e2b09248",
+  "currentCleanContaminatedIndependentGroups": 5,
+  "currentCleanUncontaminatedIndependentGroups": 0,
+  "currentNaturalPositiveIndependentGroups": {
+    "BRAND_TEXT_OR_MARK": 0,
+    "GENERATIVE_TEXT_ARTIFACT": 0,
+    "GRAPHICAL_LOGO": 0,
+    "OVERLAY_WATERMARK": 0
+  },
+  "datasetVersion": "SUPERVISED_WATERMARK_LOGO_DATASET_V1",
+  "digests": {
+    "annotationSchema": "ad492f8341c5",
+    "labelPolicy": "ba2c49fd0b43",
+    "ontology": "0f2925f0d492",
+    "sourcePolicy": "7335e2378bc1",
+    "splitPlan": "75522cd03b4f"
+  },
+  "duplicatePolicy": {
+    "action": "collapse into one group before the split",
+    "exactMethod": "SHA-256 of the image bytes",
+    "hammingThreshold": 10,
+    "modelScoresUsed": false,
+    "perceptualHashMethod": "64-bit DCT pHash (32x32 grayscale, top-left 8x8 DCT, median)",
+    "thresholdFrozenBeforeData": true
+  },
+  "exampleManifest": {
+    "aggregate": {
+      "cleanNaturalIndependentGroups": 1,
+      "cleanNaturalUncontaminatedGroups": 1,
+      "groups": 5,
+      "groupsByPartition": {
+        "SEALED_TEST": 1,
+        "TRAIN_DEVELOPMENT": 3,
+        "VALIDATION": 1
+      },
+      "images": 5,
+      "imagesByPartition": {
+        "SEALED_TEST": 1,
+        "TRAIN_DEVELOPMENT": 3,
+        "VALIDATION": 1
+      },
+      "imagesByProvenance": {
+        "FUTURE_HOLDOUT_ELIGIBLE": 2,
+        "FUTURE_TRAINING_ELIGIBLE": 2,
+        "LEGACY_DEVELOPMENT_CONTAMINATED": 1
+      },
+      "naturalPositiveIndependentGroups": {
+        "BACKGROUND_SIGNAGE": 0,
+        "BRAND_TEXT_OR_MARK": 0,
+        "GARMENT_TEXT": 1,
+        "GENERATIVE_TEXT_ARTIFACT": 0,
+        "GRAPHICAL_LOGO": 1,
+        "OVERLAY_TEXT": 0,
+        "OVERLAY_WATERMARK": 0
+      },
+      "primaryTrainingEligibleImages": 4,
+      "regionsByClass": {
+        "GARMENT_TEXT": 1,
+        "GRAPHICAL_LOGO": 1,
+        "OVERLAY_WATERMARK": 1,
+        "UNCERTAIN": 1
+      },
+      "regionsTotal": 4,
+      "statisticalUnit": "independent image/group, never crop or region count",
+      "syntheticPositiveImages": 1,
+      "uncertaintyRate": 0.2
+    },
+    "file": "b3-l17a-supervised-manifest-example.json",
+    "fixture": "FAKE_OPAQUE_IDS_ONLY",
+    "validatorErrors": 0
+  },
+  "externalRawImageTransmission": 0,
+  "forbiddenManifestKeys": [
+    "uid",
+    "userId",
+    "email",
+    "sourcePhotoPath",
+    "path",
+    "filename",
+    "fileName",
+    "userFacingFilename",
+    "displayName",
+    "phone",
+    "identity",
+    "sourcePhotoId"
+  ],
+  "futureHoldoutEligibleSources": [
+    "prospective owner-authorized first-party generated outputs never scored by any B3 model"
+  ],
+  "futureTrainingEligibleSources": [
+    "owner-authorized first-party generated outputs (prospective)",
+    "legacy 20 avatars + B3 constructs as explicitly flagged augmentation only",
+    "third-party datasets passing the license audit (augmentation only)"
+  ],
+  "gaps": {
+    "graphicalDetector": "GRAPHICAL_DETECTOR_STUDY_REQUIRED",
+    "naturalPositive": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "textPolicy": "TEXT_POLICY_GAP unresolved"
+  },
+  "imageGeneration": {
+    "azure": 0,
+    "openaiImage": 0
+  },
+  "imageLevelAllowed": [
+    "hasRelevantRegion",
+    "regionCount",
+    "classSet",
+    "uncertainPresent",
+    "sourceProvenanceClass",
+    "splitGroupId"
+  ],
+  "inference": 0,
+  "kappaRole": "descriptive only; never proof of label correctness",
+  "labelAuthority": {
+    "adjudicator": "owner-designated adjudicator or a pre-registered third rater",
+    "independent": true,
+    "inheritsB3PilotTruth": false,
+    "noAdjudicatorOutcome": "UNCERTAIN",
+    "raters": [
+      "RATER_A",
+      "RATER_B"
+    ],
+    "singleRaterMarker": "SINGLE_RATER_DATASET_LIMITATION",
+    "singleRaterProductionValidation": false
+  },
+  "leakageUnit": "group (same underlying identity / source lineage: regenerations, variants, near duplicates)",
+  "legacyInventory": [
+    {
+      "classification": "LEGACY_DEVELOPMENT_CONTAMINATED",
+      "count": 20,
+      "futureUse": [
+        "TRAIN_DEVELOPMENT augmentation (explicit flag)",
+        "VALIDATION augmentation (explicit flag)",
+        "regression set"
+      ],
+      "independentGroups": 5,
+      "kind": "NATURAL_GENERATED_OUTPUT",
+      "naturalPositives": 0,
+      "note": "owner Rater A reference truth: 20/20 no visible graphical mark (18 NO_VISIBLE_RELEVANT_TEXT_OR_MARK, 2 GARMENT_TEXT)",
+      "source": "generated avatars (20, G1-G5)",
+      "why": "every base was scored by OWLv2/Grounding DINO/Florence/CLIP/DINOv2 across B3-L4..L16A (G4-G5 in B3-L9/B3-L14A holdouts)"
+    },
+    {
+      "classification": "RESTRICTED_SOURCE_NOT_MODEL_DATA",
+      "count": 8,
+      "futureUse": [],
+      "independentGroups": 8,
+      "kind": "SOURCE_PHOTO",
+      "source": "source photos (8)",
+      "why": "user-uploaded originals; runtime target is generated output; no added identity exposure"
+    },
+    {
+      "classification": "LEGACY_DEVELOPMENT_CONTAMINATED",
+      "count": 180,
+      "futureUse": [
+        "TRAIN_DEVELOPMENT augmentation (explicit flag)",
+        "VALIDATION augmentation (explicit flag)",
+        "regression set"
+      ],
+      "kind": "CONTROLLED_CHALLENGE_EVIDENCE",
+      "source": "B3-L11 constructs (VISUAL_MARK_CHALLENGE_V3)",
+      "why": "development derivatives scored by three detectors; HOLDOUT_VARIANT never generated"
+    },
+    {
+      "classification": "LEGACY_DEVELOPMENT_CONTAMINATED",
+      "count": 320,
+      "futureUse": [
+        "TRAIN_DEVELOPMENT augmentation (explicit flag)",
+        "VALIDATION augmentation (explicit flag)",
+        "regression set"
+      ],
+      "kind": "CONTROLLED_CHALLENGE_EVIDENCE",
+      "source": "B3-L14A constructs (EDGE_MARK_GENERALIZATION_V1)",
+      "why": "192 development + 128 consumed holdout derivatives scored by three detectors"
+    },
+    {
+      "classification": "LEGACY_DEVELOPMENT_CONTAMINATED",
+      "count": 19607,
+      "futureUse": [
+        "TRAIN_DEVELOPMENT augmentation (explicit flag)",
+        "VALIDATION augmentation (explicit flag)",
+        "regression set"
+      ],
+      "kind": "CONTROLLED_CHALLENGE_EVIDENCE",
+      "source": "B3-L15A crops/proposals (CLIP)",
+      "why": "proposal crops embedded and OOF-scored"
+    },
+    {
+      "classification": "LEGACY_DEVELOPMENT_CONTAMINATED",
+      "count": 19607,
+      "futureUse": [
+        "TRAIN_DEVELOPMENT augmentation (explicit flag)",
+        "VALIDATION augmentation (explicit flag)",
+        "regression set"
+      ],
+      "kind": "CONTROLLED_CHALLENGE_EVIDENCE",
+      "source": "B3-L16A crops/embeddings (DINOv2)",
+      "why": "same proposal crops embedded and OOF-scored"
+    },
+    {
+      "classification": "LEGACY_DEVELOPMENT_CONTAMINATED",
+      "count": 112,
+      "futureUse": [
+        "TRAIN_DEVELOPMENT augmentation (explicit flag)",
+        "VALIDATION augmentation (explicit flag)",
+        "regression set"
+      ],
+      "kind": "CONTROLLED_CHALLENGE_EVIDENCE",
+      "source": "B3-L7/L8/L9/L10 OWLv2 + Florence captures",
+      "why": "earlier challenge/holdout captures on the same 20 bases"
+    },
+    {
+      "classification": "LEGACY_DEVELOPMENT_CONTAMINATED",
+      "count": 20,
+      "futureUse": [
+        "reference for ontology continuity only"
+      ],
+      "kind": "LABEL_ARTIFACT",
+      "source": "human label artifacts (B3-L5/L6 Rater A/B/C)",
+      "why": "pilot truth over the contaminated 20; not inherited by the new label authority"
+    }
+  ],
+  "legacySplitStatus": {
+    "allB3Constructs": "LEGACY_DEVELOPMENT_CONTAMINATED",
+    "legacy20GeneratedAvatars": "LEGACY_DEVELOPMENT_CONTAMINATED",
+    "sealedEvaluationHoldout": "never"
+  },
+  "localizationAgreementIou": 0.5,
+  "marker": "SUPERVISED_WATERMARK_LOGO_DATA_DESIGN",
+  "modelTraining": 0,
+  "naturalPositive": {
+    "definition": "visible text/logo/watermark/mark region that appears in the canonical avatar generation output itself, without any post-hoc synthetic overlay",
+    "gap": "NATURAL_POSITIVE_EVIDENCE_MISSING until a prospective natural-positive corpus is collected and labelled under this contract",
+    "notCounted": [
+      "B3 injected overlays",
+      "programmatic synthetic marks",
+      "manually pasted logo/text",
+      "challenge derivatives",
+      "synthetic constructs"
+    ],
+    "notCountedRole": [
+      "CONTROLLED_SYNTHETIC_AUGMENTATION",
+      "CONTROLLED_CHALLENGE_EVIDENCE"
+    ]
+  },
+  "naturalPositiveCorpus": "NATURAL_POSITIVE_CORPUS_INSUFFICIENT",
+  "naturalPositiveStrata": [
+    "BRAND_TEXT_OR_MARK",
+    "OVERLAY_WATERMARK",
+    "GRAPHICAL_LOGO",
+    "GENERATIVE_TEXT_ARTIFACT"
+  ],
+  "noTraining": {
+    "classifierFit": 0,
+    "featureExtractionForModelSelection": 0,
+    "fineTuning": 0,
+    "linearProbe": 0,
+    "modelTraining": 0,
+    "productionInference": 0,
+    "thresholdSelection": 0
+  },
+  "ontology": [
+    "NO_VISIBLE_RELEVANT_TEXT_OR_MARK",
+    "GARMENT_TEXT",
+    "BACKGROUND_SIGNAGE",
+    "BRAND_TEXT_OR_MARK",
+    "OVERLAY_TEXT",
+    "OVERLAY_WATERMARK",
+    "GRAPHICAL_LOGO",
+    "GENERATIVE_TEXT_ARTIFACT",
+    "UNCERTAIN"
+  ],
+  "ontologyAuthority": "avatar_watermark_label_schema_v2",
+  "overlayText": "OVERLAY_TEXT held separately (TEXT_POLICY_GAP unresolved)",
+  "paidGenerationRequiredForCollection": "YES (not executed; plan only)",
+  "partitionFractions": {
+    "SEALED_TEST": 0.2,
+    "TRAIN_DEVELOPMENT": 0.6,
+    "VALIDATION": 0.2
+  },
+  "partitions": [
+    "TRAIN_DEVELOPMENT",
+    "VALIDATION",
+    "SEALED_TEST"
+  ],
+  "policyCollapseAllowed": false,
+  "priorStatus": {
+    "B3_L13": "PROPOSAL_UNION_COVERAGE_INSUFFICIENT",
+    "B3_L14A": "EDGE_PROPOSAL_GENERALIZATION_HOLDOUT_FAILED",
+    "B3_L15A": "EDGE_SCAN_VERIFIER_FAILED_DEVELOPMENT",
+    "B3_L16A": "DINOV2_VERIFIER_FAILED_DEVELOPMENT",
+    "B3_L16A_CORRECTION": "PROVENANCE_ONLY_METADATA_CORRECTION",
+    "NATURAL_POSITIVE": "NATURAL_POSITIVE_EVIDENCE_MISSING",
+    "STOP_RULE": "FROZEN_VERIFIER_REPRESENTATION_SEARCH_STOP_RULE",
+    "TEXT_POLICY_GAP": "unresolved"
+  },
+  "privateManifestFields": [
+    "opaqueImageId",
+    "groupId",
+    "provenanceClass",
+    "originKind",
+    "collectionBatch",
+    "annotationVersion",
+    "sha256",
+    "perceptualHash",
+    "width",
+    "height",
+    "regions",
+    "split"
+  ],
+  "productionAccess": {
+    "firestoreScans": 0,
+    "storageBulkList": 0,
+    "userCorpusExport": 0,
+    "userDataMutation": 0
+  },
+  "productionUserDataRequired": "NO (unless separately approved by owner/privacy)",
+  "productionWrites": 0,
+  "prohibitedInThisPhase": [
+    "SigLIP",
+    "OpenCLIP",
+    "DINOv2-large",
+    "CLIP variant",
+    "RBF SVM",
+    "MLP",
+    "random forest",
+    "boosting",
+    "new threshold grid",
+    "new crop",
+    "new scan",
+    "new zero-shot detector",
+    "model training",
+    "fine-tuning",
+    "linear probe",
+    "classifier fit",
+    "threshold selection",
+    "feature extraction for model selection",
+    "production inference"
+  ],
+  "readiness": {
+    "allComplete": true,
+    "blindedLabelWorkflow": true,
+    "duplicateHandling": true,
+    "labelOntology": true,
+    "leakageGroup": true,
+    "legacyContaminationClassification": true,
+    "licenseHandling": true,
+    "naturalPositiveDefinition": true,
+    "privacyContract": true,
+    "regionSchema": true,
+    "sealedHoldoutContract": true,
+    "sourcePolicy": true,
+    "splitAlgorithm": true,
+    "statisticalSufficiencyHelper": true
+  },
+  "regionSchema": {
+    "bboxRule": "[xmin, ymin, xmax, ymax] in [0, 1], xmin < xmax, ymin < ymax",
+    "classEnum": "ontology",
+    "enums": {
+      "annotationStatus": [
+        "agreed",
+        "adjudicated",
+        "uncertain"
+      ],
+      "legibility": [
+        "legible",
+        "partial",
+        "illegible",
+        "not_applicable"
+      ],
+      "raterConfidence": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "sceneRelation": [
+        "overlay",
+        "garment",
+        "background",
+        "integrated",
+        "unknown"
+      ],
+      "visibility": [
+        "clear",
+        "faint"
+      ]
+    },
+    "fields": [
+      "regionId",
+      "class",
+      "bboxNormalized",
+      "visibility",
+      "sceneRelation",
+      "legibility",
+      "raterConfidence",
+      "annotationStatus"
+    ]
+  },
+  "retention": {
+    "FIRST_PARTY_GENERATED_OUTPUT": {
+      "consentWithdrawal": "delete the image, its regions and split entry; regenerate manifest digest",
+      "deletionTrigger": "owner instruction or programme end",
+      "derivedAnnotationDeletion": "with the image",
+      "retentionPeriod": "duration of the supervised research programme, reviewed every 90 days",
+      "splitManifestCleanup": "entry removed; split re-verified group-disjoint"
+    },
+    "LEGACY_DEVELOPMENT_CONTAMINATED": {
+      "consentWithdrawal": "as G004",
+      "deletionTrigger": "owner instruction only",
+      "derivedAnnotationDeletion": "derivatives/embeddings deletable on owner instruction",
+      "retentionPeriod": "as the G004 authorization (28 originals: never deleted by the agent)",
+      "splitManifestCleanup": "legacy entries removable without affecting SEALED_TEST"
+    },
+    "PRODUCTION_USER_IMAGE": {
+      "note": "production user images are not used in SUPERVISED_WATERMARK_LOGO_DATASET_V1",
+      "used": false
+    },
+    "SOURCE_PHOTO": {
+      "consentWithdrawal": "governed by the product's account/consent flows",
+      "deletionTrigger": "not applicable",
+      "derivedAnnotationDeletion": "none exist",
+      "retentionPeriod": "not in dataset",
+      "splitManifestCleanup": "none exist"
+    },
+    "THIRD_PARTY_AUGMENTATION": {
+      "consentWithdrawal": "not applicable (license governs)",
+      "deletionTrigger": "license change or LICENSE_REVIEW_REQUIRED",
+      "derivedAnnotationDeletion": "with the dataset",
+      "retentionPeriod": "per dataset license",
+      "splitManifestCleanup": "training/validation entries only (never sealed)"
+    }
+  },
+  "sealedTest": {
+    "browsing": "minimised; no performance evaluation before the prerequisites",
+    "evaluations": "exactly one behind the lock; second evaluation fails closed",
+    "legacyData": "never",
+    "partition": "SEALED_TEST",
+    "prerequisites": [
+      "supervised_dataset_v1_manifest_frozen.json",
+      "supervised_model_architecture_frozen.json",
+      "supervised_training_recipe_frozen.json",
+      "supervised_threshold_frozen.json"
+    ]
+  },
+  "sourcePhotos": "RESTRICTED_SOURCE_NOT_MODEL_DATA (8)",
+  "sourcePolicy": {
+    "conditions": [
+      "explicit QA/data-use authority",
+      "generated output only",
+      "source photo never copied into the dataset",
+      "private local storage",
+      "stable opaque dataset id",
+      "retention policy",
+      "deletion policy",
+      "provenance record"
+    ],
+    "preferredSource": "owner-authorized first-party generated avatar outputs",
+    "productionMining": "prohibited: no Firestore bulk export, no production bucket crawl, no UID-based corpus, no consent-less production image use",
+    "productionUserImages": "prohibited without separate owner/privacy approval",
+    "runtimeTarget": "generated avatar output",
+    "sourcePhotosCopiedIntoDataset": false,
+    "thirdParty": "optional training augmentation only, per-dataset license audit, never a substitute for the first-party natural holdout",
+    "webScraping": "prohibited"
+  },
+  "splitAlgorithm": "per (stratum, provenance pool): order groups by sha256(SEED + groupId); assign the i-th of n to the partition whose cumulative fraction covers (i + 0.5) / n; legacy pool excludes SEALED_TEST with renormalised fractions; no manual override",
+  "statisticalUnit": "independent image/group, never crop or region count",
+  "statistics": {
+    "clean": {
+      "aspirationalTarget": 0.05,
+      "gateTarget": 0.1,
+      "minIndependentCleanFor0FalseReviews": 29,
+      "minIndependentCleanFor0FalseReviewsAt5pct": 59,
+      "minIndependentCleanFor1FalseReview": 46,
+      "upperBoundAt0of29": 0.0981,
+      "upperBoundAt0of59": 0.0495
+    },
+    "confidence": 0.95,
+    "method": "one-sided exact binomial (Clopper-Pearson) via beta quantiles",
+    "pointEstimateAloneIsInsufficient": true,
+    "recall": {
+      "lowerBoundAt29of29": 0.9019,
+      "minIndependentPositivesFor0Misses": 29,
+      "minIndependentPositivesFor1Miss": 46,
+      "minIndependentPositivesFor2Misses": 61,
+      "target": 0.9
+    },
+    "scipyVersion": "1.17.1",
+    "trainingSize": {
+      "decidedBy": "future supervised phase learning-curve contract",
+      "evaluationNIsNotTrainingN": true,
+      "status": "TRAINING_SIZE_NOT_YET_JUSTIFIED"
+    },
+    "unit": "independent image/group (never crop or region count)"
+  },
+  "syntheticRole": {
+    "allowed": [
+      "training augmentation",
+      "challenge set",
+      "regression set"
+    ],
+    "excludedFrom": [
+      "natural-domain validation statistics",
+      "sealed natural holdout statistics",
+      "natural positive counts"
+    ]
+  },
+  "thirdPartyAmbiguousLicenseStatus": "LICENSE_REVIEW_REQUIRED",
+  "thirdPartyRequiredFields": [
+    "name",
+    "sourceUrl",
+    "exactVersion",
+    "license",
+    "commercialProductUseCompatible",
+    "redistributionRestrictions",
+    "imageCopyrightStatus",
+    "annotationLicense",
+    "downloadTerms"
+  ],
+  "trainingSize": "TRAINING_SIZE_NOT_YET_JUSTIFIED",
+  "transcriptionPolicy": {
+    "default": "not stored",
+    "requiresNewHypothesis": true,
+    "why": "minimise collection of personal / trademark strings; OCR text is not a training target under this contract"
+  },
+  "uncertainPolicy": "EXCLUDED_FROM_PRIMARY_TRAINING",
+  "verdict": "SUPERVISED_DATA_COLLECTION_CONTRACT_READY"
+}
