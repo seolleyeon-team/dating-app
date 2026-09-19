@@ -8,7 +8,7 @@
     "class_weight": "balanced",
     "estimator": "sklearn.linear_model.LogisticRegression",
     "hyperparameterSearch": "none",
-    "input": "L2-normalized CLIP image embedding",
+    "input": "L2-normalized DINOv2 pooler_output image embedding",
     "max_iter": 1000,
     "penalty": "l2",
     "random_state": 0,
@@ -42,6 +42,7 @@
     "then": "CLIPProcessor default"
   },
   "decisionDiff": 0,
+  "deploymentBlockerNote": "Historical note: approval deployment (approveAvatarCandidate) was a blocker in earlier B3 reports, but the separate backend rollout (approveAvatarCandidate, getAvatarJobCandidates, getCurrentAvatarGenerationStatus; soft needs_review) was completed before/independently of this evidence correction; it is not a current B3-L16A research blocker.",
   "detectorSetDigestPrefix": "086a32a65e05",
   "development": {
     "embeddingDim": 768,
@@ -2197,6 +2198,23 @@
     "source": "B3-L15A immutable"
   },
   "proposalContractDigestPrefix": "de771758cc30",
+  "provenanceCorrection": {
+    "classification": "RESULT_METADATA_COPY_FORWARD_ERROR",
+    "classifierRefit": 0,
+    "contractChanged": false,
+    "contractDigestNote": "the shared recipe module is untouched so contract digest b6a22d71eb0e is unchanged; only this artifact's descriptive field is corrected",
+    "correctedAt": "2026-09-19T04:18:24.845425+00:00",
+    "correctedField": "classifier.input",
+    "embeddingsRerun": 0,
+    "inferenceRun": 0,
+    "marker": "PROVENANCE_ONLY_METADATA_CORRECTION",
+    "metricsChanged": false,
+    "newValue": "L2-normalized DINOv2 pooler_output image embedding",
+    "oldValue": "L2-normalized CLIP image embedding",
+    "performanceRecomputed": false,
+    "verdictChanged": false,
+    "whyIncorrect": "the classifier recipe dict is shared with B3-L13/B3-L15A (identical hyperparameters by contract) and its descriptive 'input' string named CLIP; B3-L16A's verifier is facebook/dinov2-base pooler_output (768-d, L2-normalized) as the same aggregate's verifier block records"
+  },
   "reportVersion": "avatar_dinov2_eval_v1",
   "scanDigestPrefix": "1b45958a524d",
   "scanOnlyRejection": {

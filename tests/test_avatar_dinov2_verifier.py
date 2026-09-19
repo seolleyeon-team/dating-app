@@ -394,3 +394,31 @@ def test_prereg_frozen_values_in_doc():
     for token in (dv.VERSION, dv.contract_digest()[:12], "pooler_output", "256", "224", "0.485", "768", dv.STRESS_NAME, dv.SCAN_ONLY_REJECT, dv.PROPOSAL_FREEZE_MARKER, "UI"):
         assert token in text, token
     assert dm.MIN_AVAILABLE_GB_TO_START == 3.0 and dm.MIN_AVAILABLE_GB_DURING == 0.6
+
+
+# ------------------------------------------------------------ Phase 0 (post-merge): provenance-only metadata correction regression
+
+
+def test_b3l16a_aggregate_classifier_input_matches_dinov2_semantics():
+    """RESULT_METADATA_COPY_FORWARD_ERROR regression: the merged aggregate echoed the shared recipe's CLIP input string under a DINOv2 verifier."""
+
+    a = json.loads(AGGREGATE.read_text(encoding="utf-8"))
+    assert a["verifier"]["repo"] == "facebook/dinov2-base" and a["verifier"]["feature"] == "pooler_output, L2-normalized" and a["verifier"]["embeddingDim"] == 768
+    assert a["classifier"]["input"] == "L2-normalized DINOv2 pooler_output image embedding"
+    assert "CLIP" not in a["classifier"]["input"]
+    corr = a["provenanceCorrection"]
+    assert corr["marker"] == "PROVENANCE_ONLY_METADATA_CORRECTION" and corr["classification"] == "RESULT_METADATA_COPY_FORWARD_ERROR"
+    assert corr["correctedField"] == "classifier.input" and corr["oldValue"] == "L2-normalized CLIP image embedding" and corr["newValue"] == a["classifier"]["input"]
+    assert corr["performanceRecomputed"] is False and corr["inferenceRun"] == 0 and corr["contractChanged"] is False and corr["verdictChanged"] is False
+
+
+def test_b3l16a_correction_does_not_change_verdict_or_contract():
+    a = json.loads(AGGREGATE.read_text(encoding="utf-8"))
+    assert a["verdict"] == "DINOV2_VERIFIER_FAILED_DEVELOPMENT" and a["development"]["selection"]["status"] == "NONE"
+    assert a["contractDigestPrefix"] == "b6a22d71eb0e" == dv.contract_digest()[:12] and a["freezeCommitPrefix"] == "232c2a08"
+    assert a["stressEvaluated"] == 0 and a["holdoutEvaluated"] == 0 and a["classifierFits"] == 3 and a["verifierEmbeddings"] == {"development": 19607}
+    assert [t["clean"]["newAllowToReview"] for t in a["development"]["table"]] == [10, 10, 8, 5, 0]
+    assert dv.CLASSIFIER == es.CLASSIFIER == pv.CLASSIFIER            # the shared frozen recipe module is untouched (digest authority)
+    text = REPORT.read_text(encoding="utf-8")
+    assert "PROVENANCE_ONLY_METADATA_CORRECTION" in text and "Historical note" in text
+    assert "remains a separate release blocker" not in text            # stale deployment blocker wording removed from the current report

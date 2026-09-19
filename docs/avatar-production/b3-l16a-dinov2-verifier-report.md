@@ -106,8 +106,12 @@ policy for natural positives (the standing `NATURAL_POSITIVE_EVIDENCE_MISSING`
 gap), clean-negative authority beyond the 12/20 owner-labelled avatars,
 base-disjoint splits and the same review-only gate structure — with the
 deterministic edge scan kept as the frozen proposal channel. Canonical
-`TEXT_POLICY_GAP` stays open; `approveAvatarCandidate` deployment remains a
-separate release blocker.
+`TEXT_POLICY_GAP` stays open. Historical note: approval deployment was a
+blocker in earlier B3 reports, but the separate backend rollout
+(`approveAvatarCandidate`, `getAvatarJobCandidates`,
+`getCurrentAvatarGenerationStatus`; soft needs_review) was completed
+before/independently of this evidence correction; it is not a current
+B3-L16A research blocker.
 
 ## 7. Safety
 
@@ -116,3 +120,20 @@ classifier fits 3 · model/license metadata downloads only; raw image
 transmission, Azure, OpenAI image and external vision 0 · production writes 0
 · builds/deploys 0 · live decision diff 0 · originals **28/28** unchanged ·
 original B3-L11 holdout unopened · Rater C artifacts untouched.
+
+## 8. Provenance-only metadata correction (post-merge; `PROVENANCE_ONLY_METADATA_CORRECTION`)
+
+Classification `RESULT_METADATA_COPY_FORWARD_ERROR`. The merged aggregate's
+`classifier.input` read "L2-normalized CLIP image embedding" although the same
+artifact's verifier block records `facebook/dinov2-base`, `pooler_output`,
+768-d, L2-normalized; the string came from the shared frozen recipe dict
+(identical hyperparameters across B3-L13/B3-L15A/B3-L16A by contract) whose
+descriptive label named CLIP. Corrected value: "L2-normalized DINOv2
+pooler_output image embedding". The recipe module is untouched, so the
+contract digest `b6a22d71eb0e…` and the freeze commit are unchanged. No
+performance recomputation, no embedding re-run, no classifier refit, no
+inference, no contract change, no verdict change (still
+`DINOV2_VERIFIER_FAILED_DEVELOPMENT`, selected threshold NONE, stress not
+executed, holdout unopened). The stale "separate release blocker" wording in
+section 6 was replaced by the historical note above; the pre-registration
+document keeps its original text as a frozen record and the note applies to it.
