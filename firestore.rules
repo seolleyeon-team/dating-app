@@ -67,7 +67,7 @@ service cloud.firestore {
     // predate dataPartition, so a missing value remains production.
     function callerDataPartition() {
       return request.auth != null &&
-          request.auth.uid == 'play-reviewer-v1' &&
+          ['play-reviewer-v1', 'play-fixture-b-01'].hasAny([request.auth.uid]) &&
           request.auth.token.get('appSession', false) == true &&
           request.auth.token.get('playReviewer', false) == true &&
           request.auth.token.get('dataPartition', 'production') == 'play_review'
@@ -86,7 +86,7 @@ service cloud.firestore {
 
     function isPlayReviewSession() {
       return request.auth != null &&
-          request.auth.uid == 'play-reviewer-v1' &&
+          ['play-reviewer-v1', 'play-fixture-b-01'].hasAny([request.auth.uid]) &&
           request.auth.token.get('appSession', false) == true &&
           request.auth.token.get('playReviewer', false) == true &&
           request.auth.token.get('dataPartition', 'production') == 'play_review';
@@ -98,7 +98,9 @@ service cloud.firestore {
         'dataPartition',
         'reviewAccess',
         'reviewProfileReady',
-        'reviewFixtureEnabled'
+        'reviewFixtureEnabled',
+        'reviewFixtureLoginEnabled',
+        'reviewFixtureLoginActivatedAt'
       ]);
     }
 
@@ -604,16 +606,29 @@ service cloud.firestore {
       return data.participantIds is list ? data.participantIds : [];
     }
 
+    // A moderation suspension must close every client-side chat write path,
+    // not only the server-mediated text-message callable. The users document
+    // is server-owned for these fields, so a suspended user cannot turn this
+    // gate back on from the app.
+    function hasActiveChatAccount() {
+      return isSignedIn() &&
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('loginDisabled', false) != true &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isActive', true) != false &&
+          !['banned', 'blocked', 'deleted', 'suspended', 'withdrawn']
+            .hasAny([get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('status', 'active')]);
+    }
+
     function isChatRoomParticipant() {
       // Keep the array membership expression direct. Firestore's query
       // analyzer can prove a `where('participantIds', 'array-contains', uid)`
       // query is safe with this form, but not when the field is wrapped in a
       // helper/ternary expression.
-      return isSignedIn() && request.auth.uid in resource.data.participantIds;
+      return hasActiveChatAccount() && request.auth.uid in resource.data.participantIds;
     }
 
     function isChatRoomParticipantAfter() {
-      return isSignedIn() && request.auth.uid in chatRoomParticipantIds(request.resource.data);
+      return hasActiveChatAccount() && request.auth.uid in chatRoomParticipantIds(request.resource.data);
     }
 
     function chatRoomParticipantIdsUnchanged() {
@@ -678,7 +693,7 @@ service cloud.firestore {
     }
 
     function isExistingChatRoomParticipant(roomId) {
-      return isSignedIn() &&
+      return hasActiveChatAccount() &&
           request.auth.uid in chatRoomParticipantIds(
             get(/databases/$(database)/documents/chat_rooms/$(roomId)).data
           );

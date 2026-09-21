@@ -5,6 +5,7 @@ import {
   assertSucceeds,
   getTestEnv,
   kakaoSession,
+  seedActiveUser,
   withClearedDb,
 } from "./helpers.mjs";
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
@@ -15,6 +16,7 @@ const ATTACKER = "attacker_uid";
 const ROOM = `support_${OPERATOR}_${MEMBER}`;
 
 async function seedSupportRoom(db) {
+  await seedActiveUser(db, MEMBER);
   await setDoc(doc(db, "admin", OPERATOR), {
     accountType: "operations",
     active: true,

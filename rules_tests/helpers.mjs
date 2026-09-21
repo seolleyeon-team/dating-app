@@ -7,6 +7,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from "@firebase/rules-unit-testing";
+import { doc, setDoc } from "firebase/firestore";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
@@ -36,6 +37,17 @@ export async function withClearedDb(seed) {
     await env.withSecurityRulesDisabled((ctx) => seed(ctx.firestore()));
   }
   return env;
+}
+
+/** Minimal server-seeded active account required by the live chat gate. */
+export async function seedActiveUser(db, uid, overrides = {}) {
+  await setDoc(doc(db, "users", uid), {
+    kakaoUserId: uid,
+    isActive: true,
+    loginDisabled: false,
+    status: "active",
+    ...overrides,
+  });
 }
 
 /** Unauthenticated client, as an attacker hitting the REST/SDK API directly. */

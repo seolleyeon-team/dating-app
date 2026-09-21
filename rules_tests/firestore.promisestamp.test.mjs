@@ -6,6 +6,7 @@ import {
   assertSucceeds,
   getTestEnv,
   kakaoSession,
+  seedActiveUser,
   withClearedDb,
 } from "./helpers.mjs";
 
@@ -52,6 +53,7 @@ function promiseSeed(overrides = {}) {
 }
 
 async function seedRooms(db) {
+  await Promise.all(ALL_SIX.map((uid) => seedActiveUser(db, uid)));
   await setDoc(doc(db, "chat_rooms", ROOM), {
     roomId: ROOM,
     participantIds: ALL_SIX,
