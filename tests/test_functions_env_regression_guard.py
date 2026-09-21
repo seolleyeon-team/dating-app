@@ -31,6 +31,7 @@ LIVE = {
     "TASK_INVOKER_SERVICE_ACCOUNT": "task-invoker@example.iam.gserviceaccount.com",
     "AVATAR_GENERATION_TASK_URL": "https://worker.example/tasks/avatar-generation",
     "AVATAR_DISABLE_NEW_GENERATION": "false",
+    "FUNCTION_REGION": "asia-northeast3",
     # platform-injected; an env file never carries these
     "K_SERVICE": "retrycurrentavatargeneration",
     "FUNCTION_TARGET": "retryCurrentAvatarGeneration",
@@ -55,6 +56,15 @@ def test_the_incident_deploy_is_rejected():
 
 
 def test_platform_injected_variables_are_not_treated_as_regressions():
+    result = plan_functions_env_check(
+        deployed={"retryCurrentAvatarGeneration": LIVE},
+        candidate={k: v for k, v in LIVE.items() if k not in PLATFORM_MANAGED_KEYS},
+    )
+
+    assert result.ok, [f.render() for f in result.findings]
+
+
+def test_function_region_is_platform_injected_not_a_user_env_removal():
     result = plan_functions_env_check(
         deployed={"retryCurrentAvatarGeneration": LIVE},
         candidate={k: v for k, v in LIVE.items() if k not in PLATFORM_MANAGED_KEYS},

@@ -19,6 +19,7 @@ import {
   socialCountsFromDocs,
   type AccountDeletionSocialDocs,
 } from "./accountDeletionSocialCleanup";
+import { FakeFirestore, type Db } from "./testing/fakeFirestore";
 
 function docs(
   overrides: Partial<AccountDeletionSocialDocs> = {}
@@ -82,6 +83,38 @@ test("plan deletes owned edges and deactivates shared 1:1", () => {
   assert.ok(kinds.includes("removeEventTeamMember"));
   assert.ok(kinds.includes("cancelEventTeamInvite"));
   assert.equal(DELETED_USER_DISPLAY_NAME, "탈퇴한 사용자");
+});
+
+test("friend invite scrub deletes nested inviterEmail without touching siblings", async () => {
+  const db: Db = new Map([
+    [
+      "friendInvites/inv1",
+      {
+        metadata: {
+          inviterEmail: "owner@yonsei.ac.kr",
+          unrelatedField: "keep",
+        },
+        unrelatedTopLevel: "keep",
+      },
+    ],
+  ]);
+  const firestore = new FakeFirestore(db);
+
+  await applySocialCleanupOperation(
+    firestore as unknown as Parameters<typeof applySocialCleanupOperation>[0],
+    "alice",
+    { kind: "scrubFriendInvite", id: "inv1" }
+  );
+
+  const invite = db.get("friendInvites/inv1") ?? {};
+  const metadata = invite.metadata as Record<string, unknown>;
+  assert.equal(Object.prototype.hasOwnProperty.call(metadata, "inviterEmail"), false);
+  assert.equal(metadata.unrelatedField, "keep");
+  assert.equal(invite.unrelatedTopLevel, "keep");
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(invite, "metadata.inviterEmail"),
+    false
+  );
 });
 
 test("recEvents parent delete is only planned when events exist", () => {
