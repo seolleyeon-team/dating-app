@@ -129,7 +129,7 @@ test("postId 필드가 문서 id 와 다르면 거부", async () => {
   );
 });
 
-test("새 글과 매핑을 한 배치로 쓰는 것은 허용", async () => {
+test("클라이언트가 새 글과 매핑을 한 배치로 직접 쓰는 것은 서버 전용 create 때문에 거부된다", async () => {
   await seedOwnerContent();
   const owner = await kakaoSession(OWNER);
   const newPost = "post2";
@@ -139,33 +139,28 @@ test("새 글과 매핑을 한 배치로 쓰는 것은 허용", async () => {
     postId: newPost,
     ownerUid: OWNER,
   });
-  await assertSucceeds(batch.commit());
+  await assertFails(batch.commit());
 });
 
-test("글은 A 로, 매핑은 B 로 쓰는 배치는 거부", async () => {
+test("A 소유 글에 B가 소유권 매핑을 붙이는 쓰기는 거부", async () => {
   await seedOwnerContent();
-  const stranger = await kakaoSession(STRANGER);
-
-  // 게시글 규칙만 놓고 보면 이 쓰기는 통과한다. 아래 배치가 막히는 이유가
-  // "STRANGER 는 글을 못 쓴다" 가 아니라 매핑 가드임을 여기서 못박는다.
-  await assertSucceeds(
+  const env = await getTestEnv();
+  await env.withSecurityRulesDisabled((ctx) =>
     setDoc(
-      doc(stranger, "bamboo_posts", "post3-control"),
-      postBody("post3-control", STRANGER)
+      doc(ctx.firestore(), "bamboo_posts", "post3"),
+      postBody("post3", OWNER)
     )
   );
+  const stranger = await kakaoSession(STRANGER);
 
-  const newPost = "post3";
-  const batch = writeBatch(stranger);
-  batch.set(
-    doc(stranger, "bamboo_posts", newPost),
-    postBody(newPost, STRANGER)
+  // The post is server-seeded so this assertion reaches the ownership-mapping
+  // guard instead of being masked by the server-only post create rule.
+  await assertFails(
+    setDoc(doc(stranger, POST_MAP, "post3"), {
+      postId: "post3",
+      ownerUid: STRANGER,
+    })
   );
-  batch.set(doc(stranger, POST_MAP, newPost), {
-    postId: newPost,
-    ownerUid: OWNER,
-  });
-  await assertFails(batch.commit());
 });
 
 test("ownerUid 는 바꿀 수 없다", async () => {
@@ -277,10 +272,10 @@ test("타인은 댓글 매핑을 읽을 수 없다", async () => {
   );
 });
 
-test("Phase A: 구버전 클라처럼 매핑 없이 글만 써도 아직 허용된다", async () => {
+test("구버전 클라이언트의 매핑 없는 직접 글 쓰기는 현재 서버 전용 경로로 거부된다", async () => {
   await seedOwnerContent();
   const owner = await kakaoSession(OWNER);
-  await assertSucceeds(
+  await assertFails(
     setDoc(
       doc(owner, "bamboo_posts", "legacy-post"),
       postBody("legacy-post", OWNER)
@@ -288,15 +283,14 @@ test("Phase A: 구버전 클라처럼 매핑 없이 글만 써도 아직 허용�
   );
 });
 
-test("댓글 매핑은 클라이언트가 쓰는 트랜잭션 안에서도 통과한다", async () => {
-  // 클라이언트는 댓글을 배치가 아니라 트랜잭션으로 쓴다(카운터를 같이 올린다).
-  // getAfter 가 트랜잭션에서 보류 중인 쓰기를 못 보면 댓글 작성이 통째로
-  // 막히므로, 실제 쓰기 모양 그대로 확인한다.
+test("댓글과 매핑을 직접 쓰는 클라이언트 트랜잭션은 서버 전용 create 때문에 거부된다", async () => {
+  // The production client uses createCommunityComment. A direct Firestore
+  // transaction must not bypass that moderated server path.
   await seedOwnerContent();
   const owner = await kakaoSession(OWNER);
   const newComment = "comment2";
 
-  await assertSucceeds(
+  await assertFails(
     runTransaction(owner, async (tx) => {
       const postRef = doc(owner, "bamboo_posts", POST);
       await tx.get(postRef);
