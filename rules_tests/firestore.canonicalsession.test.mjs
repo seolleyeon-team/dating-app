@@ -133,7 +133,7 @@ test("an unauthenticated client cannot use any canonical-session surface", async
 // Legacy Kakao custom-token session (kakaoUserId claim) — still allowed
 // ---------------------------------------------------------------------------
 
-test("a legacy kakao session keeps every canonical-session surface", async () => {
+test("a legacy kakao session keeps canonical surfaces but cannot bypass server-owned creates", async () => {
   await seedSocialGraph();
   const db = await kakaoSession(ME);
   const ops = gatedOps(db, "kakao");
@@ -144,14 +144,14 @@ test("a legacy kakao session keeps every canonical-session surface", async () =>
   // 1:1 방 생성은 unlockDirectChat callable(하트 차감) 전용 — canonical
   // 세션이어도 클라이언트 직접 생성은 거부된다.
   await assertFails(ops.createChatRoom());
-  await assertSucceeds(ops.createBambooPost());
+  await assertFails(ops.createBambooPost());
 });
 
 // ---------------------------------------------------------------------------
 // New canonical session (appSession claim, no kakaoUserId) — allowed
 // ---------------------------------------------------------------------------
 
-test("a canonical appSession token can use every canonical-session surface", async () => {
+test("a canonical appSession token uses canonical surfaces but cannot bypass server-owned creates", async () => {
   await seedSocialGraph();
   const db = await appSession(ME);
   const ops = gatedOps(db, "appsession");
@@ -162,7 +162,7 @@ test("a canonical appSession token can use every canonical-session surface", asy
   // 1:1 방 생성은 unlockDirectChat callable(하트 차감) 전용 — canonical
   // 세션이어도 클라이언트 직접 생성은 거부된다.
   await assertFails(ops.createChatRoom());
-  await assertSucceeds(ops.createBambooPost());
+  await assertFails(ops.createBambooPost());
 });
 
 test("a new primary-email account without legacy kakaoUserId can save onboarding", async () => {

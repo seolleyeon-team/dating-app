@@ -251,7 +251,7 @@ test("Phase D 규칙은 클라이언트가 신고한 버전을 신뢰하지 않�
   }
 });
 
-test("Phase D 후보 규칙은 배포 대상이 아니다", () => {
+test("현재 release rules는 server-mediated create를 유지하고 Phase D fixture는 배포하지 않는다", () => {
   // firebase.json 이 배포하는 것은 firestore.rules 뿐이다. 이 파일이 그
   // 자리로 옮겨가는 순간이 곧 cutover 이고, 그건 별도 승인 사항이다.
   const firebaseJson = JSON.parse(
@@ -260,13 +260,25 @@ test("Phase D 후보 규칙은 배포 대상이 아니다", () => {
   assert.equal(firebaseJson.firestore.rules, "firestore.rules");
 
   const deployed = readFileSync(resolve(here, "../firestore.rules"), "utf8");
-  assert.ok(
-    deployed.includes("'authorId': authorIdStr") === false,
-    "sanity: deployed rules file was read"
+  const bambooStart = deployed.indexOf("match /bamboo_posts/{postId}");
+  const bambooEnd = deployed.indexOf(
+    "Bamboo private ownership mapping",
+    bambooStart,
   );
-  // 운영 규칙은 아직 public authorId 를 요구한다 — Phase A 상태 그대로다.
-  assert.ok(
-    deployed.includes("request.resource.data.authorId == request.auth.uid"),
-    "deployed rules should still be in the Phase A shape"
+  assert.ok(bambooStart >= 0 && bambooEnd > bambooStart, "bamboo rules were read");
+  const deployedBamboo = deployed.slice(bambooStart, bambooEnd);
+
+  // The current release is server-mediated: public post/comment creation is
+  // owned by createCommunityPost/createCommunityComment, while this fixture
+  // remains a separate pre-cutover Phase D candidate.
+  assert.match(
+    deployedBamboo,
+    /match \/bamboo_posts\/\{postId\}[\s\S]*?allow create: if false;/,
+    "deployed rules must keep public post creation server-only",
+  );
+  assert.match(
+    deployedBamboo,
+    /match \/comments\/\{commentId\}[\s\S]*?allow create: if false;/,
+    "deployed rules must keep public comment creation server-only",
   );
 });
