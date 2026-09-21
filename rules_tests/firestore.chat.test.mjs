@@ -6,6 +6,7 @@ import {
   assertSucceeds,
   getTestEnv,
   kakaoSession,
+  seedActiveUser,
   withClearedDb,
 } from "./helpers.mjs";
 
@@ -28,6 +29,8 @@ const ROOM = "dm_alice_bob";
 const PROMISE = "promise_alice_bob";
 
 async function seedChatRoom(db) {
+  await seedActiveUser(db, ALICE);
+  await seedActiveUser(db, BOB);
   await setDoc(doc(db, "chat_rooms", ROOM), {
     roomId: ROOM,
     participantIds: [ALICE, BOB],

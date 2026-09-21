@@ -46,13 +46,15 @@ async function seedReviewPost() {
   });
 }
 
-async function seedChatRoom(uid, accountFields = {}) {
+async function seedChatRoom(uid, accountFields = {}, { seedUser = true } = {}) {
   await withClearedDb(async (db) => {
-    await setDoc(doc(db, "users", uid), {
-      kakaoUserId: uid,
-      nickname: "chat user",
-      ...accountFields,
-    });
+    if (seedUser) {
+      await setDoc(doc(db, "users", uid), {
+        kakaoUserId: uid,
+        nickname: "chat user",
+        ...accountFields,
+      });
+    }
     await setDoc(doc(db, "chat_rooms", CHAT_ROOM_ID), {
       participantIds: [uid, "recovery-other-user"],
       type: "one_to_one",
@@ -119,6 +121,64 @@ test("LIVE-RECOVERY: inactive accounts cannot read a participant chat room", asy
 
   await assertFails(getDoc(doc(db, "chat_rooms", CHAT_ROOM_ID)));
 });
+
+const ACTIVE_CHAT_ACCOUNT_CASES = [
+  {
+    label: "active account is allowed",
+    uid: "recovery-table-active",
+    userFields: { isActive: true, loginDisabled: false, status: "active" },
+    expected: "allow",
+  },
+  {
+    label: "missing user document is denied",
+    uid: "recovery-table-missing",
+    seedUser: false,
+    userFields: {},
+    expected: "deny",
+  },
+  {
+    label: "loginDisabled account is denied",
+    uid: "recovery-table-login-disabled",
+    userFields: { isActive: true, loginDisabled: true, status: "active" },
+    expected: "deny",
+  },
+  {
+    label: "inactive account is denied",
+    uid: "recovery-table-inactive",
+    userFields: { isActive: false, loginDisabled: false, status: "active" },
+    expected: "deny",
+  },
+  ...["banned", "blocked", "deleted", "suspended", "withdrawn"].map(
+    (status) => ({
+      label: `${status} account is denied`,
+      uid: `recovery-table-${status}`,
+      userFields: { isActive: true, loginDisabled: false, status },
+      expected: "deny",
+    })
+  ),
+  {
+    label: "missing status defaults to active",
+    uid: "recovery-table-default-status",
+    userFields: { isActive: true, loginDisabled: false },
+    expected: "allow",
+  },
+];
+
+for (const fixture of ACTIVE_CHAT_ACCOUNT_CASES) {
+  test(`LIVE-RECOVERY: hasActiveChatAccount ${fixture.label}`, async () => {
+    await seedChatRoom(fixture.uid, fixture.userFields, {
+      seedUser: fixture.seedUser !== false,
+    });
+    const db = await authenticatedSession(fixture.uid);
+    const read = getDoc(doc(db, "chat_rooms", CHAT_ROOM_ID));
+
+    if (fixture.expected === "allow") {
+      await assertSucceeds(read);
+    } else {
+      await assertFails(read);
+    }
+  });
+}
 
 test("LIVE-RECOVERY: review fixture login authority fields cannot be mutated by the client", async () => {
   await withClearedDb(async (db) => {
