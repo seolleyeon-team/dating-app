@@ -66,11 +66,14 @@ test("a support participant cannot reassign its operator or case fields", async 
   );
 });
 
-test("a support participant can reply with bounded text but cannot forge a case card", async () => {
+test("a support participant cannot write a reply or forge a case card directly", async () => {
   await withClearedDb(seedSupportRoom);
   const member = await kakaoSession(MEMBER);
 
-  await assertSucceeds(
+  // Normal replies go through the server-owned sendChatText callable, which
+  // performs the moderation/block checks and writes with Admin SDK. A member
+  // must not bypass that path with a direct Firestore write.
+  await assertFails(
     setDoc(doc(member, "chat_rooms", ROOM, "messages", "reply"), {
       senderId: MEMBER,
       type: "text",
