@@ -113,6 +113,26 @@ def test_hash_is_value_free_and_stable(tmp_path):
     assert root.exists()
 
 
+def test_validated_firebase_cli_version_is_single_contract_authority():
+    assert contract.FIREBASE_TOOLS_VERSION == "15.30.2"
+    completed = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "deploy_functions_guarded_contract.py"), "version"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert completed.stdout.strip() == contract.FIREBASE_TOOLS_VERSION
+
+
+def test_guarded_wrapper_does_not_use_unvalidated_latest_cli_selector():
+    wrapper = (SCRIPTS_DIR / "deploy_functions_guarded.sh").read_text(encoding="utf-8")
+
+    assert "firebase-tools@latest" not in wrapper
+    assert 'firebase-tools@$FIREBASE_TOOLS_VERSION' in wrapper
+
+
 def test_multi_function_target_requires_explicit_opt_in():
     with pytest.raises(contract.DeployContractError, match="MULTI_FUNCTION"):
         contract.validate_function_targets([FUNCTION, "otherFunction"])
@@ -164,6 +184,10 @@ def test_wrapper_deploys_only_the_explicit_function_with_the_same_dotenv(tmp_pat
     npx = bin_dir / "npx"
     npx.write_text(
         "#!/bin/sh\n"
+        "if [ \"$3\" = \"--version\" ]; then\n"
+        "  printf '15.30.2\\n'\n"
+        "  exit 0\n"
+        "fi\n"
         f"printf '%s\\n' \"$*\" >> '{deploy_log}'\n",
         encoding="utf-8",
     )
@@ -194,9 +218,88 @@ def test_wrapper_deploys_only_the_explicit_function_with_the_same_dotenv(tmp_pat
     assert "ENV DEPLOY CONTRACT: PASS" in completed.stdout
     assert "ENV REGRESSION GUARD: PASS" in completed.stdout
     assert deploy_log.read_text(encoding="utf-8").strip() == (
-        "-y firebase-tools@latest deploy --only functions:cleanupAvatarMedia "
+        "-y firebase-tools@15.30.2 deploy --only functions:cleanupAvatarMedia "
         "--project seolleyeon-final --non-interactive"
     )
+
+    dry_run = subprocess.run(
+        [
+            "bash",
+            str(scripts / "deploy_functions_guarded.sh"),
+            "--project",
+            PROJECT,
+            "--region",
+            "asia-northeast3",
+            "--env-file",
+            str(candidate.relative_to(root)),
+            "--dry-run",
+            FUNCTION,
+        ],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert dry_run.returncode == 0, dry_run.stdout + dry_run.stderr
+    assert "dry-run: Firebase CLI was not invoked" in dry_run.stdout
+    assert deploy_log.read_text(encoding="utf-8").strip() == (
+        "-y firebase-tools@15.30.2 deploy --only functions:cleanupAvatarMedia "
+        "--project seolleyeon-final --non-interactive"
+    )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="shell wrapper integration runs in CI on POSIX")
+def test_wrapper_refuses_firebase_cli_version_mismatch_before_deploy(tmp_path):
+    root, candidate = _root(tmp_path)
+    scripts = root / "scripts"
+    scripts.mkdir()
+    for name in (
+        "deploy_functions_guarded.sh",
+        "deploy_functions_guarded_contract.py",
+    ):
+        (scripts / name).write_bytes((REPO_ROOT / "scripts" / name).read_bytes())
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    deploy_log = tmp_path / "npx.log"
+    npx = bin_dir / "npx"
+    npx.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$3\" = \"--version\" ]; then\n"
+        "  printf '15.30.1\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        f"printf '%s\\n' \"$*\" >> '{deploy_log}'\n",
+        encoding="utf-8",
+    )
+    npx.chmod(npx.stat().st_mode | stat.S_IXUSR)
+
+    env = os.environ.copy()
+    env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+    completed = subprocess.run(
+        [
+            "bash",
+            str(scripts / "deploy_functions_guarded.sh"),
+            "--project",
+            PROJECT,
+            "--region",
+            "asia-northeast3",
+            "--env-file",
+            str(candidate.relative_to(root)),
+            FUNCTION,
+        ],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "FIREBASE_CLI_VERSION_MISMATCH" in completed.stderr
+    assert not deploy_log.exists()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="shell wrapper integration runs in CI on POSIX")
@@ -235,6 +338,10 @@ def test_wrapper_refuses_dotenv_mutation_after_guard(tmp_path):
     npx = bin_dir / "npx"
     npx.write_text(
         "#!/bin/sh\n"
+        "if [ \"$3\" = \"--version\" ]; then\n"
+        "  printf '15.30.2\\n'\n"
+        "  exit 0\n"
+        "fi\n"
         f"printf '%s\\n' \"$*\" >> '{deploy_log}'\n",
         encoding="utf-8",
     )

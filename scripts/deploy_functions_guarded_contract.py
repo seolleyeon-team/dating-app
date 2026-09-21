@@ -23,6 +23,8 @@ from typing import Iterable, Sequence
 
 PROJECT_ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]{4,29}$")
 FUNCTION_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+# This is the single version authority for the audited Firebase CLI contract.
+FIREBASE_TOOLS_VERSION = "15.30.2"
 
 
 class DeployContractError(RuntimeError):
@@ -177,6 +179,8 @@ def _parser() -> argparse.ArgumentParser:
     source = subparsers.add_parser("source")
     source.add_argument("--firebase-json", type=Path, required=True)
 
+    subparsers.add_parser("version")
+
     validate = subparsers.add_parser("validate")
     validate.add_argument("--firebase-json", type=Path, required=True)
     validate.add_argument("--project", required=True)
@@ -194,6 +198,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "source":
             print(functions_source_from_firebase_json(args.firebase_json))
+            return 0
+        if args.command == "version":
+            print(FIREBASE_TOOLS_VERSION)
             return 0
         if args.command == "sha256":
             print(sha256_file(args.file.resolve()))

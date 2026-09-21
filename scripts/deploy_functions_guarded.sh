@@ -73,6 +73,14 @@ fi
 echo "[deploy] Firebase dotenv/deployment target contract"
 python scripts/deploy_functions_guarded_contract.py "${CONTRACT_ARGS[@]}"
 
+FIREBASE_TOOLS_VERSION="$(python scripts/deploy_functions_guarded_contract.py version)"
+FIREBASE_CLI_VERSION="$(npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" --version | tr -d '\r\n')"
+if [ "$FIREBASE_CLI_VERSION" != "$FIREBASE_TOOLS_VERSION" ]; then
+  echo "FIREBASE_CLI_VERSION_MISMATCH: expected $FIREBASE_TOOLS_VERSION, got $FIREBASE_CLI_VERSION" >&2
+  exit 1
+fi
+echo "[deploy] Firebase CLI version: $FIREBASE_CLI_VERSION"
+
 FUNCTIONS_SOURCE="$(python scripts/deploy_functions_guarded_contract.py source \
   --firebase-json "$REPO_ROOT/firebase.json")"
 
@@ -112,7 +120,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "[deploy] dry-run: Firebase CLI was not invoked"
   exit 0
 fi
-npx -y firebase-tools@latest deploy --only "$TARGETS" --project "$PROJECT" --non-interactive
+npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" deploy --only "$TARGETS" --project "$PROJECT" --non-interactive
 
 # No declarations on the way back. The intended change has been applied, so the
 # serving revision must now match the env file exactly - any remaining
