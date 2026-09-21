@@ -22,6 +22,8 @@ set -euo pipefail
 PROJECT=""
 REGION=""
 ENV_FILE=""
+ALLOW_MULTIPLE_FUNCTIONS=0
+DRY_RUN=0
 ALLOWED=()
 FUNCTIONS=()
 
@@ -30,6 +32,8 @@ while [ $# -gt 0 ]; do
     --project) PROJECT="$2"; shift 2 ;;
     --region) REGION="$2"; shift 2 ;;
     --env-file) ENV_FILE="$2"; shift 2 ;;
+    --allow-multiple-functions) ALLOW_MULTIPLE_FUNCTIONS=1; shift ;;
+    --dry-run) DRY_RUN=1; shift ;;
     --allow-remove-key) ALLOWED+=(--allow-remove-key "$2"); shift 2 ;;
     --allow-add-key) ALLOWED+=(--allow-add-key "$2"); shift 2 ;;
     --allow-change-key) ALLOWED+=(--allow-change-key "$2"); shift 2 ;;
@@ -49,13 +53,54 @@ FUNCTIONS+=("$@")
 [ -n "$ENV_FILE" ] || { echo "--env-file is required" >&2; exit 2; }
 [ "${#FUNCTIONS[@]}" -gt 0 ] || { echo "name at least one function" >&2; exit 2; }
 
-GUARD_ARGS=(--project "$PROJECT" --region "$REGION" --env-file "$ENV_FILE")
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
+cd -- "$REPO_ROOT"
+
+CONTRACT_ARGS=(
+  validate
+  --firebase-json "$REPO_ROOT/firebase.json"
+  --project "$PROJECT"
+  --env-file "$ENV_FILE"
+)
+for fn in "${FUNCTIONS[@]}"; do
+  CONTRACT_ARGS+=(--function "$fn")
+done
+if [ "$ALLOW_MULTIPLE_FUNCTIONS" -eq 1 ]; then
+  CONTRACT_ARGS+=(--allow-multiple-functions)
+fi
+
+echo "[deploy] Firebase dotenv/deployment target contract"
+python scripts/deploy_functions_guarded_contract.py "${CONTRACT_ARGS[@]}"
+
+FUNCTIONS_SOURCE="$(python scripts/deploy_functions_guarded_contract.py source \
+  --firebase-json "$REPO_ROOT/firebase.json")"
+
+GUARD_ARGS=(
+  --project "$PROJECT"
+  --region "$REGION"
+  --env-file "$ENV_FILE"
+  --source-dir "$FUNCTIONS_SOURCE/src"
+)
 for fn in "${FUNCTIONS[@]}"; do
   GUARD_ARGS+=(--function "$fn")
 done
 
 echo "[deploy] environment regression guard"
-python scripts/functions_env_regression_guard.py "${GUARD_ARGS[@]}" "${ALLOWED[@]+"${ALLOWED[@]}"}"
+PRE_GUARD_ENV_SHA256="$(python scripts/deploy_functions_guarded_contract.py sha256 \
+  --file "$ENV_FILE")"
+python scripts/functions_env_regression_guard.py "${GUARD_ARGS[@]}" "${ALLOWED[@]}"
+
+# Recheck both the dotenv contract and its bytes immediately before invoking
+# Firebase. The guard and Firebase must consume the same canonical file.
+python scripts/deploy_functions_guarded_contract.py "${CONTRACT_ARGS[@]}"
+CURRENT_ENV_SHA256="$(python scripts/deploy_functions_guarded_contract.py sha256 \
+  --file "$ENV_FILE")"
+if [ "$CURRENT_ENV_SHA256" != "$PRE_GUARD_ENV_SHA256" ]; then
+  echo "ENV REGRESSION GUARD: FAIL" >&2
+  echo "  GUARDED_ENV_CHANGED_AFTER_GUARD: dotenv SHA-256 changed between guard and deploy" >&2
+  exit 1
+fi
 
 TARGETS=""
 for fn in "${FUNCTIONS[@]}"; do
@@ -63,7 +108,11 @@ for fn in "${FUNCTIONS[@]}"; do
 done
 
 echo "[deploy] firebase deploy --only $TARGETS"
-firebase deploy --only "$TARGETS" --project "$PROJECT" --non-interactive
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "[deploy] dry-run: Firebase CLI was not invoked"
+  exit 0
+fi
+npx -y firebase-tools@latest deploy --only "$TARGETS" --project "$PROJECT" --non-interactive
 
 # No declarations on the way back. The intended change has been applied, so the
 # serving revision must now match the env file exactly - any remaining

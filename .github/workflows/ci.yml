@@ -370,7 +370,7 @@ jobs:
       # 배포 가드는 Windows 운영자 셸에서 Hangul env 값을 "???" 로 읽어 바뀐 적
       # 없는 변수를 changed 로 보고했다. 인코딩과 키 단위 승인 계약을 Linux
       # 에서도 고정한다.
-      - run: pytest -q tests/test_functions_env_regression_guard.py tests/test_functions_env_guard_cross_platform.py tests/test_functions_env_guard_exact_key_auth.py --maxfail=10
+      - run: pytest -q tests/test_functions_env_regression_guard.py tests/test_functions_env_guard_cross_platform.py tests/test_functions_env_guard_exact_key_auth.py tests/test_deploy_functions_guarded_contract.py --maxfail=10
         env:
           PYTHONPATH: .
 

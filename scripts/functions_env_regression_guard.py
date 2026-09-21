@@ -42,6 +42,7 @@ from typing import Iterable, Mapping, Sequence
 PLATFORM_MANAGED_KEYS = frozenset({
     "EVENTARC_CLOUD_EVENT_SOURCE",
     "FIREBASE_CONFIG",
+    "FUNCTION_REGION",
     "FUNCTION_SIGNATURE_TYPE",
     "FUNCTION_TARGET",
     "GCLOUD_PROJECT",
