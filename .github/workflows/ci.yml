@@ -133,6 +133,18 @@ jobs:
           } > android/key.properties
       - run: flutter build appbundle --flavor production --release
 
+  functions-bootstrap:
+    name: Functions bootstrap recovery guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install pytest
+      - run: pytest -q tests/test_functions_bootstrap_env_guard.py --maxfail=10
+
   web-build:
     name: Web build smoke
     runs-on: ubuntu-latest
