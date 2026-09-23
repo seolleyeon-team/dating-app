@@ -1,0 +1,16 @@
+{
+  "contract_version": 2,
+  "reason": "no_serving_revision_recovery",
+  "function": "syncMeetingIcebreakerFromPromise",
+  "project": "seolleyeon-final",
+  "region": "asia-northeast3",
+  "source_tree_sha": "3e6e2519b55015d3c499c1c3563ada335cf6d7eb",
+  "expected_plain_env_keys": [],
+  "expected_secret_bindings": [],
+  "source_entry": "meetingIcebreaker/functions.ts",
+  "source_export": "syncMeetingIcebreakerFromPromise",
+  "allowed_function_states": [
+    "FAILED"
+  ],
+  "allow_absent_function": false
+}

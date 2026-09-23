@@ -24,6 +24,7 @@ REGION=""
 ENV_FILE=""
 ALLOW_MULTIPLE_FUNCTIONS=0
 DRY_RUN=0
+BOOTSTRAP_MANIFEST=""
 ALLOWED=()
 FUNCTIONS=()
 
@@ -34,6 +35,13 @@ while [ $# -gt 0 ]; do
     --env-file) ENV_FILE="$2"; shift 2 ;;
     --allow-multiple-functions) ALLOW_MULTIPLE_FUNCTIONS=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --bootstrap-no-serving-revision-manifest)
+      if [ -n "$BOOTSTRAP_MANIFEST" ]; then
+        echo "bootstrap manifest may be supplied only once" >&2
+        exit 2
+      fi
+      BOOTSTRAP_MANIFEST="$2"
+      shift 2 ;;
     --allow-remove-key) ALLOWED+=(--allow-remove-key "$2"); shift 2 ;;
     --allow-add-key) ALLOWED+=(--allow-add-key "$2"); shift 2 ;;
     --allow-change-key) ALLOWED+=(--allow-change-key "$2"); shift 2 ;;
@@ -52,6 +60,21 @@ FUNCTIONS+=("$@")
 [ -n "$REGION" ] || { echo "--region is required" >&2; exit 2; }
 [ -n "$ENV_FILE" ] || { echo "--env-file is required" >&2; exit 2; }
 [ "${#FUNCTIONS[@]}" -gt 0 ] || { echo "name at least one function" >&2; exit 2; }
+
+if [ -n "$BOOTSTRAP_MANIFEST" ]; then
+  if [ "$ALLOW_MULTIPLE_FUNCTIONS" -eq 1 ]; then
+    echo "BOOTSTRAP_MULTI_FUNCTION_REFUSED: bootstrap mode is exact one function only" >&2
+    exit 2
+  fi
+  if [ "${#FUNCTIONS[@]}" -ne 1 ]; then
+    echo "BOOTSTRAP_EXACT_TARGET_REQUIRED: bootstrap mode requires exactly one function" >&2
+    exit 2
+  fi
+  if [ "${#ALLOWED[@]}" -ne 0 ]; then
+    echo "BOOTSTRAP_ALLOW_FLAG_REFUSED: --allow-* flags are not valid in bootstrap mode" >&2
+    exit 2
+  fi
+fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
@@ -94,10 +117,23 @@ for fn in "${FUNCTIONS[@]}"; do
   GUARD_ARGS+=(--function "$fn")
 done
 
-echo "[deploy] environment regression guard"
 PRE_GUARD_ENV_SHA256="$(python scripts/deploy_functions_guarded_contract.py sha256 \
   --file "$ENV_FILE")"
-python scripts/functions_env_regression_guard.py "${GUARD_ARGS[@]}" "${ALLOWED[@]}"
+if [ -n "$BOOTSTRAP_MANIFEST" ]; then
+  echo "[deploy] no-serving-revision bootstrap environment guard"
+  python scripts/functions_bootstrap_env_guard.py \
+    --repo-root "$REPO_ROOT" \
+    --manifest "$BOOTSTRAP_MANIFEST" \
+    --project "$PROJECT" \
+    --region "$REGION" \
+    --function "${FUNCTIONS[0]}" \
+    --env-file "$ENV_FILE" \
+    --source-dir "$FUNCTIONS_SOURCE/src" \
+    --firebase-cli-version "$FIREBASE_CLI_VERSION"
+else
+  echo "[deploy] environment regression guard"
+  python scripts/functions_env_regression_guard.py "${GUARD_ARGS[@]}" "${ALLOWED[@]}"
+fi
 
 # Recheck both the dotenv contract and its bytes immediately before invoking
 # Firebase. The guard and Firebase must consume the same canonical file.
