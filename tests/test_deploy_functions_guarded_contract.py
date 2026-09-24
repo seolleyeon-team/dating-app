@@ -339,6 +339,7 @@ def test_wrapper_refuses_firebase_cli_version_mismatch_before_deploy(tmp_path):
     for name in (
         "deploy_functions_guarded.sh",
         "deploy_functions_guarded_contract.py",
+        "functions_env_regression_guard.py",
     ):
         (scripts / name).write_bytes((REPO_ROOT / "scripts" / name).read_bytes())
 
