@@ -58,6 +58,27 @@ def _validate(root: Path, candidate: Path, *functions: str, **kwargs):
     )
 
 
+def _install_fake_tsc(root: Path) -> None:
+    shim = root / "functions" / "node_modules" / ".bin" / "tsc"
+    shim.parent.mkdir(parents=True, exist_ok=True)
+    shim.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    shim.chmod(shim.stat().st_mode | stat.S_IXUSR)
+
+
+def _install_fake_npm(bin_dir: Path) -> None:
+    npm = bin_dir / "npm"
+    npm.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' \"$*\" >> \"$FUNCTIONS_BUILD_LOG\"\n"
+        "if [ -n \"${FUNCTIONS_BUILD_MUTATE_DOTENV:-}\" ]; then\n"
+        "  printf 'CHANGED_AFTER_BUILD=1\\n' >> \"$FUNCTIONS_BUILD_MUTATE_DOTENV\"\n"
+        "fi\n"
+        "exit \"${FUNCTIONS_BUILD_EXIT_CODE:-0}\"\n",
+        encoding="utf-8",
+    )
+    npm.chmod(npm.stat().st_mode | stat.S_IXUSR)
+
+
 def test_the_guarded_file_is_the_exact_firebase_project_dotenv(tmp_path):
     root, candidate = _root(tmp_path)
 
@@ -133,6 +154,21 @@ def test_guarded_wrapper_does_not_use_unvalidated_latest_cli_selector():
     assert 'firebase-tools@$FIREBASE_TOOLS_VERSION' in wrapper
 
 
+def test_guarded_wrapper_runs_the_firebase_predeploy_build_before_cli():
+    wrapper = (SCRIPTS_DIR / "deploy_functions_guarded.sh").read_text(encoding="utf-8")
+
+    assert 'npm --prefix "$RESOURCE_DIR" run build' in wrapper
+    assert "FUNCTIONS_DEPENDENCIES_NOT_READY" in wrapper
+    assert "FUNCTIONS_PREDEPLOY_BUILD_FAILED" in wrapper
+    assert wrapper.index('npm --prefix "$RESOURCE_DIR" run build') < wrapper.index(
+        'FIREBASE_CLI_VERSION="$(npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" --version'
+    )
+    assert wrapper.index('FIREBASE_CLI_VERSION="$(npx') < wrapper.index(
+        'deploy --only "$TARGETS"'
+    )
+    assert "npm ci --prefix" in wrapper
+
+
 def test_multi_function_target_requires_explicit_opt_in():
     with pytest.raises(contract.DeployContractError, match="MULTI_FUNCTION"):
         contract.validate_function_targets([FUNCTION, "otherFunction"])
@@ -180,10 +216,13 @@ def test_wrapper_deploys_only_the_explicit_function_with_the_same_dotenv(tmp_pat
         encoding="utf-8",
     )
     gcloud.chmod(gcloud.stat().st_mode | stat.S_IXUSR)
-    deploy_log = tmp_path / "npx.log"
+    deploy_log = tmp_path / "npx-deploy.log"
+    cli_invocation_log = tmp_path / "npx-invocations.log"
+    build_log = tmp_path / "npm-build.log"
     npx = bin_dir / "npx"
     npx.write_text(
         "#!/bin/sh\n"
+        f"printf '%s\\n' \"$*\" >> '{cli_invocation_log}'\n"
         "if [ \"$3\" = \"--version\" ]; then\n"
         "  printf '15.30.2\\n'\n"
         "  exit 0\n"
@@ -192,21 +231,52 @@ def test_wrapper_deploys_only_the_explicit_function_with_the_same_dotenv(tmp_pat
         encoding="utf-8",
     )
     npx.chmod(npx.stat().st_mode | stat.S_IXUSR)
+    _install_fake_npm(bin_dir)
 
     env = os.environ.copy()
     env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+    env["FUNCTIONS_BUILD_LOG"] = str(build_log)
+    command = [
+        "bash",
+        str(scripts / "deploy_functions_guarded.sh"),
+        "--project",
+        PROJECT,
+        "--region",
+        "asia-northeast3",
+        "--env-file",
+        str(candidate.relative_to(root)),
+        FUNCTION,
+    ]
+
+    missing_node_modules = subprocess.run(
+        command,
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert missing_node_modules.returncode != 0
+    assert "FUNCTIONS_DEPENDENCIES_NOT_READY" in missing_node_modules.stderr
+    assert not cli_invocation_log.exists()
+
+    (root / "functions" / "node_modules").mkdir()
+    missing_tsc = subprocess.run(
+        command,
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert missing_tsc.returncode != 0
+    assert "FUNCTIONS_DEPENDENCIES_NOT_READY" in missing_tsc.stderr
+    assert not cli_invocation_log.exists()
+
+    _install_fake_tsc(root)
     completed = subprocess.run(
-        [
-            "bash",
-            str(scripts / "deploy_functions_guarded.sh"),
-            "--project",
-            PROJECT,
-            "--region",
-            "asia-northeast3",
-            "--env-file",
-            str(candidate.relative_to(root)),
-            FUNCTION,
-        ],
+        command,
         cwd=root,
         env=env,
         capture_output=True,
@@ -217,24 +287,32 @@ def test_wrapper_deploys_only_the_explicit_function_with_the_same_dotenv(tmp_pat
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "ENV DEPLOY CONTRACT: PASS" in completed.stdout
     assert "ENV REGRESSION GUARD: PASS" in completed.stdout
+    assert "Functions predeploy build: PASS" in completed.stdout
+    assert build_log.read_text(encoding="utf-8").strip() == (
+        f"--prefix {root / 'functions'} run build"
+    )
     assert deploy_log.read_text(encoding="utf-8").strip() == (
         "-y firebase-tools@15.30.2 deploy --only functions:cleanupAvatarMedia "
         "--project seolleyeon-final --non-interactive"
     )
 
+    env["FUNCTIONS_BUILD_EXIT_CODE"] = "17"
+    failed_build = subprocess.run(
+        command,
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert failed_build.returncode != 0
+    assert "FUNCTIONS_PREDEPLOY_BUILD_FAILED" in failed_build.stderr
+    assert len(cli_invocation_log.read_text(encoding="utf-8").splitlines()) == 2
+    assert len(build_log.read_text(encoding="utf-8").splitlines()) == 2
+
+    env["FUNCTIONS_BUILD_EXIT_CODE"] = "0"
     dry_run = subprocess.run(
-        [
-            "bash",
-            str(scripts / "deploy_functions_guarded.sh"),
-            "--project",
-            PROJECT,
-            "--region",
-            "asia-northeast3",
-            "--env-file",
-            str(candidate.relative_to(root)),
-            "--dry-run",
-            FUNCTION,
-        ],
+        command[:-1] + ["--dry-run", FUNCTION],
         cwd=root,
         env=env,
         capture_output=True,
@@ -243,7 +321,10 @@ def test_wrapper_deploys_only_the_explicit_function_with_the_same_dotenv(tmp_pat
     )
 
     assert dry_run.returncode == 0, dry_run.stdout + dry_run.stderr
-    assert "dry-run: Firebase CLI was not invoked" in dry_run.stdout
+    assert "dry-run: Firebase deploy was not invoked" in dry_run.stdout
+    assert "Functions predeploy build: PASS" in dry_run.stdout
+    assert len(build_log.read_text(encoding="utf-8").splitlines()) == 3
+    assert len(cli_invocation_log.read_text(encoding="utf-8").splitlines()) == 3
     assert deploy_log.read_text(encoding="utf-8").strip() == (
         "-y firebase-tools@15.30.2 deploy --only functions:cleanupAvatarMedia "
         "--project seolleyeon-final --non-interactive"
@@ -275,9 +356,12 @@ def test_wrapper_refuses_firebase_cli_version_mismatch_before_deploy(tmp_path):
         encoding="utf-8",
     )
     npx.chmod(npx.stat().st_mode | stat.S_IXUSR)
+    _install_fake_tsc(root)
+    _install_fake_npm(bin_dir)
 
     env = os.environ.copy()
     env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+    env["FUNCTIONS_BUILD_LOG"] = str(tmp_path / "npm-build.log")
     completed = subprocess.run(
         [
             "bash",
@@ -347,25 +431,12 @@ def test_wrapper_refuses_dotenv_mutation_after_guard(tmp_path):
     )
     npx.chmod(npx.stat().st_mode | stat.S_IXUSR)
 
-    real_python = Path(sys.executable)
-    mutation_sentinel = tmp_path / "mutated.once"
-    fake_python = bin_dir / "python"
-    fake_python.write_text(
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"scripts/functions_env_regression_guard.py\" ] && "
-        f"[ ! -e '{mutation_sentinel}' ]; then\n"
-        f"  '{real_python}' \"$@\"\n"
-        f"  printf 'CHANGED_AFTER_GUARD=1\\n' >> '{candidate}'\n"
-        f"  touch '{mutation_sentinel}'\n"
-        "  exit $?\n"
-        "fi\n"
-        f"exec '{real_python}' \"$@\"\n",
-        encoding="utf-8",
-    )
-    fake_python.chmod(fake_python.stat().st_mode | stat.S_IXUSR)
-
+    _install_fake_tsc(root)
+    _install_fake_npm(bin_dir)
     env = os.environ.copy()
     env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+    env["FUNCTIONS_BUILD_LOG"] = str(tmp_path / "npm-build.log")
+    env["FUNCTIONS_BUILD_MUTATE_DOTENV"] = str(candidate)
     completed = subprocess.run(
         [
             "bash",

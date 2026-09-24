@@ -97,12 +97,6 @@ echo "[deploy] Firebase dotenv/deployment target contract"
 python scripts/deploy_functions_guarded_contract.py "${CONTRACT_ARGS[@]}"
 
 FIREBASE_TOOLS_VERSION="$(python scripts/deploy_functions_guarded_contract.py version)"
-FIREBASE_CLI_VERSION="$(npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" --version | tr -d '\r\n')"
-if [ "$FIREBASE_CLI_VERSION" != "$FIREBASE_TOOLS_VERSION" ]; then
-  echo "FIREBASE_CLI_VERSION_MISMATCH: expected $FIREBASE_TOOLS_VERSION, got $FIREBASE_CLI_VERSION" >&2
-  exit 1
-fi
-echo "[deploy] Firebase CLI version: $FIREBASE_CLI_VERSION"
 
 FUNCTIONS_SOURCE="$(python scripts/deploy_functions_guarded_contract.py source \
   --firebase-json "$REPO_ROOT/firebase.json")"
@@ -129,14 +123,37 @@ if [ -n "$BOOTSTRAP_MANIFEST" ]; then
     --function "${FUNCTIONS[0]}" \
     --env-file "$ENV_FILE" \
     --source-dir "$FUNCTIONS_SOURCE/src" \
-    --firebase-cli-version "$FIREBASE_CLI_VERSION"
+    --firebase-cli-version "$FIREBASE_TOOLS_VERSION"
 else
   echo "[deploy] environment regression guard"
   python scripts/functions_env_regression_guard.py "${GUARD_ARGS[@]}" "${ALLOWED[@]}"
 fi
 
-# Recheck both the dotenv contract and its bytes immediately before invoking
-# Firebase. The guard and Firebase must consume the same canonical file.
+# Match firebase.json's predeploy hook exactly. Do not install dependencies
+# here: deploy readiness must not silently change the dependency graph or
+# depend on network state. `npm ci --prefix "$FUNCTIONS_SOURCE"` is an
+# explicit preparation step when this guard reports missing dependencies.
+TSC_SHIM="$FUNCTIONS_SOURCE/node_modules/.bin/tsc"
+TSC_WINDOWS_SHIM="$TSC_SHIM.cmd"
+if [ ! -d "$FUNCTIONS_SOURCE/node_modules" ] || \
+  { [ ! -f "$TSC_SHIM" ] && [ ! -f "$TSC_WINDOWS_SHIM" ]; }; then
+  echo "FUNCTIONS_DEPENDENCIES_NOT_READY: missing node_modules or TypeScript tsc shim" >&2
+  echo "  Prepare explicitly with: npm ci --prefix \"$FUNCTIONS_SOURCE\"" >&2
+  exit 1
+fi
+
+echo "[deploy] Functions local predeploy build"
+if ! (
+  export RESOURCE_DIR="$FUNCTIONS_SOURCE"
+  npm --prefix "$RESOURCE_DIR" run build
+); then
+  echo "FUNCTIONS_PREDEPLOY_BUILD_FAILED: Firebase deploy refused" >&2
+  exit 1
+fi
+echo "[deploy] Functions predeploy build: PASS"
+
+# The dotenv contract and bytes must still be identical after the build and
+# immediately before querying the pinned Firebase CLI or deploying.
 python scripts/deploy_functions_guarded_contract.py "${CONTRACT_ARGS[@]}"
 CURRENT_ENV_SHA256="$(python scripts/deploy_functions_guarded_contract.py sha256 \
   --file "$ENV_FILE")"
@@ -146,6 +163,13 @@ if [ "$CURRENT_ENV_SHA256" != "$PRE_GUARD_ENV_SHA256" ]; then
   exit 1
 fi
 
+FIREBASE_CLI_VERSION="$(npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" --version | tr -d '\r\n')"
+if [ "$FIREBASE_CLI_VERSION" != "$FIREBASE_TOOLS_VERSION" ]; then
+  echo "FIREBASE_CLI_VERSION_MISMATCH: expected $FIREBASE_TOOLS_VERSION, got $FIREBASE_CLI_VERSION" >&2
+  exit 1
+fi
+echo "[deploy] Firebase CLI version: $FIREBASE_CLI_VERSION"
+
 TARGETS=""
 for fn in "${FUNCTIONS[@]}"; do
   TARGETS="${TARGETS:+$TARGETS,}functions:$fn"
@@ -153,7 +177,7 @@ done
 
 echo "[deploy] firebase deploy --only $TARGETS"
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "[deploy] dry-run: Firebase CLI was not invoked"
+  echo "[deploy] dry-run: Firebase deploy was not invoked"
   exit 0
 fi
 npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" deploy --only "$TARGETS" --project "$PROJECT" --non-interactive
