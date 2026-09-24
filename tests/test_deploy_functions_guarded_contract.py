@@ -79,6 +79,27 @@ def _install_fake_npm(bin_dir: Path) -> None:
     npm.chmod(npm.stat().st_mode | stat.S_IXUSR)
 
 
+def _install_fake_gcloud(bin_dir: Path) -> None:
+    gcloud = bin_dir / "gcloud"
+    gcloud.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "print(json.dumps({'spec': {'template': {'spec': {'containers': ["
+        "{'env': ["
+        "{'name': 'RESEND_FROM_EMAIL', 'value': 'mail@example.com'},"
+        "{'name': 'RESEND_REPLY_TO', 'value': 'reply@example.com'},"
+        "{'name': 'FIREBASE_CONFIG', 'value': '{}'},"
+        "{'name': 'GCLOUD_PROJECT', 'value': 'seolleyeon-final'},"
+        "{'name': 'EVENTARC_CLOUD_EVENT_SOURCE', 'value': 'source'},"
+        "{'name': 'FUNCTION_REGION', 'value': 'asia-northeast3'},"
+        "{'name': 'FUNCTION_TARGET', 'value': 'cleanupAvatarMedia'},"
+        "{'name': 'LOG_EXECUTION_ID', 'value': 'true'}"
+        "]}]}}}}))\n",
+        encoding="utf-8",
+    )
+    gcloud.chmod(gcloud.stat().st_mode | stat.S_IXUSR)
+
+
 def test_the_guarded_file_is_the_exact_firebase_project_dotenv(tmp_path):
     root, candidate = _root(tmp_path)
 
@@ -198,24 +219,7 @@ def test_wrapper_deploys_only_the_explicit_function_with_the_same_dotenv(tmp_pat
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    gcloud = bin_dir / "gcloud"
-    gcloud.write_text(
-        "#!/usr/bin/env python3\n"
-        "import json\n"
-        "print(json.dumps({'spec': {'template': {'spec': {'containers': ["
-        "{'env': ["
-        "{'name': 'RESEND_FROM_EMAIL', 'value': 'mail@example.com'},"
-        "{'name': 'RESEND_REPLY_TO', 'value': 'reply@example.com'},"
-        "{'name': 'FIREBASE_CONFIG', 'value': '{}'},"
-        "{'name': 'GCLOUD_PROJECT', 'value': 'seolleyeon-final'},"
-        "{'name': 'EVENTARC_CLOUD_EVENT_SOURCE', 'value': 'source'},"
-        "{'name': 'FUNCTION_REGION', 'value': 'asia-northeast3'},"
-        "{'name': 'FUNCTION_TARGET', 'value': 'cleanupAvatarMedia'},"
-        "{'name': 'LOG_EXECUTION_ID', 'value': 'true'}"
-        "]}]}}}}))\n",
-        encoding="utf-8",
-    )
-    gcloud.chmod(gcloud.stat().st_mode | stat.S_IXUSR)
+    _install_fake_gcloud(bin_dir)
     deploy_log = tmp_path / "npx-deploy.log"
     cli_invocation_log = tmp_path / "npx-invocations.log"
     build_log = tmp_path / "npm-build.log"
@@ -345,6 +349,7 @@ def test_wrapper_refuses_firebase_cli_version_mismatch_before_deploy(tmp_path):
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    _install_fake_gcloud(bin_dir)
     deploy_log = tmp_path / "npx.log"
     npx = bin_dir / "npx"
     npx.write_text(
@@ -401,24 +406,7 @@ def test_wrapper_refuses_dotenv_mutation_after_guard(tmp_path):
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    gcloud = bin_dir / "gcloud"
-    gcloud.write_text(
-        "#!/usr/bin/env python3\n"
-        "import json\n"
-        "print(json.dumps({'spec': {'template': {'spec': {'containers': ["
-        "{'env': ["
-        "{'name': 'RESEND_FROM_EMAIL', 'value': 'mail@example.com'},"
-        "{'name': 'RESEND_REPLY_TO', 'value': 'reply@example.com'},"
-        "{'name': 'FIREBASE_CONFIG', 'value': '{}'},"
-        "{'name': 'GCLOUD_PROJECT', 'value': 'seolleyeon-final'},"
-        "{'name': 'EVENTARC_CLOUD_EVENT_SOURCE', 'value': 'source'},"
-        "{'name': 'FUNCTION_REGION', 'value': 'asia-northeast3'},"
-        "{'name': 'FUNCTION_TARGET', 'value': 'cleanupAvatarMedia'},"
-        "{'name': 'LOG_EXECUTION_ID', 'value': 'true'}"
-        "]}]}}}}))\n",
-        encoding="utf-8",
-    )
-    gcloud.chmod(gcloud.stat().st_mode | stat.S_IXUSR)
+    _install_fake_gcloud(bin_dir)
     deploy_log = tmp_path / "npx.log"
     npx = bin_dir / "npx"
     npx.write_text(
