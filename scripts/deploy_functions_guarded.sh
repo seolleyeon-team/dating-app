@@ -113,8 +113,26 @@ done
 
 PRE_GUARD_ENV_SHA256="$(python scripts/deploy_functions_guarded_contract.py sha256 \
   --file "$ENV_FILE")"
+DISCOVERY_PARAMS_FILE=""
+cleanup_bootstrap_artifacts() {
+  if [ -n "$DISCOVERY_PARAMS_FILE" ] && [ -f "$DISCOVERY_PARAMS_FILE" ]; then
+    rm -f -- "$DISCOVERY_PARAMS_FILE"
+  fi
+  if [ -n "$BOOTSTRAP_MANIFEST" ]; then
+    if ! python scripts/functions_bootstrap_generated_artifact.py \
+      --repo-root "$REPO_ROOT" \
+      --remove >/dev/null; then
+      echo "GENERATED_ARTIFACT_CLEANUP_REFUSED: exact generated output was not removed" >&2
+    fi
+  fi
+}
+trap cleanup_bootstrap_artifacts EXIT
+
 if [ -n "$BOOTSTRAP_MANIFEST" ]; then
-  echo "[deploy] no-serving-revision bootstrap environment guard"
+  echo "[deploy] verify exact generated JSON before bootstrap build"
+  python scripts/functions_bootstrap_generated_artifact.py \
+    --repo-root "$REPO_ROOT"
+  echo "[deploy] no-serving-revision bootstrap source preflight"
   python scripts/functions_bootstrap_env_guard.py \
     --repo-root "$REPO_ROOT" \
     --manifest "$BOOTSTRAP_MANIFEST" \
@@ -123,7 +141,8 @@ if [ -n "$BOOTSTRAP_MANIFEST" ]; then
     --function "${FUNCTIONS[0]}" \
     --env-file "$ENV_FILE" \
     --source-dir "$FUNCTIONS_SOURCE/src" \
-    --firebase-cli-version "$FIREBASE_TOOLS_VERSION"
+    --firebase-cli-version "$FIREBASE_TOOLS_VERSION" \
+    --prebuild-source-only
 else
   echo "[deploy] environment regression guard"
   python scripts/functions_env_regression_guard.py "${GUARD_ARGS[@]}" "${ALLOWED[@]}"
@@ -151,6 +170,36 @@ if ! (
   exit 1
 fi
 echo "[deploy] Functions predeploy build: PASS"
+
+if [ -n "$BOOTSTRAP_MANIFEST" ]; then
+  DISCOVERY_PARAMS_FILE="$(mktemp "${TMPDIR:-/tmp}/functions-build-params.XXXXXX")"
+  echo "[deploy] discover complete Functions Build parameters with pinned CLI parser"
+  FUNCTIONS_DISCOVERY_TIMEOUT=30 npx -y --package="firebase-tools@$FIREBASE_TOOLS_VERSION" -- node \
+    "$SCRIPT_DIR/functions_discover_build_params.js" \
+    --functions-dir "$FUNCTIONS_SOURCE" \
+    --project "$PROJECT" \
+    --region "$REGION" \
+    --runtime nodejs22 \
+    --firebase-cli-version "$FIREBASE_TOOLS_VERSION" \
+    > "$DISCOVERY_PARAMS_FILE"
+
+  echo "[deploy] no-serving-revision bootstrap environment and parameter guard"
+  python scripts/functions_bootstrap_env_guard.py \
+    --repo-root "$REPO_ROOT" \
+    --manifest "$BOOTSTRAP_MANIFEST" \
+    --project "$PROJECT" \
+    --region "$REGION" \
+    --function "${FUNCTIONS[0]}" \
+    --env-file "$ENV_FILE" \
+    --source-dir "$FUNCTIONS_SOURCE/src" \
+    --firebase-cli-version "$FIREBASE_TOOLS_VERSION" \
+    --discovered-build-params "$DISCOVERY_PARAMS_FILE"
+
+  echo "[deploy] remove only the verified generated JSON artifact"
+  python scripts/functions_bootstrap_generated_artifact.py \
+    --repo-root "$REPO_ROOT" \
+    --remove
+fi
 
 # The dotenv contract and bytes must still be identical after the build and
 # immediately before querying the pinned Firebase CLI or deploying.

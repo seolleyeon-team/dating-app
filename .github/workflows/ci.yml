@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.23.2"
           cache: npm
           cache-dependency-path: functions/package-lock.json
       - run: npm ci
@@ -138,12 +138,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.2"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Verify P1.4 toolchain
+        run: |
+          test "$(node --version)" = "v22.23.2"
+          test "$(npm --version)" = "10.9.8"
+      - name: Prepare pinned Firebase CLI parameter regression
+        run: |
+          cli_version="$(npx --yes firebase-tools@15.30.2 --version)"
+          test "$cli_version" = "15.30.2"
       - run: python -m pip install --upgrade pip
       - run: python -m pip install pytest
-      - run: pytest -q tests/test_functions_bootstrap_env_guard.py --maxfail=10
+      - run: >-
+          pytest -q
+          tests/test_functions_bootstrap_env_guard.py
+          tests/test_functions_bootstrap_generated_artifact.py
+          tests/test_functions_codebase_parameter_contract.py
+          tests/test_firebase_cli_15302_parameter_resolution.py
+          --maxfail=10
 
   web-build:
     name: Web build smoke
