@@ -430,7 +430,7 @@ def _git_tree_sha(repo_root: Path, ref: str, tree_path: str) -> str:
 
 def _require_clean_source(repo_root: Path, *, allow_exact_generated_artifact: bool = False) -> None:
     completed = subprocess.run(
-        ["git", "-C", str(repo_root), "status", "--porcelain", "--untracked-files=normal"],
+        ["git", "-C", str(repo_root), "status", "--porcelain", "--untracked-files=all"],
         capture_output=True,
         text=True,
         check=False,
