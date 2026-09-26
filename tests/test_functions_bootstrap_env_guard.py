@@ -244,6 +244,43 @@ def test_untracked_functions_source_invalidates_tree_authority(tmp_path):
         bootstrap._require_deploy_source_matches_ref(repo_root, "HEAD")
 
 
+def test_dirty_source_worktree_is_refused(tmp_path):
+    repo_root = tmp_path / "repo"
+    functions = repo_root / "functions"
+    functions.mkdir(parents=True)
+    tracked_source = functions / "index.ts"
+    tracked_source.write_text("export const baseline = true;\n", encoding="utf-8")
+    subprocess.run(["git", "init", str(repo_root)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo_root), "add", "functions/index.ts"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "-c",
+            "user.name=Bootstrap Test",
+            "-c",
+            "user.email=bootstrap-test@example.invalid",
+            "commit",
+            "-m",
+            "baseline",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    tracked_source.write_text("export const changed = true;\n", encoding="utf-8")
+
+    with pytest.raises(
+        bootstrap.BootstrapContractError,
+        match="SOURCE_WORKTREE_NOT_CLEAN",
+    ):
+        bootstrap._require_clean_source(repo_root)
+
+
 def test_extra_candidate_env_key_is_refused(tmp_path, monkeypatch):
     fixture = _fixture(tmp_path, candidate="UNRELATED=value\n")
 
