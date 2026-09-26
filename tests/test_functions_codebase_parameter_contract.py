@@ -91,6 +91,14 @@ def test_new_target_source_plain_env_read_expands_candidate_set_until_manifest_u
     assert expected_keys == CODEBASE_PARAMETER_KEYS | {"NEW_TARGET_SOURCE_ENV"}
     assert frozenset(AUTHORITY_VALUES) != expected_keys
     assert expected_keys - frozenset(AUTHORITY_VALUES) == {"NEW_TARGET_SOURCE_ENV"}
+    with pytest.raises(Exception, match="MISSING.*NEW_TARGET_SOURCE_ENV"):
+        contract.validate_live_parameter_authority(
+            candidate_values=dict(AUTHORITY_VALUES),
+            authority_values_by_function=authority_values_by_function(),
+            authority_functions=AUTHORITY_FUNCTIONS,
+            parameters=discovered_string_parameters(),
+            source_plain_env_keys={"NEW_TARGET_SOURCE_ENV"},
+        )
 
 
 def test_unexpected_discovered_non_secret_parameter_fails_closed():

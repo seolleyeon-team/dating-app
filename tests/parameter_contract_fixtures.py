@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
@@ -81,25 +80,3 @@ def authority_values_by_function(
         for function, function_overrides in overrides.items():
             values.setdefault(function, dict(AUTHORITY_VALUES)).update(function_overrides)
     return values
-
-
-@dataclass(frozen=True)
-class FirebaseCli15302ParameterFixture:
-    """Deterministic local fixture for Firebase CLI 15.30.2 parameter loading.
-
-    The fixture captures the noninteractive behavior relevant to P1.4: dotenv
-    values must be present for all non-secret codebase parameters before the
-    deploy path can reach any source-default prompt fallback.
-    """
-
-    parameters: tuple[dict[str, str], ...] = tuple(discovered_string_parameters())
-    prompt_sentinel: str = "SOURCE_DEFAULT_PROMPT_SHOULD_NOT_BE_REACHED"
-
-    def resolve_noninteractive(self, candidate_values: Mapping[str, str]) -> None:
-        contract = contract_module()
-        contract.validate_live_parameter_authority(
-            candidate_values=candidate_values,
-            authority_values_by_function=authority_values_by_function(),
-            authority_functions=AUTHORITY_FUNCTIONS,
-            parameters=list(self.parameters),
-        )
