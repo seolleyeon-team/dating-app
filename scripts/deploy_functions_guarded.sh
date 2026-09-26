@@ -174,7 +174,7 @@ echo "[deploy] Functions predeploy build: PASS"
 if [ -n "$BOOTSTRAP_MANIFEST" ]; then
   DISCOVERY_PARAMS_FILE="$(mktemp "${TMPDIR:-/tmp}/functions-build-params.XXXXXX")"
   echo "[deploy] discover complete Functions Build parameters with pinned CLI parser"
-  FUNCTIONS_DISCOVERY_TIMEOUT=30 npx -y --package="firebase-tools@$FIREBASE_TOOLS_VERSION" -- node \
+  npx -y --package="firebase-tools@$FIREBASE_TOOLS_VERSION" -- node \
     "$SCRIPT_DIR/functions_discover_build_params.js" \
     --functions-dir "$FUNCTIONS_SOURCE" \
     --project "$PROJECT" \
@@ -229,7 +229,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "[deploy] dry-run: Firebase deploy was not invoked"
   exit 0
 fi
-npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" deploy --only "$TARGETS" --project "$PROJECT" --non-interactive
+FUNCTIONS_DISCOVERY_TIMEOUT=30 npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" deploy --only "$TARGETS" --project "$PROJECT" --non-interactive
 
 # No declarations on the way back. The intended change has been applied, so the
 # serving revision must now match the env file exactly - any remaining

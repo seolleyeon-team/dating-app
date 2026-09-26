@@ -166,13 +166,13 @@ def test_bootstrap_parameter_discovery_precedes_deploy_and_dry_run_invokes_no_de
     phases = phase_log.read_text(encoding="utf-8").splitlines()
     assert phases.index("artifact-verify") < phases.index("source-preflight")
     assert phases.index("source-preflight") < phases.index("build")
-    assert phases.index("build") < phases.index("discover-timeout=30")
-    assert phases.index("discover-timeout=30") < phases.index("parameter-guard")
+    assert phases.index("build") < phases.index("discover-timeout=unset")
+    assert phases.index("discover-timeout=unset") < phases.index("parameter-guard")
     assert phases.index("parameter-guard") < phases.index("artifact-remove")
     assert phases.index("artifact-remove") < phases.index("version-timeout=unset")
-    assert phases.index("version-timeout=unset") < phases.index("deploy-timeout=unset")
-    assert phases.count("deploy-timeout=unset") == 1
-    assert phases.count("discover-timeout=30") == 1
+    assert phases.index("version-timeout=unset") < phases.index("deploy-timeout=30")
+    assert phases.count("deploy-timeout=30") == 1
+    assert phases.count("discover-timeout=unset") == 1
 
     dry_run = subprocess.run(
         command[:-1] + ["--dry-run", "syncMeetingIcebreakerFromPromise"],
@@ -185,8 +185,8 @@ def test_bootstrap_parameter_discovery_precedes_deploy_and_dry_run_invokes_no_de
     assert dry_run.returncode == 0, dry_run.stdout + dry_run.stderr
     assert "dry-run: Firebase deploy was not invoked" in dry_run.stdout
     phases = phase_log.read_text(encoding="utf-8").splitlines()
-    assert phases.count("deploy-timeout=unset") == 1
-    assert phases.count("discover-timeout=30") == 2
+    assert phases.count("deploy-timeout=30") == 1
+    assert phases.count("discover-timeout=unset") == 2
     assert phases.count("version-timeout=unset") == 2
     assert not list(tmp_path.glob("functions-build-params.*"))
 
@@ -315,8 +315,9 @@ def test_bootstrap_parameter_discovery_and_guard_precede_the_exact_deploy():
     assert source_preflight < local_build < discovery < parameter_guard
     assert parameter_guard < artifact_cleanup < deploy
     assert "export FUNCTIONS_DISCOVERY_TIMEOUT=30" not in wrapper
-    assert 'FUNCTIONS_DISCOVERY_TIMEOUT=30 npx -y --package="firebase-tools@$FIREBASE_TOOLS_VERSION" -- node' in wrapper
+    assert 'FUNCTIONS_DISCOVERY_TIMEOUT=30 npx -y --package="firebase-tools@$FIREBASE_TOOLS_VERSION" -- node' not in wrapper
     assert 'npx -y --package="firebase-tools@$FIREBASE_TOOLS_VERSION" -- node' in wrapper
+    assert 'FUNCTIONS_DISCOVERY_TIMEOUT=30 npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" deploy --only "$TARGETS"' in wrapper
 
 
 def test_multi_function_target_requires_explicit_opt_in():
