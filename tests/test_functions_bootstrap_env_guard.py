@@ -474,6 +474,48 @@ def test_only_verified_generated_json_is_ignored_for_deploy_source_authority(tmp
         )
 
 
+def test_exact_verified_generated_json_is_allowed_in_clean_source_check(tmp_path):
+    repo_root = tmp_path / "repo"
+    source = repo_root / "functions" / "src" / "avatarQaHardRejectContract.json"
+    generated = repo_root / "functions" / "lib" / "avatarQaHardRejectContract.json"
+    source.parent.mkdir(parents=True)
+    generated.parent.mkdir(parents=True)
+    source.write_text('{"approved":true}\n', encoding="utf-8")
+    generated.write_text('{"approved":true}\n', encoding="utf-8")
+    (repo_root / "functions" / "index.ts").write_text("export {}\n", encoding="utf-8")
+    subprocess.run(["git", "init", str(repo_root)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo_root), "add", "functions/src", "functions/index.ts"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "-c",
+            "user.name=Bootstrap Test",
+            "-c",
+            "user.email=bootstrap-test@example.invalid",
+            "commit",
+            "-m",
+            "baseline",
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+    bootstrap._require_clean_source(repo_root, allow_exact_generated_artifact=True)
+    unexpected = repo_root / "functions" / "lib" / "unrelated.txt"
+    unexpected.write_text("unexpected\n", encoding="utf-8")
+    with pytest.raises(
+        bootstrap.BootstrapContractError,
+        match="SOURCE_WORKTREE_NOT_CLEAN",
+    ):
+        bootstrap._require_clean_source(repo_root, allow_exact_generated_artifact=True)
+
+
 def test_dirty_source_worktree_is_refused(tmp_path):
     repo_root = tmp_path / "repo"
     functions = repo_root / "functions"
