@@ -6,7 +6,32 @@
   "region": "asia-northeast3",
   "source_tree_sha": "3e6e2519b55015d3c499c1c3563ada335cf6d7eb",
   "expected_plain_env_keys": [],
+  "expected_codebase_parameter_keys": [
+    "APPLE_IAP_APPLE_ID",
+    "APPLE_IAP_BUNDLE_ID",
+    "RESEND_FROM_EMAIL",
+    "RESEND_REPLY_TO"
+  ],
+  "expected_codebase_parameter_types": {
+    "APPLE_IAP_APPLE_ID": "string",
+    "APPLE_IAP_BUNDLE_ID": "string",
+    "RESEND_FROM_EMAIL": "string",
+    "RESEND_REPLY_TO": "string"
+  },
+  "expected_codebase_secret_parameter_names": [
+    "PLAY_REVIEW_LOGIN_ID",
+    "PLAY_REVIEW_PASSWORD_SCRYPT",
+    "PLAY_REVIEW_FIREBASE_UID",
+    "PLAY_REVIEW_ENABLED",
+    "PORTONE_API_SECRET",
+    "RESEND_API_KEY"
+  ],
   "expected_secret_bindings": [],
+  "parameter_authority_functions": [
+    "sendStudentVerificationEmail",
+    "appStoreServerNotifications",
+    "cleanupAvatarMedia"
+  ],
   "source_entry": "meetingIcebreaker/functions.ts",
   "source_export": "syncMeetingIcebreakerFromPromise",
   "allowed_function_states": [

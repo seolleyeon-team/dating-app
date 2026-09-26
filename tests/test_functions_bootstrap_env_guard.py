@@ -38,6 +38,10 @@ def _fixture(
     project: str = PROJECT,
     region: str = REGION,
     source_tree_sha: str = SOURCE_TREE_SHA,
+    codebase_keys: list[str] | None = None,
+    codebase_types: dict[str, str] | None = None,
+    codebase_secret_names: list[str] | None = None,
+    parameter_authority_functions: list[str] | None = None,
 ):
     root = tmp_path / "repo"
     source_dir = root / "functions" / "src"
@@ -46,40 +50,52 @@ def _fixture(
     env_file = root / "functions" / f".env.{PROJECT}"
     env_file.write_text(candidate, encoding="utf-8")
     manifest = root / "manifest.json"
-    manifest.write_text(
-        json.dumps(
-            {
-                "contract_version": 2,
-                "reason": "no_serving_revision_recovery",
-                "function": function,
-                "project": project,
-                "region": region,
-                "source_tree_sha": source_tree_sha,
-                "expected_plain_env_keys": plain_keys or [],
-                "expected_secret_bindings": secret_keys or [],
-                "source_entry": "entry.ts",
-                "source_export": FUNCTION,
-                "allowed_function_states": ["FAILED"],
-                "allow_absent_function": False,
-            }
-        ),
-        encoding="utf-8",
-    )
+    manifest_data = {
+        "contract_version": 2,
+        "reason": "no_serving_revision_recovery",
+        "function": function,
+        "project": project,
+        "region": region,
+        "source_tree_sha": source_tree_sha,
+        "expected_plain_env_keys": plain_keys or [],
+        "expected_secret_bindings": secret_keys or [],
+        "source_entry": "entry.ts",
+        "source_export": FUNCTION,
+        "allowed_function_states": ["FAILED"],
+        "allow_absent_function": False,
+    }
+    if codebase_keys is not None:
+        manifest_data["expected_codebase_parameter_keys"] = codebase_keys
+        manifest_data["expected_codebase_parameter_types"] = codebase_types or {
+            name: "string" for name in codebase_keys
+        }
+        manifest_data["expected_codebase_secret_parameter_names"] = (
+            codebase_secret_names or []
+        )
+    if parameter_authority_functions is not None:
+        manifest_data["parameter_authority_functions"] = parameter_authority_functions
+    manifest.write_text(json.dumps(manifest_data), encoding="utf-8")
     return root, manifest, env_file, source_dir
 
 
 def _stub_live_authority(monkeypatch):
-    monkeypatch.setattr(bootstrap, "_require_clean_source", lambda root: None)
+    monkeypatch.setattr(
+        bootstrap, "_require_clean_source", lambda root, **kwargs: None
+    )
     monkeypatch.setattr(bootstrap, "_fresh_git_sha", lambda root, ref: MAIN_SHA)
     monkeypatch.setattr(
         bootstrap, "_git_tree_sha", lambda root, ref, path: SOURCE_TREE_SHA
     )
-    monkeypatch.setattr(bootstrap, "_require_deploy_source_matches_ref", lambda root, ref: None)
+    monkeypatch.setattr(
+        bootstrap,
+        "_require_deploy_source_matches_ref",
+        lambda root, ref, **kwargs: None,
+    )
     monkeypatch.setattr(bootstrap, "describe_function_state", lambda *args: "FAILED")
     monkeypatch.setattr(bootstrap, "assert_no_serving_service", lambda *args: None)
 
 
-def _validate(monkeypatch, fixture):
+def _validate(monkeypatch, fixture, *, discovered_build_params=None):
     root, manifest, env_file, source_dir = fixture
     _stub_live_authority(monkeypatch)
     return bootstrap.validate_bootstrap_contract(
@@ -91,6 +107,7 @@ def _validate(monkeypatch, fixture):
         env_file=env_file,
         source_dir=source_dir,
         firebase_cli_version="15.30.2",
+        discovered_build_params=discovered_build_params,
     )
 
 
@@ -111,6 +128,173 @@ def test_no_service_valid_bootstrap_manifest_passes(monkeypatch, tmp_path):
     assert result.function == FUNCTION
     assert result.expected_plain_env_keys == frozenset()
     assert result.expected_secret_bindings == frozenset()
+
+
+def test_codebase_parameter_bootstrap_requires_actual_runtime_discovery(
+    monkeypatch, tmp_path
+):
+    codebase_keys = [
+        "APPLE_IAP_APPLE_ID",
+        "APPLE_IAP_BUNDLE_ID",
+        "RESEND_FROM_EMAIL",
+        "RESEND_REPLY_TO",
+    ]
+    candidate = "".join(f"{key}=synthetic-value\n" for key in codebase_keys)
+    authorities = [
+        "sendStudentVerificationEmail",
+        "appStoreServerNotifications",
+        "cleanupAvatarMedia",
+    ]
+    secret_names = [
+        "PLAY_REVIEW_LOGIN_ID",
+        "PLAY_REVIEW_PASSWORD_SCRYPT",
+        "PLAY_REVIEW_FIREBASE_UID",
+        "PLAY_REVIEW_ENABLED",
+        "PORTONE_API_SECRET",
+        "RESEND_API_KEY",
+    ]
+    fixture = _fixture(
+        tmp_path,
+        candidate=candidate,
+        codebase_keys=codebase_keys,
+        codebase_secret_names=secret_names,
+        parameter_authority_functions=authorities,
+    )
+
+    with pytest.raises(
+        bootstrap.BootstrapContractError,
+        match="PARAMETER_DISCOVERY_REQUIRED",
+    ):
+        _validate(monkeypatch, fixture)
+
+
+def test_parameter_authorities_are_bound_to_the_approved_three_functions(
+    monkeypatch, tmp_path
+):
+    fixture = _fixture(
+        tmp_path,
+        codebase_keys=[
+            "APPLE_IAP_APPLE_ID",
+            "APPLE_IAP_BUNDLE_ID",
+            "RESEND_FROM_EMAIL",
+            "RESEND_REPLY_TO",
+        ],
+        parameter_authority_functions=[
+            "sendStudentVerificationEmail",
+            "appStoreServerNotifications",
+            "otherActiveFunction",
+        ],
+    )
+
+    with pytest.raises(
+        bootstrap.BootstrapContractError,
+        match="approved live authorities",
+    ):
+        _validate(monkeypatch, fixture)
+
+
+def test_discovered_parameters_and_live_authorities_pass_bootstrap(monkeypatch, tmp_path):
+    codebase_keys = [
+        "APPLE_IAP_APPLE_ID",
+        "APPLE_IAP_BUNDLE_ID",
+        "RESEND_FROM_EMAIL",
+        "RESEND_REPLY_TO",
+    ]
+    candidate_values = {
+        "APPLE_IAP_APPLE_ID": "94727223",
+        "APPLE_IAP_BUNDLE_ID": "com.seolleyeon.app",
+        "RESEND_FROM_EMAIL": "synthetic-sender@example.invalid",
+        "RESEND_REPLY_TO": "synthetic-reply@example.invalid",
+    }
+    candidate = "".join(f"{key}={value}\n" for key, value in candidate_values.items())
+    authorities = [
+        "sendStudentVerificationEmail",
+        "appStoreServerNotifications",
+        "cleanupAvatarMedia",
+    ]
+    secret_names = [
+        "PLAY_REVIEW_LOGIN_ID",
+        "PLAY_REVIEW_PASSWORD_SCRYPT",
+        "PLAY_REVIEW_FIREBASE_UID",
+        "PLAY_REVIEW_ENABLED",
+        "PORTONE_API_SECRET",
+        "RESEND_API_KEY",
+    ]
+    fixture = _fixture(
+        tmp_path,
+        candidate=candidate,
+        codebase_keys=codebase_keys,
+        codebase_secret_names=secret_names,
+        parameter_authority_functions=authorities,
+    )
+    parameters = [
+        {"name": "APPLE_IAP_APPLE_ID", "type": "string", "default": "94727223"},
+        {
+            "name": "APPLE_IAP_BUNDLE_ID",
+            "type": "string",
+            "default": "com.seolleyeon.app",
+        },
+        {"name": "RESEND_FROM_EMAIL", "type": "string", "default": ""},
+        {"name": "RESEND_REPLY_TO", "type": "string", "default": ""},
+        *({"name": name, "type": "secret"} for name in secret_names),
+    ]
+    discovered = {
+        "contractVersion": 1,
+        "firebaseToolsVersion": "15.30.2",
+        "parameterCount": 10,
+        "secretParameterCount": 6,
+        "parameters": parameters,
+    }
+    monkeypatch.setattr(
+        bootstrap,
+        "read_live_codebase_parameter_authority",
+        lambda function, project, region, expected: candidate_values,
+    )
+
+    result = _validate(monkeypatch, fixture, discovered_build_params=discovered)
+
+    assert result.expected_codebase_parameter_keys == frozenset(codebase_keys)
+    assert result.parameter_authority_functions == tuple(authorities)
+
+
+def test_live_parameter_authority_reads_only_selected_non_secret_environment(monkeypatch):
+    expected = {
+        "APPLE_IAP_APPLE_ID",
+        "APPLE_IAP_BUNDLE_ID",
+        "RESEND_FROM_EMAIL",
+        "RESEND_REPLY_TO",
+    }
+    values = {
+        "APPLE_IAP_APPLE_ID": "synthetic-apple-id",
+        "APPLE_IAP_BUNDLE_ID": "synthetic-bundle-id",
+        "RESEND_FROM_EMAIL": "synthetic-sender@example.invalid",
+        "RESEND_REPLY_TO": "synthetic-reply@example.invalid",
+        "UNRELATED_ENV": "synthetic-unrelated",
+    }
+    monkeypatch.setattr(
+        bootstrap,
+        "_run_gcloud_json",
+        lambda *args, **kwargs: (
+            {
+                "state": "ACTIVE",
+                "serviceConfig": {
+                    "environmentVariables": values,
+                    "secretEnvironmentVariables": [
+                        {"key": "SYNTHETIC_SECRET_NAME", "secret": "not-read"}
+                    ],
+                },
+            },
+            "",
+        ),
+    )
+
+    selected = bootstrap.read_live_codebase_parameter_authority(
+        "syntheticAuthority", PROJECT, REGION, frozenset(expected)
+    )
+
+    assert set(selected) == expected
+    assert "UNRELATED_ENV" not in selected
+    assert "SYNTHETIC_SECRET_NAME" not in selected
 
 
 def test_serving_service_makes_bootstrap_refuse(monkeypatch, tmp_path):
@@ -242,6 +426,52 @@ def test_untracked_functions_source_invalidates_tree_authority(tmp_path):
         match="untracked deployable Functions",
     ):
         bootstrap._require_deploy_source_matches_ref(repo_root, "HEAD")
+
+
+def test_only_verified_generated_json_is_ignored_for_deploy_source_authority(tmp_path):
+    repo_root = tmp_path / "repo"
+    functions = repo_root / "functions"
+    source = functions / "src" / "avatarQaHardRejectContract.json"
+    generated = functions / "lib" / "avatarQaHardRejectContract.json"
+    source.parent.mkdir(parents=True)
+    generated.parent.mkdir(parents=True)
+    source.write_text('{"approved":true}\n', encoding="utf-8")
+    generated.write_text('{"approved":true}\n', encoding="utf-8")
+    (functions / "index.ts").write_text("export {}\n", encoding="utf-8")
+    subprocess.run(["git", "init", str(repo_root)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo_root), "add", "functions/src", "functions/index.ts"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "-c",
+            "user.name=Bootstrap Test",
+            "-c",
+            "user.email=bootstrap-test@example.invalid",
+            "commit",
+            "-m",
+            "baseline",
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+    bootstrap._require_deploy_source_matches_ref(
+        repo_root, "HEAD", allow_exact_generated_artifact=True
+    )
+    (functions / "lib" / "unrelated.js").write_text("module.exports = {}\n", encoding="utf-8")
+    with pytest.raises(
+        bootstrap.BootstrapContractError,
+        match="untracked deployable Functions",
+    ):
+        bootstrap._require_deploy_source_matches_ref(
+            repo_root, "HEAD", allow_exact_generated_artifact=True
+        )
 
 
 def test_dirty_source_worktree_is_refused(tmp_path):

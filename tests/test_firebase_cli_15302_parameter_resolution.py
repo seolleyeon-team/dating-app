@@ -15,19 +15,19 @@ PINNED_VERSION = "15.30.2"
 
 
 def _pinned_cli_root() -> Path:
-    npm = shutil.which("npm.cmd" if os.name == "nt" else "npm")
-    assert npm is not None, "npm is required to locate the pinned Firebase CLI cache"
-    cache = subprocess.run(
-        [npm, "config", "get", "cache"],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=15,
-    ).stdout.strip()
+    cache_value = os.environ.get("npm_config_cache") or os.environ.get("NPM_CONFIG_CACHE")
+    if cache_value:
+        cache = Path(cache_value)
+    elif os.name == "nt":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        assert local_app_data, "LOCALAPPDATA is required to locate npm's cache"
+        cache = Path(local_app_data) / "npm-cache"
+    else:
+        cache = Path.home() / ".npm"
     packages = sorted(
         Path(candidate)
         for candidate in glob.glob(
-            str(Path(cache) / "_npx" / "*" / "node_modules" / "firebase-tools")
+            str(cache / "_npx" / "*" / "node_modules" / "firebase-tools")
         )
     )
     for package in packages:

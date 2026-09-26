@@ -1,7 +1,7 @@
 "use strict";
 
-const fs = require("node:fs");
 const path = require("node:path");
+const { firebaseToolsRootFromPath } = require("./firebase_cli_package");
 
 const EXPECTED_FIREBASE_TOOLS_VERSION = "15.30.2";
 const PARAMETER_NAMES = [
@@ -11,22 +11,8 @@ const PARAMETER_NAMES = [
   "RESEND_REPLY_TO",
 ];
 
-function firebaseToolsRootFromNpxPath() {
-  for (const entry of process.env.PATH.split(path.delimiter)) {
-    const candidate = path.resolve(entry, "..", "firebase-tools");
-    const packageJson = path.join(candidate, "package.json");
-    if (!fs.existsSync(packageJson)) continue;
-    const metadata = JSON.parse(fs.readFileSync(packageJson, "utf8"));
-    if (metadata.version !== EXPECTED_FIREBASE_TOOLS_VERSION) {
-      throw new Error("npx exposed an unexpected Firebase CLI version");
-    }
-    return candidate;
-  }
-  throw new Error("npx did not expose the pinned Firebase CLI package");
-}
-
 async function main() {
-  const cliRoot = firebaseToolsRootFromNpxPath();
+  const cliRoot = firebaseToolsRootFromPath(EXPECTED_FIREBASE_TOOLS_VERSION);
   const { resolveParams } = require(path.join(
     cliRoot,
     "lib/deploy/functions/params.js",
@@ -88,8 +74,10 @@ async function main() {
   ) {
     throw new Error("complete candidate did not resolve all non-secret parameters");
   }
-  process.stdout.write("PINNED_FIREBASE_CLI_PARAMETER_RESOLUTION_PASS\n");
-  process.exit(0);
+  process.stdout.write(
+    "PINNED_FIREBASE_CLI_PARAMETER_RESOLUTION_PASS\n",
+    () => process.exit(0),
+  );
 }
 
 main().catch((error) => {
