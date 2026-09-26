@@ -22,11 +22,21 @@ from typing import Any, Mapping, Sequence
 
 from deploy_functions_guarded_contract import FIREBASE_TOOLS_VERSION
 from functions_env_regression_guard import GuardError, parse_env_file
+from functions_codebase_parameter_contract import (
+    ParameterContractError,
+    expected_candidate_keys,
+    validate_discovered_parameters,
+    validate_live_parameter_authority,
+)
 from functions_source_env_contract import (
     ENV_KEY_PATTERN,
     PLATFORM_MANAGED_KEYS,
     SourceContractError,
     analyze_source_env_contract,
+)
+from functions_bootstrap_generated_artifact import (
+    GeneratedArtifactError,
+    verify_generated_artifact,
 )
 
 
@@ -34,6 +44,13 @@ BOOTSTRAP_CONTRACT_VERSION = 2
 BOOTSTRAP_REASON = "no_serving_revision_recovery"
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 FUNCTION_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+PARAMETER_AUTHORITY_FUNCTIONS = frozenset(
+    {
+        "sendStudentVerificationEmail",
+        "appStoreServerNotifications",
+        "cleanupAvatarMedia",
+    }
+)
 
 
 class BootstrapContractError(RuntimeError):
@@ -49,7 +66,11 @@ class BootstrapManifest:
     region: str
     source_tree_sha: str
     expected_plain_env_keys: frozenset[str]
+    expected_codebase_parameter_keys: frozenset[str]
+    expected_codebase_parameter_types: Mapping[str, str]
+    expected_codebase_secret_parameter_names: frozenset[str]
     expected_secret_bindings: frozenset[str]
+    parameter_authority_functions: tuple[str, ...]
     source_entry: str
     source_export: str
     allowed_function_states: frozenset[str]
@@ -77,6 +98,39 @@ def _require_key_set(data: Mapping[str, Any], key: str) -> frozenset[str]:
                 f"manifest field {key!r} contains platform-managed key {item!r}"
             )
     return frozenset(value)
+
+
+def _optional_key_set(data: Mapping[str, Any], key: str) -> frozenset[str]:
+    if key not in data:
+        return frozenset()
+    return _require_key_set(data, key)
+
+
+def _require_parameter_type_map(data: Mapping[str, Any], key: str) -> dict[str, str]:
+    value = data.get(key)
+    if not isinstance(value, dict):
+        raise BootstrapContractError(f"manifest field {key!r} must be a string map")
+    validated_keys = _require_key_set(
+        {key: list(value)}, key
+    )
+    if any(not isinstance(parameter_type, str) or not parameter_type.strip() for parameter_type in value.values()):
+        raise BootstrapContractError(f"manifest field {key!r} must map names to strings")
+    if any(parameter_type.casefold() == "secret" for parameter_type in value.values()):
+        raise BootstrapContractError(
+            f"manifest field {key!r} cannot classify secret parameters as dotenv values"
+        )
+    return {name: value[name] for name in validated_keys}
+
+
+def _require_function_list(data: Mapping[str, Any], key: str) -> tuple[str, ...]:
+    value = data.get(key, [])
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise BootstrapContractError(f"manifest field {key!r} must be a string list")
+    if len(set(value)) != len(value):
+        raise BootstrapContractError(f"manifest field {key!r} contains duplicates")
+    if any(not FUNCTION_PATTERN.fullmatch(item) for item in value):
+        raise BootstrapContractError(f"manifest field {key!r} contains an invalid function name")
+    return tuple(value)
 
 
 def load_manifest(path: Path) -> BootstrapManifest:
@@ -125,6 +179,44 @@ def load_manifest(path: Path) -> BootstrapManifest:
             "ABSENT function state requires allow_absent_function=true"
         )
 
+    expected_codebase_parameter_keys = _optional_key_set(
+        data, "expected_codebase_parameter_keys"
+    )
+    expected_codebase_parameter_types = (
+        _require_parameter_type_map(data, "expected_codebase_parameter_types")
+        if "expected_codebase_parameter_types" in data
+        else {}
+    )
+    expected_codebase_secret_parameter_names = _optional_key_set(
+        data, "expected_codebase_secret_parameter_names"
+    )
+    parameter_authority_functions = _require_function_list(
+        data, "parameter_authority_functions"
+    )
+    if expected_codebase_parameter_keys and not parameter_authority_functions:
+        raise BootstrapContractError(
+            "manifest parameter_authority_functions are required for codebase parameters"
+        )
+    if not expected_codebase_parameter_keys and parameter_authority_functions:
+        raise BootstrapContractError(
+            "manifest parameter_authority_functions require codebase parameter keys"
+        )
+    if (
+        expected_codebase_parameter_keys
+        and frozenset(parameter_authority_functions) != PARAMETER_AUTHORITY_FUNCTIONS
+    ):
+        raise BootstrapContractError(
+            "manifest parameter_authority_functions do not match approved live authorities"
+        )
+    if expected_codebase_parameter_types.keys() != expected_codebase_parameter_keys:
+        raise BootstrapContractError(
+            "manifest expected_codebase_parameter_types must describe every codebase parameter key"
+        )
+    if expected_codebase_secret_parameter_names & expected_codebase_parameter_keys:
+        raise BootstrapContractError(
+            "manifest secret parameter names cannot be codebase dotenv keys"
+        )
+
     return BootstrapManifest(
         contract_version=version,
         reason=reason,
@@ -133,7 +225,11 @@ def load_manifest(path: Path) -> BootstrapManifest:
         region=region,
         source_tree_sha=source_tree_sha,
         expected_plain_env_keys=_require_key_set(data, "expected_plain_env_keys"),
+        expected_codebase_parameter_keys=expected_codebase_parameter_keys,
+        expected_codebase_parameter_types=expected_codebase_parameter_types,
+        expected_codebase_secret_parameter_names=expected_codebase_secret_parameter_names,
         expected_secret_bindings=_require_key_set(data, "expected_secret_bindings"),
+        parameter_authority_functions=parameter_authority_functions,
         source_entry=_require_string(data, "source_entry"),
         source_export=_require_string(data, "source_export"),
         allowed_function_states=allowed_states,
@@ -220,6 +316,62 @@ def describe_function_state(function: str, project: str, region: str) -> str:
     return state.upper()
 
 
+def read_live_codebase_parameter_authority(
+    function: str,
+    project: str,
+    region: str,
+    expected_keys: frozenset[str],
+) -> Mapping[str, str]:
+    """Read only selected non-secret environment values from an ACTIVE function."""
+
+    described, detail = _run_gcloud_json(
+        [
+            "functions",
+            "describe",
+            function,
+            "--gen2",
+            f"--region={region}",
+            f"--project={project}",
+            "--format=json",
+        ],
+        what=function,
+    )
+    if described is None:
+        raise BootstrapContractError(
+            f"cannot read parameter authority {function}: {detail}"
+        )
+    if not isinstance(described, dict):
+        raise BootstrapContractError(
+            f"parameter authority {function}: unexpected gcloud JSON shape"
+        )
+    state = described.get("state")
+    if not isinstance(state, str) or state.upper() != "ACTIVE":
+        observed = state.upper() if isinstance(state, str) else "MISSING"
+        raise BootstrapContractError(
+            f"PARAMETER_AUTHORITY_NOT_ACTIVE: {function}: {observed}"
+        )
+    service_config = described.get("serviceConfig")
+    if not isinstance(service_config, dict):
+        raise BootstrapContractError(
+            f"PARAMETER_AUTHORITY_CONFIG_MISSING: {function}"
+        )
+    environment = service_config.get("environmentVariables", {})
+    if not isinstance(environment, dict):
+        raise BootstrapContractError(
+            f"PARAMETER_AUTHORITY_ENVIRONMENT_INVALID: {function}"
+        )
+    selected: dict[str, str] = {}
+    for key in expected_keys:
+        if key in environment:
+            value = environment[key]
+            if not isinstance(value, str):
+                raise BootstrapContractError(
+                    f"PARAMETER_AUTHORITY_VALUE_INVALID: {function}: {key}"
+                )
+            selected[key] = value
+    return selected
+
+
 def assert_no_serving_service(function: str, project: str, region: str) -> None:
     service = function.lower()
     described, detail = _run_gcloud_json(
@@ -276,7 +428,7 @@ def _git_tree_sha(repo_root: Path, ref: str, tree_path: str) -> str:
     return tree_sha
 
 
-def _require_clean_source(repo_root: Path) -> None:
+def _require_clean_source(repo_root: Path, *, allow_exact_generated_artifact: bool = False) -> None:
     completed = subprocess.run(
         ["git", "-C", str(repo_root), "status", "--porcelain", "--untracked-files=normal"],
         capture_output=True,
@@ -285,13 +437,28 @@ def _require_clean_source(repo_root: Path) -> None:
     )
     if completed.returncode != 0:
         raise BootstrapContractError(f"cannot inspect source worktree: {completed.stderr.strip()}")
-    if completed.stdout.strip():
-        raise BootstrapContractError(
-            "SOURCE_WORKTREE_NOT_CLEAN: bootstrap source must be the clean fresh main checkout"
-        )
+    changes = completed.stdout.splitlines()
+    if not changes:
+        return
+    if allow_exact_generated_artifact and changes == [
+        "?? functions/lib/avatarQaHardRejectContract.json"
+    ]:
+        try:
+            verify_generated_artifact(repo_root)
+            return
+        except GeneratedArtifactError as error:
+            raise BootstrapContractError(str(error)) from error
+    raise BootstrapContractError(
+        "SOURCE_WORKTREE_NOT_CLEAN: bootstrap source must be the clean fresh main checkout"
+    )
 
 
-def _require_deploy_source_matches_ref(repo_root: Path, reference: str) -> None:
+def _require_deploy_source_matches_ref(
+    repo_root: Path,
+    reference: str,
+    *,
+    allow_exact_generated_artifact: bool = False,
+) -> None:
     """Allow a committed guard implementation while pinning deployed source."""
 
     completed = subprocess.run(
@@ -324,10 +491,20 @@ def _require_deploy_source_matches_ref(repo_root: Path, reference: str) -> None:
         raise BootstrapContractError(
             f"cannot inspect untracked Functions source files: {untracked.stderr.strip()}"
         )
-    if untracked.stdout.strip():
-        raise BootstrapContractError(
-            "SOURCE_AUTHORITY_MISMATCH: untracked deployable Functions files are present"
-        )
+    untracked_paths = untracked.stdout.splitlines()
+    if not untracked_paths:
+        return
+    if allow_exact_generated_artifact and untracked_paths == [
+        "functions/lib/avatarQaHardRejectContract.json"
+    ]:
+        try:
+            verify_generated_artifact(repo_root)
+            return
+        except GeneratedArtifactError as error:
+            raise BootstrapContractError(str(error)) from error
+    raise BootstrapContractError(
+        "SOURCE_AUTHORITY_MISMATCH: untracked deployable Functions files are present"
+    )
 
 
 def _sha256_file(path: Path) -> str:
@@ -348,6 +525,8 @@ def validate_bootstrap_contract(
     env_file: Path,
     source_dir: Path,
     firebase_cli_version: str,
+    discovered_build_params: Mapping[str, Any] | None = None,
+    prebuild_source_only: bool = False,
 ) -> BootstrapManifest:
     """Validate every bootstrap invariant without invoking Firebase deploy."""
 
@@ -368,7 +547,10 @@ def validate_bootstrap_contract(
             f"BOOTSTRAP_REGION_MISMATCH: manifest={manifest.region}, target={region}"
         )
 
-    _require_clean_source(repo_root)
+    _require_clean_source(
+        repo_root,
+        allow_exact_generated_artifact=bool(manifest.expected_codebase_parameter_keys),
+    )
     fresh_main = _fresh_git_sha(repo_root, "github/main")
     fresh_main_tree_sha = _git_tree_sha(repo_root, "github/main", "functions")
     head_tree_sha = _git_tree_sha(repo_root, "HEAD", "functions")
@@ -376,7 +558,11 @@ def validate_bootstrap_contract(
         raise BootstrapContractError(
             "BOOTSTRAP_SOURCE_TREE_SHA_MISMATCH: manifest and checkout Functions trees must equal fresh github/main"
         )
-    _require_deploy_source_matches_ref(repo_root, fresh_main)
+    _require_deploy_source_matches_ref(
+        repo_root,
+        fresh_main,
+        allow_exact_generated_artifact=bool(manifest.expected_codebase_parameter_keys),
+    )
 
     try:
         source_contract = analyze_source_env_contract(
@@ -401,6 +587,14 @@ def validate_bootstrap_contract(
             "BOOTSTRAP_SECRET_CONTRACT_MISMATCH: expected secret bindings do not match source closure"
         )
 
+    if prebuild_source_only:
+        if discovered_build_params is not None:
+            raise BootstrapContractError(
+                "BOOTSTRAP_SOURCE_PREFLIGHT_DISCOVERY_REFUSED"
+            )
+        print("BOOTSTRAP_SOURCE_PREFLIGHT_PASS")
+        return manifest
+
     candidate_path = env_file.resolve()
     if not candidate_path.is_file():
         raise BootstrapContractError(f"candidate dotenv file does not exist: {candidate_path}")
@@ -408,9 +602,16 @@ def validate_bootstrap_contract(
     candidate_keys = frozenset(candidate)
     if candidate_keys & PLATFORM_MANAGED_KEYS:
         raise BootstrapContractError("BOOTSTRAP_PLATFORM_ENV_REFUSED: dotenv contains platform-managed key")
-    if candidate_keys != manifest.expected_plain_env_keys:
+    try:
+        expected_candidates = expected_candidate_keys(
+            source_contract.custom_plain_env_keys,
+            manifest.expected_codebase_parameter_keys,
+        )
+    except ParameterContractError as error:
+        raise BootstrapContractError(str(error)) from error
+    if candidate_keys != expected_candidates:
         raise BootstrapContractError(
-            "BOOTSTRAP_CANDIDATE_ENV_MISMATCH: candidate dotenv key set does not match manifest"
+            "BOOTSTRAP_CANDIDATE_ENV_MISMATCH: candidate dotenv key set does not match source and codebase parameter contract"
         )
 
     state = describe_function_state(function, project, region)
@@ -421,6 +622,65 @@ def validate_bootstrap_contract(
     if state == "ABSENT" and not manifest.allow_absent_function:
         raise BootstrapContractError("BOOTSTRAP_ABSENT_FUNCTION_REFUSED")
     assert_no_serving_service(function, project, region)
+
+    if manifest.expected_codebase_parameter_keys:
+        if not isinstance(discovered_build_params, Mapping):
+            raise BootstrapContractError(
+                "BOOTSTRAP_PARAMETER_DISCOVERY_REQUIRED: discovered Build metadata is missing"
+            )
+        if discovered_build_params.get("contractVersion") != 1:
+            raise BootstrapContractError(
+                "BOOTSTRAP_PARAMETER_DISCOVERY_VERSION_MISMATCH"
+            )
+        if discovered_build_params.get("firebaseToolsVersion") != FIREBASE_TOOLS_VERSION:
+            raise BootstrapContractError(
+                "BOOTSTRAP_PARAMETER_DISCOVERY_CLI_MISMATCH"
+            )
+        parameters = discovered_build_params.get("parameters")
+        if not isinstance(parameters, list):
+            raise BootstrapContractError(
+                "BOOTSTRAP_PARAMETER_DISCOVERY_SHAPE_INVALID"
+            )
+        if discovered_build_params.get("parameterCount") != len(parameters):
+            raise BootstrapContractError(
+                "BOOTSTRAP_PARAMETER_DISCOVERY_COUNT_MISMATCH"
+            )
+        observed_secret_count = sum(
+            1
+            for parameter in parameters
+            if isinstance(parameter, dict)
+            and isinstance(parameter.get("type"), str)
+            and parameter["type"].casefold() == "secret"
+        )
+        if discovered_build_params.get("secretParameterCount") != observed_secret_count:
+            raise BootstrapContractError(
+                "BOOTSTRAP_PARAMETER_DISCOVERY_SECRET_COUNT_MISMATCH"
+            )
+        try:
+            validate_discovered_parameters(
+                parameters,
+                manifest.expected_codebase_parameter_keys,
+                expected_types=manifest.expected_codebase_parameter_types,
+                expected_secret_keys=manifest.expected_codebase_secret_parameter_names,
+            )
+            authority_values = {
+                authority: read_live_codebase_parameter_authority(
+                    authority,
+                    project,
+                    region,
+                    expected_candidates,
+                )
+                for authority in manifest.parameter_authority_functions
+            }
+            validate_live_parameter_authority(
+                candidate_values=candidate,
+                authority_values_by_function=authority_values,
+                authority_functions=manifest.parameter_authority_functions,
+                parameters=parameters,
+                source_plain_env_keys=source_contract.custom_plain_env_keys,
+            )
+        except ParameterContractError as error:
+            raise BootstrapContractError(str(error)) from error
 
     print("NO_SERVING_ENV_AUTHORITY")
     print(f"bootstrap function: {function}")
@@ -443,12 +703,24 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--env-file", type=Path, required=True)
     parser.add_argument("--source-dir", type=Path, required=True)
     parser.add_argument("--firebase-cli-version", required=True)
+    parser.add_argument("--discovered-build-params", type=Path)
+    parser.add_argument("--prebuild-source-only", action="store_true")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        discovered_build_params = None
+        if args.discovered_build_params is not None:
+            try:
+                discovered_build_params = json.loads(
+                    args.discovered_build_params.resolve().read_text(encoding="utf-8")
+                )
+            except (OSError, json.JSONDecodeError) as error:
+                raise BootstrapContractError(
+                    f"cannot read discovered Build parameters: {error}"
+                ) from error
         validate_bootstrap_contract(
             repo_root=args.repo_root,
             manifest_path=args.manifest,
@@ -458,9 +730,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             env_file=args.env_file,
             source_dir=args.source_dir,
             firebase_cli_version=args.firebase_cli_version,
+            discovered_build_params=discovered_build_params,
+            prebuild_source_only=args.prebuild_source_only,
         )
         return 0
-    except (BootstrapContractError, GuardError) as error:
+    except (BootstrapContractError, GuardError, ParameterContractError) as error:
         print(f"BOOTSTRAP ENV CONTRACT: FAIL\n  {error}")
         return 1
     except OSError as error:

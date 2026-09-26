@@ -70,6 +70,7 @@ def _install_fake_npm(bin_dir: Path) -> None:
     npm.write_text(
         "#!/bin/sh\n"
         "printf '%s\\n' \"$*\" >> \"$FUNCTIONS_BUILD_LOG\"\n"
+        "if [ -n \"${FUNCTIONS_TEST_PHASE_LOG:-}\" ]; then printf 'build\\n' >> \"$FUNCTIONS_TEST_PHASE_LOG\"; fi\n"
         "if [ -n \"${FUNCTIONS_BUILD_MUTATE_DOTENV:-}\" ]; then\n"
         "  printf 'CHANGED_AFTER_BUILD=1\\n' >> \"$FUNCTIONS_BUILD_MUTATE_DOTENV\"\n"
         "fi\n"
@@ -77,6 +78,117 @@ def _install_fake_npm(bin_dir: Path) -> None:
         encoding="utf-8",
     )
     npm.chmod(npm.stat().st_mode | stat.S_IXUSR)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="shell wrapper integration runs in CI on POSIX")
+def test_bootstrap_parameter_discovery_precedes_deploy_and_dry_run_invokes_no_deploy(tmp_path):
+    root, candidate = _root(tmp_path)
+    scripts = root / "scripts"
+    scripts.mkdir()
+    for name in (
+        "deploy_functions_guarded.sh",
+        "deploy_functions_guarded_contract.py",
+        "functions_env_regression_guard.py",
+    ):
+        (scripts / name).write_bytes((REPO_ROOT / "scripts" / name).read_bytes())
+    (scripts / "functions_discover_build_params.js").write_text(
+        "// npm shim writes the synthetic Build parameter fixture instead.\n",
+        encoding="utf-8",
+    )
+    manifest = scripts / "functions_bootstrap_env_manifest.json"
+    manifest.write_text("{}\n", encoding="utf-8")
+
+    phase_log = tmp_path / "bootstrap-phases.log"
+    (scripts / "functions_bootstrap_generated_artifact.py").write_text(
+        "import os, sys\n"
+        "phase = 'artifact-remove' if '--remove' in sys.argv else 'artifact-verify'\n"
+        "with open(os.environ['FUNCTIONS_TEST_PHASE_LOG'], 'a', encoding='utf-8') as stream: stream.write(phase + '\\n')\n"
+        "print('GENERATED_ARTIFACT_TEST_PASS')\n",
+        encoding="utf-8",
+    )
+    (scripts / "functions_bootstrap_env_guard.py").write_text(
+        "import os, sys\n"
+        "phase = 'source-preflight' if '--prebuild-source-only' in sys.argv else 'parameter-guard'\n"
+        "with open(os.environ['FUNCTIONS_TEST_PHASE_LOG'], 'a', encoding='utf-8') as stream: stream.write(phase + '\\n')\n"
+        "print('BOOTSTRAP_TEST_PASS')\n",
+        encoding="utf-8",
+    )
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _install_fake_gcloud(bin_dir)
+    _install_fake_tsc(root)
+    _install_fake_npm(bin_dir)
+    npx = bin_dir / "npx"
+    npx.write_text(
+        "#!/bin/sh\n"
+        "case \"$*\" in\n"
+        "  *--package=firebase-tools@15.30.2*)\n"
+        "    if [ -n \"${FUNCTIONS_TEST_PHASE_LOG:-}\" ]; then printf 'discover-timeout=%s\\n' \"${FUNCTIONS_DISCOVERY_TIMEOUT:-unset}\" >> \"$FUNCTIONS_TEST_PHASE_LOG\"; fi\n"
+        "    printf '{\"fixture\":\"synthetic-parameter-metadata\"}\\n'\n"
+        "    ;;\n"
+        "  *--version*) if [ -n \"${FUNCTIONS_TEST_PHASE_LOG:-}\" ]; then printf 'version-timeout=%s\\n' \"${FUNCTIONS_DISCOVERY_TIMEOUT:-unset}\" >> \"$FUNCTIONS_TEST_PHASE_LOG\"; fi; printf '15.30.2\\n' ;;\n"
+        "  *deploy*) printf 'deploy-timeout=%s\\n' \"${FUNCTIONS_DISCOVERY_TIMEOUT:-unset}\" >> \"$FUNCTIONS_TEST_PHASE_LOG\" ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    npx.chmod(npx.stat().st_mode | stat.S_IXUSR)
+
+    env = os.environ.copy()
+    env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+    env["TMPDIR"] = str(tmp_path)
+    env["FUNCTIONS_BUILD_LOG"] = str(tmp_path / "bootstrap-build.log")
+    env["FUNCTIONS_TEST_PHASE_LOG"] = str(phase_log)
+    env["FUNCTIONS_GCLOUD_TARGET"] = "syncMeetingIcebreakerFromPromise"
+    command = [
+        "bash",
+        str(scripts / "deploy_functions_guarded.sh"),
+        "--project",
+        PROJECT,
+        "--region",
+        "asia-northeast3",
+        "--env-file",
+        str(candidate.relative_to(root)),
+        "--bootstrap-no-serving-revision-manifest",
+        str(manifest.relative_to(root)),
+        "syncMeetingIcebreakerFromPromise",
+    ]
+
+    deployed = subprocess.run(
+        command,
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert deployed.returncode == 0, deployed.stdout + deployed.stderr
+    phases = phase_log.read_text(encoding="utf-8").splitlines()
+    assert phases.index("artifact-verify") < phases.index("source-preflight")
+    assert phases.index("source-preflight") < phases.index("build")
+    assert phases.index("build") < phases.index("discover-timeout=unset")
+    assert phases.index("discover-timeout=unset") < phases.index("parameter-guard")
+    assert phases.index("parameter-guard") < phases.index("artifact-remove")
+    assert phases.index("artifact-remove") < phases.index("version-timeout=unset")
+    assert phases.index("version-timeout=unset") < phases.index("deploy-timeout=30")
+    assert phases.count("deploy-timeout=30") == 1
+    assert phases.count("discover-timeout=unset") == 1
+
+    dry_run = subprocess.run(
+        command[:-1] + ["--dry-run", "syncMeetingIcebreakerFromPromise"],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert dry_run.returncode == 0, dry_run.stdout + dry_run.stderr
+    assert "dry-run: Firebase deploy was not invoked" in dry_run.stdout
+    phases = phase_log.read_text(encoding="utf-8").splitlines()
+    assert phases.count("deploy-timeout=30") == 1
+    assert phases.count("discover-timeout=unset") == 2
+    assert phases.count("version-timeout=unset") == 2
+    assert not list(tmp_path.glob("functions-build-params.*"))
 
 
 def _install_fake_gcloud(bin_dir: Path) -> None:
@@ -92,7 +204,7 @@ def _install_fake_gcloud(bin_dir: Path) -> None:
         "{'name': 'GCLOUD_PROJECT', 'value': 'seolleyeon-final'},"
         "{'name': 'EVENTARC_CLOUD_EVENT_SOURCE', 'value': 'source'},"
         "{'name': 'FUNCTION_REGION', 'value': 'asia-northeast3'},"
-        "{'name': 'FUNCTION_TARGET', 'value': 'cleanupAvatarMedia'},"
+        "{'name': 'FUNCTION_TARGET', 'value': __import__('os').environ.get('FUNCTIONS_GCLOUD_TARGET', 'cleanupAvatarMedia')},"
         "{'name': 'LOG_EXECUTION_ID', 'value': 'true'}"
         "]}]}}}}))\n",
         encoding="utf-8",
@@ -188,6 +300,24 @@ def test_guarded_wrapper_runs_the_firebase_predeploy_build_before_cli():
         'deploy --only "$TARGETS"'
     )
     assert "npm ci --prefix" in wrapper
+
+
+def test_bootstrap_parameter_discovery_and_guard_precede_the_exact_deploy():
+    wrapper = (SCRIPTS_DIR / "deploy_functions_guarded.sh").read_text(encoding="utf-8")
+
+    source_preflight = wrapper.index("--prebuild-source-only")
+    local_build = wrapper.index('npm --prefix "$RESOURCE_DIR" run build')
+    discovery = wrapper.index("functions_discover_build_params.js")
+    parameter_guard = wrapper.index("--discovered-build-params")
+    artifact_cleanup = wrapper.index("--remove", parameter_guard)
+    deploy = wrapper.index('deploy --only "$TARGETS"')
+
+    assert source_preflight < local_build < discovery < parameter_guard
+    assert parameter_guard < artifact_cleanup < deploy
+    assert "export FUNCTIONS_DISCOVERY_TIMEOUT=30" not in wrapper
+    assert 'FUNCTIONS_DISCOVERY_TIMEOUT=30 npx -y --package="firebase-tools@$FIREBASE_TOOLS_VERSION" -- node' not in wrapper
+    assert 'npx -y --package="firebase-tools@$FIREBASE_TOOLS_VERSION" -- node' in wrapper
+    assert 'FUNCTIONS_DISCOVERY_TIMEOUT=30 npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" deploy --only "$TARGETS"' in wrapper
 
 
 def test_multi_function_target_requires_explicit_opt_in():
