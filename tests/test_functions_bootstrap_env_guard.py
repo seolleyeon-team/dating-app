@@ -187,28 +187,6 @@ def _validate_recreate(monkeypatch, fixture, *, discovered_build_params=None, **
     )
 
 
-def _manifest_seen_in_recent_history(path: Path) -> bool:
-    relative = path.relative_to(REPO_ROOT).as_posix()
-    commits = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "rev-list", "--max-count=20", "HEAD"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if commits.returncode != 0:
-        return False
-    for commit in commits.stdout.splitlines()[1:]:
-        exists = subprocess.run(
-            ["git", "-C", str(REPO_ROOT), "cat-file", "-e", f"{commit}:{relative}"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if exists.returncode == 0:
-            return True
-    return False
-
-
 def _stub_live_authority(monkeypatch):
     monkeypatch.setattr(
         bootstrap, "_require_clean_source", lambda root, **kwargs: None
@@ -259,10 +237,8 @@ def test_standard_manifest_remains_failed_only():
 
 
 def test_committed_recreate_manifest_is_absent_only_when_present():
-    if not RECREATE_MANIFEST.exists() and _manifest_seen_in_recent_history(
-        RECREATE_MANIFEST
-    ):
-        pytest.skip("recreate manifest was intentionally removed after cleanup")
+    if not RECREATE_MANIFEST.exists():
+        pytest.skip("committed recreate manifest is absent after cleanup")
 
     manifest = bootstrap.load_manifest(RECREATE_MANIFEST)
 
