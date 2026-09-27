@@ -25,6 +25,32 @@ FUNCTION = "syncMeetingIcebreakerFromPromise"
 MAIN_SHA = "634b149bdf581addf2be741823b494986dbb965c"
 NEXT_MAIN_SHA = "1111111111111111111111111111111111111111"
 SOURCE_TREE_SHA = "3e6e2519b55015d3c499c1c3563ada335cf6d7eb"
+RECREATE_MANIFEST = SCRIPTS_DIR / "functions_bootstrap_recreate_manifest.json"
+CODEBASE_PARAMETER_KEYS = [
+    "APPLE_IAP_APPLE_ID",
+    "APPLE_IAP_BUNDLE_ID",
+    "RESEND_FROM_EMAIL",
+    "RESEND_REPLY_TO",
+]
+CODEBASE_PARAMETER_VALUES = {
+    "APPLE_IAP_APPLE_ID": "94727223",
+    "APPLE_IAP_BUNDLE_ID": "com.seolleyeon.app",
+    "RESEND_FROM_EMAIL": "synthetic-sender@example.invalid",
+    "RESEND_REPLY_TO": "synthetic-reply@example.invalid",
+}
+CODEBASE_SECRET_NAMES = [
+    "PLAY_REVIEW_LOGIN_ID",
+    "PLAY_REVIEW_PASSWORD_SCRYPT",
+    "PLAY_REVIEW_FIREBASE_UID",
+    "PLAY_REVIEW_ENABLED",
+    "PORTONE_API_SECRET",
+    "RESEND_API_KEY",
+]
+PARAMETER_AUTHORITIES = [
+    "sendStudentVerificationEmail",
+    "appStoreServerNotifications",
+    "cleanupAvatarMedia",
+]
 
 
 def _fixture(
@@ -42,6 +68,8 @@ def _fixture(
     codebase_types: dict[str, str] | None = None,
     codebase_secret_names: list[str] | None = None,
     parameter_authority_functions: list[str] | None = None,
+    allowed_function_states: list[str] | None = None,
+    allow_absent_function: bool = False,
 ):
     root = tmp_path / "repo"
     source_dir = root / "functions" / "src"
@@ -61,8 +89,8 @@ def _fixture(
         "expected_secret_bindings": secret_keys or [],
         "source_entry": "entry.ts",
         "source_export": FUNCTION,
-        "allowed_function_states": ["FAILED"],
-        "allow_absent_function": False,
+        "allowed_function_states": allowed_function_states or ["FAILED"],
+        "allow_absent_function": allow_absent_function,
     }
     if codebase_keys is not None:
         manifest_data["expected_codebase_parameter_keys"] = codebase_keys
@@ -76,6 +104,87 @@ def _fixture(
         manifest_data["parameter_authority_functions"] = parameter_authority_functions
     manifest.write_text(json.dumps(manifest_data), encoding="utf-8")
     return root, manifest, env_file, source_dir
+
+
+def _codebase_discovery(*, secret_names: list[str] | None = None):
+    secrets = secret_names or CODEBASE_SECRET_NAMES
+    return {
+        "contractVersion": 1,
+        "firebaseToolsVersion": "15.30.2",
+        "parameterCount": len(CODEBASE_PARAMETER_KEYS) + len(secrets),
+        "secretParameterCount": len(secrets),
+        "parameters": [
+            {
+                "name": "APPLE_IAP_APPLE_ID",
+                "type": "string",
+                "default": CODEBASE_PARAMETER_VALUES["APPLE_IAP_APPLE_ID"],
+            },
+            {
+                "name": "APPLE_IAP_BUNDLE_ID",
+                "type": "string",
+                "default": CODEBASE_PARAMETER_VALUES["APPLE_IAP_BUNDLE_ID"],
+            },
+            {"name": "RESEND_FROM_EMAIL", "type": "string", "default": ""},
+            {"name": "RESEND_REPLY_TO", "type": "string", "default": ""},
+            *({"name": name, "type": "secret"} for name in secrets),
+        ],
+    }
+
+
+def _recreate_fixture(tmp_path: Path, **overrides):
+    candidate = "".join(
+        f"{key}={value}\n" for key, value in CODEBASE_PARAMETER_VALUES.items()
+    )
+    options = {
+        "candidate": candidate,
+        "codebase_keys": CODEBASE_PARAMETER_KEYS,
+        "codebase_secret_names": CODEBASE_SECRET_NAMES,
+        "parameter_authority_functions": PARAMETER_AUTHORITIES,
+        "allowed_function_states": ["ABSENT"],
+        "allow_absent_function": True,
+    }
+    options.update(overrides)
+    return _fixture(tmp_path, **options)
+
+
+def _stub_recreate_live_authority(
+    monkeypatch, *, function_state: str = "ABSENT", serving_service_exists: bool = False
+):
+    _stub_live_authority(monkeypatch)
+    monkeypatch.setattr(
+        bootstrap, "describe_function_state", lambda *args: function_state
+    )
+    if serving_service_exists:
+        monkeypatch.setattr(
+            bootstrap,
+            "assert_no_serving_service",
+            lambda *args: (_ for _ in ()).throw(
+                bootstrap.BootstrapContractError("SERVING_ENV_AUTHORITY_EXISTS")
+            ),
+        )
+    else:
+        monkeypatch.setattr(bootstrap, "assert_no_serving_service", lambda *args: None)
+    monkeypatch.setattr(
+        bootstrap,
+        "read_live_codebase_parameter_authority",
+        lambda function, project, region, expected: CODEBASE_PARAMETER_VALUES,
+    )
+
+
+def _validate_recreate(monkeypatch, fixture, *, discovered_build_params=None, **live):
+    root, manifest, env_file, source_dir = fixture
+    _stub_recreate_live_authority(monkeypatch, **live)
+    return bootstrap.validate_bootstrap_contract(
+        repo_root=root,
+        manifest_path=manifest,
+        project=PROJECT,
+        region=REGION,
+        function=FUNCTION,
+        env_file=env_file,
+        source_dir=source_dir,
+        firebase_cli_version="15.30.2",
+        discovered_build_params=discovered_build_params or _codebase_discovery(),
+    )
 
 
 def _stub_live_authority(monkeypatch):
@@ -120,6 +229,28 @@ def test_no_service_normal_mode_remains_fail_closed(monkeypatch):
         normal_guard.deployed_env_for(FUNCTION, PROJECT, REGION)
 
 
+def test_standard_manifest_remains_failed_only():
+    manifest = bootstrap.load_manifest(SCRIPTS_DIR / "functions_bootstrap_env_manifest.json")
+
+    assert manifest.allowed_function_states == {"FAILED"}
+    assert manifest.allow_absent_function is False
+
+
+def test_committed_recreate_manifest_is_absent_only_when_present():
+    if not RECREATE_MANIFEST.exists():
+        pytest.skip("committed recreate manifest is absent after cleanup")
+
+    manifest = bootstrap.load_manifest(RECREATE_MANIFEST)
+
+    assert manifest.allowed_function_states == {"ABSENT"}
+    assert manifest.allow_absent_function is True
+    assert manifest.function == FUNCTION
+    assert manifest.project == PROJECT
+    assert manifest.region == REGION
+    assert manifest.source_tree_sha == SOURCE_TREE_SHA
+    assert "FAILED" not in manifest.allowed_function_states
+
+
 def test_no_service_valid_bootstrap_manifest_passes(monkeypatch, tmp_path):
     fixture = _fixture(tmp_path)
 
@@ -128,6 +259,145 @@ def test_no_service_valid_bootstrap_manifest_passes(monkeypatch, tmp_path):
     assert result.function == FUNCTION
     assert result.expected_plain_env_keys == frozenset()
     assert result.expected_secret_bindings == frozenset()
+
+
+def test_recreate_manifest_accepts_absent_function_after_cloud_run_is_absent(
+    monkeypatch, tmp_path
+):
+    fixture = _recreate_fixture(tmp_path)
+
+    result = _validate_recreate(monkeypatch, fixture)
+
+    assert result.allowed_function_states == {"ABSENT"}
+    assert result.allow_absent_function is True
+    assert result.expected_codebase_parameter_keys == frozenset(CODEBASE_PARAMETER_KEYS)
+    assert result.expected_secret_bindings == frozenset()
+
+
+def test_recreate_manifest_refuses_failed_function_state(monkeypatch, tmp_path):
+    fixture = _recreate_fixture(tmp_path)
+
+    with pytest.raises(bootstrap.BootstrapContractError, match="FUNCTION_STATE_REFUSED"):
+        _validate_recreate(monkeypatch, fixture, function_state="FAILED")
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("function", "otherFunction", "FUNCTION_MISMATCH"),
+        ("project", "other-project", "PROJECT_MISMATCH"),
+        ("region", "us-central1", "REGION_MISMATCH"),
+        (
+            "source_tree_sha",
+            "2222222222222222222222222222222222222222",
+            "SOURCE_TREE_SHA_MISMATCH",
+        ),
+    ],
+)
+def test_recreate_manifest_identity_must_match_target_and_tree(
+    monkeypatch, tmp_path, field, value, message
+):
+    root, manifest, env_file, source_dir = _recreate_fixture(tmp_path)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data[field] = value
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(bootstrap.BootstrapContractError, match=message):
+        _validate_recreate(monkeypatch, (root, manifest, env_file, source_dir))
+
+
+def test_recreate_manifest_refuses_existing_cloud_run_service(monkeypatch, tmp_path):
+    fixture = _recreate_fixture(tmp_path)
+
+    with pytest.raises(bootstrap.BootstrapContractError, match="SERVING_ENV_AUTHORITY_EXISTS"):
+        _validate_recreate(monkeypatch, fixture, serving_service_exists=True)
+
+
+def test_recreate_manifest_refuses_unexpected_dotenv_key(monkeypatch, tmp_path):
+    candidate = "".join(
+        f"{key}={value}\n" for key, value in CODEBASE_PARAMETER_VALUES.items()
+    )
+    fixture = _recreate_fixture(tmp_path, candidate=candidate + "UNEXPECTED=value\n")
+
+    with pytest.raises(bootstrap.BootstrapContractError, match="CANDIDATE_ENV_MISMATCH"):
+        _validate_recreate(monkeypatch, fixture)
+
+
+def test_recreate_manifest_refuses_live_parameter_authority_mismatch(
+    monkeypatch, tmp_path
+):
+    fixture = _recreate_fixture(tmp_path)
+    root, manifest, env_file, source_dir = fixture
+    _stub_recreate_live_authority(monkeypatch)
+    mismatched_values = {
+        **CODEBASE_PARAMETER_VALUES,
+        "RESEND_FROM_EMAIL": "other-sender@example.invalid",
+    }
+    monkeypatch.setattr(
+        bootstrap,
+        "read_live_codebase_parameter_authority",
+        lambda function, project, region, expected: mismatched_values,
+    )
+
+    with pytest.raises(bootstrap.BootstrapContractError, match="LIVE_PARAMETER_VALUE_MISMATCH"):
+        bootstrap.validate_bootstrap_contract(
+            repo_root=root,
+            manifest_path=manifest,
+            project=PROJECT,
+            region=REGION,
+            function=FUNCTION,
+            env_file=env_file,
+            source_dir=source_dir,
+            firebase_cli_version="15.30.2",
+            discovered_build_params=_codebase_discovery(),
+        )
+
+
+def test_recreate_manifest_refuses_secret_leakage_into_dotenv_contract(
+    monkeypatch, tmp_path
+):
+    leaked_secret = "RESEND_API_KEY"
+    candidate = "".join(
+        f"{key}={value}\n" for key, value in CODEBASE_PARAMETER_VALUES.items()
+    )
+    fixture = _recreate_fixture(
+        tmp_path,
+        candidate=candidate + f"{leaked_secret}=leaked\n",
+        codebase_keys=[*CODEBASE_PARAMETER_KEYS, leaked_secret],
+        codebase_secret_names=CODEBASE_SECRET_NAMES,
+    )
+
+    with pytest.raises(
+        bootstrap.BootstrapContractError,
+        match="secret parameter names cannot be codebase dotenv keys",
+    ):
+        _validate_recreate(monkeypatch, fixture)
+
+
+def test_recreate_manifest_refuses_dirty_deploy_source(monkeypatch, tmp_path):
+    fixture = _recreate_fixture(tmp_path)
+    root, manifest, env_file, source_dir = fixture
+    _stub_recreate_live_authority(monkeypatch)
+    monkeypatch.setattr(
+        bootstrap,
+        "_require_clean_source",
+        lambda repo, **kwargs: (_ for _ in ()).throw(
+            bootstrap.BootstrapContractError("SOURCE_WORKTREE_NOT_CLEAN")
+        ),
+    )
+
+    with pytest.raises(bootstrap.BootstrapContractError, match="SOURCE_WORKTREE_NOT_CLEAN"):
+        bootstrap.validate_bootstrap_contract(
+            repo_root=root,
+            manifest_path=manifest,
+            project=PROJECT,
+            region=REGION,
+            function=FUNCTION,
+            env_file=env_file,
+            source_dir=source_dir,
+            firebase_cli_version="15.30.2",
+            discovered_build_params=_codebase_discovery(),
+        )
 
 
 def test_codebase_parameter_bootstrap_requires_actual_runtime_discovery(
