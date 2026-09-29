@@ -139,6 +139,10 @@ import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge
 import { createCompleteStudentEmailLinkFunction } from "./emailLinkCompletion";
 import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
 import {
+  createCommunityModerationCallables,
+  createCommunityModerationDeadlineSchedule,
+} from "./communityModeration";
+import {
   BAMBOO_COMMENT_OWNER_COLLECTION,
   BAMBOO_POST_OWNER_COLLECTION,
   bambooCommentOwnerDocId,
@@ -2732,6 +2736,17 @@ export const sendChatText = createSendChatTextFunction(
   db,
   (request) => resolveReviewCapableAppUser(request.auth),
 );
+
+const communityModeration = createCommunityModerationCallables({
+  firestore: db,
+  auth: getAuth(),
+});
+export const getCommunityModerationAccess = communityModeration.getCommunityModerationAccess;
+export const listCommunityModerationReports = communityModeration.listCommunityModerationReports;
+export const setCommunityReportReviewing = communityModeration.setCommunityReportReviewing;
+export const decideCommunityReport = communityModeration.decideCommunityReport;
+export const restoreCommunityAccount = communityModeration.restoreCommunityAccount;
+export const checkCommunityModerationDeadlines = createCommunityModerationDeadlineSchedule(db);
 
 // LEGACY_KAKAO_AUTH_BACKEND_STILL_REQUIRED_FOR_OLD_CLIENTS
 export const createFirebaseCustomToken = onCall(withAppCheck(), async (request) => {
