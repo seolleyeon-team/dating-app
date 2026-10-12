@@ -298,6 +298,26 @@ test("F8: users create has no email-verified branch (account creation is server-
     "the email-verified UPDATE branch must remain for legacy verification",
     "hasVerifiedYonseiEmail() && writesOwnStudentEmail(request.resource.data) && studentEmailIsUnboundOrMine(resource.data) && request.resource.data.isStudentVerified == true"
   );
+  // P0-1: that branch must bind the target document to the server-issued
+  // emailLinkTokens doc; a verified mailbox alone names no account.
+  assertContains(
+    "the email-verified UPDATE branch must be bound to the server-issued token",
+    "emailLinkTokenBindsCallerTo( kakaoUserId, request.resource.data.get('studentEmailLinkToken', null) ) && studentEmailBindingNamesTarget(kakaoUserId) && usersDocKakaoIdOk(request.resource.data, kakaoUserId)"
+  );
+  // P0-1 uniqueness: the hosted write is honoured only when the server-made
+  // reservation (studentEmailBindings/{sha256(email)}) names the target.
+  assertContains(
+    "the hosted write must be gated on the server-owned mailbox binding",
+    "function studentEmailBindingNamesTarget(kakaoUserId) { return exists(studentEmailBindingPath()) && get(studentEmailBindingPath()).data.get('appUserId', null) == kakaoUserId; }"
+  );
+  assertContains(
+    "the binding path must hash the normalized session mailbox exactly like the server",
+    "studentEmailBindings/$(hashing.sha256(request.auth.token.email.lower()).toHexString().lower())"
+  );
+  assertContains(
+    "studentEmailBindings must stay server-only",
+    "match /studentEmailBindings/{emailHash} { allow read, write: if false; }"
+  );
 });
 
 test("kakao friend pairs are server-only and snapshot fields stay off the users allowlists", () => {

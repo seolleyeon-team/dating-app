@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 import {
@@ -36,6 +37,39 @@ function verifiedUserDoc(uid, email) {
     onboarding: { nickname: "테스트", birthYear: "2003", major: "컴퓨터과학" },
     preferenceVector: [0.1, 0.2, 0.3],
   };
+}
+
+/**
+ * A legacy student-verification token exactly as sendStudentVerificationEmail
+ * writes it (Admin SDK): the Kakao session's uid plus the mailbox it asked for.
+ */
+async function seedLegacyEmailLinkToken(db, tokenId, { email, kakaoUserId, expiresAt }) {
+  await setDoc(doc(db, "emailLinkTokens", tokenId), {
+    email,
+    kakaoUserId,
+    createdAt: Timestamp.now(),
+    expiresAt: expiresAt ?? Timestamp.fromMillis(Date.now() + 30 * 60 * 1000),
+  });
+}
+
+/**
+ * The server-owned studentEmailBindings doc exactly as sendStudentVerificationEmail
+ * reserves it at issuance (P0-1 uniqueness): id = sha256(normalized email).
+ */
+function studentEmailBindingId(email) {
+  return createHash("sha256").update(email.trim().toLowerCase(), "utf8").digest("hex");
+}
+
+async function seedStudentEmailBinding(db, email, appUserId, overrides = {}) {
+  await setDoc(doc(db, "studentEmailBindings", studentEmailBindingId(email)), {
+    appUserId,
+    emailHash: studentEmailBindingId(email),
+    status: "pending",
+    expiresAt: Timestamp.fromMillis(Date.now() + 30 * 60 * 1000),
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+    ...overrides,
+  });
 }
 
 async function seedVictim() {
@@ -225,6 +259,13 @@ test("legit: an email-link session can verify a server-created users doc with it
       kakaoUserId: "kakao_newbie_4000",
       nickname: "새 사용자",
     });
+    // sendStudentVerificationEmail (Admin SDK) issues this for the Kakao
+    // session that owns users/kakao_newbie_4000.
+    await seedLegacyEmailLinkToken(db, "newbie-token-id", {
+      email: "newbie@yonsei.ac.kr",
+      kakaoUserId: "kakao_newbie_4000",
+    });
+    await seedStudentEmailBinding(db, "newbie@yonsei.ac.kr", "kakao_newbie_4000");
   });
   const db = await emailLinkSession("emaillink_new", "newbie@yonsei.ac.kr");
 
@@ -232,6 +273,7 @@ test("legit: an email-link session can verify a server-created users doc with it
     updateDoc(doc(db, "users", "kakao_newbie_4000"), {
       isStudentVerified: true,
       studentEmail: "newbie@yonsei.ac.kr",
+      studentEmailLinkToken: "newbie-token-id",
       verifiedAt: Timestamp.now(),
     })
   );
@@ -285,14 +327,366 @@ test("SEC-P0-03: an email-link session cannot rewrite a verified doc to a third-
 
 test("legit: re-running email verification with the same email stays allowed", async () => {
   await seedVictim();
+  const env = await getTestEnv();
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await seedLegacyEmailLinkToken(ctx.firestore(), "victim-rerun-token", {
+      email: VICTIM_EMAIL,
+      kakaoUserId: VICTIM,
+    });
+    await seedStudentEmailBinding(ctx.firestore(), VICTIM_EMAIL, VICTIM, {
+      status: "confirmed",
+    });
+  });
   const db = await emailLinkSession("emaillink_victim", VICTIM_EMAIL);
 
   await assertSucceeds(
     updateDoc(doc(db, "users", VICTIM), {
       isStudentVerified: true,
       studentEmail: VICTIM_EMAIL,
+      studentEmailLinkToken: "victim-rerun-token",
       verifiedAt: Timestamp.now(),
     })
+  );
+});
+
+// ---------------------------------------------------------------------------
+// P0-1 (2026-10 production audit) — cross-account student verification
+// ---------------------------------------------------------------------------
+// The email-link update branch proved the caller owns a Yonsei mailbox but
+// never tied the caller to the TARGET document. One mailbox could therefore
+// stamp isStudentVerified/studentEmail onto any users doc whose studentEmail
+// was still empty, and isUserDocOwner() then treated that mailbox as the
+// document owner. The binding is now the server-issued emailLinkTokens doc:
+// sendStudentVerificationEmail writes {email, kakaoUserId: <caller uid>} with
+// the Admin SDK, so only the account that requested the mail can be verified.
+
+const UNBOUND_B = "kakao_unbound_b_5000";
+const UNBOUND_C = "kakao_unbound_c_5001";
+
+async function seedUnboundShells(extraSeed) {
+  return withClearedDb(async (db) => {
+    for (const uid of [ATTACKER, UNBOUND_B, UNBOUND_C]) {
+      await setDoc(doc(db, "users", uid), { kakaoUserId: uid, nickname: "shell" });
+    }
+    if (extraSeed) await extraSeed(db);
+  });
+}
+
+function verificationWrite(email, token) {
+  return {
+    isStudentVerified: true,
+    studentEmail: email,
+    verifiedAt: Timestamp.now(),
+    ...(token === undefined ? {} : { studentEmailLinkToken: token }),
+  };
+}
+
+test("P0-1: a verified mailbox cannot student-verify another account's unbound users doc", async () => {
+  await seedUnboundShells();
+  const db = await emailLinkSession("emaillink_attacker", ATTACKER_EMAIL);
+
+  await assertFails(
+    updateDoc(doc(db, "users", UNBOUND_B), verificationWrite(ATTACKER_EMAIL))
+  );
+});
+
+test("P0-1: the hosted-page write shape (set+merge with kakaoUserId) is denied without a token", async () => {
+  await seedUnboundShells();
+  const db = await emailLinkSession("emaillink_attacker", ATTACKER_EMAIL);
+
+  await assertFails(
+    setDoc(
+      doc(db, "users", UNBOUND_B),
+      { kakaoUserId: UNBOUND_B, ...verificationWrite(ATTACKER_EMAIL) },
+      { merge: true }
+    )
+  );
+});
+
+test("P0-1: one mailbox cannot be stamped onto a second and third account", async () => {
+  await seedUnboundShells(async (db) => {
+    await seedLegacyEmailLinkToken(db, "attacker-own-token", {
+      email: ATTACKER_EMAIL,
+      kakaoUserId: ATTACKER,
+    });
+    await seedStudentEmailBinding(db, ATTACKER_EMAIL, ATTACKER);
+  });
+  const db = await emailLinkSession("emaillink_attacker", ATTACKER_EMAIL);
+
+  // The attacker's own, genuinely issued token only names the attacker.
+  await assertSucceeds(
+    updateDoc(
+      doc(db, "users", ATTACKER),
+      verificationWrite(ATTACKER_EMAIL, "attacker-own-token")
+    )
+  );
+  for (const target of [UNBOUND_B, UNBOUND_C]) {
+    await assertFails(
+      updateDoc(doc(db, "users", target), verificationWrite(ATTACKER_EMAIL))
+    );
+    await assertFails(
+      updateDoc(
+        doc(db, "users", target),
+        verificationWrite(ATTACKER_EMAIL, "attacker-own-token")
+      )
+    );
+  }
+});
+
+test("P0-1: a token issued for a different mailbox does not authorize the caller", async () => {
+  await seedUnboundShells(async (db) => {
+    await seedLegacyEmailLinkToken(db, "b-token", {
+      email: "owner-b@yonsei.ac.kr",
+      kakaoUserId: UNBOUND_B,
+    });
+  });
+  const db = await emailLinkSession("emaillink_attacker", ATTACKER_EMAIL);
+
+  await assertFails(
+    updateDoc(doc(db, "users", UNBOUND_B), verificationWrite(ATTACKER_EMAIL, "b-token"))
+  );
+});
+
+test("P0-1: expired, missing, malformed and primary-auth tokens do not authorize the write", async () => {
+  await seedUnboundShells(async (db) => {
+    await seedLegacyEmailLinkToken(db, "expired-token", {
+      email: ATTACKER_EMAIL,
+      kakaoUserId: UNBOUND_B,
+      expiresAt: Timestamp.fromMillis(Date.now() - 60 * 1000),
+    });
+    // completePrimaryStudentEmailAuth tokens carry no kakaoUserId.
+    await setDoc(doc(db, "emailLinkTokens", "primary-token"), {
+      email: ATTACKER_EMAIL,
+      purpose: "primary_auth",
+      createdAt: Timestamp.now(),
+      expiresAt: Timestamp.fromMillis(Date.now() + 30 * 60 * 1000),
+    });
+    await setDoc(doc(db, "emailLinkTokens", "no-expiry-token"), {
+      email: ATTACKER_EMAIL,
+      kakaoUserId: UNBOUND_B,
+      createdAt: Timestamp.now(),
+    });
+  });
+  const db = await emailLinkSession("emaillink_attacker", ATTACKER_EMAIL);
+
+  for (const token of [
+    "expired-token",
+    "primary-token",
+    "no-expiry-token",
+    "does-not-exist",
+    "bad/../token",
+    "",
+  ]) {
+    await assertFails(
+      updateDoc(doc(db, "users", UNBOUND_B), verificationWrite(ATTACKER_EMAIL, token))
+    );
+  }
+  await assertFails(
+    updateDoc(doc(db, "users", UNBOUND_B), verificationWrite(ATTACKER_EMAIL, 12345))
+  );
+});
+
+test("P0-1: an unverified email claim cannot use a valid token", async () => {
+  await seedUnboundShells(async (db) => {
+    await seedLegacyEmailLinkToken(db, "b-token", {
+      email: ATTACKER_EMAIL,
+      kakaoUserId: UNBOUND_B,
+    });
+  });
+  const env = await getTestEnv();
+  const db = env
+    .authenticatedContext("emaillink_unverified", {
+      email: ATTACKER_EMAIL,
+      email_verified: false,
+    })
+    .firestore();
+
+  await assertFails(
+    updateDoc(doc(db, "users", UNBOUND_B), verificationWrite(ATTACKER_EMAIL, "b-token"))
+  );
+});
+
+test("P0-1: partial verification writes are denied (boolean only / email only)", async () => {
+  await seedUnboundShells(async (db) => {
+    await seedLegacyEmailLinkToken(db, "b-token", {
+      email: ATTACKER_EMAIL,
+      kakaoUserId: UNBOUND_B,
+    });
+  });
+  const db = await emailLinkSession("emaillink_attacker", ATTACKER_EMAIL);
+
+  await assertFails(
+    updateDoc(doc(db, "users", UNBOUND_B), { isStudentVerified: true })
+  );
+  await assertFails(
+    updateDoc(doc(db, "users", UNBOUND_B), { studentEmail: ATTACKER_EMAIL })
+  );
+  await assertFails(
+    updateDoc(doc(db, "users", UNBOUND_B), {
+      studentEmail: ATTACKER_EMAIL,
+      studentEmailLinkToken: "b-token",
+    })
+  );
+});
+
+test("P0-1: a valid token cannot be used to rewrite the kakaoUserId identity field", async () => {
+  await seedUnboundShells(async (db) => {
+    await seedLegacyEmailLinkToken(db, "b-token", {
+      email: ATTACKER_EMAIL,
+      kakaoUserId: UNBOUND_B,
+    });
+  });
+  const db = await emailLinkSession("emaillink_attacker", ATTACKER_EMAIL);
+
+  await assertFails(
+    updateDoc(doc(db, "users", UNBOUND_B), {
+      ...verificationWrite(ATTACKER_EMAIL, "b-token"),
+      kakaoUserId: "emaillink_attacker",
+    })
+  );
+});
+
+test("P0-1: a Kakao session cannot verify itself or another account, with or without a token", async () => {
+  await seedUnboundShells(async (db) => {
+    await seedLegacyEmailLinkToken(db, "attacker-own-token", {
+      email: ATTACKER_EMAIL,
+      kakaoUserId: ATTACKER,
+    });
+    await seedLegacyEmailLinkToken(db, "b-token", {
+      email: ATTACKER_EMAIL,
+      kakaoUserId: UNBOUND_B,
+    });
+  });
+  const db = await kakaoSession(ATTACKER);
+
+  await assertFails(
+    updateDoc(
+      doc(db, "users", ATTACKER),
+      verificationWrite(ATTACKER_EMAIL, "attacker-own-token")
+    )
+  );
+  await assertFails(
+    updateDoc(doc(db, "users", UNBOUND_B), verificationWrite(ATTACKER_EMAIL, "b-token"))
+  );
+});
+
+test("P0-1: unauthenticated clients cannot use a valid token", async () => {
+  await seedUnboundShells(async (db) => {
+    await seedLegacyEmailLinkToken(db, "b-token", {
+      email: ATTACKER_EMAIL,
+      kakaoUserId: UNBOUND_B,
+    });
+  });
+  const db = await anon();
+
+  await assertFails(
+    updateDoc(doc(db, "users", UNBOUND_B), verificationWrite(ATTACKER_EMAIL, "b-token"))
+  );
+});
+
+test("P0-1: an unrelated account cannot touch a verified user's student email fields", async () => {
+  await seedVictim();
+  const kakaoDb = await kakaoSession(ATTACKER);
+  const mailDb = await emailLinkSession("emaillink_attacker", ATTACKER_EMAIL);
+
+  for (const db of [kakaoDb, mailDb]) {
+    await assertFails(
+      updateDoc(doc(db, "users", VICTIM), { studentEmail: ATTACKER_EMAIL })
+    );
+    await assertFails(
+      updateDoc(doc(db, "users", VICTIM), { isStudentVerified: false })
+    );
+    await assertFails(
+      updateDoc(doc(db, "users", VICTIM), { studentEmail: deleteField() })
+    );
+  }
+});
+
+// P0-1 uniqueness (hosted path): the token proves WHICH account asked, but
+// two accounts can each hold a token for the same mailbox. The server decides
+// uniqueness atomically when it reserves studentEmailBindings/{sha256(email)}
+// at issuance; the hosted write is honoured only for the account that
+// reservation names. Rules cannot decide uniqueness across documents — they
+// only verify the server-made decision.
+
+test("P0-1 uniqueness: two accounts each holding a valid token — only the account the binding names may verify", async () => {
+  const email = "shared@yonsei.ac.kr";
+  await seedUnboundShells(async (db) => {
+    await seedLegacyEmailLinkToken(db, "shared-token-b", { email, kakaoUserId: UNBOUND_B });
+    await seedLegacyEmailLinkToken(db, "shared-token-c", { email, kakaoUserId: UNBOUND_C });
+    await seedStudentEmailBinding(db, email, UNBOUND_B);
+  });
+  const db = await emailLinkSession("emaillink_shared", email);
+
+  await assertSucceeds(
+    updateDoc(doc(db, "users", UNBOUND_B), verificationWrite(email, "shared-token-b"))
+  );
+  await assertFails(
+    updateDoc(doc(db, "users", UNBOUND_C), verificationWrite(email, "shared-token-c"))
+  );
+});
+
+test("P0-1 uniqueness: a valid token without a server reservation does not verify", async () => {
+  const email = "unreserved@yonsei.ac.kr";
+  await seedUnboundShells(async (db) => {
+    await seedLegacyEmailLinkToken(db, "unreserved-token", { email, kakaoUserId: UNBOUND_B });
+  });
+  const db = await emailLinkSession("emaillink_unreserved", email);
+
+  await assertFails(
+    updateDoc(doc(db, "users", UNBOUND_B), verificationWrite(email, "unreserved-token"))
+  );
+});
+
+test("P0-1 uniqueness: a binding confirmed for another account blocks the hosted write even with a valid token", async () => {
+  const email = "taken@yonsei.ac.kr";
+  await seedUnboundShells(async (db) => {
+    await seedLegacyEmailLinkToken(db, "taken-token", { email, kakaoUserId: UNBOUND_B });
+    await seedStudentEmailBinding(db, email, UNBOUND_C, { status: "confirmed" });
+  });
+  const db = await emailLinkSession("emaillink_taken", email);
+
+  await assertFails(
+    updateDoc(doc(db, "users", UNBOUND_B), verificationWrite(email, "taken-token"))
+  );
+});
+
+test("P0-1 uniqueness: the binding is matched on the normalized mailbox, so a case-variant session cannot dodge it", async () => {
+  const email = "mixedcase@yonsei.ac.kr";
+  await seedUnboundShells(async (db) => {
+    await seedLegacyEmailLinkToken(db, "mixed-token", { email, kakaoUserId: UNBOUND_B });
+    await seedStudentEmailBinding(db, email, UNBOUND_C, { status: "confirmed" });
+  });
+  const db = await emailLinkSession("emaillink_mixed", "MixedCase@Yonsei.ac.kr");
+
+  await assertFails(
+    updateDoc(doc(db, "users", UNBOUND_B), verificationWrite(email, "mixed-token"))
+  );
+});
+
+test("legit: the hosted-page write shape succeeds with the server-issued token", async () => {
+  await seedUnboundShells(async (db) => {
+    await seedLegacyEmailLinkToken(db, "b-token", {
+      email: "owner-b@yonsei.ac.kr",
+      kakaoUserId: UNBOUND_B,
+    });
+    await seedStudentEmailBinding(db, "owner-b@yonsei.ac.kr", UNBOUND_B);
+  });
+  // Firebase keeps the mailbox as typed; the server stores it lowercased.
+  const db = await emailLinkSession("emaillink_owner_b", "Owner-B@yonsei.ac.kr");
+
+  await assertSucceeds(
+    setDoc(
+      doc(db, "users", UNBOUND_B),
+      {
+        kakaoUserId: UNBOUND_B,
+        isStudentVerified: true,
+        studentEmail: "owner-b@yonsei.ac.kr",
+        studentEmailLinkToken: "b-token",
+        verifiedAt: Timestamp.now(),
+      },
+      { merge: true }
+    )
   );
 });
 

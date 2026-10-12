@@ -261,10 +261,13 @@
         }
 
         // 학생 인증 완료 표시
+        // P0-1: firestore.rules 는 서버가 발급한 emailLinkTokens/{token} 이
+        // 이 계정(kakaoUserId)과 이 메일함을 가리킬 때만 이 쓰기를 허용한다.
         await db.collection('users').doc(String(kakaoUserId)).set({
           kakaoUserId: String(kakaoUserId),
           isStudentVerified: true,
           studentEmail: authedEmail,
+          studentEmailLinkToken: String(token),
           verifiedAt: firebase.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
 

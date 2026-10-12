@@ -4,6 +4,10 @@ import { HttpsError, onCall } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
 import { withAppCheck } from "./appCheckPolicy";
+import {
+  claimStudentEmailBinding,
+  studentEmailBindingClaimError,
+} from "./studentEmailBinding";
 
 const YONSEI_EMAIL_RE = /^[^\s@]+@yonsei\.ac\.kr$/;
 const TOKEN_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
@@ -213,6 +217,18 @@ export function createCompleteStudentEmailLinkFunction(
           "permission-denied",
           "이미 다른 연세 이메일로 인증된 계정이에요."
         );
+      }
+
+      // P0-1: one mailbox ↔ one account. The binding is claimed in THIS
+      // transaction (reads before the writes below), so a second account
+      // racing for the same mailbox is rejected before any write lands.
+      const claim = await claimStudentEmailBinding(db, transaction, {
+        appUserId: decision.kakaoUserId,
+        email: decision.email,
+        mode: "confirmed",
+      });
+      if (!claim.ok) {
+        throw studentEmailBindingClaimError(claim.reason);
       }
 
       transaction.set(

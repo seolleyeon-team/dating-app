@@ -137,6 +137,10 @@ import { createCommunitySafetyCallables } from "./communitySafety";
 import { createSendChatTextFunction } from "./chatSafety";
 import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
 import { createCompleteStudentEmailLinkFunction } from "./emailLinkCompletion";
+import {
+  claimStudentEmailBinding,
+  studentEmailBindingClaimError,
+} from "./studentEmailBinding";
 import { createAccountDeletionRetentionPurgeSchedule } from "./accountDeletionRetentionPurge";
 import {
   BAMBOO_COMMENT_OWNER_COLLECTION,
@@ -2910,6 +2914,12 @@ export const sendStudentVerificationEmail = onCall(
     if (!userSnap.exists || asNonEmptyString(userData.kakaoUserId) !== uid) {
       throw new HttpsError("permission-denied", "로그인 세션을 다시 확인해주세요.");
     }
+    // An account holds one mailbox. Completion rejects a different one anyway;
+    // refusing here keeps a doomed request from reserving someone else's mailbox.
+    const storedStudentEmail = asNonEmptyString(userData.studentEmail);
+    if (storedStudentEmail && normalizeYonseiEmail(storedStudentEmail) !== email) {
+      throw new HttpsError("permission-denied", "이미 다른 연세 이메일로 인증된 계정이에요.");
+    }
 
     // Reject an incomplete mail-provider configuration before reserving an
     // action token or consuming a user's resend quota.
@@ -2971,6 +2981,22 @@ export const sendStudentVerificationEmail = onCall(
 
       const token = randomUUID();
       const expiresAt = Timestamp.fromMillis(nowMs + STUDENT_VERIFICATION_TOKEN_TTL_MS);
+      // P0-1: one mailbox ↔ one account. The hosted verification page writes
+      // users/{uid} directly and cannot create the binding itself, so the
+      // uniqueness decision is made HERE, atomically with the token: reserve
+      // the mailbox for this account until the token expires. firestore.rules
+      // then honours the hosted write only when this reservation names the
+      // target account.
+      const claim = await claimStudentEmailBinding(db, tx, {
+        appUserId: uid,
+        email,
+        mode: "pending",
+        expiresAt,
+        nowMs,
+      });
+      if (!claim.ok) {
+        throw studentEmailBindingClaimError(claim.reason);
+      }
       const rateUpdate = (decision: Extract<typeof emailDecision, { allowed: true }>) => ({
         minuteWindowStartedAt: Timestamp.fromMillis(decision.minuteWindowStartedAtMs),
         minuteRequestCount: decision.minuteRequestCount,

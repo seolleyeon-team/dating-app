@@ -14,6 +14,11 @@ import { createHash, randomUUID } from "crypto";
 
 import { withAppCheck } from "./appCheckPolicy";
 import {
+  buildStudentEmailBindingDoc,
+  isConfirmedStudentEmailBinding,
+  studentEmailBindingId,
+} from "./studentEmailBinding";
+import {
   decideStudentVerificationRateLimit,
   normalizeYonseiEmail,
 } from "./studentVerificationEmail";
@@ -1005,11 +1010,18 @@ export function createCompletePrimaryStudentEmailAuthFunction(
         };
       }
 
-      const emailHash = sha256Hex(email);
+      const emailHash = studentEmailBindingId(email);
       const bindingRef = db.collection("studentEmailBindings").doc(emailHash);
       const bindingSnapshot = await transaction.get(bindingRef);
-      const bindingData = bindingSnapshot.exists
+      const storedBindingData = bindingSnapshot.exists
         ? ((bindingSnapshot.data() ?? {}) as Record<string, unknown>)
+        : null;
+      // P0-1: a `pending` reservation only records that some account ASKED
+      // for a legacy verification mail. It is not ownership and must never
+      // resolve this Firebase-verified mailbox into that account, so it is
+      // treated as absent (and overwritten below when this login confirms).
+      const bindingData = isConfirmedStudentEmailBinding(storedBindingData)
+        ? storedBindingData
         : null;
 
       let bindingUserData: Record<string, unknown> | null = null;
@@ -1106,12 +1118,12 @@ export function createCompletePrimaryStudentEmailAuthFunction(
         // Server-only collection; never stores the raw email.
         transaction.set(
           bindingRef,
-          {
+          buildStudentEmailBindingDoc({
             appUserId: decision.appUserId,
             emailHash,
-            createdAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-          },
+            status: "confirmed",
+            resetCreatedAt: true,
+          }),
           { merge: true }
         );
       }
