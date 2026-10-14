@@ -37,6 +37,72 @@ class DeployEnvContract:
     functions_source: Path
     candidate: Path
     loaded_dotenv_files: tuple[Path, ...]
+    # Tracked key manifest the candidate was checked against (None when the
+    # repository has no manifest for this project).
+    key_manifest: Path | None = None
+
+
+def dotenv_key_names(path: Path) -> set[str]:
+    """Key names of a dotenv file. Values are never read into memory as such."""
+    keys: set[str] = set()
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        keys.add(line.split("=", 1)[0].strip())
+    return keys
+
+
+def key_manifest_path(firebase_json: Path, project_id: str) -> Path:
+    return (
+        firebase_json.resolve().parent
+        / "scripts"
+        / f"functions_env_key_manifest.{project_id}.json"
+    )
+
+
+def validate_env_key_manifest(env_file: Path, manifest: Path) -> None:
+    """Refuse a dotenv whose KEY set differs from the tracked manifest.
+
+    `firebase deploy` writes the dotenv file to every targeted function, so an
+    incomplete local file silently removes variables from production (the
+    2026-09-08 incident; the 2026-10-13 P0-1 deploy found a 12-of-31-key file).
+    The serving-revision guard catches that per function, but only after the
+    operator already built a wrong file. This check is the earlier, static
+    gate: the gitignored file must carry exactly the keys the repository says
+    the codebase deploys with, and never a Secret Manager parameter as plain
+    text.
+    """
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise DeployContractError(
+            f"ENV_KEY_MANIFEST_UNREADABLE: {manifest.name}: {error}"
+        ) from error
+    expected = data.get("plain_env_keys")
+    secrets = data.get("secret_parameter_names", [])
+    if not isinstance(expected, list) or not all(isinstance(k, str) for k in expected):
+        raise DeployContractError(
+            f"ENV_KEY_MANIFEST_MALFORMED: {manifest.name} has no plain_env_keys list"
+        )
+    expected_keys = set(expected)
+    actual = dotenv_key_names(env_file)
+    plaintext_secrets = sorted(actual & set(secrets))
+    if plaintext_secrets:
+        raise DeployContractError(
+            "ENV_SECRET_AS_PLAINTEXT_REFUSED: "
+            f"{', '.join(plaintext_secrets)} must stay in Secret Manager"
+        )
+    missing = sorted(expected_keys - actual)
+    extra = sorted(actual - expected_keys)
+    if missing or extra:
+        raise DeployContractError(
+            "ENV_KEY_MANIFEST_MISMATCH: dotenv keys differ from "
+            f"{manifest.name} (missing: {', '.join(missing) or '-'}; "
+            f"extra: {', '.join(extra) or '-'}). Restore the missing keys from "
+            "the serving revisions, or update the manifest in the same reviewed "
+            "change that intentionally adds or retires a variable."
+        )
 
 
 def sha256_file(path: Path) -> str:
@@ -155,11 +221,16 @@ def validate_deploy_env_contract(
             f"load dotenv files [{names}], not only {candidate.name}"
         )
 
+    manifest = key_manifest_path(firebase_json, project_id)
+    if manifest.is_file():
+        validate_env_key_manifest(candidate, manifest)
+
     return DeployEnvContract(
         project_id=project_id,
         functions_source=source,
         candidate=candidate,
         loaded_dotenv_files=loaded,
+        key_manifest=manifest if manifest.is_file() else None,
     )
 
 
@@ -216,7 +287,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(
             "ENV DEPLOY CONTRACT: PASS "
             f"dotenv={contract.candidate.name} "
-            f"sha256={sha256_file(contract.candidate)}"
+            f"sha256={sha256_file(contract.candidate)} "
+            f"keys={len(dotenv_key_names(contract.candidate))} "
+            f"manifest={contract.key_manifest.name if contract.key_manifest else 'none'}"
         )
         return 0
     except DeployContractError as error:

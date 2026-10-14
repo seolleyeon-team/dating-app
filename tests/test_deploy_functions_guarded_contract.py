@@ -578,3 +578,104 @@ def test_wrapper_refuses_dotenv_mutation_after_guard(tmp_path):
     assert completed.returncode != 0
     assert "GUARDED_ENV_CHANGED_AFTER_GUARD" in completed.stderr
     assert not deploy_log.exists()
+
+
+# ---------------------------------------------------------------------------
+# Tracked key manifest (OPS-02, 2026-10): the gitignored dotenv must carry
+# exactly the codebase's plain keys, never a Secret Manager parameter.
+# ---------------------------------------------------------------------------
+
+
+def _manifest(root: Path, keys: list[str], secrets: list[str] | None = None) -> Path:
+    scripts = root / "scripts"
+    scripts.mkdir(exist_ok=True)
+    path = scripts / f"functions_env_key_manifest.{PROJECT}.json"
+    path.write_text(
+        json.dumps(
+            {
+                "contract_version": 1,
+                "project": PROJECT,
+                "plain_env_keys": keys,
+                "secret_parameter_names": secrets or ["RESEND_API_KEY"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_dotenv_matching_the_key_manifest_passes(tmp_path):
+    root, candidate = _root(tmp_path)
+    manifest = _manifest(root, ["RESEND_FROM_EMAIL", "RESEND_REPLY_TO"])
+
+    result = _validate(root, candidate)
+
+    assert result.key_manifest == manifest
+
+
+def test_without_a_manifest_the_contract_is_unchanged(tmp_path):
+    root, candidate = _root(tmp_path)
+
+    assert _validate(root, candidate).key_manifest is None
+
+
+def test_an_incomplete_dotenv_is_refused_before_any_deploy(tmp_path):
+    # The 2026-10-13 shape: a local file missing keys that are live in
+    # production. Deploying it would delete them.
+    root, candidate = _root(tmp_path)
+    _manifest(root, ["RESEND_FROM_EMAIL", "RESEND_REPLY_TO", "JOB_QUEUE_MODE"])
+
+    with pytest.raises(contract.DeployContractError, match="MISMATCH.*missing: JOB_QUEUE_MODE"):
+        _validate(root, candidate)
+
+
+def test_an_undeclared_extra_key_is_refused(tmp_path):
+    root, candidate = _root(tmp_path)
+    _manifest(root, ["RESEND_FROM_EMAIL"])
+
+    with pytest.raises(contract.DeployContractError, match="MISMATCH.*extra: RESEND_REPLY_TO"):
+        _validate(root, candidate)
+
+
+def test_a_secret_parameter_as_plaintext_is_refused(tmp_path):
+    root, candidate = _root(tmp_path)
+    candidate.write_text(
+        candidate.read_text(encoding="utf-8") + "RESEND_API_KEY=plaintext\n",
+        encoding="utf-8",
+    )
+    _manifest(root, ["RESEND_FROM_EMAIL", "RESEND_REPLY_TO", "RESEND_API_KEY"])
+
+    with pytest.raises(contract.DeployContractError, match="ENV_SECRET_AS_PLAINTEXT_REFUSED"):
+        _validate(root, candidate)
+
+
+def test_key_names_are_read_without_values_being_reported(tmp_path):
+    root, candidate = _root(tmp_path)
+    _manifest(root, ["RESEND_FROM_EMAIL"])
+
+    with pytest.raises(contract.DeployContractError) as excinfo:
+        _validate(root, candidate)
+
+    assert "mail@example.com" not in str(excinfo.value)
+    assert "reply@example.com" not in str(excinfo.value)
+
+
+def test_repository_manifest_matches_the_live_contract_shape():
+    manifest = contract.key_manifest_path(REPO_ROOT / "firebase.json", PROJECT)
+
+    assert manifest.is_file()
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    assert data["project"] == PROJECT
+    assert len(data["plain_env_keys"]) == len(set(data["plain_env_keys"]))
+    assert data["plain_env_keys"] == sorted(data["plain_env_keys"])
+    assert not set(data["plain_env_keys"]) & set(data["secret_parameter_names"])
+    # Secret parameters declared in source must all be listed as secrets.
+    source = (REPO_ROOT / "functions" / "src").rglob("*.ts")
+    declared = set()
+    import re
+
+    for path in source:
+        if path.name.endswith(".test.ts"):
+            continue
+        declared |= set(re.findall(r'defineSecret\("([A-Z0-9_]+)"', path.read_text(encoding="utf-8")))
+    assert declared <= set(data["secret_parameter_names"])
