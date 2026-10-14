@@ -423,6 +423,20 @@
       ]
     },
     {
+      "collectionGroup": "blindMeetings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "serverStatus",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "scheduleVoteDeadlineAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "blindMeetingReplacementOffers",
       "queryScope": "COLLECTION",
       "fields": [
