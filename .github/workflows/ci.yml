@@ -83,6 +83,16 @@ jobs:
           npx --yes firebase-tools@15.30.2 emulators:exec --only firestore,auth
           --project demo-p01-binding
           "node --test functions/.ci-emulator-lib/studentEmailIssuance.emulator-test.js"
+      # P0-2: room-level unread accounting — sequential/concurrent increments,
+      # at-least-once trigger idempotency, mark-read race, backfill
+      # idempotency/resume, digest without message reads, and the deployed
+      # trigger wiring through index.ts. The cost assertions are the same ones
+      # that fail against the legacy query shapes (CHAT_UNREAD_PORT=legacy).
+      - name: P0-2 chat unread accounting (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-p02-chat
+          "node --test functions/.ci-emulator-lib/chatUnread.emulator-test.js functions/.ci-emulator-lib/chatUnreadTrigger.emulator-test.js"
 
   storage-rules:
     name: Storage rules tests
