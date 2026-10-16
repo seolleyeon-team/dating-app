@@ -22,6 +22,8 @@ import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
 import '../../../shared/utils/dev_entry_policy.dart';
 import '../../../shared/utils/privacy_log_utils.dart';
 import '../models/chat_room_data.dart';
+import 'package:provider/provider.dart';
+import '../providers/chat_unread_provider.dart';
 import '../services/chat_service.dart';
 import '../services/support_chat_service.dart';
 import '../utils/chat_room_tab.dart';
@@ -672,22 +674,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
                             );
                           }
 
-                          return StreamBuilder<int>(
-                            stream: _chatService.unreadCountStream(
-                              roomId: chat.chatRoomId!,
-                              userId: currentUserId,
-                            ),
-                            builder: (context, unreadSnapshot) {
-                              final unreadCount = unreadSnapshot.data ?? 0;
-                              final chatWithUnread = chat.copyWith(
-                                hasUnread: unreadCount > 0,
-                              );
+                          // P0-2: unread comes from the room document the
+                          // provider already streams — no per-row listener on
+                          // the room's message history.
+                          final chatWithUnread = chat.copyWith(
+                            hasUnread: context
+                                .watch<ChatUnreadProvider>()
+                                .isRoomUnread(chat.chatRoomId!),
+                          );
 
-                              return _ChatListItem(
-                                chat: chatWithUnread,
-                                onTap: () => _openChat(chatWithUnread),
-                              );
-                            },
+                          return _ChatListItem(
+                            chat: chatWithUnread,
+                            onTap: () => _openChat(chatWithUnread),
                           );
                         }, childCount: firestoreChats.length),
                       ),
@@ -719,16 +717,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
               onTap: widget.onNavTap,
             )
           else
-            StreamBuilder<bool>(
-              stream: _chatService.hasAnyUnreadChats(currentUserId),
-              builder: (context, snapshot) {
-                final hasUnread = snapshot.data ?? false;
-                return SeolleyeonBottomNavPositioned(
-                  currentTab: BottomNavTab.chat,
-                  onTap: widget.onNavTap,
-                  showChatBadge: hasUnread,
-                );
-              },
+            SeolleyeonBottomNavPositioned(
+              currentTab: BottomNavTab.chat,
+              onTap: widget.onNavTap,
+              showChatBadge: context.watch<ChatUnreadProvider>().hasAnyUnread,
             ),
         ],
       ),

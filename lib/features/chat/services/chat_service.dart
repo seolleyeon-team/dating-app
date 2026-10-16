@@ -48,13 +48,53 @@ class ChatService {
         .snapshots();
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> messagesStream(String roomId) {
+  /// P0-2: bounded message history.
+  ///
+  /// The room screen keeps ONE realtime listener on the newest page and loads
+  /// older history with one-shot cursor queries ([olderMessagesPage]). The
+  /// pre-existing unbounded `messagesStream` (every message, forever) is
+  /// gone: a chat's cost no longer grows with its history.
+  static const int messagePageSize = 50;
+
+  Query<Map<String, dynamic>> _messagesNewestFirst(String roomId) {
     return _firestore
         .collection('chat_rooms')
         .doc(roomId)
         .collection('messages')
-        .orderBy('createdAt', descending: false)
-        .snapshots();
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true);
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> latestMessagesStream(
+    String roomId, {
+    int limit = messagePageSize,
+  }) {
+    return _messagesNewestFirst(roomId).limit(limit).snapshots();
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> olderMessagesPage(
+    String roomId, {
+    required DocumentSnapshot<Map<String, dynamic>> startAfter,
+    int limit = messagePageSize,
+  }) {
+    return _messagesNewestFirst(
+      roomId,
+    ).startAfterDocument(startAfter).limit(limit).get();
+  }
+
+  /// Every message of one promise (request → confirmed / cancelled …) so a
+  /// promise card whose request fell outside the loaded window renders whole.
+  Future<QuerySnapshot<Map<String, dynamic>>> promiseMessages(
+    String roomId,
+    String promiseId,
+  ) {
+    return _firestore
+        .collection('chat_rooms')
+        .doc(roomId)
+        .collection('messages')
+        .where('promiseId', isEqualTo: promiseId)
+        .limit(20)
+        .get();
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> promisesStream(String roomId) {
@@ -165,81 +205,32 @@ class ChatService {
     });
   }
 
-  Stream<int> unreadCountStream({
-    required String roomId,
-    required String userId,
-  }) {
-    return _firestore
-        .collection('chat_rooms')
-        .doc(roomId)
-        .collection('messages')
-        .snapshots()
-        .map((snap) {
-          int count = 0;
-
-          for (final doc in snap.docs) {
-            final data = doc.data();
-            final senderId = data['senderId']?.toString() ?? '';
-            final readBy = List<String>.from(data['readBy'] ?? const []);
-
-            if (senderId == userId) continue;
-            if (!readBy.contains(userId)) count++;
-          }
-
-          return count;
-        });
-  }
-
-  Stream<bool> hasAnyUnreadChats(String userId) {
-    return chatRoomsStream(userId).asyncMap((roomSnap) async {
-      for (final room in roomSnap.docs) {
-        final msgSnap = await room.reference.collection('messages').get();
-
-        for (final msg in msgSnap.docs) {
-          final data = msg.data();
-          final senderId = data['senderId']?.toString() ?? '';
-          final readBy = List<String>.from(data['readBy'] ?? const []);
-
-          if (senderId != userId && !readBy.contains(userId)) {
-            return true;
-          }
-        }
-      }
-      return false;
-    });
-  }
-
-  Future<void> markMessagesAsRead({
+  /// P0-2: marks a room read with ONE room-level write of the caller's own
+  /// keys (`unreadCounts.{uid} = 0`, `lastReadAt.{uid} = server time`).
+  ///
+  /// Replaces `markMessagesAsRead`, which read every message of the room and
+  /// rewrote every unread one in a single batch (>500 unread failed outright).
+  /// firestore.rules accepts exactly this shape and only for the caller's own
+  /// keys; the counters themselves are incremented by the server.
+  Future<void> markRoomRead({
     required String roomId,
     required String userId,
   }) async {
-    final snap = await _firestore
-        .collection('chat_rooms')
-        .doc(roomId)
-        .collection('messages')
-        .get();
+    await _firestore.collection('chat_rooms').doc(roomId).update({
+      FieldPath(['unreadCounts', userId]): 0,
+      FieldPath(['lastReadAt', userId]): FieldValue.serverTimestamp(),
+    });
+  }
 
-    final batch = _firestore.batch();
-    bool hasUpdate = false;
-
-    for (final doc in snap.docs) {
-      final data = doc.data();
-      final senderId = data['senderId']?.toString() ?? '';
-      final readBy = List<String>.from(data['readBy'] ?? const []);
-
-      if (senderId == userId) continue;
-      if (readBy.contains(userId)) continue;
-
-      batch.update(doc.reference, {
-        'readBy': [...readBy, userId],
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      hasUpdate = true;
-    }
-
-    if (hasUpdate) {
-      await batch.commit();
-    }
+  /// Room documents as the unread provider consumes them (id → data).
+  Stream<List<MapEntry<String, Map<String, dynamic>?>>> roomsUnreadSource(
+    String userId,
+  ) {
+    return chatRoomsStream(userId).map(
+      (snapshot) => snapshot.docs
+          .map((doc) => MapEntry(doc.id, doc.data()))
+          .toList(growable: false),
+    );
   }
 
   Future<void> ensureDirectRoom({
