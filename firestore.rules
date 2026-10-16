@@ -748,6 +748,28 @@ service cloud.firestore {
 
     // Participants mark messages read by appending themselves to readBy.
     // Anything else — especially rewriting someone else's text — is denied.
+    // P0-2 (2026-10 audit): room-level unread state. The server increments
+    // chat_rooms.unreadCounts.{uid} once per message a participant did not
+    // send; a participant may only (a) reset its OWN counter to 0 and (b)
+    // stamp its OWN lastReadAt with the server time, in one update that
+    // touches nothing else. Every other key of the model is server-owned.
+    function unreadModelServerKeys() {
+      return ['unreadCounts', 'lastReadAt', 'unreadModelVersion', 'unreadBackfilledAt'];
+    }
+
+    function onlyOwnUnreadReadStateUpdate() {
+      let uid = request.auth.uid;
+      let before = resource.data;
+      let after = request.resource.data;
+      return after.diff(before).affectedKeys().hasOnly(['unreadCounts', 'lastReadAt']) &&
+          after.get('unreadCounts', {}) is map &&
+          after.get('lastReadAt', {}) is map &&
+          after.get('unreadCounts', {}).diff(before.get('unreadCounts', {})).affectedKeys().hasOnly([uid]) &&
+          after.get('lastReadAt', {}).diff(before.get('lastReadAt', {})).affectedKeys().hasOnly([uid]) &&
+          after.unreadCounts[uid] == 0 &&
+          after.lastReadAt[uid] == request.time;
+    }
+
     function onlyMessageReadReceiptUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['readBy', 'updatedAt']);
@@ -1544,9 +1566,15 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
       // 1:1 방은 unlockDirectChat callable이 하트 차감과 함께 생성한다.
       // 시즌/블라인드 미팅 방도 각 서버 트랜잭션의 소유다.
       allow create: if false;
+      // P0-2: marking a room read is ONE room-level write of the caller's own
+      // unread keys. It stands apart from the general branch on purpose: a
+      // blocked or read-only room still lets its participant dismiss what
+      // they already received, and nothing else may change in that write.
+      allow update: if isChatRoomParticipant() && onlyOwnUnreadReadStateUpdate();
       // participantIds is immutable after create — changing it would let a
       // participant add a third party who can then read the full history.
       allow update: if isChatRoomParticipant() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(unreadModelServerKeys()) &&
         !hasOneToOneChatBlock(resource.data) &&
         isChatRoomParticipantAfter() &&
         chatRoomParticipantIdsUnchanged() &&
@@ -1572,6 +1600,8 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         allow create: if isParticipantMessageAuthor(roomId) &&
           !hasOneToOneChatBlock(blindRoomData(roomId)) &&
           request.resource.data.type != 'text' &&
+          // P0-2: the accounting marker is written only by the server.
+          !request.resource.data.keys().hasAny(['unreadAccountedAt', 'unreadBackfilled']) &&
           isValidClientSupportMessage(roomId) &&
           (
             !request.resource.data.keys().hasAny(['type']) ||
