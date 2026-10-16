@@ -43,12 +43,14 @@ Status vocabulary: `CLOSED` (verified), `DEFERRED` (documented, gated),
 | NEW-02 | CI does not run on pushes to `security/**` branches (only `main`, `audit/**`, `release/**`, `semisemifinal`, PRs) | P3 | OPEN | Either add `security/**` to the push trigger or always work through PRs |
 | NEW-03 | Production Functions carry `ENVIRONMENT=staging` (known; `avatarMedia.ts:162` works around it via `K_SERVICE`) | P3 | OPEN | Decide canonical value in OPS-02 contract; change only via guarded deploy with `--allow-change-key` |
 | NEW-04 | Six `dm_*_fake_user_1` counterparts have Auth users without `users` docs (ghost accounts) | P2 | OPEN | Part of OPS-03 owner review; check account-deletion completeness (`deleteAuthUser` op) |
+| NEW-05 | Committed `currentKnownReleaseBuild = 23` vs `pubspec 1.0.0+34` makes `test/core/compatibility/app_compatibility_test.dart` fail on a clean checkout (the fix exists only as an uncommitted change in the `security/integration` worktree) | P3 | OPEN | Commit the build-number sync |
+| NEW-06 | Legacy `readBy` writes and old-client history scans remain until `minimumSupportedBuild` passes the first P0-2 client build; `appCompatibilityConfig` has no documents today, so no build is forced to update | P2 | OPEN (gated) | After the client release: set `appCompatibilityConfig/production.minimumSupportedBuild`, then stop writing `readBy` in a separate change |
 
 ## Remaining audit findings (referenced, not implemented here)
 
 | ID | Finding | Severity | Status |
 |---|---|---|---|
-| P0-2 | Chat unread/read scans full message history; mark-read batch >500 risk; unbounded `messagesStream`; daily digest scans users × rooms × messages | P0 | OPEN — next remediation stage |
+| P0-2 | Chat unread/read scans full message history; mark-read batch >500 risk; unbounded `messagesStream`; daily digest scans users × rooms × messages | P0 | SOURCE CLOSED / DATA MIGRATION COMPLETE / PRODUCTION: backend + rules + backfill live (2026-10-16), **client path awaits the next app release** — see `02-p0-2-chat-unread.md` | Branch `security/p0-2-chat-unread` (`49f5c561`…`1e70e9c7`): room-level `unreadCounts`/`lastReadAt`, idempotent trigger accounting, rules, provider + pagination, backfill CLI; emulator 15/15 (+ legacy-port failures as before-evidence), rules 258/258, Dart 28/28 new, production smoke 14/14, backfill 23 rooms / 25 messages / 0 issues, Functions `onchatmessagecreated-00008-ved`, `senddailyunreadchatdigests-00008-miz`, ruleset `113e93ec…`. Retirement gate for `readBy` writes: `minimumSupportedBuild` ≥ first build with this change |
 | P0-3 | Bamboo (anonymous board) de-anonymizable via `authorId`, notification `actorId/actorName`, like-doc listing (SEC-04 unfinished) | P0 | OPEN |
 | P1-1 | Mutual-like match creation lost `ensureMutualMatch` (regression in `22ca7307`); no block check; like-push spam | P1 | OPEN |
 | P1-2 | Chat access-control bypasses: `sendChatText` ignores room `status`/`writable`; 1:1 room fields rewritable; non-text message types skip moderation | P1 | OPEN |
@@ -57,7 +59,7 @@ Status vocabulary: `CLOSED` (verified), `DEFERRED` (documented, gated),
 | P1-5 | Account deletion leaves `participantInfo.<uid>` (dotted key with `set`), onboarding photos, blind-meeting data | P1 | OPEN |
 | P1-6 | No crash reporting | P1 | OPEN |
 | P1-7 | Adult verification enforced client-side only; `ADULT_VERIFICATION_BYPASS` not gated by `!kReleaseMode` | P1 | OPEN |
-| P1-8 | `sendDailyUnreadChatDigests` full scan | P1 | OPEN (folds into P0-2) |
+| P1-8 | `sendDailyUnreadChatDigests` full scan | P1 | CLOSED with P0-2 (rooms-only paged collector, deterministic `chat_digest_<date>` id); first scheduled production run (13:00 KST) still to be observed in logs |
 | P1-9 | Onboarding photo upload unresized base64 | P1 | OPEN |
 | P1-10 | `asks`/`interactions` schema + block checks | P1 | OPEN |
 | P1-11…13 | Send-failure draft loss; group `readBy` lost updates; season-meeting client-trusted time | P1 | OPEN |
