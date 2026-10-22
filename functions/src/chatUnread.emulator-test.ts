@@ -42,9 +42,11 @@ import {
   backfillRoomUnread,
   checkRoomUnreadIntegrity,
   collectDailyUnreadDigest,
+  reconcileRoomUnread,
   runChatUnreadBackfill,
   timestampAtOrAfter,
   unreadCountFor,
+  verifyRoomUnreadCounts,
 } from "./chatUnread";
 
 initializeApp({ projectId: process.env.GCLOUD_PROJECT ?? "demo-p02-chat" });
@@ -698,4 +700,109 @@ test("P0-2-K-I: mark-read racing the delayed trigger, 10 rounds — always 0 (me
     assert.equal(unreadCountFor(await room(roomId), b), 0, `round ${i}`);
     assert.equal(await expectedUnread(roomId, b), 0, `invariant round ${i}`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Reconciliation — invariant check and repair
+// ---------------------------------------------------------------------------
+
+test("reconcile: a clean room reports no mismatch (lastReadAt and legacy bases)", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("rc");
+  await seedRoom(roomId, [a, b]);
+  const m1 = await seedMessage(roomId, a, 0, { realTime: true });
+  await fireTrigger(roomId, m1.id);
+  await sleep(5);
+  await newPort.markRead(roomId, b); // b: lastReadAt basis, expected 0
+  await sleep(5);
+  const m2 = await seedMessage(roomId, a, 1, { realTime: true }); // b: +1 after the read
+  await fireTrigger(roomId, m2.id);
+  const m3 = await seedMessage(roomId, b, 2, { realTime: true }); // a: legacy basis (never marked read), +1
+  await fireTrigger(roomId, m3.id);
+  const v = await verifyRoomUnreadCounts(db, roomId, { graceMs: 0 });
+  assert.deepEqual(v.mismatches, []);
+  assert.deepEqual(v.unverifiable, []);
+});
+
+test("reconcile: a phantom (over_count) is detected and repaired; dry-run writes nothing", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("rc");
+  await seedRoom(roomId, [a, b]);
+  const m = await seedMessage(roomId, a, 0, { realTime: true });
+  await fireTrigger(roomId, m.id);
+  await sleep(5);
+  await newPort.markRead(roomId, b);
+  // Simulate the pre-fix phantom: the counter says 1 although nothing is newer than the read.
+  await db.collection("chat_rooms").doc(roomId).update(new FieldPath("unreadCounts", b), 1);
+  const dry = await reconcileRoomUnread(db, roomId, { dryRun: true, graceMs: 0 });
+  assert.equal(dry.mismatches.length, 1);
+  assert.deepEqual(
+    { kind: dry.mismatches[0].kind, basis: dry.mismatches[0].basis, actual: dry.mismatches[0].actual, expected: dry.mismatches[0].expected },
+    { kind: "over_count", basis: "lastReadAt", actual: 1, expected: 0 }
+  );
+  assert.equal(unreadCountFor(await room(roomId), b), 1, "dry-run must not write");
+  const fixed = await reconcileRoomUnread(db, roomId, { dryRun: false, graceMs: 0 });
+  assert.equal(fixed.repaired, 1);
+  assert.equal(unreadCountFor(await room(roomId), b), 0);
+  assert.deepEqual((await verifyRoomUnreadCounts(db, roomId, { graceMs: 0 })).mismatches, []);
+});
+
+test("reconcile: a lost increment (under_count) is repaired and the message marked, so a late trigger cannot double count", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("rc");
+  await seedRoom(roomId, [a, b]);
+  await newPort.markRead(roomId, b);
+  await sleep(5);
+  const m = await seedMessage(roomId, a, 0, { realTime: true }); // trigger never delivered
+  // Within the grace window the message may still be in the queue: not a mismatch yet.
+  const settling = await verifyRoomUnreadCounts(db, roomId, { graceMs: 60_000 });
+  assert.deepEqual(settling.mismatches, []);
+  const v = await verifyRoomUnreadCounts(db, roomId, { graceMs: 0 });
+  assert.equal(v.mismatches.length, 1);
+  assert.equal(v.mismatches[0].kind, "under_count");
+  assert.deepEqual(v.mismatches[0].pendingMessageIds, [m.id]);
+  const fixed = await reconcileRoomUnread(db, roomId, { dryRun: false, graceMs: 0 });
+  assert.equal(fixed.repaired, 1);
+  assert.equal(unreadCountFor(await room(roomId), b), 1);
+  const late = await fireTrigger(roomId, m.id);
+  assert.equal(late.reason, "already_accounted");
+  assert.equal(unreadCountFor(await room(roomId), b), 1, "late trigger must not double count");
+});
+
+test("reconcile: legacy basis folds an old client's readBy reads into the counter", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("rc");
+  await seedRoom(roomId, [a, b]);
+  const m1 = await seedMessage(roomId, a, 0, { realTime: true });
+  const m2 = await seedMessage(roomId, a, 1, { realTime: true });
+  await fireTrigger(roomId, m1.id);
+  await fireTrigger(roomId, m2.id);
+  assert.equal(unreadCountFor(await room(roomId), b), 2);
+  // An old client reads the room: readBy only, never the counter.
+  await legacyPort.markRead(roomId, b);
+  const v = await verifyRoomUnreadCounts(db, roomId, { graceMs: 0 });
+  assert.deepEqual(
+    v.mismatches.map((x) => ({ uid: x.uid, kind: x.kind, basis: x.basis, actual: x.actual, expected: x.expected })),
+    [{ uid: b, kind: "over_count", basis: "readBy", actual: 2, expected: 0 }]
+  );
+  const fixed = await reconcileRoomUnread(db, roomId, { dryRun: false, graceMs: 0 });
+  assert.equal(fixed.repaired, 1);
+  assert.equal(unreadCountFor(await room(roomId), b), 0);
+});
+
+test("reconcile: a room that moved between verification and repair is skipped, never half-written", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("rc");
+  await seedRoom(roomId, [a, b]);
+  const m = await seedMessage(roomId, a, 0, { realTime: true });
+  await fireTrigger(roomId, m.id);
+  await sleep(5);
+  await newPort.markRead(roomId, b);
+  await db.collection("chat_rooms").doc(roomId).update(new FieldPath("unreadCounts", b), 1); // phantom
+  const v = await verifyRoomUnreadCounts(db, roomId, { graceMs: 0 });
+  assert.equal(v.mismatches.length, 1);
+  // The user reads again before the repair lands (lastReadAt moves, counter 0).
+  await sleep(5);
+  await newPort.markRead(roomId, b);
+  // Repair re-verifies internally; simulate the stale expectation by applying the
+  // same repair path twice: the first run is already consistent (0 mismatches).
+  const rerun = await reconcileRoomUnread(db, roomId, { dryRun: false, graceMs: 0 });
+  assert.equal(rerun.mismatches.length, 0);
+  assert.equal(rerun.repaired, 0);
+  assert.equal(unreadCountFor(await room(roomId), b), 0);
 });

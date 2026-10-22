@@ -614,3 +614,197 @@ export function checkRoomUnreadIntegrity(roomId: string, roomData: Doc): RoomInt
   }
   return issues;
 }
+
+// -----------------------------------------------------------------------------
+// Reconciliation — checks the invariant against the messages (offline tool)
+// -----------------------------------------------------------------------------
+
+export type RoomUnreadMismatch = {
+  roomId: string;
+  uid: string;
+  actual: number;
+  expected: number;
+  kind: "over_count" | "under_count";
+  /** `lastReadAt`: strict invariant; `readBy`: legacy rule (user never marked read on a new client). */
+  basis: "lastReadAt" | "readBy";
+  /** The `lastReadAt` the expectation was computed against (repair re-checks it). */
+  lastReadAt: Timestamp | null;
+  /** Counted messages that carry no accounting marker (their trigger is late or lost). */
+  pendingMessageIds: string[];
+};
+
+export type RoomUnreadVerification = {
+  roomId: string;
+  mismatches: RoomUnreadMismatch[];
+  /** Participants whose expectation could not be computed within `maxMessages`. */
+  unverifiable: string[];
+  messagesRead: number;
+};
+
+/**
+ * Messages newer than `lastReadAt` minus this margin are fetched by their
+ * `createdAt` field (the indexed proxy for the commit time — every writer
+ * stamps it with the server time); the decision itself uses `createTime`.
+ */
+const RECONCILE_QUERY_MARGIN_MS = 5 * 60 * 1000;
+export const RECONCILE_DEFAULT_GRACE_MS = 5 * 60 * 1000;
+export const RECONCILE_DEFAULT_MAX_MESSAGES = 2000;
+
+/**
+ * Recomputes every participant's expected counter from the messages and
+ * compares it with the room document. Read-only.
+ *
+ * - `basis: lastReadAt` — expected = messages (sender != uid) whose commit
+ *   time is after `lastReadAt[uid]` (the invariant above).
+ * - `basis: readBy` — the participant never marked the room read on a new
+ *   client; expected = legacy rule (sender != uid and uid not in `readBy`).
+ *   This also folds reads performed by OLD clients (which only write
+ *   `readBy`) into the counter.
+ *
+ * A message committed within `graceMs` may still be in the trigger queue, so
+ * an `under_count` is reported only when it already holds for the settled
+ * messages (older than the grace window). An `over_count` is always definite.
+ */
+export async function verifyRoomUnreadCounts(
+  db: Firestore,
+  roomId: string,
+  options: { graceMs?: number; maxMessages?: number; now?: Timestamp } = {}
+): Promise<RoomUnreadVerification> {
+  const graceMs = options.graceMs ?? RECONCILE_DEFAULT_GRACE_MS;
+  const maxMessages = options.maxMessages ?? RECONCILE_DEFAULT_MAX_MESSAGES;
+  const now = options.now ?? Timestamp.now();
+  const settledBefore = Timestamp.fromMillis(now.toMillis() - graceMs);
+  const roomRef = db.collection("chat_rooms").doc(roomId);
+  const result: RoomUnreadVerification = { roomId, mismatches: [], unverifiable: [], messagesRead: 0 };
+  const roomSnap = await roomRef.get();
+  if (!roomSnap.exists) return result;
+  const room = (roomSnap.data() ?? {}) as Doc;
+  const participantIds = Array.isArray(room.participantIds)
+    ? room.participantIds.filter((v): v is string => typeof v === "string" && v.length > 0)
+    : [];
+  const lastReadAtMap = isRecord(room.lastReadAt) ? room.lastReadAt : {};
+
+  let legacyMessages: FirebaseFirestore.QueryDocumentSnapshot[] | null | undefined;
+  const loadLegacyMessages = async () => {
+    if (legacyMessages !== undefined) return legacyMessages;
+    const page = await roomRef.collection("messages").orderBy("createdAt").limit(maxMessages + 1).get();
+    result.messagesRead += page.size;
+    legacyMessages = page.size > maxMessages ? null : page.docs;
+    return legacyMessages;
+  };
+
+  for (const uid of participantIds) {
+    const actual = unreadCountFor(room, uid);
+    const readAt = asTimestamp(lastReadAtMap[uid]);
+    let docs: FirebaseFirestore.QueryDocumentSnapshot[] | null;
+    if (readAt) {
+      const page = await roomRef
+        .collection("messages")
+        .where("createdAt", ">", Timestamp.fromMillis(readAt.toMillis() - RECONCILE_QUERY_MARGIN_MS))
+        .orderBy("createdAt")
+        .limit(maxMessages + 1)
+        .get();
+      result.messagesRead += page.size;
+      docs = page.size > maxMessages ? null : page.docs;
+    } else {
+      docs = await loadLegacyMessages();
+    }
+    if (docs === null) {
+      result.unverifiable.push(uid);
+      continue;
+    }
+    let expected = 0;
+    let expectedSettled = 0;
+    const pendingMessageIds: string[] = [];
+    for (const doc of docs) {
+      const message = (doc.data() ?? {}) as Doc;
+      const committedAt = messageCommitTime(doc, message);
+      let counts: boolean;
+      if (readAt) {
+        counts =
+          asNonEmptyString(message.senderId) !== null &&
+          message.senderId !== uid &&
+          (committedAt === null || !timestampAtOrAfter(readAt, committedAt));
+      } else {
+        counts = legacyMessageIsUnreadFor(message, uid);
+      }
+      if (!counts) continue;
+      expected += 1;
+      if (committedAt === null || !timestampAtOrAfter(committedAt, settledBefore)) expectedSettled += 1;
+      if (message.unreadAccountedAt == null) pendingMessageIds.push(doc.id);
+    }
+    const basis = readAt ? "lastReadAt" : "readBy";
+    if (actual > expected) {
+      result.mismatches.push({ roomId, uid, actual, expected, kind: "over_count", basis, lastReadAt: readAt, pendingMessageIds });
+    } else if (actual < expectedSettled) {
+      result.mismatches.push({ roomId, uid, actual, expected, kind: "under_count", basis, lastReadAt: readAt, pendingMessageIds });
+    }
+  }
+  return result;
+}
+
+export type RoomReconcileResult = RoomUnreadVerification & {
+  /** Mismatches fixed (all of a room's mismatches are fixed together or not at all). */
+  repaired: number;
+  /** "changed": the room moved since verification (re-run); "too_many_pending": over the transaction budget. */
+  skipped: "changed" | "too_many_pending" | null;
+};
+
+/**
+ * Repairs the mismatches `verifyRoomUnreadCounts` reported, in ONE
+ * transaction per room: it re-reads the room and every counted message that
+ * had no accounting marker, aborts (skips the room, nothing written) if any
+ * participant's `lastReadAt` or any marker changed since verification —
+ * a mark-read or a late trigger landed and the expectation is stale — and
+ * otherwise applies each delta and marks those messages accounted, so the
+ * trigger that may still deliver for them cannot count them again. Dry run
+ * performs the same verification and no writes.
+ */
+export async function reconcileRoomUnread(
+  db: Firestore,
+  roomId: string,
+  options: { dryRun: boolean; graceMs?: number; maxMessages?: number; now?: Timestamp }
+): Promise<RoomReconcileResult> {
+  const verification = await verifyRoomUnreadCounts(db, roomId, options);
+  const result: RoomReconcileResult = { ...verification, repaired: 0, skipped: null };
+  if (options.dryRun || verification.mismatches.length === 0) return result;
+  const roomRef = db.collection("chat_rooms").doc(roomId);
+  const pendingIds = new Set<string>();
+  for (const m of verification.mismatches) for (const id of m.pendingMessageIds) pendingIds.add(id);
+  if (pendingIds.size > BACKFILL_MESSAGE_CHUNK) {
+    result.skipped = "too_many_pending";
+    return result;
+  }
+  const outcome = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(roomRef);
+    if (!snap.exists) return "changed" as const;
+    const room = (snap.data() ?? {}) as Doc;
+    const lastReadAtMap = isRecord(room.lastReadAt) ? room.lastReadAt : {};
+    for (const m of verification.mismatches) {
+      const current = asTimestamp(lastReadAtMap[m.uid]);
+      const unchanged =
+        (current === null && m.lastReadAt === null) ||
+        (current !== null && m.lastReadAt !== null && current.isEqual(m.lastReadAt));
+      if (!unchanged) return "changed" as const;
+      if (unreadCountFor(room, m.uid) !== m.actual) return "changed" as const;
+    }
+    const pendingRefs = [...pendingIds].map((id) => roomRef.collection("messages").doc(id));
+    const pendingSnaps = await Promise.all(pendingRefs.map((ref) => tx.get(ref)));
+    for (const p of pendingSnaps) {
+      if (!p.exists || (p.data() ?? {}).unreadAccountedAt != null) return "changed" as const;
+    }
+    const args: unknown[] = ["unreadModelVersion", UNREAD_MODEL_VERSION];
+    for (const m of verification.mismatches) {
+      const delta = m.expected - m.actual;
+      if (delta !== 0) args.push(unreadCountPath(m.uid), FieldValue.increment(delta));
+    }
+    (tx.update as unknown as (ref: DocumentReference, ...rest: unknown[]) => Transaction)(roomRef, ...args);
+    for (const ref of pendingRefs) {
+      tx.update(ref, { unreadAccountedAt: FieldValue.serverTimestamp(), unreadReconciled: true });
+    }
+    return "repaired" as const;
+  });
+  if (outcome === "repaired") result.repaired = verification.mismatches.length;
+  else result.skipped = outcome;
+  return result;
+}
