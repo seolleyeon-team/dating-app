@@ -320,6 +320,56 @@ def test_bootstrap_parameter_discovery_and_guard_precede_the_exact_deploy():
     assert 'FUNCTIONS_DISCOVERY_TIMEOUT=30 npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" deploy --only "$TARGETS"' in wrapper
 
 
+def test_failure_policy_override_is_opt_in_single_target_and_the_only_force():
+    """`--force` (needed for a function declaring `retry: true`) is reachable
+    only through `--allow-failure-policy FUNCTION`, after the single-target
+    checks, and the default command line never carries it."""
+    wrapper = (SCRIPTS_DIR / "deploy_functions_guarded.sh").read_text(encoding="utf-8")
+
+    assert 'FAILURE_POLICY_FUNCTION=""' in wrapper
+    assert "FAILURE_POLICY_SINGLE_TARGET_REQUIRED" in wrapper
+    assert "FAILURE_POLICY_TARGET_MISMATCH" in wrapper
+    forced = 'deploy --only "$TARGETS" --project "$PROJECT" --non-interactive --force'
+    plain = 'deploy --only "$TARGETS" --project "$PROJECT" --non-interactive\n'
+    assert wrapper.count(forced) == 1
+    assert wrapper.count(plain) == 1
+    code_lines_with_force = [
+        line
+        for line in wrapper.splitlines()
+        if "--force" in line and not line.lstrip().startswith(("#", "echo "))
+    ]
+    # exactly one executable line passes --force: the guarded deploy line
+    assert len(code_lines_with_force) == 1
+    assert forced in code_lines_with_force[0]
+    # the forced branch is guarded by the override variable
+    branch = wrapper[wrapper.rindex('if [ -n "$FAILURE_POLICY_FUNCTION" ]; then', 0, wrapper.index(forced)) : wrapper.index(forced)]
+    assert "else" not in branch
+    # the override checks run before any contract / guard / build step
+    assert wrapper.index("FAILURE_POLICY_TARGET_MISMATCH") < wrapper.index("deploy_functions_guarded_contract.py")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="shell wrapper integration runs in CI on POSIX")
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["--allow-failure-policy", "otherFunction", FUNCTION], "FAILURE_POLICY_TARGET_MISMATCH"),
+        (["--allow-multiple-functions", "--allow-failure-policy", FUNCTION, FUNCTION, "otherFunction"], "FAILURE_POLICY_SINGLE_TARGET_REQUIRED"),
+        (["--allow-failure-policy", FUNCTION, FUNCTION, "otherFunction"], "FAILURE_POLICY_SINGLE_TARGET_REQUIRED"),
+        (["--allow-failure-policy", "a/b", "a/b"], "FAILURE_POLICY_TARGET_INVALID"),
+    ],
+)
+def test_wrapper_refuses_misdeclared_failure_policy_targets_before_any_check(argv, message, tmp_path):
+    completed = subprocess.run(
+        ["bash", str(SCRIPTS_DIR / "deploy_functions_guarded.sh"), "--project", "p", "--region", "r", "--env-file", str(tmp_path / "missing.env"), *argv],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 2
+    assert message in completed.stderr
+    assert "ENV DEPLOY CONTRACT" not in completed.stdout
+
+
 def test_multi_function_target_requires_explicit_opt_in():
     with pytest.raises(contract.DeployContractError, match="MULTI_FUNCTION"):
         contract.validate_function_targets([FUNCTION, "otherFunction"])

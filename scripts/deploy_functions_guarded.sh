@@ -256,17 +256,21 @@ for fn in "${FUNCTIONS[@]}"; do
   TARGETS="${TARGETS:+$TARGETS,}functions:$fn"
 done
 
-DEPLOY_ARGS=(deploy --only "$TARGETS" --project "$PROJECT" --non-interactive)
 if [ -n "$FAILURE_POLICY_FUNCTION" ]; then
-  # Only reachable with a single, name-checked target (see above).
-  DEPLOY_ARGS+=(--force)
+  echo "[deploy] firebase deploy --only $TARGETS --force (failure policy of $FAILURE_POLICY_FUNCTION)"
+else
+  echo "[deploy] firebase deploy --only $TARGETS"
 fi
-echo "[deploy] firebase ${DEPLOY_ARGS[*]}"
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "[deploy] dry-run: Firebase deploy was not invoked"
   exit 0
 fi
-FUNCTIONS_DISCOVERY_TIMEOUT=30 npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" "${DEPLOY_ARGS[@]}"
+if [ -n "$FAILURE_POLICY_FUNCTION" ]; then
+  # Only reachable with a single, name-checked target (see above).
+  FUNCTIONS_DISCOVERY_TIMEOUT=30 npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" deploy --only "$TARGETS" --project "$PROJECT" --non-interactive --force
+else
+  FUNCTIONS_DISCOVERY_TIMEOUT=30 npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" deploy --only "$TARGETS" --project "$PROJECT" --non-interactive
+fi
 
 # No declarations on the way back. The intended change has been applied, so the
 # serving revision must now match the env file exactly - any remaining
