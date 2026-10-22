@@ -211,6 +211,13 @@ trigger by hand so each order is deterministic:
 Also tested through the deployed wiring (`chatUnreadTrigger.emulator-test.ts`:
 mark-read before the delayed delivery, plus a redelivery → 0).
 
+Reproduced in production on the live revision `00008` (strict smoke
+`p02_smoke_v2`, namespaced test accounts, everything deleted afterwards):
+17/19 — the two checks that fail are exactly "message committed → B marks
+read before the trigger lands → B == 0" (actual 1) and "B equals the
+invariant" (actual 1, expected 0). The rules, system-message and race
+checks pass. This is the before-evidence for the deploy of `2bdb060b`.
+
 ### Critical Risk B — the trigger's actual retry configuration
 
 Verified on the live function, not assumed:
