@@ -54,16 +54,9 @@ class FirestoreCommunityRepository implements CommunityRepository {
   // 지금은 join 한 번으로 작성자를 특정할 수 있다. 최종적으로는 public 에서
   // authorId 를 빼야 하고, 그때 "내가 쓴 글" 을 잃지 않도록 소유권을 여기
   // 비공개 매핑에 함께 적어 둔다. 이 단계에서는 public authorId 를 아직
-  // 지우지 않으므로 구버전 앱도 그대로 동작한다.
-  CollectionReference<Map<String, dynamic>> get _postAuthors =>
-      _firestore.collection(
-        postAuthorsCollectionForUserId(_firebaseAuth.currentUser?.uid),
-      );
-
-  CollectionReference<Map<String, dynamic>> get _commentAuthors =>
-      _firestore.collection(
-        commentAuthorsCollectionForUserId(_firebaseAuth.currentUser?.uid),
-      );
+  // 지우지 않으므로 구버전 앱도 그대로 동작한다. 매핑 컬렉션 이름은 위의
+  // postAuthorsCollectionForUserId / commentAuthorsCollectionForUserId 가
+  // 정한다.
 
   // 댓글은 글 하위에 있어 commentId 만으로는 유일하지 않다.
   static String commentAuthorDocId(String postId, String commentId) =>
