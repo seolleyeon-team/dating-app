@@ -218,6 +218,16 @@ read before the trigger lands → B == 0" (actual 1) and "B equals the
 invariant" (actual 1, expected 0). The rules, system-message and race
 checks pass. This is the before-evidence for the deploy of `2bdb060b`.
 
+After the deploy of revision `00009` the same smoke passes **19/19**
+(trigger accounting, sender excluded, rules ALLOW/DENY matrix with real ID
+tokens, system message, delayed trigger → 0, invariant, race → invariant), and
+a group addendum (`p02_smoke_group`, six members) passes **21/21**: sender
+excluded, five recipients counted once, one member's read leaves peers
+untouched, read boundary (readers before the commit get only the new message),
+delayed trigger in a group → 0, invariant for all six, marker idempotency,
+serving revision `00009-mod`; residue audit 0 (users, publicProfiles, room,
+messages, dispatch logs, per-user notifications).
+
 ### Critical Risk B — the trigger's actual retry configuration
 
 Verified on the live function, not assumed:
@@ -248,12 +258,45 @@ Failure matrix (post-fix behaviour; "current prod" = revision `00008`):
 | F. out-of-order delivery (m2 before m1) | commutative increments + high-water mark; K-E |
 | G. persistent failure (bug, permission) | retried until the retention window (CLI warns up to 7 days; subscription retention 24 h); `chat_unread_accounting_failed` alert fires; `--repair` after recovery |
 
-**Deployment status: `2bdb060b` is NOT deployed.** `firebase deploy` refuses a
-function with a failure policy unless `--force` is passed; the guarded deploy
-script (which passed both env guards: 31 keys, removals = changes = 0) does not
-pass it, and adding that option is an owner decision (backlog NEW-08). Until a
-new client writes `lastReadAt` (0 keys in production today) the phantom-unread
-path cannot occur, so production exposure is nil before the client release.
+**Deployed 2026-10-22 10:39Z** as `onchatmessagecreated-00009-mod` (commit
+`ed0413ed` tree; function code from `2bdb060b`) through the guarded script
+with the new `--allow-failure-policy onChatMessageCreated` opt-in (one named
+function, single target, env guard before and after: 31 keys, removals =
+changes = 0, 38 live variables, 0 secret refs). Verified on the live
+resource, not from the exit code:
+
+| Check | Value |
+|---|---|
+| `eventTrigger.retryPolicy` | `RETRY_POLICY_RETRY` |
+| Cloud Run | `onchatmessagecreated-00009-mod` Ready, 100 % traffic, nodejs22, 60 s / 256 Mi / max 10 / concurrency 80 (unchanged) |
+| Service account / trigger SA | `810450765203-compute@…` (unchanged) |
+| Eventarc trigger / subscription | `onchatmessagecreated-826606` / `…-sub-487` (unchanged) |
+| Functions in region | 98 before and after (no deletion) |
+| Logs after deploy | 4 deploy-time unauthenticated probes (403, same as every deploy), then only 204s; accounting logs show `alreadyRead: 1` for the high-water-mark cases; 4 pushes sent, 0 duplicates, 0 `accounting failed` |
+
+Failure classification as implemented (`accountMessageUnread` + trigger):
+
+| Class | Example | Behaviour |
+|---|---|---|
+| TRANSIENT | Firestore UNAVAILABLE / DEADLINE_EXCEEDED / ABORTED beyond the SDK's own transaction retries | handler throws → platform retry with backoff (now active) |
+| PERMANENT (code/config) | permission denied, bug in the handler | throws → retried until the retention window closes (CLI: up to 7 days; subscription retention 24 h); each attempt is 2 reads; `chat_unread_accounting_failed` alert; recovery = fix + `--repair` |
+| PERMANENT (data) | message without sender, garbage `participantIds` / `lastReadAt` | never throws: `no_recipients` / counted, marker written, no loop |
+| ALREADY PROCESSED | redelivery, retry after a push failure | `already_accounted`, push skipped by the dispatch log |
+| RESOURCE REMOVED | message or room deleted before the trigger ran | `message_missing` (nothing to mark) / `room_missing` (message marked); no loop |
+
+### Read boundary semantics (decision, explicit)
+
+`markRoomRead` stamps `lastReadAt = request.time` (server time of the
+mark-read request), issued by the room screen once per *newest live message
+id*. The boundary is therefore "everything committed before the mark-read
+request", not "the newest message the user looked at". Scenario *M1 displayed,
+M2 committed but not yet delivered, user marks read*: M2 is treated as read
+and not counted. This is the pre-existing room-level product behaviour
+(opening the room marks the room read) and is kept deliberately: the user is
+on the room screen, M2 arrives within the stream latency, and the next
+mark-read (newest id changed) covers it; the invariant stays true at every
+instant. Only a per-message acknowledgement model would change this, which
+is out of P0-2's scope.
 
 ### Critical Risk C — push idempotency under retries
 
@@ -277,8 +320,10 @@ accounted so a late trigger cannot double count. Emulator tests cover a clean
 room, a phantom (`over_count`), a lost increment (`under_count` + late
 trigger), old-client reads, and a room that moved between verify and repair.
 
-Production, 2026-10-22, read-only: `rooms=23 withUnreadModel=23 legacy=0
-structuralIssues=0 mismatches=0 unverifiable=0 messagesRead=25`.
+Production, 2026-10-22, read-only, before and again after the `00009`
+deploy and the smokes: `rooms=23 withUnreadModel=23 legacy=0
+structuralIssues=0 mismatches=0 unverifiable=0 skipped=0 messagesRead=25`.
+No `--repair` was needed or run.
 
 ### Digest, old clients, multi-device, groups, rules
 
@@ -303,10 +348,18 @@ structuralIssues=0 mismatches=0 unverifiable=0 messagesRead=25`.
 
 Log-based metric `chat_unread_accounting_failed` (filter: service
 `onchatmessagecreated`, `jsonPayload.message = "chat unread accounting failed"`)
-and alert policy "Chat unread accounting failed" (> 0 in 5 min, no notification
-channel — the project's existing avatar policies have none either). Every
+and alert policy "Chat unread accounting failed" (> 0 in 5 min). Every
 accounting now logs `chat unread accounted` with `reason`, `incremented`,
 `alreadyRead`.
+
+**ALERT EXISTS — DELIVERY CHANNEL NOT CONFIGURED.** The project has no
+notification channel at all (the ten avatar alert policies have none either),
+so an incident is visible only in the Cloud Monitoring console. Creating a
+channel (e-mail / Slack) is an owner decision (backlog NEW-11); until then the
+operational check is the reconciliation procedure: after any accounting
+failure, `node functions/lib/chatUnreadBackfillCli.js --project
+seolleyeon-final --verify`, and `--repair --checkpoint <id>` only for the
+rooms it reports.
 
 ### Cost (final)
 
@@ -321,11 +374,62 @@ accounting now logs `chat unread accounted` with `reason`, `incremented`,
 | Platform retries | ESTIMATED | only on failures; bounded by the retention window |
 | Production billing delta | NOT VERIFIED | no billing export queried |
 
+### PR #147 / CI (2026-10-22)
+
+Head `0deba328` → `security/integration` (no branch protection, no required
+reviewers, mergeable). Workflow `ci`, run 39766953041: 10 of 11 jobs green —
+Functions build/lint/test, Firebase security emulator tests (P0-1 + P0-2
+suites), Firestore rules, Storage rules, Recsys / script unit tests (incl. the
+guard contract tests), Functions bootstrap recovery guard, Secret scan
+(gitleaks), Web build smoke, Android debug APK smoke, Android production AAB
+compile smoke. Red: `Flutter analyze/test` — analyze is clean, `flutter test`
+reports 1162 passed / 18 failed, the same pre-existing set as locally (backlog
+NEW-13; none in chat/unread code). The PR was **not merged**: a red required
+job is a repository-policy question for the owner, not something to force.
+
+### Cost re-measurement with the final code (2026-10-22)
+
+Same emulator assertions, legacy port vs final port: badge 18 → **168** reads
+with 10× history (legacy, FAIL) vs 3 → 3 (final); mark 600 unread read
+**600** writes vs **1**; open room **120** docs vs **50**; digest **120**
+message reads vs **0**. Per-message accounting cost with the high-water mark:
+unchanged (2 reads + 2 writes in one transaction); a retry costs 2 reads and
+no writes; push dedup is 1 read + 1 write per message (pre-existing).
+Production billing delta: NOT VERIFIED (no billing export queried; traffic is
+too small for a statistical comparison).
+
+### Client release artifact (2026-10-22)
+
+`flutter build apk --release --flavor production` on `270e49a2` with a
+throwaway signing key (the repo has no `android/key.properties`; CI's AAB
+smoke uses the same throwaway approach; the key file was removed afterwards).
+Artifact `app-production-release.apk` (98.5 MB, `com.seolleyeon.app`,
+pubspec `1.0.0+34`, `currentKnownReleaseBuild = 23` on this branch — the
+35/35 sync lives in the owner's uncommitted branding change). Symbol scan of
+`lib/arm64-v8a/libapp.so`:
+
+| Symbol | Count |
+|---|---|
+| `ChatUnreadProvider` | 2 |
+| `MessagePageMerger` | 2 |
+| `ChatRoomUnread` | 1 |
+| `markRoomRead` / `latestMessagesStream` / `olderMessagesPage` | 1 each |
+| legacy `hasAnyUnreadChats` / `unreadCountStream` / `markMessagesAsRead` | 0 |
+| `useFirestoreEmulator` (release build strips the `kReleaseMode`-gated branch) | 0 |
+
+Not a store-uploadable build: the Play upload key is pending (owner), so the
+Play / App Store state is NOT VERIFIED, real-device validation was not
+performed, and the client is NOT RELEASED.
+
 ### Closure status
 
-- SOURCE: CLOSED (final-audit fixes committed and tested).
-- DATA: COMPLETE (backfill 2026-10-16; strict verify 0 mismatches 2026-10-22).
-- PRODUCTION: PARTIAL — backend revision `00008` (2026-10-16) + rules + backfill
-  live; `2bdb060b` (high-water mark + retries) awaits the `--force` deploy
-  decision (NEW-08); client awaits the app release; `readBy` retirement gated
-  on `minimumSupportedBuild` (NEW-06).
+- SOURCE: CLOSED (final-audit fixes committed, tested, reviewed in PR #147).
+- DATA: COMPLETE (backfill 2026-10-16; strict verify 0 mismatches before and
+  after the `00009` deploy).
+- BACKEND: CLOSED — `onchatmessagecreated-00009-mod` with
+  `RETRY_POLICY_RETRY`, strict smoke 19/19 + group 21/21, env guard preserved,
+  no other function changed.
+- PRODUCTION: PARTIAL — the client with the provider / pagination is not
+  published (no upload key, store state unverifiable from here); `readBy`
+  retirement gated on `minimumSupportedBuild` (NEW-06); alert delivery channel
+  not configured (NEW-11).
