@@ -17,6 +17,15 @@
 #   --allow-remove-key KEY   --allow-add-key KEY   --allow-change-key KEY
 # A declaration authorises exactly that key and exactly that operation. Any
 # other difference still refuses the deploy.
+#
+# --allow-failure-policy FUNCTION
+#   The Firebase CLI refuses to deploy an event function that declares
+#   `retry: true` unless `--force` is passed. This opt-in adds exactly that,
+#   for exactly one named function, which must also be the only deploy
+#   target (`--allow-multiple-functions` is refused with it). With an
+#   explicit `--only functions:<name>` target the CLI's deletion plan only
+#   ever contains functions matching that filter, so `--force` cannot remove
+#   anything else; the env regression guard still runs before and after.
 set -euo pipefail
 
 PROJECT=""
@@ -24,6 +33,7 @@ REGION=""
 ENV_FILE=""
 ALLOW_MULTIPLE_FUNCTIONS=0
 DRY_RUN=0
+FAILURE_POLICY_FUNCTION=""
 BOOTSTRAP_MANIFEST=""
 ALLOWED=()
 FUNCTIONS=()
@@ -35,6 +45,12 @@ while [ $# -gt 0 ]; do
     --env-file) ENV_FILE="$2"; shift 2 ;;
     --allow-multiple-functions) ALLOW_MULTIPLE_FUNCTIONS=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --allow-failure-policy)
+      if [ -n "$FAILURE_POLICY_FUNCTION" ]; then
+        echo "--allow-failure-policy may name exactly one function" >&2
+        exit 2
+      fi
+      FAILURE_POLICY_FUNCTION="$2"; shift 2 ;;
     --bootstrap-no-serving-revision-manifest)
       if [ -n "$BOOTSTRAP_MANIFEST" ]; then
         echo "bootstrap manifest may be supplied only once" >&2
@@ -60,6 +76,22 @@ FUNCTIONS+=("$@")
 [ -n "$REGION" ] || { echo "--region is required" >&2; exit 2; }
 [ -n "$ENV_FILE" ] || { echo "--env-file is required" >&2; exit 2; }
 [ "${#FUNCTIONS[@]}" -gt 0 ] || { echo "name at least one function" >&2; exit 2; }
+
+if [ -n "$FAILURE_POLICY_FUNCTION" ]; then
+  if ! [[ "$FAILURE_POLICY_FUNCTION" =~ ^[A-Za-z][A-Za-z0-9]*$ ]]; then
+    echo "FAILURE_POLICY_TARGET_INVALID: --allow-failure-policy needs one exact function export name" >&2
+    exit 2
+  fi
+  if [ "$ALLOW_MULTIPLE_FUNCTIONS" -eq 1 ] || [ "${#FUNCTIONS[@]}" -ne 1 ]; then
+    echo "FAILURE_POLICY_SINGLE_TARGET_REQUIRED: --allow-failure-policy deploys exactly one function" >&2
+    exit 2
+  fi
+  if [ "${FUNCTIONS[0]}" != "$FAILURE_POLICY_FUNCTION" ]; then
+    echo "FAILURE_POLICY_TARGET_MISMATCH: declared $FAILURE_POLICY_FUNCTION, deploying ${FUNCTIONS[0]}" >&2
+    exit 2
+  fi
+  echo "[deploy] failure-policy override requested for $FAILURE_POLICY_FUNCTION: the function declares retry, the CLI requires --force"
+fi
 
 if [ -n "$BOOTSTRAP_MANIFEST" ]; then
   if [ "$ALLOW_MULTIPLE_FUNCTIONS" -eq 1 ]; then
@@ -224,12 +256,17 @@ for fn in "${FUNCTIONS[@]}"; do
   TARGETS="${TARGETS:+$TARGETS,}functions:$fn"
 done
 
-echo "[deploy] firebase deploy --only $TARGETS"
+DEPLOY_ARGS=(deploy --only "$TARGETS" --project "$PROJECT" --non-interactive)
+if [ -n "$FAILURE_POLICY_FUNCTION" ]; then
+  # Only reachable with a single, name-checked target (see above).
+  DEPLOY_ARGS+=(--force)
+fi
+echo "[deploy] firebase ${DEPLOY_ARGS[*]}"
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "[deploy] dry-run: Firebase deploy was not invoked"
   exit 0
 fi
-FUNCTIONS_DISCOVERY_TIMEOUT=30 npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" deploy --only "$TARGETS" --project "$PROJECT" --non-interactive
+FUNCTIONS_DISCOVERY_TIMEOUT=30 npx -y "firebase-tools@$FIREBASE_TOOLS_VERSION" "${DEPLOY_ARGS[@]}"
 
 # No declarations on the way back. The intended change has been applied, so the
 # serving revision must now match the env file exactly - any remaining
