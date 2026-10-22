@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import '../models/promise_place.dart';
 import '../data/promise_campus_places.dart';
 import '../services/chat_service.dart';
+import '../services/message_page_merger.dart';
 import '../services/promise_place_service.dart';
 import '../utils/safety_stamp_availability.dart';
 import '../widgets/chat_report_block_flow.dart';
@@ -243,6 +244,26 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Timer? _safetyStampTimer;
   String? _lastMessageSnapshotSignature;
 
+  // P0-2: streams are created once the room id is known (never in build), the
+  // message history is paged, and mark-read is one room-level write issued
+  // only when the newest message changes.
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _roomStream;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _liveMessagesStream;
+  late final MessagePageMerger<QueryDocumentSnapshot<Map<String, dynamic>>>
+  _pages = MessagePageMerger(
+    pageSize: ChatService.messagePageSize,
+    idOf: (doc) => doc.id,
+    createdAtMillisOf: (doc) {
+      final value = doc.data()['createdAt'];
+      return value is Timestamp ? value.millisecondsSinceEpoch : null;
+    },
+    typeOf: (doc) => doc.data()['type']?.toString() ?? '',
+    promiseIdOf: (doc) => doc.data()['promiseId']?.toString(),
+  );
+  bool _isLoadingOlder = false;
+  String? _lastReadMarkedMessageId;
+  final Set<String> _requestedPromiseSupplements = <String>{};
+
   void _openPartnerProfileCard() {
     if (widget.partnerId.isEmpty) return;
 
@@ -388,6 +409,72 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final position = _scrollController.position;
     final distanceFromBottom = position.maxScrollExtent - position.pixels;
     _isNearBottom = distanceFromBottom <= 96;
+    if (position.pixels <= 120 && _pages.hasMore && !_isLoadingOlder) {
+      _loadOlderMessages();
+    }
+  }
+
+  /// One older page (cursor = oldest loaded message). Keeps the viewport
+  /// anchored on the message the user was looking at.
+  Future<void> _loadOlderMessages() async {
+    final oldest = _pages.oldestLoaded;
+    if (oldest == null ||
+        _isLoadingOlder ||
+        !_pages.hasMore ||
+        _roomId.isEmpty) {
+      return;
+    }
+    setState(() => _isLoadingOlder = true);
+    final hadClients = _scrollController.hasClients;
+    final beforeMax = hadClients
+        ? _scrollController.position.maxScrollExtent
+        : 0.0;
+    final beforePixels = hadClients ? _scrollController.position.pixels : 0.0;
+    try {
+      final page = await _chatService.olderMessagesPage(
+        _roomId,
+        startAfter: oldest,
+      );
+      if (!mounted) return;
+      setState(() {
+        _pages.addOlderPage(page.docs);
+        _isLoadingOlder = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        final delta = _scrollController.position.maxScrollExtent - beforeMax;
+        if (delta > 0) _scrollController.jumpTo(beforePixels + delta);
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isLoadingOlder = false);
+      material.debugPrint('CHAT older page load failed: ${error.runtimeType}');
+    }
+  }
+
+  /// A promise card is assembled from every `promise_*` message of that
+  /// promise. When a lifecycle message is in the loaded window but its
+  /// request is older than the window, fetch that one bounded group.
+  void _schedulePromiseSupplements() {
+    if (_roomId.isEmpty) return;
+    final missing = _pages.missingPromiseRequestIds().difference(
+      _requestedPromiseSupplements,
+    );
+    if (missing.isEmpty) return;
+    _requestedPromiseSupplements.addAll(missing);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      for (final promiseId in missing) {
+        try {
+          final page = await _chatService.promiseMessages(_roomId, promiseId);
+          if (!mounted) return;
+          setState(() => _pages.addPromiseSupplement(page.docs));
+        } catch (error) {
+          material.debugPrint(
+            'CHAT promise supplement failed: ${error.runtimeType}',
+          );
+        }
+      }
+    });
   }
 
   void _maybeAutoScrollToBottom(
@@ -413,14 +500,26 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _scrollToBottom();
   }
 
-  void _markCurrentRoomAsRead() {
+  void _markCurrentRoomAsRead(String? newestMessageId) {
     if (_currentUserId == null || _roomId.isEmpty) return;
+    // Once per newest message, not once per rebuild: the write is a single
+    // room update (own unreadCounts/lastReadAt keys), never a message scan.
+    if (newestMessageId == _lastReadMarkedMessageId) return;
+    _lastReadMarkedMessageId = newestMessageId;
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await _chatService.markMessagesAsRead(
-        roomId: _roomId,
-        userId: _currentUserId!,
-      );
+      try {
+        await _chatService.markRoomRead(
+          roomId: _roomId,
+          userId: _currentUserId!,
+        );
+      } catch (error) {
+        if (!mounted) return;
+        // Allow a retry on the next newest message instead of silently
+        // leaving the badge stale forever.
+        _lastReadMarkedMessageId = null;
+        material.debugPrint('CHAT mark read failed: ${error.runtimeType}');
+      }
     });
   }
 
@@ -493,6 +592,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       }
 
       PushNotificationService.instance.setOpenedChatRoom(_roomId);
+      _roomStream = _chatService.roomStream(_roomId).asBroadcastStream();
+      _liveMessagesStream = _chatService.latestMessagesStream(_roomId);
 
       if (!mounted) return;
       setState(() {
@@ -1166,7 +1267,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         ),
                       )
                     : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                        stream: _chatService.roomStream(_roomId),
+                        stream: _roomStream,
                         builder: (context, roomSnapshot) {
                           final roomData = roomSnapshot.data?.data();
                           final isBlindMeeting =
@@ -1177,7 +1278,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                           return StreamBuilder<
                             QuerySnapshot<Map<String, dynamic>>
                           >(
-                            stream: _chatService.messagesStream(_roomId),
+                            stream: _liveMessagesStream,
                             builder: (context, messageSnapshot) {
                               if (messageSnapshot.connectionState ==
                                       ConnectionState.waiting &&
@@ -1192,10 +1293,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                 );
                               }
 
-                              final messageDocs =
-                                  messageSnapshot.data?.docs ?? const [];
+                              if (messageSnapshot.hasData) {
+                                _pages.setLivePage(messageSnapshot.data!.docs);
+                              }
+                              final messageDocs = _pages.merged();
 
-                              _markCurrentRoomAsRead();
+                              _markCurrentRoomAsRead(
+                                messageDocs.isEmpty
+                                    ? null
+                                    : messageDocs.last.id,
+                              );
+                              _schedulePromiseSupplements();
 
                               final mappedMessages = messageDocs
                                   .map(
@@ -1230,37 +1338,55 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
                               _maybeAutoScrollToBottom(messageDocs);
 
-                              return SliverList(
-                                delegate: SliverChildBuilderDelegate((
-                                  context,
-                                  index,
-                                ) {
-                                  final message = allMessages[index];
-
-                                  return _MessageItem(
-                                    message: message,
-                                    avatarUrl: isBlindMeeting
-                                        ? ''
-                                        : _partnerDisplayAvatarUrl ??
-                                              widget.partnerAvatarUrl ??
-                                              _defaultAvatarUrl,
-                                    isBlindMeeting: isBlindMeeting,
-                                    onApprovePromise: () =>
-                                        _approvePromise(message),
-                                    onRejectPromise: () =>
-                                        _rejectPromise(message),
-                                    onEditPromise: () => _openPromiseSheet(
-                                      editingPromiseId: message.promiseId,
-                                      initialDateTime: message.promiseDateTime,
-                                      initialCategory: message.promiseCategory,
-                                      initialPlace: message.promisePlace,
-                                      initialPlaceId: message.promisePlaceId,
+                              return SliverMainAxisGroup(
+                                slivers: [
+                                  if (_isLoadingOlder)
+                                    const SliverToBoxAdapter(
+                                      child: Padding(
+                                        padding: EdgeInsets.symmetric(
+                                          vertical: 12,
+                                        ),
+                                        child: Center(
+                                          child: CupertinoActivityIndicator(),
+                                        ),
+                                      ),
                                     ),
-                                    onDeletePromise: () =>
-                                        _deletePromise(message),
-                                    onOpenProfile: _openPartnerProfileCard,
-                                  );
-                                }, childCount: allMessages.length),
+                                  SliverList(
+                                    delegate: SliverChildBuilderDelegate((
+                                      context,
+                                      index,
+                                    ) {
+                                      final message = allMessages[index];
+
+                                      return _MessageItem(
+                                        message: message,
+                                        avatarUrl: isBlindMeeting
+                                            ? ''
+                                            : _partnerDisplayAvatarUrl ??
+                                                  widget.partnerAvatarUrl ??
+                                                  _defaultAvatarUrl,
+                                        isBlindMeeting: isBlindMeeting,
+                                        onApprovePromise: () =>
+                                            _approvePromise(message),
+                                        onRejectPromise: () =>
+                                            _rejectPromise(message),
+                                        onEditPromise: () => _openPromiseSheet(
+                                          editingPromiseId: message.promiseId,
+                                          initialDateTime:
+                                              message.promiseDateTime,
+                                          initialCategory:
+                                              message.promiseCategory,
+                                          initialPlace: message.promisePlace,
+                                          initialPlaceId:
+                                              message.promisePlaceId,
+                                        ),
+                                        onDeletePromise: () =>
+                                            _deletePromise(message),
+                                        onOpenProfile: _openPartnerProfileCard,
+                                      );
+                                    }, childCount: allMessages.length),
+                                  ),
+                                ],
                               );
                             },
                           );
@@ -1274,7 +1400,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             right: 0,
             top: 0,
             child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: _roomId.isEmpty ? null : _chatService.roomStream(_roomId),
+              stream: _roomStream,
               builder: (context, snapshot) {
                 final roomData = snapshot.data?.data();
                 final activePromiseRaw = roomData?['activePromise'];

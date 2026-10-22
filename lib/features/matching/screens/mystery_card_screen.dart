@@ -22,7 +22,8 @@ import '../../../shared/widgets/capture_protected_image.dart';
 import '../../../shared/widgets/campus_life_zone_prerequisite.dart';
 import '../../../shared/widgets/recommendation_load_failure.dart';
 import '../../../shared/widgets/seolleyeon_bottom_navigation_bar.dart';
-import '../../chat/services/chat_service.dart';
+import 'package:provider/provider.dart';
+import '../../chat/providers/chat_unread_provider.dart';
 import '../../notifications/services/notification_service.dart';
 import '../models/profile_card_args.dart';
 import '../services/ai_preference_performance_trace.dart';
@@ -58,7 +59,6 @@ class MysteryCardScreen extends StatefulWidget {
 
 class _MysteryCardScreenState extends State<MysteryCardScreen> {
   final _storageService = StorageService();
-  final _chatService = ChatService();
   final _notificationService = NotificationService();
   String? _currentUserId;
 
@@ -132,13 +132,12 @@ class _MysteryCardScreenState extends State<MysteryCardScreen> {
                   onTap: widget.onNavTap,
                   showChatBadge: false,
                 )
-              : StreamBuilder<bool>(
-                  stream: _chatService.hasAnyUnreadChats(_currentUserId!),
-                  builder: (context, snapshot) => SeolleyeonBottomNavPositioned(
-                    currentTab: BottomNavTab.matching,
-                    onTap: widget.onNavTap,
-                    showChatBadge: snapshot.data == true,
-                  ),
+              : SeolleyeonBottomNavPositioned(
+                  currentTab: BottomNavTab.matching,
+                  onTap: widget.onNavTap,
+                  showChatBadge: context
+                      .watch<ChatUnreadProvider>()
+                      .hasAnyUnread,
                 ),
         ],
       ),
