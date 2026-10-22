@@ -25,3 +25,9 @@ paths = [
   '''festival_web/web/firebase-messaging-sw\.js''',
   '''festival_web/web/index\.html''',
 ]
+# A backup *file name* mentioned in the audit backlog (`.env.seolleyeon-final
+# .bak-p01-<date>`) trips generic-api-key; the file itself is untracked and the
+# name carries no credential.
+regexes = [
+  '''\.env\.seolleyeon-final\.bak-[A-Za-z0-9-]+''',
+]

@@ -143,3 +143,182 @@ first build carrying this change.
 4. Client release with the provider / pagination.
 5. After `minimumSupportedBuild` passes the release: stop writing `readBy`
    (separate change).
+
+## Final audit (2026-10-22) — concurrency, triggers, closure
+
+Commits `2bdb060b` (fix) and `5dc38497` (reconciliation) on
+`security/p0-2-chat-unread`, PR #147 → `security/integration`.
+
+### Message lifecycle (as deployed)
+
+```
+writer commit (createTime)            ──► Eventarc / Pub/Sub (at-least-once, ack 600 s, retention 24 h)
+   │                                          │
+   │                                          ▼
+   │                                 onChatMessageCreated
+   │                                   1. accountMessageUnread  — ONE transaction: read message + room;
+   │                                      skip if `unreadAccountedAt`; recipients = participants − sender
+   │                                      − { u : lastReadAt[u] ≥ message.createTime }; increment; mark
+   │                                   2. sendPushOnce          — dispatch-log transaction, then FCM
+   ▼
+client room stream ──► ChatUnreadProvider (badge / row) ; room screen marks read once per newest message:
+                       update(unreadCounts.me = 0, lastReadAt.me = serverTimestamp)  [rules: own keys only]
+```
+
+Writers (every one stamps `createdAt` with the server time; the trigger uses
+the unforgeable `createTime` anyway): `sendChatText` callable, system messages
+(`mutualMatchCreation.ts`, unmatch in `index.ts`, `teamMeetingRequest.ts`,
+season/Play-review `playReviewAccess.ts` with `Timestamp.now()`),
+`chatSafety.ts`, `safetyStamp.ts`, `supportOperations.ts`, client promise /
+`promise_deleted` messages (`chat_service.dart`, `serverTimestamp`).
+`chatRealPhoto.ts` and `accountDeletionChatLifecycle.ts` only read messages.
+
+### Strict correctness
+
+For every room and participant `u`:
+
+```
+unreadCounts[u] == |{ m : m.senderId != u  ∧  m.createTime > lastReadAt[u] }|
+```
+
+(`lastReadAt[u]` absent ⇒ every message counts). The client's mark-read and
+the trigger's increment both go through Firestore transactions on the room
+document, so the invariant holds in every interleaving. A message that is
+committed but not yet on screen when the user marks read is not counted; the
+user is in the room, the message arrives a moment later, and the next
+mark-read covers it — the invariant stays true at every instant.
+
+### Critical Risk A — delayed trigger after mark-read (fixed)
+
+Before `2bdb060b` the transaction incremented every recipient unconditionally,
+so a trigger that ran after the recipient had already marked the room read
+left a counter of 1 that nothing cleared until the room was reopened. The
+emulator interleavings (`chatUnread.emulator-test.ts`, P0-2-K) drive the
+trigger by hand so each order is deterministic:
+
+| Case | Order | Expected | Old code | New code |
+|---|---|---|---|---|
+| K-A | trigger → markRead | 0 | pass | pass |
+| K-B | commit → markRead → trigger (delayed) | 0 | **FAIL (1)** | pass |
+| K-C | markRead → commit → trigger | 1 | pass | pass |
+| K-D | two commits on screen → markRead → both triggers late | 0 | **FAIL** | pass |
+| K-E | m1 → markRead → m2; triggers delivered m2 then m1 | 1 | **FAIL** | pass |
+| K-F | trigger → markRead → redelivery | 0 | pass | pass |
+| K-G | group of 6: two members read after the commit, three did not | 0/0/0/1/1/1 | **FAIL** | pass |
+| K-H | garbage `lastReadAt` | 1 (fail toward counting) | pass | pass |
+| K-I | markRead racing the delayed trigger, 10 rounds | 0 every round | **FAIL** | pass |
+
+Also tested through the deployed wiring (`chatUnreadTrigger.emulator-test.ts`:
+mark-read before the delayed delivery, plus a redelivery → 0).
+
+### Critical Risk B — the trigger's actual retry configuration
+
+Verified on the live function, not assumed:
+
+| Evidence (2026-10-22) | Value |
+|---|---|
+| `gcloud functions describe onChatMessageCreated --gen2` → `eventTrigger.retryPolicy` | `RETRY_POLICY_DO_NOT_RETRY` |
+| Pub/Sub subscription `eventarc-asia-northeast3-onchatmessagecreated-826606-sub-487` | ack 600 s, retention 86400 s, backoff 10 s–600 s, no dead-letter |
+| Revision | `onchatmessagecreated-00008-ved` (2026-10-16), timeout 60 s, 256 Mi, concurrency 80, max 10 |
+
+So the comment "re-throw so the platform retries" was false in production:
+a thrown accounting error dropped the event and lost the increment. The
+fix declares `retry: true` on the trigger (`__endpoint.eventTrigger.retry`
+is asserted by the emulator test). Retries are safe: accounting is
+idempotent (marker in the same transaction), push is deduplicated
+(`notificationDispatchLog`). Pub/Sub is at-least-once regardless of the
+policy, so idempotency was required either way.
+
+Failure matrix (post-fix behaviour; "current prod" = revision `00008`):
+
+| Case | Behaviour |
+|---|---|
+| A. transaction fails transiently (UNAVAILABLE / ABORTED after the SDK's own retries) | throws → platform retries with backoff; current prod: event dropped |
+| B. message deleted before the trigger runs | `message_missing`, returns, no retry loop |
+| C. room deleted before the trigger runs | marks the message, `room_missing`, returns |
+| D. accounting ok, push throws | event retried → accounting `already_accounted`, push skipped by the dispatch log (at-most-once push) |
+| E. duplicate delivery | `already_accounted`, push skipped |
+| F. out-of-order delivery (m2 before m1) | commutative increments + high-water mark; K-E |
+| G. persistent failure (bug, permission) | retried until the retention window (CLI warns up to 7 days; subscription retention 24 h); `chat_unread_accounting_failed` alert fires; `--repair` after recovery |
+
+**Deployment status: `2bdb060b` is NOT deployed.** `firebase deploy` refuses a
+function with a failure policy unless `--force` is passed; the guarded deploy
+script (which passed both env guards: 31 keys, removals = changes = 0) does not
+pass it, and adding that option is an owner decision (backlog NEW-08). Until a
+new client writes `lastReadAt` (0 keys in production today) the phantom-unread
+path cannot occur, so production exposure is nil before the client release.
+
+### Critical Risk C — push idempotency under retries
+
+`sendPushOnce` creates `notificationDispatchLog/chat_<roomId>_<messageId>` in a
+transaction *before* calling FCM: a retried or duplicated event never sends a
+second push. The trade-off is at-most-once: a crash between the log write and
+the FCM call loses that one push (no retry re-sends it). Accepted — a
+duplicate push is user-visible, a lost push is covered by the badge and the
+daily digest.
+
+### Reconciliation (`chatUnreadBackfillCli --verify | --repair`)
+
+`verifyRoomUnreadCounts` recomputes the expectation per participant: the
+strict invariant when `lastReadAt` exists, the legacy `readBy` rule otherwise
+(which also folds reads done by old clients into the counter). Messages
+younger than `--grace-seconds` (default 300) may still sit in the trigger
+queue and are never reported as lost. `--repair` fixes a room in ONE
+transaction that re-checks `lastReadAt`, the counters and the markers of the
+counted messages, skips the room if anything moved, and marks those messages
+accounted so a late trigger cannot double count. Emulator tests cover a clean
+room, a phantom (`over_count`), a lost increment (`under_count` + late
+trigger), old-client reads, and a room that moved between verify and repair.
+
+Production, 2026-10-22, read-only: `rooms=23 withUnreadModel=23 legacy=0
+structuralIssues=0 mismatches=0 unverifiable=0 messagesRead=25`.
+
+### Digest, old clients, multi-device, groups, rules
+
+- Digest: scheduled runs observed every day 04:00Z from 2026-10-16 to
+  2026-10-22 (`roomsScanned: 2`, `users: 0`, 0 errors). Notification id
+  `chat_digest_<date>` lives under `users/{uid}/notifications`, so the scope is
+  per user per day; a retried run cannot notify twice.
+- Old clients keep computing from `readBy` and never reset counters; a user's
+  counter can read stale until they open the room on a new client — or until
+  `--repair` (legacy basis). Nothing an old client writes can corrupt the
+  model (rules refuse the model keys on the general branch).
+- Multi-device: state is per user; any device's mark-read clears all (P0-2-I).
+- Groups: per-member high-water marks (K-G); increments stay commutative.
+- Rules attack matrix (11 rules tests + production smoke): reset another
+  participant's counter, forge another's `lastReadAt`, set own counter to a
+  non-zero value, smuggle model keys through the general update, write the
+  accounting marker on create, non-participant access — all DENY. A client
+  cannot influence accounting through `createdAt` because the trigger uses
+  `createTime`.
+
+### Monitoring
+
+Log-based metric `chat_unread_accounting_failed` (filter: service
+`onchatmessagecreated`, `jsonPayload.message = "chat unread accounting failed"`)
+and alert policy "Chat unread accounting failed" (> 0 in 5 min, no notification
+channel — the project's existing avatar policies have none either). Every
+accounting now logs `chat unread accounted` with `reason`, `incremented`,
+`alreadyRead`.
+
+### Cost (final)
+
+| Path | Status | Figure |
+|---|---|---|
+| Badge / chat list | MEASURED (emulator, same assertions) | rooms per change (3 → 3) vs 168 reads legacy |
+| Mark read | MEASURED | 1 write vs 600 |
+| Open room | MEASURED | 50 docs vs 120 (history) |
+| Trigger accounting | MEASURED (code path) | 2 reads + 2 writes per message (+ `already_accounted` reads on retry) |
+| Digest | MEASURED (production logs) | `roomsScanned: 2`, 0 message reads |
+| Reconciliation `--verify` | MEASURED (production) | 23 room reads + 25 message reads for the whole dataset |
+| Platform retries | ESTIMATED | only on failures; bounded by the retention window |
+| Production billing delta | NOT VERIFIED | no billing export queried |
+
+### Closure status
+
+- SOURCE: CLOSED (final-audit fixes committed and tested).
+- DATA: COMPLETE (backfill 2026-10-16; strict verify 0 mismatches 2026-10-22).
+- PRODUCTION: PARTIAL — backend revision `00008` (2026-10-16) + rules + backfill
+  live; `2bdb060b` (high-water mark + retries) awaits the `--force` deploy
+  decision (NEW-08); client awaits the app release; `readBy` retirement gated
+  on `minimumSupportedBuild` (NEW-06).
