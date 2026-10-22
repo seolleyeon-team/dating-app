@@ -43,6 +43,7 @@ import {
   checkRoomUnreadIntegrity,
   collectDailyUnreadDigest,
   runChatUnreadBackfill,
+  timestampAtOrAfter,
   unreadCountFor,
 } from "./chatUnread";
 
@@ -82,10 +83,16 @@ async function seedMessage(
   roomId: string,
   senderId: string,
   index: number,
-  opts: { readBy?: string[]; accounted?: boolean; type?: string } = {}
+  opts: { readBy?: string[]; accounted?: boolean; type?: string; realTime?: boolean } = {}
 ) {
   const ref = db.collection("chat_rooms").doc(roomId).collection("messages").doc();
-  const createdAt = Timestamp.fromMillis(1_700_000_000_000 + index * 1000);
+  // Production writers all stamp createdAt with the server time (≈ commit
+  // time); the synthetic 2023 timeline keeps the cost tests deterministic.
+  // Reconciliation tests need the real clock because its message query is
+  // keyed on createdAt (see verifyRoomUnreadCounts).
+  const createdAt = opts.realTime
+    ? Timestamp.now()
+    : Timestamp.fromMillis(1_700_000_000_000 + index * 1000);
   await ref.set({
     senderId,
     text: `m${index}`,
@@ -345,7 +352,7 @@ test("P0-2-E: 1:1 — a message increments the recipient only", async () => {
   await seedRoom(roomId, [a, b]);
   const ref = await seedMessage(roomId, a, 0);
   const res = await fireTrigger(roomId, ref.id);
-  assert.deepEqual(res, { applied: true, reason: "applied", recipients: [b] });
+  assert.deepEqual(res, { applied: true, reason: "applied", recipients: [b], alreadyRead: [] });
   const r = await room(roomId);
   assert.equal(unreadCountFor(r, a), 0);
   assert.equal(unreadCountFor(r, b), 1);
@@ -403,7 +410,7 @@ test("P0-2-H: duplicate trigger delivery (sequential and concurrent) counts once
   const first = await fireTrigger(roomId, m.id);
   const second = await fireTrigger(roomId, m.id);
   assert.equal(first.applied, true);
-  assert.deepEqual(second, { applied: false, reason: "already_accounted", recipients: [] });
+  assert.deepEqual(second, { applied: false, reason: "already_accounted", recipients: [], alreadyRead: [] });
   assert.equal(unreadCountFor(await room(roomId), b), 1);
 
   const m2 = await seedMessage(roomId, a, 1);
@@ -549,4 +556,146 @@ test(`[${PORT}] P0-2-L: digest reads scale with rooms, never with message histor
   assert.equal(d.counts.get(u2), 60, "u2 has 60 unread from u1");
   assert.equal(d.counts.has(u1), false, "sender has none");
   assert.equal(d.messageReads, 0, `digest must read 0 message documents, read ${d.messageReads}`);
+});
+
+// ---------------------------------------------------------------------------
+// TEST P0-2-K — delayed trigger after mark-read (read high-water mark)
+//
+// The trigger runs asynchronously after the message commit. If the recipient
+// marks the room read in between (the message was on screen), the late
+// increment must NOT resurrect an unread. Strict correctness, per user u:
+//   unreadCounts[u] == |{ m : m.senderId != u && m.commitTime > lastReadAt[u] }|
+// Interleavings A–G below drive the trigger by hand, so each order is
+// deterministic. Commit times are the emulator's; mark-read uses the server
+// timestamp, so a 5 ms gap keeps the clock strictly ordered.
+// ---------------------------------------------------------------------------
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function expectedUnread(roomId: string, uid: string): Promise<number> {
+  const r = await room(roomId);
+  const readAt = (r.lastReadAt as Record<string, Timestamp> | undefined)?.[uid];
+  const msgs = await db.collection("chat_rooms").doc(roomId).collection("messages").get();
+  return msgs.docs.filter((d) => {
+    const data = d.data();
+    if (data.senderId === uid) return false;
+    return !readAt || !timestampAtOrAfter(readAt, d.createTime);
+  }).length;
+}
+
+test("P0-2-K-A: trigger, then markRead → 0 (reset wins; baseline)", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("k");
+  await seedRoom(roomId, [a, b]);
+  const m = await seedMessage(roomId, a, 0);
+  await fireTrigger(roomId, m.id);
+  await newPort.markRead(roomId, b);
+  assert.equal(unreadCountFor(await room(roomId), b), 0);
+  assert.equal(await expectedUnread(roomId, b), 0);
+});
+
+test("P0-2-K-B: message committed, recipient marks read, THEN the delayed trigger runs → 0, no phantom", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("k");
+  await seedRoom(roomId, [a, b]);
+  const m = await seedMessage(roomId, a, 0);
+  await sleep(5);
+  await newPort.markRead(roomId, b);
+  const result = await fireTrigger(roomId, m.id);
+  assert.equal(unreadCountFor(await room(roomId), b), 0, "phantom unread");
+  assert.deepEqual({ applied: result.applied, reason: result.reason, alreadyRead: result.alreadyRead }, {
+    applied: false,
+    reason: "no_recipients",
+    alreadyRead: [b],
+  });
+  assert.ok((await m.get()).data()?.unreadAccountedAt, "still marked accounted (redelivery stays a no-op)");
+  assert.equal(await expectedUnread(roomId, b), 0);
+});
+
+test("P0-2-K-C: markRead, then a message commits, then its trigger → 1", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("k");
+  await seedRoom(roomId, [a, b]);
+  await newPort.markRead(roomId, b);
+  await sleep(5);
+  const m = await seedMessage(roomId, a, 0);
+  const result = await fireTrigger(roomId, m.id);
+  assert.deepEqual(result.recipients, [b]);
+  assert.equal(unreadCountFor(await room(roomId), b), 1);
+  assert.equal(await expectedUnread(roomId, b), 1);
+});
+
+test("P0-2-K-D: two messages on screen, one mark-read, both triggers late → 0", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("k");
+  await seedRoom(roomId, [a, b]);
+  const m1 = await seedMessage(roomId, a, 0);
+  const m2 = await seedMessage(roomId, a, 1);
+  await sleep(5);
+  await newPort.markRead(roomId, b);
+  await fireTrigger(roomId, m2.id);
+  await fireTrigger(roomId, m1.id);
+  assert.equal(unreadCountFor(await room(roomId), b), 0);
+  assert.equal(await expectedUnread(roomId, b), 0);
+});
+
+test("P0-2-K-E: m1 read, m2 after the read; triggers delivered out of order (m2, then m1) → 1", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("k");
+  await seedRoom(roomId, [a, b]);
+  const m1 = await seedMessage(roomId, a, 0);
+  await sleep(5);
+  await newPort.markRead(roomId, b);
+  await sleep(5);
+  const m2 = await seedMessage(roomId, a, 1);
+  await fireTrigger(roomId, m2.id);
+  await fireTrigger(roomId, m1.id);
+  assert.equal(unreadCountFor(await room(roomId), b), 1);
+  assert.equal(await expectedUnread(roomId, b), 1);
+});
+
+test("P0-2-K-F: trigger, markRead, trigger redelivered → 0 (a redelivery never resurrects)", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("k");
+  await seedRoom(roomId, [a, b]);
+  const m = await seedMessage(roomId, a, 0);
+  await fireTrigger(roomId, m.id);
+  await sleep(5);
+  await newPort.markRead(roomId, b);
+  const again = await fireTrigger(roomId, m.id);
+  assert.equal(again.reason, "already_accounted");
+  assert.equal(unreadCountFor(await room(roomId), b), 0);
+});
+
+test("P0-2-K-G: group room — only the member who read after the commit is skipped", async () => {
+  const members = ["g1", "g2", "g3", "g4", "g5", "g6"].map((m) => fresh(m));
+  const roomId = fresh("kgroup");
+  await seedRoom(roomId, members);
+  const m = await seedMessage(roomId, members[0], 0);
+  await sleep(5);
+  await newPort.markRead(roomId, members[1]);
+  await newPort.markRead(roomId, members[2]);
+  const result = await fireTrigger(roomId, m.id);
+  assert.deepEqual(result.alreadyRead, [members[1], members[2]]);
+  assert.deepEqual(result.recipients, [members[3], members[4], members[5]]);
+  const r = await room(roomId);
+  for (const [i, uid] of members.entries()) {
+    const expected = i === 0 || i === 1 || i === 2 ? 0 : 1;
+    assert.equal(unreadCountFor(r, uid), expected, `member ${i}`);
+    assert.equal(await expectedUnread(roomId, uid), expected, `invariant member ${i}`);
+  }
+});
+
+test("P0-2-K-H: garbage lastReadAt fails toward counting", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("k");
+  await seedRoom(roomId, [a, b], { lastReadAt: { [b]: "2099-01-01" } });
+  const m = await seedMessage(roomId, a, 0);
+  await fireTrigger(roomId, m.id);
+  assert.equal(unreadCountFor(await room(roomId), b), 1);
+});
+
+test("P0-2-K-I: mark-read racing the delayed trigger, 10 rounds — always 0 (message committed before the read)", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("k");
+  await seedRoom(roomId, [a, b]);
+  for (let i = 0; i < 10; i += 1) {
+    const m = await seedMessage(roomId, a, i);
+    await sleep(2);
+    await Promise.all([newPort.markRead(roomId, b), fireTrigger(roomId, m.id)]);
+    assert.equal(unreadCountFor(await room(roomId), b), 0, `round ${i}`);
+    assert.equal(await expectedUnread(roomId, b), 0, `invariant round ${i}`);
+  }
 });

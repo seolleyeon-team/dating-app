@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { FieldPath, FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
   throw new Error("FIRESTORE_EMULATOR_HOST is not set. Run via `firebase emulators:exec`.");
@@ -62,4 +62,30 @@ test("deployed onChatMessageCreated accounts text and system messages exactly on
   assert.equal(room.unreadModelVersion, 1);
   assert.ok((await m1.get()).data()?.unreadAccountedAt);
   assert.ok((await sys.get()).data()?.unreadAccountedAt);
+});
+
+test("deployed trigger declares platform retries: a failed accounting is retried, not dropped", () => {
+  const endpoint = (onChatMessageCreated as unknown as { __endpoint?: { eventTrigger?: { retry?: unknown } } }).__endpoint;
+  assert.equal(endpoint?.eventTrigger?.retry, true);
+});
+
+test("deployed trigger: recipient marked the room read before the delayed delivery → no phantom unread", async () => {
+  const a = fresh("ta"), b = fresh("tb"), roomId = fresh("troom");
+  await db.collection("chat_rooms").doc(roomId).set({
+    roomId, type: "one_to_one", status: "active", participantIds: [a, b],
+    participantInfo: { [a]: { nickname: "A" }, [b]: { nickname: "B" } },
+    createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+  });
+  const m = await createMessage(roomId, a, "seen before the trigger ran");
+  await new Promise((r) => setTimeout(r, 5));
+  // The client's single mark-read write (chat_service.dart markRoomRead).
+  await db.collection("chat_rooms").doc(roomId).update(
+    new FieldPath("unreadCounts", b), 0,
+    new FieldPath("lastReadAt", b), FieldValue.serverTimestamp()
+  );
+  await runTrigger(roomId, m.id);
+  await runTrigger(roomId, m.id); // and a redelivery
+  const room = (await db.collection("chat_rooms").doc(roomId).get()).data() ?? {};
+  assert.equal(unreadCountFor(room, b), 0, "phantom unread after a delayed trigger");
+  assert.ok((await m.get()).data()?.unreadAccountedAt);
 });

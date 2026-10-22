@@ -4526,7 +4526,15 @@ export const onInteractionCreated = onDocumentCreated(
 // 3) 새 채팅 메시지 → 푸시 알림
 // =============================================================================
 export const onChatMessageCreated = onDocumentCreated(
-  "chat_rooms/{roomId}/messages/{messageId}",
+  {
+    document: "chat_rooms/{roomId}/messages/{messageId}",
+    // P0-2: the accounting below re-throws so a failed event is retried.
+    // Without this the deployed policy is RETRY_POLICY_DO_NOT_RETRY (verified
+    // on the live trigger, 2026-10-22) and the event would be dropped — a
+    // silently lost increment. Retries are safe: the accounting is idempotent
+    // (message marker) and the push is deduplicated (notificationDispatchLog).
+    retry: true,
+  },
   async (event) => {
     const snap = event.data;
     if (!snap) return;
@@ -4541,10 +4549,20 @@ export const onChatMessageCreated = onDocumentCreated(
     // message's unreadAccountedAt marker, so a redelivered event cannot
     // double-count.
     try {
-      await accountMessageUnread(db, { roomId, messageId: event.params.messageId });
+      const accounting = await accountMessageUnread(db, { roomId, messageId: event.params.messageId });
+      logger.info("chat unread accounted", {
+        roomId,
+        messageId: event.params.messageId,
+        reason: accounting.reason,
+        incremented: accounting.recipients.length,
+        // Recipients who marked the room read after this message was
+        // committed (read high-water mark): not a phantom unread.
+        alreadyRead: accounting.alreadyRead.length,
+      });
     } catch (error) {
-      // Re-throw so the platform retries: losing an increment is a silent
-      // product defect, and the marker makes the retry safe.
+      // Re-throw so the platform retries (retry: true above): losing an
+      // increment is a silent product defect, and the marker makes the retry
+      // safe.
       logger.error("chat unread accounting failed", { roomId, messageId: event.params.messageId, error });
       throw error;
     }

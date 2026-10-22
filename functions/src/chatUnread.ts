@@ -21,6 +21,21 @@
  *   unreadBackfilledAt: Timestamp          set once the backfill finished the
  *                                          room (idempotency / resume marker)
  *
+ * Invariant (strict correctness, per room and participant `u`):
+ *
+ *   unreadCounts[u] == |{ m : m.senderId != u
+ *                           && m.commitTime > lastReadAt[u] }|
+ *
+ * where `lastReadAt[u]` is the server time of `u`'s last mark-read and a
+ * missing `lastReadAt[u]` means "every message counts". The client resets the
+ * counter to 0 and stamps `lastReadAt` in ONE write; the trigger increments
+ * only for recipients whose `lastReadAt` is older than the message's commit
+ * time (`DocumentSnapshot.createTime`, which a client cannot forge). A
+ * trigger delivered AFTER the recipient already marked the room read (the
+ * message was on screen when they did) therefore leaves the counter at 0 —
+ * no phantom unread — in every interleaving, because both writes go through
+ * Firestore's serialisable transactions on the room document.
+ *
  * Message document: `unreadAccountedAt` marks that this message's increments
  * were applied. The Firestore trigger is delivered at least once; the marker
  * is read and written inside the same transaction as the increments, so a
@@ -88,6 +103,43 @@ export function unreadRecipientsFor(params: {
     recipients.push(uid);
   }
   return recipients;
+}
+
+function asTimestamp(value: unknown): Timestamp | null {
+  return value instanceof Timestamp ? value : null;
+}
+
+/** `a >= b` on Firestore timestamps (nanosecond precision, no float rounding). */
+export function timestampAtOrAfter(a: Timestamp, b: Timestamp): boolean {
+  return a.seconds > b.seconds || (a.seconds === b.seconds && a.nanoseconds >= b.nanoseconds);
+}
+
+/**
+ * Read high-water mark: which recipients still have to be incremented for a
+ * message committed at `messageCommittedAt`. A recipient whose `lastReadAt`
+ * is at or after the commit time marked the room read while this message was
+ * already there, so it is already covered by their reset to 0 (a delayed or
+ * redelivered trigger must not resurrect it). No usable timestamp on either
+ * side fails toward counting the message, never toward hiding it.
+ */
+export function recipientsToIncrement(params: {
+  senderId: unknown;
+  participantIds: unknown;
+  lastReadAt: unknown;
+  messageCommittedAt: Timestamp | null;
+}): { increment: string[]; alreadyRead: string[] } {
+  const increment: string[] = [];
+  const alreadyRead: string[] = [];
+  const lastReadAt = isRecord(params.lastReadAt) ? params.lastReadAt : {};
+  for (const uid of unreadRecipientsFor(params)) {
+    const readAt = asTimestamp(lastReadAt[uid]);
+    if (readAt && params.messageCommittedAt && timestampAtOrAfter(readAt, params.messageCommittedAt)) {
+      alreadyRead.push(uid);
+    } else {
+      increment.push(uid);
+    }
+  }
+  return { increment, alreadyRead };
 }
 
 /** Unread count a room document carries for one participant (0 when absent). */
@@ -161,7 +213,10 @@ export function digestContributionsForRoom(
 export type AccountingResult = {
   applied: boolean;
   reason: "applied" | "already_accounted" | "message_missing" | "room_missing" | "no_recipients";
+  /** Recipients whose counter was incremented. */
   recipients: string[];
+  /** Recipients skipped because they marked the room read after this message was committed. */
+  alreadyRead: string[];
 };
 
 /**
@@ -182,30 +237,45 @@ export async function accountMessageUnread(
       tx.get(roomRef),
     ]);
     if (!messageSnap.exists) {
-      return { applied: false, reason: "message_missing", recipients: [] };
+      return { applied: false, reason: "message_missing", recipients: [], alreadyRead: [] };
     }
     const message = (messageSnap.data() ?? {}) as Doc;
     if (message.unreadAccountedAt != null) {
-      return { applied: false, reason: "already_accounted", recipients: [] };
+      return { applied: false, reason: "already_accounted", recipients: [], alreadyRead: [] };
     }
     if (!roomSnap.exists) {
       // Orphaned message: mark it so nothing retries forever.
       tx.update(messageRef, { unreadAccountedAt: FieldValue.serverTimestamp() });
-      return { applied: false, reason: "room_missing", recipients: [] };
+      return { applied: false, reason: "room_missing", recipients: [], alreadyRead: [] };
     }
     const room = (roomSnap.data() ?? {}) as Doc;
-    const recipients = unreadRecipientsFor({
+    const { increment, alreadyRead } = recipientsToIncrement({
       senderId: message.senderId,
       participantIds: room.participantIds,
+      lastReadAt: room.lastReadAt,
+      messageCommittedAt: messageCommitTime(messageSnap, message),
     });
-    applyIncrements(tx, roomRef, recipients);
+    applyIncrements(tx, roomRef, increment);
     tx.update(messageRef, { unreadAccountedAt: FieldValue.serverTimestamp() });
     return {
-      applied: recipients.length > 0,
-      reason: recipients.length > 0 ? "applied" : "no_recipients",
-      recipients,
+      applied: increment.length > 0,
+      reason: increment.length > 0 ? "applied" : "no_recipients",
+      recipients: increment,
+      alreadyRead,
     };
   });
+}
+
+/**
+ * When the message was committed: the document's server-assigned create time
+ * (unforgeable), falling back to its `createdAt` field only if the snapshot
+ * carries no create time; null means "unknown" (every recipient counts).
+ */
+export function messageCommitTime(
+  snap: { createTime?: Timestamp },
+  message: Doc
+): Timestamp | null {
+  return snap.createTime ?? asTimestamp(message.createdAt);
 }
 
 function applyIncrements(

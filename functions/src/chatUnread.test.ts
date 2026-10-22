@@ -8,7 +8,10 @@ import {
   checkRoomUnreadIntegrity,
   digestContributionsForRoom,
   legacyMessageIsUnreadFor,
+  messageCommitTime,
+  recipientsToIncrement,
   roomHasUnreadModel,
+  timestampAtOrAfter,
   unreadCountFor,
   unreadRecipientsFor,
 } from "./chatUnread";
@@ -136,4 +139,83 @@ test("integrity: healthy rooms report nothing, broken shapes are named", () => {
 
 test("Timestamp import stays usable for digest ordering fixtures", () => {
   assert.ok(Timestamp.fromMillis(1).toMillis() === 1);
+});
+
+// ---------------------------------------------------------------------------
+// Read high-water mark: a recipient who marked the room read at or after the
+// message's commit time is already covered by their reset (no phantom unread)
+// ---------------------------------------------------------------------------
+
+const COMMIT = new Timestamp(1_700_000_000, 500_000_000);
+const BEFORE = new Timestamp(1_700_000_000, 499_999_999);
+const AFTER = new Timestamp(1_700_000_000, 500_000_001);
+
+test("HWM — no lastReadAt: every recipient is incremented", () => {
+  assert.deepEqual(
+    recipientsToIncrement({ senderId: A, participantIds: [A, B], lastReadAt: undefined, messageCommittedAt: COMMIT }),
+    { increment: [B], alreadyRead: [] }
+  );
+  assert.deepEqual(
+    recipientsToIncrement({ senderId: A, participantIds: [A, B], lastReadAt: {}, messageCommittedAt: COMMIT }),
+    { increment: [B], alreadyRead: [] }
+  );
+});
+
+test("HWM — lastReadAt before the commit: incremented; at or after: skipped", () => {
+  assert.deepEqual(
+    recipientsToIncrement({ senderId: A, participantIds: [A, B], lastReadAt: { [B]: BEFORE }, messageCommittedAt: COMMIT }),
+    { increment: [B], alreadyRead: [] }
+  );
+  assert.deepEqual(
+    recipientsToIncrement({ senderId: A, participantIds: [A, B], lastReadAt: { [B]: COMMIT }, messageCommittedAt: COMMIT }),
+    { increment: [], alreadyRead: [B] }
+  );
+  assert.deepEqual(
+    recipientsToIncrement({ senderId: A, participantIds: [A, B], lastReadAt: { [B]: AFTER }, messageCommittedAt: COMMIT }),
+    { increment: [], alreadyRead: [B] }
+  );
+});
+
+test("HWM — the sender's own lastReadAt never matters; the sender is never a recipient", () => {
+  assert.deepEqual(
+    recipientsToIncrement({ senderId: A, participantIds: [A, B], lastReadAt: { [A]: AFTER }, messageCommittedAt: COMMIT }),
+    { increment: [B], alreadyRead: [] }
+  );
+});
+
+test("HWM — group room: each member decided independently", () => {
+  const lastReadAt = { u1: AFTER, u2: BEFORE, u4: COMMIT, u5: "garbage" };
+  assert.deepEqual(
+    recipientsToIncrement({ senderId: "u3", participantIds: SIX, lastReadAt, messageCommittedAt: COMMIT }),
+    { increment: ["u2", "u5", "u6"], alreadyRead: ["u1", "u4"] }
+  );
+});
+
+test("HWM — fails toward counting: garbage lastReadAt or unknown commit time increments", () => {
+  for (const garbage of ["2026-10-22", 1_700_000_000_000, null, { seconds: 1 }, true]) {
+    assert.deepEqual(
+      recipientsToIncrement({ senderId: A, participantIds: [A, B], lastReadAt: { [B]: garbage }, messageCommittedAt: COMMIT }),
+      { increment: [B], alreadyRead: [] },
+      `garbage lastReadAt ${JSON.stringify(garbage)}`
+    );
+  }
+  assert.deepEqual(
+    recipientsToIncrement({ senderId: A, participantIds: [A, B], lastReadAt: { [B]: AFTER }, messageCommittedAt: null }),
+    { increment: [B], alreadyRead: [] }
+  );
+});
+
+test("timestampAtOrAfter compares seconds then nanoseconds", () => {
+  assert.equal(timestampAtOrAfter(COMMIT, COMMIT), true);
+  assert.equal(timestampAtOrAfter(AFTER, COMMIT), true);
+  assert.equal(timestampAtOrAfter(BEFORE, COMMIT), false);
+  assert.equal(timestampAtOrAfter(new Timestamp(1_700_000_001, 0), COMMIT), true);
+  assert.equal(timestampAtOrAfter(new Timestamp(1_699_999_999, 999_999_999), COMMIT), false);
+});
+
+test("messageCommitTime prefers the server create time over the createdAt field", () => {
+  assert.equal(messageCommitTime({ createTime: COMMIT }, { createdAt: AFTER }), COMMIT);
+  assert.equal(messageCommitTime({}, { createdAt: AFTER }), AFTER);
+  assert.equal(messageCommitTime({}, { createdAt: "2026-10-22" }), null);
+  assert.equal(messageCommitTime({}, {}), null);
 });
