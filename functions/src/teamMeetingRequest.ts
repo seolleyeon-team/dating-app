@@ -898,7 +898,6 @@ export function createRespondTeamMeetingRequestFunction(
                 text: welcomeMessage,
                 content: welcomeMessage,
                 type: "system",
-                readBy: [],
                 createdAt: FieldValue.serverTimestamp(),
                 updatedAt: FieldValue.serverTimestamp(),
               },

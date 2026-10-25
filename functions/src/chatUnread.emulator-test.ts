@@ -39,15 +39,18 @@ if (!process.env.FIRESTORE_EMULATOR_HOST) {
 
 import {
   accountMessageUnread,
-  backfillRoomUnread,
   checkRoomUnreadIntegrity,
   collectDailyUnreadDigest,
   reconcileRoomUnread,
-  runChatUnreadBackfill,
   timestampAtOrAfter,
   unreadCountFor,
   verifyRoomUnreadCounts,
 } from "./chatUnread";
+import {
+  backfillRoomUnread,
+  initializeReadBoundaries,
+  runChatUnreadBackfill,
+} from "./chatUnreadLegacyMigration";
 
 initializeApp({ projectId: process.env.GCLOUD_PROJECT ?? "demo-p02-chat" });
 const db = getFirestore();
@@ -80,7 +83,10 @@ async function seedRoom(
   });
 }
 
-/** Legacy-shaped message write (what every writer does today). */
+/**
+ * Message write as every writer does it today: NO readBy (retired). Tests
+ * about historical data pass `opts.readBy` explicitly.
+ */
 async function seedMessage(
   roomId: string,
   senderId: string,
@@ -99,7 +105,7 @@ async function seedMessage(
     senderId,
     text: `m${index}`,
     type: opts.type ?? (senderId === "system" ? "system" : "text"),
-    readBy: opts.readBy ?? (senderId === "system" ? [] : [senderId]),
+    ...(opts.readBy ? { readBy: opts.readBy } : {}),
     createdAt,
     updatedAt: createdAt,
     ...(opts.accounted ? { unreadAccountedAt: createdAt } : {}),
@@ -766,7 +772,7 @@ test("reconcile: a lost increment (under_count) is repaired and the message mark
   assert.equal(unreadCountFor(await room(roomId), b), 1, "late trigger must not double count");
 });
 
-test("reconcile: legacy basis folds an old client's readBy reads into the counter", async () => {
+test("reconcile: without a boundary every message the user did not send counts (no legacy basis)", async () => {
   const a = fresh("a"), b = fresh("b"), roomId = fresh("rc");
   await seedRoom(roomId, [a, b]);
   const m1 = await seedMessage(roomId, a, 0, { realTime: true });
@@ -774,16 +780,113 @@ test("reconcile: legacy basis folds an old client's readBy reads into the counte
   await fireTrigger(roomId, m1.id);
   await fireTrigger(roomId, m2.id);
   assert.equal(unreadCountFor(await room(roomId), b), 2);
-  // An old client reads the room: readBy only, never the counter.
-  await legacyPort.markRead(roomId, b);
+  // Historical receipts on the messages change nothing for the model.
+  await m1.update({ readBy: [a, b] });
+  await m2.update({ readBy: [a, b] });
   const v = await verifyRoomUnreadCounts(db, roomId, { graceMs: 0 });
-  assert.deepEqual(
-    v.mismatches.map((x) => ({ uid: x.uid, kind: x.kind, basis: x.basis, actual: x.actual, expected: x.expected })),
-    [{ uid: b, kind: "over_count", basis: "readBy", actual: 2, expected: 0 }]
-  );
-  const fixed = await reconcileRoomUnread(db, roomId, { dryRun: false, graceMs: 0 });
-  assert.equal(fixed.repaired, 1);
-  assert.equal(unreadCountFor(await room(roomId), b), 0);
+  assert.deepEqual(v.mismatches, []);
+});
+
+// ---------------------------------------------------------------------------
+// Legacy retirement — historical readBy data and the one-time boundary migration
+// ---------------------------------------------------------------------------
+
+test("TEST I: historical readBy receipts on a message do not influence accounting", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("hist");
+  await seedRoom(roomId, [a, b]);
+  const m = await seedMessage(roomId, a, 0, { readBy: [a, b] }); // old data says b already read it
+  const result = await fireTrigger(roomId, m.id);
+  assert.deepEqual(result.recipients, [b], "the model counts it: no boundary means unread");
+  assert.equal(unreadCountFor(await room(roomId), b), 1);
+});
+
+test("TEST J1: boundary initialization — a receipt-derived counter (contiguous history) gets an explicit lastReadAt and verifies clean", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("mig");
+  await seedRoom(roomId, [a, b]);
+  // Production shape before the migration: legacy room, b read the first two messages (receipts), not the third.
+  await seedMessage(roomId, a, 0, { readBy: [a, b], realTime: true });
+  await sleep(3);
+  await seedMessage(roomId, a, 1, { readBy: [a, b], realTime: true });
+  await sleep(3);
+  await seedMessage(roomId, a, 2, { readBy: [a], realTime: true });
+  const bf = await backfillRoomUnread(db, roomId, { dryRun: false });
+  assert.deepEqual(bf.counts, { [b]: 1 });
+  // Under the retired-receipts model the missing boundary would mean 3 unread: reported, not guessed.
+  const before = await verifyRoomUnreadCounts(db, roomId, { graceMs: 0 });
+  assert.deepEqual(before.mismatches.map((m) => [m.uid, m.kind, m.basis, m.actual, m.expected]), [[b, "under_count", "no_boundary", 1, 3]]);
+
+  const dry = await initializeReadBoundaries(db, roomId, { dryRun: true });
+  assert.equal(dry.initialized.length, 1);
+  assert.equal(dry.initialized[0].uid, b);
+  assert.deepEqual(dry.consistent, [a]);
+  assert.equal(dry.writes, 0);
+  assert.equal((await room(roomId)).lastReadAt, undefined, "dry run writes nothing");
+
+  const applied = await initializeReadBoundaries(db, roomId, { dryRun: false });
+  assert.equal(applied.writes, 1);
+  const after = await room(roomId);
+  assert.ok((after.lastReadAt as Record<string, Timestamp>)[b]);
+  assert.equal(after.legacyReadBoundaryMigrationVersion, 1);
+  assert.deepEqual((await verifyRoomUnreadCounts(db, roomId, { graceMs: 0 })).mismatches, []);
+  // A new message after the boundary still counts.
+  const m4 = await seedMessage(roomId, a, 3, { realTime: true });
+  await fireTrigger(roomId, m4.id);
+  assert.equal(unreadCountFor(await room(roomId), b), 2);
+  assert.deepEqual((await verifyRoomUnreadCounts(db, roomId, { graceMs: 0 })).mismatches, []);
+  // Idempotent.
+  const again = await initializeReadBoundaries(db, roomId, { dryRun: false });
+  assert.deepEqual(again.alreadyBounded, [b]);
+  assert.equal(again.writes, 0);
+});
+
+test("TEST J2: boundary initialization — non-contiguous or inconsistent receipt history is reported, never written", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("mig");
+  await seedRoom(roomId, [a, b]);
+  await seedMessage(roomId, a, 0, { readBy: [a, b], realTime: true });
+  await sleep(3);
+  await seedMessage(roomId, a, 1, { readBy: [a], realTime: true }); // unread
+  await sleep(3);
+  await seedMessage(roomId, a, 2, { readBy: [a, b], realTime: true }); // read again: R U R
+  await backfillRoomUnread(db, roomId, { dryRun: false }); // counter b = 1
+  const r = await initializeReadBoundaries(db, roomId, { dryRun: false });
+  assert.deepEqual(r.initialized, []);
+  assert.equal(r.writes, 0);
+  assert.deepEqual(r.anomalies.map((x) => [x.uid, x.kind, x.detail]), [[b, "non_contiguous", "RUR"]]);
+  assert.equal((await room(roomId)).lastReadAt, undefined);
+  // A counter that disagrees with the receipts is an anomaly too.
+  const c = fresh("c"), d = fresh("d"), roomId2 = fresh("mig");
+  await seedRoom(roomId2, [c, d], { unreadModelVersion: 1, unreadCounts: { [d]: 1 } });
+  await seedMessage(roomId2, c, 0, { readBy: [c, d], realTime: true });
+  await seedMessage(roomId2, c, 1, { readBy: [c, d], realTime: true });
+  const r2 = await initializeReadBoundaries(db, roomId2, { dryRun: false });
+  assert.deepEqual(r2.anomalies.map((x) => [x.uid, x.kind]), [[d, "counter_mismatch"]]);
+  assert.equal(r2.writes, 0);
+});
+
+test("TEST F: a transient failure before the commit is surfaced (platform retry) and the retry accounts exactly once", async () => {
+  const a = fresh("a"), b = fresh("b"), roomId = fresh("flaky");
+  await seedRoom(roomId, [a, b]);
+  const m = await seedMessage(roomId, a, 0);
+  let failures = 1;
+  const flaky = new Proxy(db, {
+    get(target, prop, receiver) {
+      if (prop === "runTransaction" && failures > 0) {
+        failures -= 1;
+        return async () => {
+          throw Object.assign(new Error("14 UNAVAILABLE: transient"), { code: 14 });
+        };
+      }
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as unknown as typeof db;
+  await assert.rejects(accountMessageUnread(flaky, { roomId, messageId: m.id }), /UNAVAILABLE/);
+  assert.equal(unreadCountFor(await room(roomId), b), 0, "nothing applied by the failed attempt");
+  const retry = await accountMessageUnread(flaky, { roomId, messageId: m.id });
+  assert.equal(retry.applied, true);
+  const again = await accountMessageUnread(db, { roomId, messageId: m.id });
+  assert.equal(again.reason, "already_accounted");
+  assert.equal(unreadCountFor(await room(roomId), b), 1);
 });
 
 test("reconcile: a room that moved between verification and repair is skipped, never half-written", async () => {

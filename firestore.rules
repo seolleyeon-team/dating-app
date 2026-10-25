@@ -720,7 +720,6 @@ service cloud.firestore {
           'senderId',
           'text',
           'type',
-          'readBy',
           'createdAt',
           'updatedAt'
         ]) &&
@@ -728,8 +727,7 @@ service cloud.firestore {
         request.resource.data.text is string &&
         request.resource.data.text.size() > 0 &&
         request.resource.data.text.size() <= 1000 &&
-        request.resource.data.type == 'text' &&
-        request.resource.data.readBy is list
+        request.resource.data.type == 'text'
       );
     }
 
@@ -746,15 +744,17 @@ service cloud.firestore {
           request.resource.data.senderId == request.auth.uid;
     }
 
-    // Participants mark messages read by appending themselves to readBy.
-    // Anything else — especially rewriting someone else's text — is denied.
-    // P0-2 (2026-10 audit): room-level unread state. The server increments
+    // P0-2 (2026-10 audit): room-level unread state. The per-message
+    // `readBy` receipt model is RETIRED (pre-launch closure, 2026-10-25):
+    // clients neither create nor update that field, and a text message is
+    // never rewritten after creation. The server increments
     // chat_rooms.unreadCounts.{uid} once per message a participant did not
     // send; a participant may only (a) reset its OWN counter to 0 and (b)
     // stamp its OWN lastReadAt with the server time, in one update that
     // touches nothing else. Every other key of the model is server-owned.
     function unreadModelServerKeys() {
-      return ['unreadCounts', 'lastReadAt', 'unreadModelVersion', 'unreadBackfilledAt'];
+      return ['unreadCounts', 'lastReadAt', 'unreadModelVersion', 'unreadBackfilledAt',
+        'legacyReadBoundaryMigratedAt', 'legacyReadBoundaryMigrationVersion'];
     }
 
     function onlyOwnUnreadReadStateUpdate() {
@@ -768,11 +768,6 @@ service cloud.firestore {
           after.get('lastReadAt', {}).diff(before.get('lastReadAt', {})).affectedKeys().hasOnly([uid]) &&
           after.unreadCounts[uid] == 0 &&
           after.lastReadAt[uid] == request.time;
-    }
-
-    function onlyMessageReadReceiptUpdate() {
-      return request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['readBy', 'updatedAt']);
     }
 
     // Promise cards are updated in-place (request → confirmed / rejected /
@@ -803,6 +798,10 @@ service cloud.firestore {
             'isEdited',
             'editedAt'
           ]) &&
+          // TRANSITIONAL (NEW-18): an old build rewrites readBy to its own uid
+          // when it edits a promise card; nothing else is tolerated.
+          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['readBy']) ||
+            request.resource.data.readBy == [request.auth.uid]) &&
           request.resource.data.senderId == resource.data.senderId &&
           request.resource.data.type is string &&
           request.resource.data.type.matches('promise_.*');
@@ -859,9 +858,29 @@ service cloud.firestore {
             blindRoomData(roomId).writable == true);
     }
 
+    // TRANSITIONAL — retire with backlog NEW-18 once the readBy-free client is
+    // the published build. An installed OLD build (tester / Play reviewer)
+    // still sends `readBy: [own uid]` on the messages it creates and appends
+    // its own uid as a receipt when it opens a room. The unread model ignores
+    // the field entirely; these two helpers tolerate exactly those two legacy
+    // shapes and nothing else (no other field, no other uid, no replacement),
+    // so the old build keeps working without reopening message mutation.
+    function legacyReadByOnCreateTolerated() {
+      return !request.resource.data.keys().hasAny(['readBy']) ||
+          request.resource.data.readBy == [request.auth.uid];
+    }
+
+    function legacyOwnReceiptAppend() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return after.diff(before).affectedKeys().hasOnly(['readBy', 'updatedAt']) &&
+          after.readBy is list &&
+          after.readBy == before.get('readBy', []).concat([request.auth.uid]);
+    }
+
     function canUpdateChatMessage(roomId) {
       return isExistingChatRoomParticipant(roomId) &&
-          (onlyMessageReadReceiptUpdate() || onlyPromiseMessageLifecycleUpdate());
+          (legacyOwnReceiptAppend() || onlyPromiseMessageLifecycleUpdate());
     }
 
     // -----------------------------------------------------------------------
@@ -1600,8 +1619,11 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         allow create: if isParticipantMessageAuthor(roomId) &&
           !hasOneToOneChatBlock(blindRoomData(roomId)) &&
           request.resource.data.type != 'text' &&
-          // P0-2: the accounting marker is written only by the server.
+          // P0-2: the accounting marker is written only by the server. The
+          // retired receipt field is tolerated only as `[own uid]` from an
+          // installed old build (transitional, NEW-18) and is ignored.
           !request.resource.data.keys().hasAny(['unreadAccountedAt', 'unreadBackfilled']) &&
+          legacyReadByOnCreateTolerated() &&
           isValidClientSupportMessage(roomId) &&
           (
             !request.resource.data.keys().hasAny(['type']) ||

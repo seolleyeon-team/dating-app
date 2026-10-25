@@ -4,7 +4,7 @@
 // may only reset its OWN key to 0 and stamp its OWN lastReadAt. Nobody can
 // touch another participant's keys, forge a positive count, or reach these
 // keys through the general room-update branch. Old clients keep writing
-// per-message readBy (unchanged rule).
+// per-message readBy (retired: refused by the rules since 2026-10-25).
 import test from "node:test";
 
 import {
@@ -58,7 +58,6 @@ async function seedRoom(extra = {}, { legacy = false } = {}) {
       senderId: B,
       text: "hi",
       type: "text",
-      readBy: [B],
       createdAt: Timestamp.now(),
     });
   });
@@ -198,12 +197,26 @@ test("P0-2: a participant of a blocked 1:1 room can still clear its own badge", 
   );
 });
 
-test("legit (old clients): per-message readBy receipts remain writable by the recipient", async () => {
+test("P0-2 retirement: per-message readBy receipts are refused except an old build's own-uid append (NEW-18); read state lives on the room", async () => {
   await seedRoom();
   const db = await kakaoSession(A);
-  await assertSucceeds(
+  // m1 was seeded without readBy: anything but [A] is refused …
+  await assertFails(
     updateDoc(doc(db, "chat_rooms", ROOM, "messages", "m1"), {
       readBy: [B, A],
+      updatedAt: serverTimestamp(),
+    })
+  );
+  await assertFails(
+    updateDoc(doc(db, "chat_rooms", ROOM, "messages", "m1"), {
+      readBy: [B],
+      updatedAt: serverTimestamp(),
+    })
+  );
+  // … and the transitional own-uid append never touches the room counters.
+  await assertSucceeds(
+    updateDoc(doc(db, "chat_rooms", ROOM, "messages", "m1"), {
+      readBy: [A],
       updatedAt: serverTimestamp(),
     })
   );

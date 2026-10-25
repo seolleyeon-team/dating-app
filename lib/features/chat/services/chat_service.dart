@@ -314,7 +314,6 @@ class ChatService {
       'status': 'requested',
       'isEdited': false,
       'editedAt': null,
-      'readBy': [requestedBy],
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
@@ -399,7 +398,6 @@ class ChatService {
           'placeCategory': placeCategory,
           ...extras,
           'status': 'requested',
-          'readBy': [editedBy],
           'updatedAt': FieldValue.serverTimestamp(),
           'isEdited': true,
           'editedAt': FieldValue.serverTimestamp(),
@@ -590,7 +588,6 @@ class ChatService {
         'place': promisePlace,
         'placeCategory': promiseCategory,
         'status': 'cancelled',
-        'readBy': [cancelledBy],
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });

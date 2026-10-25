@@ -433,3 +433,156 @@ performed, and the client is NOT RELEASED.
   published (no upload key, store state unverifiable from here); `readBy`
   retirement gated on `minimumSupportedBuild` (NEW-06); alert delivery channel
   not configured (NEW-11).
+
+## Pre-launch closure (2026-10-25) — legacy `readBy` retirement
+
+Owner decision: the app has not launched, there are no public users and
+legacy client support is not required, so the per-message `readBy` receipt
+model is retired instead of being carried behind `minimumSupportedBuild`.
+Branch `security/p0-2-readby-retirement` (from the PR #147 merge `69a85520`).
+
+### Final single model
+
+```
+chat_rooms/{roomId}
+  unreadCounts.{uid}        server increments (trigger transaction), participant resets own key to 0
+  lastReadAt.{uid}          participant, own key, request.time
+  unreadModelVersion        1
+  unreadBackfilledAt        one-time backfill marker (2026-10-16)
+  legacyReadBoundaryMigratedAt / legacyReadBoundaryMigrationVersion   one-time boundary migration marker
+messages/{id}.unreadAccountedAt   server-only accounting marker
+```
+
+A missing `lastReadAt[u]` means exactly "every message not sent by u is
+unread" — identically for the trigger (`recipientsToIncrement`), the client
+(`ChatRoomUnread.fromRoomData` reads counters only), the digest (counters
+only), the reconciliation (`basis: no_boundary`) and the rules.
+
+### Inventory and disposition
+
+| File | Occurrence | Class | Disposition |
+|---|---|---|---|
+| `functions/src/{blindMeeting/automaticReplacement,blindMeeting/store,chatSafety,index(×3),mutualMatchCreation,playReviewAccess,safetyStamp(×2),supportOperations(×2),teamMeetingRequest}.ts` | `readBy: [...]` on message create | ACTIVE_RUNTIME (write) | removed — 12 server writer sites |
+| `lib/features/chat/services/chat_service.dart` (promise request / edit / delete) | `'readBy': [...]` | ACTIVE_RUNTIME (write) | removed — 3 client writer sites |
+| `functions/src/chatUnread.ts` `legacyMessageIsUnreadFor`, backfill, reconciliation `basis: readBy` | read | RECONCILIATION / MIGRATION | moved to `chatUnreadLegacyMigration.ts` (one-time); reconciliation fallback replaced by `no_boundary` |
+| `firestore.rules` `isValidClientSupportMessage` (`readBy` key + `is list`), `onlyMessageReadReceiptUpdate`, promise-lifecycle allowlist | SECURITY_RULE | removed; `readBy` added to the forbidden create keys; `canUpdateChatMessage` = promise lifecycle only |
+| `lib/**` `isRead` (bubble tick = `senderId == me`, notifications' own flag) | not `readBy` | ACTIVE_RUNTIME (unrelated) | unchanged |
+| `functions/src/chatRealPhoto.ts`, `accountDeletionChatLifecycle.ts`, `playReviewAccess.ts:460` | message reads | no `readBy` dependency | unchanged |
+| rules tests, emulator/unit tests, `test/firestore_rules` fixtures | TEST | fixtures rewritten; receipt tests flipped to DENY; historical-data tests keep `readBy` explicitly |
+| `docs/audits/**`, `.tmp/**` | DOCUMENTATION / HISTORICAL_ARTIFACT | kept |
+
+Indirect dependencies checked: push (`sendPushOnce` — participants, not
+receipts), digest (counters), room list (counters), group chat (counters),
+account deletion (no receipts), support/admin ops (writers only), analytics
+(none), fixtures (`playReviewAccess` welcome message — writer only).
+
+### Behaviour contract (unchanged, now the only one)
+
+1:1: `A → M1` ⇒ A unchanged, B +1. Group of six: sender unchanged, five
+recipients +1 each; one member's read never touches a peer. System and
+promise messages count for every non-sender. Mark-read: `unreadCounts.me = 0`,
+`lastReadAt.me = request.time`, one write, room level — acknowledging every
+message committed before the read request (documented decision, § Read
+boundary semantics). High-water mark: `message.createTime ≤ lastReadAt[u]` ⇒
+no increment; `>` ⇒ increment; server `createTime`, never a client clock.
+Multi-device: per-user state, any device's read clears all.
+
+Model initialization: new room — no fields until the first accounted message
+(`unreadModelVersion` set by the trigger); room without messages — 0
+everywhere; room without `lastReadAt[u]` — everything unread for u; malformed
+`lastReadAt` (non-Timestamp) — ignored, counts (fail toward unread), reported
+by `--verify` as a structural issue only if a counter is malformed; deleted
+room — `room_missing`, message marked; removed participant — stale key
+tolerated (`checkRoomUnreadIntegrity` flags only a positive count for a
+stranger).
+
+### Regression tests (written first, failing on the old code)
+
+- `chatUnreadLegacyGuard.test.ts`: no runtime source writes/reads `readBy`
+  (only the migration module may), the accounting module has no legacy rule,
+  the rules forbid the field and carry no receipt branch — 3/3 FAIL before,
+  PASS after.
+- Dart cost-contract test: no `readBy` string in `lib/` — FAIL before, PASS after.
+- Rules: receipts no longer writable (flipped to DENY in `firestore.chat` and
+  `firestore.chatunread`), promise message accepted without `readBy` and
+  refused with it (new), `firestoreRules.test.ts` pins the absence of the
+  receipt branch.
+- Emulator (`chatUnread.emulator-test.ts`): every message seed is now
+  `readBy`-free (TEST A/B/C/D/E/G through the existing P0-2-E…K suites),
+  TEST I historical receipts ignored, TEST J1 boundary migration (contiguous)
+  → clean verify + idempotent, TEST J2 non-contiguous / counter mismatch →
+  reported, nothing written, TEST F transient failure → surfaced, retry
+  accounts once; deployed-wiring test creates `readBy`-free messages.
+
+### Reconciliation / migration decision
+
+`--verify` now has two bases: `lastReadAt` (strict invariant) and
+`no_boundary` (every message not sent by the user). Production audit
+(read-only, 2026-10-25): 23 rooms, 25 messages, 50 participant slots, 0
+boundaries, 48 slots already consistent, 2 slots in `dm_4705818223_fake_user_1`
+with counter 0 derived from receipts that say "all read" (contiguous
+`RRRRRRRRR` / `RRRRRRRRRRRRR`). Policy: a receipt history is representable by
+one timestamp only when it is a contiguous suffix; then
+`lastReadAt[u] := createTime(newest read message)` reproduces the counter
+exactly. Non-contiguous histories or counters that disagree with the receipts
+are reported as anomalies and never written. Implemented as the one-time
+`--init-boundaries-dry-run | --init-boundaries-apply --checkpoint` modes
+(`runReadBoundaryInitialization`, one transaction per room that re-checks
+the room and the counters first). Dry run: `participantsInitialized 2,
+consistent 48, anomalies 0, unverifiable 0, writes 0`. The apply (1 room, 2
+keys) is pending owner approval (NEW-14); until it runs, `--verify` reports
+exactly those two `under_count … no_boundary` rows. Historical `readBy`
+fields stay physically stored; nothing deletes them.
+
+### Verification (final code, 2026-10-25)
+
+| Suite | Result |
+|---|---|
+| Functions `tsc --noEmit` | clean |
+| Functions unit (`node --test lib/**/*.test.js`) | 1125 / 1125 (incl. 3 new guards) |
+| Firestore emulator P0-2 + trigger | 35 / 35 (4 new: I, J1, J2, F) |
+| `rules_tests` (CI suite) | 259 / 259 (1 new) |
+| `test/firestore_rules` (non-CI suite) | 158 / 160 — the 2 failures pre-exist on the base content (NEW-17) |
+| `flutter analyze` | No issues found |
+| `flutter test test/features/chat test/core/compatibility` | 69 pass / 1 fail (NEW-05 build-number test) |
+| `flutter test` (all) | 1162 pass / 18 fail — the same 18 as before (NEW-13) |
+| Legacy-port cost evidence (`CHAT_UNREAD_PORT=legacy`) | still fails exactly A/B/C/L: 168 reads, 600 writes, 120 docs, 120 message reads vs 3 / 1 / 50 / 0 |
+
+Cost of the retirement itself: one fewer field per message write; trigger,
+mark-read, pagination and digest costs unchanged (2 reads + 2 writes per
+message, 1 write per mark-read, 50 docs per page, 0 message reads per digest).
+
+### Deployment status (gated)
+
+Nothing was deployed in this pass. The model that runs in production is
+unchanged (`onchatmessagecreated-00009-mod`, rules `113e93ec…`). Deployed
+Functions keep writing `readBy` on new messages until redeployed — harmless,
+the field is ignored everywhere. The new Rules deny `readBy` from clients and
+remove the receipt update, which breaks promise messages and mark-read on any
+installed OLD build (incl. the one under Play review). Deploy order when the
+owner releases the new client: writer Functions (guarded, per function) →
+Rules → `--verify` + strict smoke. See NEW-15 for the list and the guard
+dry-run results.
+
+Guard dry-runs (read-only, 2026-10-25, dotenv 31 keys sha256 `78dac231…`):
+every affected function passes the dotenv contract, and the regression guard
+reports **0 removals, 0 changes, 0 missing required keys** — only *additions*
+(keys present in the canonical dotenv but absent from the function's serving
+revision, the OPS-02 drift). Each deploy therefore needs the additions
+declared one by one with `--allow-add-key`, which is the convergence OPS-02
+intended:
+
+| Function | Live env keys | Additions to declare | Removals / changes |
+|---|---|---|---|
+| `sendChatText` | 10 | ≥ 8 | 0 / 0 |
+| `submitSafetyStamp` / `submitSafetyStampFollowUp` | 9 / 10 | ≥ 8 | 0 / 0 |
+| `submitInquiry` / `submitIssueReport` | 11 / 11 | ≥ 8 | 0 / 0 |
+| `onInteractionCreated` / `onMatchUpdated` / `autoCompleteExpiredGoodbyeSafetyStamps` | 33 each | ≥ 5 (Apple IAP keys) | 0 / 0 |
+| `respondTeamMeetingRequest` | 18 | ≥ 8 | 0 / 0 |
+| `preparePlayReviewSession` / `playReviewSignIn` | 9 / 9 | ≥ 8 | 0 / 0 |
+| `blindMeetingAction` / `blindMeetingOps` / `blindMeetingMatchingTick` / `blindMeetingLifecycleTick` | 10 / 7 / 10 / 11 | ≥ 8 | 0 / 0 |
+
+(`≥` because the dry-run log kept the first ten guard lines per function; the
+exact key list is printed by `scripts/deploy_functions_guarded.sh --dry-run
+<fn>`.) `mutualMatchCreation.ts` has no importer (dead module, NEW-16) and
+needs no deploy.
