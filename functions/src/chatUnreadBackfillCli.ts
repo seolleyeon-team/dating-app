@@ -8,6 +8,9 @@
  *   node lib/chatUnreadBackfillCli.js --project seolleyeon-final --verify
  *   node lib/chatUnreadBackfillCli.js --project seolleyeon-final --repair \
  *        --checkpoint p02-repair-20261022 [--grace-seconds 300]
+ *   node lib/chatUnreadBackfillCli.js --project seolleyeon-final --init-boundaries-dry-run
+ *   node lib/chatUnreadBackfillCli.js --project seolleyeon-final --init-boundaries-apply \
+ *        --checkpoint p02-boundaries-20261025
  *
  * Safety properties (see chatUnread.ts):
  *   - rooms are paged by document id, never loaded all at once
@@ -17,9 +20,13 @@
  *   - --dry-run performs the same reads and no writes
  *   - --verify is read-only: structural checks on every room document plus
  *     the strict invariant (counter == messages newer than the user's
- *     lastReadAt; legacy readBy rule for users who never marked read on a
- *     new client). Messages younger than --grace-seconds may still be in the
- *     trigger queue and are never reported as lost.
+ *     lastReadAt; without a boundary every message the user did not send).
+ *     Messages younger than --grace-seconds may still be in the trigger
+ *     queue and are never reported as lost.
+ *   - --init-boundaries-* is the ONE-TIME legacy migration step 2
+ *     (chatUnreadLegacyMigration.ts): participants whose counter came from
+ *     retired per-message receipts get an explicit lastReadAt boundary;
+ *     non-contiguous receipt histories are reported, never guessed.
  *   - --repair verifies the same way and fixes each room in ONE transaction
  *     that re-checks the room first (see reconcileRoomUnread); rooms that
  *     moved are skipped and reported, never half-written
@@ -34,22 +41,22 @@ import { FieldPath, FieldValue, getFirestore } from "firebase-admin/firestore";
 import {
   checkRoomUnreadIntegrity,
   reconcileRoomUnread,
-  runChatUnreadBackfill,
   RECONCILE_DEFAULT_GRACE_MS,
   type RoomIntegrityIssue,
   type RoomReconcileResult,
 } from "./chatUnread";
+import { runChatUnreadBackfill, runReadBoundaryInitialization } from "./chatUnreadLegacyMigration";
 
 type Args = {
   project: string;
-  mode: "dry-run" | "apply" | "verify" | "repair";
+  mode: "dry-run" | "apply" | "verify" | "repair" | "init-boundaries-dry-run" | "init-boundaries-apply";
   limit?: number;
   checkpoint?: string;
   startAfter?: string;
   graceMs: number;
 };
 
-const MODE_ERROR = "choose exactly one of --dry-run, --apply, --verify, --repair";
+const MODE_ERROR = "choose exactly one of --dry-run, --apply, --verify, --repair, --init-boundaries-dry-run, --init-boundaries-apply";
 
 export function parseArgs(argv: string[]): Args {
   let project = "";
@@ -88,6 +95,14 @@ export function parseArgs(argv: string[]): Args {
         if (mode) throw new Error(MODE_ERROR);
         mode = "repair";
         break;
+      case "--init-boundaries-dry-run":
+        if (mode) throw new Error(MODE_ERROR);
+        mode = "init-boundaries-dry-run";
+        break;
+      case "--init-boundaries-apply":
+        if (mode) throw new Error(MODE_ERROR);
+        mode = "init-boundaries-apply";
+        break;
       case "--grace-seconds": {
         const parsed = Number.parseInt(next(), 10);
         if (!Number.isInteger(parsed) || parsed < 0) throw new Error("--grace-seconds must be a non-negative integer");
@@ -113,7 +128,7 @@ export function parseArgs(argv: string[]): Args {
   }
   if (!/^[a-z][a-z0-9-]{4,29}$/.test(project)) throw new Error("--project <firebase-project-id> is required");
   if (!mode) throw new Error(MODE_ERROR);
-  if ((mode === "apply" || mode === "repair") && !checkpoint) {
+  if ((mode === "apply" || mode === "repair" || mode === "init-boundaries-apply") && !checkpoint) {
     throw new Error(`--${mode} requires --checkpoint <id> so the run can resume and be audited`);
   }
   return { project, mode, limit, checkpoint, startAfter, graceMs };
@@ -195,6 +210,17 @@ async function main(): Promise<number> {
     `chat unread backfill: project=${args.project} mode=${args.mode}` +
       `${process.env.FIRESTORE_EMULATOR_HOST ? ` emulator=${process.env.FIRESTORE_EMULATOR_HOST}` : ""}`
   );
+  if (args.mode === "init-boundaries-dry-run" || args.mode === "init-boundaries-apply") {
+    const summary = await runReadBoundaryInitialization(db, {
+      dryRun: args.mode === "init-boundaries-dry-run",
+      limitRooms: args.limit,
+      checkpointId: args.checkpoint,
+      startAfterRoomId: args.startAfter,
+      log: (line) => console.log(line),
+    });
+    console.log(JSON.stringify(summary, null, 2));
+    return summary.anomalies === 0 && summary.unverifiable === 0 ? 0 : 1;
+  }
   if (args.mode === "verify" || args.mode === "repair") {
     const problems = await verifyOrRepair(db, {
       repair: args.mode === "repair",

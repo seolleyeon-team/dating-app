@@ -658,7 +658,6 @@ async function seedReviewScenario(firestore: Firestore): Promise<void> {
     type: "system",
     text: "리뷰용 3:3 미팅 채팅방입니다.",
     content: "리뷰용 3:3 미팅 채팅방입니다.",
-    readBy: [],
     dataPartition: PLAY_REVIEW_PARTITION,
     createdAt: now,
   });

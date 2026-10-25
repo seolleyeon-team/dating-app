@@ -27,7 +27,8 @@ const fresh = (p: string) => `${p}_${Date.now().toString(36)}_${++seq}`;
 async function createMessage(roomId: string, senderId: string, text: string) {
   const ref = db.collection("chat_rooms").doc(roomId).collection("messages").doc();
   const now = Timestamp.now();
-  await ref.set({ senderId, text, type: senderId === "system" ? "system" : "text", readBy: senderId === "system" ? [] : [senderId], createdAt: now, updatedAt: now });
+  // Writers no longer store the retired readBy field.
+  await ref.set({ senderId, text, type: senderId === "system" ? "system" : "text", createdAt: now, updatedAt: now });
   return ref;
 }
 

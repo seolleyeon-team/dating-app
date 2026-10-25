@@ -144,7 +144,6 @@ export async function leaveBlindMeeting(params: { meetingId: string; userId: str
       senderId: "system",
       type: "system",
       text: leaveMessage,
-      readBy: [],
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });

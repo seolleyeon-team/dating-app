@@ -82,7 +82,6 @@ export async function ensureMutualMatch(
           content: params.chatRoom.systemMessage,
           type: "system",
           createdAt: FieldValue.serverTimestamp(),
-          readBy: [],
         });
       }
     }

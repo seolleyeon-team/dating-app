@@ -7,7 +7,6 @@ import {
   chatDigestNotificationId,
   checkRoomUnreadIntegrity,
   digestContributionsForRoom,
-  legacyMessageIsUnreadFor,
   messageCommitTime,
   recipientsToIncrement,
   roomHasUnreadModel,
@@ -15,6 +14,7 @@ import {
   unreadCountFor,
   unreadRecipientsFor,
 } from "./chatUnread";
+import { legacyMessageIsUnreadFor } from "./chatUnreadLegacyMigration";
 
 const A = "kakao_a";
 const B = "kakao_b";
@@ -48,7 +48,7 @@ test("malformed sender or participants never produce increments", () => {
   assert.deepEqual(unreadRecipientsFor({ senderId: A, participantIds: [null, 3, "", A] }), []);
 });
 
-test("legacy readBy rule: unread iff not mine and readBy lacks me", () => {
+test("legacy readBy rule (migration module only): unread iff not mine and readBy lacks me", () => {
   assert.equal(legacyMessageIsUnreadFor({ senderId: A, readBy: [A] }, B), true);
   assert.equal(legacyMessageIsUnreadFor({ senderId: A, readBy: [A, B] }, B), false);
   assert.equal(legacyMessageIsUnreadFor({ senderId: A, readBy: [A] }, A), false);

@@ -4507,7 +4507,6 @@ export const onInteractionCreated = onDocumentCreated(
       content: "매칭이 성사되었어요! 먼저 인사해보세요 💕",
       type: "system",
       createdAt: FieldValue.serverTimestamp(),
-      readBy: [],
       dataPartition: fromPartition,
     });
 
@@ -4991,7 +4990,6 @@ export const onMatchUpdated = onDocumentUpdated(
           text: "매칭이 해제되었습니다.",
           content: "매칭이 해제되었습니다.",
           type: "system",
-          readBy: [],
           createdAt: FieldValue.serverTimestamp(),
         });
 
@@ -5140,7 +5138,6 @@ export const autoCompleteExpiredGoodbyeSafetyStamps = onSchedule(
             placeCategory: promiseData.placeCategory ?? null,
             status: "completed",
             completionMode: "auto_without_goodbye_stamp",
-            readBy: [],
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
             dateTime: FieldValue.serverTimestamp(),
