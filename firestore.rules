@@ -720,7 +720,6 @@ service cloud.firestore {
           'senderId',
           'text',
           'type',
-          'readBy',
           'createdAt',
           'updatedAt'
         ]) &&
@@ -728,8 +727,7 @@ service cloud.firestore {
         request.resource.data.text is string &&
         request.resource.data.text.size() > 0 &&
         request.resource.data.text.size() <= 1000 &&
-        request.resource.data.type == 'text' &&
-        request.resource.data.readBy is list
+        request.resource.data.type == 'text'
       );
     }
 
@@ -746,15 +744,17 @@ service cloud.firestore {
           request.resource.data.senderId == request.auth.uid;
     }
 
-    // Participants mark messages read by appending themselves to readBy.
-    // Anything else — especially rewriting someone else's text — is denied.
-    // P0-2 (2026-10 audit): room-level unread state. The server increments
+    // P0-2 (2026-10 audit): room-level unread state. The per-message
+    // `readBy` receipt model is RETIRED (pre-launch closure, 2026-10-25):
+    // clients neither create nor update that field, and a text message is
+    // never rewritten after creation. The server increments
     // chat_rooms.unreadCounts.{uid} once per message a participant did not
     // send; a participant may only (a) reset its OWN counter to 0 and (b)
     // stamp its OWN lastReadAt with the server time, in one update that
     // touches nothing else. Every other key of the model is server-owned.
     function unreadModelServerKeys() {
-      return ['unreadCounts', 'lastReadAt', 'unreadModelVersion', 'unreadBackfilledAt'];
+      return ['unreadCounts', 'lastReadAt', 'unreadModelVersion', 'unreadBackfilledAt',
+        'legacyReadBoundaryMigratedAt', 'legacyReadBoundaryMigrationVersion'];
     }
 
     function onlyOwnUnreadReadStateUpdate() {
@@ -768,11 +768,6 @@ service cloud.firestore {
           after.get('lastReadAt', {}).diff(before.get('lastReadAt', {})).affectedKeys().hasOnly([uid]) &&
           after.unreadCounts[uid] == 0 &&
           after.lastReadAt[uid] == request.time;
-    }
-
-    function onlyMessageReadReceiptUpdate() {
-      return request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['readBy', 'updatedAt']);
     }
 
     // Promise cards are updated in-place (request → confirmed / rejected /
@@ -798,7 +793,6 @@ service cloud.firestore {
             'placeLng',
             'placeThumbnailUrl',
             'status',
-            'readBy',
             'updatedAt',
             'isEdited',
             'editedAt'
@@ -861,7 +855,7 @@ service cloud.firestore {
 
     function canUpdateChatMessage(roomId) {
       return isExistingChatRoomParticipant(roomId) &&
-          (onlyMessageReadReceiptUpdate() || onlyPromiseMessageLifecycleUpdate());
+          onlyPromiseMessageLifecycleUpdate();
     }
 
     // -----------------------------------------------------------------------
@@ -1600,8 +1594,9 @@ request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         allow create: if isParticipantMessageAuthor(roomId) &&
           !hasOneToOneChatBlock(blindRoomData(roomId)) &&
           request.resource.data.type != 'text' &&
-          // P0-2: the accounting marker is written only by the server.
-          !request.resource.data.keys().hasAny(['unreadAccountedAt', 'unreadBackfilled']) &&
+          // P0-2: the accounting marker is written only by the server, and the
+          // retired per-message receipt field is not accepted at all.
+          !request.resource.data.keys().hasAny(['unreadAccountedAt', 'unreadBackfilled', 'readBy']) &&
           isValidClientSupportMessage(roomId) &&
           (
             !request.resource.data.keys().hasAny(['type']) ||
