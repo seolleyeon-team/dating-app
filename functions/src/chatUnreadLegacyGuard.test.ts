@@ -62,9 +62,15 @@ test("the accounting module carries no legacy readBy rule", () => {
   assert.equal(/\breadBy\b/.test(codeLines(source).join("\n")), false);
 });
 
-test("the rules forbid the legacy field and no longer carry a per-message receipt branch", () => {
+test("the rules carry no general per-message receipt branch; only the NEW-18 transitional own-uid tolerance", () => {
   const rules = readFileSync(join(__dirname, "..", "..", "firestore.rules"), "utf8");
   assert.equal(rules.includes("onlyMessageReadReceiptUpdate"), false);
   assert.equal(rules.includes("request.resource.data.readBy is list"), false);
-  assert.ok(rules.includes("'readBy'"), "readBy must be named in the forbidden-keys list");
+  // Transitional tolerance for installed old builds: must stay narrow
+  // (exactly [own uid]) and must carry its retirement marker.
+  assert.equal(rules.includes("function legacyReadByOnCreateTolerated()"), true);
+  assert.equal(rules.includes("function legacyOwnReceiptAppend()"), true);
+  assert.equal((rules.match(/request\.resource\.data\.readBy == \[request\.auth\.uid\]/g) ?? []).length, 2);
+  assert.equal(rules.includes("before.get('readBy', []).concat([request.auth.uid])"), true);
+  assert.ok(rules.includes("NEW-18"), "the transitional rule must name its retirement item");
 });

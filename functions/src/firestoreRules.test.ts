@@ -413,8 +413,8 @@ test("chat rooms keep participantIds immutable and message updates scoped", () =
     "P0-2 retirement: no per-message read-receipt update branch remains"
   );
   assertContains(
-    "message updates are promise lifecycle updates only",
-    "function canUpdateChatMessage(roomId) { return isExistingChatRoomParticipant(roomId) && onlyPromiseMessageLifecycleUpdate(); }"
+    "message updates are promise lifecycle updates or the transitional own-uid receipt append (NEW-18)",
+    "function canUpdateChatMessage(roomId) { return isExistingChatRoomParticipant(roomId) && (legacyOwnReceiptAppend() || onlyPromiseMessageLifecycleUpdate()); }"
   );
   assertContains(
     "promise lifecycle updates must preserve the original sender identity",

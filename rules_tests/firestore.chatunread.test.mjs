@@ -197,12 +197,26 @@ test("P0-2: a participant of a blocked 1:1 room can still clear its own badge", 
   );
 });
 
-test("P0-2 retirement: per-message readBy receipts are refused; read state lives on the room", async () => {
+test("P0-2 retirement: per-message readBy receipts are refused except an old build's own-uid append (NEW-18); read state lives on the room", async () => {
   await seedRoom();
   const db = await kakaoSession(A);
+  // m1 was seeded without readBy: anything but [A] is refused …
   await assertFails(
     updateDoc(doc(db, "chat_rooms", ROOM, "messages", "m1"), {
       readBy: [B, A],
+      updatedAt: serverTimestamp(),
+    })
+  );
+  await assertFails(
+    updateDoc(doc(db, "chat_rooms", ROOM, "messages", "m1"), {
+      readBy: [B],
+      updatedAt: serverTimestamp(),
+    })
+  );
+  // … and the transitional own-uid append never touches the room counters.
+  await assertSucceeds(
+    updateDoc(doc(db, "chat_rooms", ROOM, "messages", "m1"), {
+      readBy: [A],
       updatedAt: serverTimestamp(),
     })
   );
