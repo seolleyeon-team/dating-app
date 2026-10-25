@@ -40,6 +40,17 @@ void main() {
     },
   );
 
+  test('the legacy per-message readBy field is neither written nor read', () {
+    for (final file in libFiles) {
+      final source = file.readAsStringSync();
+      expect(
+        source.contains("'readBy'") || source.contains('"readBy"'),
+        isFalse,
+        reason: '${file.path} still references the retired readBy field',
+      );
+    }
+  });
+
   test('message history is read in bounded pages with a cursor', () {
     expect(chatService, contains('static const int messagePageSize = 50;'));
     expect(chatService, contains('.limit(limit).snapshots()'));

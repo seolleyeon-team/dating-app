@@ -407,9 +407,14 @@ test("chat rooms keep participantIds immutable and message updates scoped", () =
   ]) {
     assertContains("chat message rule includes " + condition, condition);
   }
+  assert.equal(
+    rules.includes("onlyMessageReadReceiptUpdate"),
+    false,
+    "P0-2 retirement: no per-message read-receipt update branch remains"
+  );
   assertContains(
-    "plain text messages cannot be rewritten except for read receipts",
-    "function onlyMessageReadReceiptUpdate() { return request.resource.data.diff(resource.data).affectedKeys() .hasOnly(['readBy', 'updatedAt']); }"
+    "message updates are promise lifecycle updates only",
+    "function canUpdateChatMessage(roomId) { return isExistingChatRoomParticipant(roomId) && onlyPromiseMessageLifecycleUpdate(); }"
   );
   assertContains(
     "promise lifecycle updates must preserve the original sender identity",

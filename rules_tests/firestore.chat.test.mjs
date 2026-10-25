@@ -45,7 +45,6 @@ async function seedChatRoom(db) {
     senderId: ALICE,
     type: "text",
     text: "original evidence",
-    readBy: [ALICE],
   });
   await setDoc(doc(db, "chat_rooms", ROOM, "messages", "m_promise"), {
     senderId: ALICE,
@@ -54,7 +53,6 @@ async function seedChatRoom(db) {
     status: "requested",
     place: "신촌",
     placeCategory: "cafe",
-    readBy: [ALICE],
   });
   await setDoc(doc(db, "chat_rooms", ROOM, "promises", PROMISE), {
     promiseId: PROMISE,
@@ -119,11 +117,11 @@ test("a participant cannot reassign senderId on a text message", async () => {
   );
 });
 
-test("a recipient can mark a message as read", async () => {
+test("P0-2 retirement: per-message read receipts are no longer writable (room-level state only)", async () => {
   await withClearedDb(seedChatRoom);
   const bob = await kakaoSession(BOB);
 
-  await assertSucceeds(
+  await assertFails(
     updateDoc(doc(bob, "chat_rooms", ROOM, "messages", "m_text"), {
       readBy: [ALICE, BOB],
       updatedAt: new Date(),
@@ -134,8 +132,29 @@ test("a recipient can mark a message as read", async () => {
   const snap = await assertSucceeds(
     getDoc(doc(alice, "chat_rooms", ROOM, "messages", "m_text"))
   );
-  assert.deepEqual(snap.data().readBy, [ALICE, BOB]);
   assert.equal(snap.data().text, "original evidence");
+});
+
+test("P0-2 retirement: a promise message is accepted without readBy and refused with it", async () => {
+  await withClearedDb(seedChatRoom);
+  const alice = await kakaoSession(ALICE);
+  const base = {
+    senderId: ALICE,
+    type: "promise_request",
+    text: "약속 요청",
+    promiseId: "promise_new",
+    status: "requested",
+    place: "신촌",
+    placeCategory: "cafe",
+    isEdited: false,
+    editedAt: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+  await assertSucceeds(setDoc(doc(alice, "chat_rooms", ROOM, "messages", "m_promise_new"), base));
+  await assertFails(
+    setDoc(doc(alice, "chat_rooms", ROOM, "messages", "m_promise_legacy"), { ...base, readBy: [ALICE] })
+  );
 });
 
 test("an existing promise message can move through its lifecycle", async () => {
