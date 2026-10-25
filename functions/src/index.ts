@@ -138,6 +138,11 @@ import { createSendChatTextFunction } from "./chatSafety";
 import { createPurgeExpiredEmailLinkTokensSchedule } from "./emailLinkTokenPurge";
 import { createCompleteStudentEmailLinkFunction } from "./emailLinkCompletion";
 import {
+  accountMessageUnread,
+  chatDigestNotificationId,
+  collectDailyUnreadDigest,
+} from "./chatUnread";
+import {
   claimStudentEmailBinding,
   studentEmailBindingClaimError,
 } from "./studentEmailBinding";
@@ -1132,22 +1137,6 @@ async function countPostLikeNotificationsForPost(
   return snap.size;
 }
 
-async function hasChatDigestForDate(
-  userId: string,
-  digestDate: string
-): Promise<boolean> {
-  const snap = await db
-    .collection("users")
-    .doc(userId)
-    .collection("notifications")
-    .where("type", "==", "chat_digest")
-    .where("digestDate", "==", digestDate)
-    .limit(1)
-    .get();
-
-  return !snap.empty;
-}
-
 function buildSafetyStampFollowUpNotificationId(
   promiseId: string,
   userId: string
@@ -1155,59 +1144,8 @@ function buildSafetyStampFollowUpNotificationId(
   return `safety_stamp_follow_up_${promiseId}_${userId}`;
 }
 
-async function getUnreadChatDigestForUser(userId: string): Promise<{
-  unreadCount: number;
-  previewSenderName: string | null;
-}> {
-  const roomsSnap = await db
-    .collection("chat_rooms")
-    .where("participantIds", "array-contains", userId)
-    .where("status", "==", "active")
-    .get();
-
-  let unreadCount = 0;
-  let previewSenderName: string | null = null;
-
-  for (const roomDoc of roomsSnap.docs) {
-    const roomData = (roomDoc.data() ?? {}) as Record<string, unknown>;
-    const participantInfoRaw = roomData.participantInfo;
-    const participantInfo = isRecord(participantInfoRaw)
-      ? participantInfoRaw
-      : {};
-
-    const messagesSnap = await roomDoc.ref.collection("messages").get();
-
-    for (const msgDoc of messagesSnap.docs) {
-      const msg = (msgDoc.data() ?? {}) as Record<string, unknown>;
-      const senderId = asString(msg.senderId ?? "");
-      if (!senderId || senderId === "system" || senderId === userId) continue;
-
-      const readByRaw = msg.readBy;
-      const readBy = Array.isArray(readByRaw)
-        ? readByRaw.map((v) => asString(v)).filter((v) => v.length > 0)
-        : [];
-
-      if (!readBy.includes(userId)) {
-        unreadCount += 1;
-
-        if (!previewSenderName) {
-          const senderInfo = participantInfo[senderId];
-          previewSenderName = isRecord(senderInfo)
-            ? asString(senderInfo.nickname ?? "", "")
-            : "";
-          if (!previewSenderName) {
-            previewSenderName = "누군가";
-          }
-        }
-      }
-    }
-  }
-
-  return {
-    unreadCount,
-    previewSenderName,
-  };
-}
+// P0-2: the users × rooms × messages digest scan (hasChatDigestForDate /
+// getUnreadChatDigestForUser) was removed; see chatUnread.ts.
 
 type ResolvedAppUser = {
   userId: string;
@@ -4588,13 +4526,46 @@ export const onInteractionCreated = onDocumentCreated(
 // 3) 새 채팅 메시지 → 푸시 알림
 // =============================================================================
 export const onChatMessageCreated = onDocumentCreated(
-  "chat_rooms/{roomId}/messages/{messageId}",
+  {
+    document: "chat_rooms/{roomId}/messages/{messageId}",
+    // P0-2: the accounting below re-throws so a failed event is retried.
+    // Without this the deployed policy is RETRY_POLICY_DO_NOT_RETRY (verified
+    // on the live trigger, 2026-10-22) and the event would be dropped — a
+    // silently lost increment. Retries are safe: the accounting is idempotent
+    // (message marker) and the push is deduplicated (notificationDispatchLog).
+    retry: true,
+  },
   async (event) => {
     const snap = event.data;
     if (!snap) return;
 
     const roomId = event.params.roomId;
     const message = snap.data();
+
+    // P0-2: room-level unread accounting is the ONE authority for unread
+    // state and covers every creation path (text callable, system, promise,
+    // support). It runs before any early return below so system messages are
+    // counted (they always were, on the client), and it is idempotent via the
+    // message's unreadAccountedAt marker, so a redelivered event cannot
+    // double-count.
+    try {
+      const accounting = await accountMessageUnread(db, { roomId, messageId: event.params.messageId });
+      logger.info("chat unread accounted", {
+        roomId,
+        messageId: event.params.messageId,
+        reason: accounting.reason,
+        incremented: accounting.recipients.length,
+        // Recipients who marked the room read after this message was
+        // committed (read high-water mark): not a phantom unread.
+        alreadyRead: accounting.alreadyRead.length,
+      });
+    } catch (error) {
+      // Re-throw so the platform retries (retry: true above): losing an
+      // increment is a silent product defect, and the marker makes the retry
+      // safe.
+      logger.error("chat unread accounting failed", { roomId, messageId: event.params.messageId, error });
+      throw error;
+    }
 
     const senderId = asString(message.senderId ?? "");
     if (!senderId || senderId === "system") return;
@@ -5520,32 +5491,42 @@ export const sendDailyUnreadChatDigests = onSchedule(
 
     logger.info("sendDailyUnreadChatDigests started", { digestDate });
 
-    const usersSnap = await db.collection("users").get();
+    // P0-2: the digest is derived from room-level unreadCounts (one paged
+    // query over active rooms, no message documents) instead of users × rooms
+    // × every message. Delivery is idempotent per user and day through a
+    // deterministic in-app notification id.
+    const { targets, roomsScanned } = await collectDailyUnreadDigest(db);
+    logger.info("sendDailyUnreadChatDigests collected", {
+      digestDate,
+      roomsScanned,
+      users: targets.size,
+    });
 
-    for (const userDoc of usersSnap.docs) {
-      const userId = userDoc.id;
-
+    const notificationId = chatDigestNotificationId(digestDate);
+    for (const [userId, target] of targets) {
       try {
-        const alreadySent = await hasChatDigestForDate(userId, digestDate);
-        if (alreadySent) {
-          logger.info("Skipped chat digest: already sent today", {
-            userId,
-            digestDate,
-          });
-          continue;
-        }
-
-        const { unreadCount, previewSenderName } =
-          await getUnreadChatDigestForUser(userId);
-
-        if (unreadCount <= 0) {
-          continue;
-        }
-
         const title = "읽지 않은 메시지가 있어요";
-        const body = previewSenderName
-          ? `${previewSenderName}님 외 읽지 않은 메시지가 ${unreadCount}개 있습니다.`
-          : `읽지 않은 메시지가 ${unreadCount}개 있습니다.`;
+        const body = target.previewSenderName
+          ? `${target.previewSenderName}님 외 읽지 않은 메시지가 ${target.unreadCount}개 있습니다.`
+          : `읽지 않은 메시지가 ${target.unreadCount}개 있습니다.`;
+
+        // The in-app record is the idempotency anchor: create it first with a
+        // deterministic id; a retried run finds it and skips the push too.
+        const created = await createInAppNotification(
+          userId,
+          {
+            type: "chat_digest",
+            title,
+            body,
+            deeplinkType: "chat",
+            digestDate,
+          },
+          notificationId
+        );
+        if (!created) {
+          logger.info("Skipped chat digest: already sent today", { userId, digestDate });
+          continue;
+        }
 
         await sendPushToUsers([userId], {
           title,
@@ -5555,17 +5536,9 @@ export const sendDailyUnreadChatDigests = onSchedule(
           },
         });
 
-        await createInAppNotification(userId, {
-          type: "chat_digest",
-          title,
-          body,
-          deeplinkType: "chat",
-          digestDate,
-        });
-
         logger.info("Daily unread chat digest sent", {
           userId,
-          unreadCount,
+          unreadCount: target.unreadCount,
           digestDate,
         });
       } catch (error) {

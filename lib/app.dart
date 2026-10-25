@@ -10,6 +10,8 @@ import 'router/app_router.dart';
 import 'router/route_names.dart';
 import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
+import 'features/chat/providers/chat_unread_provider.dart';
+import 'features/chat/services/chat_service.dart';
 import 'features/community/providers/community_provider.dart';
 import 'features/event/meeting_icebreaker/services/meeting_icebreaker_deep_link_handler.dart';
 import 'features/onboarding/services/avatar_generation_session_controller.dart';
@@ -66,6 +68,19 @@ class _SeolleyeonAppState extends State<SeolleyeonApp> {
         ChangeNotifierProvider<CommunityProvider>(
           create: (ctx) =>
               CommunityProvider(authProvider: ctx.read<AuthProvider>()),
+        ),
+        // P0-2: the ONE chat unread source for every tab badge and chat-list
+        // row. Follows the signed-in app user; logout (appUserId == null)
+        // cancels its room subscription and clears the state.
+        ChangeNotifierProxyProvider<AuthProvider, ChatUnreadProvider>(
+          create: (_) =>
+              ChatUnreadProvider(roomsSource: ChatService().roomsUnreadSource),
+          update: (_, auth, provider) =>
+              (provider ??
+                    ChatUnreadProvider(
+                      roomsSource: ChatService().roomsUnreadSource,
+                    ))
+                ..bindUser(auth.appUserId),
         ),
         // 온보딩 전체에 걸쳐 아바타 생성을 지켜보는 세션. 리스너는 온보딩 라우트에
         // 들어올 때 오버레이가 시작하고, 벗어나면 멈춘다.

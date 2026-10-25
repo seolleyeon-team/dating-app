@@ -11,7 +11,8 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import '../../blind_meeting/presentation/widgets/blind_meeting_event_card.dart';
-import '../../chat/services/chat_service.dart';
+import 'package:provider/provider.dart';
+import '../../chat/providers/chat_unread_provider.dart';
 import '../../../router/route_names.dart';
 import '../../../services/event_team_service.dart';
 import '../../../services/storage_service.dart';
@@ -40,7 +41,6 @@ class EventScreen extends StatefulWidget {
 class _EventScreenState extends State<EventScreen> {
   int _selectedTabIndex = 0;
   final StorageService _storageService = StorageService();
-  final ChatService _chatService = ChatService();
   final EventTeamService _eventTeamService = EventTeamService();
   String? _currentUserId;
 
@@ -184,16 +184,10 @@ class _EventScreenState extends State<EventScreen> {
               showChatBadge: false,
             )
           else
-            StreamBuilder<bool>(
-              stream: _chatService.hasAnyUnreadChats(_currentUserId!),
-              builder: (context, snapshot) {
-                final hasUnread = snapshot.data == true;
-                return SeolleyeonBottomNavPositioned(
-                  currentTab: BottomNavTab.event,
-                  onTap: widget.onNavTap,
-                  showChatBadge: hasUnread,
-                );
-              },
+            SeolleyeonBottomNavPositioned(
+              currentTab: BottomNavTab.event,
+              onTap: widget.onNavTap,
+              showChatBadge: context.watch<ChatUnreadProvider>().hasAnyUnread,
             ),
         ],
       ),
