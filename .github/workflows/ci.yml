@@ -97,6 +97,15 @@ jobs:
           npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
           --project demo-p02-chat
           "node --test functions/.ci-emulator-lib/chatUnread.emulator-test.js functions/.ci-emulator-lib/chatUnreadTrigger.emulator-test.js"
+      # Deployment-drift regression: the September behaviour of
+      # onInteractionCreated (partition / operations-account guard) and
+      # autoCompleteExpiredGoodbyeSafetyStamps (participant narrowing) that
+      # went live with the 2026-10-25 redeploys, pinned on the real handlers.
+      - name: Deployment drift regression (Firestore emulator)
+        run: >-
+          npx --yes firebase-tools@15.30.2 emulators:exec --only firestore
+          --project demo-p02-chat
+          "node --test functions/.ci-emulator-lib/deploymentDriftRegression.emulator-test.js"
 
   storage-rules:
     name: Storage rules tests
