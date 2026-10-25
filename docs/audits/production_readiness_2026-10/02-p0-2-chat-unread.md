@@ -695,3 +695,54 @@ unverifiable. Logs in the window: 13 pushes sent, 0 "already dispatched"
 - PRE-LAUNCH TECHNICAL: not fully closed while the 8 gated redeploys and the
   NEW-18 retirement remain; everything else is done and verified.
 - CLIENT RELEASE VERIFICATION: DEFERRED BY OWNER.
+
+## Deployment-drift remediation (2026-10-25, third pass) — the 8 gated functions
+
+Method: the exact deployed source of every gated function was downloaded from
+the GCF source bucket (`gcf-v2-sources-…/<fn>/function-source.zip`, the
+archive uploaded at its last deploy; it contains `src/*.ts`) and diffed
+against the integrated source `dc9f682e`, module by module along each
+function's code path (handler block, its module, shared helpers it calls).
+Git history alone had been misleading: `sendChatText`'s archive already
+contained `chatSafety.ts` although git dates the file after the deploy.
+
+| Function | Deployed archive | Real drift on its code path | Class | Tests | Decision |
+|---|---|---|---|---|---|
+| `sendChatText` | `00001-lah` 09-10 | `chatSafety.ts`: the `readBy` line only; `contentSafety.ts`, export block, `shared/notify.ts` identical | P0-2 only | emulator trigger/smoke | **DEPLOYED → `sendchattext-00002-nuz`** |
+| `preparePlayReviewSession` | `00004-mas` 09-06 | `playReviewAccess.ts`: `readBy` only; `googlePlayPurchaseSecurity.ts`: one new unused export; export block identical | P0-2 only (+ inert additive) | unit `playReviewAccess.test.ts` | **DEPLOYED → `prepareplayreviewsession-00005-gem`** |
+| `blindMeetingAction` | `00018-fiz` 09-09 | `automaticReplacement.ts` + `store.ts`: `readBy` only; the `scheduled.ts` change belongs to the matching tick, not this callable; `blindMeeting/index.ts`, `notify.ts` identical | P0-2 only | blind FSM emulator 87/87 | **DEPLOYED → `blindmeetingaction-00019-jen`** |
+| `blindMeetingLifecycleTick` | `00002-fal` 09-09 | same as above | P0-2 only | 87/87; first scheduled runs on the new revision 200 (08:38, 08:48, 08:53Z) | **DEPLOYED → `blindmeetinglifecycletick-00003-qox`** |
+| `onInteractionCreated` | `00007-kug` 08-10 | handler: operations-account and partition guard (blocks `invalid` / mismatched / forged partitions before any notification or match), `dataPartition` on match/room/message, like-notification limited to the production partition; `shared/notify.ts`: per-device push suppression already live in `onChatMessageCreated` | security fix (completes the Play-review isolation already live in sibling functions) | new emulator tests on the real handler: production pair → notification + match + room + `readBy`-free system message, redelivery idempotent; ops account → nothing; cross/invalid partition → nothing | **DEPLOYED → `oninteractioncreated-00008-xaq`** |
+| `autoCompleteExpiredGoodbyeSafetyStamps` | `00006-vuj` 08-10 | handler: client-written promise `participantIds` narrowed to the room's participants before follow-up notifications; `readBy` removed | security fix | new emulator test: outsider in `participantIds` gets no follow-up, completion message has no `readBy`, <2 room participants → untouched; first scheduled run on the new revision 200 (08:58Z, processed 0) | **DEPLOYED → `autocompleteexpiredgoodbyesafetystamps-00007-cow`** |
+| `blindMeetingOps` | `00001-qiv` 08-10 | `ops.ts`: deposit/refund override handler and deposit listing removed (NO_DEPOSIT, product-wide since 09-03); the blind-meeting modules it imports are the FSM the three sibling functions have run since 09-09; 0 invocations in 90 days | intentional feature change already live elsewhere; admin-only; the stale version acted on a deposit model that no longer exists | blind FSM emulator 87/87 | **DEPLOYED → `blindmeetingops-00002-nex`** |
+| `blindMeetingMatchingTick` | `00003-gah` 09-09 | `scheduled.ts` `runBlindMeetingMatchingStep`: now calls `processBlindMeetingReplacementSearches()` first and defers matching while any `replacementSearchActive` meeting exists. That processor is **not invoked anywhere in production today**; it cancels meetings, archives their chat rooms, writes cancelled participant status and heart-refund `heartTransactions`. No test covers it (0 meetings currently have an active search) | unrelated feature activation (user-affecting, financial side effect) | none | **GATED — owner decision** |
+
+Guard results for the 7 deploys: dotenv contract PASS, pre/post ENV
+REGRESSION GUARD PASS (0 removals / 0 changes / 0 missing / 0 undeclared; 5,
+27 or 31 additions declared per function), Ready at 100 %, 98 functions
+before and after, SA / trigger / region unchanged, `onChatMessageCreated`
+untouched (`00009-mod`, `RETRY_POLICY_RETRY`). Logs after the deploys: only
+the usual deploy-time probe errors ("Invalid request" / 403 bursts within a
+second of each rollout), no other errors; scheduled runs on the new
+revisions return 200.
+
+Deployment source: `dc9f682e` for the first four, `d88a26d4` → rebased
+`30dec8bf` (= `dc9f682e` + the new emulator test file and CI step, no
+runtime change) for the last three.
+
+Verification after the last deploy: strict smoke v3 **33/33**, group smoke
+**21/21**, residue 0; `--verify` rooms 23 / structural 0 / mismatches 0 /
+unverifiable 0; 8 pushes sent, 0 duplicates, 0 accounting failures; source
+guards 47/47 with 0 runtime `readBy` code lines.
+
+### Status after the third pass
+
+- SOURCE CLOSED · CLIENT SOURCE READY · DATA VERIFIED.
+- BACKEND WRITERS: 14 of 15 redeployed; `blindMeetingMatchingTick` remains
+  on `00003-gah` (it still writes the inert `readBy` on system messages of
+  the replacement flow — a flow that is not active). Decision needed: ship
+  the replacement-search activation (NEW-15) or split it out of the tick.
+- LEGACY RULES RETIREMENT DEFERRED (NEW-18, transitional own-uid tolerance).
+- PRE-LAUNCH TECHNICAL: not declared closed while one writer deploy and the
+  transitional rule remain.
+- CLIENT RELEASE VERIFICATION: DEFERRED BY OWNER.
