@@ -586,3 +586,112 @@ intended:
 exact key list is printed by `scripts/deploy_functions_guarded.sh --dry-run
 <fn>`.) `mutualMatchCreation.ts` has no importer (dead module, NEW-16) and
 needs no deploy.
+
+## Closure execution (2026-10-25, second pass) — PR #148, NEW-14, NEW-15
+
+### Integration
+
+PR #148 merged into `security/integration` as `dc9f682e` (merge commit;
+head `33333072`, which adds the transitional rule below on top of
+`8435effe`). Live Firestore rules before the pass were byte-identical to the
+merged base `69a85520`; the reviewed diff touched only the chat-message
+functions (50 lines). CI on `33333072` (run 40169290214): 10/11 green,
+`Flutter analyze/test` red with the same 18 baseline failures (NEW-13), none
+introduced.
+
+### Old-client gate → PATH B (transitional, NEW-18)
+
+Evidence that an installed old build may still be exercised: Play-review
+sign-in requests in the last 30 days (2) and `preparePlayReviewSession` (1),
+`playReviewSessions` last updated 2026-09-29, newest client promise message
+2026-09-02, no public users. Because an old build writes `readBy: [own uid]`
+on the messages it creates and appends its own uid as a receipt, the strict
+rules would have broken its promise messages and mark-read. Decision: keep
+the retirement but tolerate exactly those two shapes —
+`legacyReadByOnCreateTolerated()` (create: no `readBy`, or `readBy ==
+[request.auth.uid]`), `legacyOwnReceiptAppend()` (update: affected keys ⊆
+{`readBy`, `updatedAt`} and `after.readBy == before.readBy.concat([uid])`),
+and `readBy == [request.auth.uid]` inside the promise-lifecycle allowlist.
+Nothing else is accepted; the model ignores the field. Retirement condition
+and steps: NEW-18. Rules suite 259/259 and guard tests pin the exact shape.
+
+**OLD CLIENT GATE: PASS (transitional)** — the breaking rules were not
+deployed; the tolerant final rules were.
+
+### NEW-14 — read-boundary migration (CLOSED)
+
+From the integrated source `dc9f682e`: dry run 23 rooms / 2 to initialise /
+48 consistent / 0 anomalies / 0 unverifiable; apply with checkpoint
+`p02-boundaries-20261025` → 1 transaction, room `dm_4705818223_fake_user_1`,
+`lastReadAt.4705818223 = 2026-08-31T07:57:06.037Z`,
+`lastReadAt.fake_user_1 = 2026-08-31T07:46:20.495Z` (commit time of each
+participant's newest read message), `legacyReadBoundaryMigratedAt`,
+`legacyReadBoundaryMigrationVersion: 1`; counters unchanged, participants
+and all 22 messages (historical `readBy` included) untouched. Post-apply
+`--verify`: rooms 23, structuralIssues 0, mismatches 0, unverifiable 0.
+Re-run: 0 initialised, 2 alreadyBounded, 0 writes. Rollback by deleting the
+two keys is valid only while no newer message or read exists in that room;
+afterwards use the forward `--repair` path.
+
+### NEW-15 — writer Functions (7 deployed, 8 gated) and Rules (deployed)
+
+Per-function source-drift audit (Phase 4.2): a redeploy ships every change
+since that function's last deployment, so each target's module history was
+compared with its live revision date.
+
+| Function | Live before | Drift since last deploy | Disposition |
+|---|---|---|---|
+| `onMatchUpdated` | `00005-fow` (08-10) | handler region: `readBy` removal only | **DEPLOYED → `onmatchupdated-00006-roy`** |
+| `submitSafetyStamp` / `submitSafetyStampFollowUp` | `00001-lib` / `00001-hol` (09-07) | `safetyStamp.ts`: `readBy` only | **DEPLOYED → `00002-med` / `00002-ziz`** |
+| `submitInquiry` / `submitIssueReport` | `00001-mav` / `00001-ren` (09-03) | `supportOperations.ts`: `readBy` only | **DEPLOYED → `00002-bat` / `00002-cud`** |
+| `respondTeamMeetingRequest` | `00008-ref` (09-05) | `teamMeetingRequest.ts`: `readBy` only | **DEPLOYED → `00009-wes`** |
+| `playReviewSignIn` | `00003-dij` (09-17) | `playReviewAccess.ts`: `readBy` only (09-06/07 commits already live) | **DEPLOYED → `00004-new`** |
+| `sendChatText` | `00001-lah` (09-10) | `chatSafety.ts` created 09-15 (`10bf9392`: content-safety / report feature) | GATED — unrelated moderation change |
+| `onInteractionCreated` | `00007-kug` (08-10) | handler changed 09-06 (`c989d8f8`: data-partition checks) | GATED — unrelated security-relevant change |
+| `autoCompleteExpiredGoodbyeSafetyStamps` | `00006-vuj` (08-10) | region changed 09-01 (`5232a3e7`) | GATED |
+| `preparePlayReviewSession` | `00004-mas` (09-06) | `c989d8f8` (09-06), `1f72caf5` (09-07) | GATED |
+| `blindMeetingAction` / `MatchingTick` / `LifecycleTick` | 09-09 02:36Z | `b9956e11` (09-09 17:17 KST, leave-room feature in the writer module) | GATED |
+| `blindMeetingOps` | `00001-qiv` (08-10) | 19 blind-meeting commits | GATED |
+
+Every deploy used `scripts/deploy_functions_guarded.sh` with each addition
+declared one by one (`--allow-add-key`, 5–27 keys from the canonical 31-key
+dotenv `78dac231…`): ENV DEPLOY CONTRACT PASS, ENV REGRESSION GUARD PASS
+before and after (0 removals, 0 changes, 0 missing required, 0 undeclared
+additions), new revisions Ready at 100 % traffic, 98 functions before and
+after, `onChatMessageCreated` untouched (`00009-mod`, `RETRY_POLICY_RETRY`).
+The only ERROR log lines are the two deploy-time probe entries per callable
+("Invalid request, unable to process", same as every deploy); none
+afterwards. The 8 gated functions keep writing the ignored `readBy` field on
+the messages they create; the owner decides whether to ship their
+September changes (NEW-15 follow-up).
+
+Rules: `firebase deploy --only firestore:rules` from `dc9f682e` → ruleset
+`0b9d5a12-1a72-4470-9bbd-0c1189870628` (2026-10-25T07:04:02Z); live source
+byte-identical to the reviewed file; P0-1 helpers
+(`emailLinkTokenBindsCallerTo`, …) and `onlyOwnUnreadReadStateUpdate`
+present, `onlyMessageReadReceiptUpdate` absent.
+
+### Production smoke after the deploys
+
+`p02_smoke_v3` **33/33** (namespaced accounts, residue 0): 1:1 accounting
+with a `readBy`-free stored message, mark-read through the live rules,
+cross-user / non-participant / forged counter / `unreadModelVersion` DENY,
+delayed trigger after mark-read → 0 (invariant), marker idempotency, promise
+create without `readBy` ALLOW, `readBy == [own]` ALLOW (NEW-18) and
+accounted, `[other]` / `[own, other]` DENY, `unreadAccountedAt` forgery DENY
+on create and update, receipt append own uid ALLOW / other uid / replacement
+/ text rewrite DENY, counters untouched by the tolerated receipt, serving
+revision and live ruleset asserted. `p02_smoke_group` **21/21** (six
+members). Final `--verify`: 23 rooms, 0 structural issues, 0 mismatches, 0
+unverifiable. Logs in the window: 13 pushes sent, 0 "already dispatched"
+(no duplicate deliveries), 0 accounting failures, 0 errors.
+
+### Status after this pass
+
+- SOURCE CLOSED · CLIENT SOURCE READY · DATA VERIFIED (NEW-14 closed).
+- BACKEND: model live; rules final (transitional tolerance, NEW-18); 7 of 15
+  writer functions redeployed; 8 gated on an owner review of unrelated
+  September changes (NEW-15 follow-up) — their `readBy` writes are inert.
+- PRE-LAUNCH TECHNICAL: not fully closed while the 8 gated redeploys and the
+  NEW-18 retirement remain; everything else is done and verified.
+- CLIENT RELEASE VERIFICATION: DEFERRED BY OWNER.
